@@ -23,8 +23,8 @@ case-insensitive filesystems.
 .. autofunction:: domain
 
 ``ms.entity(...)`` returns a non-callable Entity ref and must be assigned to a
-name. It is not a function decorator. Versioned Entity identity keys require
-declared source types, and snapshot or validity coordinates stay outside
+name. It is not a function decorator. Entity identity types are observed from
+the source at execution, and snapshot or validity coordinates stay outside
 ``primary_key``.
 
 Event helpers
@@ -53,13 +53,19 @@ Aggregation & measure helpers
    weighted_mean
    quantile_metric
    QuantileMetricInput
-   semi_additive
+   additive
+   additive_all
+   non_additive
    snapshot
    validity
    join_on
    cumulative
    grain_to_date
    trailing
+
+Value policies are declared with ``ms.nulls.reject()`` or ``ms.nulls.ignore()``,
+``ms.empty.zero()`` or ``ms.empty.null()``, and
+``ms.zero_denominator.undefined()`` or ``ms.zero_denominator.error()``.
 
 Column helpers
 --------------

@@ -25,7 +25,7 @@ import marivo.semantic as ms
 
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
-@ms.measure(entity=orders, additivity="additive")
+@ms.measure(entity=orders, additivity=ms.additive_all())
 def amount(orders): return orders.amount
 
 @ms.time_dimension(entity=orders, granularity="day", parse=ms.timestamp(timezone="UTC"))

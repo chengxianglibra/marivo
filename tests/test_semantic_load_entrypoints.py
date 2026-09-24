@@ -47,7 +47,7 @@ def _write_minimal_project(tmp_path) -> None:
         "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
         "source=md.table('orders'))\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive')\n"
+        "@ms.metric(entities=[orders], additivity=ms.additive_all())\n"
         "def revenue(table):\n"
         "    return table.amount.sum()\n"
     )

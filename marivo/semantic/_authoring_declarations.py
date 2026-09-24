@@ -17,6 +17,7 @@ from marivo.refs import (
     MetricKind,
     Ref,
     SemanticKind,
+    TimeDimensionKind,
 )
 from marivo.refs import (
     ref as ref_factory,
@@ -39,13 +40,19 @@ from marivo.semantic._authoring_validation import (
     _normalize_time_fold,
     _validate_metric_provenance,
     _validate_unit,
+    _validate_value_policies,
 )
 from marivo.semantic._authoring_values import _build_ai_context
+from marivo.semantic._dsl_authoring import (
+    AdditivityPolicy,
+    EmptyContributionPolicyV1,
+    NullInputPolicyV1,
+    ZeroDenominatorPolicyV1,
+)
 from marivo.semantic._expression_binding import compile_expression_body
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
-    Additivity,
     AggKind,
     AggregateFoldInput,
     DomainIR,
@@ -124,6 +131,7 @@ def aggregate(
     name: str,
     measure: Ref[MeasureKind],
     agg: AggKind,
+    time: Ref[TimeDimensionKind] | None = None,
     fold: AggregateFoldInput = None,
     filter: WhereFilter | None = None,
     unit: str | None = None,
@@ -143,12 +151,13 @@ def aggregate(
             ``"min"``, ``"max"``, ``"mean"``, ``"median"``, or
             ``("percentile", q)`` for the q-th percentile across rows in each
             query group.
+        time: Business event-time dimension for windowed observation.
         fold: Time-axis fold override for semi-additive measures. It does not
             change aggregation additivity (for example, ``agg="mean"`` remains
             non-additive while still folding its sampled time series):
             ``"mean"``, ``"min"``, ``"max"``, ``"first"``, ``"last"``, or
-            ``("percentile", q)``. Same fold as ``ms.semi_additive(over, fold)``;
-            collapses the ``over`` time axis. Distinct from
+            ``("percentile", q)``. It collapses the declared status-time axis.
+            Distinct from
             ``agg=("percentile", q)``, which aggregates across rows in each
             query group rather than along the time axis.
         filter: Optional ``ms.where(dimension=value, ...)`` to aggregate only
@@ -172,6 +181,11 @@ def aggregate(
         expected=(SemanticKind.MEASURE,),
     )
     entity_id = measure_id.rsplit(".", 1)[0]
+    event_time_id = (
+        _require_ref_id(time, parameter="time", expected=(SemanticKind.TIME_DIMENSION,))
+        if time is not None
+        else None
+    )
     obj_name = name
     semantic_id = f"{resolved_domain}.{obj_name}"
     ref = ref_factory.metric(semantic_id)
@@ -203,6 +217,7 @@ def aggregate(
         aggregation_target=measure_id,
         aggregation_target_kind="measure",
         filter=filter_pairs,
+        event_time_dimension=event_time_id,
     )
     _push_ir(ctx, ref, metric_ir, None)
     return ref
@@ -431,7 +446,13 @@ def metric(
     *,
     name: str | None = None,
     entities: list[Ref[EntityKind]],
-    additivity: Additivity,
+    additivity: AdditivityPolicy,
+    time: Ref[TimeDimensionKind] | None = None,
+    status_time_dimension: Ref[TimeDimensionKind] | None = None,
+    status_time_fold: AggregateFoldInput = None,
+    nulls: NullInputPolicyV1 | None = None,
+    empty: EmptyContributionPolicyV1 | None = None,
+    zero_denominator: ZeroDenominatorPolicyV1 | None = None,
     root_entity: Ref[EntityKind] | None = None,
     fanout_policy: Literal["block", "aggregate_then_join"] = "block",
     unit: str | None = None,
@@ -444,7 +465,13 @@ def metric(
     Args:
         name: Metric name. Defaults to the function name.
         entities: List of entity refs.
-        additivity: ``"additive"``, ``"non_additive"``, or ``ms.semi_additive(over, fold)``.
+        additivity: Closed coordinate-additivity policy.
+        time: Business event-time dimension for windowed observation.
+        status_time_dimension: Optional business status-time axis.
+        status_time_fold: Fold over the status-time axis, when declared.
+        nulls: Explicit selected-input Null policy.
+        empty: Explicit complete-empty-contribution policy.
+        zero_denominator: Explicit division-by-zero policy.
         root_entity: Required when more than one entity is provided.
         fanout_policy: ``"block"`` (default) or ``"aggregate_then_join"``.
         unit: UCUM unit token.
@@ -456,7 +483,7 @@ def metric(
         A decorator that returns a ``Ref[metric]``.
 
     Example:
-        >>> @ms.metric(entities=[orders], additivity="additive")
+        >>> @ms.metric(entities=[orders], additivity=ms.additive_all())
         ... def gmv(orders):
         ...     return (orders.price * orders.qty).sum()
     """
@@ -470,6 +497,12 @@ def metric(
         _check_duplicate(ctx, semantic_id, MetricIR)
         _validate_unit(unit, semantic_id)
         _validate_metric_provenance(provenance)
+        _validate_value_policies(
+            semantic_id=semantic_id,
+            nulls=nulls,
+            empty=empty,
+            zero_denominator=zero_denominator,
+        )
         entity_refs = _resolve_entity_refs(entities)
         if len(entity_refs) == 0:
             _raise(
@@ -505,6 +538,25 @@ def metric(
                 cls=SemanticDecoratorError,
                 constraint_id=ConstraintId.METRIC_ROOT_ENTITY_REQUIRED,
             )
+        event_time_id = (
+            _require_ref_id(time, parameter="time", expected=(SemanticKind.TIME_DIMENSION,))
+            if time is not None
+            else None
+        )
+        status_id = (
+            _require_ref_id(
+                status_time_dimension,
+                parameter="status_time_dimension",
+                expected=(SemanticKind.TIME_DIMENSION,),
+            )
+            if status_time_dimension is not None
+            else None
+        )
+        status_fold = (
+            _normalize_time_fold(status_time_fold, semantic_id=semantic_id)
+            if status_time_fold is not None
+            else None
+        )
         metric_ir = MetricIR(
             semantic_id=semantic_id,
             domain=resolved_domain,
@@ -514,7 +566,12 @@ def metric(
             aggregation=None,
             measure=None,
             composition=None,
-            additivity=_normalize_additivity(additivity, semantic_id=semantic_id),
+            additivity=_normalize_additivity(
+                additivity,
+                semantic_id=semantic_id,
+                status_time_dimension=status_id,
+                status_time_fold=status_fold,
+            ),
             provenance=provenance,
             ai_context=ai_ctx,
             body_ast_hash=expression_body.body_ast_hash,
@@ -524,6 +581,13 @@ def metric(
             fanout_policy=fanout_policy,
             unit=unit,
             unit_override=unit,
+            dsl_additivity=additivity,
+            event_time_dimension=event_time_id,
+            status_time_dimension=status_id,
+            status_time_fold=status_fold,
+            null_policy=nulls,
+            empty_policy=empty,
+            zero_denominator_policy=zero_denominator,
         )
         _push_ir(ctx, ref, metric_ir, expression_body)
         return ref

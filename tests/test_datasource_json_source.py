@@ -443,7 +443,7 @@ def _write_project_with_json_entity(
         "\n"
         "warehouse = ms.ref.datasource('warehouse')\n"
         f"events = ms.entity(name='events', datasource=warehouse, source=md.json({source_args}))\n"
-        "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity='additive', unit='USD')\n"
+        "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity=ms.additive_all(), unit='USD')\n"
         "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum', unit='USD')\n"
     )
 

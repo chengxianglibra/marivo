@@ -218,7 +218,7 @@ def _write_models_root(
             source = ms.ref.datasource("{datasource_name}")
             rows = ms.entity(name={entity!r}, datasource=source, source=md.table({entity!r}))
 
-            @ms.metric(entities=[rows], additivity="additive")
+            @ms.metric(entities=[rows], additivity=ms.additive_all())
             def {metric}(table):
                 return table.amount.sum()
             """
@@ -311,7 +311,7 @@ def test_catalog_load_reloads_external_models_roots(tmp_path: Path) -> None:
         + textwrap.dedent(
             """
 
-            @ms.metric(entities=[rows], additivity="additive")
+            @ms.metric(entities=[rows], additivity=ms.additive_all())
             def net_refunds(table):
                 return table.net_amount.sum()
             """

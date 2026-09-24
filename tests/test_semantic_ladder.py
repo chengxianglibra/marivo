@@ -47,7 +47,7 @@ def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
                 "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
-                "@ms.metric(entities=[orders], additivity='additive', )\n"
+                "@ms.metric(entities=[orders], additivity=ms.additive_all(), )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             )
@@ -216,7 +216,7 @@ def test_require_measure_returns_current_entry(semantic_project_factory) -> None
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "ms.domain(name='sales', owner='Mina Zhang')\n"
         "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
-        "@ms.measure(entity=orders, additivity='additive')\n"
+        "@ms.measure(entity=orders, additivity=ms.additive_all())\n"
         "def amount(orders):\n"
         "    return orders.amount\n"
     )

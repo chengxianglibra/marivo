@@ -14,6 +14,12 @@ from typing_extensions import TypeAliasType
 
 from marivo._temporal import Grain as TemporalGrain
 from marivo.refs import RefPayloadV1, SemanticKind
+from marivo.semantic._dsl_authoring import (
+    AdditivityPolicy,
+    EmptyContributionPolicyV1,
+    NullInputPolicyV1,
+    ZeroDenominatorPolicyV1,
+)
 from marivo.semantic._expression_binding import ExpressionBindingV1
 from marivo.semantic.ir import AggKind, AggregateFoldInput
 
@@ -315,6 +321,11 @@ class TargetMetricContract:
     cumulative: tuple[TargetMetricCumulative, ...] = ()
     source_requirements: tuple[str, ...] = ()
     requires_source_recompute: bool = False
+    authoring_additivity: AdditivityPolicy | None = None
+    event_time_dimension: RefPayloadV1 | None = None
+    null_policy: NullInputPolicyV1 | None = None
+    empty_policy: EmptyContributionPolicyV1 | None = None
+    zero_denominator_policy: ZeroDenominatorPolicyV1 | None = None
 
     @property
     def key(self) -> str:

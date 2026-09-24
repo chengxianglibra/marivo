@@ -35,7 +35,7 @@ orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), sou
 def region(orders):
     return orders.region
 
-@ms.measure(entity=orders, additivity="additive", unit="USD")
+@ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")
 def amount(orders):
     return orders.amount
 
@@ -47,7 +47,7 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 
 @ms.metric(
     entities=[orders],
-    additivity="additive",
+    additivity=ms.additive_all(),
     provenance=ms.from_sql(sql="select sum(amount) from orders", dialect="duckdb"),
 )
 def native_revenue(orders):

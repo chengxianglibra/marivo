@@ -34,8 +34,8 @@ def decimal_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Sessi
         "'amount': 'amount', "
         "'fee': 'fee'}), primary_key=['id'])\n"
         "day = ms.time_dimension_column(name='day', entity=orders, column='day', granularity='day')\n"
-        "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity='additive')\n"
-        "fee_value = ms.measure_column(name='fee_value', entity=orders, column='fee', additivity='additive')\n"
+        "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
+        "fee_value = ms.measure_column(name='fee_value', entity=orders, column='fee', additivity=ms.additive_all())\n"
         "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
         "fee = ms.aggregate(name='fee', measure=fee_value, agg='sum')\n"
     )

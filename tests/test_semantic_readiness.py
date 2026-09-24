@@ -47,7 +47,7 @@ def _ready_project(semantic_project_factory, *, datasource_path: Path | None = N
                         guardrails=["Use normalized values."],
                     ),
                 )
-                @ms.measure(entity=orders, additivity="additive", unit="USD")
+                @ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")
                 def amount(orders):
                     return orders.amount
                 revenue = ms.aggregate(
@@ -174,10 +174,9 @@ def test_runtime_expression_with_unobservable_inherited_fold_is_blocked(
                     name="value",
                     entity=snapshots,
                     column="value",
-                    additivity=ms.semi_additive(
-                        over=snapshot_date,
-                        fold=("percentile", 0.95),
-                    ),
+                    additivity=ms.additive_all(except_=(snapshot_date,)),
+                    status_time_dimension=snapshot_date,
+                    status_time_fold=("percentile", 0.95),
                 )
                 """
             ),
@@ -291,7 +290,7 @@ def test_business_context_is_advisory_richness_only(semantic_project_factory) ->
                 import marivo.semantic as ms
                 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
                 region = ms.dimension_column(name="region", entity=orders, column="region")
-                @ms.measure(entity=orders, additivity="additive", unit="USD")
+                @ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")
                 def amount(orders):
                     return orders.amount
                 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
@@ -331,7 +330,7 @@ def test_cross_datasource_metric_remains_blocked(semantic_project_factory, tmp_p
                 import marivo.semantic as ms
                 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
                 refunds = ms.entity(name="refunds", datasource=ms.ref.datasource("finance"), source=md.table("refunds"))
-                @ms.metric(entities=[orders, refunds], root_entity=orders, additivity="additive")
+                @ms.metric(entities=[orders, refunds], root_entity=orders, additivity=ms.additive_all())
                 def net_revenue(orders, refunds):
                     return orders.amount.sum()
                 """

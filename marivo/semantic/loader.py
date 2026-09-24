@@ -600,6 +600,8 @@ def _resolve_derived_additivity(metric: MetricIR, registry: Registry) -> Additiv
 def _resolve_metric_additivity(registry: Registry) -> None:
     import dataclasses
 
+    from marivo.semantic._dsl_authoring import AdditivityPolicy, additive_all, non_additive
+
     # Phase A: tier-1 simple metrics resolve from their measure dimension.
     for sid, m in list(registry.metrics.items()):
         if (
@@ -609,7 +611,18 @@ def _resolve_metric_additivity(registry: Registry) -> None:
         ):
             resolved = _resolve_tier1_additivity(m, registry)
             if resolved is not None:
-                registry.metrics[sid] = dataclasses.replace(m, additivity=resolved)
+                policy: AdditivityPolicy | None = None
+                if m.aggregation == "count":
+                    policy = additive_all()
+                elif m.aggregation == "sum":
+                    target = m.aggregation_target or m.measure
+                    measure = registry.measures.get(target) if target is not None else None
+                    policy = measure.dsl_additivity if measure is not None else None
+                elif m.aggregation is not None:
+                    policy = non_additive()
+                registry.metrics[sid] = dataclasses.replace(
+                    m, additivity=resolved, dsl_additivity=policy
+                )
 
     # Phase B: derived metrics propagate from components (fixpoint over chains).
     for _ in range(len(registry.metrics) + 1):

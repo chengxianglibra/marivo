@@ -132,7 +132,7 @@ def test_time_field_outside_context_raises() -> None:
 def test_metric_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
 
-        @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity="additive")
+        @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity=ms.additive_all())
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -709,7 +709,7 @@ def test_field_kind_measure() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.measure(entity=ref_factory.entity("sales.orders"), additivity="additive")
+        @ms.measure(entity=ref_factory.entity("sales.orders"), additivity=ms.additive_all())
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -724,7 +724,7 @@ def test_measure_accepts_leading_docstring() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
-        @ms.measure(entity=ref_factory.entity("sales.orders"), additivity="additive")
+        @ms.measure(entity=ref_factory.entity("sales.orders"), additivity=ms.additive_all())
         def amount(table: object) -> object:
             """Order amount."""
             return None  # type: ignore[unreachable]
@@ -740,7 +740,7 @@ def test_measure_body_error_uses_measure_label() -> None:
     try:
         with pytest.raises(SemanticLoadError) as exc_info:
 
-            @ms.measure(entity=ref_factory.entity("sales.orders"), additivity="additive")
+            @ms.measure(entity=ref_factory.entity("sales.orders"), additivity=ms.additive_all())
             def amount(table: object) -> object:
                 return table.amount
                 table.amount  # noqa: B018
@@ -762,7 +762,7 @@ def test_measure_column_pushes_ir_sidecar_and_pending_ref() -> None:
             name="amount",
             entity=orders,
             column="amount",
-            additivity="additive",
+            additivity=ms.additive_all(),
             unit="CNY",
             ai_context=ms.ai_context(
                 business_definition="Order amount before refunds.",
@@ -799,7 +799,7 @@ def test_measure_column_rejects_string_entity() -> None:
                 name="amount",
                 entity="sales.orders",
                 column="amount",
-                additivity="additive",
+                additivity=ms.additive_all(),
             )
     finally:
         _exit_ctx()
@@ -1463,7 +1463,7 @@ def test_metric_returns_ref() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity="additive")
+        @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity=ms.additive_all())
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -1477,7 +1477,7 @@ def test_metric_accepts_leading_docstring() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity="additive")
+        @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity=ms.additive_all())
         def revenue(table: object) -> object:
             """Order revenue."""
             return None  # type: ignore[unreachable]
@@ -1492,7 +1492,7 @@ def test_metric_with_entities() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity="additive")
+        @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity=ms.additive_all())
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -1509,7 +1509,7 @@ def test_metric_with_entity_ref() -> None:
     try:
         orders_ref = ref_factory.entity("sales.orders")
 
-        @ms.metric(entities=[orders_ref], additivity="additive")
+        @ms.metric(entities=[orders_ref], additivity=ms.additive_all())
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -1525,7 +1525,7 @@ def test_metric_provenance_fields() -> None:
 
         @ms.metric(
             entities=[ref_factory.entity("sales.orders")],
-            additivity="additive",
+            additivity=ms.additive_all(),
             provenance=ms.from_sql(sql="SELECT SUM(amount) FROM orders", dialect="ansi"),
         )
         def revenue(table: object) -> object:
@@ -1548,7 +1548,7 @@ def test_metric_rejects_invalid_provenance_value() -> None:
 
             @ms.metric(
                 entities=[ref_factory.entity("sales.orders")],
-                additivity="additive",
+                additivity=ms.additive_all(),
                 provenance=object(),  # type: ignore[arg-type]
             )
             def revenue(table: object) -> object:
@@ -1564,7 +1564,7 @@ def test_metric_body_ast_hash() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity="additive")
+        @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity=ms.additive_all())
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -1583,7 +1583,9 @@ def test_metric_pushes_callable() -> None:
         def revenue_fn(table: object) -> object:
             return None  # type: ignore[unreachable]
 
-        ms.metric(entities=[ref_factory.entity("sales.orders")], additivity="additive")(revenue_fn)
+        ms.metric(entities=[ref_factory.entity("sales.orders")], additivity=ms.additive_all())(
+            revenue_fn
+        )
         ir, callable_ = _pending_objects(ctx)[-1]
         assert callable_ is revenue_fn
     finally:
@@ -1602,10 +1604,9 @@ def test_metric_accepts_semi_additive() -> None:
 
         @ms.metric(
             entities=[ref_factory.entity("sales.bandwidth_samples")],
-            additivity=ms.semi_additive(
-                over=sample_ts,
-                fold="mean",
-            ),
+            additivity=ms.additive_all(except_=(sample_ts,)),
+            status_time_dimension=sample_ts,
+            status_time_fold="mean",
         )
         def upstream_avg(table: object) -> object:
             return None  # type: ignore[unreachable]
@@ -1619,16 +1620,35 @@ def test_metric_accepts_semi_additive() -> None:
 
 def test_semi_additive_rejects_string_over() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.semi_additive(over="sales.orders.order_date", fold="last")  # type: ignore[arg-type]
+        ms.additive_all(except_=("sales.orders.order_date",))  # type: ignore[arg-type]
 
     assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "over must be Ref[time_dimension]" in str(exc_info.value)
-    assert "got str" in str(exc_info.value)
+    assert "Dimension or TimeDimension refs" in str(exc_info.value)
+
+
+def test_closed_additivity_and_value_policies_reject_legacy_values() -> None:
+    assert not hasattr(ms, "semi_additive")
+    assert ms.additive(over=(ref_factory.dimension("sales.orders.region"),)).version == 1
+    assert ms.additive_all().version == 1
+    assert ms.non_additive().version == 1
+    assert ms.nulls.ignore().kind == "ignore"
+    assert ms.empty.null().kind == "null"
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError, match="additivity requires"):
+            ms.measure_column(
+                name="amount",
+                entity=ref_factory.entity("sales.orders"),
+                column="amount",
+                additivity="additive",
+            )
+    finally:
+        _exit_ctx()
 
 
 def test_fold_surfaces_publish_shared_closed_aliases() -> None:
     assert get_type_hints(ms.aggregate)["fold"] is ms.AggregateFoldInput
-    assert get_type_hints(ms.semi_additive)["fold"] is ms.AggregateFoldValue
+    assert get_type_hints(ms.measure)["status_time_fold"] is ms.AggregateFoldInput
 
 
 @pytest.mark.parametrize("fold", ["mean", "min", "max", "first", "last", ("percentile", 0.9)])
@@ -1642,14 +1662,23 @@ def test_aggregate_and_semi_additive_share_fold_normalization(fold: object) -> N
             fold=fold,  # type: ignore[arg-type]
         )
         metric_ir, _ = _pending_objects(ctx)[-1]
-        semi_additive = ms.semi_additive(
-            over=ref_factory.time_dimension("sales.inventory.snapshot_at"),
-            fold=fold,  # type: ignore[arg-type]
+
+        @ms.measure(
+            entity=ref_factory.entity("sales.inventory"),
+            additivity=ms.additive_all(
+                except_=(ref_factory.time_dimension("sales.inventory.snapshot_at"),)
+            ),
+            status_time_dimension=ref_factory.time_dimension("sales.inventory.snapshot_at"),
+            status_time_fold=fold,  # type: ignore[arg-type]
         )
+        def quantity(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        measure_ir, _ = _pending_objects(ctx)[-1]
     finally:
         _exit_ctx()
 
-    assert metric_ir.fold_override == semi_additive.fold
+    assert metric_ir.fold_override == measure_ir.status_time_fold
 
 
 @pytest.mark.parametrize(
@@ -1672,15 +1701,40 @@ def test_aggregate_rejects_values_outside_shared_fold_alias(fold: object) -> Non
     assert exc_info.value.kind == ErrorKind.INVALID_TIME_FOLD
 
 
-def test_semi_additive_rejects_null_fold() -> None:
-    with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.semi_additive(
-            over=ref_factory.time_dimension("sales.inventory.snapshot_at"),
-            fold=None,  # type: ignore[arg-type]
-        )
+def test_status_time_can_be_declared_without_fold() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
 
-    assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "requires a fold" in str(exc_info.value)
+        @ms.measure(
+            entity=ref_factory.entity("sales.inventory"),
+            additivity=ms.additive_all(
+                except_=(ref_factory.time_dimension("sales.inventory.snapshot_at"),)
+            ),
+            status_time_dimension=ref_factory.time_dimension("sales.inventory.snapshot_at"),
+        )
+        def quantity(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        ir, _ = _pending_objects(ctx)[-1]
+        assert isinstance(ir, MeasureIR)
+        assert ir.status_time_fold is None
+    finally:
+        _exit_ctx()
+
+
+def test_status_fold_requires_status_time() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError, match="requires status_time_dimension"):
+            ms.measure_column(
+                name="quantity",
+                entity=ref_factory.entity("sales.inventory"),
+                column="quantity",
+                additivity=ms.additive_all(),
+                status_time_fold="last",
+            )
+    finally:
+        _exit_ctx()
 
 
 # ---------------------------------------------------------------------------
@@ -1970,7 +2024,7 @@ def test_metric_rejects_empty_entities() -> None:
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.metric(entities=[], additivity="additive")
+            @ms.metric(entities=[], additivity=ms.additive_all())
             def margin() -> object:
                 return 1
 
@@ -1989,7 +2043,9 @@ def test_metric_sidecar_stores_callable() -> None:
         def revenue_fn(table: object) -> object:
             return None  # type: ignore[unreachable]
 
-        ms.metric(entities=[ref_factory.entity("sales.orders")], additivity="additive")(revenue_fn)
+        ms.metric(entities=[ref_factory.entity("sales.orders")], additivity=ms.additive_all())(
+            revenue_fn
+        )
         _, sidecar_entry = _pending_objects(ctx)[-1]
         assert sidecar_entry is revenue_fn
     finally:
@@ -2255,13 +2311,13 @@ def test_duplicate_metric_name_raises() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity="additive")
+        @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity=ms.additive_all())
         def revenue(backend: object) -> object:
             return None  # type: ignore[unreachable]
 
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity="additive")
+            @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity=ms.additive_all())
             def revenue(backend: object) -> object:  # type: ignore[misc]
                 return None  # type: ignore[unreachable]
 
@@ -2283,7 +2339,7 @@ def test_dataset_and_metric_same_name_no_collision() -> None:
 
         @ms.metric(
             entities=[ds],
-            additivity="additive",
+            additivity=ms.additive_all(),
             name="dau_7d_portrait",
         )
         def dau_7d_portrait(table):
@@ -2367,7 +2423,7 @@ def test_metric_with_ai_context() -> None:
 
         @ms.metric(
             entities=[ref_factory.entity("sales.orders")],
-            additivity="additive",
+            additivity=ms.additive_all(),
             ai_context=ms.ai_context(
                 business_definition="Total revenue",
                 guardrails=["Must be positive"],
@@ -2395,7 +2451,7 @@ def test_ai_context_with_valid_keys_works() -> None:
 
         @ms.metric(
             entities=[ref_factory.entity("sales.orders")],
-            additivity="additive",
+            additivity=ms.additive_all(),
             ai_context=ms.ai_context(
                 business_definition="Revenue",
                 guardrails=["Must be positive"],
@@ -2472,7 +2528,7 @@ def test_ai_context_raw_dict_raises_teachable_error() -> None:
 
             @ms.metric(
                 entities=[ref_factory.entity("sales.orders")],
-                additivity="additive",
+                additivity=ms.additive_all(),
                 ai_context={"business_definition": "I should use ms.ai_context()"},  # type: ignore[arg-type]
             )
             def revenue(table: object) -> object:
@@ -2565,7 +2621,9 @@ def test_metric_unit_lands_on_ir() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity="additive", unit="CNY")
+        @ms.metric(
+            entities=[ref_factory.entity("sales.orders")], additivity=ms.additive_all(), unit="CNY"
+        )
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -2579,7 +2637,7 @@ def test_metric_unit_defaults_to_none() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity="additive")
+        @ms.metric(entities=[ref_factory.entity("sales.orders")], additivity=ms.additive_all())
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -2611,7 +2669,9 @@ def test_metric_unit_rejects_whitespace_and_empty(bad: str) -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.metric(
-                entities=[ref_factory.entity("sales.orders")], additivity="additive", unit=bad
+                entities=[ref_factory.entity("sales.orders")],
+                additivity=ms.additive_all(),
+                unit=bad,
             )
             def revenue(table: object) -> object:
                 return None  # type: ignore[unreachable]

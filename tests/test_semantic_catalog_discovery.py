@@ -57,7 +57,7 @@ _DATASETS_PY = textwrap.dedent("""\
 
     @ms.metric(
         entities=[orders],
-        additivity="additive",
+        additivity=ms.additive_all(),
     )
     def revenue(table):
         return table.amount.sum()
@@ -83,7 +83,7 @@ def _make_multi_domain_catalog(semantic_project_factory) -> SemanticCatalog:
             "ops/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table('events'))\n"
-                "@ms.metric(entities=[events], additivity='additive', )\n"
+                "@ms.metric(entities=[events], additivity=ms.additive_all(), )\n"
                 "def event_count(table):\n"
                 "    return table.id.nunique()\n"
             ),

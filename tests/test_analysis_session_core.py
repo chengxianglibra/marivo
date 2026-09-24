@@ -70,7 +70,7 @@ def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
                 source = ms.ref.datasource("{datasource}")
                 rows = ms.entity(name={entity!r}, datasource=source, source=md.table({entity!r}, columns={{"id": "id", "amount": "amount"}}), primary_key=["id"])
 
-                @ms.metric(entities=[rows], additivity="additive")
+                @ms.metric(entities=[rows], additivity=ms.additive_all())
                 def {metric}(table):
                     return table.amount.sum()
                 """
@@ -133,7 +133,7 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
             source = ms.ref.datasource("warehouse")
             rows = ms.entity(name="refunds", datasource=source, source=md.table("refunds", columns={"id": "id", "amount": "amount"}), primary_key=["id"])
 
-            amount = ms.measure_column(name="amount", entity=rows, column="amount", additivity="additive")
+            amount = ms.measure_column(name="amount", entity=rows, column="amount", additivity=ms.additive_all())
             refunds_total = ms.aggregate(name="refunds_total", measure=amount, agg="sum")
             """
         ),

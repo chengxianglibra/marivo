@@ -15,7 +15,7 @@ Public surface::
     orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
     amount = ms.measure_column(
         name="amount", entity=orders, column="amount",
-        additivity="additive", unit="USD",
+        additivity=ms.additive_all(), unit="USD",
     )
 
     revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
@@ -39,6 +39,8 @@ from marivo.semantic._quantile import QuantileMetricInput, quantile_metric
 from marivo.semantic.authoring import (
     GrainToDate,
     PeriodCorrespondence,
+    additive,
+    additive_all,
     aggregate,
     ai_context,
     all_rows,
@@ -50,6 +52,7 @@ from marivo.semantic.authoring import (
     dimension,
     dimension_column,
     domain,
+    empty,
     entity,
     event,
     from_sql,
@@ -63,13 +66,14 @@ from marivo.semantic.authoring import (
     measure_column,
     metric,
     model_state,
+    non_additive,
+    nulls,
     participant,
     participant_role,
     period_calendar,
     period_correspondence,
     ratio,
     relationship,
-    semi_additive,
     snapshot,
     state_model,
     strptime,
@@ -83,6 +87,7 @@ from marivo.semantic.authoring import (
     weighted_mean,
     where,
     work_schedule,
+    zero_denominator,
 )
 from marivo.semantic.catalog import (
     CalendarLevelDetails,
@@ -284,6 +289,8 @@ __all__ = [
     "WorkScheduleDetails",
     "WorkScheduleEntry",
     "WorkScheduleKind",
+    "additive",
+    "additive_all",
     "aggregate",
     "ai_context",
     "all_rows",
@@ -295,6 +302,7 @@ __all__ = [
     "dimension",
     "dimension_column",
     "domain",
+    "empty",
     "entity",
     "errors",
     "event",
@@ -310,6 +318,8 @@ __all__ = [
     "measure_column",
     "metric",
     "model_state",
+    "non_additive",
+    "nulls",
     "parity_check",
     "participant",
     "participant_role",
@@ -320,7 +330,6 @@ __all__ = [
     "ref",
     "relationship",
     "richness",
-    "semi_additive",
     "snapshot",
     "source_check",
     "state_model",
@@ -336,6 +345,7 @@ __all__ = [
     "weighted_mean",
     "where",
     "work_schedule",
+    "zero_denominator",
 ]
 
 

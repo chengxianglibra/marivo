@@ -224,7 +224,7 @@ OrderCustomerId = ms.dimension_column(
 Region = ms.dimension_column(name="region", entity=Customer, column="region")
 OrderStatus = ms.dimension_column(name="order_status", entity=Order, column="status")
 OrderAmount = ms.measure_column(
-    name="order_amount", entity=Order, column="amount", unit="CNY"
+    name="order_amount", entity=Order, column="amount", additivity=ms.additive_all(), unit="CNY"
 )
 PaidAt = ms.time_dimension_column(
     name="paid_at", entity=Order, column="paid_at", granularity="second"
@@ -242,7 +242,7 @@ def region_normalized(rows):
     return ms.bind(Region, rows).upper()
 
 
-@ms.measure(entity=Order, unit="CNY")
+@ms.measure(entity=Order, additivity=ms.additive_all(), unit="CNY")
 def paid_amount(rows):
     return (ms.bind(OrderStatus, rows) == "paid").ifelse(
         ms.bind(OrderAmount, rows), None
@@ -301,14 +301,14 @@ restricted-body 检查、依赖绑定、Ibis 表达式类型检查与编译继�
 
 | 参数与类型 | 本文已定义的构造器 | 作用范围 |
 | --- | --- | --- |
-| `nulls: NullInputPolicy` | `ms.nulls.reject()` | 对实际进入计算的贡献值检查输入 NULL；被 `where` 排除的行不属于该次贡献 |
-| `empty: EmptyContributionPolicy` | `ms.empty.zero()` | 已确认完整且没有贡献的目标组；仅在注册方法将零作为合法空输入结果时准入，如 sum/count |
+| `nulls: NullInputPolicy` | `ms.nulls.reject()`、`ms.nulls.ignore()` | 对实际进入计算的贡献值检查或忽略输入 NULL；被 `where` 排除的行不属于该次贡献 |
+| `empty: EmptyContributionPolicy` | `ms.empty.zero()`、`ms.empty.null()` | 已确认完整且没有贡献的目标组；具体零或 Null 结果由方法与声明共同约束 |
 | `zero_denominator: ZeroDenominatorPolicy` | `ms.zero_denominator.undefined()`、`ms.zero_denominator.error()` | 已准入的除法方法中分母为零时，分别产生 `Undefined(zero_denominator)` 或拒绝求值 |
 
-这些是目标接口语法，不代表现有实现已有对应构造器。构造器返回不可由作者直接构造的
-政策值；所列值也不承诺在任意装饰器 body 中均可执行。各方法只要求与其输入和计算有关的政策，
-不存在跨方法的隐藏默认值；遗漏必要政策、传入裸字符串或另一种政策类型时，在无 I/O 的
-声明解析阶段拒绝。未来增加取值须同时增加明确构造器和执行规则，不能放宽为任意 `str`。
+这些构造器与 decorator 参数在 S1 W1 已可正式声明和加载，但不代表任意装饰器 body
+都可进入 Analysis DSL 续算。构造器返回不可由作者直接构造的政策值；各方法只要求与其输入和计算有关的政策，
+不存在跨方法的隐藏默认值；传入裸字符串或另一种政策类型在无 I/O 的声明解析阶段拒绝，
+遗漏方法必需的政策在该方法的 DSL 准入阶段拒绝。未来增加取值须同时增加明确构造器和执行规则，不能放宽为任意 `str`。
 持久化使用稳定规范代码，恢复时按所属政策类型解码并重新校验。
 
 ```python
@@ -317,8 +317,8 @@ restricted-body 检查、依赖绑定、Ibis 表达式类型检查与编译继�
     time=PaidAt,
     unit="CNY",
     additivity=ms.additive_all(),
-    nulls=ms.nulls.reject(),
-    empty=ms.empty.zero(),
+    nulls=ms.nulls.ignore(),
+    empty=ms.empty.null(),
 )
 def revenue(rows):
     return ms.bind(OrderAmount, rows).sum(
@@ -625,8 +625,8 @@ def inventory(rows):
     return ms.bind(on_hand, rows).sum()
 ```
 
-`ms.additive` / `ms.additive_all` 及其作为 additivity 参数值的类型是本提案的新语法草案，
-当前实现尚不接受这些构造；它们替代原 sum_across/hold_fixed 草案，不保留两套入口。
+`ms.additive` / `ms.additive_all` 已在 S1 W1 成为可加载的 additivity 参数值；
+它们替代原 sum_across/hold_fixed 草案，不保留两套入口。
 作者仍只在函数体中用 Ibis 定义数值和计算；元数据说明这项求和的业务适用范围。
 Metric 的 SnapshotAt 绑定与 Measure、Entity 的状态时点一致，不能解释为事件发生时间。
 这个 Metric 没有声明期间折叠；观察应绑定精确时点，不能把期间内所有快照都拿来相加。

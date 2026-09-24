@@ -403,7 +403,7 @@ def test_public_load_to_scalar_execution(
             "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             f"orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table({name!r}, columns={{'id': 'id', 'amount': 'amount', 'channel': 'channel'}}), primary_key=['id'])\n"
             "channel = ms.dimension_column(name='channel', entity=orders, column='channel')\n"
-            "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity='additive')\n"
+            "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
             "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
         )
         monkeypatch.chdir(project)

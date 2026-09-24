@@ -25,16 +25,16 @@ import marivo.semantic as ms
 
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
 
-@ms.measure(entity=orders, additivity="additive")
+@ms.measure(entity=orders, additivity=ms.additive_all())
 def amount(orders): return orders.amount
 
-@ms.measure(entity=orders, additivity="additive")
+@ms.measure(entity=orders, additivity=ms.additive_all())
 def gross(orders): return orders.gross
 
-@ms.measure(entity=orders, additivity="additive")
+@ms.measure(entity=orders, additivity=ms.additive_all())
 def refund(orders): return orders.refund
 
-@ms.metric(entities=[orders], additivity="additive", name="revenue_via_measure")
+@ms.metric(entities=[orders], additivity=ms.additive_all(), name="revenue_via_measure")
 def revenue_via_measure(orders): return ms.bind(amount, orders).sum()
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")

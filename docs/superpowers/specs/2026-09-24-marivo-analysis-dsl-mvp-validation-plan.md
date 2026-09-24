@@ -52,7 +52,7 @@ Status: proposed；目标契约尚未接受为公共 API，尚未实施或通过
 不能把首轮类型限制写成所有未来量的永久定义。
 
 完整 Cell 协议保留四分支和原因。普通数值比较、sum/mean 与分类键严格消费；is_defined
-全定义，复合条件不短路避检。合法空贡献 sum/count=0，零分母为 Undefined；空当前行
+全定义，复合条件不短路避检。合法空贡献依指标政策给出 Null 或零；J1 Revenue sum 为 Null，count 为 0；零分母为 Undefined；空当前行
 mean 为 Undefined(empty_mean)。全局统计保留 Singleton，默认分组使用实际像，显式
 目标组保留空组。未知覆盖、缺状态或缺键不能冒充空输入。
 
@@ -163,7 +163,7 @@ east_channels = east.observe(
 ```
 
 夹具固定为 A/east 的 web 收入 450、B/east 的 mobile 收入 150、C/south 的 web 收入 400；
-D/west 存在但没有订单。总收入必须为 1000；地区结果为 east=600、south=400、west=0；
+D/west 存在但没有订单。总收入必须为 1000；地区结果为 east=600、south=400、west=Null；
 华东渠道结果为 web=450、mobile=150。没有订单的客户不产生凭空的 Channel 类别。
 
 第一步不读取 Channel，也不构建所有未来分组。第二步才引入 Region，第三步才引入 Channel。

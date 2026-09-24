@@ -133,7 +133,7 @@ _DATASET_AND_METRIC_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.metric(entities=[orders], additivity='additive', )
+    @ms.metric(entities=[orders], additivity=ms.additive_all(), )
     def total_amount(table):
         return table.amount.sum()
 """)
@@ -162,7 +162,7 @@ _COLUMN_HELPER_PROJECT_PY = textwrap.dedent("""\
         name="amount",
         entity=orders,
         column="amount",
-        additivity="additive",
+        additivity=ms.additive_all(),
         unit="USD",
     )
     region = ms.dimension_column(name="region", entity=orders, column="region")
@@ -176,7 +176,7 @@ _COLUMN_HELPER_PROJECT_PY = textwrap.dedent("""\
     )
     total_amount = ms.aggregate(name="total_amount", measure=amount, agg="sum")
 
-    @ms.metric(entities=[orders], additivity="additive")
+    @ms.metric(entities=[orders], additivity=ms.additive_all())
     def amount_again(table):
         return ms.bind(amount, table).sum()
 """)
@@ -628,7 +628,7 @@ def test_aggregate_with_filter_materializes_subset_sum(
                 "source=md.table('orders'))\n"
                 "market = ms.dimension_column(name='market', entity=orders, column='region')\n"
                 "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
-                "additivity='additive')\n"
+                "additivity=ms.additive_all())\n"
                 "us_amount = ms.aggregate(name='us_amount', measure=amount, agg='sum', "
                 "filter=ms.where(market='US'))\n"
             ),
@@ -742,7 +742,7 @@ def test_trino_quantile_aggregates_use_approx_quantile(semantic_project_factory)
                 "    name='elapsed_time',\n"
                 "    entity=queries,\n"
                 "    column='elapsed_time',\n"
-                "    additivity='non_additive',\n"
+                "    additivity=ms.non_additive(),\n"
                 "    unit='s',\n"
                 ")\n"
                 "median_elapsed_time = ms.aggregate(\n"
@@ -798,7 +798,7 @@ def test_duckdb_percentile_aggregate_keeps_exact_quantile(
                 "    name='amount',\n"
                 "    entity=orders,\n"
                 "    column='amount',\n"
-                "    additivity='non_additive',\n"
+                "    additivity=ms.non_additive(),\n"
                 "    unit='USD',\n"
                 ")\n"
                 "p95_amount = ms.aggregate(\n"
@@ -832,7 +832,7 @@ def test_sqlite_percentile_aggregate_fails_before_ibis_compilation(
                 "orders = ms.entity(name='orders', "
                 "datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
                 "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
-                "additivity='non_additive', unit='USD')\n"
+                "additivity=ms.non_additive(), unit='USD')\n"
                 "p95_amount = ms.aggregate(name='p95_amount', measure=amount, "
                 "agg=('percentile', 0.95), unit='USD')\n"
             ),
@@ -865,7 +865,7 @@ def test_sqlite_median_aggregate_fails_before_ibis_compilation(
                 "orders = ms.entity(name='orders', "
                 "datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
                 "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
-                "additivity='non_additive', unit='USD')\n"
+                "additivity=ms.non_additive(), unit='USD')\n"
                 "median_amount = ms.aggregate(name='median_amount', measure=amount, "
                 "agg='median', unit='USD')\n"
             ),
@@ -1009,10 +1009,10 @@ def test_materializer_metric_on_rejects_derived_metric(
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', )\n"
+                "@ms.metric(entities=[orders], additivity=ms.additive_all(), )\n"
                 "def revenue(table):\n"
                 "    return table.amount.sum()\n"
-                "@ms.metric(entities=[orders], additivity='additive', )\n"
+                "@ms.metric(entities=[orders], additivity=ms.additive_all(), )\n"
                 "def orders_count(table):\n"
                 "    return table.order_id.nunique()\n"
                 "ratio = ms.ratio(\n"
@@ -1278,7 +1278,7 @@ def test_cross_datasource_metric_fails(semantic_project_factory, duckdb_backend)
 
         orders_b = ms.entity(name="orders_b", datasource=ms.ref.datasource("warehouse2"), source=md.table("orders"))
 
-        @ms.metric(entities=[orders_a, orders_b], root_entity=orders_a, additivity="additive", )
+        @ms.metric(entities=[orders_a, orders_b], root_entity=orders_a, additivity=ms.additive_all(), )
         def cross_metric(t1, t2):
             return t1.amount.sum()
     """)
@@ -1374,7 +1374,7 @@ def test_derived_metric_ratio_materialize(semantic_project_factory, backend_fact
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
-        @ms.metric(entities=[orders], additivity='additive', )
+        @ms.metric(entities=[orders], additivity=ms.additive_all(), )
         def revenue(table):
             return table.amount.sum()
 
@@ -1408,7 +1408,7 @@ def test_derived_metric_has_no_materializer_sidecar_entry(
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
-        @ms.metric(entities=[orders], additivity='additive', )
+        @ms.metric(entities=[orders], additivity=ms.additive_all(), )
         def revenue(table):
             return table.amount.sum()
 
@@ -1446,7 +1446,7 @@ def test_weighted_mean_multiplies_and_aggregates_measures(
         orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
         amount = ms.measure_column(
-            name="amount", entity=orders, column="amount", additivity="additive"
+            name="amount", entity=orders, column="amount", additivity=ms.additive_all()
         )
         aov = ms.weighted_mean(
             name="aov",
@@ -1476,10 +1476,10 @@ def test_weighted_mean_pairs_nulls_and_inherits_value_unit(semantic_project_fact
         orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
         latency = ms.measure_column(
             name="latency", entity=orders, column="latency",
-            additivity="non_additive", unit="ms",
+            additivity=ms.non_additive(), unit="ms",
         )
         requests = ms.measure_column(
-            name="requests", entity=orders, column="requests", additivity="additive",
+            name="requests", entity=orders, column="requests", additivity=ms.additive_all(),
         )
         avg_latency = ms.weighted_mean(
             name="avg_latency", value=latency, weight=requests,
@@ -1507,7 +1507,7 @@ def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> 
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
-        @ms.metric(entities=[orders], additivity='additive', )
+        @ms.metric(entities=[orders], additivity=ms.additive_all(), )
         def revenue(table):
             return table.amount.sum()
 
@@ -1644,7 +1644,7 @@ def test_same_datasource_multiple_datasets_ok(semantic_project_factory, duckdb_b
 
         orders_alias = ms.entity(name="orders_alias", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
-        @ms.metric(entities=[orders, orders_alias], root_entity=orders, additivity="additive", )
+        @ms.metric(entities=[orders, orders_alias], root_entity=orders, additivity=ms.additive_all(), )
         def combined(t1, t2):
             return t1.amount.sum()
     """)
@@ -1760,7 +1760,7 @@ def test_metric_callable_name_error_adds_import_hint(
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
+                "@ms.metric(entities=[orders], additivity=ms.additive_all(), name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum() + ibis.literal(0)\n"
             ),

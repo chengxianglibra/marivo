@@ -155,8 +155,8 @@ warehouse = ms.ref.datasource("warehouse")
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"), primary_key=["order_id"])
 region = ms.dimension_column(name="region", entity=orders, column="region")
 order_date = ms.time_dimension_column(name="order_date", entity=orders, column="order_date", granularity="day", is_default=True)
-amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity="additive", unit="CNY")
-revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY")
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum", time=order_date)
 ```
 After current authority establishes the meaning and the project loads, routine
 analysis reads the metric and observes it:
@@ -598,7 +598,7 @@ amount = ms.measure_column(
     name="amount",
     entity=orders,
     column="amount",
-    additivity="additive",
+    additivity=ms.additive_all(),
     unit="CNY",
 )
 ```
@@ -637,8 +637,8 @@ choosing aggregate, `marivo.help("semantic.aggregate")` owns its exact inputs,
 defaults, constraints, and repair routes.
 
 ```python
-revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", filter=ms.where(region="US"))
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum", time=order_date)
+us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", time=order_date, filter=ms.where(region="US"))
 ```
 `agg="median"` and `agg=("percentile", q)` follow backend support. On Trino,
 both compile to `APPROX_PERCENTILE`, with median using `q=0.5`.
@@ -733,7 +733,7 @@ The Metric object page identifies cumulative construction; then
 and `marivo.help("semantic.builders.governed_temporal")` routes anchor builders.
 
 ```python
-user_id = ms.measure_column(name="user_id", entity=events, column="user_id", additivity="non_additive")
+user_id = ms.measure_column(name="user_id", entity=events, column="user_id", additivity=ms.non_additive())
 active_users = ms.aggregate(name="active_users", measure=user_id, agg="count_distinct")
 cumulative_active_users = ms.cumulative(
     name="cumulative_active_users",
@@ -1141,7 +1141,11 @@ fanout constraints, provenance input, and structured repairs.
 ```python
 @ms.metric(
     entities=[orders],
-    additivity="additive",
+    additivity=ms.additive_all(),
+    time=order_date,
+    unit="CNY",
+    nulls=ms.nulls.ignore(),
+    empty=ms.empty.null(),
     name="revenue",
     provenance=ms.from_sql(
         sql="SELECT SUM(amount) AS revenue FROM orders",
@@ -1159,10 +1163,13 @@ an agent changes the analysis grain or segments it. SQL provenance does not
 execute a metric; it gives `ms.parity_check(...)` a reference query for checking
 that the declared semantics match an established implementation.
 
-- `ms.semi_additive(over, fold)` — for snapshot/status facts that are additive
-  across most axes but folded over a time axis. `over` is the status time
-  dimension ref returned by `@ms.time_dimension(...)`; `fold` is `"last"`,
-  `"first"`, `"mean"`, `"max"`, or `("percentile", 0.95)`.
+- `ms.additive(over=(...))`, `ms.additive_all(except_=(...))`, and
+  `ms.non_additive()` declare coordinate additivity. Snapshot/status facts keep
+  their status time fixed in `except_=` and declare `status_time_dimension=`
+  separately; `status_time_fold=` selects `"last"`, `"first"`, `"mean"`,
+  `"max"`, or `("percentile", 0.95)` when a fold is needed.
+- `ms.nulls.ignore()` and `ms.empty.null()` explicitly preserve an aggregate's
+  Null-input and complete-empty-contribution behavior.
 - `ms.from_sql(sql, dialect)` — attaches SQL as **provenance only**, enabling
   `ms.parity_check(...)`. It is never executed as the metric body.
 
@@ -1178,7 +1185,9 @@ on_hand_units = ms.measure_column(
     name="on_hand_units",
     entity=inventory_daily,
     column="on_hand_units",
-    additivity=ms.semi_additive(over=snapshot_date, fold="last"),
+    additivity=ms.additive_all(except_=(snapshot_date,)),
+    status_time_dimension=snapshot_date,
+    status_time_fold="last",
 )
 ```
 ### Relationship
