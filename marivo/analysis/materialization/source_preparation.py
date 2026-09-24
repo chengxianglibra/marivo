@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
@@ -68,6 +68,7 @@ from marivo.analysis.materialization.resources import (
     backend_reservation,
 )
 from marivo.analysis.materialization.validation import compile_preparations, execute_batch
+from marivo.analysis.observation.source_bindings import BoundSourceParametersV1
 from marivo.analysis.operators.association_contracts import (
     CorrelatePayload,
 )
@@ -81,6 +82,7 @@ from marivo.datasource.ir import (
     TableSourceIR,
 )
 from marivo.datasource.json_source import read_json_source
+from marivo.datasource.timezone import DatasourceEngineTimezone
 from marivo.semantic.ir import TargetEntityContract
 from marivo.semantic.validator import normalize_target_entity
 
@@ -287,334 +289,46 @@ def prepared_source(
             read_time = backend.timezone()
         backend.initialize()
         backend.prepare_dataset(source_step.dataset)
-        tables: dict[str, ir.Table] = {}
-        checked_schemas: set[str] = set()
-        captured = {item.entity_ref.path: item for item in captures}
-        for entity in entities:
-            source = entity.source
-            if isinstance(source, TableSourceIR):
-                physical_schema = validate_source_schema(
-                    self, backend, entity, dependency=dependencies.for_entity(entity)
-                )
-                checked_schemas.add(entity.ref.path)
-                table = _declared_table(
-                    entity, physical_schema, dependency=dependencies.for_entity(entity)
-                )
-            elif isinstance(source, CsvSourceIR):
-                name = "mv_source_" + uuid4().hex
-                source_table = backend.read_csv(
-                    source.path,
-                    table_name=name,
-                    header=source.header,
-                    delimiter=source.delimiter,
-                )
-                bindings = dict(source.columns)
-                dependency = dependencies.for_entity(entity)
-                table = source_table.select(
-                    *(
-                        source_table[bindings[column.logical] if bindings else column.logical].name(
-                            column.logical
-                        )
-                        for column in dependency.columns
-                    )
-                )
-            elif isinstance(source, JsonSourceIR):
-                name = "mv_source_" + uuid4().hex
-                capture = captured.get(entity.ref.path)
-                values: dict[str, QueryParamScalar | QueryParamScalarList] = {}
-                if capture is not None:
-                    values = dict(
-                        zip(
-                            capture.ordered_parameter_names,
-                            capture.private_canonical_typed_values,
-                            strict=True,
-                        )
-                    )
-                dependency = dependencies.for_entity(entity)
-                read_source = source
-                if source.columns:
-                    needed = {column.logical for column in dependency.columns}
-                    read_source = replace(
-                        source,
-                        columns=tuple(
-                            (output, path) for output, path in source.columns if output in needed
-                        ),
-                    )
-                source_table = read_json_source(
-                    _ReservedJsonReader(backend, name),
-                    read_source,
-                    source_params=values,
-                )
-                table = source_table.select(
-                    *(source_table[column.logical] for column in dependency.columns)
-                )
-                self.statistics.source_fences += 1
-            else:
-                raise _error("source_binding", run_ref)
-            dependency = dependencies.for_entity(entity)
-            _validate_inferred_source_types(table, dependency, run_ref=run_ref)
-            tables[entity.ref.path] = table
-        event_coverages: dict[str, EventCoverageResolution] = {
-            reference: record.descriptor.event_evidence.coverage
-            for reference, record in records.items()
-            if record.descriptor.event_evidence is not None
-        }
-        event_coverages.update(
-            {
-                reference: record.descriptor.lifecycle_evidence.coverage
-                for reference, record in records.items()
-                if record.descriptor.lifecycle_evidence is not None
-            }
+        tables, checked_schemas = _build_source_tables(
+            self, backend, entities, dependencies, captures, run_ref
         )
-        if isinstance(source_dataset, LogicalDataset):
-            from marivo.analysis.datasets.descriptors import _canonical_digest
-
-            for event_root in logical_roots(source_dataset):
-                if isinstance(event_root.payload, (EventPayload, LifecyclePayload)):
-                    event_coverages[event_root.definition_fingerprint] = backend.resolve_coverage(
-                        event_root.payload.definition,
-                        require_source_origin=isinstance(event_root.payload, LifecyclePayload),
-                        provider=self.event_coverage_provider,
-                        source_binding_fingerprint=_canonical_digest(
-                            tuple(
-                                capture.identity_payload()
-                                for capture in event_root.payload.captures
-                            )
-                        ),
-                        execution_domain_id=_engine_domain(source_step.binding),
-                    )
-        from marivo.analysis.materialization.retained import required_primary_input
-
-        primary_inputs = {
-            value.state.artifact_ref.ref: required_primary_input(source_dataset, value)
-            for value in artifact_inputs(source_dataset)
-        }
-        engine_inputs: list[tuple[ir.Table, StorageReceipt, DatasetRowContract]] = []
-        if isinstance(source_step.binding, ParquetBinding):
-            from marivo.analysis.compiler.lowering import compile_retained_rows
-            from marivo.analysis.compiler.ordering import ordered_relation
-            from marivo.analysis.materialization.parquet_scan import attach_parquet_scan
-
-            retained_scans: dict[str, ir.Table] = {}
-            retained_parts: dict[str, dict[str, ir.Table]] = {}
-            for reference, selected_record in records.items():
-                descriptor = selected_record.descriptor
-                receipt = descriptor.storage_receipt
-                table = attach_parquet_scan(backend, self.store.project_root, receipt)
-                table = ordered_relation(
-                    table, descriptor.row_contract, descriptor.row_set_contract
-                )
-                retained_scans[reference] = table
-                tables[reference] = table
-                if primary_inputs[reference]:
-                    engine_inputs.append((table, receipt, descriptor.row_contract))
-                retained_parts[reference] = parquet_parts(
-                    self,
-                    backend,
-                    descriptor,
-                    source_dataset,
-                    input_dataset=next(
-                        value
-                        for value in artifact_inputs(source_dataset)
-                        if value.state.artifact_ref.ref == reference
-                    ),
-                )
-            recipe = compile_retained_rows(
-                source_dataset,
-                retained_scans,
-                input_parts=retained_parts,
-                event_coverages=event_coverages,
-            )
-        else:
-            scans: dict[str, CompiledArtifactScan] = {}
-            for reference, selected_record in records.items():
-                descriptor = selected_record.descriptor
-                receipt = descriptor.storage_receipt
-                from marivo.analysis.materialization.parquet_scan import attach_parquet_scan
-
-                table = attach_parquet_scan(backend, self.store.project_root, receipt)
-                if primary_inputs[reference]:
-                    engine_inputs.append((table, receipt, descriptor.row_contract))
-                entity = normalize_target_entity(
-                    source_step.binding.owner.semantic_registry,
-                    descriptor.population_authority.entity_ref,
-                )
-                retained_parts = (
-                    parquet_parts(
-                        self,
-                        backend,
-                        descriptor,
-                        source_dataset,
-                        input_dataset=next(
-                            value
-                            for value in artifact_inputs(source_dataset)
-                            if value.state.artifact_ref.ref == reference
-                        ),
-                    )
-                    if descriptor.row_contract.shape_id.family_id in ("metric", "lifecycle")
-                    else {}
-                )
-                scans[reference] = CompiledArtifactScan(
-                    table, entity, tuple(retained_parts.items())
-                )
-            if not isinstance(source_dataset, LogicalDataset):
-                raise _error("implementation_registration", run_ref)
-            recipe = compile_dataset(
-                source_dataset,
-                tables,
-                scans=scans,
-                source_owner=source_step.binding.owner,
-                dependencies=dependencies,
-                read_timezone=None if read_time is None else read_time.engine_timezone_name,
-                read_timezone_source="engine"
-                if read_time is None
-                else read_time.read_tz_resolution,
-                event_coverages=event_coverages,
-                replay_exact_quantile=source_step.binding.adapter != "duckdb",
-                scalar_identity_distinct=source_step.binding.adapter in {"sqlite", "mysql"},
-                explicit_correlation=source_step.binding.adapter
-                in {"sqlite", "mysql", "clickhouse"},
-                emulate_full_join=source_step.binding.adapter == "postgres",
-                scalar_masks=source_step.binding.adapter in {"sqlite", "mysql"},
-                lifecycle_dialect=(
-                    "postgres"
-                    if source_step.binding.adapter == "postgres"
-                    else "trino"
-                    if source_step.binding.adapter == "trino"
-                    else "clickhouse"
-                    if source_step.binding.adapter == "clickhouse"
-                    else "duckdb"
-                ),
-                ranked_event_successors=source_step.binding.adapter == "trino",
-            )
-        if source_step.operation == "correlation":
-            from marivo.analysis.compiler.correlation import prepare_pairs
-
-            root = source_step.dataset._root
-            if not isinstance(root, LogicalRootHandle) or not isinstance(
-                root.payload, CorrelatePayload
-            ):
-                raise _error("implementation_registration", run_ref)
-            pair_expression, pair_checks = prepare_pairs(recipe.expression, root.payload.spec)
-            recipe = replace(
-                recipe,
-                expression=pair_expression,
-                primary_columns=tuple(pair_expression.columns),
-                retained_parts=(),
-                validations=(*recipe.validations, *pair_checks),
-                preparations=(*recipe.preparations, *pair_checks) if recipe.preparations else (),
-            )
-        root = source_step.dataset._root
-        if (
-            selected.backend in ("postgres", "clickhouse", "trino")
-            and isinstance(root, LogicalRootHandle)
-            and (
-                isinstance(root.payload, EventPayload)
-                or (selected.backend == "clickhouse" and isinstance(root.payload, LifecyclePayload))
-                or (
-                    selected.backend in ("postgres", "trino")
-                    and isinstance(
-                        root.payload,
-                        (
-                            LifecyclePayload,
-                            LifecycleReducerPayload,
-                            LifecycleSelectionPayload,
-                            EventFunnelPayload,
-                            EventTimeToEventPayload,
-                            EventSelectionPayload,
-                        ),
-                    )
-                )
-            )
+        recipe, engine_inputs = _compile_recipe(
+            self,
+            source_step,
+            source_dataset,
+            records,
+            dependencies,
+            backend,
+            tables,
+            read_time,
+            run_ref,
+        )
+        recipe = _prepare_correlation(recipe, source_step, run_ref)
+        if _open_special_relations(
+            self,
+            source_step,
+            backend,
+            recipe,
+            entities,
+            dependencies,
+            checked_schemas,
+            run_ref,
+            validations,
         ):
-            for entity in entities:
-                if (
-                    isinstance(entity.source, TableSourceIR)
-                    and entity.ref.path not in checked_schemas
-                ):
-                    validate_source_schema(
-                        self, backend, entity, dependency=dependencies.for_entity(entity)
-                    )
-            if selected.backend == "trino":
-                from marivo.analysis.materialization.trino_execution import (
-                    TrinoExecutionAdapter,
-                )
-
-                if not isinstance(backend, TrinoExecutionAdapter):
-                    raise _error("implementation_registration", run_ref)
-                validations.extend(backend.open_event_relations(recipe))
-            elif selected.backend == "postgres":
-                from marivo.analysis.materialization.postgres_execution import (
-                    PostgresExecutionAdapter,
-                )
-
-                if not isinstance(backend, PostgresExecutionAdapter):
-                    raise _error("implementation_registration", run_ref)
-                if isinstance(root.payload, EventPayload):
-                    validations.extend(
-                        backend.open_event_bundle(
-                            recipe,
-                            step_keys=tuple(
-                                step.step.key for step in root.payload.definition.steps
-                            ),
-                        )
-                    )
-                else:
-                    validations.extend(backend.open_event_relations(recipe))
-            else:
-                from marivo.analysis.materialization.clickhouse_execution import (
-                    ClickHouseExecutionAdapter,
-                )
-
-                if not isinstance(backend, ClickHouseExecutionAdapter):
-                    raise _error("implementation_registration", run_ref)
-                if isinstance(root.payload, LifecyclePayload):
-                    semantics = source_step.dataset.row_contract.family_semantics
-                    if not isinstance(semantics, LifecycleSemantics):
-                        raise _error("implementation_registration", run_ref)
-                    validations.extend(backend.open_lifecycle_bundle(recipe, semantics))
-                elif isinstance(root.payload, EventPayload):
-                    validations.extend(
-                        backend.open_event_bundle(
-                            recipe,
-                            step_keys=tuple(
-                                step.step.key for step in root.payload.definition.steps
-                            ),
-                        )
-                    )
-                else:
-                    raise _error("implementation_registration", run_ref)
             yield backend, recipe, tables
             return
-        self._event("backend_compile")
-        backend.compile(recipe.expression)
-        preparations = compile_preparations(
-            backend, recipe.preparations or recipe.validations, run_ref=run_ref
+        _run_preparations(
+            self,
+            backend,
+            recipe,
+            engine_inputs,
+            entities,
+            dependencies,
+            checked_schemas,
+            reserve_preparation,
+            run_ref,
+            validations,
         )
-        relation_statements = {
-            preparation.relation_name: backend.table_statement(
-                preparation.relation_name, preparation.expression
-            )
-            for preparation in preparations
-            if isinstance(preparation, CompiledRelationFence)
-        }
-        from marivo.analysis.materialization.parquet_scan import validate_parquet_relation
-
-        for table, receipt, row in engine_inputs:
-            validate_parquet_relation(backend, table, receipt, row)
-        for entity in entities:
-            if isinstance(entity.source, TableSourceIR) and entity.ref.path not in checked_schemas:
-                validate_source_schema(
-                    self, backend, entity, dependency=dependencies.for_entity(entity)
-                )
-        for validation in preparations:
-            if isinstance(validation, CompiledRelationFence):
-                reserve_preparation(validation.relation_name)
-                fence_statement = relation_statements[validation.relation_name]
-                backend.submit(fence_statement)
-                self.statistics.source_fences += 1
-                continue
-            validations.extend(execute_batch(backend, validation, run_ref=run_ref))
         yield backend, recipe, tables
     finally:
         failure = sys.exc_info()[1]
@@ -634,6 +348,376 @@ def prepared_source(
             if not failed:
                 self._event("remote_read_status_unknown")
                 raise
+
+
+def _build_source_tables(
+    self: DatasetRuntime,
+    backend: ExecutionAdapter,
+    entities: tuple[TargetEntityContract, ...],
+    dependencies: SourceDependencies,
+    captures: tuple[BoundSourceParametersV1, ...],
+    run_ref: str,
+) -> tuple[dict[str, ir.Table], set[str]]:
+    tables: dict[str, ir.Table] = {}
+    checked_schemas: set[str] = set()
+    captured = {item.entity_ref.path: item for item in captures}
+    for entity in entities:
+        source = entity.source
+        if isinstance(source, TableSourceIR):
+            physical_schema = validate_source_schema(
+                self, backend, entity, dependency=dependencies.for_entity(entity)
+            )
+            checked_schemas.add(entity.ref.path)
+            table = _declared_table(
+                entity, physical_schema, dependency=dependencies.for_entity(entity)
+            )
+        elif isinstance(source, CsvSourceIR):
+            name = "mv_source_" + uuid4().hex
+            source_table = backend.read_csv(
+                source.path,
+                table_name=name,
+                header=source.header,
+                delimiter=source.delimiter,
+            )
+            bindings = dict(source.columns)
+            dependency = dependencies.for_entity(entity)
+            table = source_table.select(
+                *(
+                    source_table[bindings[column.logical] if bindings else column.logical].name(
+                        column.logical
+                    )
+                    for column in dependency.columns
+                )
+            )
+        elif isinstance(source, JsonSourceIR):
+            name = "mv_source_" + uuid4().hex
+            capture = captured.get(entity.ref.path)
+            values: dict[str, QueryParamScalar | QueryParamScalarList] = {}
+            if capture is not None:
+                values = dict(
+                    zip(
+                        capture.ordered_parameter_names,
+                        capture.private_canonical_typed_values,
+                        strict=True,
+                    )
+                )
+            dependency = dependencies.for_entity(entity)
+            read_source = source
+            if source.columns:
+                needed = {column.logical for column in dependency.columns}
+                read_source = replace(
+                    source,
+                    columns=tuple(
+                        (output, path) for output, path in source.columns if output in needed
+                    ),
+                )
+            source_table = read_json_source(
+                _ReservedJsonReader(backend, name),
+                read_source,
+                source_params=values,
+            )
+            table = source_table.select(
+                *(source_table[column.logical] for column in dependency.columns)
+            )
+            self.statistics.source_fences += 1
+        else:
+            raise _error("source_binding", run_ref)
+        dependency = dependencies.for_entity(entity)
+        _validate_inferred_source_types(table, dependency, run_ref=run_ref)
+        tables[entity.ref.path] = table
+    return tables, checked_schemas
+
+
+def _compile_recipe(
+    self: DatasetRuntime,
+    source_step: SourceStep,
+    source_dataset: Dataset,
+    records: Mapping[str, ArtifactRecord],
+    dependencies: SourceDependencies,
+    backend: ExecutionAdapter,
+    tables: dict[str, ir.Table],
+    read_time: DatasourceEngineTimezone | None,
+    run_ref: str,
+) -> tuple[CompiledDataset, list[tuple[ir.Table, StorageReceipt, DatasetRowContract]]]:
+    event_coverages: dict[str, EventCoverageResolution] = {
+        reference: record.descriptor.event_evidence.coverage
+        for reference, record in records.items()
+        if record.descriptor.event_evidence is not None
+    }
+    event_coverages.update(
+        {
+            reference: record.descriptor.lifecycle_evidence.coverage
+            for reference, record in records.items()
+            if record.descriptor.lifecycle_evidence is not None
+        }
+    )
+    if isinstance(source_dataset, LogicalDataset):
+        from marivo.analysis.datasets.descriptors import _canonical_digest
+
+        for event_root in logical_roots(source_dataset):
+            if isinstance(event_root.payload, (EventPayload, LifecyclePayload)):
+                event_coverages[event_root.definition_fingerprint] = backend.resolve_coverage(
+                    event_root.payload.definition,
+                    require_source_origin=isinstance(event_root.payload, LifecyclePayload),
+                    provider=self.event_coverage_provider,
+                    source_binding_fingerprint=_canonical_digest(
+                        tuple(capture.identity_payload() for capture in event_root.payload.captures)
+                    ),
+                    execution_domain_id=_engine_domain(source_step.binding),
+                )
+    from marivo.analysis.materialization.retained import required_primary_input
+
+    primary_inputs = {
+        value.state.artifact_ref.ref: required_primary_input(source_dataset, value)
+        for value in artifact_inputs(source_dataset)
+    }
+    engine_inputs: list[tuple[ir.Table, StorageReceipt, DatasetRowContract]] = []
+    if isinstance(source_step.binding, ParquetBinding):
+        from marivo.analysis.compiler.lowering import compile_retained_rows
+        from marivo.analysis.compiler.ordering import ordered_relation
+        from marivo.analysis.materialization.parquet_scan import attach_parquet_scan
+
+        retained_scans: dict[str, ir.Table] = {}
+        retained_parts: dict[str, dict[str, ir.Table]] = {}
+        for reference, selected_record in records.items():
+            descriptor = selected_record.descriptor
+            receipt = descriptor.storage_receipt
+            table = attach_parquet_scan(backend, self.store.project_root, receipt)
+            table = ordered_relation(table, descriptor.row_contract, descriptor.row_set_contract)
+            retained_scans[reference] = table
+            tables[reference] = table
+            if primary_inputs[reference]:
+                engine_inputs.append((table, receipt, descriptor.row_contract))
+            retained_parts[reference] = parquet_parts(
+                self,
+                backend,
+                descriptor,
+                source_dataset,
+                input_dataset=next(
+                    value
+                    for value in artifact_inputs(source_dataset)
+                    if value.state.artifact_ref.ref == reference
+                ),
+            )
+        recipe = compile_retained_rows(
+            source_dataset,
+            retained_scans,
+            input_parts=retained_parts,
+            event_coverages=event_coverages,
+        )
+    else:
+        scans: dict[str, CompiledArtifactScan] = {}
+        for reference, selected_record in records.items():
+            descriptor = selected_record.descriptor
+            receipt = descriptor.storage_receipt
+            from marivo.analysis.materialization.parquet_scan import attach_parquet_scan
+
+            table = attach_parquet_scan(backend, self.store.project_root, receipt)
+            if primary_inputs[reference]:
+                engine_inputs.append((table, receipt, descriptor.row_contract))
+            entity = normalize_target_entity(
+                source_step.binding.owner.semantic_registry,
+                descriptor.population_authority.entity_ref,
+            )
+            retained_parts = (
+                parquet_parts(
+                    self,
+                    backend,
+                    descriptor,
+                    source_dataset,
+                    input_dataset=next(
+                        value
+                        for value in artifact_inputs(source_dataset)
+                        if value.state.artifact_ref.ref == reference
+                    ),
+                )
+                if descriptor.row_contract.shape_id.family_id in ("metric", "lifecycle")
+                else {}
+            )
+            scans[reference] = CompiledArtifactScan(table, entity, tuple(retained_parts.items()))
+        if not isinstance(source_dataset, LogicalDataset):
+            raise _error("implementation_registration", run_ref)
+        recipe = compile_dataset(
+            source_dataset,
+            tables,
+            scans=scans,
+            source_owner=source_step.binding.owner,
+            dependencies=dependencies,
+            read_timezone=None if read_time is None else read_time.engine_timezone_name,
+            read_timezone_source="engine" if read_time is None else read_time.read_tz_resolution,
+            event_coverages=event_coverages,
+            replay_exact_quantile=source_step.binding.adapter != "duckdb",
+            scalar_identity_distinct=source_step.binding.adapter in {"sqlite", "mysql"},
+            explicit_correlation=source_step.binding.adapter in {"sqlite", "mysql", "clickhouse"},
+            emulate_full_join=source_step.binding.adapter == "postgres",
+            scalar_masks=source_step.binding.adapter in {"sqlite", "mysql"},
+            lifecycle_dialect=(
+                "postgres"
+                if source_step.binding.adapter == "postgres"
+                else "trino"
+                if source_step.binding.adapter == "trino"
+                else "clickhouse"
+                if source_step.binding.adapter == "clickhouse"
+                else "duckdb"
+            ),
+            ranked_event_successors=source_step.binding.adapter == "trino",
+        )
+    return recipe, engine_inputs
+
+
+def _prepare_correlation(
+    recipe: CompiledDataset, source_step: SourceStep, run_ref: str
+) -> CompiledDataset:
+    if source_step.operation == "correlation":
+        from marivo.analysis.compiler.correlation import prepare_pairs
+
+        root = source_step.dataset._root
+        if not isinstance(root, LogicalRootHandle) or not isinstance(
+            root.payload, CorrelatePayload
+        ):
+            raise _error("implementation_registration", run_ref)
+        pair_expression, pair_checks = prepare_pairs(recipe.expression, root.payload.spec)
+        recipe = replace(
+            recipe,
+            expression=pair_expression,
+            primary_columns=tuple(pair_expression.columns),
+            retained_parts=(),
+            validations=(*recipe.validations, *pair_checks),
+            preparations=(*recipe.preparations, *pair_checks) if recipe.preparations else (),
+        )
+    return recipe
+
+
+def _open_special_relations(
+    self: DatasetRuntime,
+    source_step: SourceStep,
+    backend: ExecutionAdapter,
+    recipe: CompiledDataset,
+    entities: tuple[TargetEntityContract, ...],
+    dependencies: SourceDependencies,
+    checked_schemas: set[str],
+    run_ref: str,
+    validations: list[tuple[str, int]],
+) -> bool:
+    selected = source_step.implementation
+    root = source_step.dataset._root
+    if (
+        selected.backend in ("postgres", "clickhouse", "trino")
+        and isinstance(root, LogicalRootHandle)
+        and (
+            isinstance(root.payload, EventPayload)
+            or (selected.backend == "clickhouse" and isinstance(root.payload, LifecyclePayload))
+            or (
+                selected.backend in ("postgres", "trino")
+                and isinstance(
+                    root.payload,
+                    (
+                        LifecyclePayload,
+                        LifecycleReducerPayload,
+                        LifecycleSelectionPayload,
+                        EventFunnelPayload,
+                        EventTimeToEventPayload,
+                        EventSelectionPayload,
+                    ),
+                )
+            )
+        )
+    ):
+        for entity in entities:
+            if isinstance(entity.source, TableSourceIR) and entity.ref.path not in checked_schemas:
+                validate_source_schema(
+                    self, backend, entity, dependency=dependencies.for_entity(entity)
+                )
+        if selected.backend == "trino":
+            from marivo.analysis.materialization.trino_execution import (
+                TrinoExecutionAdapter,
+            )
+
+            if not isinstance(backend, TrinoExecutionAdapter):
+                raise _error("implementation_registration", run_ref)
+            validations.extend(backend.open_event_relations(recipe))
+        elif selected.backend == "postgres":
+            from marivo.analysis.materialization.postgres_execution import (
+                PostgresExecutionAdapter,
+            )
+
+            if not isinstance(backend, PostgresExecutionAdapter):
+                raise _error("implementation_registration", run_ref)
+            if isinstance(root.payload, EventPayload):
+                validations.extend(
+                    backend.open_event_bundle(
+                        recipe,
+                        step_keys=tuple(step.step.key for step in root.payload.definition.steps),
+                    )
+                )
+            else:
+                validations.extend(backend.open_event_relations(recipe))
+        else:
+            from marivo.analysis.materialization.clickhouse_execution import (
+                ClickHouseExecutionAdapter,
+            )
+
+            if not isinstance(backend, ClickHouseExecutionAdapter):
+                raise _error("implementation_registration", run_ref)
+            if isinstance(root.payload, LifecyclePayload):
+                semantics = source_step.dataset.row_contract.family_semantics
+                if not isinstance(semantics, LifecycleSemantics):
+                    raise _error("implementation_registration", run_ref)
+                validations.extend(backend.open_lifecycle_bundle(recipe, semantics))
+            elif isinstance(root.payload, EventPayload):
+                validations.extend(
+                    backend.open_event_bundle(
+                        recipe,
+                        step_keys=tuple(step.step.key for step in root.payload.definition.steps),
+                    )
+                )
+            else:
+                raise _error("implementation_registration", run_ref)
+        return True
+    return False
+
+
+def _run_preparations(
+    self: DatasetRuntime,
+    backend: ExecutionAdapter,
+    recipe: CompiledDataset,
+    engine_inputs: list[tuple[ir.Table, StorageReceipt, DatasetRowContract]],
+    entities: tuple[TargetEntityContract, ...],
+    dependencies: SourceDependencies,
+    checked_schemas: set[str],
+    reserve_preparation: Callable[[str], None],
+    run_ref: str,
+    validations: list[tuple[str, int]],
+) -> None:
+    self._event("backend_compile")
+    backend.compile(recipe.expression)
+    preparations = compile_preparations(
+        backend, recipe.preparations or recipe.validations, run_ref=run_ref
+    )
+    relation_statements = {
+        preparation.relation_name: backend.table_statement(
+            preparation.relation_name, preparation.expression
+        )
+        for preparation in preparations
+        if isinstance(preparation, CompiledRelationFence)
+    }
+    from marivo.analysis.materialization.parquet_scan import validate_parquet_relation
+
+    for table, receipt, row in engine_inputs:
+        validate_parquet_relation(backend, table, receipt, row)
+    for entity in entities:
+        if isinstance(entity.source, TableSourceIR) and entity.ref.path not in checked_schemas:
+            validate_source_schema(
+                self, backend, entity, dependency=dependencies.for_entity(entity)
+            )
+    for validation in preparations:
+        if isinstance(validation, CompiledRelationFence):
+            reserve_preparation(validation.relation_name)
+            fence_statement = relation_statements[validation.relation_name]
+            backend.submit(fence_statement)
+            self.statistics.source_fences += 1
+            continue
+        validations.extend(execute_batch(backend, validation, run_ref=run_ref))
 
 
 def validate_source_schema(

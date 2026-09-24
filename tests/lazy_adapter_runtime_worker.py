@@ -16,13 +16,13 @@ import ibis
 
 from marivo._compat import Never
 from marivo.analysis.datasets.base import MaterializedDataset
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.population import MaterializedPopulationDataset
 from marivo.refs import ref
 from tests.lazy_adapter_fixtures import setup_adapter
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_local_fixtures import REVENUE
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def forbidden(*args: object, **kwargs: object) -> Never:
@@ -64,7 +64,7 @@ def run(mode: str, kind: str, project: Path, session: str, artifact: str) -> dic
         logical = sources.observe(REVENUE, population=retained)
         with contextlib.ExitStack() as guards:
             if mode == "cold":
-                guards.enter_context(patch.object(admission, "place", forbidden))
+                guards.enter_context(patch.object(runtime_patch_owner("place"), "place", forbidden))
             result = logical.execute()
     after = snapshot(runtime)
     rows: list[list[object]] = []

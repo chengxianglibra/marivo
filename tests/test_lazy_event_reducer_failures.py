@@ -17,7 +17,6 @@ from marivo.analysis.domains.completeness import (
 )
 from marivo.analysis.domains.contracts import EventJourneySemantics
 from marivo.analysis.domains.event import MaterializedEventDataset
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.event_reducer_codec import (
@@ -30,6 +29,7 @@ from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import forbidden, snapshot
 from tests.lazy_event_runtime_fixtures import START, THROUGH, journey, setup_event
 from tests.lazy_event_runtime_worker import assert_identity_private
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 pytestmark = pytest.mark.runtime
 
@@ -129,7 +129,11 @@ def test_local_result_filter_reads_only_retained_columns_after_source_removal(
     assert isinstance(recovered_funnel, MaterializedEventDataset)
     assert isinstance(recovered_attempts, MaterializedEventDataset)
     assert recovered_attempts.to_pandas().equals(expected)
-    with patch.object(admission, "_build_backend_from_effective", forbidden):
+    with patch.object(
+        runtime_patch_owner("_build_backend_from_effective"),
+        "_build_backend_from_effective",
+        forbidden,
+    ):
         complete_funnel = recovered_funnel.where(
             gte(recovered_funnel.fields.get("reached_count"), 0)
         ).execute()
@@ -161,7 +165,7 @@ def test_high_cardinality_reducers_keep_all_identity_relations_native(tmp_path: 
             "INSERT INTO started_rows SELECT 981730041 + i, 881730041 + i, TIMESTAMP '2026-02-01 12:00:00' FROM range(5000) AS t(i)"
         )
     with (
-        patch.object(admission, "execute_local", forbidden),
+        patch.object(runtime_patch_owner("execute_local"), "execute_local", forbidden),
         patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
     ):
         receiver = journey(sources).execute()

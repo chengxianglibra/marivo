@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import (
     RecoveryPendingError,
@@ -21,6 +20,7 @@ from marivo.analysis.observation.metric import LogicalMetricDataset
 from marivo.datasource.errors import DatasourceEnvVarMissingError
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 pytestmark = pytest.mark.runtime
 
@@ -147,7 +147,11 @@ def test_unknown_open_without_query_id_allows_next_writer(
 
     runtime, dataset = _setup(tmp_path)
     with monkeypatch.context() as patch:
-        patch.setattr(admission, "_build_backend_from_effective", unknown_open)
+        patch.setattr(
+            runtime_patch_owner("_build_backend_from_effective"),
+            "_build_backend_from_effective",
+            unknown_open,
+        )
         with pytest.raises(RuntimeError, match="unknown backend"):
             dataset.execute()
     assert _bundle(runtime) == (1, 0, 0, 0, 1)

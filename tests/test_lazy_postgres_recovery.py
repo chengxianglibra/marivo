@@ -27,6 +27,7 @@ from marivo.analysis.observation.predicates import gt
 from marivo.refs import ref
 from tests.lazy_acceptance_capture import counts
 from tests.lazy_postgres_fixtures import registry_for
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 from tests.lazy_shared_assertions import (
     assert_composed_parts_recover,
     assert_producer_death_recovers,
@@ -142,14 +143,17 @@ def _recover(project: Path, table: str) -> None:
         registry, sidecar = registry_for(table, patch)
         source = runtime.sources(semantic_registry=registry, sidecar=sidecar)
         if composed and run.lifecycle == "succeeded":
-            from marivo.analysis.materialization import admission
 
             def no_source(*args: object, **kwargs: object) -> object:
                 raise AssertionError("cold sufficient-state fold attempted source access")
 
             assert run.output_artifact_ref is not None
             with patch.context() as cold:
-                cold.setattr(admission, "_build_backend_from_effective", no_source)
+                cold.setattr(
+                    runtime_patch_owner("_build_backend_from_effective"),
+                    "_build_backend_from_effective",
+                    no_source,
+                )
                 retained = runtime.artifact(run.output_artifact_ref)
                 assert isinstance(retained, MaterializedMetricDataset)
                 folded = retained.rollup(

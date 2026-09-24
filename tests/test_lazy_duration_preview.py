@@ -13,6 +13,7 @@ from tests.lazy_adapter_runtime_worker import forbidden
 from tests.lazy_event_runtime_fixtures import journey, setup_event
 from tests.lazy_lifecycle_fixtures import history, setup_lifecycle
 from tests.lazy_materialization_crash_worker import snapshot
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 pytestmark = pytest.mark.runtime
 
@@ -38,7 +39,11 @@ def test_duration_preview_discloses_units_under_read_bounds(
     assert duration_fields
     database.rename(tmp_path / "warehouse.offline")
     before = snapshot(runtime)
-    monkeypatch.setattr(admission, "_build_backend_from_effective", forbidden)
+    monkeypatch.setattr(
+        runtime_patch_owner("_build_backend_from_effective"),
+        "_build_backend_from_effective",
+        forbidden,
+    )
     monkeypatch.setattr(admission, "_READ_POLICY", replace(admission._READ_POLICY, preview_rows=1))
     materialized.show()
     shown = capsys.readouterr().out

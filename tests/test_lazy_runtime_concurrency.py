@@ -32,6 +32,7 @@ from marivo.datasource.ir import DatasourceIR, TableSourceIR
 from marivo.refs import ref
 from tests.lazy_concurrency_runtime_worker import snapshot
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 pytestmark = pytest.mark.runtime
 
@@ -367,7 +368,9 @@ def test_different_sessions_overlap_inside_real_duckdb_queries(
         )
         return built
 
-    monkeypatch.setattr(admission, "_build_backend_from_effective", build)
+    monkeypatch.setattr(
+        runtime_patch_owner("_build_backend_from_effective"), "_build_backend_from_effective", build
+    )
     runtimes, logicals = [], []
     for name in ("first", "second"):
         database = tmp_path / f"{name}.duckdb"

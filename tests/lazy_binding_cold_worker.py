@@ -12,11 +12,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from marivo._compat import Never
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.source_bindings import SourceBindingScopes
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 ALPHA = "private-binding-cold-alpha-6c8f3b"
 BETA = "private-binding-cold-beta-7d2e91"
@@ -71,7 +71,7 @@ def run(mode: str, kind: str, project: Path, url: str, session: str) -> dict[str
                 "_build_backend_from_effective",
                 "execute_local",
             ):
-                checks.enter_context(patch.object(admission, name, forbidden))
+                checks.enter_context(patch.object(runtime_patch_owner(name), name, forbidden))
         for logical in logicals:
             materialized = logical.execute()
             metric_value: object = materialized.to_pandas().loc[0, "api_value"]

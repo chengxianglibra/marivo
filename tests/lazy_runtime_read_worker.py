@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Literal
 from unittest.mock import patch
 
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
@@ -21,6 +20,7 @@ from tests.lazy_adapter_runtime_worker import forbidden
 from tests.lazy_local_fixtures import pandas_methods
 from tests.lazy_materialization_crash_worker import snapshot, statistics, versions
 from tests.lazy_retained_fixtures import setup_retained
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 Kind = Literal["local", "engine"]
 REVENUE = ref.metric("sales.revenue")
@@ -168,7 +168,11 @@ def run(mode: str, kind: Kind, project: Path) -> dict[str, object]:
         retained = runtime.artifact(artifact)
         assert isinstance(retained, MaterializedMetricDataset)
         if mode == "continue":
-            with patch.object(admission, "_build_backend_from_effective", forbidden):
+            with patch.object(
+                runtime_patch_owner("_build_backend_from_effective"),
+                "_build_backend_from_effective",
+                forbidden,
+            ):
                 continued = _continuation(retained, 10).execute()
             continuation_statistics = _statistics(runtime)
             consumer = DatasetRuntime.create(project, "foreign-consumer")
@@ -178,7 +182,11 @@ def run(mode: str, kind: Kind, project: Path) -> dict[str, object]:
             graph_after_read = consumer.graph()
             assert graph_after_read.artifacts == () and graph_after_read.runs == ()
             assert snapshot(consumer) == before_foreign
-            with patch.object(admission, "_build_backend_from_effective", forbidden):
+            with patch.object(
+                runtime_patch_owner("_build_backend_from_effective"),
+                "_build_backend_from_effective",
+                forbidden,
+            ):
                 consumed = _continuation(foreign, 50).execute()
             consumer_statistics = _statistics(consumer)
             graph = consumer.graph()
@@ -217,7 +225,7 @@ def run(mode: str, kind: Kind, project: Path) -> dict[str, object]:
             assert origin.runs.has_more
             with contextlib.ExitStack() as guards:
                 for name in ("place", "_build_backend_from_effective", "execute_local"):
-                    guards.enter_context(patch.object(admission, name, forbidden))
+                    guards.enter_context(patch.object(runtime_patch_owner(name), name, forbidden))
                 for selected, threshold, expected in (
                     (runtime, 10, str(state["output"])),
                     (consumer, 50, str(state["consumed"])),

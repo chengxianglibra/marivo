@@ -11,7 +11,6 @@ import pytest
 
 from marivo._temporal import time_scope
 from marivo.analysis.datasets.errors import DatasetConstructionError, DatasetOwnershipError
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.contracts import metric_definition
 from marivo.analysis.observation.predicates import gt
@@ -22,6 +21,7 @@ from marivo.refs import ref
 from tests.lazy_candidate_fixtures import candidate_input, discover
 from tests.lazy_entity_candidate_fixtures import entity_metric, setup_entity_candidate
 from tests.lazy_observation_fixtures import make_sources
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 REVENUE = ref.metric("sales.revenue")
 LINE_REVENUE = ref.metric("sales.line_revenue")
@@ -171,7 +171,11 @@ def test_engine_candidate_membership_reads_checkpoint_after_selection_source_dro
         semantic_registry=sources._owner.semantic_registry, sidecar=sources._owner.sidecar
     )
     cold_selected = retained.where(gt(retained.fields.get("score"), 3.5)).limit(1)
-    with patch.object(admission, "place", side_effect=AssertionError("cold binding placed input")):
+    with patch.object(
+        runtime_patch_owner("place"),
+        "place",
+        side_effect=AssertionError("cold binding placed input"),
+    ):
         assert (
             cold_sources.observe(LINE_REVENUE, population=cold_selected)
             .aggregate()

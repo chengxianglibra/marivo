@@ -10,9 +10,9 @@ from marivo.analysis.compiler.attribution import _invalid_presence
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.errors import DatasetConstructionError, DatasetRegistrationError
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
-from marivo.analysis.materialization.admission import _decode_scalar_masks
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.scalar_sql_execution import _cell
+from marivo.analysis.materialization.source_stage import _decode_scalar_masks
 from tests.lazy_dataset_fixtures import (
     TEST_IDS,
     make_logical_dataset,

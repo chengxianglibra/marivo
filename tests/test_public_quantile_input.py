@@ -10,6 +10,7 @@ import marivo.semantic as ms
 from marivo.analysis.observation.distribution_contracts import distribution_part_authorities
 from marivo.semantic._quantile import QuantileMethod
 from marivo.semantic.errors import SemanticLoadError
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 @pytest.mark.parametrize("method", ["linear_interpolation@v1", "duckdb_tdigest@v1"])
@@ -81,13 +82,16 @@ def test_public_quantile_executes_and_cold_projection_keeps_method(
     cold = mv.session.resume(session.id, by="id")
     loaded = cold.artifact(output.state.artifact_ref)
     assert not cold._runtime.statistics.statements
-    from marivo.analysis.materialization import admission
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("cold projection attempted origin access")
 
-    monkeypatch.setattr(admission, "_build_backend_from_effective", forbidden)
-    monkeypatch.setattr(admission, "_effective_kwargs", forbidden)
+    monkeypatch.setattr(
+        runtime_patch_owner("_build_backend_from_effective"),
+        "_build_backend_from_effective",
+        forbidden,
+    )
+    monkeypatch.setattr(runtime_patch_owner("_effective_kwargs"), "_effective_kwargs", forbidden)
     projected = loaded.metric(loaded.fields.get("median_amount")).execute()
     assert projected.to_pandas()["median_amount"].tolist() == [187.875]
     assert (

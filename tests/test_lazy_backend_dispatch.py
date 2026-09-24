@@ -41,6 +41,7 @@ from marivo.semantic.ir import AggKind
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_local_fixtures import REVENUE, setup_local
 from tests.lazy_observation_fixtures import NoIoActionPort
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def _sources(backend: BackendName, *, aggregation: AggKind = "sum") -> LazySources:
@@ -308,7 +309,6 @@ def test_unplaceable_distribution_keeps_preparation_repair(tmp_path: Path) -> No
 def test_retained_input_inherits_only_admitted_duckdb_source(
     tmp_path: Path, backend: BackendName, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.materialization import admission
 
     runtime, sources, _ = setup_local(tmp_path)
     retained = sources.observe(REVENUE).aggregate().execute()
@@ -320,7 +320,7 @@ def test_retained_input_inherits_only_admitted_duckdb_source(
     def candidate(value: LogicalDataset) -> SourceBinding:
         return replace(original_binding(value), adapter=backend)
 
-    monkeypatch.setattr(admission, "source_binding", candidate)
+    monkeypatch.setattr(runtime_patch_owner("source_binding"), "source_binding", candidate)
     observed: list[ExecutionBinding | None] = []
 
     class InspectedError(Exception):
@@ -335,7 +335,7 @@ def test_retained_input_inherits_only_admitted_duckdb_source(
         observed.append(artifact_binding(retained))
         raise InspectedError
 
-    monkeypatch.setattr(admission, "place", inspect)
+    monkeypatch.setattr(runtime_patch_owner("place"), "place", inspect)
     with pytest.raises(InspectedError):
         logical.execute()
     assert len(observed) == 1
@@ -366,7 +366,6 @@ def test_retained_import_reads_the_execution_declaration(monkeypatch: pytest.Mon
 def test_selected_execution_owner_admits_before_connect_and_binds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.materialization import admission
 
     runtime, sources, _ = setup_local(tmp_path)
     logical = sources.observe(REVENUE).aggregate()
@@ -404,7 +403,11 @@ def test_selected_execution_owner_admits_before_connect_and_binds(
         calls.append("connect")
         return connect(datasource, kwargs, read_only=read_only)
 
-    monkeypatch.setattr(admission, "_build_backend_from_effective", opened)
+    monkeypatch.setattr(
+        runtime_patch_owner("_build_backend_from_effective"),
+        "_build_backend_from_effective",
+        opened,
+    )
     assert logical.execute().to_pandas().revenue.tolist() == [147.0]
     assert calls == ["admit", "connect", "bind"]
 
@@ -413,14 +416,17 @@ def test_selected_execution_owner_admits_before_connect_and_binds(
 def test_missing_execution_owner_rejects_before_run_and_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.materialization import admission
     from marivo.analysis.materialization.errors import MaterializationError
     from tests.lazy_adapter_runtime_worker import forbidden, snapshot
 
     runtime, sources, _ = setup_local(tmp_path)
     before = snapshot(runtime)
     monkeypatch.setattr(registry, "backend_execution", lambda _: None)
-    monkeypatch.setattr(admission, "_build_backend_from_effective", forbidden)
+    monkeypatch.setattr(
+        runtime_patch_owner("_build_backend_from_effective"),
+        "_build_backend_from_effective",
+        forbidden,
+    )
     with pytest.raises(MaterializationError):
         sources.observe(REVENUE).aggregate().execute()
     assert runtime.last_run_ref is None

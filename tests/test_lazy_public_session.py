@@ -13,6 +13,7 @@ from marivo.analysis.errors import ArtifactNotFoundError, SessionNotFoundError
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def test_new_public_session_starts_with_empty_v6_store(
@@ -123,7 +124,6 @@ def test_public_runtime_metric_executes_and_projects_after_cold_resume(
     cold = mv.session.resume(first.id, by="id")
     loaded = cold.artifact(output.state.artifact_ref)
     assert isinstance(loaded, mv.MaterializedMetricDataset)
-    from marivo.analysis.materialization import admission
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("cold projection attempted source execution")
@@ -134,7 +134,7 @@ def test_public_runtime_metric_executes_and_projects_after_cold_resume(
         "require_profile_for_backend_type",
         "compile_dataset",
     ):
-        monkeypatch.setattr(admission, name, forbidden)
+        monkeypatch.setattr(runtime_patch_owner(name), name, forbidden)
     selected = loaded.metric(loaded.fields.get("runtime_total"))
     assert selected.execute().to_pandas()["runtime_total"].tolist() == [751.5]
     assert cold._runtime.statistics.source_fences == 0

@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 from marivo.analysis.datasets.base import MaterializedDataset
 from marivo.analysis.domains.lifecycle import MaterializedLifecycleDataset
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import descriptor_payload
 from marivo.analysis.materialization.lifecycle_codec import evidence_payload
@@ -20,6 +19,7 @@ from marivo.analysis.materialization.storage import ReadPolicy
 from tests.lazy_adapter_runtime_worker import forbidden, snapshot
 from tests.lazy_event_runtime_worker import assert_identity_private
 from tests.lazy_lifecycle_fixtures import history, lifecycle_registry, setup_lifecycle
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
@@ -43,9 +43,13 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
             registry, sidecar = lifecycle_registry(database)
             sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
             with (
-                patch.object(admission, "place", forbidden),
-                patch.object(admission, "compile_dataset", forbidden),
-                patch.object(admission, "_build_backend_from_effective", forbidden),
+                patch.object(runtime_patch_owner("place"), "place", forbidden),
+                patch.object(runtime_patch_owner("compile_dataset"), "compile_dataset", forbidden),
+                patch.object(
+                    runtime_patch_owner("_build_backend_from_effective"),
+                    "_build_backend_from_effective",
+                    forbidden,
+                ),
             ):
                 reused = history(sources).execute()
             assert reused.state.artifact_ref == result.state.artifact_ref

@@ -9,7 +9,6 @@ from unittest.mock import patch
 import duckdb
 import pytest
 
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.metric import MaterializedMetricDataset, PopulationInput
 from marivo.analysis.observation.population import MaterializedPopulationDataset
@@ -18,6 +17,7 @@ from marivo.analysis.operators.candidate_dataset import MaterializedCandidateDat
 from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import forbidden
 from tests.lazy_event_runtime_fixtures import journey, setup_event
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 pytestmark = pytest.mark.runtime
 
@@ -66,7 +66,7 @@ def test_selected_identity_authority_drives_events_without_origin_replay(
             semantic_registry=sources._owner.semantic_registry, sidecar=sources._owner.sidecar
         )
     with (
-        patch.object(admission, "execute_local", forbidden),
+        patch.object(runtime_patch_owner("execute_local"), "execute_local", forbidden),
         patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
     ):
         result = journey(sources, population=selected).execute()

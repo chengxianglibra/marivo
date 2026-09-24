@@ -21,7 +21,6 @@ from marivo.analysis.datasets.descriptors import (
     _row_set_contract_fingerprint,
 )
 from marivo.analysis.evidence._dataset_codec import encode_finding_body
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
@@ -30,6 +29,7 @@ from marivo.analysis.session._lazy_sources import LazySources
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 from tests.lazy_materialization_crash_worker import snapshot, statistics, versions
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 REVENUE = ref.metric("sales.revenue")
 CHANNEL = ref.dimension("sales.orders.channel")
@@ -118,7 +118,7 @@ def run(mode: str, kind: str, project: Path, refs: dict[str, str]) -> dict[str, 
                     "_build_backend_from_effective",
                     "execute_local",
                 ):
-                    guards.enter_context(patch.object(admission, name, _forbidden))
+                    guards.enter_context(patch.object(runtime_patch_owner(name), name, _forbidden))
             continued = continuation.execute()
             if mode == "cold":
                 assert continued.state.artifact_ref.ref == refs["continued"]

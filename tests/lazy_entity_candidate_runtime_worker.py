@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 import duckdb
 
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.candidate_codec import evidence_payload
 from marivo.analysis.observation.predicates import gte
@@ -20,6 +19,7 @@ from marivo.refs import ref
 from tests.lazy_entity_candidate_fixtures import entity_metric, setup_entity_candidate
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_materialization_crash_worker import record_evidence, snapshot, statistics, versions
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def forbidden(*args: object, **kwargs: object) -> None:
@@ -33,7 +33,7 @@ def run(mode: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
         logical = entity_metric(sources).discover.entity_outliers()
         selected = logical.where(gte(logical.fields.get("score"), 4.0))
         with (
-            patch.object(admission, "execute_local", forbidden),
+            patch.object(runtime_patch_owner("execute_local"), "execute_local", forbidden),
             patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
         ):
             direct = sources.observe(ref.metric("sales.line_revenue"), population=selected)
@@ -59,13 +59,15 @@ def run(mode: str, project: Path, refs: dict[str, str]) -> dict[str, object]:
         selected = result.where(gte(result.fields.get("score"), 4.0))
         ranked = selected.rank(selected.fields.get("score")).limit(1)
         with ExitStack() as guards:
-            guards.enter_context(patch.object(admission, "execute_local", forbidden))
+            guards.enter_context(
+                patch.object(runtime_patch_owner("execute_local"), "execute_local", forbidden)
+            )
             guards.enter_context(
                 patch("marivo.analysis.materialization.reads.payload_batches", forbidden)
             )
             if mode == "cold":
                 for name in ("place", "compile_dataset", "_build_backend_from_effective"):
-                    guards.enter_context(patch.object(admission, name, forbidden))
+                    guards.enter_context(patch.object(runtime_patch_owner(name), name, forbidden))
             retained = ranked.execute()
             observed = sources.observe(
                 ref.metric("sales.line_revenue"), population=retained

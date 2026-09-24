@@ -189,7 +189,7 @@ with MonkeyPatch.context() as patch:
     patch.delenv("MARIVO_TEST_POSTGRES_PASSWORD")
     def forbidden(*args, **kwargs):
         raise AssertionError("Cold read or binding hit accessed the source")
-    patch.setattr("marivo.analysis.materialization.admission._build_backend_from_effective", forbidden)
+    patch.setattr("marivo.analysis.materialization.source_preparation._build_backend_from_effective", forbidden)
     runtime = DatasetRuntime.open(Path(sys.argv[1]), sys.argv[2])
     artifact = runtime.artifact(sys.argv[4])
     assert artifact.to_pandas()["revenue"].tolist() == [Decimal("1058.50")]

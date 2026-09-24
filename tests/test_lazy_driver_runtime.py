@@ -7,7 +7,6 @@ from pathlib import Path
 import ibis
 import pytest
 
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.predicates import eq, gt
 from marivo.analysis.operators.candidate_dataset import MaterializedCandidateDataset
@@ -19,6 +18,7 @@ from tests.lazy_compare_runtime_fixtures import independent_sources
 from tests.lazy_driver_runtime_fixtures import CHANNEL, driver_metric, setup_driver
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_materialization_crash_worker import snapshot
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 pytestmark = pytest.mark.runtime
 
@@ -152,7 +152,11 @@ def test_independent_source_expansion_preserves_original_time_ordinals(
         )
         return BuiltDatasourceBackend(ibis.duckdb.connect(str(path), read_only=True), ())
 
-    monkeypatch.setattr(admission, "_build_backend_from_effective", supplied)
+    monkeypatch.setattr(
+        runtime_patch_owner("_build_backend_from_effective"),
+        "_build_backend_from_effective",
+        supplied,
+    )
     delta = driver_metric(first, axes=False, temporal=True).compare(
         driver_metric(second, baseline=True, axes=False, temporal=True)
     )

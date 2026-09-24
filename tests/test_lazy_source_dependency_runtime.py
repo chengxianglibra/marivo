@@ -54,12 +54,9 @@ def _source(
             monkeypatch.setenv(f"MARIVO_TEST_{engine.upper()}_PASSWORD", password())
     entity = registry.entities["sales.orders"]
     assert isinstance(entity.source, TableSourceIR)
-    columns = tuple(
-        (
-            key,
-            binding,
-        )
-        for key, binding in entity.source.columns
+    columns = (
+        *((key, binding) for key, binding in entity.source.columns if key != "amount"),
+        ("amount", "gross"),
     )
     entity = replace(entity, source=replace(entity.source, table=name, columns=columns))
     entities = {**registry.entities, entity.semantic_id: entity}
@@ -80,14 +77,16 @@ def _source(
         "clickhouse": "Array(String)",
     }[engine]
     suffix = " ENGINE=MergeTree ORDER BY id" if engine == "clickhouse" else ""
-    gross_type = "TEXT" if variant == "mismatch" and engine != "clickhouse" else "DOUBLE"
+    gross_type = (
+        ("DOUBLE[]" if engine == "duckdb" else "BLOB") if variant == "unsupported" else "DOUBLE"
+    )
     gross = "" if variant == "missing" else f", gross {gross_type}"
     try:
         with source_writer(engine, path) as execute:
             execute(
                 f"CREATE TABLE {name} (id BIGINT{gross}, weight DOUBLE, customer_id BIGINT, tenant {unused_type}, undocumented {unused_type}){suffix}"
             )
-            if variant not in {"missing", "mismatch"}:
+            if variant not in {"missing", "unsupported"}:
                 execute(
                     f"INSERT INTO {name} (id,gross,weight,customer_id) VALUES (1,10,1,1),(2,20,2,2),(3,30,1,1)"
                 )
@@ -146,7 +145,7 @@ def test_unused_declared_and_physical_columns(
         assert runtime.statistics.primary_queries == 0
 
 
-@pytest.mark.parametrize("variant", ["missing", "mismatch"])
+@pytest.mark.parametrize("variant", ["missing", "unsupported"])
 @pytest.mark.parametrize("engine", ["duckdb", "sqlite"])
 def test_necessary_columns_fail_even_for_empty_output(
     engine: Engine, variant: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -163,7 +162,9 @@ def test_necessary_columns_fail_even_for_empty_output(
             target.execute()
         error = caught.value
         assert isinstance(error, SourceSchemaError)
-        assert error.reason == ("missing_column" if variant == "missing" else "type_mismatch")
+        assert error.reason == (
+            "missing_column" if variant == "missing" else "unsupported_physical_type"
+        )
         assert error.logical_column == "amount" and error.physical_column == "gross"
         assert error.entity_ref == "sales.orders"
 

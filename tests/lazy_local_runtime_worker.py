@@ -15,12 +15,12 @@ import pandas as pd
 from ibis.backends.duckdb import Backend
 
 from marivo.analysis.compiler.placement import place
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
 from tests.lazy_local_fixtures import COUNT, REVENUE, pandas_methods, setup_local
 from tests.lazy_materialization_crash_worker import record_evidence, snapshot, statistics, versions
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 # Instrument the actual production worker entry, including its PyArrow reads.
 # Any forbidden attempt makes the producing journey fail; no alternate worker method exists.
@@ -75,7 +75,7 @@ def run(mode: str, project: Path, session: str, artifact: str) -> dict[str, obje
                 "require_profile_for_backend_type",
                 "compile_dataset",
             ):
-                stack.enter_context(patch.object(admission, name, forbidden))
+                stack.enter_context(patch.object(runtime_patch_owner(name), name, forbidden))
             for name in (
                 "connect",
                 "raw_sql",

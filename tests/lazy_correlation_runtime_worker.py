@@ -10,7 +10,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from marivo.analysis.evidence._dataset_codec import encode_finding_body
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.operators.association_contracts import CorrelationMethod
@@ -18,6 +17,7 @@ from marivo.refs import ref
 from tests.lazy_distinct_runtime_worker import rows
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 from tests.lazy_materialization_crash_worker import record_evidence, snapshot, statistics, versions
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def forbidden(*args: object, **kwargs: object) -> None:
@@ -60,7 +60,7 @@ def run(
                 "_build_backend_from_effective",
                 "execute_local",
             ):
-                guards.enter_context(patch.object(admission, name, forbidden))
+                guards.enter_context(patch.object(runtime_patch_owner(name), name, forbidden))
         result = logical.execute()
         selected = result.rank(result.fields.get("coefficient")).limit(1).execute()
     assert result.evidence_digest.finding_count == 1

@@ -14,7 +14,6 @@ from unittest.mock import patch
 import duckdb
 
 from marivo._compat import Never
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import (
     RunRecord,
@@ -27,6 +26,7 @@ from marivo.refs import ref
 from tests.lazy_adapter_fixtures import setup_adapter
 from tests.lazy_adapter_runtime_worker import snapshot
 from tests.lazy_execution_fixtures import make_execution_registry
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def forbidden(*args: object, **kwargs: object) -> Never:
@@ -148,8 +148,12 @@ def run(
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     pending = False
     with (
-        patch.object(admission, "_build_backend_from_effective", forbidden),
-        patch.object(admission, "place", forbidden),
+        patch.object(
+            runtime_patch_owner("_build_backend_from_effective"),
+            "_build_backend_from_effective",
+            forbidden,
+        ),
+        patch.object(runtime_patch_owner("place"), "place", forbidden),
     ):
         try:
             result = sources.population(ref.entity("sales.customers")).execute()

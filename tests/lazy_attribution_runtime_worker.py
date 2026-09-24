@@ -21,7 +21,6 @@ from marivo.analysis.datasets.descriptors import (
     _row_set_contract_fingerprint,
 )
 from marivo.analysis.evidence._dataset_codec import encode_finding_body
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.predicates import eq
 from marivo.analysis.operators.attribution import MaterializedAttributionDataset
@@ -29,6 +28,7 @@ from marivo.analysis.operators.delta import MaterializedDeltaDataset
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 from tests.lazy_materialization_crash_worker import snapshot, statistics, versions
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 REGION = ref.dimension("sales.customers.region")
 CHANNEL = ref.dimension("sales.orders.channel")
@@ -142,7 +142,7 @@ def run(
                 "_build_backend_from_effective",
                 "execute_local",
             ):
-                guards.enter_context(patch.object(admission, name, _forbidden))
+                guards.enter_context(patch.object(runtime_patch_owner(name), name, _forbidden))
         result = logical.execute()
         assert isinstance(result, MaterializedAttributionDataset)
         selected = result.where(eq(result.fields.get("active_axis_mask"), (True, True)))

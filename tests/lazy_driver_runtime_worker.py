@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Literal
 from unittest.mock import patch
 
-from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.candidate_codec import evidence_payload
 from marivo.analysis.observation.predicates import eq
@@ -19,6 +18,7 @@ from marivo.analysis.operators.delta import MaterializedDeltaDataset
 from tests.lazy_distinct_runtime_worker import frame_rows
 from tests.lazy_driver_runtime_fixtures import CHANNEL, driver_metric, setup_driver
 from tests.lazy_materialization_crash_worker import record_evidence, snapshot, statistics, versions
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def forbidden(*args: object, **kwargs: object) -> None:
@@ -63,7 +63,7 @@ def run(
                     "_build_backend_from_effective",
                     "execute_local",
                 ):
-                    guards.enter_context(patch.object(admission, name, forbidden))
+                    guards.enter_context(patch.object(runtime_patch_owner(name), name, forbidden))
             assert (
                 delta.discover.driver_axes(search_space=[CHANNEL]).execute().state.artifact_ref
                 == result.state.artifact_ref

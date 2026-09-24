@@ -68,6 +68,7 @@ from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.observation.contracts import (
     MetricPayload,
     PopulationPayload,
+    producer_contract,
 )
 from marivo.analysis.operators.association_contracts import (
     AssociationSearchSummary,
@@ -86,7 +87,6 @@ from marivo.analysis.materialization import dataset_publication, local_stage, so
 from marivo.analysis.materialization.admission import (
     _READ_POLICY,
     ExecutionStatistics,
-    producer_contract_versions,
 )
 from marivo.analysis.materialization.execution_state import ExecutionProgress, StageResult
 
@@ -280,7 +280,7 @@ def execute(self: DatasetRuntime, dataset: LogicalDataset) -> MaterializedDatase
     materialization_contract(dataset)
     roots = tuple(logical_roots(dataset))
     for root in roots:
-        if root.contract_versions != producer_contract_versions(root.operator_id):
+        if root.contract_versions != producer_contract(root.operator_id).versions:
             raise _error("implementation_registration")
     key = execution_key(dataset.definition_fingerprint)
     with session_writer_guard(

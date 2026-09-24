@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
 import pandas as pd
-import pyarrow as pa
 
 from marivo._temporal import PeriodCalendarSnapshotV1
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
@@ -29,9 +28,6 @@ from marivo.analysis.evidence._dataset_types import (
 )
 from marivo.analysis.materialization.contracts import (
     ArtifactRecord,
-)
-from marivo.analysis.materialization.errors import (
-    MaterializationError,
 )
 from marivo.analysis.materialization.errors import (
     _execution_error as _error,
@@ -107,15 +103,6 @@ class ExecutionStatistics:
     statements: list[tuple[str, str]] = field(default_factory=list)
     submissions: list[Submission] = field(default_factory=list)
     local_handoffs: tuple[tuple[int, int], ...] = ()
-
-
-def _local_output_batches(table: pa.Table) -> list[pa.RecordBatch]:
-    """Keep the exact schema when a valid local selection produces zero rows."""
-    return table.to_batches(max_chunksize=1024) or [
-        pa.RecordBatch.from_arrays(
-            [pa.array([], type=field.type) for field in table.schema], schema=table.schema
-        )
-    ]
 
 
 class DatasetRuntime:
@@ -468,44 +455,3 @@ class DatasetRuntime:
         from marivo.analysis.materialization import dataset_execution
 
         return dataset_execution.execute(self, dataset)
-
-
-def _decode_scalar_masks(
-    batches: Iterable[pa.RecordBatch], arity: int, run_ref: str
-) -> Iterator[pa.RecordBatch]:
-    """Restore exact fixed-width source mask bits at the public storage boundary."""
-    for batch in batches:
-        arrays = []
-        fields = []
-        for schema_field, column in zip(batch.schema, batch.columns, strict=True):
-            if schema_field.name not in {"active_axis_mask", "other_mask"}:
-                arrays.append(column)
-                fields.append(schema_field)
-                continue
-            values = column.to_pylist()
-            if any(
-                not isinstance(value, str)
-                or len(value) != arity
-                or any(bit not in "01" for bit in value)
-                for value in values
-            ):
-                raise MaterializationError(
-                    expected=f"exact {arity}-bit source Attribution mask",
-                    received=f"invalid {schema_field.name} value",
-                    repair="Correct the source mask lowering before publication.",
-                    stage="storage_staging",
-                    run_ref=run_ref,
-                )
-            arrays.append(
-                pa.array(
-                    [[bit == "1" for bit in value] for value in values], type=pa.list_(pa.bool_())
-                )
-            )
-            fields.append(schema_field.with_type(pa.list_(pa.bool_())))
-        yield pa.RecordBatch.from_arrays(arrays, schema=pa.schema(fields))
-
-
-def producer_contract_versions(operator_id: str) -> tuple[tuple[str, str], ...]:
-    from marivo.analysis.observation.contracts import producer_contract
-
-    return producer_contract(operator_id).versions

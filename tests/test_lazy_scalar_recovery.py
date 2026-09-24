@@ -28,6 +28,7 @@ from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.validator import Registry
 from tests.lazy_acceptance_capture import counts
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 from tests.lazy_scalar_source_fixtures import registry_for as scalar_registry
 from tests.lazy_shared_assertions import (
     assert_composed_parts_recover,
@@ -189,13 +190,16 @@ def _recover(project: Path, table: str) -> None:
         registry, sidecar = registry_for(table, patch)
         source = runtime.sources(semantic_registry=registry, sidecar=sidecar)
         if run.lifecycle == "succeeded":
-            from marivo.analysis.materialization import admission
 
             def forbidden(*args: object, **kwargs: object) -> object:
                 raise AssertionError("cold binding attempted source access")
 
             with patch.context() as cold:
-                cold.setattr(admission, "_build_backend_from_effective", forbidden)
+                cold.setattr(
+                    runtime_patch_owner("_build_backend_from_effective"),
+                    "_build_backend_from_effective",
+                    forbidden,
+                )
                 cold.delenv("MARIVO_TEST_MYSQL_PASSWORD", raising=False)
                 observed = source.observe(
                     ref.metric("sales.conversion_rate") if composed else REVENUE
@@ -206,14 +210,17 @@ def _recover(project: Path, table: str) -> None:
                 assert hit.state.artifact_ref.ref == run.output_artifact_ref
                 assert runtime.statistics.primary_queries == 0
         if composed and run.lifecycle == "succeeded":
-            from marivo.analysis.materialization import admission
 
             def no_source(*args: object, **kwargs: object) -> object:
                 raise AssertionError("cold sufficient-state fold attempted source access")
 
             assert run.output_artifact_ref is not None
             with patch.context() as cold:
-                cold.setattr(admission, "_build_backend_from_effective", no_source)
+                cold.setattr(
+                    runtime_patch_owner("_build_backend_from_effective"),
+                    "_build_backend_from_effective",
+                    no_source,
+                )
                 retained = runtime.artifact(run.output_artifact_ref)
                 assert isinstance(retained, MaterializedMetricDataset)
                 folded = retained.rollup(

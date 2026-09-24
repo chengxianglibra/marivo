@@ -8,6 +8,7 @@ from marivo.analysis.domains.lifecycle import ROLES, MaterializedLifecycleDatase
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.lifecycle_codec import LifecycleEvidenceSummary
 from tests.lazy_lifecycle_fixtures import history, setup_lifecycle
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 pytestmark = pytest.mark.runtime
 
@@ -101,7 +102,6 @@ def test_large_history_uses_native_identity_execution(tmp_path: Path) -> None:
 
     import duckdb
 
-    from marivo.analysis.materialization import admission
     from tests.lazy_adapter_runtime_worker import forbidden
     from tests.lazy_event_runtime_worker import assert_identity_private
 
@@ -114,7 +114,7 @@ def test_large_history_uses_native_identity_execution(tmp_path: Path) -> None:
             "INSERT INTO started_rows SELECT 981730041+i,881730041+i,TIMESTAMP '2026-02-01 00:00:00' FROM range(5000) t(i)"
         )
     with (
-        patch.object(admission, "execute_local", forbidden),
+        patch.object(runtime_patch_owner("execute_local"), "execute_local", forbidden),
         patch("marivo.analysis.materialization.reads.payload_batches", forbidden),
     ):
         result = history(sources).execute()

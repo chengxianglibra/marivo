@@ -143,7 +143,9 @@ def test_hidden_axis_attribution_failure_after_source_preparation_cleans_up(
     def fail_write(*args: object, **kwargs: object) -> None:
         raise RuntimeError("injected write failure after source validation")
 
-    monkeypatch.setattr(runtime, "_write_output", fail_write)
+    monkeypatch.setattr(
+        "marivo.analysis.materialization.dataset_publication.write_output", fail_write
+    )
     with pytest.raises(RuntimeError, match="injected write failure"):
         metric.compare(metric).attribute(axes=(CHANNEL,)).execute()
     assert any(item.role == "validation_batch" for item in runtime.statistics.submissions)

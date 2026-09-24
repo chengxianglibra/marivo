@@ -17,6 +17,7 @@ from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from tests.lazy_materialization_crash_worker import snapshot
+from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 def definition(session: mv.Session) -> mv.LogicalDeltaDataset:
@@ -169,7 +170,7 @@ def journey(phase: str, project: Path) -> dict[str, object]:
             "_effective_kwargs",
             "require_profile_for_backend_type",
         ):
-            patch.setattr(admission, name, _forbidden)
+            patch.setattr(runtime_patch_owner(name), name, _forbidden)
         owner = mv.session.resume(saved["owner"], by="id")
         if phase == "continue":
             consumer = mv.session.get_or_create("public-consumer", report_timezone="UTC")
