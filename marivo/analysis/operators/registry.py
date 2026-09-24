@@ -8,6 +8,7 @@ from typing import Literal, TypeAlias
 
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.datasets.base import Dataset, LogicalDataset
+from marivo.analysis.datasets.descriptors import _is_stable_identifier
 from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.domains.contracts import (
@@ -111,6 +112,217 @@ class ImplementationRegistration:
 
     def for_backend(self, backend: str) -> BackendRegistration | None:
         return next((item for item in self.backends if item.backend == backend), None)
+
+
+MethodKind: TypeAlias = Literal[
+    "domain", "observed", "row_statistic", "difference", "numeric_relation", "predicate"
+]
+MethodRoute: TypeAlias = Literal["source", "local"]
+MethodBackend: TypeAlias = BackendName | Literal["pandas"]
+MethodDomain: TypeAlias = Literal["entity", "group", "singleton"]
+CoreCapability: TypeAlias = Literal[
+    "bind_project",
+    "domain_correspondence",
+    "cell_calculation",
+    "current_row_state",
+    "original_state_reduction",
+    "part_transport",
+]
+_METHOD_KINDS = frozenset(
+    {"domain", "observed", "row_statistic", "difference", "numeric_relation", "predicate"}
+)
+_CAPABILITIES = frozenset(
+    {
+        "bind_project",
+        "domain_correspondence",
+        "cell_calculation",
+        "current_row_state",
+        "original_state_reduction",
+        "part_transport",
+    }
+)
+_BACKENDS = frozenset({"duckdb", "postgres", "mysql", "sqlite", "trino", "clickhouse", "pandas"})
+
+
+def _method_error(expected: str, received: str) -> DatasetRegistrationError:
+    return DatasetRegistrationError(
+        expected=expected,
+        received=received,
+        repair="Register one exact versioned method contract and only qualified implementations.",
+        location="dataset.method_registry",
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class MethodContract:
+    """Inactive first-round method semantics, independent of execution routes."""
+
+    method_id: str
+    version: int
+    input_kinds: tuple[MethodKind, ...]
+    input_domains: tuple[MethodDomain, ...]
+    output_kind: MethodKind
+    domain_policy: Literal["same", "mapped", "new"]
+    unit_policy: Literal["preserve", "count", "ratio", "mean", "difference", "coefficient"]
+    cell_policy: Literal["strict", "total_is_defined", "spearman_pairs"]
+    numeric_policy: Literal["none", "int64_checked", "float64_finite", "pair_ranks"]
+    capabilities: tuple[CoreCapability, ...]
+    part_effect: Literal["preserve", "build_current", "merge_original", "transport", "discard"]
+    required_parts: tuple[str, ...]
+    required_checks: tuple[str, ...]
+    continuations: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            not _is_stable_identifier(self.method_id)
+            or type(self.version) is not int
+            or self.version < 1
+        ):
+            raise _method_error("stable method id and positive version", "invalid identity")
+        if not self.input_kinds or any(
+            type(values) is not tuple or len(set(values)) != len(values)
+            for values in (
+                self.input_kinds,
+                self.input_domains,
+                self.capabilities,
+                self.required_parts,
+                self.required_checks,
+                self.continuations,
+            )
+        ):
+            raise _method_error(
+                "nonempty inputs and unique immutable contract facts", "invalid facts"
+            )
+        if (
+            any(kind not in _METHOD_KINDS for kind in self.input_kinds)
+            or not self.input_domains
+            or any(domain not in ("entity", "group", "singleton") for domain in self.input_domains)
+            or self.output_kind not in _METHOD_KINDS
+            or not self.capabilities
+            or any(capability not in _CAPABILITIES for capability in self.capabilities)
+            or self.unit_policy
+            not in ("preserve", "count", "ratio", "mean", "difference", "coefficient")
+            or self.cell_policy not in ("strict", "total_is_defined", "spearman_pairs")
+            or self.numeric_policy not in ("none", "int64_checked", "float64_finite", "pair_ranks")
+            or self.part_effect
+            not in ("preserve", "build_current", "merge_original", "transport", "discard")
+            or any(
+                not _is_stable_identifier(value)
+                for values in (self.required_parts, self.required_checks, self.continuations)
+                for value in values
+            )
+        ):
+            raise _method_error("closed method kind, policy and capability facts", "invalid policy")
+        if self.domain_policy not in ("same", "mapped", "new"):
+            raise _method_error("closed domain policy", "invalid domain policy")
+        if (
+            (
+                "current_row_state" in self.capabilities
+                and (self.output_kind != "row_statistic" or self.part_effect != "build_current")
+            )
+            or (
+                "original_state_reduction" in self.capabilities
+                and (
+                    self.input_kinds != ("observed",)
+                    or self.output_kind != "observed"
+                    or self.part_effect != "merge_original"
+                    or not self.required_parts
+                )
+            )
+            or (self.cell_policy == "total_is_defined" and self.output_kind != "predicate")
+        ):
+            raise _method_error("capability-specific input, output and part effect", "invalid rule")
+
+
+@dataclass(frozen=True, slots=True)
+class MethodImplementation:
+    """A route's explicit qualification; no executable route is published by T2."""
+
+    method_id: str
+    version: int
+    route: MethodRoute
+    backend: MethodBackend
+    input_domains: tuple[MethodDomain, ...]
+    logical_types: tuple[str, ...]
+    supported_parts: tuple[str, ...]
+    supported_checks: tuple[str, ...]
+    batch_mode: Literal["stream", "complete"]
+    resource_owner: Literal["producer", "caller"]
+
+    def __post_init__(self) -> None:
+        if (
+            not _is_stable_identifier(self.method_id)
+            or type(self.version) is not int
+            or self.version < 1
+            or self.route not in ("source", "local")
+            or self.backend not in _BACKENDS
+            or (self.route == "source" and self.backend == "pandas")
+            or (self.route == "local" and self.backend != "pandas")
+            or (
+                self.route == "source"
+                and (self.batch_mode, self.resource_owner) != ("stream", "producer")
+            )
+            or (
+                self.route == "local"
+                and (self.batch_mode, self.resource_owner) != ("complete", "caller")
+            )
+            or not self.logical_types
+            or not self.input_domains
+            or any(domain not in ("entity", "group", "singleton") for domain in self.input_domains)
+            or len(set(self.input_domains)) != len(self.input_domains)
+            or len(set(self.logical_types)) != len(self.logical_types)
+            or len(set(self.supported_parts)) != len(self.supported_parts)
+            or len(set(self.supported_checks)) != len(self.supported_checks)
+        ):
+            raise _method_error(
+                "one typed route with matching batch and resource owner", "invalid route"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class MethodRegistration:
+    """One semantic owner with independently qualified implementation routes."""
+
+    contract: MethodContract
+    implementations: tuple[MethodImplementation, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.contract) is not MethodContract or type(self.implementations) is not tuple:
+            raise _method_error(
+                "one immutable method and implementation tuple", "invalid registration"
+            )
+        keys: set[tuple[str, str]] = set()
+        for implementation in self.implementations:
+            if type(implementation) is not MethodImplementation or (
+                implementation.method_id,
+                implementation.version,
+            ) != (self.contract.method_id, self.contract.version):
+                raise _method_error("matching method id and version", "mismatched implementation")
+            key = (implementation.route, implementation.backend)
+            if key in keys:
+                raise _method_error(
+                    "one qualification per route/backend", "duplicate implementation"
+                )
+            keys.add(key)
+            if not set(self.contract.required_checks).issubset(implementation.supported_checks):
+                raise _method_error("implementation of every required check", "missing check")
+            if not set(self.contract.required_parts).issubset(implementation.supported_parts):
+                raise _method_error("implementation of every required part", "missing part")
+            if not set(implementation.input_domains).issubset(self.contract.input_domains):
+                raise _method_error("method-admitted implementation domains", "invalid domain")
+
+    def require_route(
+        self, route: MethodRoute, backend: MethodBackend, domain: MethodDomain, logical_type: str
+    ) -> MethodImplementation:
+        for implementation in self.implementations:
+            if (
+                implementation.route == route
+                and implementation.backend == backend
+                and domain in implementation.input_domains
+                and logical_type in implementation.logical_types
+            ):
+                return implementation
+        raise _method_error("qualified exact method route/type", "unsupported route")
 
 
 def supports_retained_import(backend: str) -> bool:

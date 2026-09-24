@@ -74,6 +74,8 @@ class _Descriptor:
                 "a helper-produced immutable descriptor", "direct construction", type(self).__name__
             )
         if type(self) in (
+            AnalysisDomain,
+            QuantityState,
             DatasetFieldIdentity,
             DatasetPhysicalTypeState,
             DatasetRowBound,
@@ -181,6 +183,160 @@ class DatasetShapeId(_Descriptor, _token=_CORE_TOKEN):
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class DatasetFieldId(_Descriptor, _token=_CORE_TOKEN):
     value: str
+
+
+class AnalysisDomain(_Descriptor, _token=_CORE_TOKEN):
+    """Closed member domain; contribution coordinates belong to the quantity."""
+
+    __slots__ = ()
+    kind: Literal["entity", "group", "singleton"]
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class _EntityDomain(AnalysisDomain, _token=_CORE_TOKEN):
+    entity_ref: Ref[EntityKind]
+    member_identity: DatasetFieldId
+    kind: Literal["entity"] = field(default="entity", init=False)
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class _GroupDomain(AnalysisDomain, _token=_CORE_TOKEN):
+    input_domain: AnalysisDomain
+    group_fields: tuple[DatasetFieldId, ...]
+    kind: Literal["group"] = field(default="group", init=False)
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class _SingletonDomain(AnalysisDomain, _token=_CORE_TOKEN):
+    input_domain: AnalysisDomain
+    kind: Literal["singleton"] = field(default="singleton", init=False)
+
+
+def _entity_domain(entity_ref: Ref[EntityKind], member_identity: DatasetFieldId) -> _EntityDomain:
+    if type(entity_ref) is not Ref or entity_ref.kind is not SemanticKind.ENTITY:
+        _fail("one governed Entity ref", type(entity_ref).__name__, "domain.entity")
+    if type(member_identity) is not DatasetFieldId:
+        _fail("one member identity field", type(member_identity).__name__, "domain.member")
+    return _EntityDomain(_token=_CORE_TOKEN, entity_ref=entity_ref, member_identity=member_identity)
+
+
+def _group_domain(
+    input_domain: AnalysisDomain, group_fields: tuple[DatasetFieldId, ...]
+) -> _GroupDomain:
+    if (
+        not isinstance(input_domain, AnalysisDomain)
+        or type(group_fields) is not tuple
+        or not group_fields
+    ):
+        _fail("bound domain and nonempty group tuple", "invalid grouping", "domain.group")
+    if any(type(item) is not DatasetFieldId for item in group_fields) or len(
+        set(group_fields)
+    ) != len(group_fields):
+        _fail("unique owned group fields", "invalid fields", "domain.group")
+    return _GroupDomain(_token=_CORE_TOKEN, input_domain=input_domain, group_fields=group_fields)
+
+
+def _singleton_domain(input_domain: AnalysisDomain) -> _SingletonDomain:
+    if not isinstance(input_domain, AnalysisDomain):
+        _fail("one bound input domain", type(input_domain).__name__, "domain.singleton")
+    return _SingletonDomain(_token=_CORE_TOKEN, input_domain=input_domain)
+
+
+class QuantityState(_Descriptor, _token=_CORE_TOKEN):
+    """An original observation or a new statistic over current rows."""
+
+    __slots__ = ()
+    kind: Literal["observed", "row_statistic"]
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class _ObservedQuantity(QuantityState, _token=_CORE_TOKEN):
+    domain: AnalysisDomain
+    metric_identity: str
+    contribution_coordinates: tuple[DatasetFieldId, ...]
+    required_parts: tuple[str, ...]
+    kind: Literal["observed"] = field(default="observed", init=False)
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class _RowStatisticQuantity(QuantityState, _token=_CORE_TOKEN):
+    input_domain: AnalysisDomain
+    output_domain: AnalysisDomain
+    source_definition_fingerprint: str
+    method: Literal["sum", "count", "mean"]
+    required_parts: tuple[str, ...]
+    current_row_unit: Literal["one_per_row"] = field(default="one_per_row", init=False)
+    kind: Literal["row_statistic"] = field(default="row_statistic", init=False)
+
+
+def _part_ids(parts: tuple[str, ...], location: str) -> None:
+    if (
+        type(parts) is not tuple
+        or any(type(part) is not str for part in parts)
+        or len(set(parts)) != len(parts)
+    ):
+        _fail("unique immutable part ids", "invalid parts", location)
+    for part in parts:
+        _stable_text(part, location)
+
+
+def _observed_quantity(
+    domain: AnalysisDomain,
+    metric_identity: str,
+    contribution_coordinates: tuple[DatasetFieldId, ...],
+    required_parts: tuple[str, ...],
+) -> _ObservedQuantity:
+    if (
+        not isinstance(domain, AnalysisDomain)
+        or type(metric_identity) is not str
+        or not metric_identity.startswith("metric:")
+    ):
+        _fail("bound domain and Metric identity", "invalid observation", "quantity.observed")
+    _stable_text(metric_identity, "quantity.observed.metric")
+    if (
+        type(contribution_coordinates) is not tuple
+        or any(type(item) is not DatasetFieldId for item in contribution_coordinates)
+        or len(set(contribution_coordinates)) != len(contribution_coordinates)
+    ):
+        _fail("unique contribution coordinates", "invalid coordinates", "quantity.observed")
+    _part_ids(required_parts, "quantity.observed.parts")
+    return _ObservedQuantity(
+        _token=_CORE_TOKEN,
+        domain=domain,
+        metric_identity=metric_identity,
+        contribution_coordinates=contribution_coordinates,
+        required_parts=required_parts,
+    )
+
+
+def _row_statistic_quantity(
+    input_domain: AnalysisDomain,
+    output_domain: AnalysisDomain,
+    source_definition_fingerprint: str,
+    method: Literal["sum", "count", "mean"],
+    required_parts: tuple[str, ...],
+) -> _RowStatisticQuantity:
+    if (
+        not isinstance(input_domain, AnalysisDomain)
+        or not isinstance(output_domain, AnalysisDomain)
+        or type(source_definition_fingerprint) is not str
+        or re.fullmatch(r"ds_[0-9a-f]{64}", source_definition_fingerprint) is None
+    ):
+        _fail("bound domain and exact source definition", "invalid row input", "quantity.rows")
+    if method not in ("sum", "count", "mean"):
+        _fail("sum/count/mean current-row method", str(method), "quantity.rows.method")
+    _part_ids(required_parts, "quantity.rows.parts")
+    expected_parts = {"sum": ("sum",), "count": ("count",), "mean": ("sum", "count")}
+    if required_parts != expected_parts[method]:
+        _fail("method-specific current-row state parts", str(required_parts), "quantity.rows.parts")
+    return _RowStatisticQuantity(
+        _token=_CORE_TOKEN,
+        input_domain=input_domain,
+        output_domain=output_domain,
+        source_definition_fingerprint=source_definition_fingerprint,
+        method=method,
+        required_parts=required_parts,
+    )
 
 
 class DatasetFieldIdentity(_Descriptor, _token=_CORE_TOKEN):

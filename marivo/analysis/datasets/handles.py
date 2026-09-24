@@ -84,6 +84,11 @@ class _LogicalNodePayload(ABC):
     def identity_payload(self) -> CanonicalValue:
         """Return safe immutable semantic facts and capture digests, never raw values."""
 
+    @property
+    def live_source_dependencies(self) -> tuple[str, ...]:
+        """Return source facts owned by this node, excluding its logical inputs."""
+        return ()
+
     def __repr__(self) -> str:
         return "<private logical node payload>"
 

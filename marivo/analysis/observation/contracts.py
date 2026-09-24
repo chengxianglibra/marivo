@@ -44,6 +44,7 @@ from marivo.analysis.datasets.descriptors import (
     _unknown_row_bound,
     _unordered_ordering,
 )
+from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.datasets.fields import DatasetFieldRef, validate_field_ref
 from marivo.analysis.datasets.handles import CanonicalValue, _LogicalNodePayload
 from marivo.analysis.datasets.registry import (
@@ -103,7 +104,13 @@ from marivo.semantic.ir import (
     TargetValiditySelection,
     TargetValidityVersion,
 )
-from marivo.semantic.metric_graph import CatalogMetricIdentity, TargetMetricContract
+from marivo.semantic.metric_graph import (
+    AggregateNodeV1,
+    CatalogMetricIdentity,
+    RatioNodeV1,
+    TargetMetricContract,
+    component_node,
+)
 from marivo.semantic.metric_graph_lowering import dependency_digest
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from marivo.semantic.validator import Registry
@@ -162,6 +169,151 @@ METRIC_SHAPES = (
     "dimension-time",
 )
 IDENTITY_FIELD_ID = _make_field_id("identity.entity_identity@v1")
+
+
+@dataclass(frozen=True, slots=True)
+class ContractEvidence:
+    """Separate authored facts, graph deductions and completed runtime checks."""
+
+    declarations: tuple[str, ...]
+    deductions: tuple[str, ...]
+    completed_checks: tuple[str, ...]
+    pending_checks: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        for facts in (
+            self.declarations,
+            self.deductions,
+            self.completed_checks,
+            self.pending_checks,
+        ):
+            if (
+                type(facts) is not tuple
+                or any(not _is_stable_identifier(fact) for fact in facts)
+                or len(set(facts)) != len(facts)
+            ):
+                raise DatasetConstructionError(
+                    expected="unique immutable named evidence facts",
+                    received="invalid fact set",
+                    repair="Record exact facts under their owning evidence category.",
+                    location="dsl.evidence",
+                )
+        if set(self.completed_checks).intersection(self.pending_checks):
+            raise DatasetConstructionError(
+                expected="disjoint completed and pending checks",
+                received="check still marked pending",
+                repair="Move only a successfully executed check into completed evidence.",
+                location="dsl.evidence",
+            )
+
+    def require_completed(self, check: str) -> None:
+        if check not in self.completed_checks:
+            raise DatasetConstructionError(
+                expected=f"completed check: {check}",
+                received="declaration, deduction or pending obligation only",
+                repair="Execute and record the owning check before admitting this continuation.",
+                location="dsl.evidence",
+            )
+
+    def require_declared(self, fact: str) -> None:
+        if fact not in self.declarations:
+            raise DatasetConstructionError(
+                expected=f"author declaration: {fact}",
+                received="missing declaration",
+                repair="Add the versioned Semantic declaration before using this capability.",
+                location="dsl.evidence",
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class MetricComponentPlan:
+    """Source-free component shape, without inferred contribution permission."""
+
+    method: Literal["sum", "count", "ratio"]
+    component_roles: tuple[str, ...]
+    required_parts: tuple[str, ...]
+    unit: str | None
+    null_rule: Literal["ignore_null_inputs", "non_null_pairs", "null_component_or_zero_denominator"]
+    empty_rule: Literal["zero", "null"]
+    evidence: ContractEvidence
+
+    def require_original_state_rollup(self) -> None:
+        self.evidence.require_declared("value_policy")
+        self.evidence.require_declared("contribution_partition")
+        self.evidence.require_completed("contribution_partition")
+
+
+def derive_metric_components(metric: TargetMetricContract) -> MetricComponentPlan:
+    """Read supported sum/count/ratio structure from the normalized Metric graph."""
+    nodes = {record.node_id: record.node for record in metric.graph.nodes}
+    if len(metric.graph.roots) != 1:
+        raise DatasetConstructionError(
+            expected="one canonical Metric root",
+            received="multiple roots",
+            repair="Normalize one Metric input before deriving its method contract.",
+            location="dsl.metric_graph",
+        )
+    root = nodes[metric.graph.roots[0]]
+    method: Literal["sum", "count", "ratio"]
+    if isinstance(root, AggregateNodeV1) and root.agg in ("sum", "count"):
+        method = root.agg
+    elif isinstance(root, RatioNodeV1):
+        method = "ratio"
+    else:
+        raise DatasetConstructionError(
+            expected="sum/count or explicit-component ratio Metric",
+            received=type(root).__name__,
+            repair="Use a first-round registered Metric method with explicit components.",
+            location="dsl.metric_graph",
+        )
+    components = metric.components
+    expected_nodes = (
+        (root.numerator_id, root.denominator_id)
+        if isinstance(root, RatioNodeV1)
+        else (metric.graph.roots[0],)
+    )
+    roles = tuple(component.role for component in components)
+
+    def supported_component(node_id: str) -> bool:
+        try:
+            node = component_node(metric.graph, node_id)
+        except (KeyError, TypeError):
+            return False
+        return isinstance(node, AggregateNodeV1) and node.agg in ("sum", "count")
+
+    exact_components = (
+        len(components) == len(expected_nodes)
+        and tuple(component.node_id for component in components) == expected_nodes
+        and all(supported_component(node_id) for node_id in expected_nodes)
+    )
+    expected_parts = tuple(
+        f"{component.role}.{part}" for component in components for part in component.required_state
+    )
+    if (
+        not exact_components
+        or metric.required_state != expected_parts
+        or metric.requires_source_recompute
+    ):
+        raise DatasetConstructionError(
+            expected="retained first-round component state",
+            received="missing or source-recompute-only components",
+            repair="Supply complete registered components before promising local continuation.",
+            location="dsl.metric_graph",
+        )
+    return MetricComponentPlan(
+        method=method,
+        component_roles=roles,
+        required_parts=metric.required_state,
+        unit=metric.unit,
+        null_rule=metric.null_rule,
+        empty_rule=metric.empty_rule,
+        evidence=ContractEvidence(
+            declarations=(),
+            deductions=("component_graph",),
+            completed_checks=(),
+            pending_checks=("value_policy", "contribution_partition"),
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -761,6 +913,10 @@ class PopulationPayload(_LogicalNodePayload, _token=_CORE_TOKEN):
     report_time: ReportTimeAuthority = field(default_factory=ReportTimeAuthority)
 
     @property
+    def live_source_dependencies(self) -> tuple[str, ...]:
+        return (self.entity.ref.path,)
+
+    @property
     def identity_payload(self) -> CanonicalValue:
         return (
             entity_payload(self.entity),
@@ -800,6 +956,14 @@ class MetricPayload(_LogicalNodePayload, _token=_CORE_TOKEN):
     selected_metric: str | None = None
     rank: RankSpec | None = None
     limit_count: int | None = None
+
+    @property
+    def live_source_dependencies(self) -> tuple[str, ...]:
+        return tuple(
+            dict.fromkeys(
+                root.path for metric in self.definition.metrics for root in metric.computation_roots
+            )
+        )
 
     @property
     def identity_payload(self) -> CanonicalValue:
