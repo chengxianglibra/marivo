@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
+from marivo._temporal import time_scope
 from marivo.analysis.compiler.normalize import classify_inputs, require_unmixed_inputs
 from marivo.analysis.datasets.descriptors import (
     _entity_domain,
@@ -25,7 +27,10 @@ from marivo.analysis.datasets.handles import (
     MaterializedInputToken,
     MaterializedScanLeafHandle,
     _make_logical_root,
+    _RunNodeBindings,
 )
+from marivo.analysis.domains.contracts import EventPayload
+from marivo.analysis.event import first_per_subject, sequence, step
 from marivo.analysis.observation.contracts import ContractEvidence, derive_metric_components
 from marivo.analysis.operators.registry import (
     MethodContract,
@@ -34,9 +39,12 @@ from marivo.analysis.operators.registry import (
 )
 from marivo.analysis.session._lazy_sources import make_lazy_sources
 from marivo.refs import ref
+from marivo.semantic.event import participant_role
 from marivo.semantic.metric_graph_lowering import normalize_target_metric
 from tests.lazy_dataset_fixtures import make_logical_dataset, make_materialized_dataset
+from tests.lazy_event_fixtures import make_event_sources
 from tests.lazy_execution_fixtures import make_execution_registry
+from tests.lazy_lifecycle_fixtures import history, sources_without_io
 from tests.lazy_observation_fixtures import NoIoActionPort
 
 
@@ -128,6 +136,22 @@ def test_real_metric_graph_derives_components_but_not_missing_authority() -> Non
                 required_state=(),
             )
         )
+    malformed = normalize_target_metric(registry, "sales.conversion_rate", sidecar=sidecar)
+    missing_component = malformed.components[-1].node_id
+    with pytest.raises(DatasetConstructionError, match="missing component graph node"):
+        derive_metric_components(
+            replace(
+                malformed,
+                graph=replace(
+                    malformed.graph,
+                    nodes=tuple(
+                        record
+                        for record in malformed.graph.nodes
+                        if record.node_id != missing_component
+                    ),
+                ),
+            )
+        )
 
 
 def test_declared_and_pending_facts_do_not_become_completed_checks() -> None:
@@ -143,6 +167,15 @@ def test_declared_and_pending_facts_do_not_become_completed_checks() -> None:
         evidence.require_completed("entity_identity")
     with pytest.raises(DatasetConstructionError):
         replace(evidence, completed_checks=("contribution_partition",))
+    # The same named premise may need both an authored assertion and a completed check.
+    both = replace(
+        evidence,
+        declarations=("contribution_partition",),
+        pending_checks=(),
+        completed_checks=("contribution_partition",),
+    )
+    both.require_declared("contribution_partition")
+    both.require_completed("contribution_partition")
 
 
 def test_method_semantics_are_single_owner_for_qualified_implementations() -> None:
@@ -222,6 +255,18 @@ def test_method_semantics_are_single_owner_for_qualified_implementations() -> No
         replace(contract, input_kinds=("row_statistic",))
     with pytest.raises(DatasetRegistrationError):
         replace(contract, **{"cell_policy": "unknown"})
+    with pytest.raises(DatasetRegistrationError):
+        replace(contract, cell_policy="spearman_pairs", numeric_policy="none")
+    with pytest.raises(DatasetRegistrationError):
+        replace(contract, capabilities=("cell_calculation",), input_kinds=("domain",))
+    with pytest.raises(DatasetRegistrationError):
+        replace(contract, capabilities=("domain_correspondence",), output_kind="observed")
+    with pytest.raises(DatasetRegistrationError):
+        replace(contract, capabilities=("bind_project",), input_kinds=("observed",))
+    conservative_transport = replace(
+        contract, capabilities=("part_transport",), part_effect="preserve", continuations=()
+    )
+    assert conservative_transport.continuations == ()
     row_statistic = replace(
         contract,
         method_id="dsl.summarize_mean",
@@ -265,8 +310,19 @@ def test_input_classification_stops_at_artifact_and_keeps_explicit_node_identity
     assert source._root is not source_again._root
     run_a, run_b = uuid4().hex, uuid4().hex
     assert run_a != run_b
-    run_bindings = {run_a: {source._root: object()}, run_b: {source._root: object()}}
-    assert run_bindings[run_a][source._root] is not run_bindings[run_b][source._root]
+    run_bindings = {
+        run_a: _RunNodeBindings[object]("dsl-contract"),
+        run_b: _RunNodeBindings[object]("dsl-contract"),
+    }
+    first_implementation = object()
+    assert run_bindings[run_a].bind(source._root, first_implementation) is first_implementation
+    assert run_bindings[run_a].bind(source._root, first_implementation) is first_implementation
+    assert run_bindings[run_b].bind(source._root, object()) is not first_implementation
+    run_bindings[run_a].bind(source_again._root, object())
+    with pytest.raises(DatasetConstructionError):
+        run_bindings[run_a].bind(source._root, object())
+    with pytest.raises(DatasetConstructionError):
+        _RunNodeBindings[object]("foreign-session").bind(source._root, object())
     assert source.definition_fingerprint == source_again.definition_fingerprint
     artifact = make_materialized_dataset(origin=source)
     source_result = classify_inputs(_compose(source._root, source._root))
@@ -288,3 +344,65 @@ def test_unbound_root_rejects_without_business_io() -> None:
     assert isinstance(root, LogicalRootHandle)
     with pytest.raises(DatasetConstructionError):
         classify_inputs(root)
+
+
+def test_event_source_fact_prevents_artifact_only_false_negative(tmp_path: Path) -> None:
+    database = tmp_path / "must-not-open.duckdb"
+    sources = make_event_sources(
+        database=database, session_id="dsl-contract", store_id="dsl-contract"
+    )
+    pattern = sequence(
+        step(
+            participant=participant_role(event=ref.event("sales.started"), name="buyer"),
+            key="start",
+        ),
+        step(
+            participant=participant_role(event=ref.event("sales.finished"), name="buyer"),
+            key="finish",
+        ),
+    )
+    event = sources.events.match(
+        pattern,
+        cohort_window=time_scope(
+            start="2026-02-01T00:00:00+00:00", end="2026-03-01T00:00:00+00:00"
+        ),
+        completion_through=datetime(2026, 3, 2, tzinfo=timezone.utc),
+        matching=first_per_subject(),
+    )
+    assert isinstance(event._root, LogicalRootHandle)
+    assert isinstance(event._root.payload, EventPayload)
+    assert event._root.payload.live_source_dependencies
+    funnel = event.funnel(axes=(ref.dimension("sales.customers.region"),))
+    assert isinstance(funnel._root, LogicalRootHandle)
+    assert funnel._root.payload is not None
+    assert funnel._root.payload.live_source_dependencies
+    assert funnel._root in classify_inputs(funnel._root).source_nodes
+    artifact = make_materialized_dataset(origin=event)
+    classification = classify_inputs(_compose(event._root, artifact._root))
+    assert classification.kind == "mixed"
+    assert event._root in classification.source_nodes
+    fixed_input = DefinitionInput(
+        role="fixed",
+        token=MaterializedInputToken(artifact._root.artifact_ref),
+        root=artifact._root,
+    )
+    event_with_fixed_members = _make_logical_root(
+        session_id="dsl-contract",
+        store_id="dsl-contract",
+        shape_id=event._root.shape_id,
+        row_contract_fingerprint=event._root.row_contract_fingerprint,
+        row_set_contract_fingerprint=event._root.row_set_contract_fingerprint,
+        operator_id="test.event_with_fixed_members",
+        inputs=(fixed_input,),
+        payload=event._root.payload,
+    )
+    assert classify_inputs(event_with_fixed_members).kind == "mixed"
+    assert not database.exists()
+
+
+def test_lifecycle_payload_declares_its_own_live_event_sources() -> None:
+    lifecycle = history(sources_without_io())
+    assert isinstance(lifecycle._root, LogicalRootHandle)
+    assert lifecycle._root.payload is not None
+    assert lifecycle._root.payload.live_source_dependencies
+    assert lifecycle._root in classify_inputs(lifecycle._root).source_nodes

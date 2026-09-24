@@ -13,6 +13,7 @@ from marivo.analysis.datasets.descriptors import (
     _ObservedQuantity,
     _RowStatisticQuantity,
 )
+from marivo.analysis.datasets.handles import LogicalRootHandle, _RunNodeBindings
 from marivo.analysis.operators.registry import MethodContract, MethodImplementation
 
 
@@ -36,3 +37,8 @@ def _requires_observed(value: _ObservedQuantity) -> None:
 
 def _state_roles_are_nominal(statistic: _RowStatisticQuantity) -> None:
     _requires_observed(statistic)  # type: ignore[arg-type]  # negative static contract
+
+
+def _run_binding_is_local_and_typed(root: LogicalRootHandle) -> None:
+    bindings = _RunNodeBindings[str](root.session_id)
+    assert_type(bindings.bind(root, "compiled-node"), str)
