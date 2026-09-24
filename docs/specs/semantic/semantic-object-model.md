@@ -548,6 +548,31 @@ with repair to express the business meaning using existing governed builders or
 perform an already-admitted observation at the required grain. This amendment
 does not add a generic reaggregation callback or opaque-state API.
 
+### Accepted S0 DSL declaration facts (inactive)
+
+The [first-round Analysis DSL slice](../analysis/python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive)
+accepts the following Semantic-to-Analysis facts as future input obligations.
+It does not change current authoring signatures, fixed reducer policies or
+loaded catalog behavior. The broader decorator and `ms.additive(...)` syntax
+in the target interface remains proposed until the corresponding public
+contract is accepted and implemented.
+
+| Fact and producer | Available now | Required before an S0 consumer relies on it |
+| --- | --- | --- |
+| Author-declared Entity identity/version and source, Dimension time role and Relationship mapping | Entity K/version and governed source, Dimension bindings and named relationship paths | Bind first-round non-versioned single-column identity, exact event-time role and single-valued path without deriving business meaning from physical types or a source scan |
+| Author-declared Measure/decorator Metric meaning | Existing unit/additivity fields and restricted Ibis body | Explicit contribution support/root, business time role, unit, coordinate-specific additivity and enforceable null/empty/zero-denominator policy with a definition version; the current three-bucket additivity and fixed null rules do not supply all of these facts |
+| Builder-derived Metric structure | Canonical graph supplies component occurrences, computation roots, filters, folds, roles and required state | Derive sum/count and explicit ratio component/merge/finish obligations from the registered builder and inputs; retain each component's own scope and declaration provenance |
+| Execution evidence owned by Analysis/Runtime | Static declarations and some existing source/retained checks | Record completed checks bound to this invocation separately from author declarations, derived rules and queued obligations; never upgrade a trusted Entity declaration into measured source uniqueness |
+
+A decorator body is executable Ibis, not a semantic parser input. A direct
+decorator ratio with a division expression has no inferred numerator/denominator
+retention. Only an explicit component builder and its real retained state may
+authorize original-state ratio rollup. Missing first-round declarations or a
+value policy that the chosen implementation cannot enforce block the consuming
+operation; fixture-only flags, equal sample values, Arrow dtypes and Ibis
+compilation cannot supply them. T5 fixtures must use the real loader or record
+a blocker until the Semantic owner adds the minimum authoring contract.
+
 ### Fixed null and empty contracts
 
 Reducers use the exact selected contribution set. Numeric reducers ignore null

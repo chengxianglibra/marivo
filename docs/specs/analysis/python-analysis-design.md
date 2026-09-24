@@ -1,5 +1,110 @@
 # Python Analysis Design
 
+## Accepted S0 Analysis DSL slice (inactive)
+
+This section accepts the first-round semantics in the
+[DSL MVP](../../superpowers/specs/2026-09-24-marivo-analysis-dsl-mvp-validation-plan.md#2-首轮方法范围与后续扩展)
+and the
+[architecture](../../superpowers/specs/2026-09-24-marivo-analysis-dsl-architecture-design.md#3-基础能力与规则推导)
+as an implementation contract, not as a description of enabled APIs or Runtime
+behavior. It covers non-versioned single-column integer/string Entity identity,
+many-to-one paths, categorical attributes, fixed half-open event windows,
+sum/count and explicit-component ratio, strict selection, exact-key absolute
+time comparison, current-row sum/count/mean, original-state rollup, and
+same-Entity no-lag Spearman. DuckDB is the first source adapter; pure
+retained-input continuation uses pandas. The full
+[target interface](../../superpowers/specs/2026-09-24-marivo-semantic-analysis-dsl-interface-design.md)
+remains proposed outside this slice. Public signatures, Help, other backends,
+mixed-input execution, and production routing are not activated by this
+acceptance.
+
+The acceptance baseline is code `79faee0030685f0690fd2970990fccbe9a385886`
+in a clean `panda` checkout. The isolated T1 worktree starts at the same
+commit; its ignored plan copy matches the original. No dependency lockfile
+was found in this checkout, so `pyproject.toml` records the dependency constraints.
+SHA-256 inputs reviewed here:
+
+| Input | SHA-256 |
+| --- | --- |
+| Copied S0 implementation plan (ignored) | `a254242f8a247b9cb53f07d652d0de7f8d2fcced51eb5c047b753a803d83bb60` |
+| Tracked DSL MVP | `46cb6232eb9db9c2fff5698177b78487b50d9d3b73d5bbe7400a33d6478a6d51` |
+| Tracked target interface | `36e355655bd9e8f3bee0b492e4071a5988c543034ebca2725e8d610b0ca2c57b` |
+| Tracked architecture | `72718b431b2af5552c6cda6a0fa22214953d57decb1944d744fcd476e4452e2d` |
+| Tracked algebra theory | `c1901f306952e294fb11c329fbf66f5358e1ec3e605f69d9dcd3e60852acc309` |
+| Dependency constraints (`pyproject.toml`) | `b2cd14ca3775f88d30de04aaa19cde8832ee3f8a7be191286eaf1bcd800e30a9` |
+
+These identify the reviewed inputs; later implementation must recheck its
+own baseline and installed dependencies. The original checkout's `.venv`
+reported Ibis 12.0.0, pandas 2.3.3, PyArrow 25.0.1, DuckDB 1.5.3,
+SciPy 1.17.1 and NumPy 2.4.6; this T1 document pass did not use them for
+execution evidence.
+
+The ledger below is the T1 owner-gap record. An owner produces the named fact;
+consumers may check or transport it but must not redefine it. `S0` in the last
+column means a private contract seam, not completed execution. The listed V
+items are future validation obligations, not T1 test results.
+
+| ID and accepted requirement | Single owner | Current gap | Next task | MVP validation | Stage |
+| --- | --- | --- | --- | --- | --- |
+| A01 — declared Entity identity, time role, Metric contribution roots and method value policy | Semantic object model | Current normalized graph retains roots/components and some fixed null/empty rules, but cannot supply the new decorator's full additivity, time-role and value-policy declaration | T2; T5 must use real declarations | V02–V04, V14 | S0; S1 authoring consumer |
+| A02 — Entity/Group/Singleton domain, member identity, contribution coordinates and explicit node binding | Dataset Core | Existing descriptors/handles do not represent the accepted DSL domain/quantity/Cell distinction or run-local node binding | T2 | V01, V02, V10, V14 | S0; S1–S2 execution |
+| A03 — six closed capability rules, including RequiredParts and local preservation | Dataset method contracts | Existing family methods and observation contracts do not share this accepted rule/output derivation | T2 | V01–V05, V13 | S0; S1–S2 execution |
+| A04 — one method/version policy with separately admitted implementations | Operator registry | `ImplementationRegistration` describes execution routes but is not the accepted method-semantics owner | T2 | V05, V11, V13, V15 | S0; S1 qualification |
+| A05 — source-only, fixed-Artifact-only and mixed transitive input classification | Compiler normalization | `logical_roots()` stops at a materialized leaf, but no closed classification controls admission | T2 | V08, V10, V11 | S0; S1–S2 execution |
+| A06 — Ibis source lowering and pandas retained continuation | Compiler placement | Current registered methods may use a DuckDB `ParquetBinding` for retained input | T2 contract; S1 adapter | V05, V07, V11, V15 | S1 |
+| A07 — fixed schema, four Cell branches, state/part binding and completed checks | Materialization contract | Existing primary/parts and receipts lack the accepted Cell and shared-producer schema | T3 | V03, V06, V07, V10 | S0; S1 codec |
+| A08 — separate stable definition identity and per-source-evaluation Run identity | Dataset Runtime | Current execution key is definition-only and lookup precedes Run admission | T4 | V08, V10 | S0; S1 dispatch |
+| A09 — one-key publication, exact receipt/Run recovery and no automatic replay | Session Store | Store uniqueness is sound, but the new source key/receipt binding is absent in publication | T4 | V08, V10 | S0; S1 integration |
+| A10 — authentic declarations and independent J1–J4 oracles | Test fixtures | No isolated DSL fixtures/oracles; fabricated semantic flags would conceal A01 | T5 | V01–V04, V09, V13 | S0 |
+| A11 — same-Entity no-lag Spearman's paired-value and method state | Association method owner | Existing method exists, but the new Relation/Cell input and exchange route are not admitted | T2 policy; S3 adapter | V09, V11 | S3 |
+| A12 — shared batch schema, completion checks and resource close | Materialization execution | `BatchStream` exists, but the new source/retained producer contract and all-exit close obligations are not fixed | T3 | V06, V10, V12 | S0; S1 producer |
+
+For A01, authored assertions, graph-derived component facts, and checks
+completed for this execution have distinct provenance. A queued check is not
+evidence; declared Entity identity does not require a hidden source uniqueness
+scan. Component role, root, filter, time fold and available state can be read
+from the canonical graph. A decorator body cannot yield a trustworthy
+contribution partition, additivity permission, missing-value policy or hidden
+ratio components; the Semantic owner must provide the minimum declaration and
+version before a consumer relying on it is admitted. T5 must block on a
+missing real declaration rather than insert a fixture-only capability flag.
+
+For A03, the accepted
+[method rule table](operators-and-frames.md#accepted-s0-method-rules-inactive)
+is the sole owner of the six capability semantics. Its numeric and Cell
+policies come from the declared quantity and registered method, never from an
+Ibis default, pandas dtype or a second adapter policy. Valid empty
+contributions differ from unknown coverage, missing keys and missing state.
+A ratio with retained numerator/denominator components may merge those
+components before finishing; equal displayed ratios and a decorator body
+containing division do not provide that authority.
+
+For A04 and A06, one versioned method policy may have multiple independently
+qualified implementations. A registered source implementation constructs Ibis
+expressions and delegates SQL dialect compilation to Ibis; a retained-input
+implementation consumes pandas after governed receipt reads. An unsupported
+type, backend or input shape rejects without a silent fallback, handwritten
+analysis SQL or a placeholder production registration.
+
+For A05, compiler normalization classifies this invocation's transitive data
+dependencies, stopping at each explicit materialized leaf. Historical lineage
+does not turn a fixed Artifact into a live source dependency. For A08, Dataset
+Runtime owns the [new lookup and Run order](session-state-and-runtime.md#accepted-s0-input-and-execution-protocol-inactive);
+for A09, the Session Store owns unique publication and exact recovery.
+Existing methods keep the current behavior below until individually migrated
+and qualified; no second Runtime, registry or Store, old-Artifact migration,
+or implicit fallback is accepted.
+
+For A07 and A12, both source and receipt-checked Parquet producers expose a
+known schema before iteration, including an empty stream. The exchange carries
+typed non-null identity keys, explicit Cell tag/reason/value, quantity and
+domain binding, private state roles and method versions. A missing row remains
+a domain fact. Batch schema drift, mismatched parts or binding, and malformed
+Cell payload reject; Arrow nulls alone do not encode all Cell branches. The
+existing stream owner must release its resources on exhaustion, early close
+and failure. Incomplete row-count, digest or coverage checks cannot become
+successful evidence or a published result.
+
 ## Unified operator and execution ownership
 
 All backends use one operator contract and implementation-registration mechanism.
