@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
+from typing import Literal
 
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.predicates import predicate_leaves
 from marivo.analysis.compiler.source_dependencies import ColumnCollector, SourceDependencies
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import _CatalogFieldIdentity, _EntityFieldIdentity
-from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
+from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.datasets.handles import (
+    LogicalRootHandle,
+    MaterializedScanLeafHandle,
+    _validate_logical_root,
+)
 from marivo.analysis.domains.contracts import (
     EventFunnelPayload,
     EventPayload,
@@ -57,6 +64,87 @@ def logical_roots(dataset: LogicalDataset) -> Iterator[LogicalRootHandle]:
             yield root
 
     yield from visit(dataset._root)
+
+
+@dataclass(frozen=True, slots=True)
+class InputClassification:
+    """This invocation's live input closure, retaining explicit node identity."""
+
+    kind: Literal["source", "artifact", "mixed"]
+    source_nodes: tuple[LogicalRootHandle, ...]
+    artifact_leaves: tuple[MaterializedScanLeafHandle, ...]
+
+    def __post_init__(self) -> None:
+        expected = (
+            "mixed"
+            if self.source_nodes and self.artifact_leaves
+            else "source"
+            if self.source_nodes
+            else "artifact"
+        )
+        if (
+            not (self.source_nodes or self.artifact_leaves)
+            or self.kind != expected
+            or type(self.source_nodes) is not tuple
+            or type(self.artifact_leaves) is not tuple
+            or any(type(node) is not LogicalRootHandle for node in self.source_nodes)
+            or any(type(leaf) is not MaterializedScanLeafHandle for leaf in self.artifact_leaves)
+        ):
+            raise DatasetConstructionError(
+                expected="one closed input classification matching its exact nodes",
+                received="inconsistent classification",
+                repair="Classify the current logical root through classify_inputs().",
+                location="dataset.input_classification",
+            )
+
+
+def classify_inputs(root: LogicalRootHandle) -> InputClassification:
+    """Classify this graph without consulting lineage, storage or source bindings."""
+    _validate_logical_root(root)
+    seen: set[int] = set()
+    sources: list[LogicalRootHandle] = []
+    artifacts: list[MaterializedScanLeafHandle] = []
+
+    def visit(node: LogicalRootHandle | MaterializedScanLeafHandle) -> None:
+        if id(node) in seen:
+            return
+        seen.add(id(node))
+        if isinstance(node, MaterializedScanLeafHandle):
+            artifacts.append(node)
+            return
+        for child in node.inputs:
+            visit(child.root)
+        if node.payload is not None and node.payload.live_source_dependencies:
+            sources.append(node)
+        elif not node.inputs:
+            raise DatasetConstructionError(
+                expected="a bound live source or exact Artifact input",
+                received="unbound logical root",
+                repair="Bind a governed source or an explicit materialized Dataset before execution.",
+                location="dataset.input_classification",
+            )
+
+    visit(root)
+    kind: Literal["source", "artifact", "mixed"] = (
+        "mixed" if sources and artifacts else "source" if sources else "artifact"
+    )
+    return InputClassification(kind, tuple(sources), tuple(artifacts))
+
+
+def require_unmixed_inputs(root: LogicalRootHandle) -> InputClassification:
+    """Reject unsupported live-source/explicit-Artifact combinations before I/O."""
+    classification = classify_inputs(root)
+    if classification.kind == "mixed":
+        raise DatasetConstructionError(
+            expected="source-only or exact Artifact-only inputs",
+            received="live source and explicit Artifact dependencies",
+            repair=(
+                "Rebuild with live Lazy inputs if fresh values are intended; otherwise "
+                "materialize the independent source endpoint and use an admitted local continuation."
+            ),
+            location="dataset.input_classification",
+        )
+    return classification
 
 
 def _required_entities(
