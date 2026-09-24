@@ -176,6 +176,7 @@ class MethodContract:
     required_parts: tuple[str, ...]
     required_checks: tuple[str, ...]
     continuations: tuple[str, ...]
+    cell_reasons: tuple[tuple[Literal["null", "undefined", "unknown"], tuple[str, ...]], ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -218,6 +219,26 @@ class MethodContract:
             raise _method_error("closed method kind, policy and capability facts", "invalid policy")
         if self.domain_policy not in ("same", "mapped", "new"):
             raise _method_error("closed domain policy", "invalid domain policy")
+        if type(self.cell_reasons) is not tuple or any(
+            type(entry) is not tuple or len(entry) != 2 for entry in self.cell_reasons
+        ):
+            raise _method_error("closed Cell reasons owned by each method", "invalid reasons")
+        if any(
+            type(entry[0]) is not str
+            or type(entry[1]) is not tuple
+            or any(type(reason) is not str for reason in entry[1])
+            for entry in self.cell_reasons
+        ):
+            raise _method_error("closed Cell reasons owned by each method", "invalid reasons")
+        if len({entry[0] for entry in self.cell_reasons}) != len(self.cell_reasons) or any(
+            entry[0] not in ("null", "undefined", "unknown")
+            or type(entry[1]) is not tuple
+            or not entry[1]
+            or len(set(entry[1])) != len(entry[1])
+            or any(not _is_stable_identifier(reason) for reason in entry[1])
+            for entry in self.cell_reasons
+        ):
+            raise _method_error("closed Cell reasons owned by each method", "invalid reasons")
         if (
             (
                 "current_row_state" in self.capabilities

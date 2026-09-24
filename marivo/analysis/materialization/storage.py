@@ -38,6 +38,7 @@ from marivo.analysis.datasets.descriptors import (
 )
 from marivo.analysis.domains.lifecycle_reducers import is_fragment_duration
 from marivo.analysis.materialization.contracts import (
+    ExchangeBinding,
     FileEntry,
     LocalReceipt,
     RetainedPart,
@@ -1131,6 +1132,54 @@ def _read_primary(
     )
     result = _to_dataframe(table, row_contract)
     return result
+
+
+def check_exchange_parts(
+    primary: pa.Table, parts: dict[str, pa.Table], binding: ExchangeBinding
+) -> dict[str, pa.Table]:
+    """Check complete private state and align each role by typed primary keys."""
+    if not primary.schema.equals(binding.schema, check_metadata=False):
+        _fail("the bound primary schema", "primary schema differs", stage="transfer_guard")
+    if set(parts) != {part.role for part in binding.parts}:
+        _fail("all exact required retained roles", "missing or extra role", stage="transfer_guard")
+    keys = (
+        binding.parts[0].keys
+        if binding.parts
+        else tuple(
+            field.name
+            for field in binding.row.schema.columns
+            if field.field_id in binding.row.key_field_ids
+        )
+    )
+
+    def positions(table: pa.Table) -> dict[tuple[_Value, ...], int]:
+        found: dict[tuple[_Value, ...], int] = {}
+        for index in range(table.num_rows):
+            identity = tuple(_value(table[name][index]) for name in keys)
+            if any(value is None for value in identity) or identity in found:
+                _fail(
+                    "unique non-null exchange keys", "null or duplicate key", stage="transfer_guard"
+                )
+            found[identity] = index
+        return found
+
+    expected = positions(primary)
+    aligned: dict[str, pa.Table] = {}
+    for part in binding.parts:
+        table = parts[part.role]
+        if not table.schema.equals(part.schema, check_metadata=False):
+            _fail("the exact retained role schema", "part schema differs", stage="transfer_guard")
+        actual = positions(table)
+        if actual.keys() != expected.keys():
+            _fail(
+                "the exact primary key set in every required role",
+                "part keys differ",
+                stage="transfer_guard",
+            )
+        aligned[part.role] = table.take(
+            pa.array([actual[identity] for identity in expected], type=pa.int64())
+        )
+    return aligned
 
 
 def read_primary(

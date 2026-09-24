@@ -16,11 +16,77 @@ from marivo.analysis.materialization import storage
 from marivo.analysis.materialization.contracts import (
     RetainedPart,
     StorageReceipt,
+    schema_fingerprint,
 )
 from marivo.analysis.materialization.errors import MaterializationError, StorageAccessError
 from marivo.analysis.materialization.storage import ReadPolicy, _integrity
 
 _DEFAULT_READ_POLICY = ReadPolicy()
+
+
+class _ReceiptBatchStream:
+    """Adapt a governed local receipt to the existing schema-first BatchStream."""
+
+    def __init__(
+        self,
+        project_root: Path,
+        receipt: StorageReceipt,
+        row: DatasetRowContract,
+        *,
+        policy: ReadPolicy,
+    ) -> None:
+        self._reader = payload_batches(project_root, receipt, policy=policy)
+        self._started = False
+        self._closed = False
+        try:
+            header = next(self._reader)
+            if (
+                header.num_rows
+                or schema_fingerprint(storage._realized_schema(row, header.schema))
+                != (receipt.schema_fingerprint)
+                or any(
+                    expected.nullable != actual.nullable
+                    for expected, actual in zip(row.schema.columns, header.schema, strict=True)
+                )
+            ):
+                _integrity("the exact receipt-bound exchange schema", "selected schema differs")
+            self._header = header
+        except BaseException:
+            self._reader.close()
+            raise
+
+    @property
+    def schema(self) -> pa.Schema:
+        return self._header.schema
+
+    def __iter__(self) -> Iterator[pa.RecordBatch]:
+        if self._started or self._closed:
+            _integrity("one open selected receipt stream", "receipt stream already used")
+        self._started = True
+        try:
+            yield self._header
+            yield from self._reader
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        if not self._closed:
+            self._closed = True
+            self._reader.close()
+
+
+def open_receipt_batch_stream(
+    project_root: Path,
+    receipt: StorageReceipt,
+    row: DatasetRowContract,
+    rows: DatasetRowSetContract,
+    *,
+    policy: ReadPolicy = _DEFAULT_READ_POLICY,
+) -> _ReceiptBatchStream:
+    """Open one selected primary payload at the authorized execution boundary."""
+    if rows.cardinality.kind == "singleton" and receipt.realized_row_count != 1:
+        _integrity("one committed singleton row", "selected row count differs")
+    return _ReceiptBatchStream(project_root, receipt, row, policy=policy)
 
 
 def _payload_batches(

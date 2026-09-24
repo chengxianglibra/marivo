@@ -105,6 +105,18 @@ existing stream owner must release its resources on exhaustion, early close
 and failure. Incomplete row-count, digest or coverage checks cannot become
 successful evidence or a published result.
 
+The inactive T3 seam now binds the existing row/row-set, domain, quantity,
+method, evidence and selected receipts in `ExchangeBinding`. Its private
+`marivo.analysis_exchange/v1` codec records exact fingerprints, method-owned
+Cell reasons and distinct evidence categories; decoding alone grants no
+publication or completed-check authority. The current Artifact descriptor v1
+remains unchanged. `ValidatedExchangeStream` checks the same Arrow schema and
+Cell rules for an in-memory source stream and a governed local Parquet stream.
+It reports physical completion only after full exhaustion and owned close;
+pending coverage obligations remain pending. The receipt adapter exposes its
+schema before iteration and supplies the empty header batch needed by existing
+consumers. Full producer qualification and descriptor publication remain S1.
+
 ## Unified operator and execution ownership
 
 All backends use one operator contract and implementation-registration mechanism.

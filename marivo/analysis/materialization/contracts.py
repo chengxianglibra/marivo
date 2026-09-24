@@ -16,10 +16,12 @@ import json
 import math
 import re
 from contextlib import suppress
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Literal, TypeAlias, cast, get_args
+
+import pyarrow as pa
 
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.errors import DatasetConstructionError
@@ -40,6 +42,8 @@ if TYPE_CHECKING:
     )
     from marivo.analysis.materialization.forecast_codec import ForecastEvidenceSummary
     from marivo.analysis.materialization.quality import QualitySummary
+    from marivo.analysis.observation.contracts import ContractEvidence
+    from marivo.analysis.operators.registry import MethodContract
 
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 FINDING_CAP = 1000
@@ -271,6 +275,349 @@ class RetainedPart:
         _text(self.role)
         _text(self.contract_id)
         _int(self.contract_version, minimum=1)
+
+
+def _exchange_invalid(received: str) -> IntegrityError:
+    return IntegrityError(
+        expected="one exact versioned Analysis exchange binding",
+        received=received,
+        repair="Use the owning row, method, input binding and selected receipts together.",
+        stage="exchange",
+    )
+
+
+def _arrow_fingerprint(schema: pa.Schema) -> str:
+    return hashlib.sha256(schema.serialize().to_pybytes()).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class ExchangePart:
+    """One first-round private state role and its keyed physical schema."""
+
+    role: str
+    contract_id: str
+    contract_version: int
+    schema: pa.Schema
+    keys: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            not d._is_stable_identifier(self.role)
+            or not d._is_stable_identifier(self.contract_id)
+            or type(self.contract_version) is not int
+            or self.contract_version < 1
+            or not isinstance(self.schema, pa.Schema)
+            or type(self.keys) is not tuple
+        ):
+            raise _exchange_invalid("invalid retained role contract")
+
+
+@dataclass(frozen=True, slots=True)
+class ExchangeRecord:
+    """Closed v1 codec value; publication of this inactive slice belongs to S1."""
+
+    row_fingerprint: str
+    row_set_fingerprint: str
+    domain_fingerprint: str
+    quantity_fingerprint: str
+    method_id: str
+    method_version: int
+    method_fingerprint: str
+    cell_reasons: tuple[tuple[str, tuple[str, ...]], ...]
+    input_binding: str
+    fields: tuple[tuple[str, str, bool], ...]
+    schema_fingerprint: str
+    parts: tuple[tuple[str, str, int, str, str | None], ...]
+    declarations: tuple[str, ...]
+    deductions: tuple[str, ...]
+    completed_checks: tuple[str, ...]
+    pending_checks: tuple[str, ...]
+    receipt_identity: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ExchangeBinding:
+    """Run-local view of existing Dataset, method and receipt owners."""
+
+    row: d.DatasetRowContract
+    rows: d.DatasetRowSetContract
+    domain: d.AnalysisDomain
+    quantity: d.QuantityState
+    method: MethodContract
+    evidence: ContractEvidence
+    input_binding: str
+    schema: pa.Schema
+    parts: tuple[ExchangePart, ...]
+    storage_receipt: StorageReceipt | None = None
+    retained_parts: tuple[RetainedPart, ...] = ()
+
+    def __post_init__(self) -> None:
+        from marivo.analysis.materialization.storage import _matches_type, _realized_schema
+        from marivo.analysis.observation.contracts import ContractEvidence
+        from marivo.analysis.operators.registry import MethodContract
+
+        if (
+            not isinstance(self.row, d.DatasetRowContract)
+            or not isinstance(self.rows, d.DatasetRowSetContract)
+            or not isinstance(self.domain, d.AnalysisDomain)
+            or not isinstance(self.quantity, d.QuantityState)
+            or not isinstance(self.method, MethodContract)
+            or not isinstance(self.evidence, ContractEvidence)
+            or not isinstance(self.schema, pa.Schema)
+            or type(self.parts) is not tuple
+            or any(not isinstance(part, ExchangePart) for part in self.parts)
+            or (
+                self.storage_receipt is not None
+                and not isinstance(self.storage_receipt, LocalReceipt)
+            )
+            or type(self.retained_parts) is not tuple
+            or any(not isinstance(part, RetainedPart) for part in self.retained_parts)
+        ):
+            raise _exchange_invalid("invalid exchange owner")
+
+        by_id = {field.field_id: field.name for field in self.row.schema.columns}
+        keys = tuple(by_id[field_id] for field_id in self.row.key_field_ids)
+        domain_keys = (
+            (self.domain.member_identity,)
+            if isinstance(self.domain, d._EntityDomain)
+            else self.domain.group_fields
+            if isinstance(self.domain, d._GroupDomain)
+            else ()
+            if isinstance(self.domain, d._SingletonDomain)
+            else None
+        )
+        if (
+            not d._is_stable_identifier(self.input_binding)
+            or domain_keys != self.row.key_field_ids
+            or (not keys and self.rows.cardinality.kind != "singleton")
+            or (bool(keys) and self.rows.cardinality.kind == "singleton")
+            or tuple(self.schema.names) != (*keys, "value", "cell_tag", "cell_reason")
+            or tuple(field.name for field in self.row.schema.columns) != tuple(self.schema.names)
+            or any(
+                field.nullable != arrow.nullable
+                or not _matches_type(field.logical_type_id, arrow.type)
+                for field, arrow in zip(self.row.schema.columns, self.schema, strict=True)
+            )
+            or any(self.schema.field(key).nullable for key in keys)
+            or any(
+                not (
+                    pa.types.is_int64(self.schema.field(key).type)
+                    or pa.types.is_string(self.schema.field(key).type)
+                )
+                for key in keys
+            )
+            or not self.schema.field("value").nullable
+            or self.schema.field("cell_tag").type != pa.string()
+            or self.schema.field("cell_tag").nullable
+            or self.schema.field("cell_reason").type != pa.string()
+            or not self.schema.field("cell_reason").nullable
+        ):
+            raise _exchange_invalid("invalid ordered exchange schema or key")
+        quantity_domain = (
+            self.quantity.domain
+            if isinstance(self.quantity, d._ObservedQuantity)
+            else self.quantity.output_domain
+            if isinstance(self.quantity, d._RowStatisticQuantity)
+            else None
+        )
+        quantity_parts = (
+            self.quantity.required_parts
+            if isinstance(self.quantity, (d._ObservedQuantity, d._RowStatisticQuantity))
+            else None
+        )
+        if (
+            quantity_domain != self.domain
+            or self.quantity.kind != self.method.output_kind
+            or (
+                self.quantity.input_domain.kind
+                if isinstance(self.quantity, d._RowStatisticQuantity)
+                else self.domain.kind
+            )
+            not in self.method.input_domains
+            or tuple(part.role for part in self.parts) != quantity_parts
+            or any(
+                part.keys != keys
+                or tuple(part.schema.names[: len(keys)]) != keys
+                or len(part.schema) <= len(keys)
+                or any(part.schema.field(key) != self.schema.field(key) for key in keys)
+                for part in self.parts
+            )
+        ):
+            raise _exchange_invalid("quantity, method or retained role binding differs")
+        if self.storage_receipt is None:
+            if self.retained_parts:
+                raise _exchange_invalid("retained parts without primary receipt")
+        elif (
+            len(self.retained_parts) != len(self.parts)
+            or self.storage_receipt.schema_fingerprint
+            != schema_fingerprint(_realized_schema(self.row, self.schema))
+            or any(
+                retained.role != part.role
+                or retained.contract_id != part.contract_id
+                or retained.contract_version != part.contract_version
+                or retained.storage_receipt.schema_fingerprint != _arrow_fingerprint(part.schema)
+                for retained, part in zip(self.retained_parts, self.parts, strict=True)
+            )
+        ):
+            raise _exchange_invalid("receipt and retained role binding differs")
+
+    @property
+    def record(self) -> ExchangeRecord:
+        return ExchangeRecord(
+            d._row_contract_fingerprint(self.row),
+            d._row_set_contract_fingerprint(self.rows),
+            d._canonical_digest(d._descriptor_payload(self.domain)),
+            d._canonical_digest(d._descriptor_payload(self.quantity)),
+            self.method.method_id,
+            self.method.version,
+            hashlib.sha256(canonical_json(asdict(self.method)).encode("utf-8")).hexdigest(),
+            self.method.cell_reasons,
+            self.input_binding,
+            tuple((field.name, str(field.type), field.nullable) for field in self.schema),
+            _arrow_fingerprint(self.schema),
+            tuple(
+                (
+                    part.role,
+                    part.contract_id,
+                    part.contract_version,
+                    _arrow_fingerprint(part.schema),
+                    self.retained_parts[index].storage_receipt.identity_digest
+                    if self.retained_parts
+                    else None,
+                )
+                for index, part in enumerate(self.parts)
+            ),
+            self.evidence.declarations,
+            self.evidence.deductions,
+            self.evidence.completed_checks,
+            self.evidence.pending_checks,
+            self.storage_receipt.identity_digest if self.storage_receipt is not None else None,
+        )
+
+    def require_record(self, record: ExchangeRecord) -> None:
+        if record != self.record:
+            raise _exchange_invalid("exchange binding differs")
+
+    def require_method_type(self) -> None:
+        value_type = self.schema.field("value").type
+        policy = self.method.numeric_policy
+        if not (
+            policy == "none"
+            or (policy == "int64_checked" and pa.types.is_int64(value_type))
+            or (policy in ("float64_finite", "pair_ranks") and pa.types.is_float64(value_type))
+        ):
+            raise _exchange_invalid("value type is not admitted by the selected method")
+
+
+def exchange_payload(value: ExchangeBinding) -> dict[str, object]:
+    record = value.record
+    return {
+        "schema": "marivo.analysis_exchange/v1",
+        "row_fingerprint": record.row_fingerprint,
+        "row_set_fingerprint": record.row_set_fingerprint,
+        "domain_fingerprint": record.domain_fingerprint,
+        "quantity_fingerprint": record.quantity_fingerprint,
+        "method_id": record.method_id,
+        "method_version": record.method_version,
+        "method_fingerprint": record.method_fingerprint,
+        "cell_reasons": [[tag, list(reasons)] for tag, reasons in record.cell_reasons],
+        "input_binding": record.input_binding,
+        "fields": [[name, kind, nullable] for name, kind, nullable in record.fields],
+        "schema_fingerprint": record.schema_fingerprint,
+        "parts": [list(part) for part in record.parts],
+        "declarations": record.declarations,
+        "deductions": record.deductions,
+        "completed_checks": record.completed_checks,
+        "pending_checks": record.pending_checks,
+        "receipt_identity": record.receipt_identity,
+    }
+
+
+def encode_exchange(value: ExchangeBinding) -> str:
+    """Encode only the inactive v1 exchange binding, never an Artifact descriptor."""
+    return canonical_json(exchange_payload(value))
+
+
+def decode_exchange(text: str) -> ExchangeRecord:
+    """Decode a strict v1 binding without granting publication or evidence authority."""
+    obj = _obj(
+        parse_json(text),
+        "schema row_fingerprint row_set_fingerprint domain_fingerprint quantity_fingerprint method_id method_version method_fingerprint cell_reasons input_binding fields schema_fingerprint parts declarations deductions completed_checks pending_checks receipt_identity",
+    )
+    if obj["schema"] != "marivo.analysis_exchange/v1":
+        raise _exchange_invalid("unsupported exchange schema version")
+    hashes = tuple(
+        _text(obj[name])
+        for name in (
+            "row_fingerprint",
+            "row_set_fingerprint",
+            "domain_fingerprint",
+            "quantity_fingerprint",
+            "schema_fingerprint",
+        )
+    )
+    for value in hashes:
+        _hash(value)
+    receipt = obj["receipt_identity"]
+    if receipt is not None:
+        receipt = _text(receipt)
+        _hash(receipt)
+    method_fingerprint = _text(obj["method_fingerprint"])
+    _hash(method_fingerprint)
+    reasons: list[tuple[str, tuple[str, ...]]] = []
+    for item in _array(obj["cell_reasons"]):
+        pair = _array(item)
+        if len(pair) != 2:
+            raise _exchange_invalid("invalid Cell reason entry")
+        reasons.append((_text(pair[0]), _texts(pair[1])))
+    fields: list[tuple[str, str, bool]] = []
+    for item in _array(obj["fields"]):
+        field = _array(item)
+        if len(field) != 3 or type(field[2]) is not bool:
+            raise _exchange_invalid("invalid exchange field")
+        fields.append((_text(field[0]), _text(field[1]), field[2]))
+    parts: list[tuple[str, str, int, str, str | None]] = []
+    for item in _array(obj["parts"]):
+        part = _array(item)
+        if len(part) != 5:
+            raise _exchange_invalid("invalid exchange part")
+        part_hash = _text(part[3])
+        _hash(part_hash)
+        part_receipt = part[4]
+        if part_receipt is not None:
+            part_receipt = _text(part_receipt)
+            _hash(part_receipt)
+        parts.append(
+            (_text(part[0]), _text(part[1]), _int(part[2], minimum=1), part_hash, part_receipt)
+        )
+    record = ExchangeRecord(
+        hashes[0],
+        hashes[1],
+        hashes[2],
+        hashes[3],
+        _text(obj["method_id"]),
+        _int(obj["method_version"], minimum=1),
+        method_fingerprint,
+        tuple(reasons),
+        _text(obj["input_binding"]),
+        tuple(fields),
+        hashes[4],
+        tuple(parts),
+        _texts(obj["declarations"]),
+        _texts(obj["deductions"]),
+        _texts(obj["completed_checks"]),
+        _texts(obj["pending_checks"]),
+        receipt,
+    )
+    if (
+        len({tag for tag, _ in record.cell_reasons}) != len(record.cell_reasons)
+        or any(tag not in ("null", "undefined", "unknown") for tag, _ in record.cell_reasons)
+        or len({name for name, _, _ in record.fields}) != len(record.fields)
+        or len({role for role, *_ in record.parts}) != len(record.parts)
+        or set(record.completed_checks) & set(record.pending_checks)
+    ):
+        raise _exchange_invalid("duplicate or conflicting exchange facts")
+    return record
 
 
 @dataclass(frozen=True, slots=True)

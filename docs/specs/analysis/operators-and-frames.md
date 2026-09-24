@@ -118,6 +118,9 @@ round-trip through the exchange codec but is not a first-round numeric
 algorithm input. A Defined Cell has a valid typed payload; Null is a present
 missing source value, Undefined is a method result with its reason, and Unknown
 retains its distinct uncertainty reason. A missing domain row is none of these.
+The inactive `MethodContract.cell_reasons` owns the closed reason IDs for each
+non-Defined tag. Exchange validation requires a null payload and one allowed
+reason for those tags; Defined requires a non-null payload and no reason.
 Ordinary comparison, numeric sum/mean and categorical grouping consume
 strictly; `is_defined` is total over all four tags, while `all_of`/`any_of`
 cannot short-circuit a failing operand's required check. Legal empty sum/count
