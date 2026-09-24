@@ -102,6 +102,15 @@ def test_j1_missing_authority_and_opaque_body_reject(
         missing_context.members(customer).observe(revenue, during=august, via=buyer)
 
 
+def test_j1_malformed_summarize_parameters_reject_structurally(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    context, domain = _context(analysis_dsl_case_factory)
+    members = context.members(ms.ref.entity(f"{domain}.customer"))
+    with pytest.raises(DatasetConstructionError, match="canonical J1 node parameters"):
+        context._node("summarize", entity=f"{domain}.customer", input_root=members.root)
+
+
 @pytest.mark.parametrize(
     ("changed", "expected"),
     (

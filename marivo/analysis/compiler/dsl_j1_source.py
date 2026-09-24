@@ -67,7 +67,11 @@ def _physical(table: ir.Table, column: str, allowed: tuple[str, ...]) -> None:
 def _utc_bound(raw: str) -> datetime:
     value = date.fromisoformat(raw) if len(raw) == 10 else datetime.fromisoformat(raw)
     if isinstance(value, datetime):
-        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+        return (
+            value.astimezone(timezone.utc)
+            if value.tzinfo is not None
+            else value.replace(tzinfo=timezone.utc)
+        )
     return datetime.combine(value, time(), tzinfo=timezone.utc)
 
 

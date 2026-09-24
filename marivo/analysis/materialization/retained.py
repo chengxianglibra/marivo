@@ -321,6 +321,25 @@ def selected_parts(
 
 def component_schema(row: DatasetRowContract, role: str, schema: pa.Schema) -> tuple[str, ...]:
     """Validate meaning from the owner; the receipt separately pins physical schema."""
+    if row.shape_id.family_id == "dsl_j1" and role == "coordinate":
+        member = row.schema.columns[0]
+        if (
+            row.shape_id.local_shape_id != "observe"
+            or member.name != "member"
+            or tuple(schema.names)
+            != ("member", "group", "state_sum", "non_null_count", "row_count")
+            or schema.field("member").type not in (pa.string(), pa.int64())
+            or schema.field("member").nullable
+            or schema.field("group").type != pa.string()
+            or schema.field("group").nullable
+            or schema.field("state_sum").type not in (pa.int64(), pa.float64())
+            or any(
+                schema.field(name).type != pa.int64() or schema.field(name).nullable
+                for name in ("non_null_count", "row_count")
+            )
+        ):
+            _integrity("exact J1 keyed coordinate state", "coordinate part schema differs")
+        return ("member", "group")
     if source_private_role(role):
         if role.startswith(("metric_distribution.", "delta_distribution.")):
             from marivo.analysis.materialization.distribution import distribution_schema
@@ -366,6 +385,22 @@ def checked_component_batches(
     batches: Iterable[pa.RecordBatch], row: DatasetRowContract, role: str
 ) -> Iterable[pa.RecordBatch]:
     """Check required component support fields as actual data, independently of headers."""
+    if row.shape_id.family_id == "dsl_j1" and role == "coordinate":
+        from marivo.analysis.operators.dsl_j1_values import _validate_table
+
+        seen: set[tuple[object, object]] = set()
+        for batch in batches:
+            component_schema(row, role, batch.schema)
+            _validate_table(pa.Table.from_batches((batch,)), part=True)
+            for member, group in zip(
+                batch["member"].to_pylist(), batch["group"].to_pylist(), strict=True
+            ):
+                key = (member, group)
+                if key in seen:
+                    _integrity("unique J1 coordinate state keys", "duplicate coordinate key")
+                seen.add(key)
+            yield batch
+        return
     if source_private_role(role):
         from marivo.analysis.materialization.private_parquet import checked_private_batches
 

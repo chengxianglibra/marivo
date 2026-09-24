@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
+import ibis
 import pyarrow as pa
 import pytest
 
@@ -24,6 +26,7 @@ from marivo.analysis.materialization.contracts import (
 )
 from marivo.analysis.materialization.errors import IntegrityError, MaterializationError
 from marivo.analysis.materialization.execution import ValidatedExchangeStream
+from marivo.analysis.materialization.ibis_batches import IbisBatchStream, ProjectedBatchStream
 from marivo.analysis.materialization.reads import open_receipt_batch_stream
 from marivo.analysis.materialization.storage import PartWriteSpec, check_exchange_parts
 from marivo.analysis.observation.contracts import ContractEvidence
@@ -213,6 +216,143 @@ def test_four_cells_nullable_int64_and_empty_stream_share_one_schema() -> None:
     assert empty_source.closed and empty.completed
 
 
+def test_real_ibis_and_receipt_producers_preserve_the_same_cell_vector(tmp_path: Path) -> None:
+    binding = _binding()
+    batch = _batch(binding)
+    backend = ibis.duckdb.connect(":memory:")
+    try:
+        expression = backend.create_table("exchange", obj=pa.Table.from_batches((batch,)))
+        native = backend.to_pyarrow_batches(expression.order_by("id"), chunk_size=2)
+        projected = ProjectedBatchStream(
+            IbisBatchStream(native, native.schema), binding.schema, binding.schema
+        )
+        source = ValidatedExchangeStream(projected, binding)
+        source_table = pa.Table.from_batches(tuple(source), schema=binding.schema)
+        assert source.completed
+        assert source_table["value"].to_pylist() == [2**53 + 7, None, None, None]
+        empty = pa.RecordBatch.from_arrays(
+            [pa.array([], type=field.type) for field in binding.schema], schema=binding.schema
+        )
+        empty_expression = backend.create_table(
+            "empty_exchange", obj=pa.Table.from_batches((empty,))
+        )
+        empty_native = backend.to_pyarrow_batches(empty_expression, chunk_size=2)
+        empty_source = ValidatedExchangeStream(
+            ProjectedBatchStream(
+                IbisBatchStream(empty_native, empty_native.schema), binding.schema, binding.schema
+            ),
+            binding,
+        )
+        assert [item.num_rows for item in empty_source] == [0]
+        assert empty_source.completed
+    finally:
+        backend.disconnect()
+
+    wide = batch.append_column("state_sum", pa.array([7, 8, 9, 10], type=pa.int64()))
+    written = storage.write_local_dataset(
+        project_root=tmp_path,
+        staging_path=tmp_path / "real-producer-stage",
+        final_path=tmp_path / "real-producer-artifact",
+        batches=(wide,),
+        row_contract=binding.row,
+        row_set_contract=binding.rows,
+        parts=(PartWriteSpec("sum", "dsl.sum", 1, ("id", "state_sum")),),
+        event=lambda _name: None,
+    )
+    retained = ValidatedExchangeStream(
+        open_receipt_batch_stream(tmp_path, written.primary_receipt, binding.row, binding.rows),
+        binding,
+    )
+    receipt_table = pa.Table.from_batches(tuple(retained), schema=binding.schema)
+    assert retained.completed
+    assert receipt_table.equals(source_table)
+
+
+def test_ibis_projection_rejects_physical_type_drift_before_cast() -> None:
+    binding = _binding()
+    narrow_schema = binding.schema.set(1, pa.field("value", pa.int32()))
+    batch = pa.RecordBatch.from_arrays(
+        [
+            pa.array([1], type=pa.int64()),
+            pa.array([7], type=pa.int32()),
+            pa.array(["defined"]),
+            pa.array([None], type=pa.string()),
+        ],
+        schema=narrow_schema,
+    )
+
+    class DriftingReader(IbisBatchStream):
+        def __init__(self) -> None:
+            self.closed = False
+
+        @property
+        def schema(self) -> pa.Schema:
+            return binding.schema
+
+        def __iter__(self) -> Iterator[pa.RecordBatch]:
+            yield pa.RecordBatch.from_arrays(
+                [
+                    pa.array([0], type=pa.int64()),
+                    pa.array([6], type=pa.int64()),
+                    pa.array(["defined"]),
+                    pa.array([None], type=pa.string()),
+                ],
+                schema=binding.schema,
+            )
+            yield batch
+
+        def close(self) -> None:
+            self.closed = True
+
+    native = DriftingReader()
+    projected = ProjectedBatchStream(native, binding.schema, binding.schema)
+    stream = ValidatedExchangeStream(projected, binding)
+    with pytest.raises(MaterializationError, match="physical types"):
+        list(stream)
+    assert native.closed and not stream.completed
+
+
+@pytest.mark.parametrize(
+    ("physical", "value"),
+    [
+        (pa.decimal128(18, 2), Decimal("9007199254740993.25")),
+        (
+            pa.timestamp("us", tz="UTC"),
+            datetime(2026, 9, 24, 0, 30, 12, 123456, tzinfo=timezone.utc),
+        ),
+    ],
+)
+def test_real_ibis_exchange_retains_decimal_or_timestamp_precision(
+    physical: pa.DataType, value: Decimal | datetime
+) -> None:
+    binding = _binding(physical)
+    batch = pa.RecordBatch.from_arrays(
+        [
+            pa.array([1], type=pa.int64()),
+            pa.array([value], type=physical),
+            pa.array(["defined"]),
+            pa.array([None], type=pa.string()),
+        ],
+        schema=binding.schema,
+    )
+    backend = ibis.duckdb.connect(":memory:")
+    try:
+        expression = backend.create_table("exchange", obj=pa.Table.from_batches((batch,)))
+        native = backend.to_pyarrow_batches(expression, chunk_size=1)
+        projected = ProjectedBatchStream(
+            IbisBatchStream(native, native.schema), binding.schema, binding.schema
+        )
+        stream = ValidatedExchangeStream(projected, binding)
+        result = pa.Table.from_batches(tuple(stream), schema=binding.schema)
+        assert stream.completed
+        assert result["value"].to_pylist() == [value]
+        assert result.schema.field("value").type == physical
+    finally:
+        backend.disconnect()
+    with pytest.raises(MaterializationError):
+        binding.require_method_type()
+
+
 def test_singleton_domain_uses_one_row_without_a_fabricated_key() -> None:
     base = _binding()
     domain = d._singleton_domain(base.domain)
@@ -312,6 +452,17 @@ def test_schema_drift_unsorted_keys_early_close_and_native_failure() -> None:
         list(stream)
     assert "private-close-canary" not in str(caught.value)
     assert not stream.completed
+
+    class CancelledStream(_MemoryStream):
+        def __iter__(self) -> Iterator[pa.RecordBatch]:
+            yield valid
+            raise asyncio.CancelledError
+
+    cancelled_source = CancelledStream(binding.schema, ())
+    cancelled = ValidatedExchangeStream(cancelled_source, binding)
+    with pytest.raises(asyncio.CancelledError):
+        list(cancelled)
+    assert cancelled_source.closed and not cancelled.completed
 
 
 def test_decimal_codec_precision_and_method_admission_remain_separate() -> None:
