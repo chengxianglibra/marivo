@@ -294,8 +294,22 @@ restricted-body 检查、依赖绑定、Ibis 表达式类型检查与编译继�
 | time | 确切业务时间及其角色；精确状态时点不能当事件窗口 |
 | unit | 必填的输出业务单位；不从函数体或 Measure 单位计算得出 |
 | additivity | 必填的显示值求和规则；指定原生坐标、全部坐标及例外，或明确 non_additive |
-| value policy | 作者显式给出 NULL、空贡献、零分母及数值政策；必须有对应的已准入执行实现 |
+| value policy | 作者按计算方法显式给出适用的输入 NULL、空贡献及零分母政策；必须有对应的已准入执行实现 |
 | continuation | 由声明所选的已注册方法与实际保留部件确定，不凭函数体猜出隐藏组件 |
+
+值政策通过小写构造器给出；三个参数分别接收不同的封闭类型，而不是可互换的字符串：
+
+| 参数与类型 | 本文已定义的构造器 | 作用范围 |
+| --- | --- | --- |
+| `nulls: NullInputPolicy` | `ms.nulls.reject()` | 对实际进入计算的贡献值检查输入 NULL；被 `where` 排除的行不属于该次贡献 |
+| `empty: EmptyContributionPolicy` | `ms.empty.zero()` | 已确认完整且没有贡献的目标组；仅在注册方法将零作为合法空输入结果时准入，如 sum/count |
+| `zero_denominator: ZeroDenominatorPolicy` | `ms.zero_denominator.undefined()`、`ms.zero_denominator.error()` | 已准入的除法方法中分母为零时，分别产生 `Undefined(zero_denominator)` 或拒绝求值 |
+
+这些是目标接口语法，不代表现有实现已有对应构造器。构造器返回不可由作者直接构造的
+政策值；所列值也不承诺在任意装饰器 body 中均可执行。各方法只要求与其输入和计算有关的政策，
+不存在跨方法的隐藏默认值；遗漏必要政策、传入裸字符串或另一种政策类型时，在无 I/O 的
+声明解析阶段拒绝。未来增加取值须同时增加明确构造器和执行规则，不能放宽为任意 `str`。
+持久化使用稳定规范代码，恢复时按所属政策类型解码并重新校验。
 
 ```python
 @ms.metric(
@@ -303,8 +317,8 @@ restricted-body 检查、依赖绑定、Ibis 表达式类型检查与编译继�
     time=PaidAt,
     unit="CNY",
     additivity=ms.additive_all(),
-    nulls="reject",
-    empty="zero",
+    nulls=ms.nulls.reject(),
+    empty=ms.empty.zero(),
 )
 def revenue(rows):
     return ms.bind(OrderAmount, rows).sum(
@@ -317,7 +331,7 @@ def revenue(rows):
     time=PaidAt,
     unit="1",
     additivity=ms.additive_all(),
-    empty="zero",
+    empty=ms.empty.zero(),
 )
 def order_count(rows):
     return rows.count(where=ms.bind(OrderStatus, rows) == "paid")
@@ -328,8 +342,8 @@ def order_count(rows):
     time=PaidAt,
     unit="CNY",
     additivity=ms.non_additive(),
-    nulls="reject",
-    zero_denominator="undefined",
+    nulls=ms.nulls.reject(),
+    zero_denominator=ms.zero_denominator.undefined(),
 )
 def aov(rows):
     return (
@@ -354,9 +368,12 @@ Cell 和保留状态条件。错误声明可能导致业务结果错误，证据
 计算关系由构造参数给出，继续按已注册方法生成规范图和状态，不反向解析装饰器函数体。
 不新增任意 reducer 回调，也不允许将用户声明当作缺失组件状态的替代品。
 
+构造器只封闭了政策的取值，不能证明作者选择了正确政策，也不能替代执行检查。
 值政策必须可以独立履行。输出检查只能证明实际输出条件，不能证明函数体内部没有忽略 NULL。
 如果直接执行的 body 不能在既有声明与受控执行协议下落实所选输入 NULL/零分母政策，
 该组合拒绝准入；作者改用已支持的显式组件构造，而不是让解析器反推内部聚合或悄悄忽略政策。
+上例装饰器 AOV 仅展示声明形状；若其直接除法不能可靠落实零分母政策，不得因为政策值有效
+就接受该定义。零贡献与缺失坐标、来源不完整或被筛选掉的结果不同，不能统一补零。
 
 订单计数的贡献单位是 Order，不因物理单位为 "1" 就能与客户计数互换。多根组件分别绑定
 贡献、过滤、时间和路径，先归约再组合；不先 join 成宽表放大计数。组件构造保留真实状态，
@@ -802,8 +819,24 @@ all_of/any_of 的操作数必须绑定同一个机会域；不自动挑交集、
 
 时间网格使用 `weeks.window` 这样的绑定句柄，不使用 `period_window("week")` 查找字符串。
 主体角色使用由领域结果产生的 SubjectBinding；多根路由显式引用贡献 Entity 和 Relationship。
-字符串保留给展示标签、业务常量和静态声明名称；有限策略可采用 Literal/Enum，
+字符串保留给展示标签、业务常量和静态声明名称；有限策略可采用 `Literal` 或类型化构造器，
 不以“消除所有字符串”为目标，也不允许把任意字符串冒充字段、域或角色引用。
+有限选项必须在目标签名中写出封闭类型，并在构造或声明解析时校验；Python 类型注解本身
+不执行运行时检查。高风险且容易跨语义场景混用的值政策使用 §3.4 的独立政策类型，
+简单选择沿用 `Literal` 加运行时校验，不为每个取值新增同义工厂。例如：
+
+| 参数 | 目标封闭类型 | 除取值外仍须检查 |
+| --- | --- | --- |
+| `time_dimension_column(granularity=...)` | `Literal["year", "quarter", "month", "week", "day", "hour", "minute", "second"]` | 声明的时间类型及实际粒度能力 |
+| `relationship(cardinality=...)` | `Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"]` | 键、版本选择、来源基数和本次映射 |
+| `participant(cardinality=...)` | `Literal["one", "optional_one"]` | exact 参与者身份与实际覆盖 |
+| `quantile_metric(accuracy=...)` | `Literal["exact", "approximate"]` | 执行路线能否履行精确性要求 |
+| `every_start(completion_assignment=...)` | `Literal["exclusive", "shared"]` | 最终 occurrence 的实际分配与覆盖 |
+
+比较的 `value`、`UnionKeys.missing`、排名的 `order/ties`、归因的 `mode`、相关的 `method`
+已在各自方法处给出封闭选项；`agg/fold` 继续使用既有封闭联合类型。无论何种类型，
+都要拒绝拼错的动态输入，不能由默认值或静默回退吞掉。`unit`、时区、业务分类值、
+声明名和局部步骤名不是全局有限策略：分别按单位、时区、值域或引用/唯一性规则校验。
 
 ### 4.5 类型安全有三道明确边界
 
@@ -1325,9 +1358,11 @@ result = defined_rates.where(defined_rates.value.gt(0)).summarize(mv.mean()).exe
 调用 compare，才产生该公式量的时期变化。已有 `compare` 足以表达变化的变化时，不再加
 第二套 relation.linear / derive。
 
-保留已有 `zero_division="null" | "error"` 参数形状，但目标 Cell 模型必须明确：前者产生
-`Undefined(zero_denominator)`，不是“有定义但缺失”的 Null；后者拒绝求值。旧实现的 null
-存储不能直接成为新理论中的 Null 含义。这是一项必要的值语义调整。
+既有 `zero_division: Literal["null", "error"]` 参数形状保留，并在构造时校验；
+解析为与 §3.4 同一规范政策：`"null"` 对应 `ms.zero_denominator.undefined()` 的政策值，
+`"error"` 对应 `ms.zero_denominator.error()` 的政策值。前者产生 `Undefined(zero_denominator)`，
+不是“有定义但缺失”的 Null；后者拒绝求值。旧实现的 null 存储不能直接成为新理论中的
+Null 含义。这是一项必要的值语义调整，不在新装饰器参数中复制 `"null"` 这个名称。
 
 目标接口中，`aggregate(..., agg=("percentile", q))` 定义分位数及 q，默认要求精确结果。
 同一个量可以在本次分析中显式允许近似；公开输入只表达精确性要求，不指定 datasource
@@ -1344,7 +1379,8 @@ exact_by_customer = customers.observe(exact_p95, during=august, via=Buyer)
 approx_by_customer = customers.observe(approx_p95, during=august, via=Buyer)
 ```
 
-q 属于输入 Metric/RuntimeMetricExpr。`accuracy="exact" | "approximate"` 是精确性要求；
+q 属于输入 Metric/RuntimeMetricExpr。`accuracy: Literal["exact", "approximate"]`
+是精确性要求；
 直接观察等价于 exact，显式 approximate 表示允许近似，不承诺一定使用近似算法或给出
 未定义的误差上界。精确量的数值定义仍固定为线性插值；Ibis 的某个后端函数只有满足该
 定义才能用于 exact。Marivo 在执行前按来源、类型和精确性要求选择合格的直接观察路线，
@@ -1549,12 +1585,15 @@ Unknown 只能保留该方法允许的值不确定性，不能豁免类型、单
 | --- | --- |
 | `any_instance` | t > 0 为 true；t = 0 且 u = 0 为 false；其余为 unknown；完整空机会域为 false |
 | `at_least(k)` | k 必须为正整数；t ≥ k 为 true，t + u < k 为 false，其余为 unknown；完整空机会域为 false |
-| `all_instances` | 非空机会域中，f > 0 为 false；f = 0 且 u = 0 为 true；其余为 unknown。空机会域必须按显式 `empty="true" | "false" | "undefined"` 处理，没有隐藏默认 |
+| `all_instances` | 非空机会域中，f > 0 为 false；f = 0 且 u = 0 为 true；其余为 unknown。空机会域必须显式选择 `mv.empty_opportunity.true()`、`mv.empty_opportunity.false()` 或 `mv.empty_opportunity.undefined()`，没有隐藏默认 |
 
 例如至少三周的规则下，三真一未知可入选；三真加一个 Undefined 输入在谓词消费时拒绝；
 两真一假一未知的资格仍未决定。量词不能用已足够的真值跳过剩余机会的强制检查。
 当前精确 AnalysisDomain 输出要求全部目标主体的入选资格可决定，否则返回结构化错误；
 不能将 unknown 或空域政策产生的 undefined 静默排除为 false。
+`all_instances(empty: EmptyOpportunityPolicy)` 只接收上述 `mv.empty_opportunity` 构造器的
+政策值；它与 `ms.empty.zero()` 返回的 `EmptyContributionPolicy` 不同。前者决定空机会域
+上的量词真值，后者决定完整目标组没有贡献时的数值。两类值不能互传，传入裸字符串也须拒绝。
 
 ## 7. 参照、分配与完整子分析
 
@@ -1757,7 +1796,7 @@ aug_journeys = session.events.match(
 | `mv.step(participant=..., key=...)` | exact Event participant role 加局部唯一步骤名；`key` 是声明，不是结果字段查找；各步骤主体必须是同一 Entity 身份 |
 | `mv.sequence(*steps)` | 有序步骤，不接受裸 Event、字符串角色或整数位置代替 typed step |
 | `mv.first_per_subject()` | 每主体选择开始窗口中的最早开始，产生至多一个 Journey；它是主体漏斗和完整流失选人的政策 |
-| `mv.every_start(completion_assignment="exclusive" \| "shared")` | 每个开始 occurrence 一个 Journey；exclusive 将最终完成分给最早合格未完成尝试，shared 允许多个尝试复用最终 occurrence；该选择仅约束最终步骤，中间 occurrence 按已登记算法复用 |
+| `mv.every_start(completion_assignment="exclusive" \| "shared")` | `completion_assignment: Literal["exclusive", "shared"]`；每个开始 occurrence 一个 Journey；exclusive 将最终完成分给最早合格未完成尝试，shared 允许多个尝试复用最终 occurrence；该选择仅约束最终步骤，中间 occurrence 按已登记算法复用 |
 
 Journey 的实例身份包含开始 occurrence 与确切 pattern/matching 绑定。一人多个 Journey
 不会在构造时被主体去重。JourneyResult 保留各步骤 assignment、开始域、参与者映射、顺序
@@ -2252,7 +2291,7 @@ source_bindings 中的物理参数不是语义 Ref；它们仍由 datasource 的
 | 项目 | 与代数的冲突 | 目标处理 |
 | --- | --- | --- |
 | 仅凭 occurrence ID 建立同刻业务顺序 | §7.1 要求业务依据或相关结果对所有允许顺序不变；可重复排序本身不提供这两者 | 不运输无依据的 ID 顺序为业务证据；补业务顺序依据，或按真实未决顺序验证结果与保留部件不变 |
-| 把运行时比值的零分母存储 NULL 当作理论 Null | §5.2 将来源缺值 Null 与计算无定义 Undefined 分开 | 保留已有 zero_division 参数；选择 null 存储政策时输出 Undefined(zero_denominator)，选择 error 时拒绝 |
+| 把运行时比值的零分母存储 NULL 当作理论 Null | §5.2 将来源缺值 Null 与计算无定义 Undefined 分开 | 保留已有 zero_division 参数，并在解析时映射到 §3.4 的零分母政策；null 输出 Undefined(zero_denominator)，error 拒绝 |
 | 缺侧被自动改成交集或无条件补零 | §4.3/§8.2 把 exact、outer、intersection 定义为不同方法；缺行不是 Cell，也不自动是空贡献 | 保留显式缺侧方法；只在对应主体/组、覆盖与指标空贡献规则都成立时产生合法零值 |
 | 将已解决/已入模子总体的比率称为全体比率 | §4.1 与 §8.5 要求明确目标域 Ω，不能排除未知后保持原问题名称 | 漏斗与状态份额保留真实条件分母及未知计数；不能把 resolved/seeded 统计升级为全体覆盖 |
 | 以稳定排序、数值守恒或近似容差证明业务条件 | §9–11 分别约束顺序、数值核对、身份与证据 | 归因 residual=0 不代替完整分区；容差不判断身份；近似结果保留自己的方法版本与误差边界 |
