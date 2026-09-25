@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import ibis.expr.types as ir
 
@@ -167,11 +167,16 @@ def execute_j1(
     input_artifact_ref: str | None = None,
     input_nodes: tuple[J1Node, J1Node] | None = None,
     input_artifact_refs: tuple[str, str] | None = None,
+    source_route: Literal["automatic", "python", "source_numeric"] = "automatic",
 ) -> MaterializedJ1Dataset:
     """Execute one private J1 root, selecting fresh source or exact fixed input."""
     context = _context(node)
     if context.session_id != self.session_ref or context.store_id != self.store.store_id:
         raise _reject("foreign J1 Session or Store")
+    if source_route not in ("automatic", "python", "source_numeric"):
+        raise _reject("unknown J4 source route")
+    if source_route != "automatic" and (not isinstance(node, J4Association) or source is None):
+        raise _reject("J4 source route requires a live J4 Association")
     if (
         node.root.operator_id == "dsl.j1.observe"
         and "count_observation@v1" in node.root.requirements
@@ -377,16 +382,32 @@ def execute_j1(
                 if source is None:
                     raise _reject("missing source factory")
                 from marivo.analysis.materialization.dsl_j4_source import (
+                    choose_j4_source_route,
                     j4_execution_result,
                     run_j4_source,
+                    run_j4_source_numeric,
                 )
                 from marivo.analysis.materialization.source_stage import run_j1_source
 
                 phase = "stage_execution"
                 with source() as (backend, tables):
                     self.statistics.j1_source_evaluations += 1
+                    selected_route = None
+                    if isinstance(node, J4Association):
+                        selected_route = (
+                            choose_j4_source_route(j1_numeric_method(node.root), backend.name)
+                            if source_route == "automatic"
+                            else "source"
+                            if source_route == "python"
+                            else "source_numeric"
+                        )
                     result = (
-                        j4_execution_result(node, run_j4_source(node, backend, tables))
+                        j4_execution_result(
+                            node,
+                            run_j4_source(node, backend, tables)
+                            if selected_route == "source"
+                            else run_j4_source_numeric(node, backend, tables),
+                        )
                         if isinstance(node, J4Association)
                         else run_j1_source(context, node.root, backend, tables)
                     )

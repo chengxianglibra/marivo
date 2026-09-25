@@ -358,6 +358,7 @@ class DatasetRuntime:
         input_artifact_ref: str | None = None,
         input_nodes: tuple[J1Node, J1Node] | None = None,
         input_artifact_refs: tuple[str, str] | None = None,
+        source_route: Literal["automatic", "python", "source_numeric"] = "automatic",
     ) -> MaterializedJ1Dataset:
         """Execute a private J1 node through this Session Runtime.
 
@@ -368,6 +369,7 @@ class DatasetRuntime:
             input_artifact_ref: Saved predecessor Artifact selected for local work.
             input_nodes: Ordered current and baseline definitions for private comparison.
             input_artifact_refs: Exact ordered Artifacts for private comparison.
+            source_route: Private J4 source implementation choice for validation.
         Returns:
             The exact committed J1 Artifact as a Materialized Dataset.
         Example:
@@ -386,6 +388,7 @@ class DatasetRuntime:
             input_artifact_ref=input_artifact_ref,
             input_nodes=input_nodes,
             input_artifact_refs=input_artifact_refs,
+            source_route=source_route,
         )
 
     def show(self, dataset: MaterializedDataset, *, max_output_bytes: int | None = None) -> None:

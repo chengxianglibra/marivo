@@ -140,6 +140,18 @@ J4_SPEARMAN = MethodRegistration(
             parts=("pair_counts",),
             checks=("complete_pairing", "spearman_pairs"),
         ),
+        MethodImplementation(
+            method_id="dsl.j4.spearman",
+            version=1,
+            route="source_numeric",
+            backend="duckdb",
+            input_domains=("entity",),
+            logical_types=("int64", "float64"),
+            supported_parts=("pair_counts",),
+            supported_checks=("complete_pairing", "spearman_pairs"),
+            batch_mode="stream",
+            resource_owner="producer",
+        ),
         _local(
             "dsl.j4.spearman",
             parts=("pair_counts",),

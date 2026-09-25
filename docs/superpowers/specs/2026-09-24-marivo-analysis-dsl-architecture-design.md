@@ -406,7 +406,7 @@ Run、执行键和 Artifact 不同，两份结果均可断源精确恢复；纯�
 | 来源筛选、属性绑定、受治理 join、坐标并集与分组 | Ibis → 已准入来源后端 | 路径、键、覆盖、类型与缺值检查可履行 |
 | 来源上的 sum/count 状态与 ratio finish | Ibis → 来源后端 | 组件独立、空贡献有效、数值政策受支持 |
 | Artifact 的 where/compare/group_by/summarize/rollup/members | pandas | 完整输入契约、必需状态；无源查询和无 DuckDB 连接 |
-| Spearman 数值阶段 | pandas 准备 + NumPy/SciPy | 完整键配对、平均秩、方法缺值政策和完整输入 |
+| Spearman 数值阶段 | 已准入 DuckDB/Ibis 来源路线，或来源准备后 Python NumPy/SciPy；纯固定输入走 pandas + NumPy/SciPy | 完整键配对、平均秩、方法缺值政策、完整输入与逐路线等价验证 |
 | 语义判断、计划与发布 | Python 控制逻辑 | 唯一规则拥有者；不被算作“SQL 下推能力” |
 
 同一语义方法的 Ibis 与 pandas 实现共享契约与测试向量，执行代码可以不同。需要双实现的
