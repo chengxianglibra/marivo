@@ -17,7 +17,7 @@ from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.datasets.handles import _RunNodeBindings
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import RunDatasetInput
-from marivo.analysis.materialization.dsl_j1_artifact import publish_j1_artifact
+from marivo.analysis.materialization.dsl_j1_artifact import load_j1_artifact, publish_j1_artifact
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.local_stage import run_j1_compare_local
 from marivo.analysis.materialization.source_stage import run_j1_source
@@ -318,6 +318,43 @@ def test_p1_source_failure_closes_source_and_publishes_no_result(
     run = store.run(runtime.last_run_ref)
     assert run is not None and run.lifecycle == "failed"
     assert store.lookup("session", run.execution_key_digest) is None
+
+
+@pytest.mark.runtime
+def test_p1_multi_predecessor_publication_failure_preserves_prior_artifact(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    _complete_periods(case)
+    store = SessionStore(case.root)
+    store.create_session("p1-atomic", session_ref="session")
+    _, change = _comparison(case, store)
+    first = DatasetRuntime(store, "session").execute_j1(change, source=lambda: _source(case))
+    first_ref = first.state.artifact_ref.ref
+    first_record = store.artifact(first_ref)
+    assert first_record is not None and first_record.descriptor.j1_exchange is not None
+
+    def stop_before_commit(point: str) -> None:
+        if point == "before_commit":
+            raise RuntimeError("multi-predecessor publication stopped")
+
+    failing = DatasetRuntime(store, "session", event=stop_before_commit)
+    with pytest.raises(RuntimeError, match="multi-predecessor publication stopped"):
+        failing.execute_j1(change, source=lambda: _source(case))
+    assert failing.last_run_ref is not None
+    failed = store.run(failing.last_run_ref)
+    assert failed is not None and failed.lifecycle == "failed"
+    assert store.lookup("session", failed.execution_key_digest) is None
+    assert store.artifact(first_ref) == first_record
+
+    recovered = load_j1_artifact(
+        SessionStore.open_existing(case.root),
+        "session",
+        first_ref,
+        change,
+        input_binding=first_record.descriptor.j1_exchange.input_binding,
+    )
+    assert [row["value"] for row in recovered.primary.to_pylist()] == [373, 140, 380, -10]
 
 
 def test_p1_compare_publication_requires_registered_checks(
