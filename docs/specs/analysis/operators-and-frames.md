@@ -22,6 +22,15 @@ Neither construction nor repr performs source or retained-row I/O. Dataset objec
 have no generic dataframe protocol: iteration, implicit truth conversion, length,
 item access and arithmetic are not a substitute for registered methods.
 
+The S4 J1–J4 Entity-domain relation variants use a separate public
+`AnalysisContract`: `actions` contains typed receiver calls paired with exact
+Help targets, filtered by the current variant and declared retained parts.
+Logical relation repr points to `contract().show()`; materialized relation repr
+points to `show()`. Materialized relation cards combine bounded contract facts
+and committed row previews while masking member identity values. A missing
+physical backing still requires explicit Artifact integrity inspection and
+blocks the attempted retained read.
+
 ## Family routes
 
 | Family | Construction or consuming route | Meaning |
@@ -148,8 +157,9 @@ is neither. P3 qualifies DuckDB/Ibis
 source execution and exact Artifact-to-pandas continuation only.
 
 The [first-round DSL slice](python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive)
-accepts the following private rule obligations. The proposed public Relation
-methods are not yet callable. Each registered method supplies:
+accepted the following private rule obligations at S0. S4 activates only the
+qualified J1–J4 subset through the public relation variants. Each registered
+method supplies:
 
 ```text
 InputSignatures + Parameters

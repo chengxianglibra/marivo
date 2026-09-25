@@ -169,7 +169,9 @@ def show(
                 "Descriptive and exploratory; no significance or causal claim. Positive lag describes coordinate order only.",
             ]
     identities = {
-        field.name for field in dataset.schema.columns if field.role_id == "entity_identity"
+        field.name
+        for field in dataset.schema.columns
+        if field.role_id in ("entity_identity", "member")
     }
     duration_fields = tuple(
         field.name for field in dataset.schema.columns if field.logical_type_id == "duration"

@@ -50,6 +50,9 @@ For the admitted J1–J4 Entity-domain slice, the agent can begin with
 logical relation, and recover it later with `session.artifact(ref)`. Other
 capabilities retain their existing typed entry points. Export through
 `materialized.to_pandas()` remains a terminal presentation boundary.
+`relation.contract().actions` lists only mechanically admitted calls, each
+with the exact `marivo.help(...)` target; `materialized.show()` masks Entity
+member keys in its bounded preview.
 `RawSqlResult.shape` and `.row_count` describe returned bounded rows only; the
 result has no `.contract()` or typed re-entry. Typed regression is not a Marivo
 capability yet and remains explicit terminal custom analysis.

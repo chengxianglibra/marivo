@@ -22,6 +22,7 @@ class MaterializationError(DatasetConstructionError):
         repair: str,
         stage: str = "materialization",
         run_ref: str | None = None,
+        help_target: str = "actions.execute",
     ) -> None:
         self.stage = stage
         self.run_ref = run_ref
@@ -31,6 +32,7 @@ class MaterializationError(DatasetConstructionError):
             repair=repair,
             location=f"dataset.{stage}",
             message="Dataset materialization contract failed.",
+            help_target=help_target,
         )
 
 
@@ -63,6 +65,7 @@ class StorageAccessError(IntegrityError):
             received=f"selected storage is {status}",
             repair="Restore access to the exact committed backing and inspect the selected Artifact again.",
             stage=stage,
+            help_target="session.artifact",
         )
 
 

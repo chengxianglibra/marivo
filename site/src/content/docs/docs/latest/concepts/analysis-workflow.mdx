@@ -60,12 +60,15 @@ statistics, and association. For example:
 ```python
 customers = session.members(ms.ref.entity("sales.customer"))
 revenue = ms.ref.metric("sales.revenue")
-buyer = ms.ref.relationship("sales.buyer")
+buyer = ms.ref.relationship("sales.order_buyer")
 august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-total = customers.observe(revenue, during=august, via=buyer).rollup().execute()
+august_revenue = customers.observe(revenue, during=august, via=buyer)
+total = august_revenue.rollup().execute()
 total.show()
 restored = session.artifact(total.state.artifact_ref)
 restored.contract().show()
+for action in restored.contract().actions:
+    print(action.call, action.help_target)
 ```
 
 This shape requires the named Entity, Metric, and Relationship to be authored
@@ -74,6 +77,50 @@ each call. Exact fixed continuations can reuse a committed execution key;
 `session.artifact(ref)` restores a public J1–J4 result from its validated
 snapshot and retained parts without reading the current source or Semantic
 catalog. Other Analysis capabilities continue through their existing entries.
+The bounded result card includes the available unit, method, Cell fields and
+current-row weighting, and masks Entity member values. Each `AnalysisAction`
+contains one mechanically admitted receiver call and its exact
+`marivo.help("analysis.<target>")` route. A contract reports declared retained
+parts; explicit Artifact revalidation checks their backing integrity.
+
+The same configured project can continue through the other admitted J1–J4
+shapes when it also declares `sales.order_count`, `sales.aov_from_lines`,
+`sales.order`, `sales.order_line`, and `sales.line_order`:
+
+```python
+july = mv.time_scope(start="2026-07-01", end="2026-08-01")
+september = mv.time_scope(start="2026-09-01", end="2026-10-01")
+baseline = customers.observe(revenue, during=july, via=buyer)
+change = august_revenue.compare(baseline)
+falling = change.where(change.value.lt(0)).members()
+next_month_mean = falling.observe(
+    revenue, during=september, via=buyer
+).summarize(mv.mean()).execute()
+
+ratio_routes = mv.routes(
+    mv.route(
+        ms.ref.entity("sales.order_line"),
+        through=(ms.ref.relationship("sales.line_order"), buyer),
+    ),
+    mv.route(ms.ref.entity("sales.order"), through=(buyer,)),
+)
+aov = customers.observe(
+    ms.ref.metric("sales.aov_from_lines"), during=august, via=ratio_routes
+)
+overall_aov = aov.rollup().execute()
+current_row_mean = aov.summarize(mv.mean()).execute()
+
+order_count = customers.observe(
+    ms.ref.metric("sales.order_count"), during=august, via=buyer
+)
+association = august_revenue.correlate(order_count, method="spearman").execute()
+coefficient = association.coefficient
+negative = coefficient.where(coefficient.value.lt(0)).execute()
+```
+
+`rollup()` recombines retained original components; `summarize(mv.mean())`
+calculates an equal-current-row mean. Spearman is descriptive and uses complete
+member pairs from the same observation scope.
 
 ## Continue from exact meaning
 

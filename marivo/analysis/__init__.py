@@ -125,6 +125,7 @@ if TYPE_CHECKING:
     from marivo.analysis.operators.forecast_dataset import (
         MaterializedForecastDataset as MaterializedForecastDataset,
     )
+    from marivo.analysis.public_dsl import AnalysisAction as AnalysisAction
     from marivo.analysis.public_dsl import AnalysisContract as AnalysisContract
     from marivo.analysis.public_dsl import GroupedAnalysisDomain as GroupedAnalysisDomain
     from marivo.analysis.public_dsl import GroupedNumericRelation as GroupedNumericRelation

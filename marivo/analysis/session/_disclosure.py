@@ -271,7 +271,9 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 value,
                 bindings=(bind(value, receiver if isinstance(receiver, type) else None),),
                 summary=effect,
-                discovery_group="session.namespace"
+                discovery_group="entry"
+                if name == "members"
+                else "session.namespace"
                 if receiver is session_namespace
                 else "runtime.sessions"
                 if name in ("show", "render")
@@ -305,6 +307,8 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                     if name in ("artifact", "graph", "revalidate")
                     else ("session", "run_id")
                     if name == "get_run"
+                    else ("session", "entity_ref")
+                    if name == "members"
                     else ("session",),
                     "result",
                     output,

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from contextlib import redirect_stdout
+from dataclasses import dataclass, field, replace
+from inspect import Parameter, signature
+from io import StringIO
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, overload
 
 import pandas as pd
@@ -125,32 +128,58 @@ def routes(*items: RootRoute) -> RootRoutes:
 
 
 @dataclass(frozen=True, slots=True)
+class AnalysisAction:
+    """One admitted receiver call and its exact native Help target."""
+
+    call: str
+    help_target: str
+
+    def show(self) -> None:
+        """Print the exact receiver call and its native Help route.
+
+        Args: None.
+        Returns: None; prints one bounded continuation fact.
+        Example: ``relation.contract().actions[0].show()``.
+        Constraints: This is static guidance and does not execute the call.
+        """
+        print(f"{self.call[:160]}; marivo.help({self.help_target!r})")
+
+    def __repr__(self) -> str:
+        return f"<AnalysisAction call={self.call[:80]}; use .show()>"
+
+
+@dataclass(frozen=True, slots=True)
 class AnalysisContract:
     """Bounded current result kind and mechanically valid next operations."""
 
     kind: str
     phase: Literal["logical", "materialized"]
-    next_actions: tuple[str, ...]
+    actions: tuple[AnalysisAction, ...]
     domain: str
     quantity: str | None
     required_parts: tuple[str, ...]
     retained_parts: tuple[str, ...]
+    _facts: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
     def show(self) -> None:
-        """Print the deterministic current continuation summary.
+        """Print bounded definition, retained-state and admissible-call facts.
 
         Args:
             None.
-        Returns: None; prints a bounded result preview.
-        Example: ``result = relation.show()``.
-        Constraints: Reads only the exact committed result and remains bounded.
+        Returns: None; prints one bounded contract card.
+        Example: ``relation.contract().show()``.
+        Constraints: Reads bound metadata only; never queries business source rows.
         """
-        print(
-            f"{self.phase} {self.kind}; domain={self.domain}; quantity={self.quantity or 'none'}; "
+        lines = [
+            f"{self.phase} {self.kind}",
+            f"domain={self.domain}; quantity={self.quantity or 'none'}",
             f"required_parts={','.join(self.required_parts) or 'none'}; "
-            f"retained_parts={','.join(self.retained_parts) or 'none'}; "
-            f"next={','.join(self.next_actions) or 'none'}"
-        )
+            f"retained_parts={','.join(self.retained_parts) or 'none'}",
+            *(f"{name}={value}" for name, value in self._facts),
+            *(f"call={action.call}; help={action.help_target}" for action in self.actions),
+        ]
+        text = "\n".join(lines)
+        print(text.encode("utf-8")[:8192].decode("utf-8", errors="ignore"))
 
     def __repr__(self) -> str:
         return f"<AnalysisContract kind={self.kind} phase={self.phase}; use .show()>"
@@ -235,16 +264,136 @@ class _Value:
             if isinstance(quantity, (_ObservedQuantity, _RowStatisticQuantity, _DifferenceQuantity))
             else ()
         )
+        names = (
+            ("execute",)
+            if not fixed and self._has_fixed() and isinstance(self._node, J1Members)
+            else _actions(self._node, fixed=fixed)
+        )
+        if fixed and not set(required_parts).issubset(retained_parts):
+            names = ()
         return AnalysisContract(
             _kind(self._node),
             "materialized" if fixed else "logical",
-            ("execute",)
-            if not fixed and self._has_fixed() and isinstance(self._node, J1Members)
-            else _actions(self._node, fixed=fixed),
+            self._action_contract(names),
             domain.kind,
             None if quantity is None else quantity.kind,
             required_parts,
             retained_parts,
+            self._contract_facts(),
+        )
+
+    def _action_contract(self, names: tuple[str, ...]) -> tuple[AnalysisAction, ...]:
+        from marivo.analysis._capabilities.registry import REGISTRY
+
+        actions: list[AnalysisAction] = []
+        for name in names:
+            member = getattr(type(self), name, None)
+            if isinstance(member, property):
+                if name == "coefficient":
+                    actions.append(
+                        AnalysisAction(
+                            "relation.coefficient", "analysis.MaterializedCoefficientRelation"
+                        )
+                    )
+                continue
+            if not callable(member):
+                continue
+            bound = getattr(self, name)
+            descriptor = REGISTRY.by_callable(bound)
+            arguments = tuple(
+                f"{parameter.name}={parameter.name}"
+                if parameter.kind is Parameter.KEYWORD_ONLY
+                else parameter.name
+                for parameter in signature(bound).parameters.values()
+                if parameter.default is Parameter.empty
+            )
+            actions.append(
+                AnalysisAction(
+                    f"relation.{name}({', '.join(arguments)})",
+                    f"analysis.{descriptor.canonical_id}",
+                )
+            )
+        return tuple(actions)
+
+    def _contract_facts(self) -> tuple[tuple[str, str], ...]:
+        node = self._node
+        facts: list[tuple[str, str]] = []
+        if isinstance(node, (J1Observed, J3Observed)):
+            unit = "not declared" if node.plan.unit is None else node.plan.unit
+            observation_unit = {
+                "entity": "one Entity member",
+                "group": "one current group",
+                "singleton": "one selected domain",
+            }[node.domain.kind]
+            facts.extend(
+                (
+                    ("metric", node.metric.path),
+                    ("method", node.plan.method),
+                    ("unit", unit),
+                    ("null_policy", node.plan.null_rule),
+                    ("empty_policy", node.plan.empty_rule),
+                    ("statistical_unit", observation_unit),
+                    ("source_assumption", "governed member Entity and explicit observation scope"),
+                )
+            )
+            if node.plan.method == "ratio":
+                facts.append(("weighting", "original numerator and denominator components"))
+        elif isinstance(node, J1Difference):
+            facts.extend(
+                (
+                    ("metric", node.current.metric.path),
+                    (
+                        "unit",
+                        "not declared"
+                        if node.current.plan.unit is None
+                        else node.current.plan.unit,
+                    ),
+                    ("method", "ordered absolute difference"),
+                    ("statistical_unit", "one paired Entity member"),
+                )
+            )
+        elif isinstance(node, J1Statistic):
+            facts.extend((("method", node.method), ("statistical_unit", "one current row")))
+            if node.method == "mean":
+                facts.append(("weighting", "equal current rows"))
+        elif isinstance(node, J4Association):
+            facts.extend(
+                (
+                    ("method", "spearman"),
+                    ("statistical_unit", "one complete Entity member pair"),
+                    ("source_assumption", "same members and observation scope"),
+                )
+            )
+        if self._dataset is not None:
+            facts.append(("rows", str(self._dataset.state.realized_row_count)))
+            cell_fields = tuple(
+                column.name for column in self._dataset.schema.columns if column.role_id == "cell"
+            )
+            if cell_fields:
+                facts.append(("cell_state_fields", ",".join(cell_fields[:4])))
+            if set(self._contract_required_parts()).difference(self._contract_retained_parts()):
+                facts.append(("continuation", "required retained components unavailable"))
+            facts.append(("source", "exact retained Artifact; no source reconnect"))
+        else:
+            facts.append(("source", "logical definition; no business rows read"))
+        return tuple(facts)
+
+    def _contract_required_parts(self) -> tuple[str, ...]:
+        from marivo.analysis.materialization.dsl_j1_artifact import _meaning
+
+        _, quantity = _meaning(self._node)
+        return (
+            quantity.required_parts
+            if isinstance(quantity, (_ObservedQuantity, _RowStatisticQuantity, _DifferenceQuantity))
+            else ()
+        )
+
+    def _contract_retained_parts(self) -> tuple[str, ...]:
+        if self._dataset is None:
+            return ()
+        record = self._runtime.store.artifact(self._dataset.state.artifact_ref.ref)
+        return (
+            () if record is None else tuple(part.role for part in record.descriptor.retained_parts)
         )
 
     def __repr__(self) -> str:
@@ -253,7 +402,8 @@ class _Value:
             if self._dataset is not None
             else self._node.root.definition_fingerprint[:22]
         )
-        return f"<{type(self).__name__} kind={_kind(self._node)} id={identity}; use .contract()>"
+        detail = ".show()" if self._dataset is not None else ".contract().show()"
+        return f"<{type(self).__name__} kind={_kind(self._node)} id={identity}; use {detail}>"
 
     def _is_live(self) -> bool:
         return self._dataset is None and (
@@ -326,16 +476,24 @@ class _MaterializedValue(_Value):
         return self._dataset.state
 
     def show(self, *, max_output_bytes: int | None = None) -> None:
-        """Show a bounded preview of the exact committed result.
+        """Show bounded contract facts and a preview of the exact committed result.
 
         Args:
             max_output_bytes: Optional bound for the displayed preview.
         Returns: None; prints a bounded result preview.
         Example: ``result = relation.show(max_output_bytes=max_output_bytes)``.
-        Constraints: Reads only the exact committed result and remains bounded.
+        Constraints: Reads only the exact committed result, redacts member keys,
+            and bounds the combined output.
         """
         assert self._dataset is not None
-        self._dataset.show(max_output_bytes=max_output_bytes)
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            self.contract().show()
+            self._dataset.show(max_output_bytes=max_output_bytes)
+        limit = 8192 if max_output_bytes is None else min(8192, max_output_bytes)
+        print(
+            buffer.getvalue().encode("utf-8")[: max(0, limit - 1)].decode("utf-8", errors="ignore")
+        )
 
     def to_pandas(self) -> pd.DataFrame:
         """Return an isolated complete DataFrame under governed read checks.
@@ -683,7 +841,7 @@ class GroupedNumericRelation(_Value):
         Example: ``result = relation.contract()``.
         Constraints: This reads local contract metadata and does not execute a source.
         """
-        return replace(super().contract(), next_actions=("execute",))
+        return replace(super().contract(), actions=self._action_contract(("execute",)))
 
     def execute(self) -> MaterializedGroupedNumericRelation:
         """Publish the contribution-coordinate group with its original state.
@@ -724,7 +882,7 @@ class GroupedRatioRelation(_Value):
         Example: ``result = relation.contract()``.
         Constraints: This reads local contract metadata and does not execute a source.
         """
-        return replace(super().contract(), next_actions=("rollup",))
+        return replace(super().contract(), actions=self._action_contract(("rollup",)))
 
     def rollup(self) -> LogicalRolledRatioRelation:
         """Merge original numerator and denominator state by the selected coordinate.
