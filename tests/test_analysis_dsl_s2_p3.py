@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
@@ -319,3 +322,68 @@ def test_p3_runtime_publishes_ratio_and_local_rollup(
             observed,
             input_binding=record.descriptor.j1_exchange.input_binding,
         )
+
+
+@pytest.mark.runtime
+def test_p3_ratio_recovers_original_components_in_fresh_process(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j3")
+    store = SessionStore(case.root)
+    store.create_session("p3-cold", session_ref="session")
+    observed = _observed(case, store, coordinates=(case.names.channel,))
+    saved = DatasetRuntime(store, "session").execute_j1(observed, source=lambda: _source(case))
+    artifact_ref = saved.state.artifact_ref.ref
+    child = """
+import sys
+import duckdb
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.observation.dsl_j1 import J1Context, j3_route, j3_routes
+
+root, artifact_ref = sys.argv[1:]
+catalog = ms.load(workspace_dir=root)
+store = SessionStore.open_existing(root)
+state = catalog._state
+context = J1Context(state.registry, state.sidecar, 'session', store.store_id)
+domain = 'sales'
+members = context.members(ms.ref.entity(f'{domain}.customer'))
+observed = members.observe(
+    ms.ref.metric(f'{domain}.aov_from_lines'),
+    during=mv.time_scope(start='2026-08-01', end='2026-09-01'),
+    via=j3_routes(
+        j3_route(ms.ref.entity(f'{domain}.order_line'), through=(
+            ms.ref.relationship(f'{domain}.line_order'),
+            ms.ref.relationship(f'{domain}.order_buyer'),
+        )),
+        j3_route(ms.ref.entity(f'{domain}.order'), through=(
+            ms.ref.relationship(f'{domain}.order_buyer'),
+        )),
+    ),
+    coordinates=(ms.ref.dimension(f'{domain}.order.channel'),),
+)
+duckdb.connect = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError('source reopened'))
+runtime = DatasetRuntime(store, 'session')
+overall = runtime.execute_j1(
+    observed.rollup(), input_node=observed, input_artifact_ref=artifact_ref
+)
+assert overall.to_pandas()['value'].tolist() == [40.0]
+grouped = runtime.execute_j1(
+    observed.group_by(ms.ref.dimension(f'{domain}.order.channel')).rollup(),
+    input_node=observed, input_artifact_ref=artifact_ref,
+)
+frame = grouped.to_pandas()
+assert dict(zip(frame['group'], frame['value'], strict=True)) == {
+    'mobile': 0.0, 'web': 160 / 3,
+}
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", child, str(case.root), artifact_ref],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "MARIVO_PROJECT_ROOT": str(case.root)},
+    )
+    assert completed.returncode == 0, completed.stderr
