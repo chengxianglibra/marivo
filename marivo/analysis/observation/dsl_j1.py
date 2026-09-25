@@ -48,6 +48,7 @@ from marivo.analysis.datasets.handles import (
 )
 from marivo.analysis.observation.contracts import MetricComponentPlan, derive_metric_components
 from marivo.analysis.observation.coordinates import path_is_functional
+from marivo.analysis.observation.temporal import civil_bound
 from marivo.refs import DimensionKind, EntityKind, MetricKind, Ref, RelationshipKind, SemanticKind
 from marivo.semantic._dsl_authoring import AdditiveAllV1
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
@@ -127,6 +128,37 @@ def _reject(
         location="dsl.j1",
         help_target=help_target,
     )
+
+
+def _source_scope_json(
+    during: TimeScope, report_timezone_name: str, event_timezone_name: str
+) -> str:
+    """Bind one report-local half-open scope to its declared event time axis."""
+    if report_timezone_name == event_timezone_name:
+        return during.model_dump_json()
+    payload = json.loads(during.model_dump_json())
+    payload["start"] = civil_bound(
+        during.start, report=report_timezone_name, boundary=event_timezone_name
+    ).isoformat()
+    payload["end"] = civil_bound(
+        during.end, report=report_timezone_name, boundary=event_timezone_name
+    ).isoformat()
+    return json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+
+
+def _admitted_event_timezone(registry: Registry, dimension_path: str) -> str:
+    """Read the declared axis authority admitted by the first source route."""
+    timezone_name = normalize_target_dimension(registry, dimension_path).timezone
+    if timezone_name != "UTC":
+        raise _reject(
+            "UTC event time in first J1 source route",
+            str(timezone_name),
+            repair=(
+                "Use an event time axis with verified UTC source time and declare its "
+                "UTC authority, or use the Dataset time route for another source zone."
+            ),
+        )
+    return timezone_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -535,6 +567,7 @@ class J1Context:
     store_id: str
     row_entity: FrozenEntityRowFacts | None = None
     row_dimensions: tuple[FrozenDimensionRowFacts, ...] = ()
+    report_timezone_name: str = "UTC"
 
     def _node(
         self,
@@ -1366,6 +1399,9 @@ def _observe(
             metric.path,
             repair="Declare ms.aggregate(..., agg='sum', time=EventTime).",
         )
+    event_timezone_name = _admitted_event_timezone(
+        members.context.registry, normalized.event_time_dimension.path
+    )
     if (
         type(normalized.authoring_additivity) is not AdditiveAllV1
         or normalized.authoring_additivity.exceptions
@@ -1450,7 +1486,7 @@ def _observe(
             metric.path,
             normalized.dependency_fingerprint,
             via.path,
-            during.model_dump_json(),
+            _source_scope_json(during, members.context.report_timezone_name, event_timezone_name),
             tuple(item.path for item in coordinates),
         ),
         dependency="metric:" + metric.path,
@@ -1550,6 +1586,7 @@ def _observe_ratio(
             repair="Bind both exact computation roots.",
         )
     registry = members.context.registry
+    event_timezones: set[str] = set()
     for component in normalized.components:
         root_path = component.computation_root.path
         route = supplied[root_path]
@@ -1581,6 +1618,7 @@ def _observe_ratio(
         if (
             time_ref is None
             or path[: len(time_path)] != time_path
+            or time_ref.path not in registry.dimensions
             or registry.dimensions[time_ref.path].entity != visited[len(time_path)]
         ):
             raise _reject(
@@ -1588,6 +1626,7 @@ def _observe_ratio(
                 root_path,
                 repair="Bind time= and time_via= to this contribution path.",
             )
+        event_timezones.add(_admitted_event_timezone(registry, time_ref.path))
         for coordinate in coordinates:
             if type(coordinate) is not Ref or coordinate.kind is not SemanticKind.DIMENSION:
                 raise _reject(
@@ -1609,6 +1648,13 @@ def _observe_ratio(
         (root_path, tuple(item.path for item in supplied[root_path].through))
         for root_path in sorted(supplied)
     )
+    if len(event_timezones) != 1:
+        raise _reject(
+            "one shared event time axis timezone",
+            repr(sorted(event_timezones)),
+            repair="Use component event time axes with the same timezone.",
+        )
+    event_timezone_name = next(iter(event_timezones))
     coordinate_paths = tuple(item.path for item in coordinates)
     root = members.context._node(
         "ratio_observe",
@@ -1618,7 +1664,7 @@ def _observe_ratio(
             metric.path,
             normalized.dependency_fingerprint,
             json.dumps(route_payload),
-            during.model_dump_json(),
+            _source_scope_json(during, members.context.report_timezone_name, event_timezone_name),
             coordinate_paths,
         ),
         dependency="metric:" + metric.path,

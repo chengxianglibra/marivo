@@ -37,6 +37,34 @@ def test_public_j1_total_uses_registered_source(
 
 
 @pytest.mark.runtime
+@pytest.mark.parametrize(
+    ("report_timezone", "expected"),
+    (("Asia/Shanghai", 677), ("America/Los_Angeles", 649)),
+)
+def test_public_j1_scope_uses_persisted_report_timezone(
+    analysis_dsl_case_factory: DslCaseFactory,
+    report_timezone: str,
+    expected: int,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    names = case.names
+    session = mv.session.get_or_create("j1-report-zone", report_timezone=report_timezone)
+    revenue = ms.ref.metric(f"{names.domain}.{names.revenue}")
+    customers = session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
+    buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
+    august = mv.time_scope(start="2026-08-01", end="2026-09-01")
+
+    member_total = customers.observe(revenue, during=august, via=buyer).rollup().execute()
+    dataset_total = session.observe(revenue, time_scope=august).aggregate().execute()
+    assert member_total.to_pandas().iloc[0]["value"] == expected
+    assert dataset_total.to_pandas().iloc[0]["revenue"] == expected
+
+    utc_instants = mv.time_scope(start="2026-08-01T00:00:00+00:00", end="2026-09-01T00:00:00+00:00")
+    absolute_total = customers.observe(revenue, during=utc_instants, via=buyer).rollup().execute()
+    assert absolute_total.to_pandas().iloc[0]["value"] == 1000
+
+
+@pytest.mark.runtime
 def test_public_p2_contract_actions_and_result_card(
     analysis_dsl_case_factory: DslCaseFactory,
     capsys: pytest.CaptureFixture[str],

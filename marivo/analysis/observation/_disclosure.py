@@ -343,8 +343,8 @@ def provider(
             "time_scope",
             time_scope,
             "TimeScope",
-            "time_scope(start='2026-02-01', end='2026-02-20')",
-            "Choose an explicit bounded window; endpoints follow the temporal contract.",
+            "time_scope(start='2026-08-01', end='2026-09-01')",
+            "Use a half-open window: start is included and end is excluded. Date-only bounds use the Session's report timezone; set report_timezone explicitly for the intended calendar. End a full month at the first day of the next month.",
         ),
     )
     for target, value, output, call, guidance in constructors:

@@ -47,15 +47,21 @@ change.show()
 ```
 
 The example requires an authored, typed `sales.revenue` Metric and an admitted
-reference time axis. Windows are half-open: the end is excluded. `aggregate()`
-explicitly removes Entity identity; a time series also declares a time axis and
+reference time axis. Windows are half-open: the end is excluded.
+Date-only bounds use the Session's persisted report timezone, so set
+`report_timezone` explicitly for the intended calendar. `aggregate()` explicitly
+removes Entity identity; a time series also declares a time axis and
 grain. Population membership and observation windows are independent.
 Narrow Entity membership with `population.where(...)`; Analysis does not provide Entity sampling.
 
 For the admitted J1–J4 Entity domain on a configured DuckDB source, start with
 `session.members(Entity Ref)`. The member domain owns `read`, `group_by`, and
 `observe`; its returned relations own selection, comparison, rollup, row
-statistics, and association. For example:
+statistics, and association. `marivo.help("analysis.entry")` directs
+Entity-member questions here; the `session.observe` example above serves
+existing Dataset shapes. This first member source route requires a UTC
+event Time Dimension; a different or unresolved axis timezone is rejected.
+For example:
 
 ```python
 customers = session.members(ms.ref.entity("sales.customer"))

@@ -198,7 +198,13 @@ class Session:
         self._sources()
         assert self._catalog_value is not None
         state = self._catalog_value._state
-        context = J1Context(state.registry, state.sidecar, self.id, self._runtime.store.store_id)
+        context = J1Context(
+            state.registry,
+            state.sidecar,
+            self.id,
+            self._runtime.store.store_id,
+            report_timezone_name=self.report_tz_name,
+        )
         return new_members(context.members(entity), self._runtime)
 
     def observe(

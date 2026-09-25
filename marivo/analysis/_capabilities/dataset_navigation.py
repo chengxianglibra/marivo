@@ -48,7 +48,8 @@ _HUBS = (
         (),
         "decision_hub",
         guidance=(
-            "New question: create a named Session, resolve only the required semantic inputs, then choose a source below.",
+            "Entity-member questions (member totals, attributes, groups, comparisons, ratios, or associations): start with session.members(Entity Ref), then follow the relation's contract() and exact Help targets.",
+            "The existing session.observe entry serves Dataset shapes outside the Entity-member relation chain.",
             "Known handoff: use its exact refs and scope; do not browse the whole catalog again.",
             "Existing work: resume the Session and follow runtime reads; do not replay successful sources.",
         ),
@@ -59,6 +60,9 @@ _HUBS = (
         "Choose the analytical intent; an existing Dataset contract narrows legal continuations.",
         (),
         "decision_hub",
+        guidance=(
+            "For Entity-member relations, follow the receiver's contract() actions and their exact Help targets; method groups also cover existing Dataset families.",
+        ),
     ),
     NavigationInput(
         "inputs",
@@ -127,7 +131,19 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
     result = [
         NavigationInput(target, summary, tuple(buckets[target])) for target, _, summary in _GROUPS
     ]
-    result.extend(replace(hub, members=tuple(buckets[hub.canonical_id])) for hub in _HUBS)
+    for hub in _HUBS:
+        members = buckets[hub.canonical_id]
+        if hub.canonical_id == "entry":
+            members.sort(
+                key=lambda target: (
+                    0
+                    if target == "session.get_or_create"
+                    else 1
+                    if target == "session.members"
+                    else 2
+                )
+            )
+        result.append(replace(hub, members=tuple(members)))
     result.append(
         NavigationInput(
             "",

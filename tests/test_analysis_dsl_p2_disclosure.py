@@ -54,6 +54,17 @@ def test_first_round_help_targets_are_reachable_and_bounded() -> None:
 
 
 def test_first_round_help_has_receiver_specific_constraints() -> None:
+    entry = render(REGISTRY, "entry")
+    assert "Entity-member questions" in entry
+    assert "start with session.members(Entity Ref)" in entry
+    assert "session.observe entry serves Dataset shapes outside" in entry
+    assert entry.index("analysis.session.members") < entry.index("analysis.observe")
+    assert "receiver's contract() actions" in render(REGISTRY, "methods")
+    time_scope = render(REGISTRY, "time_scope")
+    assert "start is included and end is excluded" in time_scope
+    assert "Date-only bounds use the Session's report timezone" in time_scope
+    assert "time_scope(start='2026-08-01', end='2026-09-01')" in time_scope
+
     assert "dsl.GroupedRatioRelation.rollup" in render(REGISTRY, "methods.metric")
     assert "dsl.MaterializedRatioRelation.rollup" in render(REGISTRY, "methods.metric")
     assert "dsl.MaterializedNumericRelation.compare" in render(REGISTRY, "methods.compare")
