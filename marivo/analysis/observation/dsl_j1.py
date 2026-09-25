@@ -51,7 +51,7 @@ from marivo.analysis.observation.coordinates import path_is_functional
 from marivo.refs import DimensionKind, EntityKind, MetricKind, Ref, RelationshipKind, SemanticKind
 from marivo.semantic._dsl_authoring import AdditiveAllV1
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
-from marivo.semantic.ir import RatioComposition, TargetDimensionContract
+from marivo.semantic.ir import RatioComposition, TargetDimensionContract, TargetEntityContract
 from marivo.semantic.metric_graph import AggregateNodeV1, RatioNodeV1, component_node
 from marivo.semantic.metric_graph_lowering import normalize_target_metric
 from marivo.semantic.validator import Registry, normalize_target_dimension, normalize_target_entity
@@ -122,6 +122,41 @@ def _reject(expected: str, received: str, *, repair: str) -> DatasetConstruction
     )
 
 
+@dataclass(frozen=True, slots=True)
+class FrozenEntityRowFacts:
+    """Only identity facts needed to verify a retained J1 row contract."""
+
+    path: str
+    primary_key: tuple[str, ...]
+    identity_signature: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenDimensionRowFacts:
+    """Only a selected Dimension's row type needed for retained continuation."""
+
+    path: str
+    logical_type: str
+
+
+def _row_entity(context: J1Context, path: str) -> TargetEntityContract | FrozenEntityRowFacts:
+    fact = context.row_entity
+    if fact is not None:
+        if fact.path != path:
+            raise _reject("matching retained Entity", path, repair="Recover the exact Artifact.")
+        return fact
+    return normalize_target_entity(context.registry, path)
+
+
+def _row_dimension(
+    context: J1Context, path: str
+) -> TargetDimensionContract | FrozenDimensionRowFacts:
+    for fact in context.row_dimensions:
+        if fact.path == path:
+            return fact
+    return normalize_target_dimension(context.registry, path)
+
+
 def _j1_contracts(
     context: J1Context,
     kind: str,
@@ -146,7 +181,7 @@ def _j1_contracts(
             "empty group parameters",
             repair="Rebuild the J1 group input from its admitted constructor.",
         )
-    entity = normalize_target_entity(context.registry, entity_path)
+    entity = _row_entity(context, entity_path)
     member_type = entity.identity_signature[0][1]
     if member_type not in ("unknown", "string", "int64"):
         raise _reject(
@@ -179,7 +214,7 @@ def _j1_contracts(
                     raise _reject(
                         "coordinate path", repr(path), repair="Use declared Dimension refs."
                     )
-                coordinate = normalize_target_dimension(context.registry, path)
+                coordinate = _row_dimension(context, path)
                 keys.append(
                     (
                         f"coord_{index}",
@@ -188,7 +223,7 @@ def _j1_contracts(
                     )
                 )
         elif isinstance(group_path, str):
-            coordinate = normalize_target_dimension(context.registry, group_path)
+            coordinate = _row_dimension(context, group_path)
             keys.append(
                 ("group", _make_field_id("dimension." + group_path), coordinate.logical_type)
             )
@@ -251,8 +286,11 @@ def _j1_contracts(
             if input_root is not None and type(input_root.parameters) is tuple
             else None
         )
-        if isinstance(group_path, str) and group_path in context.registry.dimensions:
-            group_type = normalize_target_dimension(context.registry, group_path).logical_type
+        if isinstance(group_path, str) and (
+            group_path in context.registry.dimensions
+            or any(item.path == group_path for item in context.row_dimensions)
+        ):
+            group_type = _row_dimension(context, group_path).logical_type
         if group_type not in ("unknown", "string"):
             raise _reject(
                 "string categorical group",
@@ -417,9 +455,7 @@ def _j1_contracts(
         )
     ):
         if kind == "read":
-            value_type = normalize_target_dimension(
-                context.registry, str(parameters[0])
-            ).logical_type
+            value_type = _row_dimension(context, str(parameters[0])).logical_type
         elif kind == "summarize" and parameters[0] == "count":
             value_type = "int64"
         elif kind == "summarize" and parameters[0] == "mean":
@@ -490,6 +526,8 @@ class J1Context:
     sidecar: CompiledExpressionSidecar
     session_id: str
     store_id: str
+    row_entity: FrozenEntityRowFacts | None = None
+    row_dimensions: tuple[FrozenDimensionRowFacts, ...] = ()
 
     def _node(
         self,
@@ -754,11 +792,17 @@ class J1SelectedCategory:
 
     def members(self) -> J1Members:
         original = self.members_input
+        root = original.context._node(
+            "members",
+            entity=original.entity.path,
+            input_root=self.root,
+            parameters=(original.entity.path, self.root.definition_fingerprint),
+        )
         return J1Members(
             original.context,
             original.entity,
             _selected_entity_domain(original.domain, self.root.definition_fingerprint),
-            self.root,
+            root,
         )
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import ExitStack
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import ibis.expr.types as ir
 import pandas as pd
@@ -294,6 +294,7 @@ if TYPE_CHECKING:
     from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult
 
 
+@runtime_checkable
 class J1IbisBackend(Protocol):
     """Selected Ibis backend interface used by the private J1 source stage."""
 

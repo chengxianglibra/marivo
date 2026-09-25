@@ -359,6 +359,7 @@ class DatasetRuntime:
         input_nodes: tuple[J1Node, J1Node] | None = None,
         input_artifact_refs: tuple[str, str] | None = None,
         source_route: Literal["automatic", "python", "source_numeric"] = "automatic",
+        public_snapshot: str | None = None,
     ) -> MaterializedJ1Dataset:
         """Execute a private J1 node through this Session Runtime.
 
@@ -389,6 +390,7 @@ class DatasetRuntime:
             input_nodes=input_nodes,
             input_artifact_refs=input_artifact_refs,
             source_route=source_route,
+            public_snapshot=public_snapshot,
         )
 
     def show(self, dataset: MaterializedDataset, *, max_output_bytes: int | None = None) -> None:

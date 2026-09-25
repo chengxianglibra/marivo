@@ -184,10 +184,17 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
         ),
         (
             Session,
+            "members",
+            "LogicalAnalysisDomain",
+            "result = session.members(entity_ref)",
+            "Construct the governed Entity member domain without source I/O.",
+        ),
+        (
+            Session,
             "artifact",
-            "Materialized Dataset",
+            "Materialized Dataset or admitted J1–J4 relation variant",
             "result = session.artifact(artifact_ref)",
-            "Recover the exact committed family and state; never replay origin sources.",
+            "Recover the exact committed family and state; J1–J4 requires a validated continuation snapshot and never replays sources.",
         ),
         (
             Session,
@@ -249,6 +256,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
         "session_id": "Use the exact existing Session id.",
         "run_id": "Use an exact incomplete or failed Run id from session.runs(); committed success cannot be abandoned.",
         "reference": "Use an exact committed ArtifactRef or artifact reference string.",
+        "entity": "Use an exact governed Entity Ref from the current Semantic catalog.",
         "artifact_ref": "Choose a committed Artifact ref to scope the graph, or None for the bounded Session graph.",
         "status": "Choose incomplete, failed, succeeded or None.",
         "direction": "Choose ancestors or descendants.",
@@ -471,4 +479,9 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             discovery_group="inputs",
         )
     )
+    from marivo.analysis.session._public_disclosure import inputs as public_inputs
+
+    public_descriptors, public_exports = public_inputs()
+    descriptors.extend(public_descriptors)
+    exports.extend(public_exports)
     return DisclosureProvider("runtime", tuple(descriptors), tuple(exports))

@@ -52,6 +52,29 @@ explicitly removes Entity identity; a time series also declares a time axis and
 grain. Population membership and observation windows are independent.
 Narrow Entity membership with `population.where(...)`; Analysis does not provide Entity sampling.
 
+For the admitted J1–J4 Entity domain on a configured DuckDB source, start with
+`session.members(Entity Ref)`. The member domain owns `read`, `group_by`, and
+`observe`; its returned relations own selection, comparison, rollup, row
+statistics, and association. For example:
+
+```python
+customers = session.members(ms.ref.entity("sales.customer"))
+revenue = ms.ref.metric("sales.revenue")
+buyer = ms.ref.relationship("sales.buyer")
+august = mv.time_scope(start="2026-08-01", end="2026-09-01")
+total = customers.observe(revenue, during=august, via=buyer).rollup().execute()
+total.show()
+restored = session.artifact(total.state.artifact_ref)
+restored.contract().show()
+```
+
+This shape requires the named Entity, Metric, and Relationship to be authored
+and admitted in the project. Logical source execution evaluates the source on
+each call. Exact fixed continuations can reuse a committed execution key;
+`session.artifact(ref)` restores a public J1–J4 result from its validated
+snapshot and retained parts without reading the current source or Semantic
+catalog. Other Analysis capabilities continue through their existing entries.
+
 ## Continue from exact meaning
 
 Dataset fields belong to their exact Dataset. Use typed predicates, projection,
@@ -137,9 +160,10 @@ routes. Once those facts support the next step, save and run the minimum analysi
 
 Primary rows and required parts may observe different source states within one execution. Marivo preserves required Artifact checks, single evaluation and atomic publication, but does not reject or retry solely because source data changed between queries.
 
-The same execution definition in one Session recovers its committed snapshot.
-For current source rows, use a new named Session or change an explicit
-row-affecting definition input; repeated execution is not refresh evidence.
+For the Entity-domain J1–J4 slice, repeated logical source execution reads the
+source again. Fixed continuations can hit the same exact committed Artifact;
+recover it explicitly with `session.artifact(ref)`. Other Dataset paths retain
+their owning execution-key behavior.
 Recovery integrity checks cover Artifact, storage authority and Evidence, not
 current semantic authority or datasource freshness.
 

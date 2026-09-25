@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from contextlib import AbstractContextManager
 from datetime import datetime, tzinfo
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from marivo._temporal import TimeScope
 from marivo.analysis.datasets.base import MaterializedDataset
+from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.evidence._dataset_types import ArtifactRevalidation
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.observation.contracts import EntityInput, MetricInput, TimeDimensionInput
@@ -24,10 +26,12 @@ from marivo.analysis.session._lazy_read_model import (
     SessionGraph,
 )
 from marivo.analysis.session._lazy_sources import LazyEvents, LazyLifecycle, LazySources
+from marivo.refs import EntityKind, Ref
 from marivo.semantic.catalog import SemanticCatalog
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.admission import DatasetRuntime
+    from marivo.analysis.public_dsl import LogicalAnalysisDomain, PublicMaterialized
 
 
 class Session:
@@ -180,6 +184,23 @@ class Session:
             entity, time_scope=time_scope, time_dimension=time_dimension
         )
 
+    def members(self, entity: Ref[EntityKind]) -> LogicalAnalysisDomain:
+        """Construct one governed, non-versioned Entity member domain.
+
+        Args: entity: Exact declared Entity Ref.
+        Returns: A logical AnalysisDomain bound to this Session.
+        Example: ``customers = session.members(ms.ref.entity('sales.customer'))``.
+        Constraints: Construction reads no business rows; first-round identity is single-column.
+        """
+        from marivo.analysis.observation.dsl_j1 import J1Context
+        from marivo.analysis.public_dsl import new_members
+
+        self._sources()
+        assert self._catalog_value is not None
+        state = self._catalog_value._state
+        context = J1Context(state.registry, state.sidecar, self.id, self._runtime.store.store_id)
+        return new_members(context.members(entity), self._runtime)
+
     def observe(
         self,
         metrics: MetricInput | list[MetricInput] | tuple[MetricInput, ...],
@@ -213,15 +234,70 @@ class Session:
         """
         return self._sources().source_bindings(bindings)
 
-    def artifact(self, reference: str | ArtifactRef) -> MaterializedDataset:
+    def artifact(self, reference: str | ArtifactRef) -> MaterializedDataset | PublicMaterialized:
         """Recover an exact committed Dataset without reading current sources.
 
         Args: reference: Exact ArtifactRef or reference string.
-        Returns: The paired concrete Materialized Dataset.
+        Returns: The paired Materialized Dataset or admitted J1–J4 relation variant.
         Example: ``saved = session.artifact(ref)``.
-        Constraints: Recovery never executes the Artifact's origin graph.
+        Constraints: Recovery never executes the origin graph; public J1–J4 results require their validated continuation snapshot.
         """
-        return self._runtime.artifact(reference)
+        record = self._runtime.store.artifact(str(reference))
+        if record is None:
+            return self._runtime.artifact(reference)
+        exchange = record.descriptor.j1_exchange
+        if exchange is None:
+            return self._runtime.artifact(reference)
+        if exchange.public_snapshot is None:
+            raise DatasetConstructionError(
+                expected="a public J1–J4 Artifact with a validated continuation snapshot",
+                received="private J1 Artifact without a public snapshot",
+                repair="Recover an Artifact produced through session.members(...).",
+                location="analysis.artifact",
+            )
+        from marivo.analysis.materialization.contracts import digest
+
+        expected_binding = digest(
+            (
+                record.descriptor.definition_fingerprint,
+                record.execution_key_digest,
+                exchange.member_binding,
+                hashlib.sha256(exchange.public_snapshot.encode("utf-8")).hexdigest(),
+            )
+        )
+        if (
+            exchange.member_binding is None
+            or record.descriptor.semantic_dependency_digest != expected_binding
+        ):
+            raise DatasetConstructionError(
+                expected="a snapshot bound to the exact definition, input and member implementation",
+                received="public continuation binding mismatch",
+                repair="Recover the original unmodified public Artifact.",
+                location="analysis.artifact",
+            )
+        from marivo.analysis.materialization.dsl_j1_artifact import load_j1_artifact
+        from marivo.analysis.materialization.dsl_public_snapshot import decode_public_node
+        from marivo.analysis.public_dsl import wrap_materialized
+
+        node = decode_public_node(exchange.public_snapshot, self.id, self._runtime.store.store_id)
+        load_j1_artifact(
+            self._runtime.store,
+            self.id,
+            record.artifact_ref,
+            node,
+            input_binding=record.execution_key_digest,
+        )
+        saved = self._runtime.artifact(reference)
+        from marivo.analysis.observation.dsl_j1_dataset import MaterializedJ1Dataset
+
+        if not isinstance(saved, MaterializedJ1Dataset):
+            raise DatasetConstructionError(
+                expected="a materialized J1 Artifact",
+                received=type(saved).__name__,
+                repair="Recover the exact public Artifact.",
+                location="analysis.artifact",
+            )
+        return wrap_materialized(node, self._runtime, saved)
 
     def runs(
         self, *, status: RunLifecycle | None = None, limit: int = 20, cursor: str | None = None

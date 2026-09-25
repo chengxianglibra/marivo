@@ -41,6 +41,17 @@ publication without deleting another Run's resources.
 
 ## Accepted S0 input and execution protocol (inactive)
 
+S4 P1 admits the finite public J1–J4 domain/relation chain on the same Session,
+Run, Store v6 and J1 execution protocol. Source adapters are opened from the
+loaded project's datasource declarations only inside an admitted evaluation;
+the public API has no source-factory argument. Public J1–J4 publication records
+a versioned continuation snapshot with its exact definition, method, domain,
+input and receipt binding. `session.artifact(reference)` validates that snapshot
+and recovers its concrete materialized shape and permitted local K without
+loading the current Semantic catalog or reconnecting to the source. An older
+private J1 Artifact without this snapshot remains outside the public recovery
+contract and is not migrated. Non-DSL Artifact recovery is unchanged.
+
 This is the accepted protocol for the
 [first-round Analysis DSL slice](python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive).
 W4 connects this protocol only through the private

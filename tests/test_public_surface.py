@@ -137,6 +137,45 @@ SEMANTIC_PUBLIC = {
 }
 
 ANALYSIS_PUBLIC = {
+    "GroupedRatioRelation",
+    "LogicalFixedAnalysisDomain",
+    "LogicalSelectedCategoryRelation",
+    "MaterializedSelectedCategoryRelation",
+    "LogicalRatioRelation",
+    "MaterializedRatioRelation",
+    "LogicalDifferenceRelation",
+    "MaterializedDifferenceRelation",
+    "LogicalSelectedDifferenceRelation",
+    "MaterializedSelectedDifferenceRelation",
+    "LogicalStatisticRelation",
+    "MaterializedStatisticRelation",
+    "MaterializedCoefficientRelation",
+    "LogicalCoefficientSelectionRelation",
+    "MaterializedCoefficientSelectionRelation",
+    "AnalysisContract",
+    "GroupedAnalysisDomain",
+    "GroupedNumericRelation",
+    "MaterializedGroupedNumericRelation",
+    "LogicalRolledNumericRelation",
+    "MaterializedRolledNumericRelation",
+    "LogicalRolledRatioRelation",
+    "MaterializedRolledRatioRelation",
+    "LogicalAnalysisDomain",
+    "LogicalAssociationResult",
+    "LogicalCategoryRelation",
+    "LogicalNumericRelation",
+    "MaterializedAnalysisDomain",
+    "MaterializedAssociationResult",
+    "MaterializedCategoryRelation",
+    "MaterializedNumericRelation",
+    "RootRoute",
+    "RootRoutes",
+    "RowMethod",
+    "count",
+    "mean",
+    "route",
+    "routes",
+    "sum",
     "Dataset",
     "LogicalDataset",
     "MaterializedDataset",
@@ -237,7 +276,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "bd9135b8f33fc450f706499b3fc6bda94947ccdb29cc0bf328a53107aa16c9e3"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "55ed82bb59ea06d90f758da4f40996f4a7125f8f4c3da3d2dd3fdf167d2b424e"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

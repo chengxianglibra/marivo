@@ -125,6 +125,77 @@ if TYPE_CHECKING:
     from marivo.analysis.operators.forecast_dataset import (
         MaterializedForecastDataset as MaterializedForecastDataset,
     )
+    from marivo.analysis.public_dsl import AnalysisContract as AnalysisContract
+    from marivo.analysis.public_dsl import GroupedAnalysisDomain as GroupedAnalysisDomain
+    from marivo.analysis.public_dsl import GroupedNumericRelation as GroupedNumericRelation
+    from marivo.analysis.public_dsl import GroupedRatioRelation as GroupedRatioRelation
+    from marivo.analysis.public_dsl import LogicalAnalysisDomain as LogicalAnalysisDomain
+    from marivo.analysis.public_dsl import LogicalAssociationResult as LogicalAssociationResult
+    from marivo.analysis.public_dsl import LogicalCategoryRelation as LogicalCategoryRelation
+    from marivo.analysis.public_dsl import (
+        LogicalCoefficientSelectionRelation as LogicalCoefficientSelectionRelation,
+    )
+    from marivo.analysis.public_dsl import LogicalDifferenceRelation as LogicalDifferenceRelation
+    from marivo.analysis.public_dsl import LogicalFixedAnalysisDomain as LogicalFixedAnalysisDomain
+    from marivo.analysis.public_dsl import LogicalNumericRelation as LogicalNumericRelation
+    from marivo.analysis.public_dsl import LogicalRatioRelation as LogicalRatioRelation
+    from marivo.analysis.public_dsl import (
+        LogicalRolledNumericRelation as LogicalRolledNumericRelation,
+    )
+    from marivo.analysis.public_dsl import LogicalRolledRatioRelation as LogicalRolledRatioRelation
+    from marivo.analysis.public_dsl import (
+        LogicalSelectedCategoryRelation as LogicalSelectedCategoryRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        LogicalSelectedDifferenceRelation as LogicalSelectedDifferenceRelation,
+    )
+    from marivo.analysis.public_dsl import LogicalStatisticRelation as LogicalStatisticRelation
+    from marivo.analysis.public_dsl import MaterializedAnalysisDomain as MaterializedAnalysisDomain
+    from marivo.analysis.public_dsl import (
+        MaterializedAssociationResult as MaterializedAssociationResult,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedCategoryRelation as MaterializedCategoryRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedCoefficientRelation as MaterializedCoefficientRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedCoefficientSelectionRelation as MaterializedCoefficientSelectionRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedDifferenceRelation as MaterializedDifferenceRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedGroupedNumericRelation as MaterializedGroupedNumericRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedNumericRelation as MaterializedNumericRelation,
+    )
+    from marivo.analysis.public_dsl import MaterializedRatioRelation as MaterializedRatioRelation
+    from marivo.analysis.public_dsl import (
+        MaterializedRolledNumericRelation as MaterializedRolledNumericRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedRolledRatioRelation as MaterializedRolledRatioRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedSelectedCategoryRelation as MaterializedSelectedCategoryRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedSelectedDifferenceRelation as MaterializedSelectedDifferenceRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedStatisticRelation as MaterializedStatisticRelation,
+    )
+    from marivo.analysis.public_dsl import RootRoute as RootRoute
+    from marivo.analysis.public_dsl import RootRoutes as RootRoutes
+    from marivo.analysis.public_dsl import RowMethod as RowMethod
+    from marivo.analysis.public_dsl import count as count
+    from marivo.analysis.public_dsl import mean as mean
+    from marivo.analysis.public_dsl import route as route
+    from marivo.analysis.public_dsl import routes as routes
+    from marivo.analysis.public_dsl import sum as sum
     from marivo.analysis.refs import ArtifactRef as ArtifactRef
     from marivo.analysis.session._lazy_read_model import ArtifactSummary as ArtifactSummary
     from marivo.analysis.session._lazy_read_model import FailedRun as FailedRun
