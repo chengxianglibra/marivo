@@ -1869,6 +1869,8 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
                 ("current_endpoint", "dsl.j1.current_endpoint"),
                 ("baseline_endpoint", "dsl.j1.baseline_endpoint"),
             ),
+            "dsl.j1.correlate": (("pair_counts", "dsl.j4.pair_counts"),),
+            "dsl.j1.correlate_where": (("pair_counts", "dsl.j4.pair_counts"),),
         }.get(producer)
         if (
             exchange.operator_id != "dsl.j1." + row.shape_id.local_shape_id
@@ -1901,6 +1903,10 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
                 and row.shape_id.local_shape_id == "ratio_observe"
                 and not {"complete_coverage", "contribution_partition", "component_binding"}
                 <= set(exchange.completed_checks)
+            )
+            or (
+                producer in ("dsl.j1.correlate", "dsl.j1.correlate_where")
+                and not {"complete_pairing", "spearman_pairs"} <= set(exchange.completed_checks)
             )
             or any(
                 part.role != "coordinate"

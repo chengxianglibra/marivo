@@ -222,6 +222,27 @@ retains ordered Metric identities, method version, status and matched/null/
 complete-pair counts. P1 does not qualify Artifact publication, pandas fixed
 inputs, cold recovery, public signatures or another source backend.
 
+### S3 P2 private Association publication and continuation
+
+The J4 source result now uses the existing Run, fixed-schema Parquet, receipt,
+and exact Artifact recovery path. Its committed row retains ordered Metric
+identities, valid method status, float64 coefficient, and input/matched/null/
+complete-pair counts. A keyed `pair_counts` part duplicates the committed
+counts and must match the primary row on recovery. The exchange binds method
+version, completed pairing checks, member realization, and input execution key;
+an incomplete or inconsistent result cannot publish successfully.
+
+The private coefficient handle admits a numeric `where` and current-row
+`sum`/`count`/`mean` over the exact committed input. These continuations read
+receipt-checked Parquet through pandas; they neither recompute Spearman nor
+recover Entity members from the coefficient. An empty selected set has count
+and sum zero and mean Undefined(`empty_mean`). Source evaluation obtains a new
+Run identity each time; an identical pure fixed input may hit its exact
+Artifact. The fixed two-observation qualification uses a controlled fixture
+with one shared member implementation and the normal codec/Store path. Equal
+keys from independent captures do not establish common authority. This does
+not introduce a public capture or Analysis DSL entry point.
+
 ## Runtime boundaries
 
 Every input belongs to the same Session. Definition identity differs from exact

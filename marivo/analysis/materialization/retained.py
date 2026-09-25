@@ -475,6 +475,20 @@ def checked_component_batches(
 
 
 def _part_state_columns(row: DatasetRowContract, role: str) -> tuple[tuple[str, str, bool], ...]:
+    if (
+        row.shape_id.family_id == "dsl_j1"
+        and row.shape_id.local_shape_id in ("correlate", "correlate_where")
+        and role == "pair_counts"
+    ):
+        return tuple(
+            (name, "integer", False)
+            for name in (
+                "input_observation_count",
+                "matched_observation_count",
+                "null_pair_count",
+                "complete_pair_count",
+            )
+        )
     if str(row.shape_id) == "lifecycle/history@v1":
         from marivo.analysis.domains.lifecycle import PART_COLUMNS, ROLES
 

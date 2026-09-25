@@ -68,6 +68,8 @@ _KINDS = (
     "ratio_observe",
     "ratio_rollup",
     "correlate",
+    "correlate_where",
+    "correlate_summarize",
 )
 _IDS = _StableIdRegistry(
     families=frozenset({"dsl_j1"}),
@@ -306,7 +308,63 @@ def _j1_contracts(
             ids=_IDS,
         )
 
-    if kind == "correlate":
+    if kind == "correlate_summarize":
+        if (
+            input_root is None
+            or input_root.shape_id.local_shape_id not in ("correlate", "correlate_where")
+            or len(parameters) != 1
+            or parameters[0] not in ("sum", "count", "mean")
+        ):
+            raise _reject(
+                "bound coefficient row statistic",
+                "invalid parameters",
+                repair="Rebuild the statistic.",
+            )
+        value_type = "int64" if parameters[0] == "count" else "float64"
+        statistic_columns = tuple(
+            field(name, "j4.statistic." + name, role, logical, nullable)
+            for name, role, logical, nullable in (
+                ("value", "value", value_type, True),
+                ("cell_tag", "cell", "string", False),
+                ("cell_reason", "cell", "string", True),
+            )
+        )
+        return (
+            _make_row_contract(
+                schema_version=1,
+                shape_id=_make_shape_id("dsl_j1", kind, 1, ids=_IDS),
+                schema=_make_schema(statistic_columns),
+                coordinate_field_ids=(),
+                key_field_ids=(),
+                family_semantics=_complete_from_schema(),
+            ),
+            _make_row_set_contract(
+                schema_version=1,
+                cardinality=_singleton_cardinality(),
+                ordering=_unordered_ordering(),
+            ),
+        )
+    if kind in ("correlate", "correlate_where"):
+        if kind == "correlate_where":
+            if (
+                input_root is None
+                or input_root.shape_id.local_shape_id != "correlate"
+                or len(parameters) != 2
+                or parameters[0] not in ("lt", "lte", "gt", "gte", "eq")
+                or not numeric_threshold_is_lossless("float64", parameters[1])
+            ):
+                raise _reject(
+                    "bound coefficient predicate",
+                    "invalid parameters",
+                    repair="Rebuild the selection.",
+                )
+            if type(input_root.parameters) is not tuple:
+                raise _reject(
+                    "bound Association parameters",
+                    "invalid parent",
+                    repair="Rebuild the association.",
+                )
+            parameters = input_root.parameters
         if (
             len(parameters) != 4
             or not all(isinstance(value, str) for value in parameters)
@@ -1020,6 +1078,75 @@ class J4Association:
     root: LogicalRootHandle
     left: J1Observed
     right: J1Observed
+
+    @property
+    def coefficient(self) -> J4Coefficient:
+        return J4Coefficient(self)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class J4Coefficient:
+    association: J4Association
+
+    @property
+    def value(self) -> J1NumericField:
+        return J1NumericField(self.association.root)
+
+    def where(self, predicate: J1NumericPredicate) -> J4CoefficientSelection:
+        association = self.association
+        if predicate.root is not association.root:
+            raise _reject(
+                "predicate on this coefficient",
+                "foreign predicate",
+                repair="Build the predicate from this coefficient view.",
+            )
+        root = association.context._node(
+            "correlate_where",
+            entity=association.left.entity.path,
+            input_root=association.root,
+            parameters=(predicate.operation, predicate.threshold),
+            requirements=("complete_pairing@v1", "spearman_pairs@v1"),
+        )
+        return J4CoefficientSelection(association, root)
+
+    def summarize(self, method: Literal["sum", "count", "mean"]) -> J4CoefficientStatistic:
+        return _j4_statistic(self.association, self.association.root, method)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class J4CoefficientSelection:
+    association: J4Association
+    root: LogicalRootHandle
+
+    def summarize(self, method: Literal["sum", "count", "mean"]) -> J4CoefficientStatistic:
+        return _j4_statistic(self, self.root, method)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class J4CoefficientStatistic:
+    predecessor: J4Association | J4CoefficientSelection
+    root: LogicalRootHandle
+
+
+def _j4_statistic(
+    predecessor: J4Association | J4CoefficientSelection,
+    input_root: LogicalRootHandle,
+    method: Literal["sum", "count", "mean"],
+) -> J4CoefficientStatistic:
+    if method not in ("sum", "count", "mean"):
+        raise _reject(
+            "sum, count or mean", str(method), repair="Choose a registered current row statistic."
+        )
+    association = (
+        predecessor.association if isinstance(predecessor, J4CoefficientSelection) else predecessor
+    )
+    root = association.context._node(
+        "correlate_summarize",
+        entity=association.left.entity.path,
+        input_root=input_root,
+        parameters=(method,),
+    )
+    return J4CoefficientStatistic(predecessor, root)
 
 
 @dataclass(frozen=True, slots=True, eq=False)

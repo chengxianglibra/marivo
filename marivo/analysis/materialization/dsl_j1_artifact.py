@@ -53,6 +53,9 @@ from marivo.analysis.observation.dsl_j1 import (
     J1SelectedDifference,
     J1Statistic,
     J3Observed,
+    J4Association,
+    J4CoefficientSelection,
+    J4CoefficientStatistic,
     j1_row_contracts,
 )
 from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
@@ -68,6 +71,9 @@ J1Node: TypeAlias = (
     | J1Statistic
     | J1Difference
     | J1SelectedDifference
+    | J4Association
+    | J4CoefficientSelection
+    | J4CoefficientStatistic
 )
 _STATE = (
     ("value.sum", "dsl.j1.value_sum", "state_sum"),
@@ -105,12 +111,33 @@ def _error(received: str) -> MaterializationError:
 
 
 def _context(node: J1Node) -> J1Context:
+    if isinstance(node, J4CoefficientSelection):
+        return node.association.context
+    if isinstance(node, J4CoefficientStatistic):
+        predecessor = node.predecessor
+        return (
+            predecessor.association.context
+            if isinstance(predecessor, J4CoefficientSelection)
+            else predecessor.context
+        )
     if isinstance(node, (J1Read, J1Group)):
         return node.members_input.context
     return node.context
 
 
 def _meaning(node: J1Node) -> tuple[d.AnalysisDomain, d.QuantityState | None]:
+    if isinstance(node, J4Association):
+        return d._singleton_domain(node.left.domain), None
+    if isinstance(node, J4CoefficientSelection):
+        return d._singleton_domain(node.association.left.domain), None
+    if isinstance(node, J4CoefficientStatistic):
+        predecessor = node.predecessor
+        association = (
+            predecessor.association
+            if isinstance(predecessor, J4CoefficientSelection)
+            else predecessor
+        )
+        return d._singleton_domain(association.left.domain), None
     if isinstance(node, J1Read):
         return node.members_input.domain, None
     if isinstance(node, (J1Statistic, J1Difference, J1SelectedDifference)):
@@ -191,6 +218,22 @@ def _validated_primary(node: J1Node, result: J1ExecutionResult) -> pa.Table:
 
 def _part_specs(result: J1ExecutionResult) -> tuple[PartWriteSpec, ...]:
     names = set(result.primary.column_names)
+    if result.root.operator_id in ("dsl.j1.correlate", "dsl.j1.correlate_where"):
+        return (
+            PartWriteSpec(
+                "pair_counts",
+                "dsl.j4.pair_counts",
+                1,
+                (
+                    "metric_key_a",
+                    "metric_key_b",
+                    "input_observation_count",
+                    "matched_observation_count",
+                    "null_pair_count",
+                    "complete_pair_count",
+                ),
+            ),
+        )
     keys = tuple(name for name in ("member", "coord_0", "coord_1", "group") if name in names)
     chosen = _RATIO if "numerator_sum" in names else _STATE if "state_sum" in names else _CURRENT
     return tuple(
@@ -201,6 +244,8 @@ def _part_specs(result: J1ExecutionResult) -> tuple[PartWriteSpec, ...]:
 
 
 def _producer(result: J1ExecutionResult) -> str:
+    if result.root.operator_id in ("dsl.j1.correlate", "dsl.j1.correlate_where"):
+        return result.root.operator_id
     if result.root.operator_id in ("dsl.j1.ratio_observe", "dsl.j1.ratio_rollup"):
         return "dsl.j1.ratio"
     if result.root.operator_id == "dsl.j1.compare" or (
@@ -303,7 +348,17 @@ def _publish_j1_artifact(
         "contribution_partition",
     } <= set(result.completed_checks):
         raise _error("J1 source obligations are incomplete")
-    if isinstance(node, (J1Difference, J1SelectedDifference, J3Observed)):
+    if isinstance(
+        node,
+        (
+            J1Difference,
+            J1SelectedDifference,
+            J3Observed,
+            J4Association,
+            J4CoefficientSelection,
+            J4CoefficientStatistic,
+        ),
+    ):
         method = j1_numeric_method(node.root)
         if method is None or not set(method.contract.required_checks) <= set(
             result.completed_checks
@@ -498,7 +553,6 @@ def load_j1_artifact(
     keys = tuple(field.name for field in row.schema.columns if field.field_id in row.key_field_ids)
     primary_keys = [tuple(item[name] for name in keys) for item in primary.to_pylist()]
     for table in keyed_parts.values():
-        column = next(name for name in table.column_names if name not in keys)
         positions = {
             tuple(item[name] for name in keys): index
             for index, item in enumerate(table.to_pylist())
@@ -506,5 +560,10 @@ def load_j1_artifact(
         if len(positions) != table.num_rows or set(positions) != set(primary_keys):
             raise _error("retained state keys differ from primary keys")
         aligned = table.take(pa.array([positions[key] for key in primary_keys], type=pa.int64()))
-        wide = wide.append_column(aligned.schema.field(column), aligned[column])
+        for column in (name for name in table.column_names if name not in keys):
+            if column in wide.column_names:
+                if not aligned[column].equals(wide[column]):
+                    raise _error("retained state differs from primary")
+            else:
+                wide = wide.append_column(aligned.schema.field(column), aligned[column])
     return J1ExecutionResult(node.root, wide, (*coordinates, *endpoints), exchange.completed_checks)

@@ -102,10 +102,12 @@ def place_j1_local(
     if baseline_root is not None:
         if (
             root.shape_id.family_id == "dsl_j1"
-            and root.operator_id == "dsl.j1.compare"
+            and root.operator_id in ("dsl.j1.compare", "dsl.j1.correlate")
             and len(root.inputs) == 2
-            and root.inputs[0].role == "current"
-            and root.inputs[1].role == "baseline"
+            and root.inputs[0].role
+            == ("left" if root.operator_id == "dsl.j1.correlate" else "current")
+            and root.inputs[1].role
+            == ("right" if root.operator_id == "dsl.j1.correlate" else "baseline")
             and root.inputs[0].root is input_root
             and root.inputs[1].root is baseline_root
             and root.session_id == input_root.session_id == baseline_root.session_id
@@ -123,6 +125,8 @@ def place_j1_local(
             "dsl.j1.rollup",
             "dsl.j1.summarize",
             "dsl.j1.ratio_rollup",
+            "dsl.j1.correlate_where",
+            "dsl.j1.correlate_summarize",
         )
         or len(root.inputs) != 1
         or root.inputs[0].root is not input_root

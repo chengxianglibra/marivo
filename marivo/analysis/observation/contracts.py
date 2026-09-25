@@ -385,6 +385,8 @@ class ObservationProducerContract:
                 return ("dsl.j1.current_sum", "dsl.j1.current_count")
             if self.producer_id == "dsl.j1.compare":
                 return ("dsl.j1.current_endpoint", "dsl.j1.baseline_endpoint")
+            if self.producer_id in ("dsl.j1.correlate", "dsl.j1.correlate_where"):
+                return ("dsl.j4.pair_counts",)
             return ()
         if self.producer_id == "session.lifecycle.replay":
             from marivo.analysis.domains.lifecycle import ROLES
@@ -517,6 +519,9 @@ _PRODUCER_CONTRACTS = (
             "current_mean",
             "compare",
             "ratio",
+            "correlate",
+            "correlate_where",
+            "correlate_summarize",
         )
     ),
     ObservationProducerContract("session.lifecycle.replay", "lifecycle_history"),
@@ -1197,6 +1202,9 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                         "compare",
                         "ratio_observe",
                         "ratio_rollup",
+                        "correlate",
+                        "correlate_where",
+                        "correlate_summarize",
                     )
                 ),
                 ("event", "journey", 1),
@@ -1563,6 +1571,34 @@ def _validate_j1(row: DatasetRowContract, row_set: DatasetRowSetContract) -> Non
     """Admit only the finite private J1 row shapes into Artifact recovery."""
     names = tuple(field.name for field in row.schema.columns)
     keys = tuple(field.name for field in row.schema.columns if field.field_id in row.key_field_ids)
+    if row.shape_id.local_shape_id in ("correlate", "correlate_where"):
+        if (
+            row.family_semantics.kind != "complete_from_schema"
+            or keys != ("metric_key_a", "metric_key_b")
+            or names
+            != (
+                "metric_key_a",
+                "metric_key_b",
+                "status",
+                "coefficient",
+                "input_observation_count",
+                "matched_observation_count",
+                "null_pair_count",
+                "complete_pair_count",
+            )
+            or row_set.cardinality.kind != "keyed"
+        ):
+            raise construction_error("closed Association row shape", "invalid Association rows")
+        return
+    if row.shape_id.local_shape_id == "correlate_summarize":
+        if (
+            row.family_semantics.kind != "complete_from_schema"
+            or keys
+            or names != ("value", "cell_tag", "cell_reason")
+            or row_set.cardinality.kind != "singleton"
+        ):
+            raise construction_error("closed coefficient statistic row", "invalid statistic rows")
+        return
     if row.shape_id.local_shape_id in ("ratio_observe", "ratio_rollup"):
         cell = ("value", "cell_tag", "cell_reason")
         ratio_keys = (
@@ -1951,6 +1987,9 @@ def make_family_registry(
                         "compare",
                         "ratio_observe",
                         "ratio_rollup",
+                        "correlate",
+                        "correlate_where",
+                        "correlate_summarize",
                     )
                 ),
                 owner_id="observation.dsl_j1",
