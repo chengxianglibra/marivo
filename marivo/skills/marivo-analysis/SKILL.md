@@ -154,10 +154,14 @@ decision rounds. Do not depend on process memory, an implicit latest result,
 imported prior scripts, chat summaries, or repeated successful observations as
 substitutes for persisted identity. A logical Dataset belongs to its originating
 Session; carry an exact committed Artifact identity when moving between Sessions.
-Never replay origin queries to conceal missing retained state. Reusing the
-same Session and exact execution definition recovers its committed snapshot.
-If the question requires current source rows, follow the live execution contract
-for an explicit fresh observation boundary rather than treating a cache hit as
+Never replay origin queries to conceal missing retained state. For the admitted
+Entity-domain Analysis DSL, executing a logical source branch again evaluates
+the source again; an exact fixed continuation may hit its committed execution
+key. Recover a public result from its exact Artifact reference and validated
+continuation snapshot, including required retained parts. A missing or
+incompatible snapshot blocks that branch; do not rebuild it from displayed rows
+or current Semantic declarations. If the question requires current source rows,
+use an explicit fresh logical observation rather than treating a fixed hit as
 refresh evidence.
 
 When resuming work, start with `marivo.help("analysis.runtime")`. Use bounded

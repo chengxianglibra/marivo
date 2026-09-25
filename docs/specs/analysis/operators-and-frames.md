@@ -86,6 +86,16 @@ changes this choice.
 
 ## Accepted S0 method rules (inactive)
 
+S4 P1 exposes the admitted J1–J4 method subset through typed domain and
+relation receivers. Public `mv.sum()`, `mv.count()` and `mv.mean()` are closed
+current-row method values; `mv.route()` and `mv.routes()` bind two distinct
+contribution roots to their ordered relationship paths. `summarize` consumes
+the current rows and constructs new row-statistic state, while `rollup` merges
+the original retained components. A materialized result can construct only
+continuations justified by its own retained parts and exact input binding.
+These public operations use the method rules and implementation registrations
+below; they do not introduce a second method policy or source adapter.
+
 S1 W1 records J1 sum observation and original-state rollup method semantics
 with retained sum, non-null-count and row-count parts and no qualified source
 or pandas implementation. Private construction may bind them; execution

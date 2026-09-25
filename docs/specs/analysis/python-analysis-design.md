@@ -134,23 +134,89 @@ A fixed selected member Artifact cannot be used for a new live read or observe.
 These are private qualifications, not public DSL methods or a two-endpoint
 capture API.
 
+## S4 P1 public admission
+
+The first public slice admits only the J1–J4 shapes in the MVP validation
+plan. `session.members(Ref[EntityKind])` returns a logical AnalysisDomain;
+`read(Ref[DimensionKind])` returns a CategoryRelation; and `observe` accepts
+one `Ref[MetricKind]`, an explicit fixed `TimeScope`, one relationship or the
+closed two-root `routes(route(...), route(...))` value, and optional declared
+contribution coordinates. Domain and relation methods return concrete logical
+variants. `execute()` exists only on logical values; `show()` and
+`to_pandas()` exist only on materialized values. Both expose `contract()`.
+`session.artifact(reference)` returns an exact materialized variant, with
+the existing non-DSL materialized families retained in its closed union.
+
+The admitted operations are categorical equality selection and member
+projection; grouping by a member Dimension or retained contribution
+coordinate; exact absolute same-member comparison, strict numeric selection
+and member projection; current-row `sum/count/mean` through closed method
+values; original-state rollup; and same-Entity no-lag Spearman with a fixed
+coefficient view. Unsupported target-language methods remain unexported.
+Public result types never turn an unretained component or subject map into a
+continuation. A logical chain constructs without business-source I/O; a
+source-dependent top-level execute creates a fresh evaluation. A fixed-only
+continuation uses exact retained receipts and pandas. Mixed fixed/live inputs
+reject before a Run or either input is read.
+
+The canonical entry for a migrated first-round shape is the domain/relation
+chain. Existing Session population/observation and Dataset family methods
+continue to serve shapes outside this admitted slice; they are not aliases for
+the new chain. The public cutover must keep live Help, API docstrings, export
+snapshots, user examples and the packaged analysis workflow synchronized.
+Previous private J1 Artifacts have no public continuation snapshot and are
+not upgraded. A newly public Artifact must retain its admitted node shape,
+method/semantic policy versions, exact input binding and receipts so a cold
+recovery can preserve the same K without loading current semantics.
+
+| Canonical P1 call | Logical return | Materialized return or continuation | Required retained authority |
+| --- | --- | --- | --- |
+| `session.members(entity)` | `LogicalAnalysisDomain` | `MaterializedAnalysisDomain` | Entity identity and exact member root |
+| `members.read(dimension)`, then `where(read.value.eq(category))` | `LogicalCategoryRelation`, `LogicalSelectedCategoryRelation` | matching category variant; selected `members()` projects identity | declared single-valued Dimension and selected member keys |
+| `members.group_by(dimension).observe(metric, during=window, via=relationship)` | `GroupedNumericRelation` | `MaterializedGroupedNumericRelation` | group binding and sum/count state |
+| `members.observe(metric, during=window, via=relationship)` | `LogicalNumericRelation` | `MaterializedNumericRelation`; `group_by` returns `GroupedNumericRelation`, `rollup` returns `LogicalRolledNumericRelation` / `MaterializedRolledNumericRelation` | sum, non-null count, row count and optional coordinate state |
+| `members.observe(metric, during=window, via=mv.routes(...), coordinates=(...))` | `LogicalRatioRelation` | `MaterializedRatioRelation`; `group_by` returns `GroupedRatioRelation`, `rollup` returns `LogicalRolledRatioRelation` / `MaterializedRolledRatioRelation` | numerator sum/count/row count and denominator count/row count |
+| `observed.compare(baseline)`, then `where(diff.value.lt(threshold))` | `LogicalDifferenceRelation`, `LogicalSelectedDifferenceRelation` | matching Difference variants; selected `members()` projects identity | exact ordered current and baseline endpoints |
+| `relation.summarize(mv.sum/count/mean())` | `LogicalStatisticRelation` | terminal `MaterializedStatisticRelation` | current-row method and Cell checks; no original-state rollup |
+| `observed.correlate(other, method="spearman")` | `LogicalAssociationResult` | `MaterializedAssociationResult`, then fixed `MaterializedCoefficientRelation` | paired observation state, pair counts and exact member binding |
+| `coefficient.where(coefficient.value.lt(threshold))` | `LogicalCoefficientSelectionRelation` | `MaterializedCoefficientSelectionRelation` | retained pair counts and coefficient policy |
+
+`mv.route(root, *, through=(...))` and `mv.routes(first, second)` are
+closed values; `mv.sum()`, `mv.count()`, and `mv.mean()` take no arguments.
+`rollup()` merges original retained components, while `summarize(...)`
+calculates over current rows. Logical values own `execute()` and
+`contract()`; Materialized values own `show()`, `to_pandas()`, and
+`contract()`. A fixed selected-member projection is a
+`LogicalFixedAnalysisDomain` with only a local `execute()` continuation.
+Cold recovery reconstructs the concrete materialized variant from a canonical
+v1 public snapshot stored in the v3 J1 exchange. The snapshot contains the
+node graph, frozen row facts and policy objects; the Artifact descriptor binds
+the definition, method, input execution key, member implementation and all
+primary/part receipts. Missing, malformed or mismatched snapshots reject.
+
+| Existing public entry | P1 decision |
+| --- | --- |
+| `session.population(...)` and its Dataset family methods | Retained for Population, Event, Lifecycle and other shapes outside the admitted Entity-domain chain; it is not a J1–J4 synonym. |
+| `session.observe(...)` and its Dataset family methods | Retained for existing Metric, time-series and non-J1–J4 analysis; new member-domain J1–J4 guidance starts at `session.members(...)`. |
+| `session.artifact(reference)` | Extended to recover a concrete public J1–J4 Materialized variant when its validated snapshot exists; other family Artifacts retain their prior return shape. |
+| Private `DatasetRuntime.execute_j1(...)` and old private J1 Artifacts | No public entry or migration; private Artifacts without a public snapshot reject through the public recovery call. |
+
 ## Accepted S0 Analysis DSL slice (inactive)
 
-This section accepts the first-round semantics in the
+This historical S0 section accepted the first-round semantics in the
 [DSL MVP](../../superpowers/specs/2026-09-24-marivo-analysis-dsl-mvp-validation-plan.md#2-首轮方法范围与后续扩展)
 and the
 [architecture](../../superpowers/specs/2026-09-24-marivo-analysis-dsl-architecture-design.md#3-基础能力与规则推导)
-as an implementation contract, not as a description of enabled APIs or Runtime
-behavior. It covers non-versioned single-column integer/string Entity identity,
+as an implementation contract before the S4 P1 public admission above. It
+covers non-versioned single-column integer/string Entity identity,
 many-to-one paths, categorical attributes, fixed half-open event windows,
 sum/count and explicit-component ratio, strict selection, exact-key absolute
 time comparison, current-row sum/count/mean, original-state rollup, and
 same-Entity no-lag Spearman. DuckDB is the first source adapter; pure
 retained-input continuation uses pandas. The full
 [target interface](../../superpowers/specs/2026-09-24-marivo-semantic-analysis-dsl-interface-design.md)
-remains proposed outside this slice. Public signatures, Help, other backends,
-mixed-input execution, and production routing are not activated by this
-acceptance.
+remains proposed outside this slice. S0 alone did not activate public
+signatures, Help, other backends, mixed-input execution, or production routing.
 
 The acceptance baseline is code `79faee0030685f0690fd2970990fccbe9a385886`
 in a clean `panda` checkout. The isolated T1 worktree starts at the same

@@ -50,6 +50,7 @@ from marivo.analysis.observation.dsl_j1 import (
     J1Members,
     J1Observed,
     J1Read,
+    J1SelectedCategory,
     J1SelectedDifference,
     J1Statistic,
     J3Observed,
@@ -65,6 +66,7 @@ from marivo.semantic.validator import normalize_target_entity
 J1Node: TypeAlias = (
     J1Members
     | J1Read
+    | J1SelectedCategory
     | J1Group
     | J1Observed
     | J3Observed
@@ -120,7 +122,7 @@ def _context(node: J1Node) -> J1Context:
             if isinstance(predecessor, J4CoefficientSelection)
             else predecessor.context
         )
-    if isinstance(node, (J1Read, J1Group)):
+    if isinstance(node, (J1Read, J1Group, J1SelectedCategory)):
         return node.members_input.context
     return node.context
 
@@ -139,6 +141,8 @@ def _meaning(node: J1Node) -> tuple[d.AnalysisDomain, d.QuantityState | None]:
         )
         return d._singleton_domain(association.left.domain), None
     if isinstance(node, J1Read):
+        return node.members_input.domain, None
+    if isinstance(node, J1SelectedCategory):
         return node.members_input.domain, None
     if isinstance(node, (J1Statistic, J1Difference, J1SelectedDifference)):
         return node.domain, node.quantity
@@ -161,8 +165,14 @@ def _identity(node: J1Node) -> tuple[str, tuple[tuple[str, str], ...], str]:
     ):
         raise _error("J1 origin has no Entity binding")
     entity_path = root.parameters[0]
-    entity = normalize_target_entity(_context(node).registry, entity_path)
-    return entity_path, entity.identity_signature, root.definition_fingerprint
+    context = _context(node)
+    entity = context.row_entity
+    signature = (
+        entity.identity_signature
+        if entity is not None and entity.path == entity_path
+        else normalize_target_entity(context.registry, entity_path).identity_signature
+    )
+    return entity_path, signature, root.definition_fingerprint
 
 
 def _batches(table: pa.Table) -> tuple[pa.RecordBatch, ...]:
@@ -325,6 +335,7 @@ def _publish_j1_artifact(
     *,
     input_binding: str,
     member_binding: str | None = None,
+    public_snapshot: str | None = None,
     event: Callable[[str], None] = lambda _name: None,
 ) -> ArtifactRecord:
     """Perform one J1 publication under a caller-owned Run and writer guard."""
@@ -413,6 +424,7 @@ def _publish_j1_artifact(
                 for item in written.retained_parts
             ),
             member_binding,
+            public_snapshot,
         )
         descriptor = ArtifactDescriptor(
             definition_fingerprint=node.root.definition_fingerprint,
@@ -424,6 +436,13 @@ def _publish_j1_artifact(
                 (node.root.definition_fingerprint, input_binding)
                 if member_binding is None
                 else (node.root.definition_fingerprint, input_binding, member_binding)
+                if public_snapshot is None
+                else (
+                    node.root.definition_fingerprint,
+                    input_binding,
+                    member_binding,
+                    hashlib.sha256(public_snapshot.encode("utf-8")).hexdigest(),
+                )
             ),
             population_authority=PopulationAuthority(membership_definition, entity_path, signature),
             sampling_execution=None,
@@ -459,6 +478,7 @@ def publish_j1_artifact(
     *,
     input_binding: str,
     member_binding: str | None = None,
+    public_snapshot: str | None = None,
     event: Callable[[str], None] = lambda _name: None,
 ) -> ArtifactRecord:
     """Publish a completed J1 stage under its caller-owned admitted Run and writer guard."""
@@ -470,6 +490,7 @@ def publish_j1_artifact(
             result,
             input_binding=input_binding,
             member_binding=member_binding,
+            public_snapshot=public_snapshot,
             event=event,
         )
     except BaseException:

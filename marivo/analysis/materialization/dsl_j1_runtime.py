@@ -140,8 +140,21 @@ def _binding(
 
 
 def _validated_result(
-    self: DatasetRuntime, artifact_ref: str, node: J1Node, key: str
+    self: DatasetRuntime,
+    artifact_ref: str,
+    node: J1Node,
+    key: str,
+    *,
+    public_snapshot: str | None = None,
 ) -> MaterializedJ1Dataset:
+    record = self.store.artifact(artifact_ref)
+    if record is None or record.execution_key_digest != key:
+        raise _error("authority_resolution")
+    if public_snapshot is not None and (
+        record.descriptor.j1_exchange is None
+        or record.descriptor.j1_exchange.public_snapshot != public_snapshot
+    ):
+        raise _reject("fixed Artifact has no matching public continuation snapshot")
     load_j1_artifact(
         self.store,
         self.session_ref,
@@ -149,9 +162,6 @@ def _validated_result(
         node,
         input_binding=key,
     )
-    record = self.store.artifact(artifact_ref)
-    if record is None or record.execution_key_digest != key:
-        raise _error("authority_resolution")
     recovered = self._recover(record)
     if not isinstance(recovered, MaterializedJ1Dataset):
         raise _error("authority_resolution")
@@ -168,6 +178,7 @@ def execute_j1(
     input_nodes: tuple[J1Node, J1Node] | None = None,
     input_artifact_refs: tuple[str, str] | None = None,
     source_route: Literal["automatic", "python", "source_numeric"] = "automatic",
+    public_snapshot: str | None = None,
 ) -> MaterializedJ1Dataset:
     """Execute one private J1 root, selecting fresh source or exact fixed input."""
     context = _context(node)
@@ -315,7 +326,9 @@ def execute_j1(
             hit = self.store.lookup(self.session_ref, key)
             if hit is not None:
                 self.last_run_ref = hit.producing_run_ref
-                recovered_hit = _validated_result(self, hit.artifact_ref, node, key)
+                recovered_hit = _validated_result(
+                    self, hit.artifact_ref, node, key, public_snapshot=public_snapshot
+                )
                 self.statistics.j1_fixed_cache_hits += 1
                 return recovered_hit
         run_ref = None
@@ -423,9 +436,12 @@ def execute_j1(
                     if fixed and selected_records[0].descriptor.j1_exchange is not None
                     else run.run_ref
                 ),
+                public_snapshot=public_snapshot,
                 event=self._event,
             )
-            return _validated_result(self, record.artifact_ref, node, key)
+            return _validated_result(
+                self, record.artifact_ref, node, key, public_snapshot=public_snapshot
+            )
         except BaseException as exc:
             if isinstance(exc, MaterializationError) and exc.run_ref is None:
                 exc.run_ref = run.run_ref
@@ -435,7 +451,13 @@ def execute_j1(
             try:
                 outcome = resolve_outcome(self, run, safe, run_failure_phase(safe.stage, phase))
                 if outcome is not None:
-                    return _validated_result(self, outcome.state.artifact_ref.ref, node, key)
+                    return _validated_result(
+                        self,
+                        outcome.state.artifact_ref.ref,
+                        node,
+                        key,
+                        public_snapshot=public_snapshot,
+                    )
             except MaterializationError as resolution_error:
                 if resolution_error.run_ref is None:
                     resolution_error.run_ref = run.run_ref

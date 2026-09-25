@@ -351,12 +351,15 @@ class J1ArtifactExchange:
     receipt_identity: str
     parts: tuple[tuple[str, str, int, str, str], ...]
     member_binding: str | None = None
+    public_snapshot: str | None = None
 
 
 def j1_exchange_payload(value: J1ArtifactExchange) -> dict[str, object]:
     payload: dict[str, object] = {
         "schema": (
-            "marivo.j1_artifact_exchange/v2"
+            "marivo.j1_artifact_exchange/v3"
+            if value.public_snapshot is not None
+            else "marivo.j1_artifact_exchange/v2"
             if value.member_binding is not None
             else "marivo.j1_artifact_exchange/v1"
         ),
@@ -374,6 +377,8 @@ def j1_exchange_payload(value: J1ArtifactExchange) -> dict[str, object]:
     }
     if value.member_binding is not None:
         payload["member_binding"] = value.member_binding
+    if value.public_snapshot is not None:
+        payload["public_snapshot"] = value.public_snapshot
     return payload
 
 
@@ -382,11 +387,17 @@ def decode_j1_exchange(value: object) -> J1ArtifactExchange:
     obj = _obj(
         value,
         "schema kind operator_id domain quantity method_id method_version input_binding completed_checks primary_schema_fingerprint receipt_identity parts"
-        + (" member_binding" if schema == "marivo.j1_artifact_exchange/v2" else ""),
+        + (
+            " member_binding"
+            if schema in ("marivo.j1_artifact_exchange/v2", "marivo.j1_artifact_exchange/v3")
+            else ""
+        )
+        + (" public_snapshot" if schema == "marivo.j1_artifact_exchange/v3" else ""),
     )
     if obj["schema"] not in (
         "marivo.j1_artifact_exchange/v1",
         "marivo.j1_artifact_exchange/v2",
+        "marivo.j1_artifact_exchange/v3",
     ) or obj["kind"] not in (
         "relation",
         "value",
@@ -438,8 +449,19 @@ def decode_j1_exchange(value: object) -> J1ArtifactExchange:
         primary_hash,
         receipt_hash,
         tuple(parts),
-        _text(obj["member_binding"]) if schema == "marivo.j1_artifact_exchange/v2" else None,
+        _text(obj["member_binding"])
+        if schema in ("marivo.j1_artifact_exchange/v2", "marivo.j1_artifact_exchange/v3")
+        else None,
+        _public_snapshot_text(obj["public_snapshot"])
+        if schema == "marivo.j1_artifact_exchange/v3"
+        else None,
     )
+
+
+def _public_snapshot_text(value: object) -> str:
+    if type(value) is not str or not value or len(value.encode("utf-8")) > 262144:
+        raise invalid("invalid bounded public continuation snapshot")
+    return value
 
 
 @dataclass(frozen=True, slots=True)
