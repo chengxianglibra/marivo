@@ -253,6 +253,12 @@ def test_method_semantics_are_single_owner_for_qualified_implementations() -> No
         replace(contract, **{"capabilities": ("not_a_capability",)})
     with pytest.raises(DatasetRegistrationError):
         replace(contract, input_kinds=("row_statistic",))
+    assert replace(
+        contract,
+        input_kinds=("observed", "observed"),
+        capabilities=("part_transport",),
+        part_effect="preserve",
+    ).input_kinds == ("observed", "observed")
     with pytest.raises(DatasetRegistrationError):
         replace(contract, **{"cell_policy": "unknown"})
     with pytest.raises(DatasetRegistrationError):

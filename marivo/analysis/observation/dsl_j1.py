@@ -15,6 +15,7 @@ from marivo.analysis.datasets.descriptors import (
     QuantityState,
     _complete_from_schema,
     _deferred_type,
+    _difference_quantity,
     _entity_domain,
     _generated_identity,
     _group_domain,
@@ -51,7 +52,7 @@ from marivo.semantic.ir import TargetDimensionContract
 from marivo.semantic.metric_graph_lowering import normalize_target_metric
 from marivo.semantic.validator import Registry, normalize_target_dimension, normalize_target_entity
 
-_KINDS = ("members", "read", "where", "group", "observe", "rollup", "summarize")
+_KINDS = ("members", "read", "where", "group", "observe", "rollup", "summarize", "compare")
 _IDS = _StableIdRegistry(
     families=frozenset({"dsl_j1"}),
     shapes=frozenset(("dsl_j1", kind, 1) for kind in _KINDS),
@@ -61,6 +62,8 @@ _IDS = _StableIdRegistry(
     admitted_types=frozenset({"int64", "float64", "string", "unknown"}),
 )
 J1_SUM_PARTS = ("value.sum", "value.non_null_count", "value.row_count")
+J1_COMPARE_PARTS = ("current_endpoint", "baseline_endpoint")
+J1_COMPARE_CHECKS = ("complete_pairing", "strict_numeric_cell")
 
 
 def _reject(expected: str, received: str, *, repair: str) -> DatasetConstructionError:
@@ -125,7 +128,7 @@ def _j1_contracts(
                 group_type,
                 repair="Use a first-round string Dimension for grouping.",
             )
-    if kind in ("members", "where", "read"):
+    if kind in ("members", "where", "read", "compare"):
         key = "member"
         key_id = _make_field_id("member." + entity_path + "." + entity.primary_key[0])
         key_type = member_type
@@ -177,7 +180,7 @@ def _j1_contracts(
     columns = []
     if key is not None and key_id is not None and key_type is not None:
         columns.append(field(key, key_id.value, key, key_type, False))
-    if kind in ("read", "observe", "rollup", "summarize") or (
+    if kind in ("read", "observe", "rollup", "summarize", "compare") or (
         kind == "group"
         and input_root is not None
         and input_root.shape_id.local_shape_id == "observe"
@@ -263,12 +266,13 @@ class J1Context:
         *,
         entity: str,
         input_root: LogicalRootHandle | None = None,
+        baseline_root: LogicalRootHandle | None = None,
         parameters: tuple[str | int | None | tuple[str, ...], ...] = (),
         dependency: str = "",
         requirements: tuple[str, ...] = (),
     ) -> LogicalRootHandle:
         shape = _make_shape_id("dsl_j1", kind, 1, ids=_IDS)
-        inputs = (
+        inputs: tuple[DefinitionInput, ...] = (
             (
                 DefinitionInput(
                     "input", LogicalInputToken(input_root.definition_fingerprint), input_root
@@ -277,6 +281,19 @@ class J1Context:
             if input_root is not None
             else ()
         )
+        if baseline_root is not None:
+            if input_root is None:
+                raise _reject("current input", "missing", repair="Bind both comparison endpoints.")
+            inputs = (
+                DefinitionInput(
+                    "current", LogicalInputToken(input_root.definition_fingerprint), input_root
+                ),
+                DefinitionInput(
+                    "baseline",
+                    LogicalInputToken(baseline_root.definition_fingerprint),
+                    baseline_root,
+                ),
+            )
         row, rows = _j1_contracts(self, kind, entity, input_root, parameters)
         return _make_logical_root(
             session_id=self.session_id,
@@ -469,6 +486,50 @@ class J1Observed:
     plan: MetricComponentPlan
     coordinates: tuple[Ref[DimensionKind], ...]
 
+    def compare(self, baseline: J1Observed) -> J1Difference:
+        if not isinstance(baseline, J1Observed):
+            raise _reject(
+                "Observed baseline", type(baseline).__name__, repair="Compare two observations."
+            )
+        current_facts = self.root.parameters
+        baseline_facts = baseline.root.parameters
+        if (
+            self.context is not baseline.context
+            or self.domain.kind != "entity"
+            or self.domain != baseline.domain
+            or self.metric != baseline.metric
+            or self.plan != baseline.plan
+            or self.coordinates != baseline.coordinates
+            or type(current_facts) is not tuple
+            or type(baseline_facts) is not tuple
+            or len(current_facts) != 5
+            or len(baseline_facts) != 5
+            or current_facts[:3] != baseline_facts[:3]
+            or current_facts[4] != baseline_facts[4]
+            or _member_root(self.root) is not _member_root(baseline.root)
+        ):
+            raise _reject(
+                "two time-scoped observations of one Metric and one explicit member node",
+                "incompatible comparison endpoints",
+                repair="Observe both periods from the same members object with matching Metric, route and coordinates.",
+            )
+        root = self.context._node(
+            "compare",
+            entity=self.entity.path,
+            input_root=self.root,
+            baseline_root=baseline.root,
+            parameters=("time_change", "exact_keys", "difference"),
+            requirements=tuple(f"{check}@v1" for check in J1_COMPARE_CHECKS),
+        )
+        quantity = _difference_quantity(
+            self.domain,
+            self.root.definition_fingerprint,
+            baseline.root.definition_fingerprint,
+            "metric:" + self.metric.path,
+            J1_COMPARE_PARTS,
+        )
+        return J1Difference(self.context, self.entity, self.domain, quantity, root, self, baseline)
+
     def group_by(self, dimension: Ref[DimensionKind]) -> J1Observed:
         if type(dimension) is not Ref or dimension not in self.coordinates:
             raise _reject(
@@ -550,6 +611,29 @@ class J1Statistic:
     quantity: QuantityState
     root: LogicalRootHandle
     method: str
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class J1Difference:
+    context: J1Context
+    entity: Ref[EntityKind]
+    domain: AnalysisDomain
+    quantity: QuantityState
+    root: LogicalRootHandle
+    current: J1Observed
+    baseline: J1Observed
+
+
+def _member_root(root: LogicalRootHandle) -> LogicalRootHandle:
+    current = root
+    while current.inputs:
+        predecessor = current.inputs[0].root
+        if not isinstance(predecessor, LogicalRootHandle):
+            raise _reject(
+                "logical member ancestry", "materialized input", repair="Use exact logical members."
+            )
+        current = predecessor
+    return current
 
 
 def _observe(

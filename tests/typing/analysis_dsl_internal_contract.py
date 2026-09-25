@@ -25,7 +25,7 @@ def _closed_contracts(
     implementation: MethodImplementation,
 ) -> None:
     assert_type(domain.kind, Literal["entity", "group", "singleton"])
-    assert_type(quantity.kind, Literal["observed", "row_statistic"])
+    assert_type(quantity.kind, Literal["observed", "row_statistic", "difference"])
     assert_type(classification.kind, Literal["source", "artifact", "mixed"])
     assert_type(method.version, int)
     assert_type(implementation.route, Literal["source", "local"])

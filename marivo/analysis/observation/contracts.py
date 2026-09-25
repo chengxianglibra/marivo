@@ -375,6 +375,8 @@ class ObservationProducerContract:
                 return ("dsl.j1.current_count",)
             if self.producer_id == "dsl.j1.current_mean":
                 return ("dsl.j1.current_sum", "dsl.j1.current_count")
+            if self.producer_id == "dsl.j1.compare":
+                return ("dsl.j1.current_endpoint", "dsl.j1.baseline_endpoint")
             return ()
         if self.producer_id == "session.lifecycle.replay":
             from marivo.analysis.domains.lifecycle import ROLES
@@ -505,6 +507,7 @@ _PRODUCER_CONTRACTS = (
             "current_sum",
             "current_count",
             "current_mean",
+            "compare",
         )
     ),
     ObservationProducerContract("session.lifecycle.replay", "lifecycle_history"),
@@ -1182,6 +1185,7 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                         "observe",
                         "rollup",
                         "summarize",
+                        "compare",
                     )
                 ),
                 ("event", "journey", 1),
@@ -1550,7 +1554,7 @@ def _validate_j1(row: DatasetRowContract, row_set: DatasetRowSetContract) -> Non
     keys = tuple(field.name for field in row.schema.columns if field.field_id in row.key_field_ids)
     if (
         row.shape_id.local_shape_id
-        not in ("members", "read", "where", "group", "observe", "rollup", "summarize")
+        not in ("members", "read", "where", "group", "observe", "rollup", "summarize", "compare")
         or row.family_semantics.kind != "complete_from_schema"
         or keys not in ((), ("member",), ("group",))
         or names
@@ -1914,6 +1918,7 @@ def make_family_registry(
                         "observe",
                         "rollup",
                         "summarize",
+                        "compare",
                     )
                 ),
                 owner_id="observation.dsl_j1",

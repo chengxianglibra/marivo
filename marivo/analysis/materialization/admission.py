@@ -356,6 +356,8 @@ class DatasetRuntime:
         source: J1SourceFactory | None = None,
         input_node: J1Node | None = None,
         input_artifact_ref: str | None = None,
+        input_nodes: tuple[J1Node, J1Node] | None = None,
+        input_artifact_refs: tuple[str, str] | None = None,
     ) -> MaterializedJ1Dataset:
         """Execute a private J1 node through this Session Runtime.
 
@@ -364,6 +366,8 @@ class DatasetRuntime:
             source: Factory opening one admitted DuckDB/Ibis source context.
             input_node: Exact predecessor definition for local continuation.
             input_artifact_ref: Saved predecessor Artifact selected for local work.
+            input_nodes: Ordered current and baseline definitions for private comparison.
+            input_artifact_refs: Exact ordered Artifacts for private comparison.
         Returns:
             The exact committed J1 Artifact as a Materialized Dataset.
         Example:
@@ -380,6 +384,8 @@ class DatasetRuntime:
             source=source,
             input_node=input_node,
             input_artifact_ref=input_artifact_ref,
+            input_nodes=input_nodes,
+            input_artifact_refs=input_artifact_refs,
         )
 
     def show(self, dataset: MaterializedDataset, *, max_output_bytes: int | None = None) -> None:

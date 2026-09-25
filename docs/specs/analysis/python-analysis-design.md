@@ -78,6 +78,33 @@ exchange binding, and read-back retain the selected key. Existing non-J1
 Dataset execution keeps its v1 key and cache behavior. This is a private
 execution chain, not a public DSL or general production `execute()` route.
 
+## S2 P1 private two-predecessor binding
+
+The private `J1Observed.compare(baseline)` constructor admits two Entity-level
+observations of the same Metric, component plan, coordinates and non-time
+scope facts. Both branches must descend from the same explicit member root;
+matching definitions or keys alone do not establish that identity. The
+ordered current/baseline root computes a strict absolute difference. It has a
+Difference quantity with endpoint requirements and does not inherit the
+Metric's original-state rollup authority. Selection from Difference and new
+observation remain later S2 work.
+
+For a source-only compare, the DuckDB/Ibis adapter first checks the complete
+logical shape and method route, then realizes the shared member relation once
+per invocation and supplies that realization to both observations. It checks
+unique and equal endpoint keys and finite Defined numeric Cells before
+publishing the result and independently receipted endpoint parts. A second
+top-level execution gets a new Run, member realization and Artifact.
+
+For fixed input, the private Runtime requires two exact ordered observed
+Artifacts whose exchange metadata names the same nonempty member realization.
+The fixed key binds both Artifact references, receipts, parts and member
+binding. A validated hit has no new Run; a miss reads both retained inputs and
+uses pandas for the same strict difference. Mixed live and fixed inputs, or
+independently captured endpoints, fail before Artifact row reads and Run
+admission. This route is limited to the admitted J1 compare shape and is not a
+public multi-output capture API.
+
 ## Accepted S0 Analysis DSL slice (inactive)
 
 This section accepts the first-round semantics in the

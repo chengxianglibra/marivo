@@ -58,8 +58,13 @@ def place_j1_source(context: object, root: LogicalRootHandle, backend: str) -> N
         raise _j1_placement_error("one declared J1 context", type(context).__name__)
     if backend != "duckdb":
         raise _j1_placement_error("qualified DuckDB J1 source route", backend)
-    current = root
-    while True:
+    pending = [root]
+    seen: set[LogicalRootHandle] = set()
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
         if current.session_id != context.session_id or current.store_id != context.store_id:
             raise _j1_placement_error("J1 root from this Session and Store", "foreign root")
         row, rows = j1_row_contracts(context, current)
@@ -70,14 +75,40 @@ def place_j1_source(context: object, root: LogicalRootHandle, backend: str) -> N
         ):
             raise _j1_placement_error("exact J1 row definition", "definition binding differs")
         if not current.inputs:
-            return
-        if len(current.inputs) != 1 or not isinstance(current.inputs[0].root, LogicalRootHandle):
-            raise _j1_placement_error("one exact J1 logical predecessor", current.operator_id)
-        current = current.inputs[0].root
+            continue
+        expected_roles = (
+            ("current", "baseline") if current.operator_id == "dsl.j1.compare" else ("input",)
+        )
+        if tuple(item.role for item in current.inputs) != expected_roles or any(
+            not isinstance(item.root, LogicalRootHandle) for item in current.inputs
+        ):
+            raise _j1_placement_error("exact J1 logical predecessors", current.operator_id)
+        for item in reversed(current.inputs):
+            assert isinstance(item.root, LogicalRootHandle)
+            pending.append(item.root)
 
 
-def place_j1_local(root: LogicalRootHandle, input_root: LogicalRootHandle) -> None:
+def place_j1_local(
+    root: LogicalRootHandle,
+    input_root: LogicalRootHandle,
+    *,
+    baseline_root: LogicalRootHandle | None = None,
+) -> None:
     """Admit only an exact retained J1 successor on the pandas route."""
+    if baseline_root is not None:
+        if (
+            root.shape_id.family_id == "dsl_j1"
+            and root.operator_id == "dsl.j1.compare"
+            and len(root.inputs) == 2
+            and root.inputs[0].role == "current"
+            and root.inputs[1].role == "baseline"
+            and root.inputs[0].root is input_root
+            and root.inputs[1].root is baseline_root
+            and root.session_id == input_root.session_id == baseline_root.session_id
+            and root.store_id == input_root.store_id == baseline_root.store_id
+        ):
+            return
+        raise _j1_placement_error("exact ordered retained J1 comparison", root.operator_id)
     if (
         root.shape_id.family_id != "dsl_j1"
         or root.operator_id

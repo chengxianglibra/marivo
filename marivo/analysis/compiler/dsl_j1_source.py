@@ -11,9 +11,9 @@ import ibis
 import ibis.expr.types as ir
 
 from marivo.analysis.compiler.errors import DatasetCompilationError
-from marivo.analysis.datasets.handles import LogicalRootHandle
+from marivo.analysis.datasets.handles import LogicalRootHandle, _RunNodeBindings
 from marivo.analysis.observation.coordinates import relationship_columns
-from marivo.analysis.observation.dsl_j1 import J1Context
+from marivo.analysis.observation.dsl_j1 import J1_COMPARE_CHECKS, J1_COMPARE_PARTS, J1Context
 from marivo.semantic.metric_graph import AggregateNodeV1, component_node
 from marivo.semantic.metric_graph_lowering import normalize_target_metric
 from marivo.semantic.validator import normalize_target_dimension, normalize_target_entity
@@ -107,7 +107,10 @@ def _merge_state(rows: ir.Table, keys: tuple[str, ...]) -> ir.Table:
 
 
 def _member_group_mapping(
-    context: J1Context, root: LogicalRootHandle, tables: Mapping[str, ir.Table]
+    context: J1Context,
+    root: LogicalRootHandle,
+    tables: Mapping[str, ir.Table],
+    memo: _RunNodeBindings[J1SourcePlan],
 ) -> tuple[ir.Table, tuple[tuple[str, ir.Table], ...]]:
     parameters = _parameters(root)
     dimension_path = parameters[0]
@@ -116,11 +119,11 @@ def _member_group_mapping(
     dimension = normalize_target_dimension(context.registry, dimension_path)
     member_root = _parent(root)
     if member_root.operator_id == "dsl.j1.read":
-        read = lower_j1_source(context, member_root, tables)
+        read = lower_j1_source(context, member_root, tables, memo=memo)
         mapping = read.primary.select(member=read.primary.member, group=read.primary.value)
         checks = read.checks
     else:
-        members = lower_j1_source(context, member_root, tables)
+        members = lower_j1_source(context, member_root, tables, memo=memo)
         entity = normalize_target_entity(context.registry, dimension.entity_ref.path)
         source = _table(tables, entity.ref.path)
         key = entity.primary_key[0]
@@ -137,13 +140,106 @@ def _member_group_mapping(
 
 
 def lower_j1_source(
-    context: J1Context, root: LogicalRootHandle, tables: Mapping[str, ir.Table]
+    context: J1Context,
+    root: LogicalRootHandle,
+    tables: Mapping[str, ir.Table],
+    *,
+    memo: _RunNodeBindings[J1SourcePlan] | None = None,
 ) -> J1SourcePlan:
-    """Lower a W1 root to Ibis without opening any business source."""
+    """Lower each explicit J1 node once per invocation without business I/O."""
+    if memo is None:
+        memo = _RunNodeBindings(context.session_id)
+    existing = memo.get(root)
+    if existing is not None:
+        return existing
+    plan = _lower_j1_source(context, root, tables, memo)
+    memo.bind(root, plan)
+    return plan
+
+
+def _lower_j1_source(
+    context: J1Context,
+    root: LogicalRootHandle,
+    tables: Mapping[str, ir.Table],
+    memo: _RunNodeBindings[J1SourcePlan],
+) -> J1SourcePlan:
     if root.session_id != context.session_id or root.store_id != context.store_id:
         raise _reject("a J1 root from this Session", "foreign root")
     operation = root.operator_id
     parameters = _parameters(root)
+    if operation == "dsl.j1.compare":
+        if len(root.inputs) != 2 or tuple(item.role for item in root.inputs) != (
+            "current",
+            "baseline",
+        ):
+            raise _reject("ordered current and baseline inputs", operation)
+        current_root, baseline_root = (item.root for item in root.inputs)
+        if not isinstance(current_root, LogicalRootHandle) or not isinstance(
+            baseline_root, LogicalRootHandle
+        ):
+            raise _reject("two logical observations", operation)
+        current = lower_j1_source(context, current_root, tables, memo=memo)
+        baseline = lower_j1_source(context, baseline_root, tables, memo=memo)
+        left, right = current.primary, baseline.primary
+        if "member" not in left.columns or "member" not in right.columns:
+            raise _reject("two Entity-keyed observations", operation)
+        if str(left.value.type()) != str(right.value.type()):
+            raise _reject("matching numeric endpoint types", operation)
+        duplicate_checks = []
+        for side, table in (("current", left), ("baseline", right)):
+            counts = table.group_by(table.member).aggregate(count=table.count())
+            repeated = counts.filter(counts["count"] > 1)
+            duplicate_checks.append(
+                (side + "_unique_keys", repeated.aggregate(invalid=repeated.count()))
+            )
+        left_only = left.filter(~left.member.isin(right.member))
+        right_only = right.filter(~right.member.isin(left.member))
+        left_count = left_only.aggregate(left_missing=left_only.count())
+        right_count = right_only.aggregate(right_missing=right_only.count())
+        paired = left_count.cross_join(right_count).select(
+            invalid=left_count.left_missing + right_count.right_missing
+        )
+
+        def invalid_cell(table: ir.Table) -> ir.BooleanValue:
+            invalid = table.cell_tag != "defined"
+            if str(table.value.type()) == "float64":
+                invalid = invalid | table.value.isnan() | table.value.isinf()
+            return invalid | table.value.isnull()
+
+        current_invalid = left.filter(invalid_cell(left))
+        baseline_invalid = right.filter(invalid_cell(right))
+        current_count = current_invalid.aggregate(count=current_invalid.count())
+        baseline_count = baseline_invalid.aggregate(count=baseline_invalid.count())
+        strict = current_count.cross_join(baseline_count).select(
+            invalid=current_count["count"] + baseline_count["count"]
+        )
+        matched = left.join(right, left.member == right.member, how="inner")
+        output = matched.select(
+            member=left.member,
+            value=left.value - right.value,
+            cell_tag=ibis.literal("defined"),
+            cell_reason=ibis.null().cast("string"),
+        )
+        return J1SourcePlan(
+            output,
+            parts=tuple(
+                zip(
+                    J1_COMPARE_PARTS,
+                    (
+                        left.select("member", "value", "cell_tag", "cell_reason"),
+                        right.select("member", "value", "cell_tag", "cell_reason"),
+                    ),
+                    strict=True,
+                )
+            ),
+            checks=(
+                *(("current." + name, check) for name, check in current.checks),
+                *(("baseline." + name, check) for name, check in baseline.checks),
+                *duplicate_checks,
+                (J1_COMPARE_CHECKS[0], paired),
+                (J1_COMPARE_CHECKS[1], strict),
+            ),
+        )
     if operation == "dsl.j1.members":
         entity_path = parameters[0]
         if not isinstance(entity_path, str):
@@ -161,7 +257,7 @@ def lower_j1_source(
         source = _table(tables, entity.ref.path)
         _physical(source, entity.primary_key[0], ("string", "int64"))
         _physical(source, dimension.source_column, ("string",))
-        members = lower_j1_source(context, _parent(root), tables)
+        members = lower_j1_source(context, _parent(root), tables, memo=memo)
         joined = members.primary.join(
             source, members.primary.member == source[entity.primary_key[0]], how="inner"
         )
@@ -180,7 +276,7 @@ def lower_j1_source(
         value = parameters[1]
         if not isinstance(value, str):
             raise _reject("bound string category", "invalid predicate")
-        read = lower_j1_source(context, _parent(root), tables)
+        read = lower_j1_source(context, _parent(root), tables, memo=memo)
         invalid_rows = read.primary.filter(read.primary.cell_tag != "defined")
         invalid = invalid_rows.aggregate(invalid=invalid_rows.count())
         selected = read.primary.filter(read.primary.value == value).select(
@@ -189,13 +285,13 @@ def lower_j1_source(
         return J1SourcePlan(selected, checks=(*read.checks, ("strict_category_cell", invalid)))
     if operation == "dsl.j1.group":
         if len(parameters) == 2 and parameters[1] == "contribution":
-            observed = lower_j1_source(context, _parent(root), tables)
+            observed = lower_j1_source(context, _parent(root), tables, memo=memo)
             coordinate = next((part for role, part in observed.parts if role == "coordinate"), None)
             if coordinate is None:
                 raise _reject("retained contribution coordinate state", "missing coordinate")
             grouped = _merge_state(coordinate, ("group",))
             return J1SourcePlan(_finished(grouped, ("group",)), checks=observed.checks)
-        mapping, checks = _member_group_mapping(context, root, tables)
+        mapping, checks = _member_group_mapping(context, root, tables, memo)
         return J1SourcePlan(mapping.select(group=mapping.group).distinct(), checks=checks)
     if operation == "dsl.j1.observe":
         if len(parameters) != 5:
@@ -254,11 +350,11 @@ def lower_j1_source(
         )
         input_root = _parent(root)
         if input_root.operator_id == "dsl.j1.group":
-            mapping, checks = _member_group_mapping(context, input_root, tables)
+            mapping, checks = _member_group_mapping(context, input_root, tables, memo)
             keys = ("group",)
             targets = mapping.select(group=mapping.group).distinct()
         else:
-            members = lower_j1_source(context, input_root, tables)
+            members = lower_j1_source(context, input_root, tables, memo=memo)
             mapping = members.primary.select(member=members.primary.member)
             checks = members.checks
             keys = ("member",)
@@ -323,7 +419,7 @@ def lower_j1_source(
             parts = (("coordinate", _grouped_sum(contributions, ("member", "group"))),)
         return J1SourcePlan(_finished(dense, keys), parts, checks)
     if operation == "dsl.j1.rollup":
-        prior = lower_j1_source(context, _parent(root), tables)
+        prior = lower_j1_source(context, _parent(root), tables, memo=memo)
         table = prior.primary
         summed = table.aggregate(
             state_sum=table.state_sum.sum(),
@@ -335,7 +431,7 @@ def lower_j1_source(
         method = parameters[0]
         if method not in ("sum", "count", "mean"):
             raise _reject("current-row sum/count/mean", str(method))
-        prior = lower_j1_source(context, _parent(root), tables)
+        prior = lower_j1_source(context, _parent(root), tables, memo=memo)
         table = prior.primary
         checks = prior.checks
         if method != "count":

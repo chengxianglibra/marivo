@@ -29,6 +29,11 @@ def independent_contracts(row: DatasetRowContract) -> dict[str, str]:
         return dict(zip(ROLES, ROLES, strict=True))
     if row.shape_id.family_id == "dsl_j1" and row.shape_id.local_shape_id == "observe":
         return {"coordinate": "dsl.j1.coordinate"}
+    if row.shape_id.family_id == "dsl_j1" and row.shape_id.local_shape_id == "compare":
+        return {
+            "current_endpoint": "dsl.j1.current_endpoint",
+            "baseline_endpoint": "dsl.j1.baseline_endpoint",
+        }
     return {
         **{
             role: f"{row.shape_id.family_id}.distinct_membership"

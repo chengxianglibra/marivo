@@ -350,11 +350,16 @@ class J1ArtifactExchange:
     primary_schema_fingerprint: str
     receipt_identity: str
     parts: tuple[tuple[str, str, int, str, str], ...]
+    member_binding: str | None = None
 
 
 def j1_exchange_payload(value: J1ArtifactExchange) -> dict[str, object]:
-    return {
-        "schema": "marivo.j1_artifact_exchange/v1",
+    payload: dict[str, object] = {
+        "schema": (
+            "marivo.j1_artifact_exchange/v2"
+            if value.member_binding is not None
+            else "marivo.j1_artifact_exchange/v1"
+        ),
         "kind": value.kind,
         "operator_id": value.operator_id,
         "domain": value.domain,
@@ -367,14 +372,22 @@ def j1_exchange_payload(value: J1ArtifactExchange) -> dict[str, object]:
         "receipt_identity": value.receipt_identity,
         "parts": [list(part) for part in value.parts],
     }
+    if value.member_binding is not None:
+        payload["member_binding"] = value.member_binding
+    return payload
 
 
 def decode_j1_exchange(value: object) -> J1ArtifactExchange:
+    schema = value.get("schema") if isinstance(value, dict) else None
     obj = _obj(
         value,
-        "schema kind operator_id domain quantity method_id method_version input_binding completed_checks primary_schema_fingerprint receipt_identity parts",
+        "schema kind operator_id domain quantity method_id method_version input_binding completed_checks primary_schema_fingerprint receipt_identity parts"
+        + (" member_binding" if schema == "marivo.j1_artifact_exchange/v2" else ""),
     )
-    if obj["schema"] != "marivo.j1_artifact_exchange/v1" or obj["kind"] not in (
+    if obj["schema"] not in (
+        "marivo.j1_artifact_exchange/v1",
+        "marivo.j1_artifact_exchange/v2",
+    ) or obj["kind"] not in (
         "relation",
         "value",
     ):
@@ -425,6 +438,7 @@ def decode_j1_exchange(value: object) -> J1ArtifactExchange:
         primary_hash,
         receipt_hash,
         tuple(parts),
+        _text(obj["member_binding"]) if schema == "marivo.j1_artifact_exchange/v2" else None,
     )
 
 
@@ -1842,6 +1856,10 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
             "dsl.j1.current_mean": (
                 ("current_sum", "dsl.j1.current_sum"),
                 ("current_count", "dsl.j1.current_count"),
+            ),
+            "dsl.j1.compare": (
+                ("current_endpoint", "dsl.j1.current_endpoint"),
+                ("baseline_endpoint", "dsl.j1.baseline_endpoint"),
             ),
         }.get(producer)
         if (

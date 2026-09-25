@@ -45,6 +45,7 @@ from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.observation.contracts import producer_contract
 from marivo.analysis.observation.dsl_j1 import (
     J1Context,
+    J1Difference,
     J1Group,
     J1Members,
     J1Observed,
@@ -56,7 +57,7 @@ from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
 from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult
 from marivo.semantic.validator import normalize_target_entity
 
-J1Node: TypeAlias = J1Members | J1Read | J1Group | J1Observed | J1Statistic
+J1Node: TypeAlias = J1Members | J1Read | J1Group | J1Observed | J1Statistic | J1Difference
 _STATE = (
     ("value.sum", "dsl.j1.value_sum", "state_sum"),
     ("value.non_null_count", "dsl.j1.non_null_count", "non_null_count"),
@@ -90,7 +91,7 @@ def _context(node: J1Node) -> J1Context:
 def _meaning(node: J1Node) -> tuple[d.AnalysisDomain, d.QuantityState | None]:
     if isinstance(node, J1Read):
         return node.members_input.domain, None
-    if isinstance(node, J1Statistic):
+    if isinstance(node, (J1Statistic, J1Difference)):
         return node.domain, node.quantity
     if isinstance(node, J1Observed):
         return node.domain, node.quantity
@@ -178,6 +179,8 @@ def _part_specs(result: J1ExecutionResult) -> tuple[PartWriteSpec, ...]:
 
 
 def _producer(result: J1ExecutionResult) -> str:
+    if result.root.operator_id == "dsl.j1.compare":
+        return "dsl.j1.compare"
     names = set(result.primary.column_names)
     if "state_sum" in names:
         return (
@@ -247,6 +250,7 @@ def _publish_j1_artifact(
     result: J1ExecutionResult,
     *,
     input_binding: str,
+    member_binding: str | None = None,
     event: Callable[[str], None] = lambda _name: None,
 ) -> ArtifactRecord:
     """Perform one J1 publication under a caller-owned Run and writer guard."""
@@ -261,6 +265,7 @@ def _publish_j1_artifact(
         or run.dataset_input.row_contract_fingerprint != d._row_contract_fingerprint(row)
         or run.dataset_input.row_set_contract_fingerprint != d._row_set_contract_fingerprint(rows)
         or not input_binding
+        or (member_binding is not None and not member_binding)
     ):
         raise _error("Run, J1 definition or input binding differs")
     primary = _validated_primary(node, result)
@@ -268,6 +273,12 @@ def _publish_j1_artifact(
         result.completed_checks
     ):
         raise _error("J1 source obligations are incomplete")
+    if isinstance(node, J1Difference):
+        method = j1_numeric_method(node.root)
+        if method is None or not set(method.contract.required_checks) <= set(
+            result.completed_checks
+        ):
+            raise _error("J1 comparison obligations are incomplete")
     parts = _part_specs(result)
     coordinate = tuple(IndependentPartWrite(role, _batches(table)) for role, table in result.parts)
     nonce = uuid4().hex
@@ -316,6 +327,7 @@ def _publish_j1_artifact(
                 )
                 for item in written.retained_parts
             ),
+            member_binding,
         )
         descriptor = ArtifactDescriptor(
             definition_fingerprint=node.root.definition_fingerprint,
@@ -323,7 +335,11 @@ def _publish_j1_artifact(
             row_set_contract=rows,
             realized_schema=written.realized_schema,
             bounded_lineage=BoundedLineage((node.root.operator_id,), 0),
-            semantic_dependency_digest=digest((node.root.definition_fingerprint, input_binding)),
+            semantic_dependency_digest=digest(
+                (node.root.definition_fingerprint, input_binding)
+                if member_binding is None
+                else (node.root.definition_fingerprint, input_binding, member_binding)
+            ),
             population_authority=PopulationAuthority(membership_definition, entity_path, signature),
             sampling_execution=None,
             operator_implementation_versions=((node.root.operator_id, 1),),
@@ -357,12 +373,19 @@ def publish_j1_artifact(
     result: J1ExecutionResult,
     *,
     input_binding: str,
+    member_binding: str | None = None,
     event: Callable[[str], None] = lambda _name: None,
 ) -> ArtifactRecord:
     """Publish a completed J1 stage under its caller-owned admitted Run and writer guard."""
     try:
         return _publish_j1_artifact(
-            store, run, node, result, input_binding=input_binding, event=event
+            store,
+            run,
+            node,
+            result,
+            input_binding=input_binding,
+            member_binding=member_binding,
+            event=event,
         )
     except BaseException:
         _fail_pending(store, run)
@@ -427,6 +450,7 @@ def load_j1_artifact(
         stream.close()
     keyed_parts: dict[str, pa.Table] = {}
     coordinates: tuple[tuple[str, pa.Table], ...] = ()
+    endpoints: list[tuple[str, pa.Table]] = []
     for part in descriptor.retained_parts:
         schema = part_schema(store.project_root, part)
         reader = read_part_batches(store.project_root, part, expected_schema=schema)
@@ -436,6 +460,8 @@ def load_j1_artifact(
             reader.close()
         if part.role == "coordinate":
             coordinates = (("coordinate", table),)
+        elif part.role in ("current_endpoint", "baseline_endpoint"):
+            endpoints.append((part.role, table))
         else:
             keyed_parts[part.role] = table
     wide = primary
@@ -451,4 +477,4 @@ def load_j1_artifact(
             raise _error("retained state keys differ from primary keys")
         aligned = table.take(pa.array([positions[key] for key in primary_keys], type=pa.int64()))
         wide = wide.append_column(aligned.schema.field(column), aligned[column])
-    return J1ExecutionResult(node.root, wide, coordinates, exchange.completed_checks)
+    return J1ExecutionResult(node.root, wide, (*coordinates, *endpoints), exchange.completed_checks)

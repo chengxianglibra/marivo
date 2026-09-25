@@ -20,7 +20,7 @@ from marivo.analysis.compiler.placement import (
 )
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.descriptors import DatasetRowContract
-from marivo.analysis.datasets.handles import LogicalRootHandle
+from marivo.analysis.datasets.handles import LogicalRootHandle, _RunNodeBindings
 from marivo.analysis.domains.lifecycle_reducers import (
     REDUCER_TYPES,
 )
@@ -58,13 +58,17 @@ def run_j1_source(
     root: LogicalRootHandle,
     backend: J1IbisBackend,
     tables: Mapping[str, ir.Table],
+    *,
+    shared_plans: _RunNodeBindings[J1SourcePlan] | None = None,
 ) -> J1ExecutionResult:
     """Consume one admitted J1 Ibis plan through owned Arrow readers.
 
     The caller owns the already opened source backend. No SQL text is authored
     here; every analysis expression and check is compiled by Ibis.
     """
-    from marivo.analysis.compiler.dsl_j1_source import lower_j1_source
+    import ibis
+
+    from marivo.analysis.compiler.dsl_j1_source import J1SourcePlan, lower_j1_source
     from marivo.analysis.compiler.placement import place_j1_source
     from marivo.analysis.materialization.execution import (
         ExchangeStreamBinding,
@@ -80,7 +84,44 @@ def run_j1_source(
     from marivo.analysis.operators.registry import MethodDomain
 
     place_j1_source(context, root, backend.name)
-    plan = lower_j1_source(context, root, tables)
+    memo: _RunNodeBindings[J1SourcePlan] = (
+        _RunNodeBindings(context.session_id) if shared_plans is None else shared_plans
+    )
+    if root.operator_id == "dsl.j1.compare":
+        preflight = lower_j1_source(context, root, tables)
+        compare_method = j1_numeric_method(root)
+        if compare_method is None:
+            raise MaterializationError(
+                expected="registered strict J1 comparison",
+                received="missing comparison method",
+                repair="Use the admitted private compare method.",
+                stage="source_admission",
+            )
+        compare_method.require_route(
+            "source", "duckdb", "entity", str(preflight.primary["value"].type())
+        )
+        ancestor = root.inputs[0].root
+        while isinstance(ancestor, LogicalRootHandle) and ancestor.inputs:
+            ancestor = ancestor.inputs[0].root
+        if not isinstance(ancestor, LogicalRootHandle) or ancestor.operator_id != "dsl.j1.members":
+            raise MaterializationError(
+                expected="one exact shared member node",
+                received="comparison has no bound members",
+                repair="Construct both observations from the same members object.",
+                stage="source_admission",
+            )
+        if memo.get(ancestor) is None:
+            member_plan = lower_j1_source(context, ancestor, tables)
+            backend.compile(member_plan.primary)
+            native_members = backend.to_pyarrow_batches(member_plan.primary, chunk_size=1024)
+            member_stream = IbisBatchStream(native_members, native_members.schema)
+            try:
+                members = pa.Table.from_batches(tuple(member_stream), schema=member_stream.schema)
+            finally:
+                member_stream.close()
+            J1ExecutionResult(ancestor, members)
+            memo.bind(ancestor, J1SourcePlan(ibis.memtable(members)))
+    plan = lower_j1_source(context, root, tables, memo=memo)
     method = j1_numeric_method(root)
     if method is not None:
         input_root = root.inputs[0].root if root.inputs else None
@@ -92,7 +133,7 @@ def run_j1_source(
             else "entity"
         )
         if root.operator_id == "dsl.j1.rollup" and isinstance(input_root, LogicalRootHandle):
-            previous = lower_j1_source(context, input_root, tables)
+            previous = lower_j1_source(context, input_root, tables, memo=memo)
             if "group" in previous.primary.columns:
                 raise MaterializationError(
                     expected="entity-level original-state rollup",
@@ -190,6 +231,7 @@ def run_j1_source(
 
 
 if TYPE_CHECKING:
+    from marivo.analysis.compiler.dsl_j1_source import J1SourcePlan
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.dataset_execution import ExecutionEvidence
     from marivo.analysis.observation.dsl_j1 import J1Context

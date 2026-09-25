@@ -94,6 +94,92 @@ def _j1_local_table(rows: list[dict[str, object]], schema: pa.Schema) -> pa.Tabl
     return pa.Table.from_pylist(rows, schema=schema)
 
 
+def run_j1_compare_local(
+    root: LogicalRootHandle,
+    current: J1ExecutionResult,
+    baseline: J1ExecutionResult,
+) -> J1ExecutionResult:
+    """Compute one exact-key private difference over two fixed pandas inputs."""
+    from marivo.analysis.compiler.placement import place_j1_local
+    from marivo.analysis.operators.dsl_j1_contracts import J1_COMPARE_DIFFERENCE
+    from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult, _number
+
+    place_j1_local(root, current.root, baseline_root=baseline.root)
+    names = ("member", "value", "cell_tag", "cell_reason")
+    if (
+        tuple(current.primary.column_names[:4]) != names
+        or tuple(baseline.primary.column_names[:4]) != names
+        or current.primary.schema.field("member").type
+        != baseline.primary.schema.field("member").type
+        or current.primary.schema.field("value").type != baseline.primary.schema.field("value").type
+    ):
+        raise MaterializationError(
+            expected="matching keyed numeric comparison endpoints",
+            received="endpoint schema differs",
+            repair="Select two exact observed Artifacts with matching keys and numeric type.",
+            stage="local_admission",
+        )
+    value_type = str(current.primary.schema.field("value").type)
+    J1_COMPARE_DIFFERENCE.require_route("local", "pandas", "entity", value_type)
+    left = current.primary.to_pandas(types_mapper=pd.ArrowDtype).copy(deep=True)
+    right = baseline.primary.to_pandas(types_mapper=pd.ArrowDtype).copy(deep=True)
+    if left["member"].duplicated().any() or right["member"].duplicated().any():
+        raise MaterializationError(
+            expected="unique endpoint keys",
+            received="duplicate comparison key",
+            repair="Use exact keyed observations.",
+            stage="local_execution",
+        )
+    if set(left["member"].tolist()) != set(right["member"].tolist()):
+        raise MaterializationError(
+            expected="complete exact-key endpoint pairing",
+            received="missing comparison side",
+            repair="Compare observations over the same complete member domain.",
+            stage="local_execution",
+        )
+    indexed_right = right.set_index("member", verify_integrity=True)
+    rows: list[dict[str, object]] = []
+    for item in left.itertuples(index=False, name=None):
+        member, current_value, current_tag, _current_reason = item[:4]
+        other = indexed_right.loc[member]
+        baseline_value = other["value"]
+        if current_tag != "defined" or other["cell_tag"] != "defined":
+            raise MaterializationError(
+                expected="Defined comparison endpoint Cells",
+                received="non-Defined endpoint",
+                repair="Choose a method that admits these Cell states.",
+                stage="local_execution",
+            )
+        lhs, rhs = current_value, baseline_value
+        _number(lhs)
+        _number(rhs)
+        difference = lhs - rhs
+        _number(difference)
+        rows.append(
+            {"member": member, "value": difference, "cell_tag": "defined", "cell_reason": None}
+        )
+    schema = pa.schema(
+        [
+            current.primary.schema.field("member"),
+            pa.field("value", current.primary.schema.field("value").type),
+            pa.field("cell_tag", pa.string()),
+            pa.field("cell_reason", pa.string()),
+        ]
+    )
+    return J1ExecutionResult(
+        root,
+        _j1_local_table(rows, schema),
+        parts=tuple(
+            zip(
+                J1_COMPARE_DIFFERENCE.contract.required_parts,
+                (current.primary.select(names), baseline.primary.select(names)),
+                strict=True,
+            )
+        ),
+        completed_checks=J1_COMPARE_DIFFERENCE.contract.required_checks,
+    )
+
+
 def run_j1_local(root: LogicalRootHandle, retained: J1ExecutionResult) -> J1ExecutionResult:
     """Evaluate one J1 successor over fixed, fully validated Arrow input in pandas."""
     from marivo.analysis.compiler.placement import place_j1_local

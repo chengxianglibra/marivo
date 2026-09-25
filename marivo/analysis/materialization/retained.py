@@ -321,6 +321,19 @@ def selected_parts(
 
 def component_schema(row: DatasetRowContract, role: str, schema: pa.Schema) -> tuple[str, ...]:
     """Validate meaning from the owner; the receipt separately pins physical schema."""
+    if row.shape_id.family_id == "dsl_j1" and role in ("current_endpoint", "baseline_endpoint"):
+        if (
+            row.shape_id.local_shape_id != "compare"
+            or tuple(schema.names) != ("member", "value", "cell_tag", "cell_reason")
+            or schema.field("member").type not in (pa.string(), pa.int64())
+            or schema.field("member").nullable
+            or schema.field("value").type not in (pa.int64(), pa.float64())
+            or schema.field("cell_tag").type != pa.string()
+            or schema.field("cell_tag").nullable
+            or schema.field("cell_reason").type != pa.string()
+        ):
+            _integrity("exact J1 keyed comparison endpoint", "endpoint part schema differs")
+        return ("member",)
     if row.shape_id.family_id == "dsl_j1" and role == "coordinate":
         member = row.schema.columns[0]
         if (
@@ -385,6 +398,19 @@ def checked_component_batches(
     batches: Iterable[pa.RecordBatch], row: DatasetRowContract, role: str
 ) -> Iterable[pa.RecordBatch]:
     """Check required component support fields as actual data, independently of headers."""
+    if row.shape_id.family_id == "dsl_j1" and role in ("current_endpoint", "baseline_endpoint"):
+        from marivo.analysis.operators.dsl_j1_values import _validate_table
+
+        seen_members: set[object] = set()
+        for batch in batches:
+            component_schema(row, role, batch.schema)
+            _validate_table(pa.Table.from_batches((batch,)))
+            for member in batch["member"].to_pylist():
+                if member in seen_members:
+                    _integrity("unique J1 comparison endpoint keys", "duplicate endpoint key")
+                seen_members.add(member)
+            yield batch
+        return
     if row.shape_id.family_id == "dsl_j1" and role == "coordinate":
         from marivo.analysis.operators.dsl_j1_values import _validate_table
 

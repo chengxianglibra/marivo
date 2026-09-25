@@ -101,6 +101,14 @@ count=0, and mean=Undefined(`empty_mean`). Unsupported physical types and
 backends reject before business data is read. This qualification is private;
 the remaining S0 method matrix is still an inactive target.
 
+S2 P1 registers a private absolute `compare` method for two ordered,
+same-member Entity observations. Its result is a Difference; source and pandas
+routes require exact complete key pairing and finite Defined int64/float64
+Cells. Both endpoint rows are retained as separately receipted parts, so a
+fixed pair uses the same member realization binding rather than inferring
+common ownership from equal keys. Relative change, group comparison and
+Difference selection/continuation are not qualified by P1.
+
 The [first-round DSL slice](python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive)
 accepts the following private rule obligations. The proposed public Relation
 methods are not yet callable. Each registered method supplies:
@@ -113,6 +121,8 @@ InputSignatures + Parameters
 The method/quantity owner fixes value
 and Cell policy once; source Ibis and retained pandas implementations meet the
 same rule and independently prove supported types, checks and resource behavior.
+Input kinds describe ordered slots and may repeat for two endpoints of the
+same kind; the method still validates each slot's domain and binding.
 A known failed precondition rejects before business I/O; a data-dependent
 failure rejects during admitted execution, before successful publication.
 Neither becomes a Cell `Unknown` or a backend fallback.

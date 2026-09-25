@@ -189,15 +189,18 @@ class MethodContract:
             or self.version < 1
         ):
             raise _method_error("stable method id and positive version", "invalid identity")
-        if not self.input_kinds or any(
-            type(values) is not tuple or len(set(values)) != len(values)
-            for values in (
-                self.input_kinds,
-                self.input_domains,
-                self.capabilities,
-                self.required_parts,
-                self.required_checks,
-                self.continuations,
+        if (
+            type(self.input_kinds) is not tuple
+            or not self.input_kinds
+            or any(
+                type(values) is not tuple or len(set(values)) != len(values)
+                for values in (
+                    self.input_domains,
+                    self.capabilities,
+                    self.required_parts,
+                    self.required_checks,
+                    self.continuations,
+                )
             )
         ):
             raise _method_error(
