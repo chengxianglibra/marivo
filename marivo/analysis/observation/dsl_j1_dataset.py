@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import _CORE_TOKEN
 from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.datasets.handles import CanonicalValue, _LogicalNodePayload
 from marivo.analysis.observation.contracts import owner_of
 
 if TYPE_CHECKING:
@@ -15,16 +17,34 @@ if TYPE_CHECKING:
     from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
 
 
+@dataclass(frozen=True, slots=True, repr=False, eq=False, kw_only=True)
+class J1SourcePayload(_LogicalNodePayload, _token=_CORE_TOKEN):
+    """Declare the live closure of one private J1 execution binding."""
+
+    semantic_definition: str
+    sources: tuple[str, ...]
+    method_id: str
+    method_version: int
+
+    @property
+    def identity_payload(self) -> CanonicalValue:
+        return (self.semantic_definition, self.sources, self.method_id, self.method_version)
+
+    @property
+    def live_source_dependencies(self) -> tuple[str, ...]:
+        return self.sources
+
+
 class LogicalJ1Dataset(LogicalDataset, _token=_CORE_TOKEN, family_id="dsl_j1"):
-    """Registered internal partner; W4 owns top-level execution admission."""
+    """Registered internal partner for Runtime-owned J1 execution bindings."""
 
     __slots__ = ()
 
     def execute(self) -> MaterializedJ1Dataset:
         raise DatasetConstructionError(
-            expected="W4 J1 execution admission",
-            received="private W3 logical partner",
-            repair="Use the admitted private J1 publication action until W4 is connected.",
+            expected="a bound private J1 Runtime invocation",
+            received="unbound J1 logical partner",
+            repair="Use DatasetRuntime.execute_j1 with a source factory or exact saved predecessor.",
             location="dsl.j1.execute",
         )
 

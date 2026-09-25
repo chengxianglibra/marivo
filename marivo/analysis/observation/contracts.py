@@ -1894,6 +1894,7 @@ def make_family_registry(
     )
     if include_j1:
         from marivo.analysis.observation.dsl_j1_dataset import (
+            J1SourcePayload,
             LogicalJ1Dataset,
             MaterializedJ1Dataset,
         )
@@ -1921,6 +1922,7 @@ def make_family_registry(
                 consumers=(),
                 repr_renderer=_dataset_repr,
                 materialized_state_decoder=state_decoder,
+                node_payload_types=(J1SourcePayload,),
             )
         )
     shapes = tuple(_make_shape_id("metric", shape, 1, ids=ids) for shape in METRIC_SHAPES)

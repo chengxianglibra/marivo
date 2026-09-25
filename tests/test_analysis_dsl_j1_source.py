@@ -391,6 +391,55 @@ def test_j1_empty_current_rows_have_distinct_sum_count_mean_policy(
         backend.disconnect()
 
 
+def test_j1_local_numeric_methods_admit_arrow_float64_input(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    domain = case.names.domain
+    state = case.catalog._state
+    context = J1Context(state.registry, state.sidecar, "j1-float", "j1-float")
+    observed = context.members(ms.ref.entity(f"{domain}.customer")).observe(
+        ms.ref.metric(f"{domain}.revenue"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship(f"{domain}.order_buyer"),
+    )
+    schema = pa.schema(
+        [
+            pa.field("member", pa.string(), nullable=False),
+            pa.field("value", pa.float64()),
+            pa.field("cell_tag", pa.string(), nullable=False),
+            pa.field("cell_reason", pa.string()),
+            pa.field("state_sum", pa.float64()),
+            pa.field("non_null_count", pa.int64(), nullable=False),
+            pa.field("row_count", pa.int64(), nullable=False),
+        ]
+    )
+    retained = J1ExecutionResult(
+        observed.root,
+        pa.Table.from_pylist(
+            [
+                {
+                    "member": member,
+                    "value": value,
+                    "cell_tag": "defined",
+                    "cell_reason": None,
+                    "state_sum": value,
+                    "non_null_count": 1,
+                    "row_count": 1,
+                }
+                for member, value in (("A", 1.5), ("B", 2.5))
+            ],
+            schema=schema,
+        ),
+        completed_checks=("complete_coverage", "contribution_partition"),
+    )
+    summed = run_j1_local(observed.summarize("sum").root, retained)
+    averaged = run_j1_local(observed.summarize("mean").root, retained)
+    for result, expected in ((summed, 4.0), (averaged, 2.0)):
+        assert result.primary.schema.field("value").type == pa.float64()
+        assert result.primary.column("value").to_pylist() == [expected]
+
+
 def test_j1_local_rejects_duplicate_missing_nonfinite_and_overflow_state(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

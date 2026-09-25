@@ -55,8 +55,28 @@ sum/count and optional coordinate parts through the existing Store. Recovery
 requires the exact Artifact reference, J1 definition, method version and input
 binding; it reads every selected receipt before pandas continuation. A cold
 process can continue with saved category rows, current-row statistics and
-Channel coordinate rollup without a source connection. W4 still owns formal
-Runtime execution identity, repeated-source key allocation and cache policy.
+Channel coordinate rollup without a source connection.
+
+## S1 W4 private J1 Runtime execution
+
+The internal `DatasetRuntime.execute_j1(...)` action now owns J1 admission,
+Session writer exclusion, incomplete-Run reconciliation, and publication
+outcome read-back. A source call opens its supplied DuckDB/Ibis source factory
+only after Run admission and assigns a new v2 key from the stable J1 definition
+binding and the allocated Run ref. Repeating the same J1 node reads current
+source data and publishes a separate immutable Artifact.
+
+A fixed local continuation selects an exact saved predecessor and binds its
+primary and retained-part receipts into the v2 key. A fully validated exact
+hit returns its original Artifact without a Run; a miss reads the retained
+state through the controlled Parquet reader and executes the admitted pandas
+method. Live-source work combined with an explicit saved predecessor rejects
+before source opening, Artifact row reads, or Run admission. The J1 semantic
+node retains its definition fingerprint; the invocation binding additionally
+encodes source or exact Artifact input and method version. Run, publication,
+exchange binding, and read-back retain the selected key. Existing non-J1
+Dataset execution keeps its v1 key and cache behavior. This is a private
+execution chain, not a public DSL or general production `execute()` route.
 
 ## Accepted S0 Analysis DSL slice (inactive)
 

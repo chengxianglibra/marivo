@@ -161,16 +161,21 @@ def require_unmixed_inputs(root: LogicalRootHandle) -> InputClassification:
     """Reject unsupported live-source/explicit-Artifact combinations before I/O."""
     classification = classify_inputs(root)
     if classification.kind == "mixed":
-        raise DatasetConstructionError(
-            expected="source-only or exact Artifact-only inputs",
-            received="live source and explicit Artifact dependencies",
-            repair=(
-                "Rebuild with live Lazy inputs if fresh values are intended; otherwise "
-                "materialize the independent source endpoint and use an admitted local continuation."
-            ),
-            location="dataset.input_classification",
-        )
+        raise _mixed_input_error()
     return classification
+
+
+def _mixed_input_error() -> DatasetConstructionError:
+    """Describe a graph that combines explicit history with a live source."""
+    return DatasetConstructionError(
+        expected="source-only or exact Artifact-only inputs",
+        received="live source and explicit Artifact dependencies",
+        repair=(
+            "Rebuild with live Lazy inputs if fresh values are intended; otherwise "
+            "materialize the independent source endpoint and use an admitted local continuation."
+        ),
+        location="dataset.input_classification",
+    )
 
 
 def _required_entities(

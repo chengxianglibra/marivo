@@ -1,0 +1,285 @@
+"""Guarded private J1 execution using the existing Dataset Runtime and Store."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager
+from typing import TYPE_CHECKING, TypeAlias
+
+import ibis.expr.types as ir
+
+from marivo.analysis.compiler.normalize import _mixed_input_error, require_unmixed_inputs
+from marivo.analysis.compiler.placement import place_j1_local, place_j1_source
+from marivo.analysis.datasets.base import LogicalDataset, _make_logical_dataset
+from marivo.analysis.datasets.descriptors import _CORE_TOKEN
+from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.datasets.handles import LogicalRootHandle
+from marivo.analysis.materialization.contracts import RunDatasetInput, run_failure_phase
+from marivo.analysis.materialization.dsl_j1_artifact import (
+    J1Node,
+    _context,
+    load_j1_artifact,
+    publish_j1_artifact,
+)
+from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.errors import _execution_error as _error
+from marivo.analysis.materialization.execution_key import fixed_execution_key, source_execution_key
+from marivo.analysis.materialization.reconciliation import reconcile_session
+from marivo.analysis.materialization.source_stage import J1IbisBackend
+from marivo.analysis.materialization.store import _new_run_ref
+from marivo.analysis.materialization.writer_guard import session_writer_guard
+from marivo.analysis.observation.contracts import (
+    ObservationRuntimeOwner,
+    make_family_registry,
+    make_ids,
+)
+from marivo.analysis.observation.dsl_j1 import j1_row_contracts
+from marivo.analysis.observation.dsl_j1_dataset import J1SourcePayload, MaterializedJ1Dataset
+from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
+
+if TYPE_CHECKING:
+    from marivo.analysis.materialization.admission import DatasetRuntime
+
+J1SourceFactory: TypeAlias = Callable[
+    [], AbstractContextManager[tuple[J1IbisBackend, Mapping[str, ir.Table]]]
+]
+
+
+def _reject(received: str) -> DatasetConstructionError:
+    return DatasetConstructionError(
+        expected="one J1 source root or one exact admitted local predecessor",
+        received=received,
+        repair="Use the same logical J1 node for a fresh source evaluation or select its exact saved predecessor.",
+        location="dsl.j1.runtime",
+    )
+
+
+def _source_facts(node: J1Node) -> tuple[str, ...]:
+    found: set[str] = set()
+
+    def visit(root: object) -> None:
+        from marivo.analysis.datasets.handles import LogicalRootHandle
+
+        if not isinstance(root, LogicalRootHandle):
+            return
+        found.update(root.dependency_facts)
+        for child in root.inputs:
+            visit(child.root)
+
+    visit(node.root)
+    if not found:
+        raise _reject("J1 source has no declared dependency")
+    return tuple(sorted(found))
+
+
+def _binding(
+    self: DatasetRuntime,
+    node: J1Node,
+    *,
+    retained: MaterializedJ1Dataset | None,
+    live: bool,
+) -> LogicalDataset:
+    context = _context(node)
+    if context.session_id != self.session_ref or context.store_id != self.store.store_id:
+        raise _reject("foreign J1 Session or Store")
+    row, rows = j1_row_contracts(context, node.root)
+    method = j1_numeric_method(node.root)
+    method_id = node.root.operator_id if method is None else method.contract.method_id
+    method_version = 1 if method is None else method.contract.version
+    registry = make_family_registry(make_ids(()), include_j1=True)
+    owner = ObservationRuntimeOwner(
+        session_id=self.session_ref,
+        store_id=self.store.store_id,
+        action_port=self,
+        source_context=self._source_context,
+    )
+    return _make_logical_dataset(
+        owner=owner,
+        registry=registry,
+        family_id="dsl_j1",
+        row_contract=row,
+        row_set_contract=rows,
+        operator_id=node.root.operator_id,
+        inputs=() if retained is None else (retained,),
+        input_roles=() if retained is None else ("input",),
+        parameters=() if live else (node.root.definition_fingerprint, method_id, method_version),
+        contract_versions=node.root.contract_versions,
+        payload=(
+            J1SourcePayload(
+                _token=_CORE_TOKEN,
+                semantic_definition=node.root.definition_fingerprint,
+                sources=_source_facts(node),
+                method_id=method_id,
+                method_version=method_version,
+            )
+            if live
+            else None
+        ),
+    )
+
+
+def _validated_result(
+    self: DatasetRuntime, artifact_ref: str, node: J1Node, key: str
+) -> MaterializedJ1Dataset:
+    load_j1_artifact(
+        self.store,
+        self.session_ref,
+        artifact_ref,
+        node,
+        input_binding=key,
+    )
+    record = self.store.artifact(artifact_ref)
+    if record is None or record.execution_key_digest != key:
+        raise _error("authority_resolution")
+    recovered = self._recover(record)
+    if not isinstance(recovered, MaterializedJ1Dataset):
+        raise _error("authority_resolution")
+    return recovered
+
+
+def execute_j1(
+    self: DatasetRuntime,
+    node: J1Node,
+    *,
+    source: J1SourceFactory | None = None,
+    input_node: J1Node | None = None,
+    input_artifact_ref: str | None = None,
+) -> MaterializedJ1Dataset:
+    """Execute one private J1 root, selecting fresh source or exact fixed input."""
+    context = _context(node)
+    if context.session_id != self.session_ref or context.store_id != self.store.store_id:
+        raise _reject("foreign J1 Session or Store")
+    fixed = input_node is not None or input_artifact_ref is not None
+    if fixed:
+        if input_node is None or input_artifact_ref is None or source is not None:
+            raise _reject("incomplete fixed predecessor or concurrent source selection")
+        if len(node.root.inputs) != 1 or node.root.inputs[0].root is not input_node.root:
+            raise _reject("selected predecessor differs from the current J1 node")
+        if node.root.operator_id in ("dsl.j1.read", "dsl.j1.observe"):
+            raise _mixed_input_error()
+        place_j1_local(node.root, input_node.root)
+        live = False
+    else:
+        if source is None:
+            raise _reject("missing source factory")
+        place_j1_source(context, node.root, "duckdb")
+        live = True
+
+    with session_writer_guard(
+        self.store.layout.lock_path(self.session_ref), session_ref=self.session_ref
+    ):
+        from marivo.analysis.materialization.admission import ExecutionStatistics
+
+        self.statistics = ExecutionStatistics()
+        self.last_run_ref = None
+        reconcile_session(self.store, self.session_ref, event=self._event)
+        selected = None
+        retained = None
+        if input_artifact_ref is not None:
+            selected = self.store.artifact(input_artifact_ref)
+            if selected is None or selected.session_ref != self.session_ref:
+                raise _reject("missing or foreign input Artifact")
+            recovered = self._recover(selected)
+            if not isinstance(recovered, MaterializedJ1Dataset):
+                raise _reject("input Artifact is not a J1 result")
+            retained = recovered
+        definition = _binding(self, node, retained=retained, live=live)
+        if not isinstance(definition._root, LogicalRootHandle):
+            raise _reject("invalid J1 execution root")
+        classification = require_unmixed_inputs(definition._root)
+        if fixed and classification.kind != "artifact":
+            raise _reject("fixed input has live source dependencies")
+        if not fixed and classification.kind != "source":
+            raise _reject("source input has no live dependency")
+        if fixed:
+            if selected is None:
+                raise _reject("missing fixed input Artifact")
+            key = fixed_execution_key(definition, (selected,))
+            hit = self.store.lookup(self.session_ref, key)
+            if hit is not None:
+                self.last_run_ref = hit.producing_run_ref
+                recovered_hit = _validated_result(self, hit.artifact_ref, node, key)
+                self.statistics.j1_fixed_cache_hits += 1
+                return recovered_hit
+        run_ref = None
+        if not fixed:
+            # The Run ref used for the key must be exactly the ref admitted below.
+            run_ref = _new_run_ref()
+            key = source_execution_key(definition, run_ref)
+        row, _ = j1_row_contracts(context, node.root)
+        run = self.store.admit(
+            self.session_ref,
+            key,
+            RunDatasetInput(
+                node.root.definition_fingerprint,
+                row.shape_id,
+                node.root.row_contract_fingerprint,
+                node.root.row_set_contract_fingerprint,
+                (node.root.operator_id,),
+                _source_facts(node) if not fixed else (),
+            ),
+            input_artifact_refs=() if selected is None else (selected.artifact_ref,),
+            run_ref=run_ref,
+        )
+        self.last_run_ref = run.run_ref
+        phase = "execution_boundary"
+        try:
+            if fixed:
+                if selected is None or input_node is None:
+                    raise _reject("missing fixed input Artifact or predecessor")
+                exchange = selected.descriptor.j1_exchange
+                if exchange is None:
+                    raise _reject("input Artifact has no J1 exchange")
+                prior = load_j1_artifact(
+                    self.store,
+                    self.session_ref,
+                    selected.artifact_ref,
+                    input_node,
+                    input_binding=exchange.input_binding,
+                )
+                from marivo.analysis.materialization.local_stage import run_j1_local
+
+                phase = "stage_execution"
+                result = run_j1_local(node.root, prior)
+            else:
+                if source is None:
+                    raise _reject("missing source factory")
+                from marivo.analysis.materialization.source_stage import run_j1_source
+
+                phase = "stage_execution"
+                with source() as (backend, tables):
+                    self.statistics.j1_source_evaluations += 1
+                    result = run_j1_source(context, node.root, backend, tables)
+            phase = "publication"
+            record = publish_j1_artifact(
+                self.store,
+                run,
+                node,
+                result,
+                input_binding=key,
+                event=self._event,
+            )
+            return _validated_result(self, record.artifact_ref, node, key)
+        except BaseException as exc:
+            if isinstance(exc, MaterializationError) and exc.run_ref is None:
+                exc.run_ref = run.run_ref
+            safe = exc if isinstance(exc, MaterializationError) else _error(phase, run.run_ref)
+            from marivo.analysis.materialization.dataset_publication import resolve_outcome
+
+            try:
+                outcome = resolve_outcome(self, run, safe, run_failure_phase(safe.stage, phase))
+                if outcome is not None:
+                    return _validated_result(self, outcome.state.artifact_ref.ref, node, key)
+            except MaterializationError as resolution_error:
+                if resolution_error.run_ref is None:
+                    resolution_error.run_ref = run.run_ref
+                raise resolution_error from None
+            except Exception:
+                raise MaterializationError(
+                    expected="a resolved outcome for the original J1 Run",
+                    received="outcome resolution failed",
+                    repair="Inspect the original Run and resource journal before retrying; do not replay the source automatically.",
+                    stage="reconciliation",
+                    run_ref=run.run_ref,
+                ) from None
+            raise
