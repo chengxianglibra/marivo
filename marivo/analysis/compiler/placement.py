@@ -77,7 +77,11 @@ def place_j1_source(context: object, root: LogicalRootHandle, backend: str) -> N
         if not current.inputs:
             continue
         expected_roles = (
-            ("current", "baseline") if current.operator_id == "dsl.j1.compare" else ("input",)
+            ("current", "baseline")
+            if current.operator_id == "dsl.j1.compare"
+            else ("left", "right")
+            if current.operator_id == "dsl.j1.correlate"
+            else ("input",)
         )
         if tuple(item.role for item in current.inputs) != expected_roles or any(
             not isinstance(item.root, LogicalRootHandle) for item in current.inputs

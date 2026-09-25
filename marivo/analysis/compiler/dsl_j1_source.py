@@ -95,6 +95,19 @@ def _finished(table: ir.Table, keys: tuple[str, ...]) -> ir.Table:
     )
 
 
+def _finished_count(table: ir.Table, keys: tuple[str, ...]) -> ir.Table:
+    count = table["state_sum"].fill_null(0).cast("int64")
+    return table.select(
+        *(table[key] for key in keys),
+        value=count,
+        cell_tag=ibis.literal("defined"),
+        cell_reason=ibis.null().cast("string"),
+        state_sum=count,
+        non_null_count=count,
+        row_count=table["row_count"].fill_null(0).cast("int64"),
+    )
+
+
 def _grouped_sum(rows: ir.Table, keys: tuple[str, ...]) -> ir.Table:
     return rows.group_by(*(rows[key] for key in keys)).aggregate(
         state_sum=rows["amount"].sum(),
@@ -364,23 +377,27 @@ def _lower_j1_source(
             metric.logical_type not in ("unknown", "int64", "float64")
             or len(metric.components) != 1
         ):
-            raise _reject("int64/float64 single-root sum", metric.logical_type)
+            raise _reject("int64/float64 single-root sum or count", metric.logical_type)
         node = component_node(metric.graph, metric.components[0].node_id)
-        if not isinstance(node, AggregateNodeV1) or node.agg != "sum" or node.filter:
-            raise _reject("direct-column unsliced sum", type(node).__name__)
-        body = next(
-            (
-                body
-                for ref, body in context.sidecar.bodies.items()
-                if ref.path == node.target_ref.path and ref.kind == node.target_ref.kind
-            ),
-            None,
-        )
-        if body is None or body.source_column is None:
-            raise _reject("a bound direct-column Measure", node.target_ref.path)
+        if not isinstance(node, AggregateNodeV1) or node.agg not in ("sum", "count") or node.filter:
+            raise _reject("direct-column unsliced sum or count", type(node).__name__)
         relationship = context.registry.relationships[relationship_path]
         source = _table(tables, relationship.from_entity)
-        _physical(source, body.source_column, ("int64", "float64"))
+        if node.agg == "sum":
+            body = next(
+                (
+                    body
+                    for ref, body in context.sidecar.bodies.items()
+                    if ref.path == node.target_ref.path and ref.kind == node.target_ref.kind
+                ),
+                None,
+            )
+            if body is None or body.source_column is None:
+                raise _reject("a bound direct-column Measure", node.target_ref.path)
+            _physical(source, body.source_column, ("int64", "float64"))
+            amount: ir.Value = source[body.source_column]
+        else:
+            amount = ibis.literal(1, type="int64")
         if metric.event_time_dimension is None:
             raise _reject("declared event time", metric_path)
         event = normalize_target_dimension(context.registry, metric.event_time_dimension.path)
@@ -425,7 +442,6 @@ def _lower_j1_source(
             _physical(source, coordinate.source_column, ("string",))
             coordinate_columns = (source[coordinate.source_column].name("group"),)
         joined = source.join(mapping, source[from_column] == mapping.member, how="inner")
-        amount = source[body.source_column]
         contributions = joined.select(
             *(mapping[key] for key in keys),
             *coordinate_columns,
@@ -470,7 +486,11 @@ def _lower_j1_source(
             invalid_coordinate = invalid_rows.aggregate(invalid=invalid_rows.count())
             checks = (*checks, ("strict_coordinate_cell", invalid_coordinate))
             parts = (("coordinate", _grouped_sum(contributions, ("member", "group"))),)
-        return J1SourcePlan(_finished(dense, keys), parts, checks)
+        return J1SourcePlan(
+            _finished(dense, keys) if node.agg == "sum" else _finished_count(dense, keys),
+            parts,
+            checks,
+        )
     if operation == "dsl.j1.rollup":
         prior = lower_j1_source(context, _parent(root), tables, memo=memo)
         table = prior.primary

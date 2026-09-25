@@ -67,16 +67,20 @@ _KINDS = (
     "compare",
     "ratio_observe",
     "ratio_rollup",
+    "correlate",
 )
 _IDS = _StableIdRegistry(
     families=frozenset({"dsl_j1"}),
     shapes=frozenset(("dsl_j1", kind, 1) for kind in _KINDS),
-    roles=frozenset({"member", "group", "value", "cell"}),
+    roles=frozenset(
+        {"member", "group", "value", "cell", "metric_identity", "status", "effect_value"}
+    ),
     logical_types=frozenset({"int64", "float64", "string", "unknown"}),
     physical_types=frozenset({"int64", "float64", "string", "unknown"}),
     admitted_types=frozenset({"int64", "float64", "string", "unknown"}),
 )
 J1_SUM_PARTS = ("value.sum", "value.non_null_count", "value.row_count")
+J1_COUNT_PARTS = ("value.count", "value.row_count")
 J1_COMPARE_PARTS = ("current_endpoint", "baseline_endpoint")
 J1_COMPARE_CHECKS = ("complete_pairing", "strict_numeric_cell")
 J3_RATIO_COLUMNS = (
@@ -302,6 +306,46 @@ def _j1_contracts(
             ids=_IDS,
         )
 
+    if kind == "correlate":
+        if (
+            len(parameters) != 4
+            or not all(isinstance(value, str) for value in parameters)
+            or parameters[2] != "spearman"
+        ):
+            raise _reject(
+                "bound no-lag Spearman pair",
+                "invalid parameters",
+                repair="Rebuild the association.",
+            )
+        association_columns = tuple(
+            field(name, "j4." + name, role, logical, nullable)
+            for name, role, logical, nullable in (
+                ("metric_key_a", "metric_identity", "string", False),
+                ("metric_key_b", "metric_identity", "string", False),
+                ("status", "status", "string", False),
+                ("coefficient", "effect_value", "float64", True),
+                ("input_observation_count", "effect_value", "int64", False),
+                ("matched_observation_count", "effect_value", "int64", False),
+                ("null_pair_count", "effect_value", "int64", False),
+                ("complete_pair_count", "effect_value", "int64", False),
+            )
+        )
+        association_keys = (association_columns[0].field_id, association_columns[1].field_id)
+        return (
+            _make_row_contract(
+                schema_version=1,
+                shape_id=_make_shape_id("dsl_j1", kind, 1, ids=_IDS),
+                schema=_make_schema(association_columns),
+                coordinate_field_ids=association_keys,
+                key_field_ids=association_keys,
+                family_semantics=_complete_from_schema(),
+            ),
+            _make_row_set_contract(
+                schema_version=1,
+                cardinality=_keyed_cardinality(_unknown_row_bound()),
+                ordering=_unordered_ordering(),
+            ),
+        )
     columns = []
     if key is not None and key_id is not None and key_type is not None:
         columns.append(field(key, key_id.value, key, key_type, False))
@@ -415,10 +459,12 @@ class J1Context:
                 raise _reject("current input", "missing", repair="Bind both comparison endpoints.")
             inputs = (
                 DefinitionInput(
-                    "current", LogicalInputToken(input_root.definition_fingerprint), input_root
+                    "left" if kind == "correlate" else "current",
+                    LogicalInputToken(input_root.definition_fingerprint),
+                    input_root,
                 ),
                 DefinitionInput(
-                    "baseline",
+                    "right" if kind == "correlate" else "baseline",
                     LogicalInputToken(baseline_root.definition_fingerprint),
                     baseline_root,
                 ),
@@ -686,6 +732,43 @@ class J1Observed:
     plan: MetricComponentPlan
     coordinates: tuple[Ref[DimensionKind], ...]
 
+    def correlate(
+        self, other: J1Observed, *, method: Literal["spearman"] = "spearman"
+    ) -> J4Association:
+        left_facts = self.root.parameters
+        right_facts = other.root.parameters if isinstance(other, J1Observed) else ()
+        if (
+            not isinstance(other, J1Observed)
+            or method != "spearman"
+            or self.context is not other.context
+            or self.domain.kind != "entity"
+            or self.domain != other.domain
+            or self.coordinates
+            or other.coordinates
+            or self.metric == other.metric
+            or type(left_facts) is not tuple
+            or type(right_facts) is not tuple
+            or len(left_facts) != 5
+            or len(right_facts) != 5
+            or not isinstance(left_facts[3], str)
+            or left_facts[3] != right_facts[3]
+            or self.root.inputs[0].root is not other.root.inputs[0].root
+        ):
+            raise _reject(
+                "two distinct Numeric Metrics on one explicit Entity member realization and time scope",
+                "incompatible Spearman endpoints",
+                repair="Observe two different Metrics from the same members object and time scope.",
+            )
+        root = self.context._node(
+            "correlate",
+            entity=self.entity.path,
+            input_root=self.root,
+            baseline_root=other.root,
+            parameters=(self.metric.path, other.metric.path, method, left_facts[3]),
+            requirements=("complete_pairing@v1", "spearman_pairs@v1"),
+        )
+        return J4Association(self.context, root, self, other)
+
     def compare(self, baseline: J1Observed) -> J1Difference:
         if not isinstance(baseline, J1Observed):
             raise _reject(
@@ -697,6 +780,8 @@ class J1Observed:
             self.context is not baseline.context
             or self.domain.kind != "entity"
             or self.domain != baseline.domain
+            or self.plan.method != "sum"
+            or baseline.plan.method != "sum"
             or self.metric != baseline.metric
             or self.plan != baseline.plan
             or self.coordinates != baseline.coordinates
@@ -784,6 +869,12 @@ class J1Observed:
 
     def summarize(self, method: Literal["sum", "count", "mean"]) -> J1Statistic:
         """Construct a new current-row statistic, distinct from Metric state."""
+        if self.plan.method != "sum":
+            raise _reject(
+                "sum observation with admitted current-row continuation",
+                self.plan.method,
+                repair="Use the count observation only as a private Spearman input.",
+            )
         return _summarize_numeric(self.context, self.entity, self.domain, self.root, method)
 
 
@@ -924,6 +1015,14 @@ class J1Difference:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class J4Association:
+    context: J1Context
+    root: LogicalRootHandle
+    left: J1Observed
+    right: J1Observed
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class J1NumericPredicate:
     root: LogicalRootHandle
     operation: Literal["lt", "lte", "gt", "gte", "eq"]
@@ -1050,23 +1149,25 @@ def _observe(
             repair="Choose the exact directed Relationship from the Metric root to this Entity.",
         )
     declaration = members.context.registry.metrics.get(metric.path)
-    if declaration is None or declaration.aggregation != "sum":
+    if declaration is None or declaration.aggregation not in ("sum", "count"):
         raise _reject(
-            "builder-backed sum with retained component state",
+            "builder-backed sum or count with retained component state",
             metric.path,
-            repair="Declare this Metric with ms.aggregate(..., agg='sum').",
+            repair="Declare this Metric with ms.aggregate(..., agg='sum') or ms.count(...).",
         )
     normalized = normalize_target_metric(
         members.context.registry, metric.path, sidecar=members.context.sidecar
     )
     plan = derive_metric_components(normalized)
     if (
-        plan.method != "sum"
-        or plan.required_parts != J1_SUM_PARTS
+        plan.method not in ("sum", "count")
+        or plan.required_parts != (J1_SUM_PARTS if plan.method == "sum" else J1_COUNT_PARTS)
         or len(normalized.computation_roots) != 1
     ):
         raise _reject(
-            "builder-backed single-root sum", plan.method, repair="Use an admitted J1 sum Metric."
+            "builder-backed single-root sum or count",
+            plan.method,
+            repair="Use an admitted J1 Metric.",
         )
     root_entity = normalized.computation_roots[0].path
     if relation.from_entity != root_entity or not path_is_functional(
@@ -1095,23 +1196,47 @@ def _observe(
             metric.path,
             repair="Declare the supported contribution additivity on the Measure.",
         )
-    if normalized.null_policy is not None and normalized.null_policy.kind != "ignore":
+    if (
+        plan.method == "sum"
+        and normalized.null_policy is not None
+        and normalized.null_policy.kind != "ignore"
+    ):
         raise _reject(
             "authored ignore-Null input policy",
             normalized.null_policy.kind,
             repair="Declare nulls=ms.nulls.ignore() for this J1 sum.",
         )
-    if normalized.empty_policy is not None and normalized.empty_policy.kind != "null":
+    if (
+        plan.method == "sum"
+        and normalized.empty_policy is not None
+        and normalized.empty_policy.kind != "null"
+    ):
         raise _reject(
             "authored empty-Null contribution policy",
             normalized.empty_policy.kind,
             repair="Declare empty=ms.empty.null() for this J1 sum.",
         )
-    if plan.null_rule != "ignore_null_inputs" or plan.empty_rule != "null":
+    if plan.method == "sum" and (
+        plan.null_rule != "ignore_null_inputs" or plan.empty_rule != "null"
+    ):
         raise _reject(
             "sum graph compatible with ignore-Null and empty-Null policy",
             metric.path,
             repair="Use a sum graph whose structural value rules match the declared J1 policy.",
+        )
+    if plan.method == "count" and plan.empty_rule != "zero":
+        raise _reject(
+            "count graph with valid empty-zero policy",
+            metric.path,
+            repair="Use an admitted count Metric with explicit zero empty contribution.",
+        )
+    if plan.method == "count" and (
+        domain.kind != "entity" or input_root is not members.root or coordinates
+    ):
+        raise _reject(
+            "Entity-level count observation for the private Spearman pair",
+            "unsupported count observation shape",
+            repair="Observe the count Metric on the ungrouped members without coordinates.",
         )
     if type(coordinates) is not tuple or len(set(coordinates)) != len(coordinates):
         raise _reject(
@@ -1150,7 +1275,11 @@ def _observe(
             tuple(item.path for item in coordinates),
         ),
         dependency="metric:" + metric.path,
-        requirements=("complete_coverage@v1", "contribution_partition@v1"),
+        requirements=(
+            "complete_coverage@v1",
+            "contribution_partition@v1",
+            *(("count_observation@v1",) if plan.method == "count" else ()),
+        ),
     )
     return J1Observed(
         members.context, members.entity, domain, quantity, root, metric, plan, coordinates
