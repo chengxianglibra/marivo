@@ -11,12 +11,14 @@ import ibis
 import pyarrow as pa
 import pytest
 
+from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.predicates import lower_bound_predicate, predicate_leaves
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.observation.errors import ObservationPredicateError
 from marivo.analysis.observation.predicates import (
     AnalysisPredicate,
     BoundPredicate,
+    PredicateLiteral,
     all_of,
     any_of,
     bind_predicates,
@@ -110,11 +112,12 @@ def test_boolean_normalization_preserves_scopes_and_authored_paths() -> None:
 
 
 def test_is_in_copies_and_normalizes_the_authored_list() -> None:
-    values = [1, 2, 1]
+    values: list[PredicateLiteral] = [1, 2, 1]
     predicate = is_in(VALUE, values)
     values.append(3)
     first = _bind(predicate)
     assert first.identity_payload() == _bind(is_in(VALUE, (2.0, 1.0))).identity_payload()
+    assert isinstance(first.literal, tuple)
     assert len(first.literal) == 2
     with pytest.raises(ObservationPredicateError):
         _bind(is_in(VALUE, [True, 1]))
@@ -123,7 +126,7 @@ def test_is_in_copies_and_normalizes_the_authored_list() -> None:
 @pytest.mark.parametrize("values", [[], (), {1, 2}, iter([1]), "1", [None], [float("nan")]])
 def test_is_in_rejects_invalid_containers_and_members(values: object) -> None:
     with pytest.raises(ObservationPredicateError):
-        is_in(VALUE, values)
+        is_in(VALUE, values)  # type: ignore[arg-type]  # Intentionally invalid test input.
 
 
 @pytest.mark.parametrize("helper", [eq, not_eq, lt, lte, gt, gte])
@@ -132,7 +135,9 @@ def test_null_comparisons_have_a_null_helper_repair(
 ) -> None:
     with pytest.raises(ObservationPredicateError) as caught:
         helper(VALUE, None)
-    assert "is_null" in caught.value.hint or "is_not_null" in caught.value.hint
+    hint = caught.value.hint
+    assert hint is not None
+    assert "is_null" in hint or "is_not_null" in hint
 
 
 @pytest.mark.parametrize("helper", [is_null, is_not_null])
@@ -285,11 +290,29 @@ def test_scalar_lowering_keeps_decimal_integer_unicode_and_instant_values_exact(
     backend = ibis.duckdb.connect()
     try:
         for index, (logical, physical, values, literal) in enumerate(cases):
+            assert isinstance(literal, (int, float, str, Decimal, date, datetime))
             table = backend.create_table(
                 f"scalar_case_{index}", pa.table({"value": pa.array(values, type=physical)})
             )
             bound = _bind(eq(VALUE, literal), field=_field(logical))
             result = table.select(matched=lower_bound_predicate(table, bound)).to_pyarrow()
             assert result["matched"].to_pylist() == [False, True, None]
+    finally:
+        backend.disconnect()
+
+
+def test_unknown_integer_field_uses_observed_ibis_bounds_for_delta_filter() -> None:
+    backend = ibis.duckdb.connect()
+    try:
+        table = backend.create_table(
+            "unknown_delta_values", pa.table({"value": pa.array([-40, 0, 20], type=pa.int64())})
+        )
+        field = _field("unknown")
+        predicate = _bind(lt(VALUE, 0), field=field)
+        assert table.filter(lower_bound_predicate(table, predicate)).to_pyarrow()[
+            "value"
+        ].to_pylist() == [-40]
+        with pytest.raises(DatasetCompilationError, match="out of range"):
+            lower_bound_predicate(table, _bind(lt(VALUE, 2**63), field=field))
     finally:
         backend.disconnect()

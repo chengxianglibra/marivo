@@ -40,12 +40,14 @@ change = current.compare(baseline).execute()
 change.show()
 ```
 
-示例要求项目已定义具有明确源类型和参考时间轴的 `sales.revenue` 指标。窗口为左闭右开，结束边界不包含在内。`aggregate()` 显式移除 Entity 身份轴；时间序列还需声明时间轴和粒度。Population 成员选择与指标观测窗口相互独立。
+示例要求项目已定义具有明确源类型和参考时间轴的 `sales.revenue` 指标。窗口为左闭右开，结束边界不包含在内。仅含日期的边界按 Session 持久化的报告时区解释；应为所需日历显式设置 `report_timezone`。`aggregate()` 显式移除 Entity 身份轴；时间序列还需声明时间轴和粒度。Population 成员选择与指标观测窗口相互独立。
 可用 `population.where(...)` 缩小 Entity 成员范围；Analysis 不提供 Entity 抽样。
 
 对于已配置 DuckDB 来源且通过准入的 J1–J4 Entity 域，从
 `session.members(Entity Ref)` 开始。成员域提供 `read`、`group_by` 和
-`observe`；返回的关系提供筛选、比较、rollup、行统计与关联。例如：
+`observe`；返回的关系提供筛选、比较、rollup、行统计与关联。
+`marivo.help("analysis.entry")` 会将 Entity 成员问题指向此入口；
+上面的 `session.observe` 示例仍用于既有 Dataset 形状。当前成员来源路径要求事件时间维度的时区为 UTC；其他时区或无法确定时区的时间轴会被拒绝。例如：
 
 ```python
 customers = session.members(ms.ref.entity("sales.customer"))

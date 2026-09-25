@@ -47,10 +47,7 @@ def _literal(
         if physical_type is None:
             raise compilation_error("an observed source type for the predicate field", "unknown")
         if kind == "integer" and type(payload) is int and isinstance(physical_type, dt.Integer):
-            bits = physical_type.bit_width
-            lower = -(1 << (bits - 1)) if physical_type.is_signed else 0
-            upper = (1 << (bits - int(physical_type.is_signed))) - 1
-            if not lower <= payload <= upper:
+            if not physical_type.bounds.lower <= payload <= physical_type.bounds.upper:
                 raise compilation_error(
                     str(physical_type), f"integer literal {payload!r} is out of range"
                 )

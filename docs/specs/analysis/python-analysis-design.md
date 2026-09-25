@@ -146,6 +146,12 @@ variants. `execute()` exists only on logical values; `show()` and
 `to_pandas()` exist only on materialized values. Both expose `contract()`.
 `session.artifact(reference)` returns an exact materialized variant, with
 the existing non-DSL materialized families retained in its closed union.
+Date-only and naive fixed TimeScope bounds follow the Session's persisted report
+timezone before lowering to the admitted UTC event axis. Aware bounds retain
+their absolute instant; normalized bounds join the logical definition identity.
+The member DSL reads that axis timezone from the normalized Semantic time
+dimension. This first source route requires UTC; a different or unresolved
+axis timezone is rejected before source execution.
 
 The admitted operations are categorical equality selection and member
 projection; grouping by a member Dimension or retained contribution
