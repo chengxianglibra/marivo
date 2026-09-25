@@ -264,6 +264,52 @@ class J1ExecutionResult:
 
     def __post_init__(self) -> None:
         operation = self.root.operator_id
+        if operation in ("dsl.j1.correlate", "dsl.j1.correlate_where"):
+            names = (
+                "metric_key_a",
+                "metric_key_b",
+                "status",
+                "coefficient",
+                "input_observation_count",
+                "matched_observation_count",
+                "null_pair_count",
+                "complete_pair_count",
+            )
+            if tuple(self.primary.column_names) != names or self.parts or self.primary.num_rows > 1:
+                raise _fail("one exact Association result", "invalid Association rows or parts")
+            for name in names[:3]:
+                if self.primary.schema.field(name).type != pa.string():
+                    raise _fail("string Association identity and status", name)
+            if self.primary.schema.field("coefficient").type != pa.float64() or any(
+                self.primary.schema.field(name).type != pa.int64() for name in names[4:]
+            ):
+                raise _fail("float64 coefficient and int64 counts", "invalid Association type")
+            binding_root = (
+                self.root.inputs[0].root if operation == "dsl.j1.correlate_where" else self.root
+            )
+            binding = binding_root.parameters if isinstance(binding_root, LogicalRootHandle) else ()
+            if type(binding) is not tuple or len(binding) != 4 or binding[2] != "spearman":
+                raise _fail("bound Spearman Metric pair", "invalid Association binding")
+            for row in self.primary.to_pylist():
+                coefficient = row["coefficient"]
+                pair_counts = tuple(row[name] for name in names[4:])
+                if (
+                    not all(isinstance(row[name], str) and row[name] for name in names[:3])
+                    or row["metric_key_a"] == row["metric_key_b"]
+                    or row["metric_key_a"] != "metric:" + str(binding[0])
+                    or row["metric_key_b"] != "metric:" + str(binding[1])
+                    or row["status"] != "valid"
+                    or type(coefficient) is not float
+                    or not math.isfinite(coefficient)
+                    or abs(coefficient) > 1
+                    or any(type(value) is not int or value < 0 for value in pair_counts)
+                    or pair_counts[0] != pair_counts[1]
+                    or pair_counts[1] != pair_counts[2] + pair_counts[3]
+                ):
+                    raise _fail(
+                        "valid complete Spearman result and counts", "inconsistent Association row"
+                    )
+            return
         if operation in ("dsl.j1.ratio_observe", "dsl.j1.ratio_rollup"):
             if self.parts:
                 raise _fail("ratio state in keyed retained columns", "unexpected independent parts")
@@ -297,7 +343,7 @@ class J1ExecutionResult:
             expected = (key, *cell, *state)
         elif operation == "dsl.j1.rollup":
             expected = (*cell, *state)
-        elif operation == "dsl.j1.summarize":
+        elif operation in ("dsl.j1.summarize", "dsl.j1.correlate_summarize"):
             method = parameters[0] if parameters else None
             expected = (
                 (*cell, "current_count")
@@ -318,9 +364,11 @@ class J1ExecutionResult:
                 pa.types.is_string(physical)
                 if operation == "dsl.j1.read"
                 else pa.types.is_int64(physical)
-                if operation == "dsl.j1.summarize" and parameters[0] == "count"
+                if operation in ("dsl.j1.summarize", "dsl.j1.correlate_summarize")
+                and parameters[0] == "count"
                 else pa.types.is_float64(physical)
-                if operation == "dsl.j1.summarize" and parameters[0] == "mean"
+                if operation in ("dsl.j1.summarize", "dsl.j1.correlate_summarize")
+                and parameters[0] == "mean"
                 else pa.types.is_int64(physical) or pa.types.is_float64(physical)
             )
             if not valid:
@@ -331,6 +379,43 @@ class J1ExecutionResult:
                 operation == "dsl.j1.observe" and "count_observation@v1" in self.root.requirements
             ),
         )
+        if operation == "dsl.j1.correlate_summarize":
+            method = parameters[0]
+            if self.primary.num_rows != 1:
+                raise _fail("one current coefficient statistic", "wrong row count")
+            row = self.primary.to_pylist()[0]
+            value = row["value"]
+            amount = row.get("current_sum")
+            count = row.get("current_count")
+            if method == "count":
+                valid = (
+                    row["cell_tag"] == "defined" and row["cell_reason"] is None and value == count
+                )
+            elif method == "sum":
+                valid = (
+                    row["cell_tag"] == "defined" and row["cell_reason"] is None and value == amount
+                )
+            else:
+                valid = (
+                    count == 0
+                    and value is None
+                    and row["cell_tag"] == "undefined"
+                    and row["cell_reason"] == "empty_mean"
+                    and amount == 0.0
+                ) or (
+                    type(count) is int
+                    and count > 0
+                    and row["cell_tag"] == "defined"
+                    and row["cell_reason"] is None
+                    and type(amount) is float
+                    and type(value) is float
+                    and math.isclose(value, amount / count, rel_tol=1e-12, abs_tol=1e-12)
+                )
+            if not valid:
+                raise _fail(
+                    "coefficient statistic finished from current support",
+                    "inconsistent statistic Cell",
+                )
         if len({role for role, _ in self.parts}) != len(self.parts):
             raise _fail("unique retained J1 parts", "duplicate role")
         if operation == "dsl.j1.compare" or numeric_where:

@@ -132,10 +132,15 @@ J4_SPEARMAN = MethodRegistration(
         part_effect="transport",
         required_parts=("pair_counts",),
         required_checks=("complete_pairing", "spearman_pairs"),
-        continuations=(),
+        continuations=("where", "summarize"),
     ),
     (
         _source(
+            "dsl.j4.spearman",
+            parts=("pair_counts",),
+            checks=("complete_pairing", "spearman_pairs"),
+        ),
+        _local(
             "dsl.j4.spearman",
             parts=("pair_counts",),
             checks=("complete_pairing", "spearman_pairs"),
@@ -215,7 +220,7 @@ def _row_statistic(method: str, parts: tuple[str, ...]) -> MethodRegistration:
             method_id=method_id,
             version=1,
             input_kinds=("numeric_relation",),
-            input_domains=("entity", "group"),
+            input_domains=("entity", "group", "singleton"),
             output_kind="row_statistic",
             domain_policy="new",
             unit_policy="count"
@@ -240,7 +245,7 @@ def _row_statistic(method: str, parts: tuple[str, ...]) -> MethodRegistration:
         ),
         (
             _source(method_id, parts=parts, checks=checks, domains=("entity", "group")),
-            _local(method_id, parts=parts, checks=checks, domains=("entity", "group")),
+            _local(method_id, parts=parts, checks=checks, domains=("entity", "group", "singleton")),
         ),
     )
 
@@ -380,7 +385,7 @@ def j1_numeric_method(root: LogicalRootHandle) -> MethodRegistration | None:
     """Resolve only the numerically implemented private J1 node shapes."""
     if root.operator_id == "dsl.j1.observe":
         return J1_OBSERVE_COUNT if "count_observation@v1" in root.requirements else J1_OBSERVE_SUM
-    if root.operator_id == "dsl.j1.correlate":
+    if root.operator_id in ("dsl.j1.correlate", "dsl.j1.correlate_where"):
         return J4_SPEARMAN
     if root.operator_id == "dsl.j1.ratio_observe":
         return J3_RATIO_OBSERVE
@@ -404,7 +409,10 @@ def j1_numeric_method(root: LogicalRootHandle) -> MethodRegistration | None:
         and root.parameters[1] == "contribution"
     ):
         return J1_GROUP_SUM
-    if root.operator_id == "dsl.j1.summarize" and type(root.parameters) is tuple:
+    if (
+        root.operator_id in ("dsl.j1.summarize", "dsl.j1.correlate_summarize")
+        and type(root.parameters) is tuple
+    ):
         method = root.parameters[0] if root.parameters else None
         if not isinstance(method, str):
             return None

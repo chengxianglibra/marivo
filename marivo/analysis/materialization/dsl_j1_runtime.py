@@ -33,7 +33,13 @@ from marivo.analysis.observation.contracts import (
     make_family_registry,
     make_ids,
 )
-from marivo.analysis.observation.dsl_j1 import J1Difference, j1_row_contracts
+from marivo.analysis.observation.dsl_j1 import (
+    J1Difference,
+    J4Association,
+    J4CoefficientSelection,
+    J4CoefficientStatistic,
+    j1_row_contracts,
+)
 from marivo.analysis.observation.dsl_j1_dataset import J1SourcePayload, MaterializedJ1Dataset
 from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
 
@@ -109,7 +115,9 @@ def _binding(
         operator_id=node.root.operator_id,
         inputs=selected_inputs,
         input_roles=(
-            ("current", "baseline")
+            ("left", "right")
+            if isinstance(node, J4Association) and selected_inputs
+            else ("current", "baseline")
             if isinstance(node, J1Difference) and selected_inputs
             else ("input",)
             if selected_inputs
@@ -169,7 +177,7 @@ def execute_j1(
         and "count_observation@v1" in node.root.requirements
     ):
         raise _reject("P1 count observation is admitted only as a J4 source input")
-    pair = isinstance(node, J1Difference)
+    pair = isinstance(node, (J1Difference, J4Association))
     fixed = any(
         value is not None
         for value in (input_node, input_artifact_ref, input_nodes, input_artifact_refs)
@@ -179,13 +187,18 @@ def execute_j1(
     if fixed:
         if source is not None:
             raise _mixed_input_error()
-        if isinstance(node, J1Difference):
+        if isinstance(node, (J1Difference, J4Association)):
             if (
                 input_node is not None
                 or input_artifact_ref is not None
                 or input_nodes is None
                 or input_artifact_refs is None
-                or input_nodes != (node.current, node.baseline)
+                or input_nodes
+                != (
+                    (node.left, node.right)
+                    if isinstance(node, J4Association)
+                    else (node.current, node.baseline)
+                )
                 or type(input_artifact_refs) is not tuple
                 or len(input_artifact_refs) != 2
                 or any(type(ref) is not str or not ref for ref in input_artifact_refs)
@@ -209,6 +222,10 @@ def execute_j1(
             raise _reject("selected predecessor differs from the current J1 node")
         if node.root.operator_id in ("dsl.j1.read", "dsl.j1.observe", "dsl.j1.ratio_observe"):
             raise _mixed_input_error()
+        if isinstance(node, J4CoefficientSelection) and predecessors != (node.association,):
+            raise _reject("coefficient selection requires its exact Association predecessor")
+        if isinstance(node, J4CoefficientStatistic) and predecessors != (node.predecessor,):
+            raise _reject("coefficient statistic requires its exact predecessor")
         place_j1_local(
             node.root,
             predecessors[0].root,
@@ -218,6 +235,8 @@ def execute_j1(
     else:
         if source is None:
             raise _reject("missing source factory")
+        if isinstance(node, (J4CoefficientSelection, J4CoefficientStatistic)):
+            raise _reject("coefficient continuation requires a fixed Association Artifact")
         place_j1_source(context, node.root, "duckdb")
         live = True
         predecessors = ()
@@ -242,6 +261,17 @@ def execute_j1(
                 != predecessor.root.definition_fingerprint
             ):
                 raise _reject("selected Artifact differs from the ordered J1 predecessor")
+            exchange = selected.descriptor.j1_exchange
+            method = j1_numeric_method(predecessor.root)
+            if (
+                exchange is None
+                or exchange.operator_id != predecessor.root.operator_id
+                or exchange.input_binding != selected.execution_key_digest
+                or exchange.method_id
+                != (predecessor.root.operator_id if method is None else method.contract.method_id)
+                or exchange.method_version != (1 if method is None else method.contract.version)
+            ):
+                raise _reject("input Artifact has a wrong method or version")
             recovered = self._recover(selected)
             if not isinstance(recovered, MaterializedJ1Dataset):
                 raise _reject("input Artifact is not a J1 result")
@@ -257,6 +287,16 @@ def execute_j1(
                 or current_exchange.member_binding != baseline_exchange.member_binding
             ):
                 raise _reject("comparison endpoints lack one shared member implementation")
+            if isinstance(node, J4Association) and (
+                current_exchange.operator_id != "dsl.j1.observe"
+                or baseline_exchange.operator_id != "dsl.j1.observe"
+                or current_exchange.domain != baseline_exchange.domain
+                or not {"complete_coverage", "contribution_partition"}
+                <= set(current_exchange.completed_checks)
+                or not {"complete_coverage", "contribution_partition"}
+                <= set(baseline_exchange.completed_checks)
+            ):
+                raise _reject("Spearman endpoints lack complete matching observation authority")
         definition = _binding(self, node, retained=tuple(retained_inputs), live=live)
         if not isinstance(definition._root, LogicalRootHandle):
             raise _reject("invalid J1 execution root")
@@ -311,6 +351,11 @@ def execute_j1(
                             input_binding=exchange.input_binding,
                         )
                     )
+                from marivo.analysis.materialization.dsl_j4_source import (
+                    filter_j4_local,
+                    run_j4_local,
+                    summarize_j4_local,
+                )
                 from marivo.analysis.materialization.local_stage import (
                     run_j1_compare_local,
                     run_j1_local,
@@ -318,19 +363,33 @@ def execute_j1(
 
                 phase = "stage_execution"
                 result = (
-                    run_j1_compare_local(node.root, prior[0], prior[1])
+                    run_j4_local(node, prior[0], prior[1])
+                    if isinstance(node, J4Association)
+                    else summarize_j4_local(node, prior[0])
+                    if isinstance(node, J4CoefficientStatistic)
+                    else filter_j4_local(node, prior[0])
+                    if isinstance(node, J4CoefficientSelection)
+                    else run_j1_compare_local(node.root, prior[0], prior[1])
                     if pair
                     else run_j1_local(node.root, prior[0])
                 )
             else:
                 if source is None:
                     raise _reject("missing source factory")
+                from marivo.analysis.materialization.dsl_j4_source import (
+                    j4_execution_result,
+                    run_j4_source,
+                )
                 from marivo.analysis.materialization.source_stage import run_j1_source
 
                 phase = "stage_execution"
                 with source() as (backend, tables):
                     self.statistics.j1_source_evaluations += 1
-                    result = run_j1_source(context, node.root, backend, tables)
+                    result = (
+                        j4_execution_result(node, run_j4_source(node, backend, tables))
+                        if isinstance(node, J4Association)
+                        else run_j1_source(context, node.root, backend, tables)
+                    )
             phase = "publication"
             record = publish_j1_artifact(
                 self.store,
