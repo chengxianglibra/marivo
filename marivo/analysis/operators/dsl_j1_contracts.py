@@ -159,7 +159,7 @@ def _row_statistic(method: str, parts: tuple[str, ...]) -> MethodRegistration:
         MethodContract(
             method_id=method_id,
             version=1,
-            input_kinds=("observed",),
+            input_kinds=("numeric_relation",),
             input_domains=("entity", "group"),
             output_kind="row_statistic",
             domain_policy="new",
@@ -209,7 +209,7 @@ J1_COMPARE_DIFFERENCE = MethodRegistration(
         part_effect="transport",
         required_parts=J1_COMPARE_PARTS,
         required_checks=J1_COMPARE_CHECKS,
-        continuations=(),
+        continuations=("where", "summarize"),
         cell_reasons=(),
     ),
     (
@@ -226,6 +226,38 @@ J1_COMPARE_DIFFERENCE = MethodRegistration(
     ),
 )
 
+J1_SELECT_DIFFERENCE = MethodRegistration(
+    MethodContract(
+        method_id="dsl.j1.select_difference",
+        version=1,
+        input_kinds=("difference",),
+        input_domains=("entity",),
+        output_kind="difference",
+        domain_policy="mapped",
+        unit_policy="preserve",
+        cell_policy="strict",
+        numeric_policy="int64_or_float64",
+        capabilities=("cell_calculation", "part_transport"),
+        part_effect="transport",
+        required_parts=J1_COMPARE_PARTS,
+        required_checks=J1_COMPARE_CHECKS,
+        continuations=("members", "summarize"),
+        cell_reasons=(),
+    ),
+    (
+        _source(
+            "dsl.j1.select_difference",
+            parts=J1_COMPARE_PARTS,
+            checks=J1_COMPARE_CHECKS,
+        ),
+        _local(
+            "dsl.j1.select_difference",
+            parts=J1_COMPARE_PARTS,
+            checks=J1_COMPARE_CHECKS,
+        ),
+    ),
+)
+
 
 def j1_numeric_method(root: LogicalRootHandle) -> MethodRegistration | None:
     """Resolve only the numerically implemented private J1 node shapes."""
@@ -233,6 +265,13 @@ def j1_numeric_method(root: LogicalRootHandle) -> MethodRegistration | None:
         return J1_OBSERVE_SUM
     if root.operator_id == "dsl.j1.compare":
         return J1_COMPARE_DIFFERENCE
+    if (
+        root.operator_id == "dsl.j1.where"
+        and type(root.parameters) is tuple
+        and len(root.parameters) == 3
+        and root.parameters[0] == "numeric"
+    ):
+        return J1_SELECT_DIFFERENCE
     if root.operator_id == "dsl.j1.rollup":
         return J1_ROLLUP_SUM
     if (

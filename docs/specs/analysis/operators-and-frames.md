@@ -102,12 +102,27 @@ backends reject before business data is read. This qualification is private;
 the remaining S0 method matrix is still an inactive target.
 
 S2 P1 registers a private absolute `compare` method for two ordered,
-same-member Entity observations. Its result is a Difference; source and pandas
-routes require exact complete key pairing and finite Defined int64/float64
+same-member Entity observations with distinct time scopes. Its result is a
+Difference; source and pandas routes require exact complete key pairing and
+finite Defined int64/float64
 Cells. Both endpoint rows are retained as separately receipted parts, so a
 fixed pair uses the same member realization binding rather than inferring
 common ownership from equal keys. Relative change, group comparison and
 Difference selection/continuation are not qualified by P1.
+
+S2 P2 qualifies private Difference `where` with finite, lossless
+`lt/lte/gt/gte/eq` thresholds. Every input Cell must be Defined and finite;
+filtering never converts a non-Defined row to false. The selected relation
+retains its Difference quantity on a selector-bound Entity subdomain and
+transports both endpoint parts by member key. `members()` projects identity;
+current-row sum/count/mean construct new statistic state from the actual rows.
+For float64 values, `eq` is exact binary equality with no tolerance. This
+private slice admits one numeric predicate: a selected Difference offers
+`members()` and current-row statistics, without a second `where` field handle.
+The same source and pandas routes validate the selected endpoint receipts and
+method checks. Difference has no original Metric rollup permission. Numeric
+selection does not change the Revenue policy that an empty contribution is
+Null; J2's zero Cells come from explicit zero-valued source contributions.
 
 The [first-round DSL slice](python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive)
 accepts the following private rule obligations. The proposed public Relation

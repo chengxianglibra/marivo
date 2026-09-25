@@ -171,6 +171,10 @@ def test_j2_decliners_and_equal_customer_weighting(
         ("C", 50, 0, 0),
         ("D", 0, 0, 0),
     ]
+    assert _sql(
+        case,
+        'SELECT order_id FROM "order" WHERE amount = 0 ORDER BY order_id',
+    ) == [("j2_ac",), ("j2_ad",), ("j2_jd",), ("j2_sc",)]
     decliners: set[str] = set()
     for customer, july, august, _ in monthly:
         assert isinstance(customer, str)

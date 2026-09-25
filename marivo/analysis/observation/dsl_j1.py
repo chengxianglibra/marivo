@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Literal
 
@@ -30,6 +31,7 @@ from marivo.analysis.datasets.descriptors import (
     _row_contract_fingerprint,
     _row_set_contract_fingerprint,
     _row_statistic_quantity,
+    _selected_entity_domain,
     _singleton_cardinality,
     _singleton_domain,
     _StableIdRegistry,
@@ -64,6 +66,17 @@ _IDS = _StableIdRegistry(
 J1_SUM_PARTS = ("value.sum", "value.non_null_count", "value.row_count")
 J1_COMPARE_PARTS = ("current_endpoint", "baseline_endpoint")
 J1_COMPARE_CHECKS = ("complete_pairing", "strict_numeric_cell")
+
+
+def numeric_threshold_is_lossless(value_type: str, threshold: object) -> bool:
+    """Admit a finite threshold without changing the Cell's numeric type."""
+    return (value_type == "int64" and type(threshold) is int and -(2**63) <= threshold < 2**63) or (
+        value_type == "float64"
+        and (
+            (type(threshold) is int and abs(threshold) <= 2**53)
+            or (type(threshold) is float and math.isfinite(threshold))
+        )
+    )
 
 
 def _reject(expected: str, received: str, *, repair: str) -> DatasetConstructionError:
@@ -180,10 +193,14 @@ def _j1_contracts(
     columns = []
     if key is not None and key_id is not None and key_type is not None:
         columns.append(field(key, key_id.value, key, key_type, False))
-    if kind in ("read", "observe", "rollup", "summarize", "compare") or (
-        kind == "group"
-        and input_root is not None
-        and input_root.shape_id.local_shape_id == "observe"
+    if (
+        kind in ("read", "observe", "rollup", "summarize", "compare")
+        or (kind == "where" and parameters and parameters[0] == "numeric")
+        or (
+            kind == "group"
+            and input_root is not None
+            and input_root.shape_id.local_shape_id == "observe"
+        )
     ):
         if kind == "read":
             value_type = normalize_target_dimension(
@@ -267,7 +284,7 @@ class J1Context:
         entity: str,
         input_root: LogicalRootHandle | None = None,
         baseline_root: LogicalRootHandle | None = None,
-        parameters: tuple[str | int | None | tuple[str, ...], ...] = (),
+        parameters: tuple[str | int | float | None | tuple[str, ...], ...] = (),
         dependency: str = "",
         requirements: tuple[str, ...] = (),
     ) -> LogicalRootHandle:
@@ -455,7 +472,12 @@ class J1SelectedCategory:
 
     def members(self) -> J1Members:
         original = self.members_input
-        return J1Members(original.context, original.entity, original.domain, self.root)
+        return J1Members(
+            original.context,
+            original.entity,
+            _selected_entity_domain(original.domain, self.root.definition_fingerprint),
+            self.root,
+        )
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -505,11 +527,12 @@ class J1Observed:
             or len(current_facts) != 5
             or len(baseline_facts) != 5
             or current_facts[:3] != baseline_facts[:3]
+            or current_facts[3] == baseline_facts[3]
             or current_facts[4] != baseline_facts[4]
-            or _member_root(self.root) is not _member_root(baseline.root)
+            or self.root.inputs[0].root is not baseline.root.inputs[0].root
         ):
             raise _reject(
-                "two time-scoped observations of one Metric and one explicit member node",
+                "two distinct time-scoped observations of one Metric and one explicit member node",
                 "incompatible comparison endpoints",
                 repair="Observe both periods from the same members object with matching Metric, route and coordinates.",
             )
@@ -583,25 +606,35 @@ class J1Observed:
 
     def summarize(self, method: Literal["sum", "count", "mean"]) -> J1Statistic:
         """Construct a new current-row statistic, distinct from Metric state."""
-        if method not in ("sum", "count", "mean"):
-            raise _reject(
-                "current-row sum, count or mean",
-                method,
-                repair="Choose one registered current-row method.",
-            )
-        parts = {"sum": ("sum",), "count": ("count",), "mean": ("sum", "count")}[method]
-        target = _singleton_domain(self.domain)
-        quantity = _row_statistic_quantity(
-            self.domain, target, self.root.definition_fingerprint, method, parts
+        return _summarize_numeric(self.context, self.entity, self.domain, self.root, method)
+
+
+def _summarize_numeric(
+    context: J1Context,
+    entity: Ref[EntityKind],
+    domain: AnalysisDomain,
+    input_root: LogicalRootHandle,
+    method: Literal["sum", "count", "mean"],
+) -> J1Statistic:
+    if method not in ("sum", "count", "mean"):
+        raise _reject(
+            "current-row sum, count or mean",
+            method,
+            repair="Choose one registered current-row method.",
         )
-        root = self.context._node(
-            "summarize",
-            entity=self.entity.path,
-            input_root=self.root,
-            parameters=(method, self.root.definition_fingerprint),
-            requirements=("strict_current_row_cell@v1",) if method != "count" else (),
-        )
-        return J1Statistic(self.context, target, quantity, root, method)
+    parts = {"sum": ("sum",), "count": ("count",), "mean": ("sum", "count")}[method]
+    target = _singleton_domain(domain)
+    quantity = _row_statistic_quantity(
+        domain, target, input_root.definition_fingerprint, method, parts
+    )
+    root = context._node(
+        "summarize",
+        entity=entity.path,
+        input_root=input_root,
+        parameters=(method, input_root.definition_fingerprint),
+        requirements=("strict_current_row_cell@v1",) if method != "count" else (),
+    )
+    return J1Statistic(context, target, quantity, root, method)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -623,17 +656,113 @@ class J1Difference:
     current: J1Observed
     baseline: J1Observed
 
+    @property
+    def value(self) -> J1NumericField:
+        return J1NumericField(self.root)
 
-def _member_root(root: LogicalRootHandle) -> LogicalRootHandle:
-    current = root
-    while current.inputs:
-        predecessor = current.inputs[0].root
-        if not isinstance(predecessor, LogicalRootHandle):
-            raise _reject(
-                "logical member ancestry", "materialized input", repair="Use exact logical members."
-            )
-        current = predecessor
-    return current
+    def where(self, predicate: J1NumericPredicate) -> J1SelectedDifference:
+        return _select_difference(self, predicate)
+
+    def summarize(self, method: Literal["sum", "count", "mean"]) -> J1Statistic:
+        return _summarize_numeric(self.context, self.entity, self.domain, self.root, method)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class J1NumericPredicate:
+    root: LogicalRootHandle
+    operation: Literal["lt", "lte", "gt", "gte", "eq"]
+    threshold: int | float
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class J1NumericField:
+    root: LogicalRootHandle
+
+    def _predicate(
+        self, operation: Literal["lt", "lte", "gt", "gte", "eq"], threshold: int | float
+    ) -> J1NumericPredicate:
+        if (type(threshold) is int and -(2**63) <= threshold < 2**63) or (
+            type(threshold) is float and math.isfinite(threshold)
+        ):
+            return J1NumericPredicate(self.root, operation, threshold)
+        raise _reject(
+            "finite int64 or float64 threshold",
+            type(threshold).__name__,
+            repair="Use a finite numeric threshold of the observed unit.",
+        )
+
+    def lt(self, threshold: int | float) -> J1NumericPredicate:
+        return self._predicate("lt", threshold)
+
+    def lte(self, threshold: int | float) -> J1NumericPredicate:
+        return self._predicate("lte", threshold)
+
+    def gt(self, threshold: int | float) -> J1NumericPredicate:
+        return self._predicate("gt", threshold)
+
+    def gte(self, threshold: int | float) -> J1NumericPredicate:
+        return self._predicate("gte", threshold)
+
+    def eq(self, threshold: int | float) -> J1NumericPredicate:
+        return self._predicate("eq", threshold)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class J1SelectedDifference:
+    context: J1Context
+    entity: Ref[EntityKind]
+    domain: AnalysisDomain
+    quantity: QuantityState
+    root: LogicalRootHandle
+    current: J1Observed
+    baseline: J1Observed
+
+    def members(self) -> J1Members:
+        root = self.context._node(
+            "members",
+            entity=self.entity.path,
+            input_root=self.root,
+            parameters=(self.entity.path, self.root.definition_fingerprint),
+        )
+        return J1Members(self.context, self.entity, self.domain, root)
+
+    def summarize(self, method: Literal["sum", "count", "mean"]) -> J1Statistic:
+        return _summarize_numeric(self.context, self.entity, self.domain, self.root, method)
+
+
+def _select_difference(
+    relation: J1Difference, predicate: J1NumericPredicate
+) -> J1SelectedDifference:
+    if type(predicate) is not J1NumericPredicate or predicate.root is not relation.root:
+        raise _reject(
+            "predicate on this exact Difference node",
+            "foreign predicate",
+            repair="Build the predicate from this relation.value handle.",
+        )
+    root = relation.context._node(
+        "where",
+        entity=relation.entity.path,
+        input_root=relation.root,
+        parameters=("numeric", predicate.operation, predicate.threshold),
+        requirements=tuple(f"{check}@v1" for check in J1_COMPARE_CHECKS),
+    )
+    domain = _selected_entity_domain(relation.domain, root.definition_fingerprint)
+    quantity = _difference_quantity(
+        domain,
+        relation.current.root.definition_fingerprint,
+        relation.baseline.root.definition_fingerprint,
+        "metric:" + relation.current.metric.path,
+        J1_COMPARE_PARTS,
+    )
+    return J1SelectedDifference(
+        relation.context,
+        relation.entity,
+        domain,
+        quantity,
+        root,
+        relation.current,
+        relation.baseline,
+    )
 
 
 def _observe(

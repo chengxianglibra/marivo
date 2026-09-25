@@ -82,7 +82,7 @@ execution chain, not a public DSL or general production `execute()` route.
 
 The private `J1Observed.compare(baseline)` constructor admits two Entity-level
 observations of the same Metric, component plan, coordinates and non-time
-scope facts. Both branches must descend from the same explicit member root;
+scope facts with distinct time scopes. Both branches must descend from the same explicit member root;
 matching definitions or keys alone do not establish that identity. The
 ordered current/baseline root computes a strict absolute difference. It has a
 Difference quantity with endpoint requirements and does not inherit the
@@ -104,6 +104,35 @@ uses pandas for the same strict difference. Mixed live and fixed inputs, or
 independently captured endpoints, fail before Artifact row reads and Run
 admission. This route is limited to the admitted J1 compare shape and is not a
 public multi-output capture API.
+
+## S2 P2 private J2 selection and next observation
+
+A private Difference now has a bound numeric value field with finite
+`lt/lte/gt/gte/eq` thresholds. Float64 `eq` uses exact binary equality. Strict
+`where` keeps the Difference value and
+filters both retained endpoint parts by exact member key; `members()` projects
+the selected identities without reading a source. The selected Entity domain
+binds its parent domain and selector definition, so a later observation names
+the actual selected domain. A comparison requires the same immediate member
+input node for both observations; sharing only an older ancestor is insufficient.
+Difference and its selected relation support current-row sum/count/mean, but
+neither inherits the original Metric's state rollup. The selected relation has
+no second numeric `where` field handle in P2.
+
+For J2, one source-only graph evaluates July and August under strict complete
+key pairing, selects negative changes, observes September for those Logical
+members, and computes mean over the selected customer rows. The source stage
+realizes the compare member node once in that invocation. The J2 fixture uses
+explicit zero-valued orders for the zero Cells; a truly empty Revenue sum still
+returns Null and cannot enter strict compare.
+
+The existing Store and exchange codec retain the selected Difference's exact
+endpoint parts and selector-bound domain. A fixed pair requires two ordered
+Artifacts with one shared member realization; pandas can then filter the
+Difference, project members, or summarize its current rows after receipt checks.
+A fixed selected member Artifact cannot be used for a new live read or observe.
+These are private qualifications, not public DSL methods or a two-endpoint
+capture API.
 
 ## Accepted S0 Analysis DSL slice (inactive)
 

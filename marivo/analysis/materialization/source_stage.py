@@ -87,9 +87,44 @@ def run_j1_source(
     memo: _RunNodeBindings[J1SourcePlan] = (
         _RunNodeBindings(context.session_id) if shared_plans is None else shared_plans
     )
-    if root.operator_id == "dsl.j1.compare":
-        preflight = lower_j1_source(context, root, tables)
-        compare_method = j1_numeric_method(root)
+    lower_j1_source(context, root, tables)
+    seen: set[LogicalRootHandle] = set()
+    comparisons: list[LogicalRootHandle] = []
+    selections: list[LogicalRootHandle] = []
+
+    pending = [(root, False)]
+    while pending:
+        current, ready = pending.pop()
+        if ready:
+            if current.operator_id == "dsl.j1.compare":
+                comparisons.append(current)
+            if (
+                current.operator_id == "dsl.j1.where"
+                and type(current.parameters) is tuple
+                and len(current.parameters) == 3
+                and current.parameters[0] == "numeric"
+            ):
+                selections.append(current)
+            continue
+        if current in seen:
+            continue
+        seen.add(current)
+        pending.append((current, True))
+        for item in reversed(current.inputs):
+            predecessor_root = item.root
+            if isinstance(predecessor_root, LogicalRootHandle):
+                pending.append((predecessor_root, False))
+    for selection in selections:
+        selected_method = j1_numeric_method(selection)
+        if selected_method is None:
+            raise _error("implementation_registration")
+        selected_plan = lower_j1_source(context, selection, tables)
+        selected_method.require_route(
+            "source", "duckdb", "entity", str(selected_plan.primary["value"].type())
+        )
+    for comparison in comparisons:
+        preflight = lower_j1_source(context, comparison, tables)
+        compare_method = j1_numeric_method(comparison)
         if compare_method is None:
             raise MaterializationError(
                 expected="registered strict J1 comparison",
@@ -100,27 +135,36 @@ def run_j1_source(
         compare_method.require_route(
             "source", "duckdb", "entity", str(preflight.primary["value"].type())
         )
-        ancestor = root.inputs[0].root
-        while isinstance(ancestor, LogicalRootHandle) and ancestor.inputs:
-            ancestor = ancestor.inputs[0].root
-        if not isinstance(ancestor, LogicalRootHandle) or ancestor.operator_id != "dsl.j1.members":
+        current_root = comparison.inputs[0].root
+        baseline = comparison.inputs[1].root
+        if (
+            not isinstance(current_root, LogicalRootHandle)
+            or not isinstance(baseline, LogicalRootHandle)
+            or not current_root.inputs
+            or not baseline.inputs
+        ):
+            raise _error("implementation_registration")
+        members = current_root.inputs[0].root
+        if not isinstance(members, LogicalRootHandle) or baseline.inputs[0].root is not members:
             raise MaterializationError(
                 expected="one exact shared member node",
                 received="comparison has no bound members",
                 repair="Construct both observations from the same members object.",
                 stage="source_admission",
             )
-        if memo.get(ancestor) is None:
-            member_plan = lower_j1_source(context, ancestor, tables)
+        if memo.get(members) is None:
+            member_plan = lower_j1_source(context, members, tables)
             backend.compile(member_plan.primary)
             native_members = backend.to_pyarrow_batches(member_plan.primary, chunk_size=1024)
             member_stream = IbisBatchStream(native_members, native_members.schema)
             try:
-                members = pa.Table.from_batches(tuple(member_stream), schema=member_stream.schema)
+                materialized = pa.Table.from_batches(
+                    tuple(member_stream), schema=member_stream.schema
+                )
             finally:
                 member_stream.close()
-            J1ExecutionResult(ancestor, members)
-            memo.bind(ancestor, J1SourcePlan(ibis.memtable(members)))
+            J1ExecutionResult(members, materialized)
+            memo.bind(members, J1SourcePlan(ibis.memtable(materialized), checks=member_plan.checks))
     plan = lower_j1_source(context, root, tables, memo=memo)
     method = j1_numeric_method(root)
     if method is not None:
@@ -224,7 +268,8 @@ def run_j1_source(
                 repair="Correct the source values or select a method whose Cell policy admits them.",
                 stage="source_validation",
             )
-        completed.append(name)
+        if name not in completed:
+            completed.append(name)
     primary = collect(plan.primary, primary=True)
     parts = tuple((role, collect(expression)) for role, expression in plan.parts)
     return J1ExecutionResult(root, primary, parts, tuple(completed))
