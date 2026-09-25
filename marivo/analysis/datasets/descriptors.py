@@ -246,7 +246,7 @@ class QuantityState(_Descriptor, _token=_CORE_TOKEN):
     """An original observation or a new statistic over current rows."""
 
     __slots__ = ()
-    kind: Literal["observed", "row_statistic"]
+    kind: Literal["observed", "row_statistic", "difference"]
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -267,6 +267,39 @@ class _RowStatisticQuantity(QuantityState, _token=_CORE_TOKEN):
     required_parts: tuple[str, ...]
     current_row_unit: Literal["one_per_row"] = field(default="one_per_row", init=False)
     kind: Literal["row_statistic"] = field(default="row_statistic", init=False)
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class _DifferenceQuantity(QuantityState, _token=_CORE_TOKEN):
+    domain: AnalysisDomain
+    current_definition_fingerprint: str
+    baseline_definition_fingerprint: str
+    metric_identity: str
+    required_parts: tuple[str, ...]
+    kind: Literal["difference"] = field(default="difference", init=False)
+
+
+def _difference_quantity(
+    domain: AnalysisDomain,
+    current_definition_fingerprint: str,
+    baseline_definition_fingerprint: str,
+    metric_identity: str,
+    required_parts: tuple[str, ...],
+) -> _DifferenceQuantity:
+    for fingerprint in (current_definition_fingerprint, baseline_definition_fingerprint):
+        if re.fullmatch(r"ds_[0-9a-f]{64}", fingerprint) is None:
+            _fail("exact endpoint definition", "invalid fingerprint", "quantity.difference")
+    if not metric_identity.startswith("metric:"):
+        _fail("Metric identity", metric_identity, "quantity.difference")
+    _part_ids(required_parts, "quantity.difference")
+    return _DifferenceQuantity(
+        _token=_CORE_TOKEN,
+        domain=domain,
+        current_definition_fingerprint=current_definition_fingerprint,
+        baseline_definition_fingerprint=baseline_definition_fingerprint,
+        metric_identity=metric_identity,
+        required_parts=required_parts,
+    )
 
 
 def _part_ids(parts: tuple[str, ...], location: str) -> None:

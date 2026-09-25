@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.observation.dsl_j1 import J1_SUM_PARTS
+from marivo.analysis.observation.dsl_j1 import (
+    J1_COMPARE_CHECKS,
+    J1_COMPARE_PARTS,
+    J1_SUM_PARTS,
+)
 from marivo.analysis.operators.registry import (
     MethodContract,
     MethodDomain,
@@ -190,11 +194,45 @@ J1_ROW_SUM = _row_statistic("sum", ("sum",))
 J1_ROW_COUNT = _row_statistic("count", ("count",))
 J1_ROW_MEAN = _row_statistic("mean", ("sum", "count"))
 
+J1_COMPARE_DIFFERENCE = MethodRegistration(
+    MethodContract(
+        method_id="dsl.j1.compare_difference",
+        version=1,
+        input_kinds=("observed", "observed"),
+        input_domains=("entity",),
+        output_kind="difference",
+        domain_policy="same",
+        unit_policy="difference",
+        cell_policy="strict",
+        numeric_policy="int64_or_float64",
+        capabilities=("cell_calculation", "part_transport"),
+        part_effect="transport",
+        required_parts=J1_COMPARE_PARTS,
+        required_checks=J1_COMPARE_CHECKS,
+        continuations=(),
+        cell_reasons=(),
+    ),
+    (
+        _source(
+            "dsl.j1.compare_difference",
+            parts=J1_COMPARE_PARTS,
+            checks=J1_COMPARE_CHECKS,
+        ),
+        _local(
+            "dsl.j1.compare_difference",
+            parts=J1_COMPARE_PARTS,
+            checks=J1_COMPARE_CHECKS,
+        ),
+    ),
+)
+
 
 def j1_numeric_method(root: LogicalRootHandle) -> MethodRegistration | None:
     """Resolve only the numerically implemented private J1 node shapes."""
     if root.operator_id == "dsl.j1.observe":
         return J1_OBSERVE_SUM
+    if root.operator_id == "dsl.j1.compare":
+        return J1_COMPARE_DIFFERENCE
     if root.operator_id == "dsl.j1.rollup":
         return J1_ROLLUP_SUM
     if (

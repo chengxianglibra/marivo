@@ -33,7 +33,7 @@ from marivo.analysis.observation.contracts import (
     make_family_registry,
     make_ids,
 )
-from marivo.analysis.observation.dsl_j1 import j1_row_contracts
+from marivo.analysis.observation.dsl_j1 import J1Difference, j1_row_contracts
 from marivo.analysis.observation.dsl_j1_dataset import J1SourcePayload, MaterializedJ1Dataset
 from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
 
@@ -76,12 +76,19 @@ def _binding(
     self: DatasetRuntime,
     node: J1Node,
     *,
-    retained: MaterializedJ1Dataset | None,
+    retained: tuple[MaterializedJ1Dataset, ...] | MaterializedJ1Dataset | None,
     live: bool,
 ) -> LogicalDataset:
     context = _context(node)
     if context.session_id != self.session_ref or context.store_id != self.store.store_id:
         raise _reject("foreign J1 Session or Store")
+    selected_inputs = (
+        ()
+        if retained is None
+        else (retained,)
+        if isinstance(retained, MaterializedJ1Dataset)
+        else retained
+    )
     row, rows = j1_row_contracts(context, node.root)
     method = j1_numeric_method(node.root)
     method_id = node.root.operator_id if method is None else method.contract.method_id
@@ -100,8 +107,14 @@ def _binding(
         row_contract=row,
         row_set_contract=rows,
         operator_id=node.root.operator_id,
-        inputs=() if retained is None else (retained,),
-        input_roles=() if retained is None else ("input",),
+        inputs=selected_inputs,
+        input_roles=(
+            ("current", "baseline")
+            if isinstance(node, J1Difference) and selected_inputs
+            else ("input",)
+            if selected_inputs
+            else ()
+        ),
         parameters=() if live else (node.root.definition_fingerprint, method_id, method_version),
         contract_versions=node.root.contract_versions,
         payload=(
@@ -144,26 +157,66 @@ def execute_j1(
     source: J1SourceFactory | None = None,
     input_node: J1Node | None = None,
     input_artifact_ref: str | None = None,
+    input_nodes: tuple[J1Node, J1Node] | None = None,
+    input_artifact_refs: tuple[str, str] | None = None,
 ) -> MaterializedJ1Dataset:
     """Execute one private J1 root, selecting fresh source or exact fixed input."""
     context = _context(node)
     if context.session_id != self.session_ref or context.store_id != self.store.store_id:
         raise _reject("foreign J1 Session or Store")
-    fixed = input_node is not None or input_artifact_ref is not None
+    pair = isinstance(node, J1Difference)
+    fixed = any(
+        value is not None
+        for value in (input_node, input_artifact_ref, input_nodes, input_artifact_refs)
+    )
+    predecessors: tuple[J1Node, ...]
+    refs: tuple[str, ...]
     if fixed:
-        if input_node is None or input_artifact_ref is None or source is not None:
+        if source is not None:
+            raise _mixed_input_error()
+        if isinstance(node, J1Difference):
+            if (
+                input_node is not None
+                or input_artifact_ref is not None
+                or input_nodes is None
+                or input_artifact_refs is None
+                or input_nodes != (node.current, node.baseline)
+                or type(input_artifact_refs) is not tuple
+                or len(input_artifact_refs) != 2
+                or any(type(ref) is not str or not ref for ref in input_artifact_refs)
+            ):
+                raise _reject("comparison requires two exact ordered fixed endpoints")
+            predecessors = input_nodes
+            refs = input_artifact_refs
+        elif (
+            input_node is not None
+            and input_artifact_ref is not None
+            and (input_nodes is None and input_artifact_refs is None)
+        ):
+            predecessors = (input_node,)
+            refs = (input_artifact_ref,)
+        else:
             raise _reject("incomplete fixed predecessor or concurrent source selection")
-        if len(node.root.inputs) != 1 or node.root.inputs[0].root is not input_node.root:
+        if len(node.root.inputs) != len(predecessors) or any(
+            binding.root is not predecessor.root
+            for binding, predecessor in zip(node.root.inputs, predecessors, strict=True)
+        ):
             raise _reject("selected predecessor differs from the current J1 node")
         if node.root.operator_id in ("dsl.j1.read", "dsl.j1.observe"):
             raise _mixed_input_error()
-        place_j1_local(node.root, input_node.root)
+        place_j1_local(
+            node.root,
+            predecessors[0].root,
+            baseline_root=predecessors[1].root if len(predecessors) == 2 else None,
+        )
         live = False
     else:
         if source is None:
             raise _reject("missing source factory")
         place_j1_source(context, node.root, "duckdb")
         live = True
+        predecessors = ()
+        refs = ()
 
     with session_writer_guard(
         self.store.layout.lock_path(self.session_ref), session_ref=self.session_ref
@@ -173,17 +226,33 @@ def execute_j1(
         self.statistics = ExecutionStatistics()
         self.last_run_ref = None
         reconcile_session(self.store, self.session_ref, event=self._event)
-        selected = None
-        retained = None
-        if input_artifact_ref is not None:
-            selected = self.store.artifact(input_artifact_ref)
+        selected_records = []
+        retained_inputs = []
+        for ref, predecessor in zip(refs, predecessors, strict=True):
+            selected = self.store.artifact(ref)
             if selected is None or selected.session_ref != self.session_ref:
                 raise _reject("missing or foreign input Artifact")
+            if (
+                selected.descriptor.definition_fingerprint
+                != predecessor.root.definition_fingerprint
+            ):
+                raise _reject("selected Artifact differs from the ordered J1 predecessor")
             recovered = self._recover(selected)
             if not isinstance(recovered, MaterializedJ1Dataset):
                 raise _reject("input Artifact is not a J1 result")
-            retained = recovered
-        definition = _binding(self, node, retained=retained, live=live)
+            selected_records.append(selected)
+            retained_inputs.append(recovered)
+        if pair and fixed:
+            current_exchange = selected_records[0].descriptor.j1_exchange
+            baseline_exchange = selected_records[1].descriptor.j1_exchange
+            if (
+                current_exchange is None
+                or baseline_exchange is None
+                or current_exchange.member_binding is None
+                or current_exchange.member_binding != baseline_exchange.member_binding
+            ):
+                raise _reject("comparison endpoints lack one shared member implementation")
+        definition = _binding(self, node, retained=tuple(retained_inputs), live=live)
         if not isinstance(definition._root, LogicalRootHandle):
             raise _reject("invalid J1 execution root")
         classification = require_unmixed_inputs(definition._root)
@@ -192,9 +261,7 @@ def execute_j1(
         if not fixed and classification.kind != "source":
             raise _reject("source input has no live dependency")
         if fixed:
-            if selected is None:
-                raise _reject("missing fixed input Artifact")
-            key = fixed_execution_key(definition, (selected,))
+            key = fixed_execution_key(definition, tuple(selected_records))
             hit = self.store.lookup(self.session_ref, key)
             if hit is not None:
                 self.last_run_ref = hit.producing_run_ref
@@ -218,29 +285,38 @@ def execute_j1(
                 (node.root.operator_id,),
                 _source_facts(node) if not fixed else (),
             ),
-            input_artifact_refs=() if selected is None else (selected.artifact_ref,),
+            input_artifact_refs=tuple(record.artifact_ref for record in selected_records),
             run_ref=run_ref,
         )
         self.last_run_ref = run.run_ref
         phase = "execution_boundary"
         try:
             if fixed:
-                if selected is None or input_node is None:
-                    raise _reject("missing fixed input Artifact or predecessor")
-                exchange = selected.descriptor.j1_exchange
-                if exchange is None:
-                    raise _reject("input Artifact has no J1 exchange")
-                prior = load_j1_artifact(
-                    self.store,
-                    self.session_ref,
-                    selected.artifact_ref,
-                    input_node,
-                    input_binding=exchange.input_binding,
+                prior = []
+                for selected, predecessor in zip(selected_records, predecessors, strict=True):
+                    exchange = selected.descriptor.j1_exchange
+                    if exchange is None:
+                        raise _reject("input Artifact has no J1 exchange")
+                    prior.append(
+                        load_j1_artifact(
+                            self.store,
+                            self.session_ref,
+                            selected.artifact_ref,
+                            predecessor,
+                            input_binding=exchange.input_binding,
+                        )
+                    )
+                from marivo.analysis.materialization.local_stage import (
+                    run_j1_compare_local,
+                    run_j1_local,
                 )
-                from marivo.analysis.materialization.local_stage import run_j1_local
 
                 phase = "stage_execution"
-                result = run_j1_local(node.root, prior)
+                result = (
+                    run_j1_compare_local(node.root, prior[0], prior[1])
+                    if pair
+                    else run_j1_local(node.root, prior[0])
+                )
             else:
                 if source is None:
                     raise _reject("missing source factory")
@@ -257,6 +333,11 @@ def execute_j1(
                 node,
                 result,
                 input_binding=key,
+                member_binding=(
+                    selected_records[0].descriptor.j1_exchange.member_binding
+                    if fixed and selected_records[0].descriptor.j1_exchange is not None
+                    else run.run_ref
+                ),
                 event=self._event,
             )
             return _validated_result(self, record.artifact_ref, node, key)

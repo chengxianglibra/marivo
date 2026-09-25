@@ -75,7 +75,10 @@ def fixed_execution_key(dataset: LogicalDataset, records: tuple[ArtifactRecord, 
     if type(records) is not tuple or len(records) != len(retained):
         raise _fixed_input_error()
 
-    bindings: list[tuple[str, str, str, str, tuple[tuple[str, str, int, str], ...]]] = []
+    bindings: list[
+        tuple[str, str, str, str, tuple[tuple[str, str, int, str], ...]]
+        | tuple[str, str, str, str, tuple[tuple[str, str, int, str], ...], str]
+    ] = []
     for value, record in zip(retained, records, strict=True):
         if not isinstance(record, ArtifactRecord):
             raise _fixed_input_error()
@@ -101,21 +104,23 @@ def fixed_execution_key(dataset: LogicalDataset, records: tuple[ArtifactRecord, 
             not isinstance(part.storage_receipt, LocalReceipt) for part in parts
         ):
             raise _fixed_input_error()
-        bindings.append(
-            (
-                record.session_ref,
-                record.artifact_ref,
-                record.producing_run_ref,
-                receipt.identity_digest,
-                tuple(
-                    (
-                        part.role,
-                        part.contract_id,
-                        part.contract_version,
-                        part.storage_receipt.identity_digest,
-                    )
-                    for part in parts
-                ),
-            )
+        binding = (
+            record.session_ref,
+            record.artifact_ref,
+            record.producing_run_ref,
+            receipt.identity_digest,
+            tuple(
+                (
+                    part.role,
+                    part.contract_id,
+                    part.contract_version,
+                    part.storage_receipt.identity_digest,
+                )
+                for part in parts
+            ),
         )
+        member_binding = (
+            descriptor.j1_exchange.member_binding if descriptor.j1_exchange is not None else None
+        )
+        bindings.append((*binding, member_binding) if member_binding is not None else binding)
     return _canonical_digest((_DSL_PROTOCOL, "fixed", root.definition_fingerprint, tuple(bindings)))

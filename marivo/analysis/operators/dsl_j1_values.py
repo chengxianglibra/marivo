@@ -10,6 +10,7 @@ import pyarrow as pa
 
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.operators.dsl_j1_contracts import J1_COMPARE_DIFFERENCE
 
 _MIN_I64 = -(2**63)
 _MAX_I64 = 2**63 - 1
@@ -182,7 +183,7 @@ class J1ExecutionResult:
         expected: tuple[str, ...]
         if operation in ("dsl.j1.members", "dsl.j1.where"):
             expected = ("member",)
-        elif operation == "dsl.j1.read":
+        elif operation in ("dsl.j1.read", "dsl.j1.compare"):
             expected = ("member", *cell)
         elif operation == "dsl.j1.group":
             expected = (
@@ -232,6 +233,46 @@ class J1ExecutionResult:
         _validate_table(self.primary)
         if len({role for role, _ in self.parts}) != len(self.parts):
             raise _fail("unique retained J1 parts", "duplicate role")
+        if operation == "dsl.j1.compare":
+            if (
+                tuple(role for role, _ in self.parts)
+                != J1_COMPARE_DIFFERENCE.contract.required_parts
+            ):
+                raise _fail("both exact comparison endpoint parts", "missing endpoint")
+            primary = {row["member"]: row for row in self.primary.to_pylist()}
+            sides: list[dict[object, dict[str, object]]] = []
+            for _role, table in self.parts:
+                if (
+                    tuple(table.column_names) != ("member", "value", "cell_tag", "cell_reason")
+                    or table.schema.field("member").type != self.primary.schema.field("member").type
+                    or table.schema.field("value").type != self.primary.schema.field("value").type
+                ):
+                    raise _fail("matching keyed comparison endpoint schema", "part schema differs")
+                _validate_table(table)
+                side = {row["member"]: row for row in table.to_pylist()}
+                if set(side) != set(primary) or any(
+                    row["cell_tag"] != "defined" for row in side.values()
+                ):
+                    raise _fail("complete Defined endpoint rows", "part domain or Cell differs")
+                sides.append(side)
+            for member, row in primary.items():
+                current = sides[0][member]["value"]
+                baseline = sides[1][member]["value"]
+                if not isinstance(current, (int, float)) or not isinstance(baseline, (int, float)):
+                    raise _fail("finite numeric endpoint values", "non-numeric endpoint")
+                _number(current)
+                _number(baseline)
+                expected_difference = current - baseline
+                _number(expected_difference)
+                if row["cell_tag"] != "defined" or (
+                    row["value"] != expected_difference
+                    if type(expected_difference) is int
+                    else not math.isclose(
+                        row["value"], expected_difference, rel_tol=1e-12, abs_tol=1e-12
+                    )
+                ):
+                    raise _fail("difference from retained exact endpoints", "result differs")
+            return
         for role, table in self.parts:
             if role != "coordinate":
                 raise _fail("registered coordinate role", role)

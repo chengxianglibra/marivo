@@ -48,6 +48,13 @@ W4 connects this protocol only through the private
 Analysis DSL and ordinary `Dataset.execute()` routing are not activated by
 this slice. The current exact-binding and registered retained-Parquet routes
 above remain authoritative for methods not migrated to this protocol.
+S2 P1 extends that private route with an ordered pair of exact observed
+Artifact inputs for compare. Its descriptor records one member realization
+binding and separate endpoint receipts; the fixed key includes both ordered
+inputs and the binding. The two endpoint bindings are checked before Run
+admission or Artifact row reads. A source-only compare realizes its shared
+explicit member node once per invocation and receives a fresh Run identity
+on every top-level call.
 
 Classification follows only the current root's transitive data dependencies.
 An explicit Materialized leaf is a fixed boundary: its historic source lineage

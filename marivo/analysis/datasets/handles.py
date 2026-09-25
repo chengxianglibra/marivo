@@ -235,6 +235,13 @@ class _RunNodeBindings(Generic[_ImplementationT]):
         self._bindings[root] = implementation
         return implementation
 
+    def get(self, root: LogicalRootHandle) -> _ImplementationT | None:
+        """Find an implementation only by this invocation's explicit node identity."""
+        if type(root) is not LogicalRootHandle or root.session_id != self._session_id:
+            raise _definition_error("a logical node from this Session", "foreign run binding")
+        _validate_logical_root(root)
+        return self._bindings.get(root)
+
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
 class DefinitionInput:
