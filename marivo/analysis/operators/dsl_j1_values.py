@@ -10,7 +10,7 @@ import pyarrow as pa
 
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.observation.dsl_j1 import numeric_threshold_is_lossless
+from marivo.analysis.observation.dsl_j1 import J3_RATIO_COLUMNS, numeric_threshold_is_lossless
 from marivo.analysis.operators.dsl_j1_contracts import J1_COMPARE_DIFFERENCE
 
 _MIN_I64 = -(2**63)
@@ -180,6 +180,64 @@ def _validate_table(table: pa.Table, *, part: bool = False) -> None:
                         raise _fail("Cell matching original sum state", "inconsistent Cell")
 
 
+def _validate_ratio(root: LogicalRootHandle, table: pa.Table) -> None:
+    params = root.parameters if type(root.parameters) is tuple else ()
+    if root.operator_id == "dsl.j1.ratio_observe":
+        if len(params) != 5 or type(params[4]) is not tuple:
+            raise _fail("canonical ratio parameters", "invalid observation")
+        keys = ("member", *(f"coord_{index}" for index in range(len(params[4]))))
+    elif len(params) == 3 and params[1] in ("group", "singleton"):
+        keys = ("group",) if params[1] == "group" else ()
+    else:
+        raise _fail("canonical ratio parameters", "invalid rollup")
+    expected = (*keys, "value", "cell_tag", "cell_reason", *J3_RATIO_COLUMNS)
+    if tuple(table.column_names) != expected:
+        raise _fail("exact ratio value and component fields", str(table.column_names))
+    if not pa.types.is_float64(table.schema.field("value").type):
+        raise _fail("float64 ratio value", str(table.schema.field("value").type))
+    for name in J3_RATIO_COLUMNS[1:]:
+        if not pa.types.is_int64(table.schema.field(name).type):
+            raise _fail("int64 component count", name)
+    sum_type = table.schema.field("numerator_sum").type
+    if not (pa.types.is_int64(sum_type) or pa.types.is_float64(sum_type)):
+        raise _fail("numeric numerator state", str(sum_type))
+    seen: set[tuple[object, ...]] = set()
+    for row in table.to_pylist():
+        key = tuple(row[name] for name in keys)
+        if any(value is None for value in key) or key in seen:
+            raise _fail("complete unique ratio coordinate tuple", "missing or duplicate key")
+        seen.add(key)
+        numerator = row["numerator_sum"]
+        _number(numerator)
+        for name in J3_RATIO_COLUMNS[1:]:
+            value = row[name]
+            if type(value) is not int or value < 0 or value > _MAX_I64:
+                raise _fail("nonnegative component count", name)
+        if row["numerator_non_null_count"] > row["numerator_row_count"]:
+            raise _fail("numerator support within rows", "inconsistent state")
+        if row["denominator_count"] != row["denominator_row_count"]:
+            raise _fail("count component row support", "inconsistent state")
+        denominator = row["denominator_count"]
+        if denominator == 0:
+            if (
+                row["value"] is not None
+                or row["cell_tag"] != "undefined"
+                or row["cell_reason"] != "zero_denominator"
+            ):
+                raise _fail("Undefined(zero_denominator)", "invalid ratio Cell")
+        else:
+            value = row["value"]
+            _number(value)
+            if (
+                row["cell_tag"] != "defined"
+                or row["cell_reason"] is not None
+                or not math.isclose(
+                    float(value), float(numerator) / denominator, rel_tol=1e-12, abs_tol=1e-12
+                )
+            ):
+                raise _fail("ratio finished from retained components", "inconsistent ratio Cell")
+
+
 @dataclass(frozen=True, slots=True)
 class J1ExecutionResult:
     """One completed private stage; publication remains a separate Runtime action."""
@@ -191,6 +249,11 @@ class J1ExecutionResult:
 
     def __post_init__(self) -> None:
         operation = self.root.operator_id
+        if operation in ("dsl.j1.ratio_observe", "dsl.j1.ratio_rollup"):
+            if self.parts:
+                raise _fail("ratio state in keyed retained columns", "unexpected independent parts")
+            _validate_ratio(self.root, self.primary)
+            return
         parameters = self.root.parameters if type(self.root.parameters) is tuple else ()
         cell = ("value", "cell_tag", "cell_reason")
         state = ("state_sum", "non_null_count", "row_count")

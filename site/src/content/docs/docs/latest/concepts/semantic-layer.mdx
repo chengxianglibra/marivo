@@ -640,6 +640,24 @@ defaults, constraints, and repair routes.
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum", time=order_date)
 us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", time=order_date, filter=ms.where(region="US"))
 ```
+When a contribution measure belongs to a different Entity from its event time,
+bind a continuous to-one path with `time_via`. Declare Null and complete-empty
+contribution behavior for component methods that require it:
+
+```python
+line_revenue = ms.aggregate(
+    name="line_revenue", measure=line_amount, agg="sum",
+    time=ordered_at, time_via=(line_order,),
+    nulls=ms.nulls.ignore(), empty=ms.empty.zero(),
+)
+order_count = ms.count(name="order_count", entity=orders, time=ordered_at)
+aov = ms.ratio(
+    name="aov", numerator=line_revenue, denominator=order_count,
+    zero_denominator=ms.zero_denominator.undefined(),
+)
+```
+An omitted policy keeps the existing builder behavior. The declared time path
+must resolve through ordered, functional Relationships; incomplete paths fail at load.
 `agg="median"` and `agg=("percentile", q)` follow backend support. On Trino,
 both compile to `APPROX_PERCENTILE`, with median using `q=0.5`.
 
@@ -717,6 +735,8 @@ Each also accepts `unit`, `domain`, and `ai_context`.
 net_revenue = ms.linear(name="net_revenue", add=[gross_revenue], subtract=[refunds])
 aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 ```
+`zero_denominator` explicitly selects `ms.zero_denominator.undefined()` or
+`ms.zero_denominator.error()` for consumers that admit the policy.
 At execution, a present but zero denominator for `ms.ratio`, or paired weight
 sum for `ms.weighted_mean`, yields a null value. Read committed values through
 the Materialized Metric Dataset; its row contract and Findings own available

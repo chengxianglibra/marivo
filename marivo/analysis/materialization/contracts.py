@@ -1845,12 +1845,20 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
             ("value.non_null_count", "dsl.j1.non_null_count"),
             ("value.row_count", "dsl.j1.row_count"),
         )
+        ratio_states = (
+            ("value.numerator.sum", "dsl.j1.numerator_sum"),
+            ("value.numerator.non_null_count", "dsl.j1.numerator_non_null_count"),
+            ("value.numerator.row_count", "dsl.j1.numerator_row_count"),
+            ("value.denominator.count", "dsl.j1.denominator_count"),
+            ("value.denominator.row_count", "dsl.j1.denominator_row_count"),
+        )
         j1_expected_roles = {
             "dsl.j1.relation": (),
             "dsl.j1.value": (),
             "dsl.j1.observe": states,
             "dsl.j1.observe_coordinates": (*states, ("coordinate", "dsl.j1.coordinate")),
             "dsl.j1.derived_state": states,
+            "dsl.j1.ratio": ratio_states,
             "dsl.j1.current_sum": (("current_sum", "dsl.j1.current_sum"),),
             "dsl.j1.current_count": (("current_count", "dsl.j1.current_count"),),
             "dsl.j1.current_mean": (
@@ -1886,6 +1894,12 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
             or (
                 producer in ("dsl.j1.observe", "dsl.j1.observe_coordinates", "dsl.j1.derived_state")
                 and not {"complete_coverage", "contribution_partition"}
+                <= set(exchange.completed_checks)
+            )
+            or (
+                producer == "dsl.j1.ratio"
+                and row.shape_id.local_shape_id == "ratio_observe"
+                and not {"complete_coverage", "contribution_partition", "component_binding"}
                 <= set(exchange.completed_checks)
             )
             or any(

@@ -360,6 +360,14 @@ class ObservationProducerContract:
     @property
     def retained_contract_ids(self) -> tuple[str, ...]:
         if self.producer_id.startswith("dsl.j1."):
+            if self.producer_id == "dsl.j1.ratio":
+                return (
+                    "dsl.j1.numerator_sum",
+                    "dsl.j1.numerator_non_null_count",
+                    "dsl.j1.numerator_row_count",
+                    "dsl.j1.denominator_count",
+                    "dsl.j1.denominator_row_count",
+                )
             states = (
                 "dsl.j1.value_sum",
                 "dsl.j1.non_null_count",
@@ -508,6 +516,7 @@ _PRODUCER_CONTRACTS = (
             "current_count",
             "current_mean",
             "compare",
+            "ratio",
         )
     ),
     ObservationProducerContract("session.lifecycle.replay", "lifecycle_history"),
@@ -1186,6 +1195,8 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                         "rollup",
                         "summarize",
                         "compare",
+                        "ratio_observe",
+                        "ratio_rollup",
                     )
                 ),
                 ("event", "journey", 1),
@@ -1552,6 +1563,25 @@ def _validate_j1(row: DatasetRowContract, row_set: DatasetRowSetContract) -> Non
     """Admit only the finite private J1 row shapes into Artifact recovery."""
     names = tuple(field.name for field in row.schema.columns)
     keys = tuple(field.name for field in row.schema.columns if field.field_id in row.key_field_ids)
+    if row.shape_id.local_shape_id in ("ratio_observe", "ratio_rollup"):
+        cell = ("value", "cell_tag", "cell_reason")
+        ratio_keys = (
+            ("member",),
+            ("member", "coord_0"),
+            ("member", "coord_0", "coord_1"),
+            ("group",),
+            (),
+        )
+        if (
+            row.family_semantics.kind != "complete_from_schema"
+            or keys not in ratio_keys
+            or names != (*keys, *cell)
+            or (row.shape_id.local_shape_id == "ratio_observe" and not keys[:1] == ("member",))
+            or (row.shape_id.local_shape_id == "ratio_rollup" and keys not in ((), ("group",)))
+            or row_set.cardinality.kind != ("keyed" if keys else "singleton")
+        ):
+            raise construction_error("closed ratio row shape and cardinality", "invalid ratio rows")
+        return
     if (
         row.shape_id.local_shape_id
         not in ("members", "read", "where", "group", "observe", "rollup", "summarize", "compare")
@@ -1919,6 +1949,8 @@ def make_family_registry(
                         "rollup",
                         "summarize",
                         "compare",
+                        "ratio_observe",
+                        "ratio_rollup",
                     )
                 ),
                 owner_id="observation.dsl_j1",

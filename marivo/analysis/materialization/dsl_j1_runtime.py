@@ -202,7 +202,7 @@ def execute_j1(
             for binding, predecessor in zip(node.root.inputs, predecessors, strict=True)
         ):
             raise _reject("selected predecessor differs from the current J1 node")
-        if node.root.operator_id in ("dsl.j1.read", "dsl.j1.observe"):
+        if node.root.operator_id in ("dsl.j1.read", "dsl.j1.observe", "dsl.j1.ratio_observe"):
             raise _mixed_input_error()
         place_j1_local(
             node.root,

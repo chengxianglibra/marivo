@@ -171,6 +171,11 @@ def run_j1_source(
         input_root = root.inputs[0].root if root.inputs else None
         domain: MethodDomain = (
             "group"
+            if root.operator_id == "dsl.j1.ratio_rollup"
+            and type(root.parameters) is tuple
+            and len(root.parameters) == 3
+            and root.parameters[1] == "group"
+            else "group"
             if root.operator_id in ("dsl.j1.observe", "dsl.j1.summarize")
             and isinstance(input_root, LogicalRootHandle)
             and input_root.shape_id.local_shape_id == "group"
@@ -203,6 +208,12 @@ def run_j1_source(
             "non_null_count",
             "row_count",
             "current_count",
+            "coord_0",
+            "coord_1",
+            "numerator_non_null_count",
+            "numerator_row_count",
+            "denominator_count",
+            "denominator_row_count",
         }
         expected = pa.schema(
             [
@@ -220,7 +231,7 @@ def run_j1_source(
                 selected,
                 (
                     ("null", ("source_null", "empty_contribution")),
-                    ("undefined", ("empty_mean",)),
+                    ("undefined", ("empty_mean", "zero_denominator")),
                 )
                 if "cell_tag" in names
                 else (),

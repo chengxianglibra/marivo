@@ -150,9 +150,12 @@ revenue = ms.aggregate(name={n.revenue!r}, measure=amount, agg='sum', time=order
            nulls=ms.nulls.ignore(), empty=ms.empty.null())
 def opaque_revenue(order_rows):
     return order_rows.{n.amount}.sum()
-order_count = ms.count(name={n.order_count!r}, entity=orders)
-line_revenue = ms.aggregate(name={n.line_revenue!r}, measure=line_amount, agg='sum')
-aov = ms.ratio(name={n.aov!r}, numerator=line_revenue, denominator=order_count)
+order_count = ms.count(name={n.order_count!r}, entity=orders, time=ordered_at)
+line_revenue = ms.aggregate(name={n.line_revenue!r}, measure=line_amount, agg='sum',
+                            time=ordered_at, time_via=(line_order,),
+                            nulls=ms.nulls.ignore(), empty=ms.empty.zero())
+aov = ms.ratio(name={n.aov!r}, numerator=line_revenue, denominator=order_count,
+               zero_denominator=ms.zero_denominator.undefined())
 """
     return {
         "datasources/warehouse.py": (

@@ -420,6 +420,23 @@ with the resolved runtime dtype, preview and analysis raise
 preserved: Marivo never replaces a business code with a physical label (or the
 reverse) without confirmation from the user or business owner.
 
+For a multi-root component Metric, `ms.aggregate(..., time=TimeRef,
+time_via=(RelationshipRef, ...))` binds an event-time dimension on a different
+Entity through an explicitly ordered, functional path from the contribution
+root. A native time dimension uses the existing `time=` form and an empty path.
+`ms.count(..., time=TimeRef)` binds a native event-time dimension on the counted
+Entity. The normalized component contract retains each time Ref and path;
+the derived ratio has no guessed common time axis. Missing, discontinuous,
+non-functional or cross-Entity paths reject during semantic loading.
+`ms.aggregate(..., nulls=ms.nulls.ignore(), empty=ms.empty.zero())` can declare
+the first private multi-root sum policy; omitted builder policies keep their
+existing meaning. `ms.ratio(...,
+zero_denominator=ms.zero_denominator.undefined())` declares the finish policy
+for an explicit-component ratio. A private Analysis route requiring this policy
+rejects an omitted policy; existing ratios outside that route retain their
+current behavior. These Semantic builder arguments are public declarations,
+while the S2 Analysis DSL consumer remains private.
+
 **Tier-2** `@ms.metric(...)` is the expression escape hatch, used only when a
 metric cannot be expressed as measure + aggregate. It declares dependencies with
 `entities=[...]`; the function parameters are positional aliases injected in

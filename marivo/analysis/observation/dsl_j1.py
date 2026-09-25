@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, overload
 
 from marivo._temporal import TimeScope
 from marivo.analysis.datasets.descriptors import (
@@ -50,11 +51,23 @@ from marivo.analysis.observation.coordinates import path_is_functional
 from marivo.refs import DimensionKind, EntityKind, MetricKind, Ref, RelationshipKind, SemanticKind
 from marivo.semantic._dsl_authoring import AdditiveAllV1
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
-from marivo.semantic.ir import TargetDimensionContract
+from marivo.semantic.ir import RatioComposition, TargetDimensionContract
+from marivo.semantic.metric_graph import AggregateNodeV1, RatioNodeV1, component_node
 from marivo.semantic.metric_graph_lowering import normalize_target_metric
 from marivo.semantic.validator import Registry, normalize_target_dimension, normalize_target_entity
 
-_KINDS = ("members", "read", "where", "group", "observe", "rollup", "summarize", "compare")
+_KINDS = (
+    "members",
+    "read",
+    "where",
+    "group",
+    "observe",
+    "rollup",
+    "summarize",
+    "compare",
+    "ratio_observe",
+    "ratio_rollup",
+)
 _IDS = _StableIdRegistry(
     families=frozenset({"dsl_j1"}),
     shapes=frozenset(("dsl_j1", kind, 1) for kind in _KINDS),
@@ -66,6 +79,21 @@ _IDS = _StableIdRegistry(
 J1_SUM_PARTS = ("value.sum", "value.non_null_count", "value.row_count")
 J1_COMPARE_PARTS = ("current_endpoint", "baseline_endpoint")
 J1_COMPARE_CHECKS = ("complete_pairing", "strict_numeric_cell")
+J3_RATIO_COLUMNS = (
+    "numerator_sum",
+    "numerator_non_null_count",
+    "numerator_row_count",
+    "denominator_count",
+    "denominator_row_count",
+)
+J3_RATIO_PARTS = (
+    "value.numerator.sum",
+    "value.numerator.non_null_count",
+    "value.numerator.row_count",
+    "value.denominator.count",
+    "value.denominator.row_count",
+)
+J3_RATIO_CHECKS = ("complete_coverage", "contribution_partition", "component_binding")
 
 
 def numeric_threshold_is_lossless(value_type: str, threshold: object) -> bool:
@@ -120,6 +148,90 @@ def _j1_contracts(
             member_type,
             repair="Use a first-round single-column Entity identity.",
         )
+    if kind in ("ratio_observe", "ratio_rollup"):
+        paths: tuple[str, ...] = ()
+        if kind == "ratio_observe":
+            if len(parameters) != 5 or type(parameters[4]) is not tuple:
+                raise _reject(
+                    "bound ratio coordinates",
+                    "invalid parameters",
+                    repair="Rebuild the ratio observation.",
+                )
+            paths = parameters[4]
+        group_path = parameters[2] if kind == "ratio_rollup" and len(parameters) == 3 else None
+        keys: list[tuple[str, DatasetFieldId, str]] = []
+        if kind == "ratio_observe":
+            keys.append(
+                (
+                    "member",
+                    _make_field_id("member." + entity_path + "." + entity.primary_key[0]),
+                    member_type,
+                )
+            )
+            for index, path in enumerate(paths):
+                if not isinstance(path, str):
+                    raise _reject(
+                        "coordinate path", repr(path), repair="Use declared Dimension refs."
+                    )
+                coordinate = normalize_target_dimension(context.registry, path)
+                keys.append(
+                    (
+                        f"coord_{index}",
+                        _make_field_id("contribution." + path),
+                        coordinate.logical_type,
+                    )
+                )
+        elif isinstance(group_path, str):
+            coordinate = normalize_target_dimension(context.registry, group_path)
+            keys.append(
+                ("group", _make_field_id("dimension." + group_path), coordinate.logical_type)
+            )
+
+        def ratio_field(
+            name: str, identifier: DatasetFieldId, role: str, logical: str, nullable: bool
+        ) -> DatasetField:
+            return _make_field(
+                field_id=identifier,
+                name=name,
+                role_id=role,
+                identity=_generated_identity(identifier),
+                derivation_identity="dsl.j1.ratio." + identifier.value,
+                logical_type_id=logical,
+                physical_type_state=_deferred_type(logical, ids=_IDS),
+                nullable=nullable,
+                ids=_IDS,
+            )
+
+        columns = [
+            ratio_field(name, identifier, "member" if name == "member" else "group", logical, False)
+            for name, identifier, logical in keys
+        ]
+        columns.extend(
+            (
+                ratio_field("value", _make_field_id("j1.value"), "value", "float64", True),
+                ratio_field("cell_tag", _make_field_id("j1.cell_tag"), "cell", "string", False),
+                ratio_field(
+                    "cell_reason", _make_field_id("j1.cell_reason"), "cell", "string", True
+                ),
+            )
+        )
+        identifiers = tuple(identifier for _, identifier, _ in keys)
+        row = _make_row_contract(
+            schema_version=1,
+            shape_id=_make_shape_id("dsl_j1", kind, 1, ids=_IDS),
+            schema=_make_schema(tuple(columns)),
+            coordinate_field_ids=identifiers,
+            key_field_ids=identifiers,
+            family_semantics=_complete_from_schema(),
+        )
+        rows = _make_row_set_contract(
+            schema_version=1,
+            cardinality=_keyed_cardinality(_unknown_row_bound())
+            if keys
+            else _singleton_cardinality(),
+            ordering=_unordered_ordering(),
+        )
+        return row, rows
     group_type = "string"
     if kind == "group" or (
         kind == "observe"
@@ -151,7 +263,7 @@ def _j1_contracts(
         and input_root.shape_id.local_shape_id == "group"
     ):
         key = "group"
-        path = (
+        group_key_path: object = (
             parameters[0]
             if kind == "group"
             else input_root.parameters[0]
@@ -164,7 +276,7 @@ def _j1_contracts(
                 if kind == "group" and len(parameters) > 1 and parameters[1] == "contribution"
                 else "dimension."
             )
-            + str(path)
+            + str(group_key_path)
         )
         key_type = group_type
     elif kind == "observe":
@@ -347,6 +459,50 @@ class J1Context:
         return J1Members(self, entity, domain, root)
 
 
+@dataclass(frozen=True, slots=True)
+class J3Route:
+    root: Ref[EntityKind]
+    through: tuple[Ref[RelationshipKind], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class J3Routes:
+    routes: tuple[J3Route, ...]
+
+
+def j3_route(root: Ref[EntityKind], *, through: tuple[Ref[RelationshipKind], ...]) -> J3Route:
+    """Bind one private contribution root to an ordered governed path."""
+    if (
+        type(root) is not Ref
+        or root.kind is not SemanticKind.ENTITY
+        or type(through) is not tuple
+        or any(
+            type(item) is not Ref or item.kind is not SemanticKind.RELATIONSHIP for item in through
+        )
+    ):
+        raise _reject(
+            "Entity and Relationship refs",
+            "invalid route",
+            repair="Bind a declared contribution root and path.",
+        )
+    return J3Route(root, through)
+
+
+def j3_routes(*routes: J3Route) -> J3Routes:
+    """Bind each private ratio contribution root exactly once."""
+    if (
+        len(routes) != 2
+        or any(type(item) is not J3Route for item in routes)
+        or len({item.root.path for item in routes}) != 2
+    ):
+        raise _reject(
+            "two distinct component routes",
+            "invalid routes",
+            repair="Name each component root exactly once.",
+        )
+    return J3Routes(tuple(routes))
+
+
 def _member_dimension(members: J1Members, dimension: Ref[DimensionKind]) -> TargetDimensionContract:
     if type(dimension) is not Ref or dimension.kind is not SemanticKind.DIMENSION:
         raise _reject(
@@ -390,6 +546,7 @@ class J1Members:
         )
         return J1Group(self, bound, _group_domain(self.domain, (field,)), root)
 
+    @overload
     def observe(
         self,
         metric: Ref[MetricKind],
@@ -397,7 +554,28 @@ class J1Members:
         during: TimeScope,
         via: Ref[RelationshipKind],
         coordinates: tuple[Ref[DimensionKind], ...] = (),
-    ) -> J1Observed:
+    ) -> J1Observed: ...
+
+    @overload
+    def observe(
+        self,
+        metric: Ref[MetricKind],
+        *,
+        during: TimeScope,
+        via: J3Routes,
+        coordinates: tuple[Ref[DimensionKind], ...] = (),
+    ) -> J3Observed: ...
+
+    def observe(
+        self,
+        metric: Ref[MetricKind],
+        *,
+        during: TimeScope,
+        via: Ref[RelationshipKind] | J3Routes,
+        coordinates: tuple[Ref[DimensionKind], ...] = (),
+    ) -> J1Observed | J3Observed:
+        if isinstance(via, J3Routes):
+            return _observe_ratio(self, metric, during, via, coordinates)
         return _observe(self, self.domain, self.root, metric, during, via, coordinates)
 
 
@@ -607,6 +785,84 @@ class J1Observed:
     def summarize(self, method: Literal["sum", "count", "mean"]) -> J1Statistic:
         """Construct a new current-row statistic, distinct from Metric state."""
         return _summarize_numeric(self.context, self.entity, self.domain, self.root, method)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class J3Observed:
+    context: J1Context
+    entity: Ref[EntityKind]
+    domain: AnalysisDomain
+    quantity: QuantityState
+    root: LogicalRootHandle
+    metric: Ref[MetricKind]
+    plan: MetricComponentPlan
+    coordinates: tuple[Ref[DimensionKind], ...]
+
+    def group_by(self, dimension: Ref[DimensionKind]) -> J3Grouped:
+        if type(dimension) is not Ref or dimension not in self.coordinates:
+            raise _reject(
+                "one retained ratio coordinate",
+                repr(dimension),
+                repair="Group by a coordinate declared by observe().",
+            )
+        return J3Grouped(self, dimension)
+
+    def rollup(self) -> J3Observed:
+        if self.root.operator_id != "dsl.j1.ratio_observe":
+            raise _reject(
+                "original ratio observation",
+                self.root.operator_id,
+                repair="Roll up the retained original component state once.",
+            )
+        domain = _singleton_domain(self.domain)
+        root = self.context._node(
+            "ratio_rollup",
+            entity=self.entity.path,
+            input_root=self.root,
+            parameters=(self.metric.path, "singleton", None),
+            requirements=tuple(f"{check}@v1" for check in J3_RATIO_CHECKS),
+        )
+        quantity = _observed_quantity(
+            domain, "metric:" + self.metric.path, (), self.plan.required_parts
+        )
+        return J3Observed(
+            self.context, self.entity, domain, quantity, root, self.metric, self.plan, ()
+        )
+
+    def summarize(self, method: Literal["sum", "count", "mean"]) -> J1Statistic:
+        return _summarize_numeric(self.context, self.entity, self.domain, self.root, method)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class J3Grouped:
+    observed: J3Observed
+    dimension: Ref[DimensionKind]
+
+    def rollup(self) -> J3Observed:
+        observed = self.observed
+        domain = _group_domain(
+            observed.domain, (_make_field_id("dimension." + self.dimension.path),)
+        )
+        root = observed.context._node(
+            "ratio_rollup",
+            entity=observed.entity.path,
+            input_root=observed.root,
+            parameters=(observed.metric.path, "group", self.dimension.path),
+            requirements=tuple(f"{check}@v1" for check in J3_RATIO_CHECKS),
+        )
+        quantity = _observed_quantity(
+            domain, "metric:" + observed.metric.path, (), observed.plan.required_parts
+        )
+        return J3Observed(
+            observed.context,
+            observed.entity,
+            domain,
+            quantity,
+            root,
+            observed.metric,
+            observed.plan,
+            (),
+        )
 
 
 def _summarize_numeric(
@@ -898,4 +1154,174 @@ def _observe(
     )
     return J1Observed(
         members.context, members.entity, domain, quantity, root, metric, plan, coordinates
+    )
+
+
+def _observe_ratio(
+    members: J1Members,
+    metric: Ref[MetricKind],
+    during: TimeScope,
+    via: J3Routes,
+    coordinates: tuple[Ref[DimensionKind], ...],
+) -> J3Observed:
+    if (
+        type(metric) is not Ref
+        or metric.kind is not SemanticKind.METRIC
+        or not isinstance(during, TimeScope)
+    ):
+        raise _reject(
+            "Metric Ref and fixed TimeScope",
+            "invalid ratio observation",
+            repair="Use a declared Metric and mv.time_scope().",
+        )
+    if (
+        type(coordinates) is not tuple
+        or len(set(coordinates)) != len(coordinates)
+        or len(coordinates) > 2
+    ):
+        raise _reject(
+            "up to two unique coordinate refs",
+            "invalid coordinates",
+            repair="Use distinct declared categorical Dimensions.",
+        )
+    normalized = normalize_target_metric(
+        members.context.registry, metric.path, sidecar=members.context.sidecar
+    )
+    plan = derive_metric_components(normalized)
+    nodes = {record.node_id: record.node for record in normalized.graph.nodes}
+    node = nodes.get(normalized.graph.roots[0]) if normalized.graph.roots else None
+    if (
+        plan.method != "ratio"
+        or plan.required_parts != J3_RATIO_PARTS
+        or not isinstance(node, RatioNodeV1)
+        or node.zero_division != "undefined"
+        or len(normalized.components) != 2
+        or normalized.logical_type not in ("unknown", "float64")
+    ):
+        raise _reject(
+            "explicit sum/count ratio with a declared zero policy",
+            metric.path,
+            repair="Declare an admitted ms.ratio over sum and count components.",
+        )
+    numerator, denominator = normalized.components
+    left = component_node(normalized.graph, numerator.node_id)
+    right = component_node(normalized.graph, denominator.node_id)
+    declaration = members.context.registry.metrics.get(metric.path)
+    composition = declaration.composition if declaration is not None else None
+    numerator_decl = (
+        members.context.registry.metrics.get(composition.numerator)
+        if isinstance(composition, RatioComposition)
+        else None
+    )
+    if (
+        not isinstance(left, AggregateNodeV1)
+        or left.agg != "sum"
+        or left.filter
+        or not isinstance(right, AggregateNodeV1)
+        or right.agg != "count"
+        or right.filter
+        or numerator_decl is None
+        or numerator_decl.null_policy is None
+        or numerator_decl.null_policy.kind != "ignore"
+        or numerator_decl.empty_policy is None
+        or numerator_decl.empty_policy.kind != "zero"
+        or numerator.empty_rule != "zero"
+        or denominator.empty_rule != "zero"
+    ):
+        raise _reject(
+            "direct-column sum/count and explicit zero-empty numerator",
+            metric.path,
+            repair="Declare the first-round component policies and direct aggregates.",
+        )
+    supplied = {item.root.path: item for item in via.routes}
+    roots = {component.computation_root.path for component in normalized.components}
+    if len(supplied) != 2 or set(supplied) != roots:
+        raise _reject(
+            "one route for each ratio root",
+            repr(tuple(supplied)),
+            repair="Bind both exact computation roots.",
+        )
+    registry = members.context.registry
+    for component in normalized.components:
+        root_path = component.computation_root.path
+        route = supplied[root_path]
+        path = tuple(item.path for item in route.through)
+        if not path_is_functional(registry, root_path, path):
+            raise _reject(
+                "functional component path",
+                root_path,
+                repair="Use declared to-one Relationship steps.",
+            )
+        visited = [root_path]
+        for step in path:
+            relationship = registry.relationships.get(step)
+            if relationship is None or relationship.from_entity != visited[-1]:
+                raise _reject(
+                    "continuous forward path",
+                    step,
+                    repair="Order the component Relationship refs from root to member.",
+                )
+            visited.append(relationship.to_entity)
+        if visited[-1] != members.entity.path:
+            raise _reject(
+                "route ending at member Entity",
+                root_path,
+                repair="Complete each path to the selected member Entity.",
+            )
+        time_ref = component.event_time_dimension
+        time_path = tuple(item.path for item in component.event_time_path)
+        if (
+            time_ref is None
+            or path[: len(time_path)] != time_path
+            or registry.dimensions[time_ref.path].entity != visited[len(time_path)]
+        ):
+            raise _reject(
+                "declared component time on its route",
+                root_path,
+                repair="Bind time= and time_via= to this contribution path.",
+            )
+        for coordinate in coordinates:
+            if type(coordinate) is not Ref or coordinate.kind is not SemanticKind.DIMENSION:
+                raise _reject(
+                    "categorical Dimension Ref",
+                    repr(coordinate),
+                    repair="Use declared coordinate Dimensions.",
+                )
+            dimension = normalize_target_dimension(registry, coordinate.path)
+            if (
+                dimension.logical_type not in ("unknown", "string")
+                or dimension.entity_ref.path not in visited
+            ):
+                raise _reject(
+                    "categorical coordinate on each component path",
+                    coordinate.path,
+                    repair="Choose an admitted coordinate reachable on both component paths.",
+                )
+    route_payload = tuple(
+        (root_path, tuple(item.path for item in supplied[root_path].through))
+        for root_path in sorted(supplied)
+    )
+    coordinate_paths = tuple(item.path for item in coordinates)
+    root = members.context._node(
+        "ratio_observe",
+        entity=members.entity.path,
+        input_root=members.root,
+        parameters=(
+            metric.path,
+            normalized.dependency_fingerprint,
+            json.dumps(route_payload),
+            during.model_dump_json(),
+            coordinate_paths,
+        ),
+        dependency="metric:" + metric.path,
+        requirements=tuple(f"{check}@v1" for check in J3_RATIO_CHECKS),
+    )
+    quantity = _observed_quantity(
+        members.domain,
+        "metric:" + metric.path,
+        tuple(_make_field_id("contribution." + item.path) for item in coordinates),
+        plan.required_parts,
+    )
+    return J3Observed(
+        members.context, members.entity, members.domain, quantity, root, metric, plan, coordinates
     )

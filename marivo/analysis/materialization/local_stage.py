@@ -277,6 +277,70 @@ def run_j1_local(root: LogicalRootHandle, retained: J1ExecutionResult) -> J1Exec
             ),
         )
     frame = retained.primary.to_pandas(types_mapper=pd.ArrowDtype).copy(deep=True)
+    if operation == "dsl.j1.ratio_rollup":
+        if len(parameters) != 3 or retained.root.operator_id != "dsl.j1.ratio_observe":
+            raise _error("implementation_registration")
+        target, coordinate_path = parameters[1], parameters[2]
+        if target == "group" and isinstance(coordinate_path, str):
+            original = retained.root.parameters
+            coordinates = original[4] if type(original) is tuple and len(original) == 5 else ()
+            if type(coordinates) is not tuple or coordinate_path not in coordinates:
+                raise _error("implementation_registration")
+            coord = f"coord_{coordinates.index(coordinate_path)}"
+            groups: Iterable[tuple[object, pd.DataFrame]] = (
+                (key, group) for key, group in frame.groupby(coord, sort=True)
+            )
+            key_field = retained.primary.schema.field(coord).with_name("group")
+        elif target == "singleton":
+            groups = ((None, frame),)
+            key_field = None
+        else:
+            raise _error("implementation_registration")
+        output_rows: list[dict[str, object]] = []
+        for key, group in groups:
+            numerator = merge_numbers(group["numerator_sum"].tolist())
+            denominator = merge_counts(group["denominator_count"].tolist())
+            ratio_row: dict[str, object] = {}
+            if key_field is not None:
+                ratio_row["group"] = key
+            ratio_row.update(
+                {
+                    "value": float(numerator) / denominator if denominator else None,
+                    "cell_tag": "defined" if denominator else "undefined",
+                    "cell_reason": None if denominator else "zero_denominator",
+                    "numerator_sum": numerator,
+                    "numerator_non_null_count": merge_counts(
+                        group["numerator_non_null_count"].tolist()
+                    ),
+                    "numerator_row_count": merge_counts(group["numerator_row_count"].tolist()),
+                    "denominator_count": denominator,
+                    "denominator_row_count": merge_counts(group["denominator_row_count"].tolist()),
+                }
+            )
+            output_rows.append(ratio_row)
+        schema = pa.schema(
+            ([key_field] if key_field is not None else [])
+            + [
+                pa.field("value", pa.float64()),
+                pa.field("cell_tag", pa.string()),
+                pa.field("cell_reason", pa.string()),
+                *(
+                    retained.primary.schema.field(name)
+                    for name in (
+                        "numerator_sum",
+                        "numerator_non_null_count",
+                        "numerator_row_count",
+                        "denominator_count",
+                        "denominator_row_count",
+                    )
+                ),
+            ]
+        )
+        return J1ExecutionResult(
+            root,
+            _j1_local_table(output_rows, schema),
+            completed_checks=retained.completed_checks,
+        )
     if operation == "dsl.j1.where":
         if tuple(frame.columns) != ("member", "value", "cell_tag", "cell_reason"):
             raise _error("implementation_registration")

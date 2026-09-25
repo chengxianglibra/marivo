@@ -118,6 +118,7 @@ def place_j1_local(
             "dsl.j1.group",
             "dsl.j1.rollup",
             "dsl.j1.summarize",
+            "dsl.j1.ratio_rollup",
         )
         or len(root.inputs) != 1
         or root.inputs[0].root is not input_root

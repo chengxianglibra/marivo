@@ -887,6 +887,7 @@ class SimpleMetricDetails(_DetailsBase):
     weighted_mean_weight: Ref[SemanticKindTag] | None = None
     dsl_additivity: AdditivityPolicy | None = None
     event_time_dimension: str | None = None
+    event_time_path: tuple[str, ...] = ()
     status_time_fold: TimeFoldIR | None = None
     null_policy: NullInputPolicyV1 | None = None
     empty_policy: EmptyContributionPolicyV1 | None = None
@@ -930,6 +931,10 @@ class SimpleMetricDetails(_DetailsBase):
         if self.event_time_dimension is not None:
             sections.append(
                 FieldSection(label="event_time_dimension", value=self.event_time_dimension)
+            )
+        if self.event_time_path:
+            sections.append(
+                FieldSection(label="event_time_path", value=" -> ".join(self.event_time_path))
             )
         if self.status_time_fold is not None:
             sections.append(
@@ -3933,6 +3938,7 @@ def _build_metric_object(
             ),
             dsl_additivity=m_ir.dsl_additivity,
             event_time_dimension=m_ir.event_time_dimension,
+            event_time_path=m_ir.event_time_path,
             status_time_fold=m_ir.status_time_fold,
             null_policy=m_ir.null_policy,
             empty_policy=m_ir.empty_policy,
