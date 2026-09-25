@@ -172,6 +172,10 @@ def _lower_j1_source(
         raise _reject("a J1 root from this Session", "foreign root")
     operation = root.operator_id
     parameters = _parameters(root)
+    if operation in ("dsl.j1.ratio_observe", "dsl.j1.ratio_rollup"):
+        from marivo.analysis.compiler.dsl_j3_ratio import lower_j3_ratio
+
+        return lower_j3_ratio(context, root, tables, memo)
     if operation == "dsl.j1.compare":
         if len(root.inputs) != 2 or tuple(item.role for item in root.inputs) != (
             "current",

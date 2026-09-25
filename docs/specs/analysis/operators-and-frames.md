@@ -124,6 +124,19 @@ method checks. Difference has no original Metric rollup permission. Numeric
 selection does not change the Revenue policy that an empty contribution is
 Null; J2's zero Cells come from explicit zero-valued source contributions.
 
+S2 P3 qualifies an explicit sum/count ratio with separately declared
+component time axes, complete source paths, ignore-Null/zero-empty numerator
+policy and explicit zero-denominator policy. Each contribution root is
+aggregated before the full member-and-coordinate tuple union. A missing
+component tuple yields empty state only after source scope, path and coverage
+checks prove it has no contribution. Retained numerator and denominator states
+are distinct keyed parts; `rollup()` merges each original state before ratio
+finish, whereas `summarize(mean)` counts current result rows. A zero denominator
+is Undefined(`zero_denominator`) under the admitted explicit policy; other
+policies require a separately qualified method. An absent or corrupt component
+is neither. P3 qualifies DuckDB/Ibis
+source execution and exact Artifact-to-pandas continuation only.
+
 The [first-round DSL slice](python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive)
 accepts the following private rule obligations. The proposed public Relation
 methods are not yet callable. Each registered method supplies:

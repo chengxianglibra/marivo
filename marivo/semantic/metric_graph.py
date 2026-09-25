@@ -169,7 +169,7 @@ class RatioNodeV1:
     kind: Literal["ratio"]
     numerator_id: str
     denominator_id: str
-    zero_division: Literal["null", "error"]
+    zero_division: Literal["null", "undefined", "error"]
     unit_override: str | None = None
 
 
@@ -288,6 +288,8 @@ class TargetMetricComponent:
     status_time_dimension: RefPayloadV1 | None = None
     requires_source_recompute: bool = False
     fanout_policy: Literal["block", "aggregate_then_join"] = "block"
+    event_time_dimension: RefPayloadV1 | None = None
+    event_time_path: tuple[RefPayloadV1, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

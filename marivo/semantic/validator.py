@@ -1391,6 +1391,7 @@ def _validate_dsl_declarations(registry: Registry) -> list[SemanticError]:
                 measure.dsl_additivity,
                 None,
                 measure.status_time_dimension,
+                (),
             )
             for measure in registry.measures.values()
         ),
@@ -1401,11 +1402,12 @@ def _validate_dsl_declarations(registry: Registry) -> list[SemanticError]:
                 metric.dsl_additivity,
                 metric.event_time_dimension,
                 metric.status_time_dimension,
+                metric.event_time_path,
             )
             for metric in registry.metrics.values()
         ),
     )
-    for semantic_id, root, policy, event_time, status_time in declarations:
+    for semantic_id, root, policy, event_time, status_time, event_path in declarations:
         coordinates: tuple[str, ...] = ()
         if isinstance(policy, AdditiveAllV1):
             coordinates = policy.exceptions
@@ -1428,17 +1430,59 @@ def _validate_dsl_declarations(registry: Registry) -> list[SemanticError]:
             if axis is None:
                 continue
             dimension = registry.dimensions.get(axis)
-            if dimension is None or not dimension.is_time_dimension or dimension.entity != root:
+            valid_path = True
+            if role == "event time" and event_path:
+                current = root
+                for relationship_id in event_path:
+                    relationship = registry.relationships.get(relationship_id)
+                    if relationship is None or relationship.from_entity != current:
+                        valid_path = False
+                        break
+                    target = registry.entities.get(relationship.to_entity)
+                    columns = tuple(
+                        registry.dimensions[key.to_key].source_column
+                        if key.to_key in registry.dimensions
+                        else None
+                        for key in relationship.keys
+                    )
+                    if (
+                        target is None
+                        or target.versioning is not None
+                        or columns != target.primary_key
+                    ):
+                        valid_path = False
+                        break
+                    current = relationship.to_entity
+                valid_path = valid_path and dimension is not None and dimension.entity == current
+            elif role == "event time":
+                valid_path = dimension is not None and dimension.entity == root
+            if (
+                dimension is None
+                or not dimension.is_time_dimension
+                or (role == "status time" and dimension.entity != root)
+                or not valid_path
+            ):
                 errors.append(
                     SemanticLoadError(
                         kind=ErrorKind.INVALID_REF,
                         message=f"{semantic_id!r} has an invalid {role} dimension {axis!r}.",
                         refs=(semantic_id, axis),
-                        expected=f"TimeDimension on {root}",
+                        expected=f"TimeDimension reached from {root} by a declared functional path",
                         received=axis,
-                        hint="Bind a declared TimeDimension on this contribution root.",
+                        hint="Bind a native time axis or a continuous to-one time_via path.",
                     )
                 )
+        if event_path and event_time is None:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_REF,
+                    message=f"{semantic_id!r} declares time_via without event time.",
+                    refs=(semantic_id,),
+                    expected="time= with time_via=",
+                    received="missing time",
+                    hint="Declare the exact business time axis.",
+                )
+            )
         if event_time is not None and status_time == event_time:
             errors.append(
                 SemanticLoadError(

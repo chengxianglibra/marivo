@@ -59,7 +59,7 @@ class FoldNodeV1(BaseModel):
     kind: Literal["component", "ratio", "linear", "identity"]
     children: tuple[str, ...] = ()
     coefficients: tuple[float, ...] = ()
-    zero_division: Literal["null", "error"] = "null"
+    zero_division: Literal["null", "undefined", "error"] = "null"
 
 
 class FoldComponentV1(BaseModel):

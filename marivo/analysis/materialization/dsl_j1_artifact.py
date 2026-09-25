@@ -52,6 +52,7 @@ from marivo.analysis.observation.dsl_j1 import (
     J1Read,
     J1SelectedDifference,
     J1Statistic,
+    J3Observed,
     j1_row_contracts,
 )
 from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
@@ -59,7 +60,14 @@ from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult
 from marivo.semantic.validator import normalize_target_entity
 
 J1Node: TypeAlias = (
-    J1Members | J1Read | J1Group | J1Observed | J1Statistic | J1Difference | J1SelectedDifference
+    J1Members
+    | J1Read
+    | J1Group
+    | J1Observed
+    | J3Observed
+    | J1Statistic
+    | J1Difference
+    | J1SelectedDifference
 )
 _STATE = (
     ("value.sum", "dsl.j1.value_sum", "state_sum"),
@@ -70,9 +78,20 @@ _CURRENT = (
     ("current_sum", "dsl.j1.current_sum", "current_sum"),
     ("current_count", "dsl.j1.current_count", "current_count"),
 )
+_RATIO = (
+    ("value.numerator.sum", "dsl.j1.numerator_sum", "numerator_sum"),
+    (
+        "value.numerator.non_null_count",
+        "dsl.j1.numerator_non_null_count",
+        "numerator_non_null_count",
+    ),
+    ("value.numerator.row_count", "dsl.j1.numerator_row_count", "numerator_row_count"),
+    ("value.denominator.count", "dsl.j1.denominator_count", "denominator_count"),
+    ("value.denominator.row_count", "dsl.j1.denominator_row_count", "denominator_row_count"),
+)
 _CELL_REASONS = (
     ("null", ("source_null", "empty_contribution")),
-    ("undefined", ("empty_mean",)),
+    ("undefined", ("empty_mean", "zero_denominator")),
 )
 
 
@@ -96,7 +115,7 @@ def _meaning(node: J1Node) -> tuple[d.AnalysisDomain, d.QuantityState | None]:
         return node.members_input.domain, None
     if isinstance(node, (J1Statistic, J1Difference, J1SelectedDifference)):
         return node.domain, node.quantity
-    if isinstance(node, J1Observed):
+    if isinstance(node, (J1Observed, J3Observed)):
         return node.domain, node.quantity
     return node.domain, None
 
@@ -172,8 +191,8 @@ def _validated_primary(node: J1Node, result: J1ExecutionResult) -> pa.Table:
 
 def _part_specs(result: J1ExecutionResult) -> tuple[PartWriteSpec, ...]:
     names = set(result.primary.column_names)
-    keys = tuple(name for name in ("member", "group") if name in names)
-    chosen = _STATE if "state_sum" in names else _CURRENT
+    keys = tuple(name for name in ("member", "coord_0", "coord_1", "group") if name in names)
+    chosen = _RATIO if "numerator_sum" in names else _STATE if "state_sum" in names else _CURRENT
     return tuple(
         PartWriteSpec(role, contract, 1, (*keys, column))
         for role, contract, column in chosen
@@ -182,6 +201,8 @@ def _part_specs(result: J1ExecutionResult) -> tuple[PartWriteSpec, ...]:
 
 
 def _producer(result: J1ExecutionResult) -> str:
+    if result.root.operator_id in ("dsl.j1.ratio_observe", "dsl.j1.ratio_rollup"):
+        return "dsl.j1.ratio"
     if result.root.operator_id == "dsl.j1.compare" or (
         result.root.operator_id == "dsl.j1.where"
         and type(result.root.parameters) is tuple
@@ -277,11 +298,12 @@ def _publish_j1_artifact(
     ):
         raise _error("Run, J1 definition or input binding differs")
     primary = _validated_primary(node, result)
-    if isinstance(node, J1Observed) and not {"complete_coverage", "contribution_partition"} <= set(
-        result.completed_checks
-    ):
+    if isinstance(node, (J1Observed, J3Observed)) and not {
+        "complete_coverage",
+        "contribution_partition",
+    } <= set(result.completed_checks):
         raise _error("J1 source obligations are incomplete")
-    if isinstance(node, (J1Difference, J1SelectedDifference)):
+    if isinstance(node, (J1Difference, J1SelectedDifference, J3Observed)):
         method = j1_numeric_method(node.root)
         if method is None or not set(method.contract.required_checks) <= set(
             result.completed_checks

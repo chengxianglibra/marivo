@@ -865,6 +865,7 @@ class MeasureIR:
 class RatioComposition:
     numerator: str
     denominator: str
+    zero_denominator_policy: ZeroDenominatorPolicyV1 | None = None
     kind: Literal["ratio"] = "ratio"
 
 
@@ -1037,6 +1038,7 @@ class MetricIR:
     weighted_mean: WeightedMeanAggregation | None = None
     dsl_additivity: AdditivityPolicy | None = None
     event_time_dimension: str | None = None
+    event_time_path: tuple[str, ...] = ()
     status_time_dimension: str | None = None
     status_time_fold: TimeFoldIR | None = None
     null_policy: NullInputPolicyV1 | None = None

@@ -16,6 +16,7 @@ from marivo.refs import (
     MeasureKind,
     MetricKind,
     Ref,
+    RelationshipKind,
     SemanticKind,
     TimeDimensionKind,
 )
@@ -132,6 +133,9 @@ def aggregate(
     measure: Ref[MeasureKind],
     agg: AggKind,
     time: Ref[TimeDimensionKind] | None = None,
+    time_via: tuple[Ref[RelationshipKind], ...] = (),
+    nulls: NullInputPolicyV1 | None = None,
+    empty: EmptyContributionPolicyV1 | None = None,
     fold: AggregateFoldInput = None,
     filter: WhereFilter | None = None,
     unit: str | None = None,
@@ -152,6 +156,9 @@ def aggregate(
             ``("percentile", q)`` for the q-th percentile across rows in each
             query group.
         time: Business event-time dimension for windowed observation.
+        time_via: Ordered to-one relationships from the measure Entity to the time Entity.
+        nulls: Declared input-Null policy for admitted Analysis methods.
+        empty: Declared complete-empty-contribution policy.
         fold: Time-axis fold override for semi-additive measures. It does not
             change aggregation additivity (for example, ``agg="mean"`` remains
             non-additive while still folding its sampled time series):
@@ -186,11 +193,25 @@ def aggregate(
         if time is not None
         else None
     )
+    if type(time_via) is not tuple or (time_via and event_time_id is None):
+        _raise(
+            ErrorKind.INVALID_REF,
+            "time_via requires time and a tuple of Relationship refs.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+    time_path = tuple(
+        _require_ref_id(item, parameter=f"time_via[{index}]", expected=(SemanticKind.RELATIONSHIP,))
+        for index, item in enumerate(time_via)
+    )
     obj_name = name
     semantic_id = f"{resolved_domain}.{obj_name}"
     ref = ref_factory.metric(semantic_id)
     _check_duplicate(ctx, semantic_id, MetricIR)
     _validate_unit(unit, semantic_id)
+    _validate_value_policies(
+        semantic_id=semantic_id, nulls=nulls, empty=empty, zero_denominator=None
+    )
     fold_ir = _normalize_time_fold(fold, semantic_id=semantic_id) if fold is not None else None
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
@@ -218,6 +239,9 @@ def aggregate(
         aggregation_target_kind="measure",
         filter=filter_pairs,
         event_time_dimension=event_time_id,
+        event_time_path=time_path,
+        null_policy=nulls,
+        empty_policy=empty,
     )
     _push_ir(ctx, ref, metric_ir, None)
     return ref
@@ -381,6 +405,7 @@ def count(
     *,
     name: str,
     entity: Ref[EntityKind],
+    time: Ref[TimeDimensionKind] | None = None,
     filter: WhereFilter | None = None,
     ai_context: AiContextValue | None = None,
 ) -> Ref[MetricKind]:
@@ -390,6 +415,7 @@ def count(
         name: Metric name inside the entity's domain.
         entity: Entity ref returned by ``ms.entity(...)``. Strings are rejected
             so agents do not guess raw semantic ids.
+        time: Native business event-time dimension for windowed observation.
         filter: Optional ``ms.where(dimension=value, ...)`` to count only rows
             matching local semantic dimensions (e.g. a failure/error subset).
             ``None`` counts all rows.
@@ -411,6 +437,11 @@ def count(
     ctx = _require_ctx()
     entity_ref = _require_entity_ref(entity, parameter="entity")
     entity_id = entity_ref.path
+    event_time_id = (
+        _require_ref_id(time, parameter="time", expected=(SemanticKind.TIME_DIMENSION,))
+        if time is not None
+        else None
+    )
     resolved_domain = _domain_from_ref_id(entity_id)
     semantic_id = f"{resolved_domain}.{name}"
     ref = ref_factory.metric(semantic_id)
@@ -437,6 +468,7 @@ def count(
         aggregation_target=entity_id,
         aggregation_target_kind="entity",
         filter=filter_pairs,
+        event_time_dimension=event_time_id,
     )
     _push_ir(ctx, ref, metric_ir, None)
     return ref

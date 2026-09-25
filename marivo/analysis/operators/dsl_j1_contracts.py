@@ -7,6 +7,8 @@ from marivo.analysis.observation.dsl_j1 import (
     J1_COMPARE_CHECKS,
     J1_COMPARE_PARTS,
     J1_SUM_PARTS,
+    J3_RATIO_CHECKS,
+    J3_RATIO_PARTS,
 )
 from marivo.analysis.operators.registry import (
     MethodContract,
@@ -259,10 +261,76 @@ J1_SELECT_DIFFERENCE = MethodRegistration(
 )
 
 
+J3_RATIO_OBSERVE = MethodRegistration(
+    MethodContract(
+        method_id="dsl.j1.ratio_observe",
+        version=1,
+        input_kinds=("domain",),
+        input_domains=("entity",),
+        output_kind="observed",
+        domain_policy="same",
+        unit_policy="preserve",
+        cell_policy="strict",
+        numeric_policy="float64_finite",
+        capabilities=("bind_project", "part_transport"),
+        part_effect="preserve",
+        required_parts=J3_RATIO_PARTS,
+        required_checks=J3_RATIO_CHECKS,
+        continuations=("rollup", "summarize"),
+        cell_reasons=(("undefined", ("zero_denominator",)),),
+    ),
+    (
+        _source(
+            "dsl.j1.ratio_observe", parts=J3_RATIO_PARTS, checks=J3_RATIO_CHECKS, types=("float64",)
+        ),
+    ),
+)
+
+J3_RATIO_ROLLUP = MethodRegistration(
+    MethodContract(
+        method_id="dsl.j1.ratio_rollup",
+        version=1,
+        input_kinds=("observed",),
+        input_domains=("entity", "group"),
+        output_kind="observed",
+        domain_policy="mapped",
+        unit_policy="preserve",
+        cell_policy="strict",
+        numeric_policy="float64_finite",
+        capabilities=("original_state_reduction",),
+        part_effect="merge_original",
+        required_parts=J3_RATIO_PARTS,
+        required_checks=J3_RATIO_CHECKS,
+        continuations=(),
+        cell_reasons=(("undefined", ("zero_denominator",)),),
+    ),
+    (
+        _source(
+            "dsl.j1.ratio_rollup",
+            parts=J3_RATIO_PARTS,
+            checks=J3_RATIO_CHECKS,
+            domains=("entity", "group"),
+            types=("float64",),
+        ),
+        _local(
+            "dsl.j1.ratio_rollup",
+            parts=J3_RATIO_PARTS,
+            checks=J3_RATIO_CHECKS,
+            domains=("entity", "group"),
+            types=("float64",),
+        ),
+    ),
+)
+
+
 def j1_numeric_method(root: LogicalRootHandle) -> MethodRegistration | None:
     """Resolve only the numerically implemented private J1 node shapes."""
     if root.operator_id == "dsl.j1.observe":
         return J1_OBSERVE_SUM
+    if root.operator_id == "dsl.j1.ratio_observe":
+        return J3_RATIO_OBSERVE
+    if root.operator_id == "dsl.j1.ratio_rollup":
+        return J3_RATIO_ROLLUP
     if root.operator_id == "dsl.j1.compare":
         return J1_COMPARE_DIFFERENCE
     if (

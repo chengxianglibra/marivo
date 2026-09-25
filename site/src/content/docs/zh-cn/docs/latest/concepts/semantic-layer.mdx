@@ -567,6 +567,23 @@ linear、cumulative 和表达式构造之间选择。选定 aggregate 后，
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum", time=order_date)
 us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", time=order_date, filter=ms.where(region="US"))
 ```
+当贡献度量与业务时间属于不同 Entity 时，使用 `time_via` 声明连续的单值路径。
+需要组件值政策的计算还应明确声明 Null 与完整空贡献的处理方式：
+
+```python
+line_revenue = ms.aggregate(
+    name="line_revenue", measure=line_amount, agg="sum",
+    time=ordered_at, time_via=(line_order,),
+    nulls=ms.nulls.ignore(), empty=ms.empty.zero(),
+)
+order_count = ms.count(name="order_count", entity=orders, time=ordered_at)
+aov = ms.ratio(
+    name="aov", numerator=line_revenue, denominator=order_count,
+    zero_denominator=ms.zero_denominator.undefined(),
+)
+```
+省略政策时保留原有构建器含义。时间路径必须由有序、连续、单值的 Relationship 组成；
+不完整路径会在加载时被拒绝。
 `agg="median"` 和 `agg=("percentile", q)` 会按后端能力执行。在 Trino 上，两者都会
 编译为 `APPROX_PERCENTILE`，其中 median 使用 `q=0.5`。
 
@@ -634,6 +651,8 @@ avg_latency = ms.weighted_mean(
 net_revenue = ms.linear(name="net_revenue", add=[gross_revenue], subtract=[refunds])
 aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 ```
+`zero_denominator` 可显式选择 `ms.zero_denominator.undefined()` 或
+`ms.zero_denominator.error()`，由支持该政策的消费方法执行。
 执行时，`ms.ratio` 的分母或 `ms.weighted_mean` 的成对权重和存在但为零时，
 结果为 null。通过 Materialized Metric Dataset 读取已提交值；行契约和 Findings
 负责提供当前可用状态与证据。

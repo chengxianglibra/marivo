@@ -40,6 +40,7 @@ from marivo.semantic.ir import (
     CumulativeComposition,
     LinearComposition,
     MeasureIR,
+    MetricIR,
     RatioComposition,
     SemiAdditive,
     TargetEntityContract,
@@ -154,10 +155,15 @@ def _fields(**values: object) -> tuple[CanonicalField, ...]:
 
 def _composition_value(composition: object) -> object:
     if isinstance(composition, RatioComposition):
-        return (
+        fields = (
             ("kind", composition.kind),
             ("numerator_ref", _ref_payload("metric", composition.numerator)),
             ("denominator_ref", _ref_payload("metric", composition.denominator)),
+        )
+        return (
+            (*fields, ("zero_denominator_policy", composition.zero_denominator_policy))
+            if composition.zero_denominator_policy is not None
+            else fields
         )
     if isinstance(composition, CumulativeComposition):
         return (
@@ -272,57 +278,66 @@ def _entry_for(
             ref=ref_payload,
             body_digest=metric.body_ast_hash,
             bindings=bindings,
-            fields=_fields(
-                domain_ref=_ref_payload("domain", metric.domain),
-                metric_type=metric.metric_type,
-                entity_refs=tuple(_ref_payload("entity", path) for path in metric.entities),
-                aggregation=metric.aggregation,
-                measure_ref=(
-                    _ref_payload("measure", metric.measure) if metric.measure is not None else None
-                ),
-                composition=_composition_value(metric.composition),
-                additivity=_additivity_value(metric.additivity),
-                dsl_additivity=metric.dsl_additivity,
-                event_time_dimension=(
-                    _ref_payload("time_dimension", metric.event_time_dimension)
-                    if metric.event_time_dimension is not None
-                    else None
-                ),
-                status_time_dimension=(
-                    _ref_payload("time_dimension", metric.status_time_dimension)
-                    if metric.status_time_dimension is not None
-                    else None
-                ),
-                status_time_fold=metric.status_time_fold,
-                null_policy=metric.null_policy,
-                empty_policy=metric.empty_policy,
-                zero_denominator_policy=metric.zero_denominator_policy,
-                root_entity_ref=(
-                    _ref_payload("entity", metric.root_entity)
-                    if metric.root_entity is not None
-                    else None
-                ),
-                fanout_policy=metric.fanout_policy,
-                aggregation_target_kind=metric.aggregation_target_kind,
-                aggregation_target_ref=(
-                    _ref_payload(metric.aggregation_target_kind, metric.aggregation_target)
-                    if metric.aggregation_target is not None
-                    and metric.aggregation_target_kind is not None
-                    else None
-                ),
-                fold_override=metric.fold_override,
-                temporal_contract=temporal_contract,
-                filter=metric.filter,
-                weighted_mean=(
-                    (
-                        ("kind", metric.weighted_mean.kind),
-                        ("value_ref", _ref_payload("measure", metric.weighted_mean.value)),
-                        ("weight_ref", _ref_payload("measure", metric.weighted_mean.weight)),
-                    )
-                    if metric.weighted_mean is not None
-                    else None
-                ),
-                unit_override=metric.unit_override,
+            fields=tuple(
+                field
+                for field in _fields(
+                    domain_ref=_ref_payload("domain", metric.domain),
+                    metric_type=metric.metric_type,
+                    entity_refs=tuple(_ref_payload("entity", path) for path in metric.entities),
+                    aggregation=metric.aggregation,
+                    measure_ref=(
+                        _ref_payload("measure", metric.measure)
+                        if metric.measure is not None
+                        else None
+                    ),
+                    composition=_composition_value(metric.composition),
+                    additivity=_additivity_value(metric.additivity),
+                    dsl_additivity=metric.dsl_additivity,
+                    event_time_dimension=(
+                        _ref_payload("time_dimension", metric.event_time_dimension)
+                        if metric.event_time_dimension is not None
+                        else None
+                    ),
+                    event_time_path=tuple(
+                        _ref_payload("relationship", path) for path in metric.event_time_path
+                    ),
+                    status_time_dimension=(
+                        _ref_payload("time_dimension", metric.status_time_dimension)
+                        if metric.status_time_dimension is not None
+                        else None
+                    ),
+                    status_time_fold=metric.status_time_fold,
+                    null_policy=metric.null_policy,
+                    empty_policy=metric.empty_policy,
+                    zero_denominator_policy=metric.zero_denominator_policy,
+                    root_entity_ref=(
+                        _ref_payload("entity", metric.root_entity)
+                        if metric.root_entity is not None
+                        else None
+                    ),
+                    fanout_policy=metric.fanout_policy,
+                    aggregation_target_kind=metric.aggregation_target_kind,
+                    aggregation_target_ref=(
+                        _ref_payload(metric.aggregation_target_kind, metric.aggregation_target)
+                        if metric.aggregation_target is not None
+                        and metric.aggregation_target_kind is not None
+                        else None
+                    ),
+                    fold_override=metric.fold_override,
+                    temporal_contract=temporal_contract,
+                    filter=metric.filter,
+                    weighted_mean=(
+                        (
+                            ("kind", metric.weighted_mean.kind),
+                            ("value_ref", _ref_payload("measure", metric.weighted_mean.value)),
+                            ("weight_ref", _ref_payload("measure", metric.weighted_mean.weight)),
+                        )
+                        if metric.weighted_mean is not None
+                        else None
+                    ),
+                    unit_override=metric.unit_override,
+                )
+                if metric.event_time_path or field[0] != "event_time_path"
             ),
         )
     if semantic_kind == "measure":
@@ -484,6 +499,8 @@ class _DependencyCollector:
             self.collect_dimension(metric.additivity.over)
         if metric.event_time_dimension is not None:
             self.collect_dimension(metric.event_time_dimension)
+        for relationship_id in metric.event_time_path:
+            self.collect_ref(_create_ref(SemanticKind.RELATIONSHIP, relationship_id))
         if metric.status_time_dimension is not None:
             self.collect_dimension(metric.status_time_dimension)
         composition = metric.composition
@@ -858,7 +875,11 @@ class _CatalogGraphBuilder:
                 kind="ratio",
                 numerator_id=numerator_id,
                 denominator_id=denominator_id,
-                zero_division="null",
+                zero_division=(
+                    composition.zero_denominator_policy.kind
+                    if composition.zero_denominator_policy is not None
+                    else "null"
+                ),
                 unit_override=metric.unit_override,
             )
             child_paths = (numerator_path, denominator_path)
@@ -1571,6 +1592,7 @@ def _normalize_target_graph(
     requirements: set[str] = set()
     source_recompute = False
     policies: dict[str, Literal["block", "aggregate_then_join"]] = {}
+    component_declarations: dict[str, MetricIR] = {}
 
     def contribution_policies(path: str, role: str) -> None:
         declaration = registry.metrics[path]
@@ -1585,6 +1607,7 @@ def _normalize_target_graph(
             contribution_policies(composition.base, f"{role}.base")
         else:
             policies[role] = declaration.fanout_policy
+            component_declarations[role] = declaration
 
     from marivo.semantic.runtime_metric import RuntimeLinearExpr, RuntimeRatioExpr, RuntimeSliceExpr
 
@@ -1697,6 +1720,10 @@ def _normalize_target_graph(
             )
             if node.fold is not None:
                 state = ("value", "non_null_count", "row_count")
+            declaration = component_declarations.get(role)
+            empty_policy = declaration.empty_policy if declaration is not None else None
+            event_time_path = declaration.event_time_path if declaration is not None else ()
+            event_time_id = declaration.event_time_dimension if declaration is not None else None
             components.append(
                 TargetMetricComponent(
                     node_id,
@@ -1704,11 +1731,23 @@ def _normalize_target_graph(
                     root,
                     state,
                     "ignore_null_inputs",
-                    "zero" if node.agg in ("count", "count_distinct") else "null",
+                    (
+                        empty_policy.kind
+                        if empty_policy is not None
+                        else "zero"
+                        if node.agg in ("count", "count_distinct")
+                        else "null"
+                    ),
                     node.fold,
                     status_time_dimension,
                     component_recompute,
                     policies.get(role, "block"),
+                    (
+                        _ref_payload("time_dimension", event_time_id)
+                        if event_time_id is not None
+                        else None
+                    ),
+                    tuple(_ref_payload("relationship", path) for path in event_time_path),
                 )
             )
             return (
