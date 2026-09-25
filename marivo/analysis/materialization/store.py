@@ -137,6 +137,11 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
+def _new_run_ref() -> str:
+    """Allocate the Store's Run reference format before key construction."""
+    return "run_" + secrets.token_hex(12)
+
+
 @dataclass(frozen=True, slots=True)
 class RecoveryEntry:
     """One selected producer and its obligations from a single Store snapshot."""
@@ -568,7 +573,7 @@ class SessionStore:
     ) -> RunRecord:
         payload = canonical_json(run_input_payload(dataset_input))
         decode_run_input(payload)
-        ref = run_ref or "run_" + secrets.token_hex(12)
+        ref = run_ref or _new_run_ref()
         with self._write() as conn:
             pending = _one(
                 conn,

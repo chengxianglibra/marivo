@@ -43,9 +43,11 @@ publication without deleting another Run's resources.
 
 This is the accepted protocol for the
 [first-round Analysis DSL slice](python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive).
-It is not yet connected to production `execute()`. The current exact-binding
-and registered retained-Parquet routes above remain authoritative for methods
-not migrated to this protocol.
+W4 connects this protocol only through the private
+`DatasetRuntime.execute_j1(...)` route for admitted J1 shapes. The public
+Analysis DSL and ordinary `Dataset.execute()` routing are not activated by
+this slice. The current exact-binding and registered retained-Parquet routes
+above remain authoritative for methods not migrated to this protocol.
 
 Classification follows only the current root's transitive data dependencies.
 An explicit Materialized leaf is a fixed boundary: its historic source lineage

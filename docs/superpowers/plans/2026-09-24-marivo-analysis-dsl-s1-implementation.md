@@ -2,13 +2,13 @@
 
 Date: 2026-09-24
 
-Status: W1–W3 私有链已实施；[S0 验收](2026-09-24-marivo-analysis-dsl-s0-acceptance.md)保留当时快照，W4–W5 与 S1 总验收尚未完成。
+Status: W1–W4 私有接缝已实施；W4 运行内多消费者共享尚无 J1 图形可验，[S0 验收](2026-09-24-marivo-analysis-dsl-s0-acceptance.md)保留当时快照，W5 与 S1 总验收尚未完成。
 
 ## 目标与边界
 
 本计划落实 [MVP 验证计划](../specs/2026-09-24-marivo-analysis-dsl-mvp-validation-plan.md#6-实施阶段与完成标准)的 S1：用同一有限方法契约接通真实 DuckDB 来源的 Ibis 路线和受控 Artifact 输入的 pandas 路线，完成 J1、基础状态归约、交换/发布/冷恢复及新执行身份协议。S1 验收只覆盖实际接入的方法、形状和后端，不把整个目标 DSL、J2–J4 或其他后端记为通过。
 
-输入契约以已接受但尚未激活的 [Analysis 切片](../../specs/analysis/python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive)、[方法规则](../../specs/analysis/operators-and-frames.md#accepted-s0-method-rules-inactive)和 [Runtime 协议](../../specs/analysis/session-state-and-runtime.md#accepted-s0-input-and-execution-protocol-inactive)为准；公开目标语法以[接口设计](../specs/2026-09-24-marivo-semantic-analysis-dsl-interface-design.md)为准，放置、交换和恢复义务以[架构设计](../specs/2026-09-24-marivo-analysis-dsl-architecture-design.md)为准。S0 留下的 A01、A06–A09、A12 是本阶段的主要生产接缝；[S0 独立 fixture](../../../tests/test_analysis_dsl_fixtures.py)只提供 oracle，不算 J1 的 DSL 执行证据。
+输入契约以已接受、公开仍未激活的 [Analysis 切片](../../specs/analysis/python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive)、[方法规则](../../specs/analysis/operators-and-frames.md#accepted-s0-method-rules-inactive)和 [Runtime 协议](../../specs/analysis/session-state-and-runtime.md#accepted-s0-input-and-execution-protocol-inactive)为准；公开目标语法以[接口设计](../specs/2026-09-24-marivo-semantic-analysis-dsl-interface-design.md)为准，放置、交换和恢复义务以[架构设计](../specs/2026-09-24-marivo-analysis-dsl-architecture-design.md)为准。S0 留下的 A01、A06–A09、A12 是本阶段的主要生产接缝；[S0 独立 fixture](../../../tests/test_analysis_dsl_fixtures.py)只提供 oracle，不算 J1 的 DSL 执行证据。
 
 J1 的可观察目标是：固定夹具的总收入 1000，按地区 east=600、south=400、west=Null，选出 east 成员后按订单渠道 web=450、mobile=150；无订单客户不产生渠道值。`customers.group_by(Region)` 与同绑定 `read(Region)` 后分组一致；`customers.group_by(Channel)` 因非单值属性拒绝。三次顶层执行分别读取当时的来源，不承诺跨次共同快照。
 
@@ -93,6 +93,39 @@ W3 实施记录（2026-09-25）：以 `panda` 干净代码 SHA
 集成测试必须对**同一个 Lazy Python 对象**先后执行，期间修改受控来源：定义指纹不变，两次 Run/key/Artifact 不同，两个旧新结果均可在断源新进程中按精确引用恢复。另令第二次执行在数据准入或发布前失败，确认首次 Artifact 不变；模拟提交回执丢失、未完成 Run、固定输入竞争命中，检查原 Run/receipt 的 reconcile/read-back，不自动重放来源。固定输入重复执行复用同一 Artifact，Run 数不增加；改变 receipt 或方法/协议版本不得误命中。运行内共享与跨次新求值分别计数。
 
 **出口：**V08/V10 在 S1 已接入形状上的重复求值、精确命中、失败保护与恢复成立；旧生产路径的执行协议未被误改。
+
+W4 实施记录（2026-09-25）：以 `panda` 代码 SHA
+`1a839129cebad78b9c53e997c02844c7a619a35c` 的干净工作区为基线；
+本阶段的实施 SHA 由本记录所在提交标识，S1 总验收另行记录。
+
+- 私有 `DatasetRuntime.execute_j1(...)` 在 Session writer guard 下使用现有
+  Store v6、来源/固定 v2 key、W2 Ibis 与 W3 pandas/receipt 生产者。来源调用
+  在准入后打开 source factory；固定输入先匹配精确 Artifact 和所有 receipt，
+  命中时完成内容校验且不新增 Run。混合的固定成员加现场 read 在 Run、来源和
+  Artifact 行读取前拒绝；旧 `DatasetRuntime.execute()` 仍使用 v1 协议。
+- 同一 J1 节点两次顶层调用之间修改受控 DuckDB 来源：定义指纹稳定，两个
+  Run/key/Artifact 各不相同，A 成员收入从 450 变为 500；断源新进程按两份
+  精确引用恢复。固定 Channel 续算重复命中同一 Artifact，换用第二份来源
+  Artifact 则得到不同 key/结果；两个 Runtime 竞争同一固定输入时，忙碌者
+  明确拒绝，重试后精确命中。一次调用只打开一次来源，固定续算不打开来源。
+- 来源打开失败、提交前故障和提交回执丢失分别验证原 Artifact 保持不变、
+  原 Run 终结或精确回读；待协调 Run 按原 ref 失败后才准入明确发起的新调用。
+  冷恢复回归还修复了追加已校验部件列时丢失 Arrow 非空字段属性的问题，
+  并断言恢复前后完整 schema 相等。独立 float64 输入回归覆盖本地 sum/mean
+  的 Arrow `double` 类型归一化。
+- W4 编排暂归私有 `dsl_j1_runtime.py`，Store 只统一 Run ref 分配格式，
+  `admission.py` 保留入口与逐次诊断；没有把 J1 路线铺进现有 v1
+  `dataset_execution.py`。这与上列主要 owner 路由不同，目的是保持旧路径
+  的执行协议不变。损坏固定 receipt、方法版本和 key 协议版本均验证不会
+  命中旧 key；失败对账异常不再被吞掉。逐次诊断分别计数来源求值与固定
+  缓存命中；同一节点的两次顶层调用各自求值一次。当前获准的 J1 图均为
+  单前驱，无法形成一次执行内一个显式节点被多个消费者使用的有效图，
+  因而“运行内共享”验收仍未验证，不能由来源打开次数或缓存命中替代。
+- `make test TESTS='tests/test_analysis_dsl_execution_identity.py tests/test_analysis_dsl_j1_construction.py tests/test_analysis_dsl_j1_source.py tests/test_analysis_dsl_exchange.py'`：49 passed；
+  `make runtime-test TESTS='tests/test_analysis_dsl_j1_runtime.py tests/test_analysis_dsl_j1_artifact.py'`：7 passed；
+  默认 typecheck 与 lint 通过；`make check-agent`：5101 passed、4 skipped，
+  lint、typecheck、导入约束和 API 文档构建通过。直接对新增测试模块运行
+  mypy 仅剩 `tests/shared_fixtures.py` 的六项既有类型错误；S1 总验收仍由 W5 记录。
 
 ### W5. 记录 S1 验收和 S2 交接
 

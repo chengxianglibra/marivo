@@ -112,6 +112,7 @@ def test_j1_store_artifact_keeps_coordinate_state_offline(
         group_node,
         input_binding="j1.local.binding",
     )
+    assert local_reloaded.primary.schema.equals(grouped.primary.schema)
     assert local_reloaded.primary.equals(grouped.primary)
     statistic = observed.summarize("count")
     statistic_result = run_j1_local(statistic.root, restored)

@@ -450,5 +450,5 @@ def load_j1_artifact(
         if len(positions) != table.num_rows or set(positions) != set(primary_keys):
             raise _error("retained state keys differ from primary keys")
         aligned = table.take(pa.array([positions[key] for key in primary_keys], type=pa.int64()))
-        wide = wide.append_column(column, aligned[column])
+        wide = wide.append_column(aligned.schema.field(column), aligned[column])
     return J1ExecutionResult(node.root, wide, coordinates, exchange.completed_checks)

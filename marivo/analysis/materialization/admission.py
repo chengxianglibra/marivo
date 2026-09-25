@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
 import pandas as pd
@@ -85,6 +85,11 @@ from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.validator import Registry
 
+if TYPE_CHECKING:
+    from marivo.analysis.materialization.dsl_j1_artifact import J1Node
+    from marivo.analysis.materialization.dsl_j1_runtime import J1SourceFactory
+    from marivo.analysis.observation.dsl_j1_dataset import MaterializedJ1Dataset
+
 _PREVIEW_MAX_OUTPUT_BYTES = 8192
 _READ_POLICY = ReadPolicy()
 _LOCAL_STORAGE_POLICY = StoragePolicy()
@@ -94,6 +99,8 @@ _LOCAL_STORAGE_POLICY = StoragePolicy()
 class ExecutionStatistics:
     """Ephemeral per-action diagnostics, never a publication authority."""
 
+    j1_source_evaluations: int = 0
+    j1_fixed_cache_hits: int = 0
     primary_queries: int = 0
     validation_queries: int = 0
     source_fences: int = 0
@@ -341,6 +348,39 @@ class DatasetRuntime:
         from marivo.analysis.materialization import dataset_presentation
 
         return dataset_presentation.selected(self, dataset)
+
+    def execute_j1(
+        self,
+        node: J1Node,
+        *,
+        source: J1SourceFactory | None = None,
+        input_node: J1Node | None = None,
+        input_artifact_ref: str | None = None,
+    ) -> MaterializedJ1Dataset:
+        """Execute a private J1 node through this Session Runtime.
+
+        Args:
+            node: The same constructed J1 node may be evaluated again.
+            source: Factory opening one admitted DuckDB/Ibis source context.
+            input_node: Exact predecessor definition for local continuation.
+            input_artifact_ref: Saved predecessor Artifact selected for local work.
+        Returns:
+            The exact committed J1 Artifact as a Materialized Dataset.
+        Example:
+            ``result = runtime.execute_j1(observed, source=open_source)``.
+        Constraints:
+            This internal entry is not a public Analysis DSL method. Supply
+            either a source factory or both fixed-input arguments.
+        """
+        from marivo.analysis.materialization.dsl_j1_runtime import execute_j1
+
+        return execute_j1(
+            self,
+            node,
+            source=source,
+            input_node=input_node,
+            input_artifact_ref=input_artifact_ref,
+        )
 
     def show(self, dataset: MaterializedDataset, *, max_output_bytes: int | None = None) -> None:
         from marivo.analysis.materialization import dataset_presentation
