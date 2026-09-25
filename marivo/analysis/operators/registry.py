@@ -123,7 +123,7 @@ MethodKind: TypeAlias = Literal[
     "predicate",
     "association",
 ]
-MethodRoute: TypeAlias = Literal["source", "local"]
+MethodRoute: TypeAlias = Literal["source", "source_numeric", "local"]
 MethodBackend: TypeAlias = BackendName | Literal["pandas"]
 MethodDomain: TypeAlias = Literal["entity", "group", "singleton"]
 CoreCapability: TypeAlias = Literal[
@@ -326,12 +326,12 @@ class MethodImplementation:
             not _is_stable_identifier(self.method_id)
             or type(self.version) is not int
             or self.version < 1
-            or self.route not in ("source", "local")
+            or self.route not in ("source", "source_numeric", "local")
             or self.backend not in _BACKENDS
-            or (self.route == "source" and self.backend == "pandas")
+            or (self.route in ("source", "source_numeric") and self.backend == "pandas")
             or (self.route == "local" and self.backend != "pandas")
             or (
-                self.route == "source"
+                self.route in ("source", "source_numeric")
                 and (self.batch_mode, self.resource_owner) != ("stream", "producer")
             )
             or (

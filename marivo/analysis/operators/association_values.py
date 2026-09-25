@@ -45,6 +45,10 @@ def _pair_status(xs: list[int | float], ys: list[int | float]) -> str:
     complete = len(xs)
     constant_a = complete >= 2 and all(compare_value(xs[0], x) == 0 for x in xs)
     constant_b = complete >= 2 and all(compare_value(ys[0], y) == 0 for y in ys)
+    return _pair_status_from_counts(complete, int(constant_a), int(constant_b))
+
+
+def _pair_status_from_counts(complete: int, constant_a: int, constant_b: int) -> str:
     return (
         "insufficient_pairs"
         if complete < 2
@@ -55,6 +59,46 @@ def _pair_status(xs: list[int | float], ys: list[int | float]) -> str:
         else "constant_b"
         if constant_b
         else "valid"
+    )
+
+
+def finish_entity_spearman_summary(
+    metric_keys: tuple[str, str],
+    input_count: int,
+    matched_count: int,
+    null_count: int,
+    complete_count: int,
+    unique_a: int,
+    unique_b: int,
+    coefficient: float | None,
+) -> EntitySpearmanResult:
+    """Apply the Association owner's status and coefficient policy to a source summary."""
+    if (
+        min(input_count, matched_count, null_count, complete_count, unique_a, unique_b) < 0
+        or input_count != matched_count
+        or null_count + complete_count != matched_count
+        or unique_a > complete_count
+        or unique_b > complete_count
+    ):
+        raise correlation_error(
+            "consistent complete Spearman pair counts", "invalid source summary"
+        )
+    status = _pair_status_from_counts(complete_count, int(unique_a == 1), int(unique_b == 1))
+    if status != "valid":
+        raise correlation_error("at least one valid no-lag candidate", status)
+    if coefficient is None or not math.isfinite(coefficient) or abs(coefficient) > 1 + 1e-12:
+        raise correlation_error("finite coefficient in [-1,1]", "numerical execution contradiction")
+    if abs(coefficient) >= 1 - 1e-12:
+        coefficient = math.copysign(1.0, coefficient)
+    return EntitySpearmanResult(
+        metric_keys[0],
+        metric_keys[1],
+        status,
+        coefficient,
+        input_count,
+        matched_count,
+        null_count,
+        complete_count,
     )
 
 

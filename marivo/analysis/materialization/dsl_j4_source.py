@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Literal
 
 import ibis
 import ibis.expr.types as ir
@@ -22,10 +23,31 @@ from marivo.analysis.observation.dsl_j1 import (
 )
 from marivo.analysis.operators.association_values import (
     EntitySpearmanResult,
+    finish_entity_spearman_summary,
     reduce_entity_spearman,
 )
 from marivo.analysis.operators.dsl_j1_contracts import J4_SPEARMAN, j1_numeric_method
 from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult, admit_numeric_threshold
+from marivo.analysis.operators.registry import MethodRegistration
+
+
+def choose_j4_source_route(registration: MethodRegistration | None, backend: str) -> str:
+    """Select a qualified private J4 route before source value execution."""
+    for route in ("source_numeric", "source"):
+        if any(
+            item.route == route
+            and item.backend == backend
+            and item.input_domains == ("entity",)
+            and {"int64", "float64"} <= set(item.logical_types)
+            for item in (() if registration is None else registration.implementations)
+        ):
+            return route
+    raise MaterializationError(
+        expected="registered source Spearman numerical or preparation route",
+        received=backend,
+        repair="Use a source with an explicitly qualified J4 implementation.",
+        stage="source_admission",
+    )
 
 
 def _require_complete_keys(backend: J1IbisBackend, left: ir.Table, right: ir.Table) -> None:
@@ -87,9 +109,23 @@ def capture_j4_endpoints(
     tables: Mapping[str, ir.Table],
 ) -> tuple[J1ExecutionResult, J1ExecutionResult]:
     """Realize two checked observations from one member implementation."""
+    _, _, shared = _prepare_j4_plans(association, backend, tables)
+    context = association.context
+    left = run_j1_source(context, association.left.root, backend, tables, shared_plans=shared)
+    right = run_j1_source(context, association.right.root, backend, tables, shared_plans=shared)
+    return left, right
+
+
+def _prepare_j4_plans(
+    association: J4Association,
+    backend: J1IbisBackend,
+    tables: Mapping[str, ir.Table],
+    *,
+    route: Literal["source", "source_numeric"] = "source",
+) -> tuple[J1SourcePlan, J1SourcePlan, _RunNodeBindings[J1SourcePlan]]:
     context = association.context
     place_j1_source(context, association.root, backend.name)
-    J4_SPEARMAN.require_route("source", "duckdb", "entity", "float64")
+    J4_SPEARMAN.require_route(route, "duckdb", "entity", "float64")
     member = association.left.root.inputs[0].root
     if (
         not isinstance(member, LogicalRootHandle)
@@ -107,9 +143,108 @@ def capture_j4_endpoints(
     left_plan = lower_j1_source(context, association.left.root, tables, memo=shared)
     right_plan = lower_j1_source(context, association.right.root, tables, memo=shared)
     _require_complete_keys(backend, left_plan.primary, right_plan.primary)
-    left = run_j1_source(context, association.left.root, backend, tables, shared_plans=shared)
-    right = run_j1_source(context, association.right.root, backend, tables, shared_plans=shared)
-    return left, right
+    return left_plan, right_plan, shared
+
+
+def run_j4_source_numeric(
+    association: J4Association,
+    backend: J1IbisBackend,
+    tables: Mapping[str, ir.Table],
+) -> EntitySpearmanResult:
+    """Compute the qualified Spearman coefficient in DuckDB through Ibis."""
+    if backend.name != "duckdb":
+        raise MaterializationError(
+            expected="qualified DuckDB Spearman numerical route",
+            received=backend.name,
+            repair="Use the registered DuckDB route or the admitted Python preparation route.",
+            stage="source_admission",
+        )
+    left, right, _ = _prepare_j4_plans(association, backend, tables, route="source_numeric")
+    for endpoint in (left.primary, right.primary):
+        kind = str(endpoint.schema()["value"])
+        J4_SPEARMAN.require_route("source_numeric", "duckdb", "entity", kind)
+    a = left.primary.select("member", va="value", taga="cell_tag", reasona="cell_reason")
+    b = right.primary.select("member", vb="value", tagb="cell_tag", reasonb="cell_reason")
+    paired = a.join(b, "member").select(a.member, a.va, a.taga, a.reasona, b.vb, b.tagb, b.reasonb)
+    valid_a = ((paired.taga == "defined") & paired.va.notnull() & paired.reasona.isnull()) | (
+        (paired.taga == "null")
+        & paired.va.isnull()
+        & paired.reasona.isin(("source_null", "empty_contribution"))
+    )
+    valid_b = ((paired.tagb == "defined") & paired.vb.notnull() & paired.reasonb.isnull()) | (
+        (paired.tagb == "null")
+        & paired.vb.isnull()
+        & paired.reasonb.isin(("source_null", "empty_contribution"))
+    )
+    finite = (
+        ~paired.va.cast("float64").isnan().fill_null(False)
+        & ~paired.va.cast("float64").isinf().fill_null(False)
+        & ~paired.vb.cast("float64").isnan().fill_null(False)
+        & ~paired.vb.cast("float64").isinf().fill_null(False)
+    )
+    counts = paired.aggregate(
+        input_count=paired.count(),
+        invalid_count=((~valid_a.fill_null(False)) | (~valid_b.fill_null(False)) | (~finite))
+        .cast("int64")
+        .sum()
+        .cast("int64"),
+        null_count=((paired.taga == "null") | (paired.tagb == "null"))
+        .cast("int64")
+        .sum()
+        .cast("int64"),
+    )
+    complete = paired.filter((paired.taga == "defined") & (paired.tagb == "defined"))
+    first_a = ibis.rank().over(ibis.window(order_by=complete.va)) + 1
+    first_b = ibis.rank().over(ibis.window(order_by=complete.vb)) + 1
+    ties_a = complete.count().over(ibis.window(group_by=complete.va))
+    ties_b = complete.count().over(ibis.window(group_by=complete.vb))
+    ranked = complete.mutate(
+        ra=(first_a + (ties_a - 1) / 2).cast("float64"),
+        rb=(first_b + (ties_b - 1) / 2).cast("float64"),
+    )
+    numeric = ranked.aggregate(
+        complete_count=ranked.count(),
+        unique_a=ranked.va.nunique(),
+        unique_b=ranked.vb.nunique(),
+        coefficient=ranked.ra.corr(ranked.rb, how="pop"),
+    )
+    result = counts.cross_join(numeric)
+    backend.compile(result)
+    native = backend.to_pyarrow_batches(result, chunk_size=1024)
+    stream = IbisBatchStream(native, native.schema)
+    try:
+        table = pa.Table.from_batches(
+            tuple(batch.cast(stream.schema, safe=True) for batch in stream),
+            schema=stream.schema,
+        )
+    finally:
+        stream.close()
+    rows = table.to_pylist()
+    if len(rows) != 1:
+        raise MaterializationError(
+            expected="one complete source Spearman summary",
+            received="invalid summary cardinality",
+            repair="Correct the admitted source expression and retry.",
+            stage="source_validation",
+        )
+    row = rows[0]
+    if row["invalid_count"]:
+        raise MaterializationError(
+            expected="Defined finite values or ordinary Null Cells",
+            received="invalid Spearman endpoint Cell",
+            repair="Correct the source observations before correlation.",
+            stage="source_validation",
+        )
+    return finish_entity_spearman_summary(
+        ("metric:" + association.left.metric.path, "metric:" + association.right.metric.path),
+        int(row["input_count"]),
+        int(row["input_count"]),
+        int(row["null_count"] or 0),
+        int(row["complete_count"] or 0),
+        int(row["unique_a"] or 0),
+        int(row["unique_b"] or 0),
+        None if row["coefficient"] is None else float(row["coefficient"]),
+    )
 
 
 def j4_execution_result(

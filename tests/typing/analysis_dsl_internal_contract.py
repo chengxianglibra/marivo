@@ -28,7 +28,7 @@ def _closed_contracts(
     assert_type(quantity.kind, Literal["observed", "row_statistic", "difference"])
     assert_type(classification.kind, Literal["source", "artifact", "mixed"])
     assert_type(method.version, int)
-    assert_type(implementation.route, Literal["source", "local"])
+    assert_type(implementation.route, Literal["source", "source_numeric", "local"])
 
 
 def _requires_observed(value: _ObservedQuantity) -> None:

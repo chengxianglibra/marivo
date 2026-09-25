@@ -243,6 +243,19 @@ with one shared member implementation and the normal codec/Store path. Equal
 keys from independent captures do not establish common authority. This does
 not introduce a public capture or Analysis DSL entry point.
 
+### S3 P3 private DuckDB Spearman numerical qualification
+
+The same J4 input and Association policy also admit a DuckDB/Ibis numerical
+route after complete-domain and Cell checks. This route computes average ranks
+over all eligible pairs, then the coefficient and counts in the source. Its
+output must satisfy the same method version, status, schema, parts and exchange
+checks as the Python route. Source numerical execution is qualified only for
+the tested same-Entity, no-lag int64/float64 slice; a compilable expression
+alone does not qualify another backend or a different Cell policy. An explicit
+private route choice supports comparative validation; ordinary placement uses
+the registered source route when available and never retries a failed source
+execution in Python.
+
 ## Runtime boundaries
 
 Every input belongs to the same Session. Definition identity differs from exact
