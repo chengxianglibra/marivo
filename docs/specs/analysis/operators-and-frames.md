@@ -205,6 +205,23 @@ Its output keeps pair counts, selected method/version and coefficient state.
 The S0 rule acceptance does not qualify an adapter or a new public input
 shape; that requires S3.
 
+### S3 P1 private Spearman source qualification
+
+The inactive J4 slice now admits two ordered Entity observations built from one
+explicit member node and one fixed time scope. The second observation may use a
+declared `ms.count` Metric: its valid empty contribution is a Defined int64 zero.
+This count route is qualified only as a Spearman source input; it is not an
+independently publishable J1 result or an original-state continuation.
+
+The DuckDB/Ibis source stage realizes members once, checks unique and complete
+endpoint keys, and transports both checked Cell relations through the existing
+batch boundary. The Association owner excludes ordinary Null pairs after exact
+pairing, rejects Unknown/Undefined and nonfinite values, and reuses its average
+rank, coefficient and no-valid-candidate rules in Python. The private result
+retains ordered Metric identities, method version, status and matched/null/
+complete-pair counts. P1 does not qualify Artifact publication, pandas fixed
+inputs, cold recovery, public signatures or another source backend.
+
 ## Runtime boundaries
 
 Every input belongs to the same Session. Definition identity differs from exact

@@ -6,6 +6,7 @@ from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.observation.dsl_j1 import (
     J1_COMPARE_CHECKS,
     J1_COMPARE_PARTS,
+    J1_COUNT_PARTS,
     J1_SUM_PARTS,
     J3_RATIO_CHECKS,
     J3_RATIO_PARTS,
@@ -86,6 +87,58 @@ J1_OBSERVE_SUM = MethodRegistration(
             parts=J1_SUM_PARTS,
             checks=("complete_coverage", "contribution_partition"),
             domains=("entity", "group"),
+        ),
+    ),
+)
+J1_OBSERVE_COUNT = MethodRegistration(
+    MethodContract(
+        method_id="dsl.j1.observe_count",
+        version=1,
+        input_kinds=("domain",),
+        input_domains=("entity",),
+        output_kind="observed",
+        domain_policy="same",
+        unit_policy="count",
+        cell_policy="strict",
+        numeric_policy="int64_checked",
+        capabilities=("bind_project", "part_transport"),
+        part_effect="preserve",
+        required_parts=J1_COUNT_PARTS,
+        required_checks=("complete_coverage", "contribution_partition"),
+        continuations=(),
+    ),
+    (
+        _source(
+            "dsl.j1.observe_count",
+            parts=J1_COUNT_PARTS,
+            checks=("complete_coverage", "contribution_partition"),
+            types=("int64",),
+        ),
+    ),
+)
+
+J4_SPEARMAN = MethodRegistration(
+    MethodContract(
+        method_id="dsl.j4.spearman",
+        version=1,
+        input_kinds=("observed", "observed"),
+        input_domains=("entity",),
+        output_kind="association",
+        domain_policy="new",
+        unit_policy="coefficient",
+        cell_policy="spearman_pairs",
+        numeric_policy="pair_ranks",
+        capabilities=("cell_calculation", "part_transport"),
+        part_effect="transport",
+        required_parts=("pair_counts",),
+        required_checks=("complete_pairing", "spearman_pairs"),
+        continuations=(),
+    ),
+    (
+        _source(
+            "dsl.j4.spearman",
+            parts=("pair_counts",),
+            checks=("complete_pairing", "spearman_pairs"),
         ),
     ),
 )
@@ -326,7 +379,9 @@ J3_RATIO_ROLLUP = MethodRegistration(
 def j1_numeric_method(root: LogicalRootHandle) -> MethodRegistration | None:
     """Resolve only the numerically implemented private J1 node shapes."""
     if root.operator_id == "dsl.j1.observe":
-        return J1_OBSERVE_SUM
+        return J1_OBSERVE_COUNT if "count_observation@v1" in root.requirements else J1_OBSERVE_SUM
+    if root.operator_id == "dsl.j1.correlate":
+        return J4_SPEARMAN
     if root.operator_id == "dsl.j1.ratio_observe":
         return J3_RATIO_OBSERVE
     if root.operator_id == "dsl.j1.ratio_rollup":

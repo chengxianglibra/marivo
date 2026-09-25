@@ -79,7 +79,9 @@ def merge_counts(values: Iterable[object]) -> int:
     return total
 
 
-def _validate_table(table: pa.Table, *, part: bool = False) -> None:
+def _validate_table(
+    table: pa.Table, *, part: bool = False, count_observation: bool = False
+) -> None:
     names = set(table.column_names)
     if len(names) != len(table.column_names):
         raise _fail("unique J1 output columns", "duplicate column")
@@ -172,6 +174,19 @@ def _validate_table(table: pa.Table, *, part: bool = False) -> None:
             if "state_sum" in row:
                 support = row["non_null_count"]
                 state_sum = row["state_sum"]
+                if count_observation:
+                    if (
+                        state_sum != support
+                        or support != row["row_count"]
+                        or row.get("cell_tag") != "defined"
+                        or row.get("cell_reason") is not None
+                        or row.get("value") != support
+                    ):
+                        raise _fail(
+                            "count Cell and support including valid empty zero",
+                            "inconsistent count",
+                        )
+                    continue
                 if (support == 0) != (state_sum is None):
                     raise _fail("sum state iff positive support", "inconsistent state")
                 if "cell_tag" in row:
@@ -310,7 +325,12 @@ class J1ExecutionResult:
             )
             if not valid:
                 raise _fail("admitted J1 value physical type", str(physical))
-        _validate_table(self.primary)
+        _validate_table(
+            self.primary,
+            count_observation=(
+                operation == "dsl.j1.observe" and "count_observation@v1" in self.root.requirements
+            ),
+        )
         if len({role for role, _ in self.parts}) != len(self.parts):
             raise _fail("unique retained J1 parts", "duplicate role")
         if operation == "dsl.j1.compare" or numeric_where:

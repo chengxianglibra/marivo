@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from datetime import date, datetime
 from itertools import combinations
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -23,6 +25,131 @@ from marivo.analysis.operators.association_contracts import (
 )
 from marivo.analysis.operators.errors import correlation_error
 from marivo.analysis.operators.row_values import compare_value
+
+
+@dataclass(frozen=True, slots=True)
+class EntitySpearmanResult:
+    metric_key_a: str
+    metric_key_b: str
+    status: str
+    coefficient: float | None
+    input_observation_count: int
+    matched_observation_count: int
+    null_pair_count: int
+    complete_pair_count: int
+    method: Literal["spearman"] = "spearman"
+    method_version: int = 1
+
+
+def _pair_status(xs: list[int | float], ys: list[int | float]) -> str:
+    complete = len(xs)
+    constant_a = complete >= 2 and all(compare_value(xs[0], x) == 0 for x in xs)
+    constant_b = complete >= 2 and all(compare_value(ys[0], y) == 0 for y in ys)
+    return (
+        "insufficient_pairs"
+        if complete < 2
+        else "constant_both"
+        if constant_a and constant_b
+        else "constant_a"
+        if constant_a
+        else "constant_b"
+        if constant_b
+        else "valid"
+    )
+
+
+def _pair_coefficient(method: str, xs: list[int | float], ys: list[int | float]) -> float:
+    if method == "spearman":
+        value = stats.pearsonr(
+            stats.rankdata(xs, method="average"), stats.rankdata(ys, method="average")
+        ).statistic
+    elif method == "kendall":
+        value = stats.kendalltau(xs, ys, variant="b", method="auto").statistic
+    else:
+        value = stats.pearsonr(
+            np.asarray([x - xs[0] for x in xs], dtype=float),
+            np.asarray([y - ys[0] for y in ys], dtype=float),
+        ).statistic
+    coefficient = float(value)
+    if not math.isfinite(coefficient) or abs(coefficient) > 1 + 1e-12:
+        raise correlation_error("finite coefficient in [-1,1]", "numerical execution contradiction")
+    if abs(coefficient) >= 1 - 1e-12:
+        coefficient = math.copysign(1.0, coefficient)
+    return coefficient
+
+
+def reduce_entity_spearman(
+    left: pa.Table, right: pa.Table, metric_keys: tuple[str, str]
+) -> EntitySpearmanResult:
+    """Pair complete J1 Entity Cells before the existing Association rank policy."""
+    expected = (
+        "member",
+        "value",
+        "cell_tag",
+        "cell_reason",
+        "state_sum",
+        "non_null_count",
+        "row_count",
+    )
+    if tuple(left.column_names) != expected or tuple(right.column_names) != expected:
+        raise correlation_error(
+            "two complete keyed numeric observations", "invalid endpoint schema"
+        )
+    for endpoint in (left, right):
+        kind = endpoint.schema.field("value").type
+        if kind not in (pa.int64(), pa.float64()):
+            raise correlation_error("int64 or float64 observation", str(kind))
+    rows = []
+    for endpoint in (left, right):
+        mapping: dict[str | int, tuple[object, object]] = {}
+        for row in endpoint.to_pylist():
+            key = row["member"]
+            if (type(key) is not str and type(key) is not int) or key in mapping:
+                raise correlation_error(
+                    "unique non-null Entity keys", "duplicate or invalid member"
+                )
+            tag, value, reason = row["cell_tag"], row["value"], row["cell_reason"]
+            if tag == "defined":
+                if (
+                    reason is not None
+                    or (type(value) is not int and type(value) is not float)
+                    or not math.isfinite(value)
+                ):
+                    raise correlation_error("finite Defined numeric Cell", "invalid Cell payload")
+            elif tag == "null":
+                if value is not None or reason not in ("source_null", "empty_contribution"):
+                    raise correlation_error("ordinary Null Cell", "invalid Null payload")
+            else:
+                raise correlation_error("Defined or ordinary Null pair input", str(tag))
+            mapping[key] = (tag, value)
+        rows.append(mapping)
+    a, b = rows
+    if a.keys() != b.keys():
+        raise correlation_error("one complete same-key Entity domain", "missing endpoint member")
+    xs: list[int | float] = []
+    ys: list[int | float] = []
+    nulls = 0
+    for key, (left_tag, left_value) in a.items():
+        right_tag, right_value = b[key]
+        if left_tag == "null" or right_tag == "null":
+            nulls += 1
+            continue
+        assert isinstance(left_value, (int, float)) and isinstance(right_value, (int, float))
+        xs.append(left_value)
+        ys.append(right_value)
+    status = _pair_status(xs, ys)
+    if status != "valid":
+        raise correlation_error("at least one valid no-lag candidate", status)
+    return EntitySpearmanResult(
+        metric_keys[0],
+        metric_keys[1],
+        status,
+        _pair_coefficient("spearman", xs, ys),
+        len(a),
+        len(a),
+        nulls,
+        len(xs),
+    )
 
 
 def shifted_time(value: object, offset: int, spec: CorrelateSpecV1) -> pd.Timestamp | None:
@@ -244,39 +371,10 @@ def execute_pairs(frame: pd.DataFrame, spec: CorrelateSpecV1) -> pd.DataFrame:
             raise correlation_error(
                 "finite complete numeric pairs", "null or non-finite prepared pair"
             )
-        constant_a = complete >= 2 and all(compare_value(xs[0], x) == 0 for x in xs)
-        constant_b = complete >= 2 and all(compare_value(ys[0], y) == 0 for y in ys)
-        status = (
-            "insufficient_pairs"
-            if complete < 2
-            else "constant_both"
-            if constant_a and constant_b
-            else "constant_a"
-            if constant_a
-            else "constant_b"
-            if constant_b
-            else "valid"
-        )
+        status = _pair_status(xs, ys)
         coefficient: float | None = None
         if status == "valid":
-            if spec.semantics.method == "spearman":
-                value = stats.pearsonr(
-                    stats.rankdata(xs, method="average"), stats.rankdata(ys, method="average")
-                ).statistic
-            elif spec.semantics.method == "kendall":
-                value = stats.kendalltau(xs, ys, variant="b", method="auto").statistic
-            else:
-                value = stats.pearsonr(
-                    np.asarray([x - xs[0] for x in xs], dtype=float),
-                    np.asarray([y - ys[0] for y in ys], dtype=float),
-                ).statistic
-            coefficient = float(value)
-            if not math.isfinite(coefficient) or abs(coefficient) > 1 + 1e-12:
-                raise correlation_error(
-                    "finite coefficient in [-1,1]", "numerical execution contradiction"
-                )
-            if abs(coefficient) >= 1 - 1e-12:
-                coefficient = math.copysign(1.0, coefficient)
+            coefficient = _pair_coefficient(spec.semantics.method, xs, ys)
         row.update(status=status, coefficient=coefficient, lag_boundary_drop_count=total - matched)
         rows.append(row)
     expected = {(a, b, k) for a, b in expected_pairs for k in spec.semantics.lag_offsets}

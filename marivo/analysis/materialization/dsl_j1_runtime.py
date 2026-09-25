@@ -164,6 +164,11 @@ def execute_j1(
     context = _context(node)
     if context.session_id != self.session_ref or context.store_id != self.store.store_id:
         raise _reject("foreign J1 Session or Store")
+    if (
+        node.root.operator_id == "dsl.j1.observe"
+        and "count_observation@v1" in node.root.requirements
+    ):
+        raise _reject("P1 count observation is admitted only as a J4 source input")
     pair = isinstance(node, J1Difference)
     fixed = any(
         value is not None

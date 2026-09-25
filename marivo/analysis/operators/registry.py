@@ -115,7 +115,13 @@ class ImplementationRegistration:
 
 
 MethodKind: TypeAlias = Literal[
-    "domain", "observed", "row_statistic", "difference", "numeric_relation", "predicate"
+    "domain",
+    "observed",
+    "row_statistic",
+    "difference",
+    "numeric_relation",
+    "predicate",
+    "association",
 ]
 MethodRoute: TypeAlias = Literal["source", "local"]
 MethodBackend: TypeAlias = BackendName | Literal["pandas"]
@@ -129,7 +135,15 @@ CoreCapability: TypeAlias = Literal[
     "part_transport",
 ]
 _METHOD_KINDS = frozenset(
-    {"domain", "observed", "row_statistic", "difference", "numeric_relation", "predicate"}
+    {
+        "domain",
+        "observed",
+        "row_statistic",
+        "difference",
+        "numeric_relation",
+        "predicate",
+        "association",
+    }
 )
 _CAPABILITIES = frozenset(
     {
