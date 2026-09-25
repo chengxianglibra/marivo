@@ -13,7 +13,12 @@ import ibis.expr.types as ir
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.datasets.handles import LogicalRootHandle, _RunNodeBindings
 from marivo.analysis.observation.coordinates import relationship_columns
-from marivo.analysis.observation.dsl_j1 import J1_COMPARE_CHECKS, J1_COMPARE_PARTS, J1Context
+from marivo.analysis.observation.dsl_j1 import (
+    J1_COMPARE_CHECKS,
+    J1_COMPARE_PARTS,
+    J1Context,
+    numeric_threshold_is_lossless,
+)
 from marivo.semantic.metric_graph import AggregateNodeV1, component_node
 from marivo.semantic.metric_graph_lowering import normalize_target_metric
 from marivo.semantic.validator import normalize_target_dimension, normalize_target_entity
@@ -241,6 +246,12 @@ def _lower_j1_source(
             ),
         )
     if operation == "dsl.j1.members":
+        if root.inputs:
+            selected = lower_j1_source(context, _parent(root), tables, memo=memo)
+            return J1SourcePlan(
+                selected.primary.select(member=selected.primary.member),
+                checks=selected.checks,
+            )
         entity_path = parameters[0]
         if not isinstance(entity_path, str):
             raise _reject("bound Entity path", "invalid member root")
@@ -273,6 +284,44 @@ def _lower_j1_source(
             checks=members.checks,
         )
     if operation == "dsl.j1.where":
+        if len(parameters) == 3 and parameters[0] == "numeric":
+            comparison, threshold = parameters[1:]
+            if not isinstance(comparison, str) or comparison not in (
+                "lt",
+                "lte",
+                "gt",
+                "gte",
+                "eq",
+            ):
+                raise _reject("closed numeric comparison", str(comparison))
+            prior = lower_j1_source(context, _parent(root), tables, memo=memo)
+            table = prior.primary
+            if not numeric_threshold_is_lossless(str(table.value.type()), threshold):
+                raise _reject("finite lossless numeric threshold", type(threshold).__name__)
+            assert type(threshold) is int or type(threshold) is float
+            checked = threshold
+            invalid_cell = (table.cell_tag != "defined") | table.value.isnull()
+            if str(table.value.type()) == "float64":
+                invalid_cell = invalid_cell | table.value.isnan() | table.value.isinf()
+            invalid_rows = table.filter(invalid_cell)
+            invalid = invalid_rows.aggregate(invalid=invalid_rows.count())
+            predicate = {
+                "lt": table.value < checked,
+                "lte": table.value <= checked,
+                "gt": table.value > checked,
+                "gte": table.value >= checked,
+                "eq": table.value == checked,
+            }[comparison]
+            selected = table.filter(predicate)
+            keys = selected.select(member=selected.member)
+            filtered_parts = tuple(
+                (role, part.filter(part.member.isin(keys.member))) for role, part in prior.parts
+            )
+            return J1SourcePlan(
+                selected,
+                parts=filtered_parts,
+                checks=(*prior.checks, ("strict_numeric_cell", invalid)),
+            )
         value = parameters[1]
         if not isinstance(value, str):
             raise _reject("bound string category", "invalid predicate")

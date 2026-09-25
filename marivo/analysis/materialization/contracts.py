@@ -486,7 +486,7 @@ class ExchangeBinding:
         keys = tuple(by_id[field_id] for field_id in self.row.key_field_ids)
         domain_keys = (
             (self.domain.member_identity,)
-            if isinstance(self.domain, d._EntityDomain)
+            if isinstance(self.domain, (d._EntityDomain, d._SelectedEntityDomain))
             else self.domain.group_fields
             if isinstance(self.domain, d._GroupDomain)
             else ()

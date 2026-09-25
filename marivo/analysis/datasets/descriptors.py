@@ -200,6 +200,14 @@ class _EntityDomain(AnalysisDomain, _token=_CORE_TOKEN):
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class _SelectedEntityDomain(AnalysisDomain, _token=_CORE_TOKEN):
+    input_domain: AnalysisDomain
+    member_identity: DatasetFieldId
+    selector_definition_fingerprint: str
+    kind: Literal["entity"] = field(default="entity", init=False)
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class _GroupDomain(AnalysisDomain, _token=_CORE_TOKEN):
     input_domain: AnalysisDomain
     group_fields: tuple[DatasetFieldId, ...]
@@ -218,6 +226,23 @@ def _entity_domain(entity_ref: Ref[EntityKind], member_identity: DatasetFieldId)
     if type(member_identity) is not DatasetFieldId:
         _fail("one member identity field", type(member_identity).__name__, "domain.member")
     return _EntityDomain(_token=_CORE_TOKEN, entity_ref=entity_ref, member_identity=member_identity)
+
+
+def _selected_entity_domain(
+    input_domain: AnalysisDomain, selector_definition_fingerprint: str
+) -> _SelectedEntityDomain:
+    if input_domain.kind != "entity" or not isinstance(
+        input_domain, (_EntityDomain, _SelectedEntityDomain)
+    ):
+        _fail("one Entity member domain", input_domain.kind, "domain.select")
+    if re.fullmatch(r"ds_[0-9a-f]{64}", selector_definition_fingerprint) is None:
+        _fail("exact selector definition", "invalid fingerprint", "domain.select")
+    return _SelectedEntityDomain(
+        _token=_CORE_TOKEN,
+        input_domain=input_domain,
+        member_identity=input_domain.member_identity,
+        selector_definition_fingerprint=selector_definition_fingerprint,
+    )
 
 
 def _group_domain(

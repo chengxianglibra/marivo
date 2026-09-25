@@ -55,6 +55,13 @@ inputs and the binding. The two endpoint bindings are checked before Run
 admission or Artifact row reads. A source-only compare realizes its shared
 explicit member node once per invocation and receives a fresh Run identity
 on every top-level call.
+S2 P2 admits a source-only compare nested below strict numeric selection,
+member projection, new observation and current-row statistic in one top-level
+Run. The selected member definition remains a live dependency of that Run;
+the compare member node has one realization within it. Fixed compare and
+selected Difference continuations bind exact ordered endpoint or predecessor
+receipts and execute in pandas. A fixed selected member followed by a live
+read/observe remains mixed and rejects before Run admission or data I/O.
 
 Classification follows only the current root's transitive data dependencies.
 An explicit Materialized leaf is a fixed boundary: its historic source lineage

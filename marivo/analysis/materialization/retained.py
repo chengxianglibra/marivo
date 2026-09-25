@@ -323,7 +323,9 @@ def component_schema(row: DatasetRowContract, role: str, schema: pa.Schema) -> t
     """Validate meaning from the owner; the receipt separately pins physical schema."""
     if row.shape_id.family_id == "dsl_j1" and role in ("current_endpoint", "baseline_endpoint"):
         if (
-            row.shape_id.local_shape_id != "compare"
+            row.shape_id.local_shape_id not in ("compare", "where")
+            or tuple(field.name for field in row.schema.columns)
+            != ("member", "value", "cell_tag", "cell_reason")
             or tuple(schema.names) != ("member", "value", "cell_tag", "cell_reason")
             or schema.field("member").type not in (pa.string(), pa.int64())
             or schema.field("member").nullable

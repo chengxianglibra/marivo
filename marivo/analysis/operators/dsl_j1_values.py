@@ -10,10 +10,24 @@ import pyarrow as pa
 
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.observation.dsl_j1 import numeric_threshold_is_lossless
 from marivo.analysis.operators.dsl_j1_contracts import J1_COMPARE_DIFFERENCE
 
 _MIN_I64 = -(2**63)
 _MAX_I64 = 2**63 - 1
+
+
+def admit_numeric_threshold(value_type: str, threshold: object, stage: str) -> int | float:
+    """Keep numeric predicates exact at the selected physical comparison type."""
+    if not numeric_threshold_is_lossless(value_type, threshold):
+        raise MaterializationError(
+            expected="finite lossless threshold for the numeric Cell type",
+            received=f"{type(threshold).__name__} threshold for {value_type}",
+            repair="Use an admitted finite threshold without numeric type conversion loss.",
+            stage=stage,
+        )
+    assert type(threshold) is int or type(threshold) is float
+    return threshold
 
 
 def _fail(expected: str, received: str) -> MaterializationError:
@@ -181,9 +195,12 @@ class J1ExecutionResult:
         cell = ("value", "cell_tag", "cell_reason")
         state = ("state_sum", "non_null_count", "row_count")
         expected: tuple[str, ...]
-        if operation in ("dsl.j1.members", "dsl.j1.where"):
+        numeric_where = (
+            operation == "dsl.j1.where" and len(parameters) == 3 and parameters[0] == "numeric"
+        )
+        if operation == "dsl.j1.members" or (operation == "dsl.j1.where" and not numeric_where):
             expected = ("member",)
-        elif operation in ("dsl.j1.read", "dsl.j1.compare"):
+        elif operation in ("dsl.j1.read", "dsl.j1.compare") or numeric_where:
             expected = ("member", *cell)
         elif operation == "dsl.j1.group":
             expected = (
@@ -233,7 +250,7 @@ class J1ExecutionResult:
         _validate_table(self.primary)
         if len({role for role, _ in self.parts}) != len(self.parts):
             raise _fail("unique retained J1 parts", "duplicate role")
-        if operation == "dsl.j1.compare":
+        if operation == "dsl.j1.compare" or numeric_where:
             if (
                 tuple(role for role, _ in self.parts)
                 != J1_COMPARE_DIFFERENCE.contract.required_parts

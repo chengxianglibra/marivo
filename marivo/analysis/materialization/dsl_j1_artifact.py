@@ -50,6 +50,7 @@ from marivo.analysis.observation.dsl_j1 import (
     J1Members,
     J1Observed,
     J1Read,
+    J1SelectedDifference,
     J1Statistic,
     j1_row_contracts,
 )
@@ -57,7 +58,9 @@ from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
 from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult
 from marivo.semantic.validator import normalize_target_entity
 
-J1Node: TypeAlias = J1Members | J1Read | J1Group | J1Observed | J1Statistic | J1Difference
+J1Node: TypeAlias = (
+    J1Members | J1Read | J1Group | J1Observed | J1Statistic | J1Difference | J1SelectedDifference
+)
 _STATE = (
     ("value.sum", "dsl.j1.value_sum", "state_sum"),
     ("value.non_null_count", "dsl.j1.non_null_count", "non_null_count"),
@@ -91,7 +94,7 @@ def _context(node: J1Node) -> J1Context:
 def _meaning(node: J1Node) -> tuple[d.AnalysisDomain, d.QuantityState | None]:
     if isinstance(node, J1Read):
         return node.members_input.domain, None
-    if isinstance(node, (J1Statistic, J1Difference)):
+    if isinstance(node, (J1Statistic, J1Difference, J1SelectedDifference)):
         return node.domain, node.quantity
     if isinstance(node, J1Observed):
         return node.domain, node.quantity
@@ -179,7 +182,12 @@ def _part_specs(result: J1ExecutionResult) -> tuple[PartWriteSpec, ...]:
 
 
 def _producer(result: J1ExecutionResult) -> str:
-    if result.root.operator_id == "dsl.j1.compare":
+    if result.root.operator_id == "dsl.j1.compare" or (
+        result.root.operator_id == "dsl.j1.where"
+        and type(result.root.parameters) is tuple
+        and len(result.root.parameters) == 3
+        and result.root.parameters[0] == "numeric"
+    ):
         return "dsl.j1.compare"
     names = set(result.primary.column_names)
     if "state_sum" in names:
@@ -273,7 +281,7 @@ def _publish_j1_artifact(
         result.completed_checks
     ):
         raise _error("J1 source obligations are incomplete")
-    if isinstance(node, J1Difference):
+    if isinstance(node, (J1Difference, J1SelectedDifference)):
         method = j1_numeric_method(node.root)
         if method is None or not set(method.contract.required_checks) <= set(
             result.completed_checks

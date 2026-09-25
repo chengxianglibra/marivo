@@ -186,6 +186,7 @@ def run_j1_local(root: LogicalRootHandle, retained: J1ExecutionResult) -> J1Exec
     from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
     from marivo.analysis.operators.dsl_j1_values import (
         J1ExecutionResult,
+        admit_numeric_threshold,
         merge_counts,
         merge_numbers,
     )
@@ -215,6 +216,66 @@ def run_j1_local(root: LogicalRootHandle, retained: J1ExecutionResult) -> J1Exec
     parameters = root.parameters
     if type(parameters) is not tuple:
         raise _error("implementation_registration")
+    if operation == "dsl.j1.members" and root.inputs:
+        if "member" not in retained.primary.column_names:
+            raise _error("implementation_registration")
+        return J1ExecutionResult(
+            root,
+            retained.primary.select(("member",)),
+            completed_checks=retained.completed_checks,
+        )
+    if operation == "dsl.j1.where" and len(parameters) == 3 and parameters[0] == "numeric":
+        if tuple(retained.primary.column_names) != ("member", "value", "cell_tag", "cell_reason"):
+            raise _error("implementation_registration")
+        comparison = parameters[1]
+        if comparison not in ("lt", "lte", "gt", "gte", "eq"):
+            raise _error("implementation_registration")
+        threshold = admit_numeric_threshold(
+            str(retained.primary.schema.field("value").type), parameters[2], "local_admission"
+        )
+        numeric_rows = retained.primary.to_pylist()
+        if any(item["cell_tag"] != "defined" for item in numeric_rows):
+            raise MaterializationError(
+                expected="finite Defined numeric Cells on the full input domain",
+                received="non-Defined selection input",
+                repair="Select an admitted complete numeric relation.",
+                stage="local_execution",
+            )
+        selected_keys: set[object] = set()
+        selected_rows: list[dict[str, object]] = []
+        for item in numeric_rows:
+            value = item["value"]
+            if type(value) is not int and type(value) is not float:
+                raise _error("output_validation")
+            if (
+                (comparison == "lt" and value < threshold)
+                or (comparison == "lte" and value <= threshold)
+                or (comparison == "gt" and value > threshold)
+                or (comparison == "gte" and value >= threshold)
+                or (comparison == "eq" and value == threshold)
+            ):
+                selected_keys.add(item["member"])
+                selected_rows.append(item)
+        parts = tuple(
+            (
+                role,
+                part.filter(
+                    pa.array(
+                        [item["member"] in selected_keys for item in part.to_pylist()],
+                        type=pa.bool_(),
+                    )
+                ),
+            )
+            for role, part in retained.parts
+        )
+        return J1ExecutionResult(
+            root,
+            pa.Table.from_pylist(selected_rows, schema=retained.primary.schema),
+            parts=parts,
+            completed_checks=tuple(
+                dict.fromkeys((*retained.completed_checks, "strict_numeric_cell"))
+            ),
+        )
     frame = retained.primary.to_pandas(types_mapper=pd.ArrowDtype).copy(deep=True)
     if operation == "dsl.j1.where":
         if tuple(frame.columns) != ("member", "value", "cell_tag", "cell_reason"):

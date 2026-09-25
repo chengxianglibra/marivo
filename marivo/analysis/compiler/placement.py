@@ -112,7 +112,13 @@ def place_j1_local(
     if (
         root.shape_id.family_id != "dsl_j1"
         or root.operator_id
-        not in ("dsl.j1.where", "dsl.j1.group", "dsl.j1.rollup", "dsl.j1.summarize")
+        not in (
+            "dsl.j1.members",
+            "dsl.j1.where",
+            "dsl.j1.group",
+            "dsl.j1.rollup",
+            "dsl.j1.summarize",
+        )
         or len(root.inputs) != 1
         or root.inputs[0].root is not input_root
         or root.session_id != input_root.session_id
