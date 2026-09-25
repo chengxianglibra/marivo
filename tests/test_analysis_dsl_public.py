@@ -8,10 +8,13 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
+import duckdb
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._help.model import NativeHelpRoute
+from marivo._help.route import route_help_target
 from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory
 
@@ -31,6 +34,107 @@ def test_public_j1_total_uses_registered_source(
 
     assert isinstance(result, mv.MaterializedRolledNumericRelation)
     assert result.to_pandas().iloc[0]["value"] == 1000
+
+
+@pytest.mark.runtime
+def test_public_p2_contract_actions_and_result_card(
+    analysis_dsl_case_factory: DslCaseFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    names = case.names
+    logical = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
+    for action in logical.contract().actions:
+        assert isinstance(action, mv.AnalysisAction)
+        assert action.call.startswith("relation.")
+        assert isinstance(route_help_target(action.help_target), NativeHelpRoute)
+    assert ".contract().show()" in repr(logical)
+
+    subject_key = "subject-key-only-private-7b5d4e"
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute(
+            f'UPDATE "{names.customer}" SET "{names.customer_id}"=? WHERE "{names.customer_id}"=?',
+            (subject_key, "A"),
+        )
+        connection.execute(
+            f'UPDATE "{names.order}" SET "{names.customer_id}"=? WHERE "{names.customer_id}"=?',
+            (subject_key, "A"),
+        )
+
+    observed = logical.observe(
+        ms.ref.metric(f"{names.domain}.{names.revenue}"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
+    )
+    saved = observed.execute()
+    assert ".show()" in repr(saved)
+    assert all(
+        isinstance(route_help_target(action.help_target), NativeHelpRoute)
+        for action in saved.contract().actions
+    )
+    saved.show()
+    card = capsys.readouterr().out
+    assert "unit=CNY" in card
+    assert "method=sum" in card
+    assert "cell_state_fields=" in card
+    assert "<identity>" in card
+    assert subject_key not in card
+    assert len(card.encode("utf-8")) <= 8192
+    saved.show(max_output_bytes=128)
+    assert len(capsys.readouterr().out.encode("utf-8")) <= 128
+
+    offline = case.database_path.with_suffix(".offline")
+    case.database_path.rename(offline)
+    try:
+        restored = case.session.artifact(saved.state.artifact_ref)
+        assert restored.contract() == saved.contract()
+        restored.show()
+        assert "exact retained Artifact" in capsys.readouterr().out
+    finally:
+        offline.rename(case.database_path)
+
+
+@pytest.mark.runtime
+def test_public_p2_empty_and_undefined_cards(
+    analysis_dsl_case_factory: DslCaseFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    empty = analysis_dsl_case_factory("empty_domain")
+    empty_members = empty.session.members(
+        ms.ref.entity(f"{empty.names.domain}.{empty.names.customer}")
+    ).execute()
+    empty_members.show()
+    empty_card = capsys.readouterr().out
+    assert "rows=0" in empty_card
+    assert "<identity>" not in empty_card
+    assert empty_members.contract().actions == ()
+
+    case = analysis_dsl_case_factory("zero_denominator")
+    names = case.names
+    members = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
+    observed = members.observe(
+        ms.ref.metric(f"{names.domain}.{names.aov}"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=mv.routes(
+            mv.route(
+                ms.ref.entity(f"{names.domain}.{names.order_line}"),
+                through=(
+                    ms.ref.relationship(f"{names.domain}.{names.line_order}"),
+                    ms.ref.relationship(f"{names.domain}.{names.buyer}"),
+                ),
+            ),
+            mv.route(
+                ms.ref.entity(f"{names.domain}.{names.order}"),
+                through=(ms.ref.relationship(f"{names.domain}.{names.buyer}"),),
+            ),
+        ),
+    )
+    undefined = observed.rollup().execute()
+    undefined.show()
+    card = capsys.readouterr().out
+    assert "undefined" in card.casefold()
+    assert "zero_denominator" in card
+    assert "weighting=original numerator and denominator components" in card
 
 
 @pytest.mark.runtime
@@ -66,7 +170,9 @@ def test_public_member_read_and_category_selection(
     selected = read.where(read.value.eq("west")).execute()
 
     assert isinstance(selected, mv.MaterializedSelectedCategoryRelation)
-    assert selected.contract().next_actions == ("members",)
+    actions = selected.contract().actions
+    assert tuple(action.call for action in actions) == ("relation.members()",)
+    assert all(action.help_target.startswith("analysis.") for action in actions)
     assert isinstance(
         case.session.artifact(selected.state.artifact_ref), mv.MaterializedSelectedCategoryRelation
     )
@@ -201,6 +307,7 @@ def test_public_j2_selected_members_and_next_month_mean(
 @pytest.mark.runtime
 def test_public_j3_ratio_rollup_differs_from_current_row_mean(
     analysis_dsl_case_factory: DslCaseFactory,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j3")
     names = case.names
@@ -245,6 +352,8 @@ def test_public_j3_ratio_rollup_differs_from_current_row_mean(
         "value.denominator.row_count",
     }
     assert set(overall.contract().retained_parts) == set(overall.contract().required_parts)
+    overall.contract().show()
+    assert "weighting=original numerator and denominator components" in capsys.readouterr().out
     fixed_observed = observed.execute()
     fixed_ratio = case.session.artifact(fixed_observed.state.artifact_ref)
     assert isinstance(fixed_ratio, mv.MaterializedRatioRelation)
@@ -274,6 +383,9 @@ def test_public_j4_spearman_and_fixed_coefficient_selection(
     )
 
     association = revenue.correlate(count, method="spearman").execute()
+    assert association.contract().actions == (
+        mv.AnalysisAction("relation.coefficient", "analysis.MaterializedCoefficientRelation"),
+    )
     coefficient = association.coefficient
     selected = coefficient.where(coefficient.value.lt(0)).execute()
 
@@ -317,8 +429,11 @@ def test_public_snapshot_mismatch_rejects_exact_artifact(
         return old_artifact(self, reference)
 
     monkeypatch.setattr(type(store), "artifact", altered_artifact)
-    with pytest.raises(AnalysisError, match="public continuation binding mismatch"):
+    with pytest.raises(AnalysisError, match="public continuation binding mismatch") as mismatch:
         case.session.artifact(result.state.artifact_ref)
+    assert mismatch.value.expected and mismatch.value.received
+    assert mismatch.value.repair is not None
+    assert mismatch.value.repair.help_target.canonical_id == "session.artifact"
 
 
 @pytest.mark.runtime
@@ -328,15 +443,20 @@ def test_public_missing_key_and_wrong_relationship_reject(
     case = analysis_dsl_case_factory("missing_key")
     names = case.names
     members = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
-    with pytest.raises(AnalysisError, match="key"):
+    with pytest.raises(AnalysisError, match="key") as missing:
         members.execute()
+    assert missing.value.expected and missing.value.received
+    assert missing.value.repair is not None
+    assert missing.value.repair.help_target.canonical_id == "actions.execute"
 
-    with pytest.raises(AnalysisError, match=r"Relationship|path"):
+    with pytest.raises(AnalysisError, match=r"Relationship|path") as route:
         members.observe(
             ms.ref.metric(f"{names.domain}.{names.revenue}"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship(f"{names.domain}.{names.line_order}"),
         )
+    assert route.value.repair is not None
+    assert route.value.repair.help_target.canonical_id == "dsl.LogicalAnalysisDomain.observe"
 
 
 @pytest.mark.runtime
@@ -361,8 +481,10 @@ def test_public_missing_retained_part_blocks_recovery(
     offline = path.with_name(path.name + ".offline")
     path.rename(offline)
     try:
-        with pytest.raises(AnalysisError, match=r"(?i)part|receipt|file|missing"):
+        with pytest.raises(AnalysisError, match=r"(?i)part|receipt|file|missing") as missing:
             case.session.artifact(result.state.artifact_ref)
+        assert missing.value.repair is not None
+        assert missing.value.repair.help_target.canonical_id == "session.artifact"
     finally:
         offline.rename(path)
 

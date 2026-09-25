@@ -94,6 +94,7 @@ def _invalid(received: str) -> DatasetConstructionError:
         received=received,
         repair="Recover the exact public Artifact; do not reconstruct a result from displayed rows.",
         location="analysis.artifact",
+        help_target="session.artifact",
     )
 
 

@@ -152,6 +152,7 @@ ANALYSIS_PUBLIC = {
     "MaterializedCoefficientRelation",
     "LogicalCoefficientSelectionRelation",
     "MaterializedCoefficientSelectionRelation",
+    "AnalysisAction",
     "AnalysisContract",
     "GroupedAnalysisDomain",
     "GroupedNumericRelation",
@@ -276,7 +277,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "55ed82bb59ea06d90f758da4f40996f4a7125f8f4c3da3d2dd3fdf167d2b424e"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "8ecff0d812d27524b0db701b8fb5a91d7361cc8ec47fec8cc95f23007faf8617"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

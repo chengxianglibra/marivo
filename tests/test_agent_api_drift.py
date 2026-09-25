@@ -261,6 +261,7 @@ def test_analysis_public_exports_are_ordered_default_workflow_surface() -> None:
         "SessionGraph",
         "SucceededRun",
         "Session",
+        "AnalysisAction",
         "AnalysisContract",
         "LogicalAnalysisDomain",
         "MaterializedAnalysisDomain",

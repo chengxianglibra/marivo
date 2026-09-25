@@ -201,6 +201,32 @@ primary/part receipts. Missing, malformed or mismatched snapshots reject.
 | `session.artifact(reference)` | Extended to recover a concrete public J1–J4 Materialized variant when its validated snapshot exists; other family Artifacts retain their prior return shape. |
 | Private `DatasetRuntime.execute_j1(...)` and old private J1 Artifacts | No public entry or migration; private Artifacts without a public snapshot reject through the public recovery call. |
 
+### S4 P2 public disclosure
+
+`analysis.entry` routes to `session.members`; the existing Analysis method and
+input hubs route to the admitted J1–J4 calls. Each public relation type links
+its actual methods to exact native `marivo.help("analysis.<target>")` leaves.
+Those leaves derive signatures and constraints from the callable owner and
+identify the required governed inputs. CLI Help remains a Python Help bootstrap.
+
+The public `AnalysisContract.actions` is a tuple of `AnalysisAction(call,
+help_target)` values. It contains only mechanically admitted calls for the
+receiver and its declared retained components; the old bare-name
+`next_actions` field is removed. `contract().show()` reports the available
+kind, phase, domain, quantity, unit and method facts, current-row weighting,
+Cell fields, source assumptions and retained component roles as applicable.
+It does not query business sources. A materialized relation's `show()` combines
+those facts with one bounded committed preview, redacting Entity member values.
+Cold recovery derives the same disclosure from the validated frozen snapshot
+and Artifact, without reconnecting to current semantics or sources. Integrity
+failure still blocks recovery; a contract is not a storage revalidation result.
+
+Structured public repairs retain distinct missing-source-key, missing-part,
+binding-mismatch and unsupported-route diagnoses. Each exposes expected,
+received and a native Help destination for the failed operation or recovery.
+Help, result cards, errors and logs never reveal complete Entity member keys
+or digests calculated solely from those keys.
+
 ## Accepted S0 Analysis DSL slice (inactive)
 
 This historical S0 section accepted the first-round semantics in the

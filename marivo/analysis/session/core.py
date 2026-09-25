@@ -254,6 +254,7 @@ class Session:
                 received="private J1 Artifact without a public snapshot",
                 repair="Recover an Artifact produced through session.members(...).",
                 location="analysis.artifact",
+                help_target="session.artifact",
             )
         from marivo.analysis.materialization.contracts import digest
 
@@ -274,6 +275,7 @@ class Session:
                 received="public continuation binding mismatch",
                 repair="Recover the original unmodified public Artifact.",
                 location="analysis.artifact",
+                help_target="session.artifact",
             )
         from marivo.analysis.materialization.dsl_j1_artifact import load_j1_artifact
         from marivo.analysis.materialization.dsl_public_snapshot import decode_public_node

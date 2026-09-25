@@ -51,6 +51,10 @@ and recovers its concrete materialized shape and permitted local K without
 loading the current Semantic catalog or reconnecting to the source. An older
 private J1 Artifact without this snapshot remains outside the public recovery
 contract and is not migrated. Non-DSL Artifact recovery is unchanged.
+S4 P2 disclosure reads this validated snapshot and the Artifact descriptor for
+kind, quantity, declared retained parts and admissible calls. It does not
+reconnect to a source; missing or mismatched backing still rejects through the
+exact Artifact repair path. A contract card is not full storage revalidation.
 
 This is the accepted protocol for the
 [first-round Analysis DSL slice](python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive).

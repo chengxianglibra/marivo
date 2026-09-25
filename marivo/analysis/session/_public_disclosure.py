@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from inspect import Parameter, isfunction, signature
+from inspect import Parameter, getdoc, isfunction, signature
 
 from marivo.analysis import public_dsl as dsl
 from marivo.analysis._capabilities.dataset_model import (
@@ -15,12 +15,73 @@ from marivo.analysis._capabilities.dataset_model import (
     value_type,
 )
 
+_METHOD_GROUPS = {
+    ("GroupedRatioRelation", "rollup"): "methods.metric",
+    ("LogicalAnalysisDomain", "read"): "inputs.population",
+    ("LogicalAnalysisDomain", "group_by"): "methods.metric",
+    ("LogicalAnalysisDomain", "observe"): "methods.metric",
+    ("LogicalNumericRelation", "group_by"): "methods.metric",
+    ("LogicalNumericRelation", "rollup"): "methods.metric",
+    ("LogicalNumericRelation", "summarize"): "methods.metric",
+    ("LogicalNumericRelation", "compare"): "methods.compare",
+    ("LogicalNumericRelation", "correlate"): "methods.association",
+    ("MaterializedNumericRelation", "summarize"): "methods.metric",
+    ("MaterializedNumericRelation", "compare"): "methods.compare",
+    ("LogicalRatioRelation", "group_by"): "methods.metric",
+    ("LogicalRatioRelation", "rollup"): "methods.metric",
+    ("LogicalRatioRelation", "summarize"): "methods.metric",
+    ("MaterializedRatioRelation", "rollup"): "methods.metric",
+    ("LogicalCategoryRelation", "where"): "methods.rows",
+    ("LogicalDifferenceRelation", "where"): "methods.rows",
+    ("LogicalDifferenceRelation", "summarize"): "methods.compare",
+    ("MaterializedSelectedDifferenceRelation", "members"): "methods.rows",
+    ("MaterializedCoefficientRelation", "where"): "methods.association",
+}
+
+_INPUT_GUIDANCE = {
+    "metric": "Use one exact Metric Ref from the current Semantic catalog.",
+    "dimension": "Use a declared categorical Dimension Ref on this receiver's domain.",
+    "during": "Use mv.time_scope(start=..., end=...) with absolute bounds.",
+    "via": "Use the exact relationship Ref or mv.routes(...) required by this Metric.",
+    "coordinates": "Optional declared contribution Dimension Refs; omit when none are needed.",
+    "baseline": "Use a distinct observation of the same members and Metric.",
+    "other": "Use another Metric observation on the same members and time scope.",
+    "method": "Use one closed mv.sum/count/mean() value or the stated method literal.",
+    "predicate": "Build the predicate from this receiver's own value handle.",
+    "max_output_bytes": "Keep the default bound or request a smaller positive byte limit.",
+}
+
+
+def _doc_section(value: object, heading: str) -> str:
+    lines = (getdoc(value) or "").splitlines()
+    for index, line in enumerate(lines):
+        if not line.startswith(heading + ":"):
+            continue
+        result = [line.partition(":")[2].strip()]
+        for following in lines[index + 1 :]:
+            if not following.strip() or following.endswith(":"):
+                break
+            result.append(following.strip())
+        return " ".join(part for part in result if part)
+    return ""
+
+
+def _effects(name: str) -> str:
+    if name == "execute":
+        return "Evaluate the admitted graph and publish or recover an exact Artifact."
+    if name in ("show", "to_pandas"):
+        return "Read the exact committed Artifact under bounded or isolated-read guards."
+    if name == "contract":
+        return "Read bound definition and retained metadata without source I/O."
+    return "Construct a typed continuation without business-source I/O."
+
 
 def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
     """Bind first-round public values and callables to one native Help owner."""
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
     types = (
+        dsl.AnalysisAction,
         dsl.AnalysisContract,
         dsl.GroupedAnalysisDomain,
         dsl.GroupedNumericRelation,
@@ -62,14 +123,50 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             if value not in (dsl.RootRoute, dsl.RootRoutes)
             else ("RootRoute" if value is dsl.RootRoute else "RootRoutes")
         )
+        acquisition = (
+            "Read one action from relation.contract().actions."
+            if value is dsl.AnalysisAction
+            else "Call relation.contract()."
+            if value is dsl.AnalysisContract
+            else "Call mv.sum(), mv.count(), or mv.mean()."
+            if value is dsl.RowMethod
+            else "Call mv.route(root, through=(...))."
+            if value is dsl.RootRoute
+            else "Call mv.routes(first_route, second_route)."
+            if value is dsl.RootRoutes
+            else "Construct through session.members() or the returned typed relation."
+        )
+        producers = (
+            ("dsl.Value.contract",)
+            if value is dsl.AnalysisContract
+            else ("AnalysisContract",)
+            if value is dsl.AnalysisAction
+            else ("dsl.sum", "dsl.count", "dsl.mean")
+            if value is dsl.RowMethod
+            else ("dsl.route",)
+            if value is dsl.RootRoute
+            else ("dsl.routes",)
+            if value is dsl.RootRoutes
+            else ("session.members",)
+        )
         descriptors.append(
             value_type(
                 name,
                 value,
                 summary=f"First-round governed Analysis {name} value.",
-                acquisition="Construct through session.members() or the returned typed relation.",
-                producers=("session.members",),
-                consumers=("session.artifact",),
+                acquisition=acquisition,
+                producers=producers,
+                consumers=("AnalysisAction",)
+                if value is dsl.AnalysisContract
+                else ("dsl.routes",)
+                if value is dsl.RootRoute
+                else ("dsl.LogicalAnalysisDomain.observe",)
+                if value is dsl.RootRoutes
+                else ("methods.metric",)
+                if value is dsl.RowMethod
+                else ("session.artifact",)
+                if name.startswith("Materialized")
+                else (),
                 constraints=("Exact member, semantic and Artifact bindings govern continuations.",),
             )
         )
@@ -79,9 +176,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
     for function in functions:
         name = function.__name__
         params = tuple(
-            ParameterInput(
-                key, "Supply the exact governed input for this closed first-round shape."
-            )
+            ParameterInput(key, _INPUT_GUIDANCE.get(key, "Use the exact governed input."))
             for key in signature(function).parameters
         )
         descriptors.append(
@@ -131,10 +226,18 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             arguments = tuple(
                 f"{key}={key}" if parameter.kind is Parameter.KEYWORD_ONLY else key
                 for key, parameter in signature(value).parameters.items()
-                if key != "self"
+                if key != "self" and parameter.default is Parameter.empty
             )
             params = tuple(
-                ParameterInput(key, "Use the bound relation and exact governed input.")
+                ParameterInput(
+                    key,
+                    _INPUT_GUIDANCE.get(key, "Use the exact bound relation or governed input."),
+                    ("dsl.route", "dsl.routes")
+                    if key == "via"
+                    else ("dsl.sum", "dsl.count", "dsl.mean")
+                    if key == "method" and name == "summarize"
+                    else (),
+                )
                 for key in signature(value).parameters
                 if key != "self"
             )
@@ -144,13 +247,15 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     "relation." + name,
                     value,
                     bindings=(bind(value, owner),),
-                    summary=f"{owner.__name__}.{name} for an admitted first-round relation.",
+                    summary=(getdoc(value) or f"{owner.__name__}.{name}.").splitlines()[0],
+                    discovery_group=_METHOD_GROUPS.get((owner.__name__, name)),
                     parameters=params,
                     output=str(signature(value).return_annotation),
                     constraints=(
-                        "The exact receiver and its current contract gate this operation.",
+                        _doc_section(value, "Constraints")
+                        or "The exact receiver and current contract gate this operation.",
                     ),
-                    effects="Construct a logical continuation, publish on execute, or read exact retained state.",
+                    effects=_effects(name),
                     failures=(
                         "AnalysisError: inspect the structured repair for the current shape.",
                     ),
@@ -158,7 +263,14 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                         f"result = relation.{name}()"
                         if not params
                         else f"result = relation.{name}({', '.join(arguments)})",
-                        ("relation", *(parameter.name for parameter in params)),
+                        (
+                            "relation",
+                            *(
+                                parameter.name
+                                for parameter in signature(value).parameters.values()
+                                if parameter.name != "self" and parameter.default is Parameter.empty
+                            ),
+                        ),
                         "result",
                         "The receiver-bound result.",
                         True,

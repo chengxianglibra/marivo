@@ -26,6 +26,50 @@ provide focused continuations without enumerating the entire API. Exact current 
 refs or catalog entries select governed inputs, while Dataset field refs carry
 exact Dataset ownership. Cross-Session Dataset operands are rejected.
 
+The admitted J1–J4 Entity-domain path starts at ``session.members(entity_ref)``.
+Its logical relations expose ``execute()`` and ``contract()``; materialized
+relations expose ``show()``, ``to_pandas()`` and ``contract()``. The public
+``AnalysisContract.actions`` tuple contains typed ``AnalysisAction`` values
+with the receiver call and exact Help target. The combined result card redacts
+Entity member keys. ``python -m marivo help`` is only the installed-interpreter
+bootstrap; focused contracts remain in ``marivo.help(...)``.
+
+First-round Entity-domain values
+--------------------------------
+
+.. autoclass:: AnalysisAction
+   :members:
+
+.. autoclass:: AnalysisContract
+   :members:
+
+.. autoclass:: LogicalAnalysisDomain
+   :members:
+
+.. autoclass:: MaterializedAnalysisDomain
+   :members:
+
+.. autoclass:: LogicalNumericRelation
+   :members:
+
+.. autoclass:: MaterializedNumericRelation
+   :members:
+
+.. autoclass:: LogicalRatioRelation
+   :members:
+
+.. autoclass:: MaterializedRatioRelation
+   :members:
+
+.. autoclass:: LogicalAssociationResult
+   :members:
+
+.. autoclass:: MaterializedAssociationResult
+   :members:
+
+.. autoclass:: RowMethod
+   :members:
+
 Public exports
 --------------
 

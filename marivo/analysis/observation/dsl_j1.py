@@ -113,12 +113,19 @@ def numeric_threshold_is_lossless(value_type: str, threshold: object) -> bool:
     )
 
 
-def _reject(expected: str, received: str, *, repair: str) -> DatasetConstructionError:
+def _reject(
+    expected: str,
+    received: str,
+    *,
+    repair: str,
+    help_target: str | None = None,
+) -> DatasetConstructionError:
     return DatasetConstructionError(
         expected=expected,
         received=received,
         repair=repair,
         location="dsl.j1",
+        help_target=help_target,
     )
 
 
@@ -1318,6 +1325,7 @@ def _observe(
             "declared contribution-to-member Relationship",
             via.path,
             repair="Choose the exact directed Relationship from the Metric root to this Entity.",
+            help_target="dsl.LogicalAnalysisDomain.observe",
         )
     declaration = members.context.registry.metrics.get(metric.path)
     if declaration is None or declaration.aggregation not in ("sum", "count"):

@@ -8,6 +8,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from tests.shared_fixtures import DslCaseFactory, DslScenario
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,11 +25,55 @@ def _blocks(language: str, page: str) -> tuple[str, ...]:
 
 
 @pytest.mark.parametrize(
-    "page,count", [("analysis-workflow", 7), ("evidence", 2), ("semantic-layer", 47)]
+    "page,count", [("analysis-workflow", 8), ("evidence", 2), ("semantic-layer", 47)]
 )
 def test_bilingual_examples_have_identical_executable_contracts(page: str, count: int) -> None:
     assert len(_blocks("en", page)) == count
     assert _blocks("en", page) == _blocks("zh", page)
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize(
+    "scenario,part,expected_type",
+    [
+        ("j2", "change", mv.MaterializedStatisticRelation),
+        ("j3", "ratio_routes", mv.MaterializedRolledRatioRelation),
+        ("j4", "order_count", mv.MaterializedAssociationResult),
+    ],
+)
+def test_first_round_workflow_examples_execute(
+    analysis_dsl_case_factory: DslCaseFactory,
+    scenario: DslScenario,
+    part: str,
+    expected_type: type[object],
+) -> None:
+    case = analysis_dsl_case_factory(scenario)
+    namespace: dict[str, object] = {"session": case.session, "mv": mv, "ms": ms}
+    first = next(
+        block for block in _blocks("en", "analysis-workflow") if block.startswith("customers =")
+    )
+    exec(compile(first, "first-round-entry-example", "exec"), namespace)
+    assert isinstance(namespace["total"], mv.MaterializedRolledNumericRelation)
+
+    followup = next(
+        block for block in _blocks("en", "analysis-workflow") if block.startswith("july =")
+    )
+    change, remainder = followup.split("ratio_routes =", 1)
+    ratio, association = remainder.split("order_count =", 1)
+    selected = (
+        change
+        if part == "change"
+        else "ratio_routes =" + ratio
+        if part == "ratio_routes"
+        else "order_count =" + association
+    )
+    exec(compile(selected, "first-round-continuation-example", "exec"), namespace)
+    output = {
+        "change": "next_month_mean",
+        "ratio_routes": "overall_aov",
+        "order_count": "association",
+    }[part]
+    assert isinstance(namespace[output], expected_type)
 
 
 @pytest.mark.runtime

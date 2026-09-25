@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 from marivo.analysis._capabilities.dataset_model import (
     CallableInput,
     FamilyInput,
@@ -78,8 +80,6 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
         lines.append("Result: " + (descriptor.output_type or descriptor.result_kind))
         lines.append("Bound: " + descriptor.read_bound)
         lines.append("Owner: " + descriptor.receiver_family)
-        import inspect
-
         from marivo.introspection.live.reflect import import_registered_callable
 
         if descriptor.callable_path is not None:
@@ -128,15 +128,13 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
         bindings = tuple(name for name in descriptor.example.requires if name in exports)
         required = tuple(name for name in descriptor.example.requires if name not in exports)
         lines.append("Example inputs: " + (", ".join(required) or "none"))
-        prelude = (
-            (
-                "import marivo.analysis as mv\n"
-                + "\n".join(name + " = mv." + name for name in bindings)
-                + "\n"
-            )
-            if bindings
-            else ""
-        )
+        prelude_lines = []
+        if bindings or "mv." in descriptor.example.code:
+            prelude_lines.append("import marivo.analysis as mv")
+        if "ms." in descriptor.example.code:
+            prelude_lines.append("import marivo.semantic as ms")
+        prelude_lines.extend(name + " = mv." + name for name in bindings)
+        prelude = "\n".join(prelude_lines) + ("\n" if prelude_lines else "")
         lines.extend(
             (
                 "Example:",
@@ -178,7 +176,30 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
                     f"Value variant {index}: "
                     + "; ".join(f.name + ": " + f.annotation for f in variant.fields)
                 )
-            routes = tuple(dict.fromkeys(descriptor.producers + descriptor.consumers))
+            method_routes: list[str] = []
+            for binding in descriptor.bindings:
+                implementation = binding.implementation
+                if implementation.__module__ != "marivo.analysis.public_dsl":
+                    continue
+                for name in binding.methods:
+                    owner = next(
+                        (
+                            base
+                            for base in implementation.__mro__
+                            if inspect.isfunction(vars(base).get(name))
+                        ),
+                        None,
+                    )
+                    if owner is None:
+                        continue
+                    target = f"dsl.{owner.__name__.lstrip('_')}.{name}"
+                    registry.by_canonical_id(target)
+                    method_routes.append(target)
+                if any(item.name == "coefficient" for item in binding.fields):
+                    method_routes.append("MaterializedCoefficientRelation")
+            routes = tuple(
+                dict.fromkeys(descriptor.producers + descriptor.consumers + tuple(method_routes))
+            )
             lines.extend("Producer: " + t for t in descriptor.producers)
             lines.extend("Consumer: " + t for t in descriptor.consumers)
             lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)
