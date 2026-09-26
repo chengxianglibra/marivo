@@ -1,0 +1,32 @@
+{
+  "artifact_ref": "artifact_8cd6ff256457477282fc25d8352cf885",
+  "continuation": [
+    {
+      "coefficient": -0.4,
+      "complete_pair_count": 4,
+      "input_observation_count": 4,
+      "matched_observation_count": 4,
+      "metric_key_a": "metric:sales.revenue",
+      "metric_key_b": "metric:sales.order_count",
+      "null_pair_count": 0,
+      "status": "valid"
+    }
+  ],
+  "failed_source": null,
+  "failed_source_detail": null,
+  "journey": "j4",
+  "kind": "MaterializedAssociationResult",
+  "recovered": [
+    {
+      "coefficient": -0.4,
+      "complete_pair_count": 4,
+      "input_observation_count": 4,
+      "matched_observation_count": 4,
+      "metric_key_a": "metric:sales.revenue",
+      "metric_key_b": "metric:sales.order_count",
+      "null_pair_count": 0,
+      "status": "valid"
+    }
+  ],
+  "session_id": "session_e4f491b3189c4151a36686500e723bd0"
+}
