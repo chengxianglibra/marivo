@@ -16,7 +16,7 @@ import marivo.semantic as ms
 from marivo._help.model import NativeHelpRoute
 from marivo._help.route import route_help_target
 from marivo.analysis.errors import AnalysisError
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DSL_NAMES, DslCaseFactory
 
 
 @pytest.mark.runtime
@@ -434,6 +434,49 @@ def test_public_j4_spearman_and_fixed_coefficient_selection(
     assert restored.to_pandas().iloc[0]["coefficient"] == pytest.approx(-0.4)
     restored_selected = restored.coefficient.where(restored.coefficient.value.lt(0)).execute()
     assert restored_selected.state.artifact_ref == selected.state.artifact_ref
+
+
+@pytest.mark.runtime
+def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    names = replace(
+        DSL_NAMES,
+        domain="telemetry",
+        customer="device",
+        order="reading",
+        order_line="sample",
+        customer_id="device_key",
+        order_id="reading_key",
+        line_id="sample_key",
+        region="zone",
+        channel="sensor_type",
+        status="quality_flag",
+        ordered_at="observed_at",
+        amount="signal_value",
+        line_amount="sample_value",
+        buyer="reading_device",
+        line_order="sample_reading",
+        revenue="signal_sum",
+        order_count="reading_count",
+        line_revenue="sample_sum",
+        aov="sample_per_reading",
+    )
+    case = analysis_dsl_case_factory("j4", names=names, revenue_unit="kWh")
+    devices = case.session.members(ms.ref.entity("telemetry.device"))
+    buyer = ms.ref.relationship("telemetry.reading_device")
+    august = mv.time_scope(start="2026-08-01", end="2026-09-01")
+    signal = devices.observe(ms.ref.metric("telemetry.signal_sum"), during=august, via=buyer)
+    readings = devices.observe(ms.ref.metric("telemetry.reading_count"), during=august, via=buyer)
+
+    association = signal.correlate(readings, method="spearman").execute()
+    selected = association.coefficient.where(association.coefficient.value.lt(0)).execute()
+    association_frame = association.to_pandas()
+    selected_frame = selected.to_pandas()
+
+    assert association_frame.iloc[0]["coefficient"] == pytest.approx(-0.4)
+    assert association_frame.iloc[0]["complete_pair_count"] == 4
+    assert selected_frame.iloc[0]["coefficient"] == pytest.approx(-0.4)
 
 
 @pytest.mark.runtime
