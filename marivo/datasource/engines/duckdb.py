@@ -309,7 +309,6 @@ PROFILE = EngineProfile(
         byte_estimate_supported=False,
     ),
     translate_strptime_format=identity_str,
-    postprocess_sql=identity_str,
     datetime_decode_policy="local_naive_label",
     quantile=QuantileCapability(mode="exact", method="linear_interpolation"),
     percentile_uses_approx_quantile=False,

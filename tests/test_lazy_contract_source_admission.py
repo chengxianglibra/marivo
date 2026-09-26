@@ -63,14 +63,14 @@ def test_source_rejection_matches_placement_without_source_io(backend: str) -> N
     assert contract.render() == rendered
 
 
-def test_static_pass_names_selected_backend_without_claiming_execution_success(
+def test_selected_legacy_source_route_discloses_migration_block(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     dataset = _sources("sqlite").observe(ref.metric("sales.revenue"))
     contract = dataset.contract()
     rendered = contract.render()
     assert (
-        "source_admission: static_pass backend=sqlite: final placement remains execution-time"
+        "source_admission: blocked_r1.1 backend=sqlite: legacy Dataset source route awaits R5 migration"
         in rendered
     )
     assert "operators:" in rendered
@@ -83,6 +83,22 @@ def test_static_pass_names_selected_backend_without_claiming_execution_success(
         "marivo.analysis.compiler.source_admission.source_unsupported_reason", unexpected_recheck
     )
     assert contract.render() == rendered
+
+
+def test_basic_population_discloses_session_qualification_without_source_io() -> None:
+    dataset = _sources("sqlite").population(ref.entity("sales.customers"))
+    assert (
+        "source_admission: qualified_basic_r1.1 backend=sqlite: "
+        "final placement remains execution-time"
+    ) in dataset.contract().render()
+
+
+def test_basic_metric_aggregate_discloses_session_qualification_without_source_io() -> None:
+    dataset = _sources("sqlite").observe(ref.metric("sales.revenue")).aggregate()
+    assert (
+        "source_admission: qualified_basic_r1.1 backend=sqlite: "
+        "final placement remains execution-time"
+    ) in dataset.contract().render()
 
 
 def test_unknown_backend_is_a_static_rejection() -> None:

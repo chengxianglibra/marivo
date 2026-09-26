@@ -1,13 +1,10 @@
-"""Closed registry of per-engine profiles.
-
-This package is internal to ``marivo.datasource``; nothing from here
-appears in the public ``marivo.datasource`` ``__all__``.
-"""
+"""Closed, selected-on-demand registry of datasource engine providers."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from types import MappingProxyType
+from collections.abc import Iterator, Mapping
+from functools import lru_cache
+from importlib import import_module
 
 from marivo.datasource.engines.base import (
     GENERIC_PROFILE as GENERIC_PROFILE,
@@ -24,31 +21,45 @@ from marivo.datasource.engines.base import (
 from marivo.datasource.engines.base import (
     quote_identifier as quote_identifier,
 )
-from marivo.datasource.engines.clickhouse import PROFILE as CLICKHOUSE_PROFILE
-from marivo.datasource.engines.duckdb import PROFILE as DUCKDB_PROFILE
-from marivo.datasource.engines.mysql import PROFILE as MYSQL_PROFILE
-from marivo.datasource.engines.postgres import PROFILE as POSTGRES_PROFILE
-from marivo.datasource.engines.sqlite import PROFILE as SQLITE_PROFILE
-from marivo.datasource.engines.trino import PROFILE as TRINO_PROFILE
 
-ENGINE_PROFILES: Mapping[str, EngineProfile] = MappingProxyType(
-    {
-        "duckdb": DUCKDB_PROFILE,
-        "sqlite": SQLITE_PROFILE,
-        "trino": TRINO_PROFILE,
-        "mysql": MYSQL_PROFILE,
-        "postgres": POSTGRES_PROFILE,
-        "clickhouse": CLICKHOUSE_PROFILE,
-    }
+SUPPORTED_BACKEND_TYPES: tuple[str, ...] = (
+    "duckdb",
+    "sqlite",
+    "trino",
+    "mysql",
+    "postgres",
+    "clickhouse",
 )
-SUPPORTED_BACKEND_TYPES: tuple[str, ...] = tuple(ENGINE_PROFILES)
+_ALIASES = {
+    "sqlite3": "sqlite",
+    "presto": "trino",
+    "postgresql": "postgres",
+    "redshift": "postgres",
+}
 
-_ALIASES: dict[str, EngineProfile] = {}
-for _profile in ENGINE_PROFILES.values():
-    for _alias in _profile.aliases:
-        if _alias in _ALIASES:
-            raise RuntimeError(f"duplicate engine profile alias {_alias!r}")
-        _ALIASES[_alias] = _profile
+
+@lru_cache(maxsize=len(SUPPORTED_BACKEND_TYPES))
+def _load_profile(backend_type: str) -> EngineProfile:
+    profile: EngineProfile = import_module(f"marivo.datasource.engines.{backend_type}").PROFILE
+    if profile.name != backend_type:
+        raise RuntimeError(f"engine provider {backend_type!r} declared {profile.name!r}")
+    return profile
+
+
+class _ProfileRegistry(Mapping[str, EngineProfile]):
+    def __iter__(self) -> Iterator[str]:
+        return iter(SUPPORTED_BACKEND_TYPES)
+
+    def __len__(self) -> int:
+        return len(SUPPORTED_BACKEND_TYPES)
+
+    def __getitem__(self, backend_type: str) -> EngineProfile:
+        if backend_type not in SUPPORTED_BACKEND_TYPES:
+            raise KeyError(backend_type)
+        return _load_profile(backend_type)
+
+
+ENGINE_PROFILES: Mapping[str, EngineProfile] = _ProfileRegistry()
 
 
 def profile_for_backend_type(backend_type: str) -> EngineProfile | None:
@@ -79,7 +90,7 @@ def profile_for_backend_name(name: str | None) -> EngineProfile:
     if not name:
         return GENERIC_PROFILE
     normalized = name.lower()
-    return ENGINE_PROFILES.get(normalized) or _ALIASES.get(normalized) or GENERIC_PROFILE
+    return ENGINE_PROFILES.get(_ALIASES.get(normalized, normalized)) or GENERIC_PROFILE
 
 
 def profile_for_backend(backend: object) -> EngineProfile:

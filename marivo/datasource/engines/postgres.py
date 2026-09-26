@@ -16,7 +16,6 @@ from marivo.datasource.engines.base import (
     MetadataInspectRequest,
     TableRefRequest,
     identity_read_only_kwargs,
-    identity_str,
     require_field,
     structured_exception_chain,
 )
@@ -320,7 +319,6 @@ PROFILE = EngineProfile(
         byte_estimate_supported=True,
     ),
     translate_strptime_format=python_to_postgres_strptime,
-    postprocess_sql=identity_str,
     datetime_decode_policy="local_naive_label",
     quantile=None,
     percentile_uses_approx_quantile=False,

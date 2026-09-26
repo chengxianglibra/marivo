@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, cast
 
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.datasets.base import Dataset, LogicalDataset
@@ -54,6 +54,26 @@ BackendName: TypeAlias = Literal["duckdb", "postgres", "mysql", "sqlite", "trino
 PreparationKind: TypeAlias = Literal["correlation", "distribution"]
 
 
+def legacy_source_migration_stage(operator_id: str) -> int:
+    """Return the planned method migration stage for a blocked legacy source route."""
+    if operator_id.startswith(("session.events.", "event.", "session.lifecycle.", "lifecycle.")):
+        return 7
+    if operator_id.startswith(("delta.attribute", "attribution.", "delta.", "metric.compare")):
+        return 6
+    if operator_id.startswith(
+        (
+            "candidate.",
+            "forecast.",
+            "association.",
+            "discover.",
+            "metric.forecast",
+            "metric.correlate",
+        )
+    ):
+        return 8
+    return 5
+
+
 @dataclass(frozen=True, slots=True)
 class BackendExecution:
     """Pure execution declaration shared by the registered backend's methods."""
@@ -64,14 +84,13 @@ class BackendExecution:
 
 def backend_execution(backend: str) -> BackendExecution | None:
     """Resolve implemented backend capabilities without importing Runtime."""
-    return {
-        "duckdb": BackendExecution("duckdb", retained_import=True),
-        "postgres": BackendExecution("postgres", retained_import=False),
-        "mysql": BackendExecution("mysql", retained_import=False),
-        "sqlite": BackendExecution("sqlite", retained_import=False),
-        "trino": BackendExecution("trino", retained_import=False),
-        "clickhouse": BackendExecution("clickhouse", retained_import=False),
-    }.get(backend)
+    from marivo.datasource.engines import SUPPORTED_BACKEND_TYPES
+
+    if backend not in SUPPORTED_BACKEND_TYPES:
+        return None
+    # The datasource registry validates the string; this cast preserves the
+    # closed backend type for Analysis's method-specific declarations.
+    return BackendExecution(cast("BackendName", backend), retained_import=backend == "duckdb")
 
 
 @dataclass(frozen=True, slots=True)

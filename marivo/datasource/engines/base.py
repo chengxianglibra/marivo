@@ -13,6 +13,7 @@ from ibis.backends import BaseBackend
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
 
 if TYPE_CHECKING:
+    from marivo.datasource.adapters import SourceSession
     from marivo.datasource.metadata import MetadataWarning, TableMetadata
 
 BackendDatetimeDecodePolicy: TypeAlias = Literal["local_naive_label", "utc_naive_instant"]
@@ -133,7 +134,6 @@ class EngineProfile:
     metadata: EngineMetadataIntrospection
     authoring_capabilities: AuthoringCapabilities
     translate_strptime_format: Callable[[str], str]
-    postprocess_sql: Callable[[str], str]
     datetime_decode_policy: BackendDatetimeDecodePolicy
     quantile: QuantileCapability | None
     percentile_uses_approx_quantile: bool
@@ -146,6 +146,33 @@ class EngineProfile:
                 "authoring_capabilities.timeout_enforced must match "
                 "whether authoring_timeout is configured"
             )
+
+    def open(self, datasource: DatasourceIR, *, read_only: bool = True) -> SourceSession:
+        """Open the selected provider's owned source session."""
+        from marivo.datasource.adapters import SourceSession
+        from marivo.datasource.backends import build_backend_with_secrets
+        from marivo.datasource.errors import DatasourceBackendTypeUnsupportedError, repair
+
+        if datasource.backend_type != self.name:
+            raise DatasourceBackendTypeUnsupportedError(
+                message="Selected datasource provider differs from the declaration.",
+                expected=self.name,
+                received=datasource.backend_type,
+                location="datasource adapter",
+                repair=repair(
+                    kind="configure",
+                    canonical_id="register",
+                    action="Select the provider named by the datasource declaration.",
+                ),
+            )
+        selected = build_backend_with_secrets(datasource, read_only=read_only)
+        return SourceSession(self, datasource, selected.backend)
+
+    def probe(self, backend: BaseBackend) -> None:
+        """Round-trip an Ibis literal through this provider's native transport."""
+        from marivo.datasource.adapters import _probe_backend
+
+        _probe_backend(self.name, backend)
 
 
 def identity_read_only_kwargs(kwargs: Mapping[str, object]) -> dict[str, object]:
@@ -281,7 +308,6 @@ GENERIC_PROFILE = EngineProfile(
         byte_estimate_supported=False,
     ),
     translate_strptime_format=identity_str,
-    postprocess_sql=identity_str,
     datetime_decode_policy="local_naive_label",
     quantile=None,
     percentile_uses_approx_quantile=False,

@@ -1154,12 +1154,18 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
     from marivo.datasource import manage as datasource_manage
 
     class FakeBackend:
+        name = "sqlite"
+
         def __init__(self) -> None:
             self.queries: list[str] = []
             self.disconnect_calls = 0
 
-        def raw_sql(self, sql: str) -> None:
+        def compile(self, _expression: object, *, limit: None) -> str:
+            return "SELECT 1"
+
+        def raw_sql(self, sql: str) -> object:
             self.queries.append(sql)
+            return type("ProbeCursor", (), {"fetchone": lambda self: (1,)})()
 
         def disconnect(self) -> None:
             self.disconnect_calls += 1
@@ -1175,7 +1181,7 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
             (),
             {
                 "name": name,
-                "backend_type": "duckdb",
+                "backend_type": "sqlite",
                 "fields": {"path": ":memory:"},
                 "env_refs": {},
             },

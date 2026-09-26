@@ -45,7 +45,7 @@ RAW_SQL_DEFAULT_LIMIT = 100
 DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
 """Default wall-clock deadline for ``md.connect`` and ``md.test``.
 
-Bounds both the backend-connect handshake and the ``SELECT 1`` round-trip.
+Bounds both the backend-connect handshake and the Ibis literal round-trip.
 Callers may override it with a keyword ``timeout_seconds``; a non-positive
 value is rejected before any connection is attempted.
 """
@@ -721,7 +721,7 @@ def _run_roundtrip_with_deadline(
 ) -> DatasourceTestResult:
     """Run a full connectivity round-trip on one worker thread with a deadline.
 
-    ``fn`` performs connect + ``SELECT 1`` (+ optional secret persist) and
+    ``fn`` performs connect + Ibis literal probe (+ optional secret persist) and
     mutates ``state["backend"]`` and ``state["phase"]`` as it progresses. The
     entire round-trip stays on a single worker thread so thread-affine backends
     (SQLite) never cross a thread boundary.
@@ -729,11 +729,11 @@ def _run_roundtrip_with_deadline(
     When the deadline is exceeded the caller disconnects any backend that was
     already opened (which also unblocks a parked network call) and returns a
     typed timeout result whose ``code`` distinguishes the connect handshake from
-    the ``SELECT 1`` round-trip. A raised error is mapped to a failure code
+    the Ibis literal round-trip. A raised error is mapped to a failure code
     using the phase it surfaced in.
 
     Residual behavior: the worker cannot be forcibly killed. If it later
-    completes its ``SELECT 1`` after the caller has already returned a fail-closed
+    completes its Ibis literal probe after the caller has already returned a fail-closed
     timeout, it may still reach the secret-persist phase and write the validated
     env-sourced secret to the user-global cache. That side effect is benign but
     arrives after the caller has observed failure; callers should not assume a
@@ -822,7 +822,7 @@ def test(
     Args:
         name: The datasource name or ``Ref[DatasourceKind]`` to test.
         timeout_seconds: Wall-clock deadline for the backend-connect handshake
-            and the ``SELECT 1`` round-trip. Defaults to
+            and the Ibis literal round-trip. Defaults to
             ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``. A non-positive value is
             rejected before any connection is attempted.
 
@@ -830,7 +830,7 @@ def test(
         A ``DatasourceTestResult`` with ok status, latency, structured failure,
         and typed repair. A timeout is reported as a structured failure whose
         ``code`` is ``connection_timeout`` (handshake) or
-        ``connection_roundtrip_timeout`` (``SELECT 1``), with a truthful
+        ``connection_roundtrip_timeout`` (Ibis literal), with a truthful
         ``latency_ms`` and a ``repair`` suggesting a larger timeout or a
         reachability check.
 
@@ -844,7 +844,7 @@ def test(
         emit a warning without changing the successful result. The backend
         is always disconnected.
 
-        Both the connect handshake and the ``SELECT 1`` round-trip are bounded
+        Both the connect handshake and the Ibis literal round-trip are bounded
         by a Marivo-side wall-clock deadline; neither depends on the backend's
         own query timeout. If the deadline is exceeded the call fails closed
         rather than blocking indefinitely, even when the backend itself cannot
@@ -857,7 +857,10 @@ def test(
     def roundtrip(state: dict[str, Any]) -> DatasourceTestResult:
         state["backend"] = connect(datasource_name, timeout_seconds=timeout_seconds)
         state["phase"] = "roundtrip"
-        state["backend"].raw_sql("SELECT 1")
+        from marivo.datasource.adapters import provider_for
+
+        selected_backend = getattr(state["backend"], "backend", state["backend"])
+        provider_for(selected_backend.name).probe(selected_backend)
         _secrets.try_persist_backend_env_sourced(state["backend"])
         latency_ms = int((time.perf_counter() - state["started"]) * 1000)
         return DatasourceTestResult(
@@ -887,7 +890,7 @@ def test_no_persist(
     Args:
         name: The datasource name or ``Ref[DatasourceKind]`` to test.
         timeout_seconds: Wall-clock deadline for the backend-connect handshake
-            and the ``SELECT 1`` round-trip. Defaults to
+            and the Ibis literal round-trip. Defaults to
             ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``. A non-positive value is
             rejected before any connection is attempted.
         project_root: Optional project root for tests and embedded callers.
@@ -903,7 +906,7 @@ def test_no_persist(
         Does not write ``~/.marivo/secrets.toml``. The backend is always
         disconnected.
 
-        Both the connect handshake and the ``SELECT 1`` round-trip are bounded
+        Both the connect handshake and the Ibis literal round-trip are bounded
         by a Marivo-side wall-clock deadline; if the deadline is exceeded the
         call fails closed rather than blocking indefinitely.
     """
@@ -918,7 +921,10 @@ def test_no_persist(
             include_semantic_layers=include_semantic_layers,
         )
         state["phase"] = "roundtrip"
-        state["backend"].raw_sql("SELECT 1")
+        from marivo.datasource.adapters import provider_for
+
+        selected_backend = getattr(state["backend"], "backend", state["backend"])
+        provider_for(selected_backend.name).probe(selected_backend)
         latency_ms = int((time.perf_counter() - state["started"]) * 1000)
         return DatasourceTestResult(
             name=datasource_name,

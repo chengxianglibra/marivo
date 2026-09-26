@@ -17,7 +17,6 @@ from marivo.datasource.engines.base import (
     EngineProfile,
     MetadataInspectRequest,
     default_table_name_parts,
-    identity_str,
 )
 
 if TYPE_CHECKING:
@@ -247,7 +246,6 @@ PROFILE = EngineProfile(
         byte_estimate_supported=False,
     ),
     translate_strptime_format=identity_strptime,
-    postprocess_sql=identity_str,
     datetime_decode_policy="local_naive_label",
     quantile=None,
     percentile_uses_approx_quantile=False,

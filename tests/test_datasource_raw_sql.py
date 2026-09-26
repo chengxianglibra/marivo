@@ -17,7 +17,11 @@ from marivo.datasource import store
 from marivo.datasource.authoring import DuckDBSpec, TrinoSpec
 from marivo.datasource.backends import build_backend
 from marivo.datasource.engines import ENGINE_PROFILES
-from marivo.datasource.errors import DatasourceError, DatasourceRawSqlError
+from marivo.datasource.errors import (
+    DatasourceError,
+    DatasourceRawSqlError,
+    DatasourceSourceCapabilityError,
+)
 from tests.lazy_observation_fixtures import make_sources
 
 
@@ -108,6 +112,15 @@ def test_raw_sql_result_cannot_reenter_typed_analysis(tmp_path: Path) -> None:
     metric = make_sources().observe(ms.ref.metric("sales.revenue"))
     with pytest.raises(AnalysisError, match="RawSqlResult"):
         metric.compare(result)
+    from marivo.datasource.adapters import provider_for
+
+    datasource = store.load_one("warehouse", project_root=tmp_path)
+    assert datasource is not None
+    with (
+        provider_for("duckdb").open(datasource) as session,
+        pytest.raises(DatasourceSourceCapabilityError),
+    ):
+        session.bind(result, source_identity="raw-sql-terminal")
     assert not hasattr(result, "contract")
     assert not hasattr(result, "execute")
 

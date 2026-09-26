@@ -18,7 +18,6 @@ from marivo.analysis.materialization.contracts import (
     RetainedPart,
     StorageReceipt,
 )
-from marivo.analysis.materialization.duckdb_statements import membership_integrity_sql
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.storage import _integrity, _matches_type
 from marivo.analysis.observation.contracts import (
@@ -28,7 +27,6 @@ from marivo.analysis.observation.contracts import (
 from marivo.analysis.observation.distinct_contracts import (
     DISTINCT_KEY_COLUMN,
     DISTINCT_MEMBERSHIP_CONTRACT_IDS,
-    membership_endpoint_name,
 )
 from marivo.analysis.observation.distribution_contracts import DISTRIBUTION_CONTRACT_IDS
 from marivo.analysis.observation.fold_contracts import (
@@ -255,7 +253,7 @@ def validate_source_private_relation(
 
         validate_distribution_relation(backend, table, primary, row, role)
         return
-    keys = membership_schema(
+    membership_schema(
         row,
         role,
         backend.read_table(
@@ -264,27 +262,6 @@ def validate_source_private_relation(
     )
     authority = next(item for name, item in membership_part_authorities(row) if name == role)
     assert authority.membership is not None
-    if backend.engine == "duckdb":
-        sql = membership_integrity_sql(
-            backend.compile(table),
-            backend.compile(primary),
-            keys,
-            membership_endpoint_name(row, role),
-            authority.membership.identity_signature,
-        )
-        violations = backend.read_scalar(
-            backend.statement(
-                sql,
-                role="engine_check.membership_integrity",
-                inputs=(backend.prepare(table), backend.prepare(primary)),
-            )
-        )
-        if violations != 0:
-            _integrity(
-                "unique complete membership with exact primary endpoints",
-                "private membership support or endpoint mismatch",
-            )
-        return
     from marivo.analysis.compiler.distinct import membership_validations
 
     checks = membership_validations(row, primary, {role: table}, required=False)

@@ -30,7 +30,6 @@ from marivo.analysis.materialization.contracts import (
     ArtifactRecord,
     StorageReceipt,
 )
-from marivo.analysis.materialization.duckdb_statements import attribution_summary_sql
 from marivo.analysis.materialization.errors import (
     MaterializationError,
 )
@@ -311,31 +310,7 @@ def attribution_source_summary(
     self: DatasetRuntime, backend: ExecutionAdapter, table: ir.Table, row: DatasetRowContract
 ) -> AttributionSourceSummary:
     """Reduce complete Attribution proof inside its engine; return only global facts."""
-    from marivo.analysis.operators.attribution_contracts import AttributionSemantics
-
-    semantics = row.family_semantics
-    if not isinstance(semantics, AttributionSemantics):
-        raise _error("output_validation")
-    names = {field.field_id: field.name for field in row.schema.columns}
-
-    sql = attribution_summary_sql(
-        backend.compile(table), names, semantics.scope_field_ids, row.key_field_ids
-    )
-    result: object = backend.submit(
-        backend.statement(sql, role="attribution.source_summary", inputs=(backend.prepare(table),))
-    ).fetchone()
-    if not isinstance(result, tuple) or len(result) != 6:
-        raise _error("output_validation")
-    scopes, resolutions, ok, zero, error, digest = result
-    if (
-        not all(type(value) is int and value >= 0 for value in (scopes, resolutions, ok, zero))
-        or not isinstance(error, (int, float))
-        or not isinstance(digest, str)
-    ):
-        raise _error("output_validation")
-    return AttributionSourceSummary(
-        scopes, resolutions, (("ok", ok), ("zero_total_delta", zero)), float(error), digest
-    )
+    raise _error("source_admission")
 
 
 def batches(

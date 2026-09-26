@@ -93,15 +93,10 @@ def native_summary(
     recipe: CompiledDataset,
     row: DatasetRowContract,
 ) -> LifecycleEvidenceSummary:
-    if backend.engine == "clickhouse":
-        from marivo.analysis.materialization.clickhouse_execution import ClickHouseExecutionAdapter
+    from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
 
-        if (
-            isinstance(backend, ClickHouseExecutionAdapter)
-            and backend.lifecycle_bundle is not None
-            and backend.lifecycle_bundle.certifies(recipe.expression)
-        ):
-            return backend.lifecycle_bundle.evidence
+    if not isinstance(backend, DuckDBExecutionAdapter):
+        raise invalid("legacy source Lifecycle summary is unavailable before R7 migration")
     parts = {
         p.role: p.expression for p in recipe.retained_parts if isinstance(p, RetainedRelationSpec)
     }
@@ -122,21 +117,7 @@ def native_summary(
     wrong_coverage = ledger.filter(~ledger.known_through.identical_to(boundary)).count()
     if backend.read_scalar(backend.prepare(wrong_coverage, role="lifecycle.coverage_ledger")) != 0:
         raise invalid("Lifecycle coverage ledger differs from its retained source-origin prefix")
-    from marivo.analysis.materialization.lifecycle_integrity import integrity_queries
-
-    proofs = (
-        integrity_queries(backend, recipe.expression, parts, semantics)
-        if backend.engine == "trino"
-        else (
-            integrity_sql(
-                backend,
-                recipe.expression,
-                parts,
-                semantics,
-                dialect="postgres" if backend.engine == "postgres" else "duckdb",
-            ),
-        )
-    )
+    proofs = (integrity_sql(backend, recipe.expression, parts, semantics),)
     for proof in proofs:
         if (
             backend.read_scalar(
@@ -162,22 +143,8 @@ def native_summary(
         v.count(),
         h.filter(h.left_clipped).count(),
     )
-    query = "SELECT " + ", ".join(
-        f"({backend.compile(expr)}) AS n{i}" for i, expr in enumerate(statements)
-    )
-    result = (
-        tuple(
-            backend.read_scalar(backend.prepare(expr, role="lifecycle.summary"))
-            for expr in statements
-        )
-        if backend.engine == "trino"
-        else backend.submit(
-            backend.statement(
-                query,
-                role="lifecycle.summary",
-                inputs=tuple(backend.prepare(expr) for expr in statements),
-            )
-        ).fetchone()
+    result = tuple(
+        backend.read_scalar(backend.prepare(expr, role="lifecycle.summary")) for expr in statements
     )
     if result is None or len(result) != 8:
         raise invalid("invalid native Lifecycle scalar summary")

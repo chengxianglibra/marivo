@@ -54,7 +54,7 @@ def test_every_profile_populates_required_fields() -> None:
         assert callable(profile.table_name_parts)
         assert profile.metadata.inspect_table is not None
         assert callable(profile.translate_strptime_format)
-        assert callable(profile.postprocess_sql)
+        assert not hasattr(profile, "postprocess_sql")
         assert profile.datetime_decode_policy in {"local_naive_label", "utc_naive_instant"}
         assert callable(profile.authoring_timeout)
 
