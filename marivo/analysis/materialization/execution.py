@@ -207,14 +207,6 @@ class ExecutionAdapter(Protocol):
     def observe(self, observer: Callable[[Submission], None], domain: ExecutionDomain) -> None: ...
     def prepare(self, expression: ir.Expr, *, role: str = "query") -> Statement: ...
     def compile(self, expression: ir.Expr) -> str: ...
-    def statement(
-        self,
-        sql: str,
-        *,
-        role: str = "statement",
-        parameters: tuple[Parameter, ...] = (),
-        inputs: tuple[Statement, ...] = (),
-    ) -> Statement: ...
     def submit(self, statement: Statement) -> ScalarRows: ...
     def read_table(
         self,
@@ -298,51 +290,20 @@ class ExecutionBackend:
 
 
 def resolve_execution(backend: str) -> ExecutionBackend | None:
-    """Realize registry admission using Runtime-owned factories, never enable a backend.
-
-    The pure registry owns eligibility and retained-import authority. This mapping
-    owns concrete functions only; declarations and realizations are checked together
-    by the backend contract test without importing Runtime into the compiler.
-    """
+    """Resolve only the R4-owned local retained-input adapter."""
     from marivo.analysis.operators.registry import backend_execution
 
     registration = backend_execution(backend)
-    if registration is None:
+    if registration is None or registration.backend != "duckdb":
         return None
     try:
-        if registration.backend == "duckdb":
-            from marivo.analysis.materialization.duckdb_execution import (
-                admit_dataset,
-                bind_duckdb,
-                open_native_backend,
-            )
-
-            return ExecutionBackend(bind_duckdb, open_native_backend, admit_dataset)
-        if registration.backend == "postgres":
-            from marivo.analysis.materialization.postgres_execution import (
-                admit_dataset,
-                bind_postgres,
-            )
-
-            return ExecutionBackend(bind_postgres, None, admit_dataset)
-        if registration.backend == "mysql":
-            from marivo.analysis.materialization.mysql_execution import admit_dataset, bind_mysql
-
-            return ExecutionBackend(bind_mysql, None, admit_dataset)
-        if registration.backend == "sqlite":
-            from marivo.analysis.materialization.sqlite_execution import admit_dataset, bind_sqlite
-
-            return ExecutionBackend(bind_sqlite, None, admit_dataset)
-        if registration.backend == "trino":
-            from marivo.analysis.materialization.trino_execution import admit_dataset, bind_trino
-
-            return ExecutionBackend(bind_trino, None, admit_dataset)
-        from marivo.analysis.materialization.clickhouse_execution import (
+        from marivo.analysis.materialization.duckdb_execution import (
             admit_dataset,
-            bind_clickhouse,
+            bind_duckdb,
+            open_native_backend,
         )
 
-        return ExecutionBackend(bind_clickhouse, None, admit_dataset)
+        return ExecutionBackend(bind_duckdb, open_native_backend, admit_dataset)
     except (ImportError, OSError) as exc:
         from marivo.analysis.materialization.errors import MaterializationError
 

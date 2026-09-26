@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import ibis
 import pytest
 
 import marivo.datasource as md
@@ -17,6 +18,10 @@ from marivo.datasource.authoring import (
     TrinoSpec,
 )
 from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceMissingError
+
+
+class _ProbeResult:
+    result_rows = [(1,)]
 
 
 @pytest.fixture
@@ -94,10 +99,14 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
 
     class _FakeBackend:
         disconnected = False
+        name = "trino"
+
+        def compile(self, _expression: object, *, limit: None) -> str:
+            return "SELECT 1"
 
         def raw_sql(self, sql: str):
             assert sql == "SELECT 1"
-            return object()
+            return _ProbeResult()
 
         def list_tables(self):
             raise AssertionError("list_tables requires a default schema for Trino")
@@ -112,7 +121,7 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
 
     result = md.test("wh")
 
-    assert result.ok is True
+    assert result.ok is True, result.failure
     assert result.repair is None
     assert backend.disconnected is True
 
@@ -220,6 +229,9 @@ def test_connect_manual_disconnect_is_idempotent(
 def test_datasource_test_success_persists_env_sourced_secret(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from marivo.datasource.adapters import provider_for
+
+    provider_for("trino")
     md.register(
         _spec(
             "wh",
@@ -235,9 +247,14 @@ def test_datasource_test_success_persists_env_sourced_secret(
     persisted: list[tuple[str, str]] = []
 
     class _FakeBackend:
+        name = "trino"
+
+        def compile(self, _expression: object, *, limit: None) -> str:
+            return "SELECT 1"
+
         def raw_sql(self, sql: str) -> object:
             assert sql == "SELECT 1"
-            return object()
+            return _ProbeResult()
 
         def disconnect(self) -> None:
             return None
@@ -255,14 +272,11 @@ def test_datasource_test_success_persists_env_sourced_secret(
             assert kwargs["auth"] == "validated-secret"
             return _FakeBackend()
 
-    class _FakeIbis:
-        trino = _FakeTrino()
-
-    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+    monkeypatch.setattr(ibis, "trino", _FakeTrino())
 
     result = md.test("wh")
 
-    assert result.ok is True
+    assert result.ok is True, result.failure
     assert result.failure is None
     assert persisted == [
         ("TRINO_USER", "reader"),
@@ -273,6 +287,9 @@ def test_datasource_test_success_persists_env_sourced_secret(
 def test_datasource_test_failure_does_not_persist_env_sourced_secret(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from marivo.datasource.adapters import provider_for
+
+    provider_for("trino")
     md.register(
         _spec(
             "wh",
@@ -288,6 +305,11 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
     persisted: list[tuple[str, str]] = []
 
     class _FakeBackend:
+        name = "trino"
+
+        def compile(self, _expression: object, *, limit: None) -> str:
+            return "SELECT 1"
+
         def raw_sql(self, sql: str) -> object:
             raise RuntimeError("authentication failed")
 
@@ -306,17 +328,14 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
             assert kwargs["auth"] == "bad-secret"
             return _FakeBackend()
 
-    class _FakeIbis:
-        trino = _FakeTrino()
-
-    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+    monkeypatch.setattr(ibis, "trino", _FakeTrino())
 
     result = md.test("wh")
 
     assert result.ok is False
     assert result.failure is not None
     assert result.failure.code == "connection_roundtrip_failed"
-    assert result.failure.exception_type == "RuntimeError"
+    assert result.failure.exception_type == "RuntimeError", result.failure.message
     assert result.failure.message == "authentication failed"
     assert result.repair is not None
     assert result.repair.kind == "reconnect"
@@ -352,8 +371,13 @@ def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
     assert '"token"=<redacted>' in open_failure.failure.message
 
     class _FakeBackend:
+        name = "trino"
+
+        def compile(self, _expression: object, *, limit: None) -> str:
+            return "SELECT 1"
+
         def raw_sql(self, _sql: str) -> object:
-            return object()
+            return _ProbeResult()
 
         def disconnect(self) -> None:
             return None

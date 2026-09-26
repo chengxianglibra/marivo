@@ -444,7 +444,7 @@ md.test(spec.ref).show()  # validated live round trip
 - `md.connect(name)` opens a live `DatasourceConnection`; `md.test(ref)` returns
   a `DatasourceTestResult` and triggers post-validation secret caching. Both
   accept a keyword-only `timeout_seconds` (default 30s) that bounds the connect
-  handshake and the `SELECT 1` round-trip with a Marivo-side wall-clock deadline.
+  handshake and an Ibis-compiled literal round-trip with a Marivo-side wall-clock deadline.
   When the deadline is exceeded the call fails closed — `md.connect` raises a
   `DatasourceConnectionTimeoutError` and `md.test` returns a timeout failure —
   rather than blocking indefinitely, regardless of whether the backend's own
@@ -459,7 +459,7 @@ code (`connection_open_failed`, `connection_roundtrip_failed`,
 `connection_timeout`, or `connection_roundtrip_timeout`), backend exception
 type/code/name, and a sanitized message. `.repair` provides the focused help
 target and action. The two timeout codes distinguish the connect handshake from
-the `SELECT 1` round-trip. Secret-cache write warnings do not change a successful
+the Ibis literal round-trip. Secret-cache write warnings do not change a successful
 result. Successful results prove only that the current datasource connection test
 passed.
 
@@ -565,6 +565,17 @@ does not certify business meaning. During the current milestone, scoped
 preview does not persist an authoring checkpoint or affect readiness.
 
 ### R0.3 target: Ibis-owned analysis reads and terminal raw SQL
+
+R1.1 implementation is in progress. The selected engine provider registry is
+lazy, and its internal `SourceSession` issues source-bound compiled reads for
+basic DuckDB and SQLite table operations. Qualified one-table, unscoped
+Population scan/filter and sum/count Metric aggregate (including direct grouping)
+now consume this session in `DatasetRuntime`. The
+live `md.test` and source-health connection probes submit an Ibis-compiled
+literal. The common Analysis `ExecutionAdapter.statement(sql)` method has been
+removed, but concrete legacy text implementations and several
+metadata/physical-read paths remain to be removed or migrated; this snapshot
+does not grant six-backend Analysis qualification or completion of the R0.3 target.
 
 `md.raw_sql(datasource: Ref[DatasourceKind], sql: str, *, reason: str,
 limit: int = 100, timeout_seconds: int = 30, include_types: bool = True,

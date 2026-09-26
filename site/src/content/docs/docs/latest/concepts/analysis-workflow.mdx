@@ -13,8 +13,14 @@ execution boundaries, inspect the Dataset contract, and follow the concrete
 structured repair for unsupported shapes. Remote sources require read-only
 accounts; uploading retained results to bypass admission is unsupported.
 
+During R1.1, qualified one-table, unscoped Population scan/filter and sum/count
+Metric aggregate on DuckDB or SQLite execute through an internal `SourceSession`.
+The basic Metric route also supports grouping by a direct dimension. Other older
+source-backed `Dataset.execute()` routes stop with a structured
+`source_admission` error before a Run or source read. The error names the
+R5–R8 migration stage that must qualify the method.
 
-Source execution checks only the columns required by the complete computation,
+The target source execution checks only the columns required by the complete computation,
 including hidden Metrics, identity fields, joins and version coordinates. It
 trusts Entity identity and time declarations without source-data preflight. An unused
 complex column does not block a supported scalar calculation. For example, the
@@ -28,6 +34,9 @@ columns unused by the current Dataset.
 Analysis uses a question-scoped Session. Source constructors and Dataset methods
 describe work without querying sources. Explicit execution returns a retained,
 immutable result for inspection and later continuation.
+
+The example below shows the intended source workflow. Its `execute()` call is
+blocked during R1.1 until that method is migrated and qualified.
 
 ```python
 import marivo

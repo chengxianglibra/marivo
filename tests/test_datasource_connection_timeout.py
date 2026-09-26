@@ -42,7 +42,9 @@ def _patch_blocking_build(monkeypatch: pytest.MonkeyPatch, block_event: threadin
 
 
 class BlockingSelectBackend:
-    """Fake backend whose ``raw_sql`` blocks until released."""
+    """Fake backend whose compiled literal submission blocks until released."""
+
+    name = "postgres"
 
     def __init__(self, block_event: threading.Event) -> None:
         self._block_event = block_event
@@ -52,6 +54,9 @@ class BlockingSelectBackend:
     def raw_sql(self, sql: str) -> None:
         self.queries.append(sql)
         self._block_event.wait()
+
+    def compile(self, _expression: object, *, limit: None) -> str:
+        return "SELECT 1"
 
     def disconnect(self) -> None:
         self.disconnect_calls += 1
@@ -145,7 +150,7 @@ def test_test_returns_roundtrip_timeout_when_select_1_blocks(
     assert result.failure.timeout_seconds == 1
     assert result.latency_ms is not None
     assert result.repair is not None
-    assert "SELECT 1 round-trip" in result.repair.action
+    assert "Ibis literal round-trip" in result.repair.action
     assert backend.queries == ["SELECT 1"]
     # The caller disconnects on timeout; the abandoned worker's own `finally`
     # may disconnect again before it is descheduled, so require at least one.

@@ -11,6 +11,7 @@ from marivo.analysis.compiler import required_entities
 from marivo.analysis.compiler.normalize import (
     artifact_inputs,
     logical_roots,
+    required_source_dependencies,
 )
 from marivo.analysis.compiler.placement import (
     ExecutionBinding,
@@ -20,6 +21,10 @@ from marivo.analysis.compiler.placement import (
     SourceStep,
     place,
     source_binding,
+)
+from marivo.analysis.compiler.source_admission import (
+    basic_metric_candidate,
+    basic_population_candidate,
 )
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle, _validate_logical_root
@@ -79,6 +84,8 @@ from marivo.analysis.operators.candidate_contracts import (
 from marivo.analysis.operators.forecast_contracts import (
     ForecastTrainingSummary,
 )
+from marivo.analysis.operators.registry import legacy_source_migration_stage
+from marivo.datasource.ir import TableSourceIR
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.admission import DatasetRuntime
@@ -100,6 +107,7 @@ class ExecutionPlan:
     physical: PhysicalStageGraph
     source_steps: tuple[SourceStep, ...]
     source_step: SourceStep | None
+    basic_source: bool
     inherited: ArtifactDescriptor | None
     contract: MaterializationContract
     run: RunRecord
@@ -158,13 +166,44 @@ def _admit_miss(
 
     physical = place(dataset, artifact_binding=admitted_binding)
     source_steps = tuple(step for step in physical.steps if isinstance(step, SourceStep))
-    from marivo.analysis.materialization.execution import resolve_execution
-
-    for admitted_step in source_steps:
-        implementation = resolve_execution(admitted_step.implementation.backend)
-        if implementation is None:
-            raise _error("implementation_registration")
-        implementation.admit(admitted_step.dataset)
+    basic_source = (
+        (basic_population_candidate(dataset) or basic_metric_candidate(dataset))
+        and not retained_inputs
+        and not physical.local_steps
+        and len(source_steps) == 1
+        and source_steps[0].operation == "source"
+        and isinstance(source_steps[0].binding, SourceBinding)
+        and source_steps[0].binding.adapter in {"duckdb", "sqlite"}
+    )
+    if basic_source:
+        selected_binding = source_steps[0].binding
+        assert isinstance(selected_binding, SourceBinding)
+        selected_dependencies = required_source_dependencies(
+            dataset, registry=selected_binding.owner.semantic_registry
+        )
+        basic_source = len(selected_dependencies.entries) == 1 and isinstance(
+            selected_dependencies.entries[0].entity.source, TableSourceIR
+        )
+    if source_steps and not basic_source:
+        operator_ids: list[str] = []
+        for step in source_steps:
+            root = step.dataset._root
+            if not isinstance(root, LogicalRootHandle):
+                raise _error("graph_validation")
+            operator_ids.append(root.operator_id)
+        final_root = dataset._root
+        if not isinstance(final_root, LogicalRootHandle):
+            raise _error("graph_validation")
+        stage = max(
+            legacy_source_migration_stage(operator_id)
+            for operator_id in (*operator_ids, final_root.operator_id)
+        )
+        raise MaterializationError(
+            expected="a source route through a session-issued Ibis read",
+            received=f"legacy text-backed source steps: {', '.join(operator_ids[:4])}",
+            repair=f"Use a source method qualified after its R{stage} migration; the old route cannot execute in R1.1.",
+            stage="source_admission",
+        )
     if (
         physical.steps[-1].output != physical.primary_output
         or physical.steps[-1].dataset is not dataset
@@ -221,6 +260,7 @@ def _admit_miss(
         physical=physical,
         source_steps=source_steps,
         source_step=source_step,
+        basic_source=basic_source,
         inherited=inherited,
         contract=contract,
         run=run,
@@ -313,23 +353,40 @@ def execute(self: DatasetRuntime, dataset: LogicalDataset) -> MaterializedDatase
                 dataset, {ref: record.descriptor for ref, record in records.items()}
             )
             evidence = ExecutionEvidence.from_records(records)
-            with ExitStack() as source_contexts:
-                prepared = source_stage.prepare_sources(
-                    self, source_steps, records, run.run_ref, evidence, source_contexts
+            if plan.basic_source:
+                from marivo.analysis.materialization.basic_source import execute_basic_source
+
+                if source_step is None:
+                    raise _error("execution_boundary", run.run_ref)
+                artifact_ref, storage, recipe = execute_basic_source(
+                    self, dataset, source_step, run.run_ref
                 )
-                if not physical.local_steps:
-                    artifact_ref, storage = source_stage.execute_source_only(
-                        self, dataset, source_step, prepared, run.run_ref, evidence, progress
+                stage = StageResult(artifact_ref, storage, (recipe,))
+            else:
+                with ExitStack() as source_contexts:
+                    prepared = source_stage.prepare_sources(
+                        self, source_steps, records, run.run_ref, evidence, source_contexts
                     )
-                else:
-                    artifact_ref, storage = local_stage.execute_local_stages(
-                        self, dataset, physical, prepared, records, run.run_ref, evidence, progress
-                    )
-            stage = StageResult(
-                artifact_ref,
-                storage,
-                tuple(recipe for _, recipe, _ in prepared.values()),
-            )
+                    if not physical.local_steps:
+                        artifact_ref, storage = source_stage.execute_source_only(
+                            self, dataset, source_step, prepared, run.run_ref, evidence, progress
+                        )
+                    else:
+                        artifact_ref, storage = local_stage.execute_local_stages(
+                            self,
+                            dataset,
+                            physical,
+                            prepared,
+                            records,
+                            run.run_ref,
+                            evidence,
+                            progress,
+                        )
+                stage = StageResult(
+                    artifact_ref,
+                    storage,
+                    tuple(recipe for _, recipe, _ in prepared.values()),
+                )
             descriptor, findings = dataset_publication.prepare_publication(
                 self, plan, stage, evidence, progress, policy=_READ_POLICY
             )

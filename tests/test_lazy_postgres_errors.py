@@ -23,11 +23,10 @@ def test_backend_declarations_have_matching_runtime_factories() -> None:
     for name in get_args(BackendName):
         declaration = backend_execution(name)
         runtime = resolve_execution(name)
-        if declaration is None:
-            assert runtime is None
-        else:
-            assert runtime is not None
-            assert declaration.retained_import == (runtime.open_retained is not None)
+        assert declaration is not None
+        assert (runtime is not None) == (name == "duckdb")
+        if runtime is not None:
+            assert runtime.open_retained is not None
 
 
 def test_foreign_closed_and_parameter_failures_teach_different_repairs(

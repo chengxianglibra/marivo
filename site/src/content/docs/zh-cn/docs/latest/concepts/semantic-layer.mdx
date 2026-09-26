@@ -1296,7 +1296,7 @@ join 与条件逻辑的 `md.raw_sql(...)`。Raw SQL 是普通的受治理探索�
 覆盖率与值/cache 状态；快照不会投影语义候选或授权业务含义。
 
 连接测试以 `md.test(ref).show()` 为停止点。失败的 `DatasourceTestResult` 会公开结构化
-`.failure` 和专项 `.repair`。连接握手与 `SELECT 1` 往返受 30 秒 Marivo 侧 wall-clock
+`.failure` 和专项 `.repair`。连接握手与 Ibis 编译的 literal 往返受 30 秒 Marivo 侧 wall-clock
 deadline 约束，可用关键字参数 `timeout_seconds` 覆盖；超时会以 `connection_timeout`
 或 `connection_roundtrip_timeout` 失败码 fail-closed 返回，而不是无限阻塞——即使后端
 自身的查询超时无法强制执行也一样。线程亲和型 SQLite 数据源是唯一例外：它同步打开本地

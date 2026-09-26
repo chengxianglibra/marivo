@@ -1043,14 +1043,16 @@ def run_source_health(
         if entity.datasource not in connectivity:
             try:
                 backend = connections.session_backend(entity.datasource)
-                backend.raw_sql("SELECT 1")
+                from marivo.datasource.adapters import provider_for
+
+                provider_for(registry.datasources[entity.datasource].backend_type).probe(backend)
             except Exception as exc:
                 connectivity[entity.datasource] = (
                     "unavailable",
                     _unavailable_observed(exc),
                 )
             else:
-                connectivity[entity.datasource] = ("current", {"roundtrip": "SELECT 1"})
+                connectivity[entity.datasource] = ("current", {"roundtrip": "ibis_literal"})
         connection_status, connection_observed = connectivity[entity.datasource]
         entity_ref = cast("Ref[SemanticKindTag]", ref_factory.entity(entity_id))
         affected = _reverse_affected(catalog, (entity_ref,))

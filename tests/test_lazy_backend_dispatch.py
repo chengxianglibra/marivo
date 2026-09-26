@@ -82,17 +82,11 @@ builtins.__import__ = without_postgres
 from marivo.analysis.materialization.execution import resolve_execution
 from marivo.analysis.materialization.errors import MaterializationError
 assert resolve_execution("unknown") is None
-assert resolve_execution("trino") is not None
+assert resolve_execution("trino") is None
 import marivo.analysis.materialization.lifecycle_publication
 assert "marivo.analysis.materialization.postgres_execution" not in sys.modules
-try:
-    resolve_execution("postgres")
-except MaterializationError as exc:
-    assert exc.stage == "implementation_registration"
-    assert "postgres" in exc.expected
-    assert "marivo[postgres]" in str(exc)
-else:
-    raise AssertionError("missing selected dependency was accepted")
+assert resolve_execution("postgres") is None
+assert "marivo.analysis.materialization.postgres_execution" not in sys.modules
 """
     result = subprocess.run(
         [sys.executable, "-c", script],

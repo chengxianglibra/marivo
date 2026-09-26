@@ -185,6 +185,16 @@ become an Analysis source, method implementation, Artifact or continuation.
 SQL-executing product parity is a target removal; `ms.from_sql` remains inert
 provenance text and tests may retain independent SQL oracles.
 
+## R1.1 transition status
+
+A one-table unscoped Population scan/filter or sum/count Metric aggregate on
+qualified DuckDB or SQLite uses `SourceSession` for its Ibis compilation and
+batch read. Basic Metric aggregation can group by a direct dimension. Other older
+Dataset source routes reject with `MaterializationError` at `source_admission`,
+before creating a Run or opening the source, and identify their R5–R8 migration
+stage. The R1.1 acceptance record tracks the remaining concrete legacy text
+methods and separately admitted fixed Artifact continuation.
+
 ## S1 W1 private J1 construction
 
 W1 loads the closed Semantic additivity, event-time, and value-policy declarations

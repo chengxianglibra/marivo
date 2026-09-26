@@ -106,7 +106,7 @@ class _ReservedJsonReader:
     name: str
 
     def raw_sql(self, query: str) -> None:
-        self.backend.submit(self.backend.statement(query, role="source_setting"))
+        raise _error("source_admission")
 
     @property
     def _marivo_duckdb_http_auth(self) -> object:
@@ -207,6 +207,8 @@ def prepared_source(
     all_records: Mapping[str, ArtifactRecord],
     validations: list[tuple[str, int]],
 ) -> Iterator[tuple[ExecutionAdapter, CompiledDataset, dict[str, ir.Table]]]:
+    if isinstance(source_step.binding, SourceBinding):
+        raise _error("source_admission", run_ref)
     source_dataset: Dataset = source_step.dataset
     if source_step.operation == "correlation":
         source_dataset = source_dataset._inputs[0]

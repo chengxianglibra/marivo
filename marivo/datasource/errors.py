@@ -125,7 +125,7 @@ def _connection_timeout_repair(
         )
     else:
         action = (
-            "The SELECT 1 round-trip did not complete within the deadline; "
+            "The Ibis literal round-trip did not complete within the deadline; "
             "verify the backend responds to queries, then retry with a larger "
             "timeout_seconds."
         )
@@ -295,7 +295,7 @@ class DatasourceConnectionError(DatasourceError):
 class DatasourceConnectionTimeoutError(DatasourceConnectionError):
     """A datasource connection phase exceeded its bounded wall-clock deadline.
 
-    Raised when either the backend-connect handshake or the ``SELECT 1``
+    Raised when either the backend-connect handshake or the Ibis literal
     round-trip exceeds ``timeout_seconds``. Carries the failed ``stage``
     (``connection_timeout`` vs ``connection_roundtrip_timeout``), the configured
     timeout, the measured elapsed time, and the datasource name so callers can
@@ -315,7 +315,9 @@ class DatasourceConnectionTimeoutError(DatasourceConnectionError):
         self.timeout_seconds = timeout_seconds
         self.elapsed_ms = elapsed_ms
         self.datasource_name = datasource_name
-        phase = "connection handshake" if stage == "connection_timeout" else "SELECT 1 round-trip"
+        phase = (
+            "connection handshake" if stage == "connection_timeout" else "Ibis literal round-trip"
+        )
         resolved_location = location or (
             f"md.connect({datasource_name!r})"
             if stage == "connection_timeout"

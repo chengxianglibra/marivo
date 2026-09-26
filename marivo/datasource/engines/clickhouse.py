@@ -686,44 +686,6 @@ def classify_table_resolution_failure(exc: Exception) -> Literal["metadata_unava
     return None
 
 
-_DATETRUNC_TO_NATIVE: dict[str, str] = {
-    "second": "toStartOfSecond",
-    "minute": "toStartOfMinute",
-    "hour": "toStartOfHour",
-    "day": "toStartOfDay",
-    "week": "toMonday",
-    "month": "toStartOfMonth",
-    "quarter": "toStartOfQuarter",
-    "year": "toStartOfYear",
-}
-
-
-def postprocess_sql(sql: str) -> str:
-    """Replace dateTrunc with native ClickHouse toStartOf* functions.
-
-    Ibis 12.0.0 generates dateTrunc('DAY', col) etc. for ClickHouse, but
-    dateTrunc is unsupported or unreliable in ClickHouse 22.3. Native
-    ClickHouse functions (toStartOfDay, toStartOfHour, toMonday, etc.)
-    work in all versions.
-
-    This transforms:
-        dateTrunc('DAY', col)   -> toStartOfDay(col)
-        dateTrunc('HOUR', col)  -> toStartOfHour(col)
-        dateTrunc('WEEK', col)  -> toMonday(col)
-        etc.
-    Any surrounding CAST wrapper is preserved.
-    """
-
-    def _replace_unit(match: re.Match[str]) -> str:
-        unit = match.group(1).lower()
-        native = _DATETRUNC_TO_NATIVE.get(unit)
-        if native is None:
-            return match.group(0)
-        return f"{native}("
-
-    return re.sub(r"dateTrunc\('([A-Za-z]+)',\s*", _replace_unit, sql)
-
-
 @contextmanager
 def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
     connection = getattr(backend, "con", None)
@@ -777,7 +739,6 @@ PROFILE = EngineProfile(
         byte_estimate_supported=True,
     ),
     translate_strptime_format=python_to_mysql_strptime,
-    postprocess_sql=postprocess_sql,
     datetime_decode_policy="utc_naive_instant",
     quantile=QuantileCapability(mode="approximate", method="reservoir_sampling"),
     percentile_uses_approx_quantile=False,

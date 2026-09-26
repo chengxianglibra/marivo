@@ -693,16 +693,8 @@ def run_local_graph(
 
 
 def _source_count(backend: ExecutionAdapter, recipe: CompiledDataset, *, role: str) -> object:
-    count_sql = backend.compile(recipe.expression.aggregate(__mv_rows=recipe.expression.count()))
-    return backend.read_scalar(
-        backend.statement(
-            count_sql,
-            role=role,
-            inputs=(
-                backend.prepare(recipe.expression.aggregate(__mv_rows=recipe.expression.count())),
-            ),
-        )
-    )
+    count_expression = recipe.expression.aggregate(__mv_rows=recipe.expression.count())
+    return backend.read_scalar(backend.prepare(count_expression, role=role))
 
 
 def _correlation_input(
