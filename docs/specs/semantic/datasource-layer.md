@@ -300,8 +300,9 @@ name accepted by `columns=`, its observed backend type, and nullability.
 Columns with conflicting part types or unparseable backend types are warned
 about and omitted. This is physical-column discovery, not Map key enumeration:
 dynamic keys that have not been materialized remain outside the governed source
-contract and require upstream materialization, a database view, or terminal
-`md.raw_sql(...)`.
+contract and require upstream materialization or a governed database view for
+typed Analysis. `md.raw_sql(...)` can answer a separate terminal question about
+such data, but its result cannot become a governed source binding.
 
 For a wrapped response, `records_path=` selects the array whose records are read.
 Additional object fields are ignored when a projection is supplied. Types are
@@ -563,24 +564,35 @@ does not certify business meaning. During the current milestone, scoped
 `catalog.preview(..., scope=...)` reads the current source directly. Ordinary
 preview does not persist an authoring checkpoint or affect readiness.
 
-### Governed raw SQL exploration
+### R0.3 target: Ibis-owned analysis reads and terminal raw SQL
 
-```python
-md.raw_sql(warehouse, "SHOW PARTITIONS orders", reason="inspect pruning").show()
-```
-`md.raw_sql(...)` is a normal governed exploration option and the sole terminal
-raw SQL execution path — bounded by
-`timeout_seconds` (default 30), exact row limiting, and read-only enforcement.
-It returns a `RawSqlResult` that cannot re-enter typed analysis; use
-`RawSqlResult.to_pandas()` for the terminal pandas exit. Its observed facts may
-inform explicit semantic Python, but the result itself cannot become typed or
-canonical analysis.
+`md.raw_sql(datasource: Ref[DatasourceKind], sql: str, *, reason: str,
+limit: int = 100, timeout_seconds: int = 30, include_types: bool = True,
+project_root: Path | None = None) -> RawSqlResult` remains the one public raw
+SQL escape hatch for questions outside Marivo's governed Analysis capability.
+It executes one read-only statement against the selected datasource with a
+required nonempty reason, positive returned-row limit and enforceable timeout.
+The result reports columns, types, bounded rows, truncation and execution
+context; callers must inspect `is_truncated` before terminal computation.
+Returned-row limits do not bound source scan cost. `RawSqlResult` is terminal:
+its rows or isolated `to_pandas()` copy confer no Semantic identity, Metric
+components, coverage, Artifact receipt or Analysis continuation. It cannot be
+passed to `session.members`, `observe`, `execute`, or a typed source binding.
+The `datasource.raw_sql` Help target and public export remain discoverable.
 
-Marivo therefore has three distinct SQL categories: SQL compiled by Ibis from
-typed expressions; datasource-adapter SQL generated only from validated source IR
-and quoted identifiers; and user-authored SQL accepted by terminal
-`md.raw_sql(...)`. Only the last category is authored SQL text. Typed table
-bindings never accept expressions, predicates, joins, casts, or SQL fragments.
+No other public source, inspection or Semantic expression argument accepts SQL
+text, including `backend.sql(handwritten)` disguised as a table. Typed table
+bindings still reject predicates, joins, casts and fragments. Governed business
+reads, completeness checks, counts and type/time validation are constructed as
+Ibis expressions. An adapter may submit the unmodified compiled result of a
+bound Ibis expression through a native driver; it records the expression
+identity, purpose and actual submission. The user-authored text submitted by
+`md.raw_sql` is the explicit terminal exception, not an implementation route
+for Analysis or a way to satisfy an unqualified method/backend cell. Internal
+driver configuration and non-query control commands remain itemized in the
+R0.5 SQL ledger without an implicit exception. A required governed operation
+without an Ibis or registered prepare-then-Python route is blocked. Local Store
+SQLite transactions have separate internal persistence authority.
 
 ## Handoff to semantics
 

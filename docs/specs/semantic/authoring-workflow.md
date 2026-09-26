@@ -68,23 +68,22 @@ fail explicitly, and unused columns do not add type restrictions.
 
 ### 3. Explore according to the question
 
-Choose among three evidence paths:
+The R0.3 target has two governed evidence paths:
 
 - inspection only when schema and existing project context are sufficient;
 - optional explicitly scoped sampling when retained rows or generic profiles
-  directly answer the current question;
-- `md.raw_sql(...)` for source-specific metadata, distributions, joins,
-  conditional logic, comparison with existing SQL, or bounded scratch work.
+  directly answer the current question.
 
 These paths are composable within the caller's explicit data-access budget.
 There is no mandatory inspect-snapshot-projection ladder. Every user-data read
 has positive row and timeout guards; a returned-row limit is not a scan bound.
 
-Raw SQL is a normal governed exploration option. It remains read-only, bounded,
-effect-disclosed, and terminal. A `RawSqlResult` cannot enter
-`session.observe(...)`, become a governed Dataset, or be persisted as canonical
-analysis. Its observed facts and disclosed assumptions may inform semantic
-Python.
+`md.raw_sql`/`RawSqlResult` remains available for a source-specific question
+outside Marivo's governed Analysis capability. It executes one read-only SQL
+statement with a reason, returned-row limit and timeout, and its result is
+terminal. To bring an answer into typed Analysis, author an upstream governed
+view or a qualified Ibis expression and bind it through normal Semantic facts;
+neither provenance text nor terminal raw-query rows are Analysis inputs.
 
 A `DiscoverySnapshot` retains generic bounded rows, profiles, source evidence,
 coverage, and cache identity. Its `.contract()` is a query-free read contract;

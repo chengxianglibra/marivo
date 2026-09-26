@@ -502,7 +502,11 @@ Artifact fails dependency validation without rereading the semantic source.
 
 ### Parity-time
 
-Parity compares SQL provenance against the Ibis expression. It can fail on
+The following SQL execution failures describe the shipped parity diagnostic,
+not the R0.3 full-algebra target. Target parity consumes an independent
+expected result or governed Ibis reference; `ms.from_sql` remains inert
+provenance, and the SQL-executing `ms.parity_check` path is removed in R1.
+Current parity compares SQL provenance against the Ibis expression. It can fail on
 missing source SQL or dialect; a metric still `unverified` under a strict policy;
 a missing datasource profile, unsupported backend type, or live/profile mismatch;
 an inexecutable SQL or metric expression; a non-scalar side; or unequal scalars.
@@ -545,7 +549,7 @@ Dimension contract supplied while constructing an error is recorded by its
 | `domain_file_mismatch` | Make the directory name and `ms.domain(name=...)` identity agree, then reload. |
 | organization errors | Restore the minimal datasource/domain layout reported by structured repair, then reload from the same project root. |
 | `unverified_provenance` | Add `provenance=ms.from_sql(...)`, or stop and confirm the business caliber. |
-| `sql_escape_hatch` | Use `md.raw_sql(...)` for terminal raw SQL execution; raw SQL in semantic expression bodies is still rejected by the validator. |
+| `sql_escape_hatch` | Use typed datasource inspection or a governed Ibis reference for Semantic authoring; raw SQL in Semantic expression bodies remains rejected. `md.raw_sql` is available only for terminal custom analysis outside Semantic and cannot repair this declaration or feed typed Analysis. |
 
 Loader/layout errors obtain these repair targets, path templates, and fragments
 from the same semantic registry used by focused help. An error does not embed a
@@ -602,8 +606,10 @@ metadata cannot confirm them. Authoring may then run an explicitly scoped
 preview against the current datasource; loading alone does not prove that a
 declared physical column exists or is queryable, and preview does not alter
 readiness.
-`ms.parity_check(name)` is an optional potentially unbounded diagnostic and never
-a readiness requirement. All three return silent result objects with `.show()` /
+The shipped `ms.parity_check(name)` is an optional potentially unbounded diagnostic and never
+a readiness requirement. Its SQL-executing form is removed in R1 under the R0.3
+target; a governed replacement must identify its independent expected input.
+All three current checks return silent result objects with `.show()` /
 `.render()`.
 
 ## Explicit source health

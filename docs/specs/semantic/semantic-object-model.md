@@ -1,5 +1,62 @@
 # Semantic Object Model
 
+## R0.3 full-algebra target decisions (inactive)
+
+The declarations in this section are accepted target contracts, not current
+exports. They are the Semantic authority consumed by the R0.3 Analysis rules;
+runtime checks remain Analysis and datasource responsibilities. Declaration
+identity and version enter the bound definition and Artifact receipt. An
+author-declared business fact is a trusted premise, not a measured source fact.
+
+### Named statistical-weight role
+
+`ms.statistical_weight(*, name: str, value: Ref[MeasureKind] |
+Ref[MetricKind], unit: Ref[EntityKind], domain: Ref[DomainKind] | None = None)
+-> Ref[StatisticalWeightKind]` is an independent named declaration. `value`
+must resolve to a numeric, dimensionless, nonnegative statistical weight per
+`unit` instance; the author is responsible for its sampling/statistical
+meaning. The loader checks exact ownership, unit, version, numeric kind and
+known contradictions. The declaration does not rewrite a Measure or Metric,
+grant additivity, or let an Analysis caller relabel an arbitrary order count,
+allocation share or sampling-control value as a weight. `mv.statistical_weight`
+binds a relation derived from that exact value and validates actual finite
+nonnegative values and instance correspondence at execution. A role mismatch
+reports the expected declared value/unit and a repair to author or select the
+right role. `ms.weighted_mean` keeps its existing governed Metric-component
+meaning; it is distinct from the new current-row statistical method.
+
+### Business order and simultaneous events
+
+`ms.business_order(*, name: str, subject: Ref[EntityKind],
+sequences: tuple[EventSequence, ...] = (),
+conflicts: tuple[EventPrecedence, ...] = (),
+domain: Ref[DomainKind] | None = None) -> Ref[BusinessOrderKind]` is one named,
+versioned order authority. `ms.event_sequence(event: Ref[EventKind],
+value: Ref[DimensionKind]) -> EventSequence` binds a declared integer or
+ordered exact business sequence on that Event's occurrence Entity. All listed
+sequence fields must be comparable for the same Subject and must not be the
+occurrence identity merely renamed. `ms.precedes(before: ParticipantRoleHandle,
+after: ParticipantRoleHandle) -> EventPrecedence` declares one acyclic,
+same-Subject precedence for simultaneous roles. An author must provide the
+business rationale in the owning definition context; a repeated or
+contradictory rule is rejected. `ms.state_model(..., business_order:
+Ref[BusinessOrderKind] | None = None)` binds the default order for that model;
+`session.events.match(..., business_order: Ref[BusinessOrderKind] | None = None)`
+binds the order for one pattern invocation. Both require exact Subject and
+Event membership. Neither can supply an ad hoc Python callback.
+
+At consumption, timestamps order different instants; the declared sequence or
+closed precedence orders otherwise ambiguous occurrences. Sequence uniqueness,
+comparability and exact participant mapping are mandatory checks. If the
+authority leaves several allowed orders, matcher/replay may proceed only if
+the requested output and every retained trace, violation, interval, assignment
+and continuation part are equivalent under all of them. This is a method- and
+input-bound check, not a global assertion that tied events commute. Stable
+occurrence-ID sorting is allowed only for deterministic physical enumeration;
+it is not transported as business evidence. Simultaneous activate/deactivate
+events producing different final states or traces must be rejected until a
+business order or conflict rule resolves them.
+
 Status: accepted target design; amended 2026-09-24 for S1 W1 Semantic declarations.
 The closed additivity, event-time, and value-policy authoring declarations are
 loadable. Analysis DSL execution remains inactive until the later S1 work packages.
@@ -840,6 +897,20 @@ No semantic Population, Sample, or `complete=True` authoring field is introduced
    StateModel meaning does not create runtime completeness evidence.
 
 ## Provenance and parity
+
+For the R0.3 target, `ms.from_sql(sql=..., dialect=...)` is an inert provenance
+value. No production method executes its text, compiles it through
+`backend.sql`, or treats it as an Ibis expression. The current SQL-executing
+`ms.parity_check` path is removed in R1; `md.raw_sql` remains a separate
+terminal datasource escape hatch and never executes provenance on behalf of
+Semantic. A governed
+parity diagnostic may instead compare a Semantic result with an independently
+supplied expected value or a reference built from typed Ibis expressions. Such
+a result reports the source, scope and method of comparison and never confers
+business authority merely because values match. Independent SQL oracle code
+may remain in test processes. The following legacy status table describes the
+currently shipped parity workflow until that target migration; it does not
+authorize SQL execution in the full-algebra target.
 
 A metric's business origin is declared as
 `provenance=ms.from_sql(sql=..., dialect=...)`. `verification_mode` is inferred:

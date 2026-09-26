@@ -93,7 +93,7 @@ C03–C10 的关系/数值、C11–C14/C18 的领域方法、C15–C17 的运行
 | 普通 Relation ratio | analysis owner：两关系的 typed 输入、同域/对应/单位/时间条件、零分母和缺侧 Cell、输出部件与可续算范围；与 `ms.ratio`、`mv.runtime_metric.ratio` 分清 | 数字可除但实例域不对应；缺侧误作零；普通比率误称 share |
 | 业务顺序依据 | `docs/specs/semantic/semantic-object-model.md` 定义可声明的顺序/冲突事实，analysis owner 定义 replay/matching 的接受及拒绝；不把 occurrence ID 的稳定排序当成业务先后 | 同时刻 activate/deactivate 对调后终态或保留轨迹改变 |
 | 原状态与当前行 | analysis owner：`rollup` 与 `summarize`、count/count_defined、合法空状态、零分母、缺侧、时点版本、distinct/quantile 直接观察及 K 收紧 | 当前行均值与组件总比率不同；Undefined 的合法零组件可合并但不能当零当前值 |
-| SQL/parity 公开边界 | `docs/specs/semantic/datasource-layer.md`、semantic parity 与 analysis owner：任意 SQL 执行入口的删除清单、provenance 文本边界及替代 oracle | `md.raw_sql`/`backend.sql` 绕过 Ibis；`ms.from_sql` 文本被误执行 |
+| SQL/parity 公开边界 | `docs/specs/semantic/datasource-layer.md`、semantic parity 与 analysis owner：保留 `md.raw_sql` 单一公共终端逃生通道，删除其他未经允许的内部 SQL 执行入口；固定 provenance 文本边界及替代 oracle | `md.raw_sql` 结果重入 Analysis、内部 `backend.sql` 绕过 Ibis；`ms.from_sql` 文本被误执行 |
 
 每个决定附明确的输入与输出类型、错误结构、状态/部件、验收反例和 `docs/specs/` 文件位置。
 若 C18 或其他本轮必需输入仍未闭合，R0 标为阻塞；`evaluate_each`、多对多、跨源混合、
@@ -125,8 +125,9 @@ SQL 台账的每行记录：文件/符号、调用方、业务读取/元数据/�
 当前输入与实际提交方式、是否手写/AST 拼接/生成后补丁、目标 Ibis 表达或公开驱动 API、
 改造阶段、真实运行的证明方式、阻塞与例外状态。原则是 Ibis 构造所有 datasource 读取与
 数据校验表达式；adapter 可以原样提交绑定表达式身份的 Ibis 编译产物。Ibis 准备→Python
-须在执行前获准，不是源端失败后的回退。没有等价路径的必需单元标阻塞，**例外默认空**；
-具体 SQL 例外只有用户另行明确批准后才可进入矩阵。
+须在执行前获准，不是源端失败后的回退。`md.raw_sql` 是已接受的公共终端例外，
+不补齐任何 Analysis 资格；其他内部 SQL 例外默认空。没有等价路径的必需单元标阻塞；
+新的内部 SQL 例外只有用户另行明确批准后才可进入矩阵。
 
 从 `EngineProfile`、`ExecutionAdapter`、`BatchStream` 的当前职责归并出一份内部 adapter
 接口决定，按主计划 §5.1 七项责任核对六后端：provider/连接、物理来源、实现资格、
@@ -138,7 +139,7 @@ Ibis 编译与传输、解码、资源取消、来源覆盖依据。记录所选
 ### R0.6 收束破坏性变更、证据与交接
 
 破坏性变更清单至少覆盖旧 Population/Dataset 家族、J1–J4 产品身份、旧 Help target、
-旧 registry/codec/协议、definition-only 来源命中、Artifact→DuckDB、任意 SQL/parity、
+旧 registry/codec/协议、definition-only 来源命中、Artifact→DuckDB、非终端内部 SQL/执行 provenance SQL 的 parity、
 distinct/quantile 的原量续算、旧 Store 双读/迁移及公开参数收紧。每项给出旧使用处、
 目标入口或结构化拒绝、更新阶段及对应 Help/CLI/site/测试消费者；J1–J4 仅保留为验收旅程 ID。
 

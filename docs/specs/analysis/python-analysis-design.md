@@ -1,5 +1,190 @@
 # Python Analysis Design
 
+## R0.3 accepted full-algebra target (inactive)
+
+This section owns the target Analysis contracts for R0.3. It does not describe
+currently importable Python. The 2026-09-26 R0 capability ledger owns migration
+and implementation status; the Semantic object model owns authored facts, and
+the Datasource layer owns physical access. Construction and planning perform no
+business-data I/O. Every operation below has a Logical result and a matching
+Materialized result after `execute()`; a fixed continuation consumes retained
+Artifact data and parts, never silently rereads a source. A failure names the
+expected type/identity/fact, the received value, and a focused repair target.
+
+### Relative Anchor observation and retention (C18)
+
+The single public entry shape is
+`session.anchors(source: ParticipantRoleHandle | JourneyResult, *,
+population: AnalysisDomain, during: TimeScope) -> LogicalAnchorDomain`.
+The source is a closed union of an exact `ParticipantRoleHandle` on an Event and
+an exact `JourneyResult` start view. The former uses the Event occurrence key;
+the latter uses the retained journey start occurrence and exact pattern/matching
+identity. `population` is an `AnalysisDomain` of the role's exact Subject
+Entity; `during` is a `TimeScope` selecting starts, not a follow-up limit.
+`AnchorDomain` retains the complete `(Subject key, Anchor occurrence key,
+source definition/version)` instance key, even when one Subject has several
+starts. Duplicate or unresolved keys and a mismatched participant are errors.
+Journey starts retain their existing assignment and coverage rather than being
+rematched. Subjects with no selected Anchor are absent from this Anchor domain;
+their eligibility is a separate cohort question.
+
+`AnchorDomain.observe(metric: Ref[MetricKind] | RuntimeMetricExpr, *,
+within: ElapsedWindow | CalendarWindow,
+via: Ref[RelationshipKind] | RootRoutes) -> LogicalNumericRelation` and
+`AnchorDomain.retention(returning: ParticipantRoleHandle, *,
+within: ElapsedWindow | CalendarWindow,
+completeness: tuple[BoundedCompletenessDeclarationV1 |
+SourceOriginCompletenessDeclarationV1, ...] = ())
+-> LogicalRetentionResult` use the same closed window input:
+`mv.elapsed(duration: Duration) -> ElapsedWindow` or
+`mv.calendar_days(days: int, timezone: ZoneInfo) -> CalendarWindow`; both
+require positive length, and `ZoneInfo` must name an IANA zone. For example,
+`mv.elapsed(mv.duration(hours=168))` and
+`mv.calendar_days(days=7, timezone=ZoneInfo("America/New_York"))` are
+different typed inputs.
+The interval is `[anchor instant, deadline)` and excludes the Anchor occurrence
+itself. A different occurrence at the same instant counts as later only with an
+accepted business ordering fact. Calendar arithmetic follows local calendar
+boundaries in the named zone before conversion to instants; seven local days
+must not be lowered as 168 hours across DST. `returning` is an exact Event
+participant role of the same Subject. A source occurrence may prove the
+predicate for several overlapping Anchor windows: shared contribution is the
+accepted policy, with each use retaining its `(Anchor, occurrence)` binding.
+It does not license summing those overlapping contributions as distinct facts.
+No hidden exclusive assignment or overlap-policy parameter is offered.
+
+Retention fixes its target instance domain Ω before reading return events.
+For every instance, observed qualifying return is known true even with partial
+follow-up; absence is known false only if the exact Event/source/window is
+covered through the exclusive deadline; otherwise it is unknown. Coverage is
+an observed or exact-bound declared fact, not an inference from a maximum event
+time, empty result, or rationale. `K+`, `K-`, and `K?` partition Ω and remain
+retained as disjoint status sets with coverage and Anchor-to-Subject parts.
+For nonempty Ω the result has exact deterministic bounds
+`[|K+|/|Ω|, (|K+|+|K?|)/|Ω|]`; for empty Ω both bounds are
+`Undefined(empty_omega)`, with empty sets and no implicit zero rate. An
+unknown instance stays in the denominator. The 25 true, 5 false, 70 unknown
+case must return `[25%, 95%]`, never a rate after dropping unknowns.
+
+`RetentionResult.by_subject(*, rule: AnyAnchor | EveryAnchor)
+-> LogicalSubjectRetentionResult` explicitly projects the fixed Anchor domain
+to its Subject image and fixes that image as a new Ω. `any_anchor` is true if
+any instance is true, false if all are false, otherwise unknown;
+`every_anchor` is false if any instance is false, true if all are true,
+otherwise unknown. Every Subject in this image has at least one Anchor.
+The only constructors of the closed rule union are `mv.any_anchor()` and
+`mv.every_anchor()`; there is no default quantifier.
+Projection never silently deduplicates an instance-rate denominator. Both
+results expose bounded `.show()` and `.contract()`, the status views and their
+exact keys; they permit status-based selection and fixed continuation while
+the required Anchor/coverage parts survive. They do not expose scalar-bound
+`rollup()`, arithmetic on bounds, or conversion of `K?` to false. `members()`
+requires a selected, decidable true Subject status; requesting unknown or
+incomplete selection returns a structured error.
+
+All C18 failures use `AnalysisError` with a stable constraint ID, exact
+`expected`, `received`, `repair`, and a stage of construction, admission, or
+execution. Construction rejects wrong role/Subject, nonpositive window,
+unknown timezone and duplicate source identity. Admission rejects an
+unqualified time axis, unproved same-instant order, incompatible route or
+absent required component; execution rejects actual duplicate keys and
+contradicted or malformed coverage claims. Insufficient follow-up alone creates `K?`
+for retention and is not an execution failure. The repair names the exact
+Event/Anchor/window or completeness binding to change; it never recommends
+dropping unknown rows.
+
+### Statistical and reference weights (C08)
+
+`mv.statistical_weight(values: NumericRelation, *, role:
+Ref[StatisticalWeightKind]) -> StatisticalWeight` binds an independently
+observed relation to the exact authored role from the Semantic object model.
+`mv.weighted_mean(weight=StatisticalWeight)` constructs a current-row
+statistic; the receiver and weight require the same exact instance domain or an
+explicit, checked one-to-one correspondence and the declared statistical unit.
+Finite nonnegative weights, a positive total weight for a Defined mean, and
+Defined values for positively weighted rows are required. Zero total weight
+produces `Undefined(zero_weight)` with retained `(weighted_sum, weight_sum)`;
+unknown weight or missing correspondence is not silently zero. The result
+retains the role/version, binding, units and components, but this direct
+statistic has no original-Metric `rollup()`. Order count, allocation and
+sampling weights do not gain statistical authority from numerical similarity.
+
+`mv.reference_weights(values: NumericRelation, *, strata:
+tuple[CategoryRelation, ...], unit: Ref[EntityKind]) -> ReferenceWeights`
+binds an independent Logical or Materialized weight relation. The complete
+unique stratum tuple and statistical-unit identity are part of this typed
+object; the reference node is fixed for an execution and is not reselected by
+downstream `where`, `rank` or `limit`. `stratum_values.standardize(reference=...)`
+requires exact stratum correspondence, finite nonnegative weights summing to
+one, and a legal value for every positive-weight stratum. Missing strata,
+duplicate strata, zero/incorrect total, or incompatible units fail with a
+structured repair; no renormalization, row-count substitution or observed
+Top-K denominator is allowed. The output is a new NumericRelation with the
+reference identity/parts retained, not the observed population total. Its K
+permits current-row selection/statistics and fixed continuation, but no
+original-state `rollup()` without a separately registered method and parts.
+
+Weight/reference failures are `AnalysisError(expected, received, repair,
+constraint_id, stage)`; Semantic declaration failures use `SemanticError`
+with the same structured fields. The error distinguishes role mismatch,
+missing/duplicate strata, invalid weight value, zero total and broken domain
+correspondence rather than reporting only a failed division.
+
+### Ordinary relation ratio (C07)
+
+`mv.one_to_one(*, left: NumericRelation, right: NumericRelation,
+via: Ref[RelationshipKind], time: PeriodChange | None = None)
+-> OneToOneCorrespondence` binds a declared one-to-one relationship and, when
+time axes differ, an explicit period correspondence. It is tied to these exact
+two relation nodes and their full key tuples; cardinality and complete key
+images are checked at execution. A many-to-one path is not accepted.
+`NumericRelation.ratio(other: NumericRelation, *, pairing:
+ExactKeys | OneToOneCorrespondence = ExactKeys())
+-> LogicalNumericRelation` is a current-row binary method, distinct from
+`ms.ratio` (a governed Metric graph) and `mv.runtime_metric.ratio` (one observe
+binding). `ExactKeys` requires identical typed instance keys and complete
+key images; for different domains, `OneToOneCorrespondence` is constructed
+from the exact declared relationship and bound relation keys, and proves a
+complete bijection, including time roles. A paired instance may carry an
+explicit `MissingCoordinate` on either side from a prior typed operation;
+that row remains present and yields `Undefined(missing_side)`. A missing key
+image fails pairing rather than widening the domain through `UnionKeys`.
+Ordinary ratio does not offer `metric_empty`. A matched pair requires finite
+Defined numeric operands, compatible source/temporal scope and known quotient
+units. A zero denominator retains both endpoints and yields
+`Undefined(zero_denominator)`, not zero, infinity or a dropped row. Any other
+non-Defined matched operand is a structured consumption error, not a guessed
+business value. Endpoint identity, pairing, units, status and coverage remain
+parts; K permits selection, current-row summarization and fixed continuation,
+not original-component `rollup()` or automatic share/penetration semantics.
+Ratio failures use structured
+`AnalysisError(expected, received, repair, constraint_id, stage)` for mismatched
+relation owner, key/time/unit correspondence, duplicate keys and non-Defined
+matched operands. Zero denominator and an allowed unmatched side are result
+Cells, not exceptions. The error suggests an actual typed pairing or a new
+governed observation, not a raw SQL join.
+
+### Remaining R0.3 boundaries
+
+`summarize(mv.count())` counts all current instances regardless of value Cell;
+`summarize(mv.count_defined())` counts only Defined current values. Neither
+changes the original contribution unit. `summarize(mv.mean())` builds new
+current-row `(sum, count)` state, whereas `rollup()` merges retained original
+Metric components before finishing and must prove coverage, disjointness,
+method/version, time and empty-state premises. A legal empty `(0,0)` state can
+merge although its displayed mean or ratio is Undefined; absent or unknown
+state cannot be replaced by zero. Exact version selection uses the declared
+instant/before-end policy and full Entity identity, never a last-known row.
+Direct exact distinct and quantile observations have no original-state rollup
+or attribution K from a displayed scalar; a coarser result requires a fresh
+observation at that target domain. Source I/O and data checks are built as
+Ibis expressions; fixed Artifact continuation is controlled local decoding to
+pandas/NumPy/SciPy. `md.raw_sql` remains a terminal, read-only datasource
+escape hatch outside typed Analysis; neither its SQL text nor its result can
+become an Analysis source, method implementation, Artifact or continuation.
+SQL-executing product parity is a target removal; `ms.from_sql` remains inert
+provenance text and tests may retain independent SQL oracles.
+
 ## S1 W1 private J1 construction
 
 W1 loads the closed Semantic additivity, event-time, and value-policy declarations
@@ -832,8 +1017,10 @@ Type/member leaves remain independently queryable without flooding task discover
 Algebraic attribution does not establish cause. Association is descriptive;
 Candidate scores do not confirm an anomaly or prescribe action. Forecasts are
 model outputs under explicit assumptions. Evidence records facts and derivation,
-not the agent's narrative conclusion. Custom work through `to_pandas()` or
-`md.raw_sql(...)` is terminal and cannot re-enter governed Dataset analysis.
+not the agent's narrative conclusion. In the shipped Dataset surface, custom
+work through `to_pandas()` or `md.raw_sql(...)` is terminal and cannot re-enter
+governed analysis. The R0.3 target retains the latter as the explicit public
+SQL escape hatch outside Analysis.
 
 ## Owning contracts
 
