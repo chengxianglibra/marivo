@@ -144,6 +144,58 @@ def test_group_a(tmp_path: Path, source_table: str, kind: str) -> None:
     assert runtime.store.resources(runtime.session_ref) == ()
 
 
+def test_single_key_basic_metrics_use_source_session(tmp_path: Path, source_table: str) -> None:
+    registry, sidecar = registry_for(tmp_path / "unused", engine="mysql", table=source_table)
+    runtime = DatasetRuntime.create(tmp_path, "basic-metrics")
+    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+
+    revenue = sources.observe(REVENUE).aggregate().execute()
+    count = sources.observe(ref.metric("sales.order_count")).aggregate().execute()
+
+    assert revenue.to_pandas().revenue.tolist() == [1058.5]
+    assert count.to_pandas().order_count.tolist() == [5]
+    assert all(submission.state == "succeeded" for submission in runtime.statistics.submissions)
+    assert runtime.store.resources(runtime.session_ref) == ()
+
+
+def test_single_key_view_population_uses_source_session(tmp_path: Path, source_table: str) -> None:
+    view = "dataset_view_" + uuid4().hex
+    with mysql.connection(admin=True) as con, con.cursor() as cursor:
+        cursor.execute(f"CREATE VIEW {view} AS SELECT * FROM {source_table}")
+        try:
+            registry, sidecar = registry_for(tmp_path / "unused", engine="mysql", table=view)
+            runtime = DatasetRuntime.create(tmp_path, "view-population")
+            result = (
+                runtime.sources(semantic_registry=registry, sidecar=sidecar)
+                .population(ref.entity("sales.orders"))
+                .execute()
+            )
+            assert result.to_pandas().entity_identity.tolist() == [(i,) for i in range(1, 7)]
+            assert runtime.statistics.primary_queries == 1
+            assert runtime.store.resources(runtime.session_ref) == ()
+        finally:
+            cursor.execute(f"DROP VIEW IF EXISTS {view}")
+
+
+@pytest.mark.parametrize("invalid", ("duplicate", "null"))
+def test_single_key_population_rejects_invalid_identity(
+    tmp_path: Path, source_table: str, invalid: str
+) -> None:
+    value = "1" if invalid == "duplicate" else "NULL"
+    with mysql.connection(admin=True) as con, con.cursor() as cursor:
+        cursor.execute(f"INSERT INTO {source_table}(id) VALUES ({value})")
+    registry, sidecar = registry_for(tmp_path / "unused", engine="mysql", table=source_table)
+    runtime = DatasetRuntime.create(tmp_path, f"invalid-{invalid}")
+    target = runtime.sources(semantic_registry=registry, sidecar=sidecar).population(
+        ref.entity("sales.orders")
+    )
+
+    with pytest.raises(MaterializationError):
+        target.execute()
+    assert runtime.store.resources(runtime.session_ref) == ()
+    assert counts(runtime)["dataset_artifacts"] == 0
+
+
 @pytest.mark.parametrize("invalid", ["duplicate", "null", "collation", "unsigned"])
 def test_invalid_source(tmp_path: Path, source_table: str, invalid: str) -> None:
     statements = {

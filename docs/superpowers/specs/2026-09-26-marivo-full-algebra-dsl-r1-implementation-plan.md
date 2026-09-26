@@ -81,6 +81,13 @@ Trino Iceberg 与 non-Iceberg，ClickHouse MergeTree 与 Distributed。一个形
 **交付：**C01.a/b 的六后端基础证据、按后端/表形态/类型拆开的资格记录，及 inspection、
 preview、source-health 同一 owner 的消费者迁移。扩展方法和完整后端方法矩阵留给 R9。
 
+**后续实施项（R9 后端资格）：**R1.2 的单列主键 Ibis 标量降级仅用于 MySQL 基础
+Population/sum/count；DuckDB、PostgreSQL、SQLite、Trino、ClickHouse 当前仍使用有序
+`ibis.struct`。如需对这些后端启用单列标量，逐后端补齐原样编译/提交对照、批次读取后
+Arrow 身份结构重建、空流和类型精度、重复/Null 身份及完整复合键校验、异常资源清理、
+静态披露与真实表/view 正反例。MySQL 的单列资格不转授其他后端；MySQL 多列主键仍
+在 Run 前阻断，待独立编译路径和复合键证据具备后再评估。
+
 ### R1.3 收紧 SQL、控制与凭据边界
 
 按 R0.5 的 DS/AN 行逐点处理连接和读取旁路。`md.test` 与 source-health 的 `SELECT 1`
@@ -131,6 +138,11 @@ SQL 不可重入成为独立反例。使用仓库 `make test TESTS='...'`、
 `make runtime-test TESTS='...'`、`make typecheck TYPECHECK_TARGETS='...'`、
 `make lint-agent LINT_TARGETS='...'`；阶段共享行为收口运行 `make check-agent`，
 API 文档门禁和 `site/` 构建按主计划 §12.1 执行。普通 R1 不运行完整 release-check。
+
+2026-09-27 提交阶段例外：用户明确要求暂时跳过 14 个依赖 R5 旧来源方法迁移的
+正例参数组合，以便提交 R1.2。每个测试保留原断言并注明恢复条件；R5 完成相应来源
+方法后必须移除 skip、复跑独立预期与全量门禁。暂跳过仅解除提交阻塞，不计入下列
+R1 阶段验收；具体测试和首次失败证据见阶段验收记录。
 
 R1 只有同时满足以下条件才标为通过：
 

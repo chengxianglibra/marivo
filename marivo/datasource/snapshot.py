@@ -7,19 +7,17 @@ import json
 import re
 from collections import Counter
 from collections.abc import Callable, Mapping
-from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias, cast
 from urllib.parse import urlparse
 
-import ibis.expr.types as ir
 import pandas as pd
 
-from marivo.datasource import backends as _backends
 from marivo.datasource import store as _store
 from marivo.datasource._capabilities.contracts import repair_for_authoring_code
+from marivo.datasource.adapters import SourceSession
 from marivo.datasource.authoring import _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import (
@@ -28,24 +26,18 @@ from marivo.datasource.errors import (
     _backend_failure_summary,
 )
 from marivo.datasource.ir import (
-    CsvSourceIR,
     JsonSourceIR,
-    ParquetSourceIR,
     QueryParamScalar,
     QueryParamScalarList,
-    TableSourceIR,
 )
-from marivo.datasource.json_source import normalize_json_source_params, read_json_source
+from marivo.datasource.json_source import normalize_json_source_params
 from marivo.datasource.metadata import ColumnMetadata
 from marivo.datasource.source import AuthoringScope, PartitionScope, TableSource
-from marivo.datasource.table_source import table_source_expression
 from marivo.preview import normalize_preview_cell
 from marivo.refs import DatasourceKind, Ref
 from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
-    from ibis.backends import BaseBackend
-
     from marivo.datasource.inspection import SourceInspection
 
 
@@ -294,48 +286,6 @@ def _acquisition_error(
         ),
         repair=repair_for_authoring_code(code),
     )
-
-
-def _source_expression(
-    backend: object,
-    source: TableSource,
-    *,
-    source_params: Mapping[str, QueryParamScalar | QueryParamScalarList] | None = None,
-) -> ir.Table:
-    if isinstance(source, TableSourceIR):
-        return table_source_expression(backend, source)
-    if isinstance(source, ParquetSourceIR):
-        reader = getattr(backend, "read_parquet", None)
-        if not callable(reader):
-            raise RuntimeError("datasource backend does not expose read_parquet()")
-        options: dict[str, object] = {}
-        if source.hive_partitioning:
-            options["hive_partitioning"] = True
-        expression = cast("ir.Table", reader(source.path, **options))
-        if source.columns is not None:
-            expression = expression.select(*source.columns)
-        return expression
-    if isinstance(source, CsvSourceIR):
-        reader = getattr(backend, "read_csv", None)
-        if not callable(reader):
-            raise RuntimeError("datasource backend does not expose read_csv()")
-        csv_options: dict[str, object] = {}
-        if not source.header:
-            csv_options["header"] = False
-        if source.delimiter != ",":
-            csv_options["delimiter"] = source.delimiter
-        expression = cast("ir.Table", reader(source.path, **csv_options))
-        if source.columns:
-            expression = expression.select(
-                *(
-                    expression[source_name].name(output_name)
-                    for output_name, source_name in source.columns
-                )
-            )
-        return expression
-    if isinstance(source, JsonSourceIR):
-        return read_json_source(backend, source, source_params=source_params)
-    raise TypeError(f"unsupported source type: {type(source).__name__}")
 
 
 def _json_scalar(value: object) -> JsonScalar:
@@ -619,12 +569,12 @@ def acquire_snapshot(
             scope_state=inspection.partitioning.state,
         )
 
-    backend: BaseBackend | None = None
+    session: SourceSession | None = None
     timeout_entered = False
     execute_attempted = False
     try:
         try:
-            backend = _backends.build_backend(datasource_ir, read_only=True)
+            session = profile.open(datasource_ir, read_only=True)
         except Exception as exc:
             failure = _backend_failure_summary(exc)
             raise _acquisition_error(
@@ -634,11 +584,12 @@ def acquire_snapshot(
                 scope_state=inspection.partitioning.state,
             ) from exc
         try:
-            expression = _source_expression(
-                backend,
+            binding = session.bind(
                 inspection.source,
+                source_identity=snapshot_id,
                 source_params=normalized_source_params,
             )
+            expression = binding.relation
         except Exception as exc:
             failure = _backend_failure_summary(exc)
             raise _acquisition_error(
@@ -670,10 +621,15 @@ def acquire_snapshot(
             pushed_predicate = ()
         expression = expression.select(*columns).limit(scope.max_rows + 1)
         try:
-            with timeout(backend, scope.timeout_seconds):
+            with timeout(session._backend, scope.timeout_seconds):
                 timeout_entered = True
                 execute_attempted = True
-                frame = expression.execute()
+                frame = session.collect_bounded(
+                    expression,
+                    source_identities=(snapshot_id,),
+                    purpose="datasource.snapshot",
+                    max_rows=scope.max_rows + 1,
+                ).to_pandas()
         except Exception as exc:
             failure = _backend_failure_summary(exc)
             if not timeout_entered:
@@ -704,11 +660,8 @@ def acquire_snapshot(
                 query_executed=True,
             ) from exc
     finally:
-        if backend is not None:
-            disconnect = getattr(backend, "disconnect", None)
-            if callable(disconnect):
-                with suppress(Exception):
-                    disconnect()
+        if session is not None:
+            session.close()
 
     observed_row_count = len(frame)
     retained = frame.iloc[: scope.max_rows].copy()

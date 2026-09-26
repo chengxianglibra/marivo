@@ -555,14 +555,20 @@ def inspect_table(
             ),
         )
 
+    from ibis.backends import BaseBackend
+
+    from marivo.datasource.adapters import SourceSession
     from marivo.datasource.engines import require_profile_for_backend_type
     from marivo.datasource.engines.base import MetadataInspectRequest
 
     profile = require_profile_for_backend_type(datasource_ir.backend_type)
     backend: Any = None
+    session: SourceSession | None = None
     try:
         try:
             backend = _backends.build_backend(datasource_ir)
+            if isinstance(backend, BaseBackend):
+                session = SourceSession(profile, datasource_ir, backend)
         except Exception as exc:
             failure = _backend_failure_summary(exc)
             raise DatasourceMetadataError(
@@ -582,9 +588,16 @@ def inspect_table(
 
         try:
             table_expr = (
-                backend.table(table)
-                if database is None
-                else backend.table(table, database=database)
+                session.bind(
+                    TableSourceIR(table, database=database),
+                    source_identity=f"metadata:{datasource}:{database}:{table}",
+                ).relation
+                if session is not None
+                else (
+                    backend.table(table)
+                    if database is None
+                    else backend.table(table, database=database)
+                )
             )
         except Exception as exc:
             failure = _backend_failure_summary(exc)
@@ -641,10 +654,14 @@ def inspect_table(
         # so it does not outlive the inspection. A lingering read-write handle
         # would block read-only opens to the same DuckDB file from raw_sql in a
         # later call.
-        disconnect = getattr(backend, "disconnect", None)
-        if callable(disconnect):
+        if session is not None:
             with suppress(Exception):
-                disconnect()
+                session.close()
+        else:
+            disconnect = getattr(backend, "disconnect", None)
+            if callable(disconnect):
+                with suppress(Exception):
+                    disconnect()
     return _with_primary_key_capability_warning(metadata)
 
 

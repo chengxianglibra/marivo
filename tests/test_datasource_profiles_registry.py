@@ -24,6 +24,34 @@ class _ProbeResult:
     result_rows = [(1,)]
 
 
+class _ProbeCursor:
+    def __init__(self, failure: Exception | None = None) -> None:
+        self._failure = failure
+        self._read = False
+
+    def execute(self, sql: str) -> None:
+        assert sql == "SELECT 1"
+        if self._failure is not None:
+            raise self._failure
+
+    def fetchmany(self, _size: int) -> list[tuple[int]]:
+        if self._read:
+            return []
+        self._read = True
+        return [(1,)]
+
+    def close(self) -> None:
+        return None
+
+
+class _ProbeConnection:
+    def __init__(self, failure: Exception | None = None) -> None:
+        self._failure = failure
+
+    def cursor(self) -> _ProbeCursor:
+        return _ProbeCursor(self._failure)
+
+
 @pytest.fixture
 def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
@@ -100,6 +128,7 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
     class _FakeBackend:
         disconnected = False
         name = "trino"
+        con = _ProbeConnection()
 
         def compile(self, _expression: object, *, limit: None) -> str:
             return "SELECT 1"
@@ -248,6 +277,7 @@ def test_datasource_test_success_persists_env_sourced_secret(
 
     class _FakeBackend:
         name = "trino"
+        con = _ProbeConnection()
 
         def compile(self, _expression: object, *, limit: None) -> str:
             return "SELECT 1"
@@ -306,6 +336,7 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
 
     class _FakeBackend:
         name = "trino"
+        con = _ProbeConnection(RuntimeError("authentication failed"))
 
         def compile(self, _expression: object, *, limit: None) -> str:
             return "SELECT 1"
@@ -372,6 +403,7 @@ def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
 
     class _FakeBackend:
         name = "trino"
+        con = _ProbeConnection()
 
         def compile(self, _expression: object, *, limit: None) -> str:
             return "SELECT 1"

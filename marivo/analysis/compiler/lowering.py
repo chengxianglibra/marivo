@@ -244,7 +244,11 @@ def _linear_coefficient(coefficient: float) -> int | float:
     return int(coefficient) if float(coefficient).is_integer() else coefficient
 
 
-def _identity(table: ir.Table, entity: TargetEntityContract) -> ir.StructValue:
+def _identity(
+    table: ir.Table, entity: TargetEntityContract, *, scalar_single: bool = False
+) -> ir.Value:
+    if scalar_single and len(entity.primary_key) == 1:
+        return table[entity.primary_key[0]]
     result = ibis.struct({name: table[name] for name in entity.primary_key})
     if not isinstance(result, ir.StructValue):
         raise compilation_error("typed ordered identity struct", "unexpected identity type")
@@ -666,6 +670,9 @@ def lower_fold(
 
 
 class _Compiler:
+    def _identity(self, table: ir.Table, entity: TargetEntityContract) -> ir.Value:
+        return _identity(table, entity, scalar_single=self.scalar_single_identity)
+
     def __init__(
         self,
         dataset: LogicalDataset,
@@ -683,6 +690,7 @@ class _Compiler:
         scalar_masks: bool = False,
         lifecycle_dialect: Literal["duckdb", "postgres", "trino", "clickhouse"] = "duckdb",
         ranked_event_successors: bool = False,
+        scalar_single_identity: bool = False,
     ) -> None:
         self.dataset = dataset
         self.owner = source_owner_of(dataset) if source_owner is None else source_owner
@@ -696,6 +704,7 @@ class _Compiler:
         self.scalar_masks = scalar_masks
         self.lifecycle_dialect = lifecycle_dialect
         self.ranked_event_successors = ranked_event_successors
+        self.scalar_single_identity = scalar_single_identity
         self.time_authorities: dict[tuple[str, str], SourceTimeAuthority] = {}
         self.version_selections: dict[str, CanonicalValue] = {}
         dependencies = (
@@ -1119,7 +1128,7 @@ class _Compiler:
             )
         if payload.predicate is not None:
             table = table.filter(lower_bound_predicate(table, payload.predicate))
-        return _Rows(table.select(entity_identity=_identity(table, entity)), table, entity)
+        return _Rows(table.select(entity_identity=self._identity(table, entity)), table, entity)
 
     def _flush_validations(self) -> None:
         self.preparations.extend(self.validations[self.prepared_validation_count :])
@@ -1354,14 +1363,14 @@ class _Compiler:
     def _spine(
         self, definition: MetricDefinition, membership: ir.Table, selections: tuple[_Selection, ...]
     ) -> ir.Table:
-        table = membership.mutate(entity_identity=_identity(membership, definition.entity))
+        table = membership.mutate(entity_identity=self._identity(membership, definition.entity))
         if (definition.dimensions or definition.time_axis is not None) and (
             definition.entity.version is not None
             or not set(self.tables[definition.entity.ref.path].columns).issubset(membership.columns)
         ):
             source_rows = self.tables[definition.entity.ref.path].view()
             source_rows = source_rows.mutate(
-                entity_identity=_identity(source_rows, definition.entity)
+                entity_identity=self._identity(source_rows, definition.entity)
             )
             if definition.entity.version is None:
                 self._count(
@@ -1519,9 +1528,15 @@ class _Compiler:
             (name, f"__mv_identity_{index}") for index, name in enumerate(target.primary_key)
         )
         table = self._enrich(table, root, target.ref.path, aliases, selected_target=membership)
-        identity = ibis.struct({name: table[alias] for name, alias in aliases})
+        identity = (
+            table[aliases[0][1]]
+            if self.scalar_single_identity and len(aliases) == 1
+            else ibis.struct({name: table[alias] for name, alias in aliases})
+        )
         table = table.mutate(entity_identity=identity)
-        population = membership.select(entity_identity=_identity(membership, target)).distinct()
+        population = membership.select(
+            entity_identity=self._identity(membership, target)
+        ).distinct()
         table = table.join(population, "entity_identity", how="semi")
         reference_axis = definition.reference_axis
         if metric.cumulative:
@@ -1641,7 +1656,7 @@ class _Compiler:
                 identity = None
                 if value is None:
                     identity = next(item for item in self.entities if item.ref.path == root)
-                    value = _identity(table, identity)
+                    value = self._identity(table, identity)
                 if self.scalar_identity_distinct and identity is not None:
                     fields = tuple(identity.primary_key)
                     complete = table
@@ -2086,7 +2101,9 @@ class _Compiler:
         definition = payload.definition
         membership = previous.membership
         selected = previous.expression.select("entity_identity").distinct()
-        membership = membership.mutate(entity_identity=_identity(membership, definition.entity))
+        membership = membership.mutate(
+            entity_identity=self._identity(membership, definition.entity)
+        )
         membership = membership.join(selected, "entity_identity", how="semi").drop(
             "entity_identity"
         )
@@ -2910,6 +2927,7 @@ def compile_dataset(
     scalar_masks: bool = False,
     lifecycle_dialect: Literal["duckdb", "postgres", "trino", "clickhouse"] = "duckdb",
     ranked_event_successors: bool = False,
+    scalar_single_identity: bool = False,
 ) -> CompiledDataset:
     """Lower a logical Dataset using exact source tables without executing or reading rows."""
     return _Compiler(
@@ -2928,6 +2946,7 @@ def compile_dataset(
         scalar_masks,
         lifecycle_dialect,
         ranked_event_successors,
+        scalar_single_identity,
     ).compile()
 
 

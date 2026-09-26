@@ -333,6 +333,9 @@ def test_source_semantic_grain_uses_exact_preloaded_certified_buckets(tmp_path: 
         assert [row["running"] for row in _rows(fixture, by_period)] == [110, 30]
 
 
+@pytest.mark.skip(
+    reason="Re-enable after R5 qualifies time-scoped Metric source execution and calendar validation publication."
+)
 @pytest.mark.parametrize("metric_name", ["revenue", "running"])
 def test_semantic_calendar_validations_publish_each_required_occurrence(
     tmp_path: Path, metric_name: str

@@ -1159,13 +1159,25 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
         def __init__(self) -> None:
             self.queries: list[str] = []
             self.disconnect_calls = 0
+            self.con = self
 
         def compile(self, _expression: object, *, limit: None) -> str:
             return "SELECT 1"
 
-        def raw_sql(self, sql: str) -> object:
-            self.queries.append(sql)
-            return type("ProbeCursor", (), {"fetchone": lambda self: (1,)})()
+        def cursor(self) -> object:
+            owner = self
+
+            class ProbeCursor:
+                def execute(self, sql: str) -> None:
+                    owner.queries.append(sql)
+
+                def fetchmany(self, _size: int) -> list[tuple[int]]:
+                    return [(1,)]
+
+                def close(self) -> None:
+                    return None
+
+            return ProbeCursor()
 
         def disconnect(self) -> None:
             self.disconnect_calls += 1

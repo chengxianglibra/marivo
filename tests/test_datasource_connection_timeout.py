@@ -50,10 +50,23 @@ class BlockingSelectBackend:
         self._block_event = block_event
         self.queries: list[str] = []
         self.disconnect_calls = 0
+        self.con = self
 
-    def raw_sql(self, sql: str) -> None:
-        self.queries.append(sql)
-        self._block_event.wait()
+    def cursor(self) -> object:
+        owner = self
+
+        class BlockingCursor:
+            def execute(self, sql: str) -> None:
+                owner.queries.append(sql)
+                owner._block_event.wait()
+
+            def fetchmany(self, _size: int) -> list[tuple[int]]:
+                return [(1,)]
+
+            def close(self) -> None:
+                return None
+
+        return BlockingCursor()
 
     def compile(self, _expression: object, *, limit: None) -> str:
         return "SELECT 1"

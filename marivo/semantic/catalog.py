@@ -4417,7 +4417,12 @@ def _certification_capture(
             details={"query_executed": False, "backend": bindings.backend},
         )
     with timeout_guard(backend, bindings.timeout_seconds):
-        frame = table.execute()
+        frame = connections.collect_source(
+            bindings.datasource_id,
+            table,
+            purpose="semantic.certified_preview",
+            max_rows=scope.max_rows + 1,
+        )
     observed = len(frame)
     if observed > scope.max_rows:
         _raise(
@@ -6055,6 +6060,17 @@ class SemanticCatalog(RenderableResult):
         backend = connections.session_backend(bindings.datasource_id)
 
         def execute_preview() -> PreviewResult:
+            from functools import partial
+
+            preview_with_source = partial(
+                preview_ibis_table,
+                read_table=lambda expression, bound: connections.collect_source(
+                    bindings.datasource_id,
+                    expression,
+                    purpose="semantic.preview",
+                    max_rows=bound,
+                ),
+            )
             resolver = self._semantic_resolver(
                 connections=connections,
                 sample_size=(METRIC_PREVIEW_SAMPLE_SIZE if kind == SemanticKind.METRIC else None),
@@ -6063,7 +6079,7 @@ class SemanticCatalog(RenderableResult):
             )
             if kind == SemanticKind.ENTITY:
                 table = resolver.table(_make_ref(ref_str, SemanticKind.ENTITY))
-                return preview_ibis_table(
+                return preview_with_source(
                     table,
                     kind="semantic_dataset",
                     ref=ref_str,
@@ -6080,7 +6096,7 @@ class SemanticCatalog(RenderableResult):
                 measure_value = resolver.measure(_make_ref(ref_str, SemanticKind.MEASURE))
                 measure_column_name = ref_str.rsplit(".", 1)[-1]
                 preview_table = parent_table.select(measure_value.name(measure_column_name))
-                return preview_ibis_table(
+                return preview_with_source(
                     preview_table,
                     kind="semantic_measure",
                     ref=ref_str,
@@ -6127,7 +6143,7 @@ class SemanticCatalog(RenderableResult):
                     *[parent_table[column] for column in selected_context],
                     field_value.name(field_column_name),
                 )
-                result = preview_ibis_table(
+                result = preview_with_source(
                     preview_table,
                     kind="semantic_field",
                     ref=ref_str,
@@ -6157,7 +6173,7 @@ class SemanticCatalog(RenderableResult):
                     method="pre_aggregate_limit",
                     limit=METRIC_PREVIEW_SAMPLE_SIZE,
                 )
-                result = preview_ibis_table(
+                result = preview_with_source(
                     _metric_preview_table(
                         resolver,
                         reg,
@@ -6195,7 +6211,7 @@ class SemanticCatalog(RenderableResult):
                     participants=tuple(participant.name for participant in event_ir.participants),
                 )
                 return _validate_event_preview(
-                    preview_ibis_table(
+                    preview_with_source(
                         table,
                         kind="semantic_event",
                         ref=ref_str,
@@ -6226,7 +6242,7 @@ class SemanticCatalog(RenderableResult):
                 for event_ref in event_refs:
                     event_ir = reg.events[event_ref]
                     event_preview = _validate_event_preview(
-                        preview_ibis_table(
+                        preview_with_source(
                             resolver.event(
                                 ref_factory.event(event_ref),
                                 participants=tuple(
@@ -6316,7 +6332,7 @@ class SemanticCatalog(RenderableResult):
                     ],
                     how="inner",
                 ).select(*(left_names + right_names))
-                return preview_ibis_table(
+                return preview_with_source(
                     joined,
                     kind="semantic_dataset",
                     ref=ref_str,
@@ -6578,7 +6594,12 @@ class SemanticCatalog(RenderableResult):
             )
         backend = connections.session_backend(bindings.datasource_id)
         with timeout(backend, bindings.timeout_seconds):
-            dataframe = preview_table.limit(row_limit + 1).execute()
+            dataframe = connections.collect_source(
+                bindings.datasource_id,
+                preview_table,
+                purpose="semantic.preview_batch",
+                max_rows=row_limit + 1,
+            )
         schema_types = {name: str(dtype) for name, dtype in preview_table.schema().items()}
         from marivo.datasource.timezone import system_timezone_name
 
@@ -6698,7 +6719,12 @@ class SemanticCatalog(RenderableResult):
             )
         backend = connections.session_backend(bindings.datasource_id)
         with timeout(backend, bindings.timeout_seconds):
-            dataframe = preview_table.limit(limit + 1).execute()
+            dataframe = connections.collect_source(
+                bindings.datasource_id,
+                preview_table,
+                purpose="semantic.preview_metric_batch",
+                max_rows=limit + 1,
+            )
         schema_types = {name: str(dtype) for name, dtype in preview_table.schema().items()}
         results: list[PreviewResult] = []
         for item, alias in zip(items, aliases, strict=True):

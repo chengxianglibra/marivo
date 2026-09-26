@@ -30,6 +30,7 @@ from marivo.datasource.adapters import (
     QualifiedSource,
     SourceSession,
     provider_for,
+    provider_names,
 )
 from marivo.datasource.errors import DatasourceError
 from marivo.datasource.ir import TableSourceIR
@@ -88,6 +89,18 @@ def _read_batches(
                 )
 
 
+def _restore_single_identity(
+    batches: Generator[pa.RecordBatch, None, None], *, key_name: str
+) -> Generator[pa.RecordBatch, None, None]:
+    for batch in batches:
+        index = batch.schema.get_field_index("entity_identity")
+        if index < 0:
+            raise _unqualified("missing entity_identity output")
+        columns = list(batch.columns)
+        columns[index] = pa.StructArray.from_arrays([columns[index]], names=[key_name])
+        yield pa.RecordBatch.from_arrays(columns, names=batch.schema.names)
+
+
 def execute_basic_source(
     runtime: DatasetRuntime,
     dataset: LogicalDataset,
@@ -95,10 +108,7 @@ def execute_basic_source(
     run_ref: str,
 ) -> tuple[str, DatasetWriteResult[StorageReceipt], CompiledDataset]:
     """Execute a one-table basic Population or sum/count Metric read."""
-    if not isinstance(step.binding, SourceBinding) or step.binding.adapter not in {
-        "duckdb",
-        "sqlite",
-    }:
+    if not isinstance(step.binding, SourceBinding) or step.binding.adapter not in provider_names():
         raise _unqualified("unsupported basic source backend")
     owner = step.binding.owner
     datasource = owner.semantic_registry.datasources[step.binding.datasource_id]
@@ -152,6 +162,9 @@ def execute_basic_source(
             {entity.ref.path: table},
             dependencies=dependencies,
             source_owner=owner,
+            scalar_single_identity=(
+                step.binding.adapter == "mysql" and len(entity.primary_key) == 1
+            ),
         )
         if any(isinstance(part, RetainedRelationSpec) for part in recipe.retained_parts) or any(
             isinstance(item, CompiledRelationFence) for item in recipe.preparations
@@ -181,6 +194,15 @@ def execute_basic_source(
         with closing(
             _read_batches(runtime, session, qualified, recipe.expression, purpose="primary")
         ) as incoming:
+            output = (
+                _restore_single_identity(incoming, key_name=entity.primary_key[0])
+                if (
+                    dataset.kind == "population"
+                    and step.binding.adapter == "mysql"
+                    and len(entity.primary_key) == 1
+                )
+                else incoming
+            )
             parts = tuple(
                 PartWriteSpec(part.role, part.contract_id, part.contract_version, part.column_names)
                 for part in recipe.retained_parts
@@ -189,7 +211,7 @@ def execute_basic_source(
             artifact_ref, storage = dataset_publication.write_output(
                 runtime,
                 dataset,
-                incoming,
+                output,
                 run_ref,
                 parts=parts,
                 source_key_validation=True,

@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Literal
 
+import ibis.expr.types as ir
 from ibis.backends import BaseBackend
 
 from marivo.datasource.engines.base import (
@@ -19,9 +20,7 @@ from marivo.datasource.engines.base import (
     PartitionProbeResult,
     QuantileCapability,
     TableRefRequest,
-    decode_cursor_frame,
     identity_read_only_kwargs,
-    quote_identifier,
     require_field,
     structured_exception_chain,
 )
@@ -106,68 +105,52 @@ def _partition_table_parts(request: PartitionProbeRequest) -> tuple[str, str | N
 
 
 def inspect_partition_values(request: PartitionProbeRequest) -> PartitionProbeResult:
+    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.ir import TableSourceIR
+
     catalog, schema_name, table_name = _partition_table_parts(request)
     if schema_name is None:
         raise RuntimeError("trino partition inspection requires database= or datasource schema")
-    table_ref = ".".join(
-        quote_identifier(part, PROFILE)
-        for part in (catalog, schema_name, f"{table_name}$partitions")
+    identity = f"partition-metadata:{catalog}.{schema_name}.{table_name}"
+    with SourceSession(
+        PROFILE, request.datasource_ir, request.backend, owns_backend=False
+    ) as session:
+        relation = session.bind(
+            TableSourceIR(f"{table_name}$partitions", database=(catalog, schema_name)),
+            source_identity=identity,
+        ).relation
+        expression = _partition_projection(
+            relation, request.partition_columns, request.order, request.limit
+        )
+        rows = session.collect_bounded(
+            expression,
+            source_identities=(identity,),
+            purpose="datasource.partition_metadata",
+            max_rows=request.limit,
+        ).to_pylist()
+    return PartitionProbeResult(rows=tuple(rows), value_source="metadata")
+
+
+def _partition_projection(
+    relation: ir.Table,
+    columns: tuple[str, ...],
+    order: Literal["asc", "desc"],
+    limit: int,
+) -> ir.Table:
+    nested = "partition" in relation.columns and not all(
+        column in relation.columns for column in columns
     )
-    # Hive-connector ``$partitions`` exposes partition columns as top-level
-    # columns, but Iceberg ``$partitions`` nests partition values under a
-    # ``partition`` row column — so ``SELECT <col>`` raises COLUMN_NOT_FOUND on
-    # Iceberg even though the column exists in ``SHOW COLUMNS``. Probe the
-    # ``$partitions`` schema once and route through the ``partition`` row when
-    # the partition columns are not top-level. See issue #21.
-    iceberg = _partitions_table_is_iceberg(request.backend, table_ref, request.partition_columns)
-    select_columns = ", ".join(
-        _partition_column_select(column, iceberg) for column in request.partition_columns
+    values = relation.select(
+        **{
+            column: (relation["partition"][column] if nested else relation[column])
+            for column in columns
+        }
     )
-    direction = request.order.upper()
-    order_by = ", ".join(
-        f"{_partition_column_ref(column, iceberg)} {direction}"
-        for column in request.partition_columns
+    sort_keys = (
+        value.asc() if order == "asc" else value.desc()
+        for value in (values[column] for column in columns)
     )
-    sql = f"SELECT {select_columns} FROM {table_ref} ORDER BY {order_by} LIMIT {request.limit}"
-    frame = decode_cursor_frame(request.backend.raw_sql(sql), include_types=False, max_rows=None)
-    return PartitionProbeResult(rows=frame.rows, value_source="metadata")
-
-
-def _partitions_table_is_iceberg(
-    backend: BaseBackend,
-    table_ref: str,
-    partition_columns: tuple[str, ...],
-) -> bool:
-    """Return True when ``$partitions`` nests partition values under ``partition``.
-
-    Iceberg's ``$partitions`` table has a ``partition`` row column and does not
-    expose the partition columns at the top level. Hive's ``$partitions`` exposes
-    the partition columns directly. A ``LIMIT 0`` probe reads only the column
-    metadata, so it scans no partition data.
-    """
-    probe = decode_cursor_frame(
-        backend.raw_sql(f"SELECT * FROM {table_ref} LIMIT 0"),
-        include_types=False,
-        max_rows=None,
-    )
-    columns = set(probe.columns)
-    if not columns:
-        return False
-    return "partition" in columns and not all(column in columns for column in partition_columns)
-
-
-def _partition_column_ref(column: str, iceberg: bool) -> str:
-    quoted = quote_identifier(column, PROFILE)
-    return f"{quote_identifier('partition', PROFILE)}.{quoted}" if iceberg else quoted
-
-
-def _partition_column_select(column: str, iceberg: bool) -> str:
-    quoted = quote_identifier(column, PROFILE)
-    if not iceberg:
-        return quoted
-    # Route through the ``partition`` row and alias back to the column name so
-    # downstream value extraction (row.get(field.name)) resolves the column.
-    return f"{quote_identifier('partition', PROFILE)}.{quoted} AS {quoted}"
+    return values.order_by(*sort_keys).limit(limit)
 
 
 _TRINO_PARTITION_ARRAY_RE = re.compile(

@@ -7,6 +7,7 @@ from collections.abc import Collection, Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal
 
+import ibis.expr.types as ir
 from ibis.backends import BaseBackend
 
 from marivo.datasource.engines.base import (
@@ -18,8 +19,6 @@ from marivo.datasource.engines.base import (
     PartitionProbeResult,
     QuantileCapability,
     TableRefRequest,
-    decode_cursor_frame,
-    quote_identifier,
     require_field,
     structured_exception_chain,
 )
@@ -27,6 +26,7 @@ from marivo.datasource.ir import DatasourceIR, TableSourceIR
 from marivo.datasource.strptime import python_to_mysql_strptime
 
 if TYPE_CHECKING:
+    from marivo.datasource.adapters import SourceSession
     from marivo.datasource.metadata import (
         ColumnMetadata,
         MetadataWarning,
@@ -91,23 +91,28 @@ def table_name_parts(request: TableRefRequest) -> tuple[str, ...]:
 
 
 def clickhouse_system_parts_target(
-    backend: BaseBackend,
+    session: SourceSession,
     datasource_ir: DatasourceIR,
     source: TableSourceIR,
 ) -> tuple[str, str]:
     database = clickhouse_database(source, datasource_ir)
-    sql = (
-        "SELECT engine, engine_full FROM system.tables "
-        f"WHERE name = {_quote_sql_literal(source.table)} "
-        f"AND database = {_quote_sql_literal(database)} LIMIT 1"
+    identity = "clickhouse:system.tables"
+    relation = session.bind(
+        TableSourceIR("tables", database="system"), source_identity=identity
+    ).relation
+    expression = (
+        relation.filter((relation.name == source.table) & (relation.database == database))
+        .select("engine", "engine_full")
+        .limit(1)
     )
-    try:
-        frame = decode_cursor_frame(backend.raw_sql(sql), include_types=False, max_rows=None)
-        rows = frame.rows
-    except Exception:
-        return database, source.table
+    rows = session.collect_bounded(
+        expression,
+        source_identities=(identity,),
+        purpose="datasource.partition_topology",
+        max_rows=1,
+    ).to_pylist()
     if not rows:
-        return database, source.table
+        raise RuntimeError("ClickHouse system.tables cannot resolve the selected source")
     engine = str(rows[0].get("engine") or "")
     if engine != "Distributed":
         return database, source.table
@@ -119,27 +124,49 @@ def clickhouse_system_parts_target(
 
 
 def inspect_partition_values(request: PartitionProbeRequest) -> PartitionProbeResult:
+    from marivo.datasource.adapters import SourceSession
+
     if len(request.partition_columns) != 1:
         raise RuntimeError(
             "clickhouse system.parts mapping only supports single bare partition columns"
         )
     column = request.partition_columns[0]
-    database, table = clickhouse_system_parts_target(
-        request.backend, request.datasource_ir, request.source
+    with SourceSession(
+        PROFILE, request.datasource_ir, request.backend, owns_backend=False
+    ) as session:
+        database, table = clickhouse_system_parts_target(
+            session, request.datasource_ir, request.source
+        )
+        identity = "clickhouse:system.parts"
+        relation = session.bind(
+            TableSourceIR("parts", database="system"), source_identity=identity
+        ).relation
+        expression = _system_parts_projection(
+            relation, database, table, column, request.order, request.limit
+        )
+        rows = session.collect_bounded(
+            expression,
+            source_identities=(identity,),
+            purpose="datasource.partition_metadata",
+            max_rows=request.limit,
+        ).to_pylist()
+    return PartitionProbeResult(rows=tuple(rows), value_source="system_catalog")
+
+
+def _system_parts_projection(
+    relation: ir.Table,
+    database: str,
+    table: str,
+    column: str,
+    order: Literal["asc", "desc"],
+    limit: int,
+) -> ir.Table:
+    matching = relation.filter(
+        (relation.active == 1) & (relation.database == database) & (relation.table == table)
     )
-    direction = request.order.upper()
-    sql = (
-        f"SELECT partition AS {quote_identifier(column, PROFILE)} "
-        "FROM system.parts "
-        "WHERE active "
-        f"AND database = {_quote_sql_literal(database)} "
-        f"AND table = {_quote_sql_literal(table)} "
-        "GROUP BY partition "
-        f"ORDER BY partition {direction} "
-        f"LIMIT {request.limit}"
-    )
-    frame = decode_cursor_frame(request.backend.raw_sql(sql), include_types=False, max_rows=None)
-    return PartitionProbeResult(rows=frame.rows, value_source="system_catalog")
+    values = matching.select(relation.partition.name(column)).distinct()
+    sort_key = values[column].asc() if order == "asc" else values[column].desc()
+    return values.order_by(sort_key).limit(limit)
 
 
 def _parse_clickhouse_partition_key(

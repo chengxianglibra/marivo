@@ -63,7 +63,12 @@ def source(
             monkeypatch.setenv(f"MARIVO_TEST_{engine.upper()}_PASSWORD", password())
     entity = registry.entities["sales.orders"]
     assert isinstance(entity.source, TableSourceIR)
-    columns = tuple((key, binding) for key, binding in entity.source.columns)
+    available = {"id", "amount"}
+    if not identity and not measure:
+        available.add("channel")
+    columns = tuple(
+        (key, binding) for key, binding in entity.source.columns if binding in available
+    )
     entity = replace(entity, source=replace(entity.source, table=name, columns=columns))
     metrics = dict(registry.metrics)
     for agg in ("min", "max"):
@@ -578,6 +583,13 @@ def test_uint64_composite_identity_validation(
         target = runtime.sources(semantic_registry=registry, sidecar=sidecar).population(
             ref.entity("sales.orders")
         )
+        if engine == "mysql":
+            with pytest.raises(MaterializationError, match="StructColumn") as blocked:
+                target.execute()
+            assert blocked.value.stage == "source_admission"
+            assert runtime.last_run_ref is None
+            assert runtime.store.resources(runtime.session_ref) == ()
+            return
         if duplicate:
             with pytest.raises(MaterializationError):
                 target.execute()

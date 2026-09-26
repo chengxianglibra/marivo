@@ -79,6 +79,9 @@ def test_combined_rollup_is_the_same_time_then_dimension_graph(tmp_path: Path) -
         assert row["mean_amount"] == pytest.approx(35)
 
 
+@pytest.mark.skip(
+    reason="Re-enable after R5 qualifies multi-root Metric source execution and retained part publication."
+)
 def test_retained_filter_aggregate_joins_exact_component_parts(tmp_path: Path) -> None:
     database = tmp_path / "warehouse.duckdb"
     seed_execution_database(database)

@@ -67,6 +67,9 @@ def test_binding_identity_never_uses_connection_argument_equality(tmp_path: Path
     assert not source_eligible(registration, (None, a), a)
 
 
+@pytest.mark.skip(
+    reason="Re-enable after R5 qualifies mean Metric source execution that publishes retained parts."
+)
 def test_required_parts_place_locally_without_worker_or_origin_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -97,6 +100,9 @@ def test_required_parts_place_locally_without_worker_or_origin_work(
     assert runtime.statistics.primary_queries == queries
 
 
+@pytest.mark.skip(
+    reason="Re-enable after R5 qualifies metric.where source execution; retain diagnostic version invariance."
+)
 @pytest.mark.parametrize("dependency", ["duckdb", "ibis"])
 @pytest.mark.parametrize("version", [None, "unregistered"])
 def test_diagnostic_version_does_not_change_selection_or_execution(

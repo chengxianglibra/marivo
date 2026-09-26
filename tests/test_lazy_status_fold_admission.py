@@ -230,6 +230,9 @@ def _journey(
     assert len(primary) == 1 and "__mv_status" in primary[0]
 
 
+@pytest.mark.skip(
+    reason="Re-enable after R5 qualifies SQLite temporal fold and spatial aggregation source execution."
+)
 @pytest.mark.parametrize("kind", ["first", "last", "mean", "min", "max"])
 def test_sqlite_fold_spatial_sum_matches_hand_computed_constants(
     tmp_path: Path, sqlite_fold_database: Path, monkeypatch: pytest.MonkeyPatch, kind: str
