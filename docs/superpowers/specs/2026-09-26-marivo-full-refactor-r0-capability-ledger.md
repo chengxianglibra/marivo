@@ -2,9 +2,9 @@
 
 Date: 2026-09-26
 
-Status: R0.2 现状反查完成；目标接口、K 与物理资格仍须按 R0.3–R0.5 冻结。本文不代表新 DSL、后端或 Agent 验收通过。
+Status: R0.2 现状反查完成；R0.3 目标契约与 R0.4 规则/责任已登记。R0.5 物理资格见独立 SQL 台账。本文不代表新 DSL、后端或 Agent 验收通过。
 
-依据：[主计划 §3、§6](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)、[R0 实施文档 §3 R0.2](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)、[代数 v0.5](2026-09-23-analysis-algebra-theory.md)、[接口设计](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md)、[架构设计](2026-09-24-marivo-analysis-dsl-architecture-design.md)、[R0.1 历史证据索引](2026-09-26-marivo-full-refactor-r0-evidence-index.md)。下文“目标”只引用这些已接受的方向；标「待 R0.3」的 typed 参数、规则、K 不能由实施者自行补完。
+依据：[主计划 §3、§6](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)、[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)、[代数 v0.5](2026-09-23-analysis-algebra-theory.md)、[接口设计](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md)、[架构设计](2026-09-24-marivo-analysis-dsl-architecture-design.md)、[R0.1 历史证据索引](2026-09-26-marivo-full-refactor-r0-evidence-index.md)。§1–§4 保留 R0.2 当时的现状快照和待办表述；§5–§6 是本轮接受的目标，冲突时以 owning spec 为准。
 
 ## 1. 本次可复核快照与读法
 
@@ -23,8 +23,8 @@ Status: R0.2 现状反查完成；目标接口、K 与物理资格仍须按 R0.3
 | 面 | 当前可导入路径和披露 owner | 迁移判断 |
 | --- | --- | --- |
 | 顶层 | `marivo.help`、`marivo.__version__`；`tests/test_public_surface.py` 限定无顶层执行 alias | 保留单一 Help 协调器；不添 `marivo.session` |
-| datasource | `marivo/datasource/__init__.py` 公开六 backend spec/factory、`table/csv/parquet/json/source_param/partition/time_range/unpruned`、`inspect/sample`、管理 `register/remove/connect/test`，**还公开 `raw_sql`**；原生 `datasource/_capabilities/registry.py` 当前 34 targets | C01；任意 SQL 执行目标删除须在 R0.3/R0.5 逐提交点处理。`md.raw_sql` 不是 provenance |
-| semantic | `marivo/semantic/__init__.py` 的 Entity/变量/Relationship/Metric/Event/StateModel/日历 builder、`ref`、`parity_check`、`from_sql`；原生 `semantic/_capabilities/registry.py` 当前 108 targets | C02/C06/C17；`from_sql` 仅 provenance 值，`parity_check` 的 SQL 执行边界待 R0.3/R0.5 |
+| datasource | `marivo/datasource/__init__.py` 公开六 backend spec/factory、`table/csv/parquet/json/source_param/partition/time_range/unpruned`、`inspect/sample`、管理 `register/remove/connect/test`，**还公开 `raw_sql`**；原生 `datasource/_capabilities/registry.py` 当前 34 targets | C01；保留 `md.raw_sql` 作为终端只读 SQL 逃生通道，不能回流 Analysis；内部 SQL 提交逐点替代。`md.raw_sql` 不是 provenance |
+| semantic | `marivo/semantic/__init__.py` 的 Entity/变量/Relationship/Metric/Event/StateModel/日历 builder、`ref`、`parity_check`、`from_sql`；原生 `semantic/_capabilities/registry.py` 当前 108 targets | C02/C06/C17；R0.3 已定 `from_sql` 仅 provenance、执行 SQL 的 parity 目标删除；现状仍存在 |
 | analysis Dataset 家族 | `analysis/__init__.py` 延迟导出 `Dataset`、各 `Logical*Dataset`/`Materialized*Dataset`、descriptor/field/state/contract、Event/Lifecycle/候选/预测等；`analysis/_capabilities/dataset_registry.py` 与 `datasets/registry.py` 注册旧家族 | C03–C15；旧家族作为消费者和方法证据逐个迁移，不因类名含 Dataset 就删掉领域方法 |
 | analysis 新公共 J1–J4 | `analysis/_public.py` 汇总 `public_dsl.py` 的 Domain/Category/Numeric/Ratio/Difference/Statistic/Association 等具体 L/M 类，`route/routes`、`sum/count/mean`；`session.members()` 入口 | 目标单量关系的当前窄实现；仅单列非版本成员、J1–J4 路径，不当成 C01–C18 已完成 |
 | Help 与测试 | `analysis/_capabilities/registry.py` 组装的当前 registry 有 323 targets；`tests/test_public_surface.py` 固定三层 `__all__` 和 analysis 顺序 hash；`tests/test_agent_api_drift.py` 固定 `dir(mv)`、不泄露内部类型、运行时不查询公开 catalog collection | C16；Help 有 Dataset 与 `dsl.*` 两群目标，R10 随旧家族移除后才可能收束为单一入口 |
@@ -43,7 +43,7 @@ Status: R0.2 现状反查完成；目标接口、K 与物理资格仍须按 R0.3
 | Source/Run/Artifact | `materialization/admission.py:DatasetRuntime` 的 Dataset `execute`、J1 `execute_j1` 与 `recover`；`session/core.py:artifact/runs/graph/revalidate` → `store.py`、`reconciliation.py`、`reads.py`、`evidence/_dataset_*` | `tests/test_analysis_dsl_execution_identity.py`、`test_analysis_dsl_exchange.py`、`test_lazy_*runtime*`、`test_lazy_*publication*`、Help `artifacts/evidence/runtime.*`、CLI |
 | ontology/项目工具 | `marivo/ontology/` 引用 Semantic Ref 与 analysis Artifact；`marivo/project.py`、`marivo/cli.py`、telemetry 和打包元数据消费 surface/状态 | `tests/test_ontology_extension.py`、`test_project.py`、`test_telemetry.py`、`test_datasource_packaging_metadata.py`；可选依赖和权限需 R10 复核 |
 
-`datasets/descriptors.py`/`handles.py`/`contract.py` 当前拥有字段、行域、状态与动态续算；`observation/contracts.py`、各 `operators/*_contracts.py` 和 `dsl_j1_contracts.py` 各自还拥有方法条件。R0.4 须给统一签名、方法注册和 codec 分配唯一责任，不能保留两个 registry 互相转发。`materialization/execution.py:ExecutionAdapter` 与 `datasource/engines/base.py:EngineProfile` 的重叠资格/传输责任属于 R0.5。Store 的 SQLite 事务与 datasource SQL 分开审计。
+`datasets/descriptors.py`/`handles.py`/`contract.py` 当前拥有字段、行域、状态与动态续算；`observation/contracts.py`、各 `operators/*_contracts.py` 和 `dsl_j1_contracts.py` 各自还拥有方法条件。R0.4 §6 已给统一规则、方法注册和 codec 分配唯一责任；实施时不能保留两个 registry 互相转发。`materialization/execution.py:ExecutionAdapter` 与 `datasource/engines/base.py:EngineProfile` 的重叠资格/传输责任已归并至 R0.5 SQL/adapter 台账。Store 的 SQLite 事务与 datasource SQL 分开审计。
 
 ## 2. C01–C18 能力去向
 
@@ -51,34 +51,34 @@ Status: R0.2 现状反查完成；目标接口、K 与物理资格仍须按 R0.3
 
 | ID | 当前代码与 Help；当前 owner/证据 | 目标唯一入口及 L/M、目标 K；去向/阶段 |
 | --- | --- | --- |
-| C01 | `datasource/{authoring,source,inspection,manage,json_source,engines}*`；H `datasource.authoring/table/csv/parquet/json/inspect/raw_sql`；旧 C1/C2/C5/C10 | `md` typed 声明、inspect/sample 与 adapter；Datasource result 的现态 `.show()`/repair，非分析 K。保留并删除任意 SQL 入口，R1；真实读取/元数据/JSON/认证逐格重验 |
+| C01 | `datasource/{authoring,source,inspection,manage,json_source,engines}*`；H `datasource.authoring/table/csv/parquet/json/inspect/raw_sql`；旧 C1/C2/C5/C10 | `md` typed 声明、inspect/sample、`md.raw_sql` 终端逃生通道与 adapter；Datasource result 的现态 `.show()`/repair，非分析 K。保留公共 raw SQL，内部读取仍由 Ibis；R1 重验真实读取/元数据/JSON/认证和终端边界 |
 | C02 | `semantic/{authoring,ir,resolver,validator,metric_graph*,runtime_metric*,event,state_model}*`；H `semantic.objects/*builder`；旧 C3–C9 | `ms` Entity/变量/Relationship/Metric/Event/StateModel/Calendar Ref 和 builder；分析域/Relation 只消费 Ref；定义结果非分析 K。保留并收紧身份、版本、业务顺序依据，R2 |
 | C03 | `session/core.py:population,members`、`observation/{population,dsl_j1}.py`；H `analysis.population/session.members/inputs.population`；J1 | `session.members(EntityRef, at=...)` → L/M AnalysisDomain；K 为获准 `read/observe/group_by/each/execute` 与材料化后固定续算。旧 population 删除，版本化与多列身份增量 R5 |
 | C04 | `session.observe`、`observation/metric.py`、`runtime_metric.py`、`dsl_j1.py:J1Observed/J3Observed`；H `analysis.observe/runtime_metric.*/dsl.LogicalAnalysisDomain.observe`；J1/J3、旧 C4 | `domain.observe(MetricRef|RuntimeMetricExpr, during, via)` → L/M NumericRelation；K 为合法 `where/group_by/summarize/rollup/compare/execute`，按部件收紧。旧多量 Dataset 删除，R5 |
 | C05 | `observation/{aggregation,coordinates,rollup}.py`、`metric.py`、`public_dsl.Grouped*`；H `analysis.metric_dataset.aggregate/rollup/dsl.*`；J1/J3 | `relation.group_by(...).summarize(method)` 与 `.rollup()` → L/M NumericRelation；K 不得由当前行统计自动升级为原量上卷。保留两种归约、删除旧 `.aggregate()` 同义路径，R5 |
 | C06 | `observation/temporal.py`、`compiler/{temporal,source_time}.py`、`semantic/{_authoring_temporal,metric_graph_lowering}.py`；H `analysis.time_scope/grain/metric_dataset.with_time_axis`、semantic calendar；旧 C3/C6 | `mv.time_scope/grain/time_grid`、`domain.each(grid)`、认证期间与 `rollup`；L/M 时间坐标关系。K 依时间角色、格完整性与状态，R2/R5；旧 `with_time_axis` 收束 |
 | C07 | `operators/{compare,delta}.py`、`public_dsl` Difference；H `analysis.metric_dataset.compare/dsl.LogicalNumericRelation.compare/datasets.where`；J2 | `current.compare(baseline)`、`relation.where(...)`、`.members(...)` → L/M Difference/Relation/Domain；K 依键对齐和主体映射，R6；旧 DeltaDataset 删除 |
-| C08 | `observation/population.py`、`operators/{row,attribute,attribute_values}.py`、`datasets/actions.py`；H `analysis.datasets.rank/limit`；旧 C8 | `cohort`、`share/penetration`、`standardize(reference=ReferenceWeights)`、`summarize(weighted_mean(...))`、`rank/limit`、terminal table；L/M 具体关系/结果。参照/权重 typed 构造和 K 待 R0.3，实施 R6 |
+| C08 | `observation/population.py`、`operators/{row,attribute,attribute_values}.py`、`datasets/actions.py`；H `analysis.datasets.rank/limit`；旧 C8 | `cohort`、`share/penetration`、`standardize(reference=ReferenceWeights)`、`summarize(weighted_mean(...))`、`rank/limit`、terminal table；R0.3 已定参照/权重 typed 构造和 K，实施 R6 |
 | C09 | `operators/{attribution,attribution_contracts}.py`、`compiler/attribution.py`；H `analysis.delta_dataset.attribute`；旧 C8 | Difference `.attribute(axes, mode, top_k)` → L/M AttributionResult；K 为合法筛选、排名、具名数值视图，不能把 residual=0 当完整证明。保留方法、删除旧 Dataset 容器，R6 |
 | C10 | `observation/{distinct_contracts,distribution_contracts}.py`、`compiler/{distinct,distribution}*.py`；H 随 Metric/Dataset 方法；旧 C7 | exact distinct/quantile 直接 `observe` → L/M NumericRelation；K 仅当前行 `summarize/where` 等可证明续算，首次原量 `rollup`/对应 attribution 明确拒绝。收紧，R5/R9 |
 | C11 | `semantic/event.py`、`session/_lazy_sources.py:LazyEvents.match`、`domains/event*.py`；H `analysis.events.match/event_dataset.*`；旧 C9 | `session.events.match(pattern,population=AnalysisDomain,...)` → L/M JourneyResult；K 为已保留轨迹允许的 funnel/compare/attribute/selector。保留 matcher 身份，改域输入，R7 |
 | C12 | `domains/event_reducers.py`、`compiler/event_reducers.py`；H `analysis.event_dataset.time_to_event/select_subjects`；旧 C9 | `journeys.time_to_event(from_step,to_step)` 与有依据 `.select_subjects` → L/M DurationRelation/Domain；K 依完成/观察时长和 Journey→Subject 映射，R7 |
-| C13 | `semantic/state_model.py`、`session/_lazy_sources.py:LazyLifecycle.replay`、`domains/lifecycle*.py`；H `analysis.lifecycle.replay/lifecycle_dataset.*`；旧 C9 | `session.lifecycle.replay(model,population=AnalysisDomain,...)` → L/M LifecycleResult；K 为 distribution/dwell/transitions/violations 与时点 read→where→members，业务顺序前提待 R0.3，R7 |
+| C13 | `semantic/state_model.py`、`session/_lazy_sources.py:LazyLifecycle.replay`、`domains/lifecycle*.py`；H `analysis.lifecycle.replay/lifecycle_dataset.*`；旧 C9 | `session.lifecycle.replay(model,population=AnalysisDomain,...)` → L/M LifecycleResult；K 为 distribution/dwell/transitions/violations 与时点 read→where→members，R0.3 已定业务顺序前提，R7 |
 | C14 | `operators/{discovery,association,forecast*}.py`、`compiler/{correlation,entity_candidate,driver_candidate}.py`；H `analysis.discovery.*/metric_dataset.correlate/forecast`；旧 C8、J4 | Relation `.discover/.correlate(*others)/.forecast(...)` → L/M Candidate/Association/Forecast 具体变体；K 含合法具名视图筛选、排名，不含原量相关/预测上卷。保留闭合方法，R8 |
 | C15 | `materialization/{admission,dataset_execution,dsl_j1_runtime,store,reconciliation,reads}*`、`session/core.py`、`evidence/*`；H `analysis.runtime.sessions/artifacts/evidence`；J1–J4/P4 | 唯一 Session/Run/Artifact/Store owner；所有 L `.execute()` 和 M 固定续算，共用 source reevaluation / fixed exact-hit、receipt/恢复 K。保留服务、替换双运行协议，R4+ |
 | C16 | `marivo/_help/*`、三层 `_capabilities/*`、`analysis/_public.py`、`errors.py`、CLI/site/skills；H `analysis.entry/methods/inputs/dsl.*` | 单一原生 Help/有界 `repr/show/contract`、类型与结构化 repair；K 披露必须与材料化部件一致。保留披露能力、删除旧 Help alias/inventory，逐阶段/R10 |
 | C17 | `marivo/ontology/*`、`project.py`、`cli.py`、telemetry、打包/可选依赖；H `ontology.authoring`、各 surface project/diagnostic | ontology 仅关联新 Ref/Artifact，不授分析规划/准入；项目/秘密/诊断/依赖保留。非分析 K；R2/R10 |
-| C18 | 当前无公开 Anchor/retention 构造；理论/接口设计 §8.2 有目标问题，不能把 `EventPattern` 绝对随访冒充相对窗口 | L/M Anchor/Retention 具体 typed 变体、固定 Ω、Subject 与 Subject×Anchor、K+/K-/K? 及 K **待 R0.3 owning spec**；R7 实施。现状：目标必需但未实现、公共契约阻塞 |
+| C18 | 当前无公开 Anchor/retention 构造；理论/接口设计 §8.2 有目标问题，不能把 `EventPattern` 绝对随访冒充相对窗口 | R0.3 已定 L/M Anchor/Retention typed 变体、固定 Ω、两种单位/量词、K+/K-/K? 与 K；R7 实施。现状：目标必需但未实现 |
 
 ## 3. 独立准入方法子单元
 
-下列每一行是独立资格单元；同一行跨 backend/数值/时间/来源形状仍须在 R0.5 展开。`+` 是独立正例，`−` 是拒绝例，不是已执行结果。现有测试文件是可复用输入或旧回归，**不是**目标验收；`make test TESTS='…'` / `make runtime-test TESTS='…'` 是旧现状复核命令，目标精确命令须在 owning spec 和 R0.4/R0.5 冻结后写入验收索引。R0.2 已定位方法、代码/测试和反例，未把未决定的签名或后端格伪造为通过。
+下列每一行是独立资格单元；同一行跨 backend/数值/时间/来源形状在 R0.5 §4 展开。`+` 是独立正例，`−` 是拒绝例，不是已执行结果。现有测试文件是可复用输入或旧回归，**不是**目标验收；`make test TESTS='…'` / `make runtime-test TESTS='…'` 是旧现状复核命令，目标新测试文件和示例命令已登记在 R0.5，但尚未创建或运行。R0.2 已定位方法、代码/测试和反例，未把未执行的资格格伪造为通过。
 
 | 单元 | 当前实现/Help/测试锚点 | 目标方法、类型/前提、L/M 与 K 边界；独立 + / − |
 | --- | --- | --- |
-| C01.a 六后端声明/连接 | `datasource/authoring.py`、`engines/{duckdb,sqlite,postgres,mysql,trino,clickhouse}.py`；H 同名 factory、`register/connect/test`；`test_datasource_typed_specs.py` | typed Spec→Ref，真实元数据/凭据脱敏；+ 六 profile 声明 round-trip，− 缺 env/错误权限。R1/R9 真实 backend 格待 R0.5 |
+| C01.a 六后端声明/连接 | `datasource/authoring.py`、`engines/{duckdb,sqlite,postgres,mysql,trino,clickhouse}.py`；H 同名 factory、`register/connect/test`；`test_datasource_typed_specs.py` | typed Spec→Ref，真实元数据/凭据脱敏；+ 六 profile 声明 round-trip，− 缺 env/错误权限。目标格见 R0.5，R1/R9 真实运行未验证 |
 | C01.b 物理来源与参数 | `source.py/json_source.py/inspection.py`；H `table/csv/parquet/json/source_param/inspect/SourceInspection.sample`；`test_datasource_json_source.py` | Table/CSV/Parquet/JSON 和作用域参数，Ibis 读取；+ 文件/JSON 样本与字段，− 非法 scope/认证泄露。SQL 移除见 C01.c/R0.5 |
-| C01.c SQL/parity 边界 | `manage.py:raw_sql`、`semantic/parity.py`；H `datasource.raw_sql/semantic.parity_check`；`test_datasource_raw_sql.py`、`test_semantic_parity.py` | 公共任意 SQL 执行删除；`ms.from_sql` 仅 provenance。+ Ibis 可表达的事实检查，− `raw_sql`/`backend.sql` 绕过；逐提交点在 SQL 台账处理 |
+| C01.c SQL/parity 边界 | `manage.py:raw_sql`、`semantic/parity.py`；H `datasource.raw_sql/semantic.parity_check`；`test_datasource_raw_sql.py`、`test_semantic_parity.py` | 保留 `md.raw_sql`/`RawSqlResult`/Help 的单条只读终端查询；`ms.from_sql` 仅 provenance，产品 parity 不执行 SQL。+ 截断/超时/终端边界，− raw 结果回流 Analysis 或内部 `backend.sql` 绕过；逐提交点在 SQL 台账处理 |
 | C02.a Entity/变量/版本 | `semantic/{authoring,ir,validator,resolver}.py`；H `entity/dimension/measure/time_dimension/snapshot/validity`；`test_semantic_phase2_validity.py` | Ref-only、完整复合键和精确版本；+ exact at，− last-known/历史去重；R2/R5 |
 | C02.b Relationship/Metric | `semantic/{metric_graph*,runtime_metric*,unit_algebra}.py`；H `relationship/aggregate/count/ratio/weighted_mean/linear/metric`；`test_semantic_metric_graph_lowering.py` | 声明与 builder 推导依据分开；+ 合格唯一映射，− fanout/单位数值碰巧一致；R2 |
 | C02.c Event/State/calendar | `semantic/{event,state_model,_authoring_temporal}.py`；H `event/participant/state_model/period_calendar/temporal_set`；`test_semantic_event.py`、`test_semantic_state_model.py` | occurrence、业务顺序与日历定义；+ 明确先后，− 同时刻仅按 ID 排序；顺序契约 R0.3/R2 |
@@ -95,9 +95,9 @@ Status: R0.2 现状反查完成；目标接口、K 与物理资格仍须按 R0.3
 | C06.b 认证期间/累计/fold | `semantic/_authoring_temporal.py`、`compiler/temporal.py`；H `semantic.cumulative/period_calendar/analysis.window_bucket`；旧 C6 | 期间身份、来源/观察/成员/坐标四时间角色；+ 完整认证期间，− 未验证时间轴或折叠顺序交换；R2/R5 |
 | C07.a 比较/嵌套差 | `public_dsl.compare`、旧 `operators/compare.py`；H `dsl.LogicalNumericRelation.compare/metric_dataset.compare`；J2 fixture | Time/Cohort/Period change、ExactKeys/UnionKeys，L/M Difference；+ J2 A/C 下降，− 缺侧补零；R6 |
 | C07.b 谓词选人与派生 | `public_dsl.where/members`、`observation/predicates.py`、旧 `datasets/actions.py`；H `dsl.LogicalDifferenceRelation.where/datasets.where`；J2 fixture | Cell 严格谓词、固定主体映射；+ {A,C}，− Unknown 当 false 或缺主体映射回源；R6 |
-| C07.c 普通 Relation ratio | 当前 `J3Observed` 是 Metric ratio，`runtime_metric.ratio` 是同观察表达式；**无两独立 Relation 普通 ratio** | `left.ratio(right)` 的同域/单位/缺侧/零分母与 K 待 R0.3；+ 对应实例比值，− 仅数值可除却实例域不对应；R6 |
+| C07.c 普通 Relation ratio | 当前 `J3Observed` 是 Metric ratio，`runtime_metric.ratio` 是同观察表达式；**无两独立 Relation 普通 ratio** | R0.3 已定精确同域/显式一一对应、Undefined 零分母与 K，见 §5；+ 对应实例比值，− 仅数值可除却实例域不对应；R6 |
 | C08.a cohort/份额 | 旧 `population.where`/`operators/attribute.py`；H `population/datasets.where`；旧 C8 | 全机会域资格、share/penetration 与 K+/K-/K?；+ 真/假/未知区分，− 删除未知后改分母；R6 |
-| C08.b 统计权重/固定参照 | 旧 weighted_mean 图可读权重数值；当前**无** `StatisticalWeight/ReferenceWeights` 公共构造 | typed 权重/参照与 K 待 R0.3；+ 固定全域参照，− Top-K 后重算/缺层自动归一；R6 |
+| C08.b 统计权重/固定参照 | 旧 weighted_mean 图可读权重数值；当前**无** `StatisticalWeight/ReferenceWeights` 公共构造 | R0.3 已定独立 Semantic 权重角色、Relation 固定参照与 K，见 §5；+ 固定全域参照，− Top-K 后重算/缺层自动归一；R6 |
 | C08.c rank/limit/table | `datasets/actions.py`、各旧 family `.rank/.limit`；H `datasets.rank/limit`；`test_lazy_distribution_topk.py` | 只改变展示/选取域，固定参照和原 basis；+ 并列排序，− limit 改归因范围；R6 |
 | C09.a additive/component_mix | `operators/attribution*`、`compiler/attribution.py`；H `delta_dataset.attribute`；`test_lazy_attribution_masks.py` | Difference method/version 独立，保留 target/basis/rule；+ 分组增量核对，− residual=0 即称完整；R6 |
 | C09.b joint/hierarchy/Top-K | `compiler/{attribution,distribution_attribution}.py`；H 同上；旧 C8 | 共同 Top-K→Other、原 scope、可筛选后核对；+ 两侧共同基准，− 各侧先限 Top-K；R6 |
@@ -118,19 +118,155 @@ Status: R0.2 现状反查完成；目标接口、K 与物理资格仍须按 R0.3
 | C16.b 安装包/Agent | site latest EN/ZH、packaged skills、CLI、`devtools/analysis_dsl_s4_p3/`；S4 旧记录 | 新 wheel、独立 oracle、真实 Agent 各自验收；+ fresh session 完整路径，− 旧 trace/脚本冒新 DSL；R10 |
 | C17.a ontology | `marivo/ontology/`；H `ontology.authoring`；`test_ontology_extension.py` | 可选关联新 Ref/Artifact；+ 正确身份，− ontology 自动授因果/计算准入；R2/R10 |
 | C17.b 项目/遥测/依赖 | `project.py`、`cli.py`、`telemetry/`、package metadata；`test_project.py`、`test_telemetry.py` | 秘密与主体键不泄露、可选依赖隔离；+ 离线基本 import，− 缺可选驱动导致核心 import 失败；R10 |
-| C18.a Anchor 相对观察 | 当前无实现；仅接口设计 §8.2/理论 §8.5 | typed Anchor、elapsed/calendar、重叠贡献与覆盖，L/M/K 待 R0.3；+ DST 对照，− 七日=168h；R7 |
-| C18.b retention | 当前无实现；不可用 Event 绝对窗口代替 | 固定 Ω、Subject/Subject×Anchor、K+/K-/K?、确定性界；+ 25/5/70→[25%,95%]，− 删未知单点率；R0.3/R7 |
+| C18.a Anchor 相对观察 | 当前无实现；仅接口设计 §8.2/理论 §8.5 | R0.3 已定 Event/Journey typed Anchor、elapsed/calendar、共享重叠及 K，见 §5；+ DST 对照，− 七日=168h；R7 |
+| C18.b retention | 当前无实现；不可用 Event 绝对窗口代替 | R0.3 已定固定 Ω、两种单位/量词、K+/K-/K?、确定性界及 K，见 §5；+ 25/5/70→[25%,95%]，− 删未知单点率；R7 |
 
 ## 4. 横向资格键、证据和阶段出口
 
-R0.2 的每个方法行尚须按 `方法版本 × 数值类型 × 时间/来源形状 × 后端/表类型 × 路线` 展开；此键由 R0.5 SQL/adapter 台账与六后端矩阵唯一拥有。当前代码可见 DuckDB、PostgreSQL、MySQL、SQLite、Trino、ClickHouse engine/adapter；这只证明实现分支存在。旧 C3b Trino 不可达、C4 MySQL/Trino Decimal 限制、C5 非 Iceberg/Distributed、C6 fold 差异、C8/C9 领域限制和 C10 抽样/资源失败仍按 [R0.1 §4](2026-09-26-marivo-full-refactor-r0-evidence-index.md#4-c0c10-后端历史证据) 保持历史边界，**没有**新的 R1/R9 通过格。Ibis 来源、预先获准的 Ibis→Python、固定 Artifact→pandas 是候选路线；Artifact→DuckDB 目标删除。不得把生成 SQL、旧测试、当前 Help 或旧 wheel 当真实新 DSL 后端资格。
+R0.4 的每个方法行按 `方法版本 × 数值类型 × 时间/来源形状 × 后端/表类型 × 路线` 展开；此键由 [R0.5 SQL/adapter 台账](2026-09-26-marivo-full-refactor-r0-sql-ledger.md#4-六后端目标资格矩阵)与六后端矩阵拥有。当前代码可见 DuckDB、PostgreSQL、MySQL、SQLite、Trino、ClickHouse engine/adapter；这只证明实现分支存在。旧 C3b Trino 不可达、C4 MySQL/Trino Decimal 限制、C5 非 Iceberg/Distributed、C6 fold 差异、C8/C9 领域限制和 C10 抽样/资源失败仍按 [R0.1 §4](2026-09-26-marivo-full-refactor-r0-evidence-index.md#4-c0c10-后端历史证据) 保持历史边界，**没有**新的 R1/R9 通过格。目标路线为基础 Ibis 来源、复杂方法预先获准 Ibis→Python、固定 Artifact→pandas；Artifact→DuckDB 目标删除。不得把生成 SQL、旧测试、当前 Help 或旧 wheel 当真实新 DSL 后端资格。
 
 | 状态 | R0.2 判断 |
 | --- | --- |
 | 通过：现状定位 | C01–C18 的入口/缺入口、主要 owner、Help 群、执行/状态链和主要消费者已反查；J1/J3/`execute_j1` 与旧家族明确分列；领域、ontology、项目工具已列入 |
-| 未验证：目标签名 | C18、普通 Relation ratio、StatisticalWeight/ReferenceWeights、业务顺序等具体 typed 输入及 K 由 R0.3 owning spec 决定；`count_defined`、time_grid 等目标增量不伪装当前导出 |
-| 未验证：规则/模块 | 方法版本、元算子 RequiredParts/PartTransform、每个旧实现唯一新 owner、消费者删除阶段由 R0.4 冻结 |
-| 未验证：物理资格 | SQL 提交点、adapter 七职责、六后端/类型/表形态/路线矩阵和逐格目标命令由 R0.5 冻结 |
-| 阻塞：R0 整体 | 以上未闭合单元完成前不能把 R0 标通过，也不能把旧 J1–J4/C0–C10 的历史通过转授新 DSL |
+| 目标已登记：目标签名 | C18、普通 Relation ratio、StatisticalWeight/ReferenceWeights、业务顺序等目标输入及 K 见 §5；`count_defined`、time_grid 仍非当前导出 |
+| 目标已登记：规则/模块 | 六类元算子、44 子单元的目标方法版本/K/owner 和消费者同迁见 §6；实现未验证 |
+| 目标已登记：物理资格 | SQL 提交点、adapter 七职责、六后端/类型/表形态/路线矩阵见 R0.5 SQL 台账；真实环境资格未验证 |
+| 阻塞：R0 整体 | R0.6 交接及 R0.5 控制 API/必需路线可行性尚未闭合；不能把旧 J1–J4/C0–C10 的历史通过转授新 DSL |
 
 复核本台账的静态命令：`git status --short --branch`、`git rev-parse HEAD`、`shasum -a 256 <五份输入>`、`rg -n '__all__|class J1Context|class J3Observed|def execute_j1' marivo/{datasource,semantic,analysis}`、`rg -n 'def (members|population|observe|match|replay|artifact|revalidate)' marivo/analysis/session`、`rg -n 'J1Context|J3Observed|LogicalPopulationDataset|raw_sql|parity_check' marivo tests devtools site/src/content/docs`、`git diff --check`。这些是事实扫描，不运行产品测试。目标正反例的旧独立 oracle 和精确历史复跑命令见 [R0.1 §5](2026-09-26-marivo-full-refactor-r0-evidence-index.md#5-可复用的独立-oracle故障与业务问题)；新目标测试命令须随 R0.4/R0.5 的规则和资格格落地，不以本页的历史文件名充数。
+
+## 5. R0.3 接受的契约索引
+
+下表索引唯一 owning spec，不重新定义目标语义。R0.3 是 **target accepted / runtime unverified**，不是代码已导出。差异由相应 R1–R8 工作包同时迁移 Help、测试和消费者。
+
+| 单元 | 唯一目标定义；关键决定 | 独立拒绝反例 |
+| --- | --- | --- |
+| C18.a/b | [Analysis R0.3](../../specs/analysis/python-analysis-design.md#relative-anchor-observation-and-retention-c18)：Event occurrence 或 Journey 起点、`Subject×Anchor`、elapsed/calendar、共享重叠、固定 Ω、`any_anchor/every_anchor`、K+/K-/K?；R7 | DST 七日≠168 小时；100 人 25/5/70 的界为 [25%,95%]；不删未知 |
+| C08.b | [Analysis 权重/参照](../../specs/analysis/python-analysis-design.md#statistical-and-reference-weights-c08) 与 [Semantic 角色](../../specs/semantic/semantic-object-model.md#named-statistical-weight-role)：独立声明统计角色，固定完整分层 Relation；R2/R6 | 订单数冒充统计权重、缺层重归一化、Top-K 后重算参照 |
+| C07.c | [Analysis 普通 ratio](../../specs/analysis/python-analysis-design.md#ordinary-relation-ratio-c07)：精确同域或显式一一对应；零分母 Undefined，缺侧另存；R6 | 数值可除而域不对应、缺侧当零、普通比率叫 share |
+| C02.c/C11/C13 | [Semantic 业务顺序](../../specs/semantic/semantic-object-model.md#business-order-and-simultaneous-events) 和 Analysis R0.3：声明业务序号/封闭冲突规则，或验证所有允许顺序的输出及部件等价；R2/R7 | 同刻 activate/deactivate 按 occurrence ID 排序得不同终态 |
+| C03.b/C05/C10 | [Analysis 余下边界](../../specs/analysis/python-analysis-design.md#remaining-r03-boundaries)：精确版本、原状态与当前行、两种 count、合法空状态、distinct/quantile K；R5/R9 | 子组均值/比率平均冒充原量、Undefined 状态当零、子组 P95 上卷 |
+| C01.c | [Datasource SQL 目标](../../specs/semantic/datasource-layer.md#r03-target-ibis-owned-analysis-reads-and-terminal-raw-sql)、[Semantic provenance](../../specs/semantic/semantic-object-model.md#provenance-and-parity)：`md.raw_sql` 保留为终端只读逃生通道；内部 Analysis 读取由 Ibis 构造，provenance 文本不执行；R1 | raw 结果/SQL 文字获得 Semantic/Analysis 资格、内部 `backend.sql` 绕过 Ibis、`ms.from_sql` 被执行 |
+
+## 6. R0.4 六类元算子：规则冻结
+
+规则形式统一为 `InputSignatures + Parameters → OutputSignature + Pre + RequiredParts + PartTransform + Post + Transport + Eval`。`D` 是有类型实例域，`R` 是单量 Relation，`P` 是保留部件；每个规则版本进入定义/执行身份。下表冻结规则责任，不将语义授权交给 adapter。
+
+| 规则@版本 / owner | 输入、封闭参数→输出 | Pre；RequiredParts；PartTransform | Post；Transport；Eval |
+| --- | --- | --- | --- |
+| `bind_project@v1` / analysis core、relations（R3/R5） | `D×(Entity/Field/Metric Ref或封闭 RuntimeMetricExpr)×时间/路径绑定 → D或R` | 精确 Ref/版本/主体与单值路径；需定义、主体映射和来源/时间绑定；保留绑定、为 read/observe 新建值或组件，不继承未证明的原量状态 | 键和量属于本次绑定；运输声明/来源假设及未履行检查；对完整实例域逐键投影/观察 |
+| `map_correspond@v1` / analysis core、relations（R3/R6） | `D/R×(ExactKeys、显式一一对应、UnionKeys、group key、主体映射) → D/R` | 键类型/单射/实际覆盖与目标域、时间角色；需全键、对应及 MissingCoordinate 区分；按确切对应运输端点/主体，丢失映射撤销 members K | 输出域、重数和缺侧有据；运输配对范围和覆盖前提；精确映射、并集或分组，不作隐式笛卡尔积 |
+| `cell_derive@v1` / analysis core、relations（R3/R6） | `R×(封闭谓词、difference、ratio finish、状态视图) → R/BoundPredicate` | 方法自己的四 Cell 消费政策、单位/有限性；需实际端点和值状态；保留依赖端点及原因，派生新 Cell，不把 MissingCoordinate 写成 Null | Defined/Null/Undefined/Unknown 及原因准确；运输端点身份和未决义务；逐实例按方法数学式求值，不用短路豁免硬失败 |
+| `row_state@v1` / analysis methods、relations（R3/R5/R6） | `R×(sum、mean、count、count_defined、weighted_mean等封闭方法) → R` | 当前行实例单位、Cell/权重政策；需当前值、状态、统计权重绑定；新建该统计的 sum/count 或 N/W，不借用原 Metric 组件 | 输出是新当前行量；运输当前输入域/权重依据；按当前行聚合，count 与 count_defined 分开 |
+| `original_reduce@v1` / analysis methods、relations（R3/R5） | `R×(目标组、合法时间粗化、原方法版本) → R` | 贡献覆盖、互斥或已批准重叠、版本/顺序/空状态；需每侧原组件与必要坐标；逐组件合并后 finish，缺件撤销 rollup K | 保持原量定义与目标域；运输原声明、检查和状态；不能平均显示比率、P95 或 Undefined 当前值 |
+| `parts_transport@v1` / analysis core、materialization（R3/R4） | `R×(where、projection、compare、具名视图、materialize) → R/Artifact` | 精确节点/receipt/键绑定；需方法 K 所列端点、主体、覆盖、固定参照；按选择键裁剪或原样携带，丢失部件同步缩小 K | 公开 K 仅含真实可续算；运输依据及仍相关假设；固定输入不回源、混合输入早拒绝 |
+
+Event matching、Lifecycle replay、归因、排名、相关、预测各用独立 `method@v1` 规则；通用六规则只提供域、Cell、部件及执行设施。Semantic 声明与显式 builder 推导分别标依据来源。物理实现注册只声明特定方法/版本/类型/后端/路线及必要检查，不能改变上表 Eval。
+
+### 6.1 方法子单元与 K、独立 oracle
+
+以下 `K` 表示在指定 RequiredParts、域和版本都仍成立时的**目标**续算，不是当前产品能力。`L→M` 表示惰性构造与执行后同义视图；`read` 指有界读取，不授权 source 再求值。`O` 为计划中的独立预期生成方式；R0.1 §5 的旧 fixture 只供原始输入。每行的正反例在 §3，后端资格键在 [SQL 台账 §4](2026-09-26-marivo-full-refactor-r0-sql-ledger.md#4-六后端目标资格矩阵)。新目标测试尚未编写或运行。
+
+| 单元 | 目标方法@版本；语义 owner / 阶段 | L→M 与目标 K（有条件） | O：独立预期 |
+| --- | --- | --- | --- |
+| C01.a | `datasource.connect@v1`；datasource adapters/R1 | typed Spec/Ref→连接结果；inspect/test，非分析 K | 六配置与错误权限手工事实 |
+| C01.b | `source.bind@v1`；datasource adapters/R1 | typed Table/File/JSON→物理 relation；inspect/sample | 原文件/JSON 与 schema 清单 |
+| C01.c | `raw_sql_terminal@v1`；datasource/R1 | `Ref[DatasourceKind] × SqlText × reason/limit/timeout → RawSqlResult`，无 Analysis L/M/K；保留公开导出/Help | 单条只读、截断/超时、typed reentry 拒绝及实际提交审计 |
+| C02.a | `entity.resolve@v1`；semantic/R2 | 版本化 Ref→定义；exact at/before_end | 两版本复合键手算 |
+| C02.b | `metric_graph@v1`；semantic/R2 | 声明/组件→规范图；按已证规则交 Analysis | 单位与贡献分解手算 |
+| C02.c | `event_order@v1`；semantic/R2 | Event/State/calendar/order Ref→定义；领域消费 | 同刻相反顺序轨迹 |
+| C03.a | `members@v1`；analysis relations/R5 | Domain L→M；read/observe/group/each/members | 原始完整主体键集合 |
+| C03.b | `members_at@v1`；analysis relations/R5 | 版本 Domain L→M；同 C03.a 且精确时点 | 快照/validity 手算 |
+| C03.c | `read_select@v1`；analysis relations/R5 | Category/Numeric/Time/Boolean L→M；where/members（有映射） | 字段逐键表与多值反例 |
+| C04.a | `observe_aggregate@v1`；analysis methods/R5 | Numeric L→M；group/summarize/合格 rollup | J1 原事实 SQL/手算 |
+| C04.b | `observe_component_ratio@v1`；analysis methods/R5 | Ratio L→M；组件保留时 rollup | J3 Fraction 分子/分母 |
+| C04.c | `runtime_graph@v1`；semantic+analysis methods/R2/R5 | Numeric L→M；依组件规则收紧 | 分支逐项贡献手算 |
+| C05.a | `coordinate_group@v1`；analysis relations/R5 | Grouped L→M；summarize/合格 rollup | 全元组并集与空目标手算 |
+| C05.b | `row_statistic@v1`；analysis methods/R5 | Statistic L→M；where/再做当前行统计 | 当前行 50.5、四 Cell 表 |
+| C05.c | `state_rollup@v1`；analysis methods/R5 | Rolled L→M；保留组件时继续 rollup | 200/101 与空状态手算 |
+| C06.a | `time_grid@v1`；analysis relations/R5 | Time Domain L→M；each/group/rollup（合格） | DST 日历边界时钟表 |
+| C06.b | `period_fold@v1`；semantic+analysis methods/R2/R5 | Temporal L→M；登记的时间归约 | 认证期间/累计端点手算 |
+| C07.a | `compare@v1`；analysis methods/R6 | Difference L→M；where/members/当前行统计 | J2 Fraction、完整键集合 |
+| C07.b | `where_members@v1`；analysis relations/R6 | Selected L→M；members/固定续算（有映射） | {A,C} 与 Unknown 真值表 |
+| C07.c | `relation_ratio@v1`；analysis methods/R6 | Numeric L→M；where/当前行统计，无原量 rollup | 逐键分数、缺侧/零分母 |
+| C08.a | `cohort_share@v1`；analysis methods/R6 | Domain/Share L→M；获准成员/固定参照视图 | 完整机会域三值表 |
+| C08.b | `weighted_standardize@v1`；semantic+analysis methods/R2/R6 | Numeric L→M；当前行选择/统计，不原量 rollup | 分层权重 Fraction 与缺层 |
+| C08.c | `rank_limit_table@v1`；analysis methods/R6 | Ranking/Table L→M；具名值/名次筛选，table 终端 | 并列排名排序手算 |
+| C09.a | `attribute_additive_component@v1`；analysis methods/R6 | Attribution L→M；具名贡献/核对视图 | 守恒、残差及覆盖分别计算 |
+| C09.b | `attribute_resolution@v1`；analysis methods/R6 | joint/hierarchy L→M；共同 Top-K→Other 后视图 | 两侧共同基准重算 |
+| C10.a | `exact_distinct@v1`；analysis methods/R5/R9 | Numeric L→M；当前行统计，无原量 rollup/归因 | 原始身份集合去重 |
+| C10.b | `quantile@v1`；analysis methods/R5/R9 | Numeric L→M；当前行统计，无原量 rollup/归因 | 独立排序/线性插值 |
+| C11.a | `event_match@v1`；analysis methods/R7 | Journey L→M；具名步骤/完成视图 | 原 occurrence 逐条匹配 |
+| C11.b | `funnel_compare_attribute@v1`；analysis methods/R7 | Funnel L→M；合格比较/归因/selector | 全随访机会计数 |
+| C12.a | `time_to_event@v1`；analysis methods/R7 | Duration L→M；完成/观察时长视图、统计 | 时间差与删失表 |
+| C12.b | `journey_subjects@v1`；analysis methods/R7 | Domain L→M；read/observe（有主体映射） | Journey→Subject 集合像 |
+| C13.a | `lifecycle_replay@v1`；analysis methods/R7 | History L→M；轨迹/区间/违规视图 | 有序状态机纸面重放 |
+| C13.b | `lifecycle_views@v1`；analysis methods/R7 | Distribution/Dwell L→M；at-read/where/members（有映射） | 区间裁剪与状态轨迹 |
+| C14.a | `discover.{point_anomalies,interesting_windows,entity_outliers,period_shifts,driver_axes}@v1`；analysis methods/R8 | 五种 Candidate L→M；各具名分数/排名 | 独立定义逐候选计算 |
+| C14.b | `correlate.{pearson,spearman,kendall,lag}@v1`；analysis methods/R8 | Association L→M；系数/配对数/排名，不原量 rollup | J4 平均秩 Fraction、常量反例 |
+| C14.c | `forecast.{naive,drift,seasonal_naive}@v1`；analysis methods/R8 | Forecast L→M；点/区间具名视图 | 固定序列逐期手算 |
+| C15.a | `execute@v1`；analysis session/R4 | L→M；同显式节点共享/失败不回退 | Run/读取次数故障注入 |
+| C15.b | `publish_recover@v1`；analysis materialization/session/R4 | Artifact→固定 K；精确 receipt/parts | 断源恢复与损坏注入 |
+| C16.a | `disclose@v1`；analysis core/R3–R10 | repr/show/contract/Help；只呈实际 K | 导出/Help/动态 K 独立枚举 |
+| C16.b | `agent_journeys@v1`；analysis session/R10 | 安装包完整用户旅程；终端结果 | 新 wheel 独立 oracle/真实轨迹 |
+| C17.a | `ontology_handoff@v1`；semantic/R2/R10 | Ref/Artifact 关联；无新分析权限 | 精确身份和错误角色 |
+| C17.b | `project_tools@v1`；项目工具/R10 | 管理/诊断；无分析 K | 无可选驱动导入与脱敏 |
+| C18.a | `relative_anchor@v1`；analysis methods/R7 | Anchor Domain/Relative Relation L→M；实例视图/固定续算 | DST、重叠窗口逐事件表 |
+| C18.b | `retention@v1`；analysis methods/R7 | Instance/Subject Retention L→M；状态视图/合格选人 | 25/5/70 界与量词真值表 |
+
+组合单元中的方法仍分别注册和准入，不能把同行写法当成一个万能 reducer。以下补齐各自的语义前提、最小部件和续算差异；未列的共同条件沿用上表和六元规则。
+
+| 方法@版本 / 子单元 | 独立前提与 RequiredParts；目标 K | 独立 oracle/拒绝 |
+| --- | --- | --- |
+| `runtime.aggregate@v1` / C04.c | Measure Ref、agg/时间 fold 的闭合组合；贡献根/值政策；仅已证原状态 rollup | 原始行分组；未经登记 fold 拒绝 |
+| `runtime.weighted_mean@v1` / C04.c | 两 Measure Ref、共同贡献单位；N/W；先合并 N/W 再 finish | 分数 N/W；只平均组值拒绝 |
+| `runtime.slice@v1` / C04.c | exact 字段 Ref 和闭合 SliceValue；保留分支身份；K 跟被切 Metric 状态收紧 | 每分支手算；裸 SQL/任意 callback 拒绝 |
+| `runtime.ratio@v1` / C04.c | 两组件同一次 observe 绑定；num/den、零政策；合格组件 rollup | J3 Fraction；普通 Relation ratio 混用拒绝 |
+| `runtime.linear@v1` / C04.c | 有序 ±1 项、同单位；每侧组件；合格组件 rollup | 各项手算；跨单位拒绝 |
+| `cohort@v1` / C08.a | 完整机会域、主体映射、三值谓词；已决定真值才可 members | t/u/f 手算；缺机会冒 unknown 拒绝 |
+| `share_of@v1` / C08.a | 同一计量的固定 Singleton 参照、支持包含；保留分母；筛选不重算 | 份额分子/分母；Top-K 重算拒绝 |
+| `penetration_in@v1` / C08.a | 身份相容的 B/Ω、固定完整 Ω；保留成员集合；空 Ω Undefined | 集合交 Fraction；普通数字 ratio 冒充拒绝 |
+| `weighted_mean@v1` / C08.b | named StatisticalWeight 与精确实例对应；N/W；只当前行 K | 分层 Fraction；订单数冒充拒绝 |
+| `standardize@v1` / C08.b | 固定完整 ReferenceWeights 与 strata；参考权重+原值；不原量 rollup | ∑wq 手算；缺层归一拒绝 |
+| `attribute.additive@v1` / C09.a | 两侧可加原量、完整 resolution；端点/覆盖/贡献；具名侧项 K | 差值守恒+覆盖双检 |
+| `attribute.component_mix@v1` / C09.a | 两侧可加 N/W、非零总 W；侧项和完整 axis；具名贡献 K | 每侧 N_i/W_total；子组率均值拒绝 |
+| `attribute.joint@v1` / C09.b | 完整轴元组与共同 Top-K→Other；保留 basis；视图筛选不改 basis | 两端同一轴元组手算 |
+| `attribute.hierarchy@v1` / C09.b | 作者轴顺序的各前缀；各 resolution 独立；视图筛选不改 basis | 前缀逐级核对；混层相加拒绝 |
+| `median@v1` / C10.b | 原始定义数值序列、exact 排序；无原量 rollup/归因 | 奇偶排序中位数；子组 median 平均拒绝 |
+| `percentile@v1` / C10.b | q∈(0,1)、精确算法/数值；无原量 rollup/归因 | 独立线性插值；近似冒精确拒绝 |
+| `event.first_per_subject@v1` / C11.a | 首次起点、exact Subject/occurrence、覆盖；保留 assignment | 逐 occurrence 匹配；未访问者自动失败拒绝 |
+| `event.every_start@v1` / C11.a | 每起点独立实例、显式 final completion assignment；保留重数 | shared/exclusive 分配反例 |
+| `event.funnel@v1` / C11.b | 完整开始机会、随访与步骤；保留到达/覆盖；合格比较 | 各步骤人数与 unknown 分列 |
+| `event.compare@v1` / C11.b | exact pattern/随访定义及期间对应；两端状态；差异视图 | 两期间独立手算；不同随访拒绝 |
+| `event.attribute@v1` / C11.b | 完整漏斗侧项、绑定目标与 basis；具名贡献 | 两侧配比；residual=0 冒完整拒绝 |
+| `lifecycle.distribution@v1` / C13.b | 指定时点的 canonical 状态/覆盖；保留 Subject 映射 | 手工时点状态；终态冒历史拒绝 |
+| `lifecycle.dwell@v1` / C13.b | 裁剪后区间与完成/删失政策；时长组件；仅有状态时 rollup | 区间时长总和；P90 平均拒绝 |
+| `lifecycle.transitions/violations@v1` / C13.b | canonical 轨迹和事件身份；具名视图/合格选人 | 状态机轨迹；仅 intervals 反推拒绝 |
+| `discover.point_anomalies@v1` / C14.a | 已定义点与对照窗口；Candidate score K | 固定序列逐点 oracle |
+| `discover.interesting_windows@v1` / C14.a | 完整时间格、闭合窗口；Candidate score K | 全窗口枚举；缺桶拒绝 |
+| `discover.entity_outliers@v1` / C14.a | 可比 Entity 量/域、分布政策；Candidate score K | 逐主体分位/距离 oracle |
+| `discover.period_shifts@v1` / C14.a | 合格期间配对、差异政策；Candidate score K | 两期逐键变化 oracle |
+| `discover.driver_axes@v1` / C14.a | 可加目标、有限 search_space/axis 资格；Candidate score K | 枚举候选集中度；残差冒解释拒绝 |
+| `correlate.pearson@v1` / C14.b | 完整有序配对、非零方差；系数+pair count K | Fraction 协方差；常量输入拒绝 |
+| `correlate.spearman@v1` / C14.b | 完整配对与平均秩；系数+pair count K | J4 -2/5、并列秩 7/9 |
+| `correlate.kendall@v1` / C14.b | 完整配对与 tie 政策；系数+pair count K | 独立 concordant/discordant 表 |
+| `correlate.lag@v1` / C14.b | +k 绑定左 t/右 t+k、完整时间格；各 lag 独立 pair count | 逐 lag 配对表；反转方向拒绝 |
+| `forecast.naive@v1` / C14.c | 完整历史/未来格与起点；点预测视图 | 最后值逐期延续 |
+| `forecast.drift@v1` / C14.c | 两有效端点/间隔；点预测视图 | 端点斜率逐期手算 |
+| `forecast.seasonal_naive@v1` / C14.c | 完整季节周期/未来格；点预测视图 | 上季同位复制；缺季节拒绝 |
+| `anchor.relative_observe@v1` / C18.a | Event/Journey exact 起点、typed elapsed/calendar、共享重叠及来源覆盖；实例关系固定续算 | DST/重叠逐 occurrence 表 |
+| `retention.instance@v1` / C18.b | 固定 Subject×Anchor Ω、三态/覆盖；状态视图，不 bounds rollup | 25/5/70 确定性界 |
+| `retention.any_anchor/every_anchor@v1` / C18.b | 显式 Subject 像与量词；主体三态/覆盖；合格真值选人 | 一真一未知、一假一未知反例 |
+
+### 6.2 模块责任、消费者同迁与类型方向
+
+| 当前实现和主要消费者 | 唯一目标责任；同迁/删除阶段 |
+| --- | --- |
+| `datasource/engines/*`、`backends.py`、metadata/inspection、`manage.py`；Semantic loader/CLI/Help | datasource adapters 负责连接、物理事实、传输及资源；R1 保留并验证 `md.raw_sql`、`RawSqlResult`、Help/CLI/测试的终端边界，移除内部读取对任意 SQL 的依赖；Semantic 只消费 typed 物理事实 |
+| `semantic/{ir,resolver,metric_graph*,event,state_model,parity}.py`；Ref/ontology/Analysis binding | semantic 负责声明和显式 builder 推导；R2 同迁 ontology/Ref/Help；R1 删除执行 SQL 的 parity，不留转发 alias |
+| `analysis/{datasets,observation,operators,domains,public_dsl}.py`；旧 Dataset 与新 J1–J4 Help、site、测试 | core 仅有域/Cell/部件/规则，relations 构造 L/M，methods 拥有领域 Eval；R3 建规则，R5–R8 随各方法和消费者迁移删除旧家族/registry/codec，不整包预删领域语义 |
+| `analysis/compiler/*`、placement/source_admission/各 support；`materialization/source_stage.py` | compiler 将单一方法规则降至 Ibis 或预批准本地阶段；R3–R8 随消费者迁移，R9 清除 SQL 拼装/补丁；资格只在 adapter 实现注册判断一次 |
+| `materialization/{execution,scalar_sql_execution,*_execution,source_preparation,parquet_scan}.py`；`EngineProfile` | datasource adapters 接管来源传输/解码/资源；R1/R4/R9 删除旧 `statement(sql)`、Artifact→DuckDB 和重复 profile 分支；core 不依赖 backend 名称 |
+| `materialization/{admission,dataset_execution,dsl_j1_runtime,store,*_codec,*_publication,reads}.py`、`session/*`；CLI/evidence/ontology | session 拥有唯一 Run/Artifact/Store；materialization 拥有交换/receipt/固定续算；R4 同迁旧 Dataset/J1 双执行协议，R10 收束遗留 Help/状态；Store SQLite 仍独立事务 owner |
+
+类型依赖方向为 `semantic Ref/definition → analysis core/method contract → relations/graph → compiler → datasource adapter`；`session → graph/compiler/adapter + materialization/Store`。adapter 不导入 Analysis 公共对象或 Store；Store 不决定方法语义。上表只冻结责任及删除时机，不预建空包或把旧名字改为 shim。
