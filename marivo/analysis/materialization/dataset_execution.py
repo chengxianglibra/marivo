@@ -25,6 +25,7 @@ from marivo.analysis.compiler.placement import (
 from marivo.analysis.compiler.source_admission import (
     basic_metric_candidate,
     basic_population_candidate,
+    mysql_composite_identity_candidate,
 )
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle, _validate_logical_root
@@ -85,6 +86,7 @@ from marivo.analysis.operators.forecast_contracts import (
     ForecastTrainingSummary,
 )
 from marivo.analysis.operators.registry import legacy_source_migration_stage
+from marivo.datasource.adapters import provider_names
 from marivo.datasource.ir import TableSourceIR
 
 if TYPE_CHECKING:
@@ -166,6 +168,13 @@ def _admit_miss(
 
     physical = place(dataset, artifact_binding=admitted_binding)
     source_steps = tuple(step for step in physical.steps if isinstance(step, SourceStep))
+    if mysql_composite_identity_candidate(dataset):
+        raise MaterializationError(
+            expected="Ibis lowering of the complete composite identity",
+            received="MySQL Ibis compiler has no StructColumn rule",
+            repair="Use a single-column Entity key or a backend with qualified composite identity lowering.",
+            stage="source_admission",
+        )
     basic_source = (
         (basic_population_candidate(dataset) or basic_metric_candidate(dataset))
         and not retained_inputs
@@ -173,7 +182,7 @@ def _admit_miss(
         and len(source_steps) == 1
         and source_steps[0].operation == "source"
         and isinstance(source_steps[0].binding, SourceBinding)
-        and source_steps[0].binding.adapter in {"duckdb", "sqlite"}
+        and source_steps[0].binding.adapter in provider_names()
     )
     if basic_source:
         selected_binding = source_steps[0].binding

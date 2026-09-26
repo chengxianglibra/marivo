@@ -14,6 +14,7 @@ from marivo.analysis.operators.registry import (
     legacy_source_migration_stage,
     source_unsupported_reason,
 )
+from marivo.datasource.adapters import provider_names
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.metric_graph import AggregateNodeV1
 
@@ -21,6 +22,7 @@ from marivo.semantic.metric_graph import AggregateNodeV1
 # boundary. Load the pure backend admission owners with this module, before
 # that boundary, so the check itself never imports code from disk.
 _source_admissions()
+_BASIC_DATASET_BACKENDS = frozenset(provider_names())
 
 
 def basic_population_candidate(dataset: LogicalDataset) -> bool:
@@ -65,6 +67,17 @@ def basic_metric_candidate(dataset: LogicalDataset) -> bool:
     )
 
 
+def mysql_composite_identity_candidate(dataset: LogicalDataset) -> bool:
+    """Identify a basic MySQL source that still requires unsupported struct lowering."""
+    if not (basic_population_candidate(dataset) or basic_metric_candidate(dataset)):
+        return False
+    binding = source_binding(dataset)
+    if binding.adapter != "mysql":
+        return False
+    dependencies = required_source_dependencies(dataset, registry=binding.owner.semantic_registry)
+    return any(len(entry.entity.primary_key) > 1 for entry in dependencies.entries)
+
+
 def source_admission_fact(dataset: LogicalDataset) -> tuple[str, str]:
     """Describe static source admission without opening a datasource or Run."""
     if artifact_inputs(dataset):
@@ -79,10 +92,15 @@ def source_admission_fact(dataset: LogicalDataset) -> tuple[str, str]:
     registration = implementation(dataset)
     selected = registration.for_backend(binding.adapter)
     if selected is not None and selected.source:
+        if mysql_composite_identity_candidate(dataset):
+            return (
+                "source_admission",
+                "blocked_r1.2 backend=mysql: Ibis MySQL cannot compile a composite identity struct",
+            )
         dependencies = (
             required_source_dependencies(dataset, registry=binding.owner.semantic_registry)
             if (basic_population_candidate(dataset) or basic_metric_candidate(dataset))
-            and binding.adapter in {"duckdb", "sqlite"}
+            and binding.adapter in _BASIC_DATASET_BACKENDS
             else None
         )
         if (
@@ -92,7 +110,7 @@ def source_admission_fact(dataset: LogicalDataset) -> tuple[str, str]:
         ):
             return (
                 "source_admission",
-                f"qualified_basic_r1.1 backend={binding.adapter}: final placement remains execution-time",
+                f"candidate_basic_r1.2 backend={binding.adapter}: physical qualification remains execution-time",
             )
         return (
             "source_admission",

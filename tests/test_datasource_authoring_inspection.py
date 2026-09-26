@@ -41,9 +41,12 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def query_spy(monkeypatch: pytest.MonkeyPatch) -> _QuerySpy:
     from ibis.backends.duckdb import Backend
 
+    from marivo.datasource import adapters
+
     spy = _QuerySpy()
     original_execute = Backend.execute
     original_raw_sql = Backend.raw_sql
+    original_native_cursor = adapters._native_cursor
 
     def counted_execute(self: Backend, *args: object, **kwargs: object) -> object:
         spy.user_data_queries += 1
@@ -56,8 +59,15 @@ def query_spy(monkeypatch: pytest.MonkeyPatch) -> _QuerySpy:
             spy.user_data_sql = (*spy.user_data_sql, query_text)
         return original_raw_sql(self, query, *args, **kwargs)
 
+    def counted_native_cursor(backend: Backend, name: str, query: str) -> object:
+        if re.search(r"\bFROM\s+(?:\"?main\"?\.)?\"?orders\"?\b", query, re.IGNORECASE):
+            spy.user_data_queries += 1
+            spy.user_data_sql = (*spy.user_data_sql, query)
+        return original_native_cursor(backend, name, query)
+
     monkeypatch.setattr(Backend, "execute", counted_execute)
     monkeypatch.setattr(Backend, "raw_sql", counted_raw_sql)
+    monkeypatch.setattr(adapters, "_native_cursor", counted_native_cursor)
     return spy
 
 
@@ -778,7 +788,7 @@ def test_partition_listing_queries_requested_order_and_bound(
 
     def partition_hook(request: PartitionProbeRequest) -> PartitionProbeResult:
         requests.append((request.limit, request.order))
-        values = (
+        values: tuple[dict[str, object], ...] = (
             ({"dt": "20260101"}, {"dt": "20260102"})
             if request.order == "asc"
             else ({"dt": "20261231"}, {"dt": "20261230"})

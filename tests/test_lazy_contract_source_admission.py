@@ -22,13 +22,19 @@ def _sources(
     backend: str,
     *,
     distribution: bool = False,
+    composite: bool = False,
 ) -> LazySources:
     factory = make_distribution_registry if distribution else make_execution_registry
     registry: Registry
     sidecar: CompiledExpressionSidecar
     registry, sidecar = factory(Path("must-not-open.duckdb"))
+    entities = dict(registry.entities)
+    if composite:
+        orders = entities["sales.orders"]
+        entities["sales.orders"] = replace(orders, primary_key=("id", "channel"))
     registry = replace(
         registry,
+        entities=entities,
         datasources={
             name: replace(value, backend_type=backend)
             for name, value in registry.datasources.items()
@@ -85,19 +91,39 @@ def test_selected_legacy_source_route_discloses_migration_block(
     assert contract.render() == rendered
 
 
-def test_basic_population_discloses_session_qualification_without_source_io() -> None:
-    dataset = _sources("sqlite").population(ref.entity("sales.customers"))
+@pytest.mark.parametrize(
+    "backend", ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
+)
+def test_basic_population_discloses_candidate_without_source_io(backend: str) -> None:
+    dataset = _sources(backend).population(ref.entity("sales.customers"))
     assert (
-        "source_admission: qualified_basic_r1.1 backend=sqlite: "
-        "final placement remains execution-time"
+        f"source_admission: candidate_basic_r1.2 backend={backend}: "
+        "physical qualification remains execution-time"
     ) in dataset.contract().render()
 
 
-def test_basic_metric_aggregate_discloses_session_qualification_without_source_io() -> None:
-    dataset = _sources("sqlite").observe(ref.metric("sales.revenue")).aggregate()
+def test_mysql_composite_population_discloses_identity_compiler_block() -> None:
+    dataset = _sources("mysql", composite=True).population(ref.entity("sales.orders"))
     assert (
-        "source_admission: qualified_basic_r1.1 backend=sqlite: "
-        "final placement remains execution-time"
+        "source_admission: blocked_r1.2 backend=mysql: "
+        "Ibis MySQL cannot compile a composite identity struct"
+    ) in dataset.contract().render()
+
+
+@pytest.mark.parametrize("backend", ("sqlite", "mysql"))
+def test_basic_metric_aggregate_discloses_candidate_without_source_io(backend: str) -> None:
+    dataset = _sources(backend).observe(ref.metric("sales.revenue")).aggregate()
+    assert (
+        f"source_admission: candidate_basic_r1.2 backend={backend}: "
+        "physical qualification remains execution-time"
+    ) in dataset.contract().render()
+
+
+def test_mysql_composite_metric_discloses_identity_compiler_block() -> None:
+    dataset = _sources("mysql", composite=True).observe(ref.metric("sales.revenue")).aggregate()
+    assert (
+        "source_admission: blocked_r1.2 backend=mysql: "
+        "Ibis MySQL cannot compile a composite identity struct"
     ) in dataset.contract().render()
 
 

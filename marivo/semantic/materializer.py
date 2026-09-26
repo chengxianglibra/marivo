@@ -18,7 +18,7 @@ from ibis.expr.operations.relations import SQLQueryResult
 from marivo._compat import UTC
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceError
-from marivo.datasource.ir import QueryParamScalar, QueryParamScalarList
+from marivo.datasource.ir import DatasourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.json_source import read_json_source
 from marivo.datasource.source import AuthoringScope, PartitionScope
 from marivo.datasource.table_source import table_source_expression
@@ -78,6 +78,19 @@ class Materializer:
         source_bindings: (
             Mapping[str, Mapping[str, QueryParamScalar | QueryParamScalarList]] | None
         ) = None,
+        source_binder: (
+            Callable[
+                [
+                    str,
+                    str,
+                    DatasourceIR,
+                    EntitySourceIR,
+                    dict[str, QueryParamScalar | QueryParamScalarList] | None,
+                ],
+                ir.Table,
+            ]
+            | None
+        ) = None,
     ) -> None:
         self._project = project
         self._backend_factory = backend_factory
@@ -86,6 +99,7 @@ class Materializer:
         self._source_bindings = {
             entity_id: dict(params) for entity_id, params in (source_bindings or {}).items()
         }
+        self._source_binder = source_binder
         self._backend_by_datasource: dict[str, IbisBackend] = {}
         self._entity_cache: dict[str, ibis.Table] = {}
         self._dimension_cache: dict[str, ir.Value] = {}
@@ -176,7 +190,16 @@ class Materializer:
         backend = self._get_backend(ds_ir.datasource)
 
         try:
-            table = self._materialize_dataset_source(semantic_id, backend, ds_ir.source)
+            if self._source_binder is None:
+                table = self._materialize_dataset_source(semantic_id, backend, ds_ir.source)
+            else:
+                table = self._source_binder(
+                    ds_ir.datasource,
+                    semantic_id,
+                    registry.datasources[ds_ir.datasource],
+                    ds_ir.source,
+                    self._source_bindings.get(semantic_id),
+                )
         except DatasourceError:
             raise
         except SemanticRuntimeError:

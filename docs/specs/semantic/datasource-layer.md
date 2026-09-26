@@ -566,16 +566,36 @@ preview does not persist an authoring checkpoint or affect readiness.
 
 ### R0.3 target: Ibis-owned analysis reads and terminal raw SQL
 
-R1.1 implementation is in progress. The selected engine provider registry is
-lazy, and its internal `SourceSession` issues source-bound compiled reads for
-basic DuckDB and SQLite table operations. Qualified one-table, unscoped
-Population scan/filter and sum/count Metric aggregate (including direct grouping)
-now consume this session in `DatasetRuntime`. The
-live `md.test` and source-health connection probes submit an Ibis-compiled
-literal. The common Analysis `ExecutionAdapter.statement(sql)` method has been
-removed, but concrete legacy text implementations and several
-metadata/physical-read paths remain to be removed or migrated; this snapshot
-does not grant six-backend Analysis qualification or completion of the R0.3 target.
+R1.2 implementation remains under qualification. The selected engine provider
+registry is lazy. `SourceSession` binds table and view relations on DuckDB,
+SQLite, PostgreSQL, MySQL, Trino, and ClickHouse, and DuckDB CSV, Parquet,
+local JSON, and uncredentialed HTTP JSON. It checks exact source identity,
+runtime JSON parameters, relation ancestry, additional physical inputs, and
+the pre-read Arrow schema. One active batch stream belongs to a session; the
+submitted SQL is the unchanged Ibis compilation. Decode rejects lossy integer,
+Boolean, float, Decimal, date, and timestamp values. PostgreSQL record fields
+accept only canonical integer text where its driver returns record components
+as text; Trino named rows retain their field names; MySQL temporal converters
+preserve invalid date text for rejection rather than silently turning it into
+null. A DuckDB result is connection-owned and is released with its connection;
+remote cursor close does not prove server-side query termination.
+
+`md.inspect` resolves a table through that owner before provider metadata
+inspection. `SourceInspection.sample`, snapshots, Semantic preview, and
+source-health business checks use bounded source-bound session reads. They
+remain distinct evidence: metadata describes observed structure, a sample
+describes only selected bounded rows, `md.test` and source-health connectivity
+prove one compiled literal round trip, and explicit source-health checks report
+only their requested business scope. Optional metadata failures may yield
+schema-only or unavailable observations; a fact required for admission cannot
+be inferred from a sample or silently supplied. Provider-specific metadata
+hooks still contain internal SQL and need their R1.2 replacement or qualified
+unavailability. Trino `$partitions` and ClickHouse `system.tables`/`system.parts`
+partition enumeration now use bound Ibis reads. A read-only ClickHouse account
+without `SHOW COLUMNS` on the system catalog reports partition metadata
+unavailable; it does not infer values from business rows. Authenticated HTTP
+setup and session controls remain R1.3 work. This state does not establish the
+R0.3 target or R1 exit.
 
 `md.raw_sql(datasource: Ref[DatasourceKind], sql: str, *, reason: str,
 limit: int = 100, timeout_seconds: int = 30, include_types: bool = True,

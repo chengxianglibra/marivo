@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 import ibis
+import pyarrow as pa
 import pytest
 
 import marivo.datasource as md
@@ -369,10 +370,15 @@ def test_json_source_bindings_are_exact_entity_ref_mappings(
 
     def fake_read_json_source(backend, source, *, source_params=None):
         captured["params"] = source_params
-        return ibis.memtable({"event_id": [1, 2]})
+        start = source_params["start"]
+        return backend.create_table(
+            f"r12_fake_json_{start}",
+            obj=pa.table({"event_id": [start, start + 1]}),
+            temp=True,
+        )
 
     monkeypatch.setattr(catalog._project, "_connection_service", original_connection_service)
-    monkeypatch.setattr("marivo.semantic.materializer.read_json_source", fake_read_json_source)
+    monkeypatch.setattr("marivo.datasource.json_source.read_json_source", fake_read_json_source)
     result = catalog.preview(
         entity,
         scope=_scope(),
@@ -380,6 +386,13 @@ def test_json_source_bindings_are_exact_entity_ref_mappings(
     )
     assert result.returned_row_count == 2
     assert captured == {"params": {"start": 1}}
+    second = catalog.preview(
+        entity,
+        scope=_scope(),
+        source_bindings={entity: {"start": 2}},
+    )
+    assert [row["event_id"] for row in second.rows] == [2, 3]
+    assert captured == {"params": {"start": 2}}
 
 
 def _certified_project(

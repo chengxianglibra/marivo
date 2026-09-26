@@ -195,6 +195,24 @@ before creating a Run or opening the source, and identify their R5–R8 migratio
 stage. The R1.1 acceptance record tracks the remaining concrete legacy text
 methods and separately admitted fixed Artifact continuation.
 
+## R1.2 basic source qualification status
+
+The same one-table basic Population and sum/count Metric source path now attempts
+DuckDB, SQLite, PostgreSQL, MySQL, Trino, and ClickHouse through `SourceSession`.
+The compiler's full composite-key validation is still required before
+publication; duplicate identities are never repaired by `distinct`. This
+statement describes a candidate route, not a blanket backend or table-form
+qualification. A single-column Entity key is projected as an Ibis scalar only on
+the MySQL basic source route and restored to the one-field Arrow identity struct
+before publication. Other backends retain the ordered Ibis struct for single-column
+and composite keys pending separate qualification. MySQL basic
+Population execution is qualified for the tested single-column table and view;
+sum/count Metric execution is qualified for the tested single-column table.
+MySQL composite keys reject before Run because
+Ibis 12 cannot compile their `StructColumn`. The R1.2 acceptance record keeps
+backend, form, exact type, permission, and resource evidence separate, and
+retains the earlier full-gate failures for older source methods.
+
 ## S1 W1 private J1 construction
 
 W1 loads the closed Semantic additivity, event-time, and value-policy declarations

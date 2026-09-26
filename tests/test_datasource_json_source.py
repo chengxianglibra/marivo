@@ -14,9 +14,10 @@ import pytest
 
 import marivo.datasource as md
 from marivo.datasource import backends as datasource_backends
+from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.backends import apply_json_http_settings
 from marivo.datasource.errors import DatasourceMetadataError
-from marivo.datasource.ir import JsonSourceIR
+from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation, JsonSourceIR
 from marivo.datasource.json_source import json_source_url, read_json_source
 
 _EVENT_SCHEMA = {"event_id": "int64", "amount": "int64", "status": "string"}
@@ -258,6 +259,43 @@ def test_post_json_source_binds_array_body_value() -> None:
         "specific_source": ["app-1", "app-2"],
         "page_num": 1,
     }
+
+
+def test_post_json_source_uses_bound_session_batches() -> None:
+    response = {"data": {"change_infos": [{"change_id": 101}]}}
+    with _post_json_server(response) as (url, requests):
+        datasource = DatasourceIR(
+            semantic_id="source",
+            name="source",
+            backend_type="duckdb",
+            fields={},
+            env_refs={},
+            ai_context=AiContextIR(),
+            python_symbol="source",
+            location=DatasourceSourceLocation("source.py", 1),
+        )
+        source = md.json(
+            url,
+            columns={"change_id": "change_id"},
+            method="POST",
+            body={"specific_source": md.source_param("apps")},
+            records_path="$.data.change_infos",
+        )
+        backend = ibis.duckdb.connect(":memory:")
+        with SourceSession(provider_for("duckdb"), datasource, backend) as session:
+            binding = session.bind(
+                source,
+                source_identity="http-json",
+                source_params={"apps": ["app-1", "app-2"]},
+            )
+            assert session.collect_bounded(
+                binding.relation,
+                source_identities=("http-json",),
+                purpose="authoring.sample",
+                max_rows=2,
+            ).to_pylist() == [{"change_id": 101}]
+            assert session.submissions[-1].state == "succeeded"
+    assert len(requests) == 1
 
 
 def test_json_source_url_validates_parameters_declared_only_in_post_body() -> None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
@@ -296,9 +296,11 @@ def preview_ibis_table(
     include_types: bool = True,
     timezones: Mapping[str, PreviewTimezoneInfo] | None = None,
     report_tz: str | None = None,
+    read_table: Callable[[Any, int], pd.DataFrame] | None = None,
 ) -> PreviewResult:
     limit = validate_preview_limit(limit)
-    dataframe = table.limit(limit + 1).execute()
+    bounded = table.limit(limit + 1)
+    dataframe = bounded.execute() if read_table is None else read_table(bounded, limit + 1)
     schema_types = (
         {name: str(dtype) for name, dtype in table.schema().items()} if include_types else {}
     )

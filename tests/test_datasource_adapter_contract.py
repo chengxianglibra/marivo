@@ -4,19 +4,23 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from collections.abc import Iterator
 from dataclasses import replace
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import Mock
 
 import ibis
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from marivo.datasource.adapters import (
     CompiledRead,
     PhysicalRequirement,
     SourceBatchStream,
+    SourceIR,
     SourceSession,
     SourceSubmission,
     _exact_array,
@@ -27,7 +31,16 @@ from marivo.datasource.errors import (
     DatasourceBackendTypeUnsupportedError,
     DatasourceSourceCapabilityError,
 )
-from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation, TableSourceIR
+from marivo.datasource.ir import (
+    AiContextIR,
+    CsvSourceIR,
+    DatasourceIR,
+    DatasourceSourceLocation,
+    JsonSourceIR,
+    ParquetSourceIR,
+    SourceParamIR,
+    TableSourceIR,
+)
 
 
 def _datasource(backend: str) -> DatasourceIR:
@@ -44,7 +57,7 @@ def _datasource(backend: str) -> DatasourceIR:
 
 
 @pytest.fixture(params=["duckdb", "sqlite"])
-def session(request: pytest.FixtureRequest, tmp_path: Path) -> SourceSession:
+def session(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[SourceSession]:
     backend_name = request.param
     database = tmp_path / f"source.{backend_name}"
     backend = (
@@ -52,6 +65,7 @@ def session(request: pytest.FixtureRequest, tmp_path: Path) -> SourceSession:
     )
     backend.raw_sql("CREATE TABLE facts (id BIGINT, amount BIGINT)")
     backend.raw_sql("INSERT INTO facts VALUES (9007199254740993, 2), (9007199254740994, 3)")
+    backend.raw_sql("CREATE VIEW facts_view AS SELECT id, amount FROM facts")
     result = SourceSession(provider_for(backend_name), _datasource(backend_name), backend)
     try:
         yield result
@@ -85,6 +99,39 @@ def test_nested_decode_rejects_bool_coercion() -> None:
     schema_field = pa.field("identity", pa.struct([pa.field("active", pa.bool_())]))
     with pytest.raises(DatasourceSourceCapabilityError):
         _exact_array([{"active": 1}], schema_field)
+
+
+def test_postgres_record_integer_decode_is_canonical_only() -> None:
+    field = pa.field("identity", pa.struct([pa.field("id", pa.int64())]))
+    assert _exact_array([("9007199254740993",)], field, backend_name="postgres").to_pylist() == [
+        {"id": 9007199254740993}
+    ]
+    for value in ("01", "1.0", "1e0"):
+        with pytest.raises(DatasourceSourceCapabilityError):
+            _exact_array([(value,)], field, backend_name="postgres")
+
+
+def test_timestamp_precision_and_sqlite_storage_type_reject_loss(tmp_path: Path) -> None:
+    with pytest.raises(DatasourceSourceCapabilityError):
+        _exact_array([datetime(2026, 1, 1, 0, 0, 0, 123456)], pa.field("at", pa.timestamp("ms")))
+    backend = ibis.sqlite.connect(tmp_path / "storage.sqlite")
+    backend.raw_sql("CREATE TABLE stored (id INTEGER)")
+    backend.raw_sql("INSERT INTO stored VALUES ('not_an_integer')")
+    with SourceSession(provider_for("sqlite"), _datasource("sqlite"), backend) as source_session:
+        bound = source_session.bind(TableSourceIR("stored"), source_identity="stored")
+        qualified = source_session.qualify(
+            bound, PhysicalRequirement("storage", 1, frozenset({"scan"}))
+        )
+        expression = bound.relation.select("id")
+        read = source_session.compile(
+            qualified,
+            expression,
+            purpose="storage",
+            expected_schema=expression.schema().to_pyarrow(),
+        )
+        with pytest.raises(DatasourceSourceCapabilityError):
+            list(source_session.batches(read, chunk_size=1))
+        assert source_session.submissions[-1].state == "failed"
 
 
 def test_common_analysis_adapter_exposes_no_text_statement() -> None:
@@ -150,6 +197,88 @@ def test_basic_group_and_count_use_the_bound_expression(session: SourceSession) 
     ]
 
 
+def test_local_view_is_a_separate_bound_source(session: SourceSession) -> None:
+    bound = session.bind(TableSourceIR("facts_view"), source_identity="view@v1")
+    qualified = session.qualify(
+        bound, PhysicalRequirement("basic.view", 1, frozenset({"scan", "project"}))
+    )
+    expression = bound.relation.select("id").order_by("id")
+    read = session.compile(
+        qualified,
+        expression,
+        purpose="basic.view",
+        expected_schema=expression.schema().to_pyarrow(),
+    )
+    stream = session.batches(read, chunk_size=1)
+    assert pa.Table.from_batches(stream, schema=stream.schema).column("id").to_pylist() == [
+        9007199254740993,
+        9007199254740994,
+    ]
+
+
+def test_projection_identity_and_multiple_bound_tables(session: SourceSession) -> None:
+    source = TableSourceIR("facts", columns=(("value", "amount"),))
+    first = session.bind(source, source_identity="first")
+    assert session.bind(source, source_identity="first") is first
+    assert first.relation.columns == ("value",)
+    with pytest.raises(DatasourceSourceCapabilityError, match="identity reused"):
+        session.bind(TableSourceIR("facts"), source_identity="first")
+    second = session.bind(TableSourceIR("facts"), source_identity="second")
+    requirements = (
+        session.qualify(first, PhysicalRequirement("authoring.preview", 1, frozenset({"scan"}))),
+        session.qualify(second, PhysicalRequirement("authoring.preview", 1, frozenset({"scan"}))),
+    )
+    expression = first.relation.cross_join(second.relation).select(first.relation.value)
+    read = session.compile(
+        requirements,
+        expression,
+        purpose="authoring.preview",
+        expected_schema=expression.schema().to_pyarrow(),
+    )
+    assert read.source_identity == "first|second"
+    assert (
+        pa.Table.from_batches(session.batches(read, chunk_size=10), schema=read.schema).num_rows
+        == 4
+    )
+
+
+def test_duckdb_file_bindings_preserve_projection_and_json_params(tmp_path: Path) -> None:
+    csv_path = tmp_path / "facts.csv"
+    csv_path.write_text("id,amount\n1,2\n2,3\n")
+    parquet_path = tmp_path / "facts.parquet"
+    pq.write_table(pa.table({"id": [1, 2], "amount": [2, 3]}), parquet_path)
+    json_path = tmp_path / "facts.json"
+    json_path.write_text('[{"id":1,"amount":2},{"id":2,"amount":3}]')
+    backend = ibis.duckdb.connect(tmp_path / "files.duckdb")
+    with SourceSession(provider_for("duckdb"), _datasource("duckdb"), backend) as file_session:
+        cases: tuple[tuple[SourceIR, dict[str, int] | None], ...] = (
+            (CsvSourceIR(str(csv_path), columns=(("value", "amount"),)), None),
+            (ParquetSourceIR(str(parquet_path), columns=("amount",)), None),
+            (
+                JsonSourceIR(
+                    str(json_path),
+                    columns=(("value", "amount"),),
+                    query_params=(("page", SourceParamIR("page")),),
+                ),
+                {"page": 1},
+            ),
+        )
+        for index, (source, params) in enumerate(cases):
+            identity = f"file-{index}"
+            bound = file_session.bind(source, source_identity=identity, source_params=params)
+            assert (
+                file_session.collect_bounded(
+                    bound.relation,
+                    source_identities=(identity,),
+                    purpose="authoring.sample",
+                    max_rows=2,
+                ).num_rows
+                == 2
+            )
+        with pytest.raises(ValueError, match="missing"):
+            file_session.bind(cases[2][0], source_identity="missing-param")
+
+
 def test_compiled_read_rejects_forgery_foreign_session_and_unbound_source(
     session: SourceSession, tmp_path: Path
 ) -> None:
@@ -199,6 +328,9 @@ def test_early_close_and_empty_result_keep_fixed_schema(session: SourceSession) 
     stream.close()
     assert not session._streams
     assert session.submissions[-1].state == "closed_early"
+    assert session.submissions[-1].cursor_state == (
+        "connection_owned" if session.provider.name == "duckdb" else "closed"
+    )
     with pytest.raises(DatasourceSourceCapabilityError):
         list(stream)
 
@@ -222,6 +354,8 @@ def test_interrupt_reports_only_local_close(session: SourceSession) -> None:
     stream = session.batches(_read(session), chunk_size=1)
     assert session.interrupt() == "local_closed"
     assert not session._streams
+    assert session.submissions[-1].termination == "local_closed"
+    assert session.submissions[-1].connection_disconnected is True
     with pytest.raises(DatasourceSourceCapabilityError):
         list(stream)
 
@@ -305,15 +439,15 @@ def test_decimal_decode_preserves_exact_value(session: SourceSession) -> None:
     ]
 
 
-def test_unverified_remote_provider_has_no_basic_route() -> None:
-    # A relation stub cannot grant a remote physical qualification.
+def test_stub_provider_cannot_grant_basic_route() -> None:
+    # A relation stub cannot grant physical qualification for any backend.
     backend = Mock()
     backend.name = "postgres"
     backend.table.return_value = ibis.table({"id": "int64"}, name="facts")
     session = SourceSession(provider_for("postgres"), _datasource("postgres"), backend)
     try:
         bound = session.bind(TableSourceIR("facts"), source_identity="facts@v1")
-        with pytest.raises(DatasourceSourceCapabilityError, match=r"pending R1\.2"):
+        with pytest.raises(DatasourceSourceCapabilityError, match="not a live Ibis backend"):
             session.qualify(bound, PhysicalRequirement("basic.rows", 1, frozenset({"scan"})))
         assert session.interrupt() == "remote_unknown"
     finally:

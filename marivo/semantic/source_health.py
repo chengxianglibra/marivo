@@ -619,7 +619,15 @@ def _field_frame(
         _materialized_field(resolver, field, table).name(f"value_{index}")
         for index, field in enumerate(fields)
     ]
-    return cast("pd.DataFrame", table.select(*values).execute())
+    return cast(
+        "pd.DataFrame",
+        resolver.connections.collect_source(
+            registry.entities[entity_id].datasource,
+            table.select(*values),
+            purpose="semantic.source_health_field",
+            max_rows=scope.max_rows,
+        ),
+    )
 
 
 def _freshness_observation(
@@ -796,8 +804,18 @@ def _relationship_frames(
             resolver.dimension_on(cast("Ref[FieldKind]", to_ref), right).name(f"key_{index}")
         )
     return (
-        left.select(*left_values).execute(),
-        right.select(*right_values).execute(),
+        resolver.connections.collect_source(
+            registry.entities[left_id].datasource,
+            left.select(*left_values),
+            purpose="semantic.source_health_relationship",
+            max_rows=scopes[left_id].max_rows,
+        ),
+        resolver.connections.collect_source(
+            registry.entities[right_id].datasource,
+            right.select(*right_values),
+            purpose="semantic.source_health_relationship",
+            max_rows=scopes[right_id].max_rows,
+        ),
         left_id,
         right_id,
     )

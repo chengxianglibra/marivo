@@ -172,16 +172,16 @@ def test_snapshot_identity_and_payload_include_half_open_time_range() -> None:
 
 @pytest.fixture
 def query_spy(monkeypatch: pytest.MonkeyPatch) -> _QuerySpy:
-    from ibis.backends.duckdb import Backend
+    from marivo.datasource import adapters
 
     spy = _QuerySpy()
-    original_execute = Backend.execute
+    original_native_cursor = adapters._native_cursor
 
-    def counted_execute(self: Backend, expr: object, *args: object, **kwargs: object) -> object:
+    def counted_native_cursor(backend: object, name: str, sql: str) -> object:
         spy.user_data_queries += 1
-        return original_execute(self, expr, *args, **kwargs)
+        return original_native_cursor(backend, name, sql)
 
-    monkeypatch.setattr(Backend, "execute", counted_execute)
+    monkeypatch.setattr(adapters, "_native_cursor", counted_native_cursor)
     return spy
 
 
@@ -246,9 +246,12 @@ def test_snapshot_cache_omits_values_and_credentials_by_default(
         ),
     )
     monkeypatch.setattr(
-        snapshot_module._backends,
-        "build_backend",
-        lambda *_args, **_kwargs: ibis.duckdb.connect(str(project_root / "warehouse.duckdb")),
+        "marivo.datasource.engines.base.EngineProfile.open",
+        lambda profile, datasource, *, read_only=True: snapshot_module.SourceSession(
+            profile,
+            datasource,
+            ibis.duckdb.connect(str(project_root / "warehouse.duckdb")),
+        ),
     )
 
     snapshot = inspection.sample(

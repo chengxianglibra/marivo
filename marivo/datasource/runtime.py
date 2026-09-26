@@ -2,23 +2,40 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+import ibis.expr.types as ir
+import pandas as pd
+from ibis.backends import BaseBackend
+
 from marivo.datasource import backends, store
+from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.authoring import _storage_name
 from marivo.datasource.errors import DatasourceMissingError, repair
+from marivo.datasource.ir import (
+    DatasourceIR,
+    EntitySourceIR,
+    QueryParamScalar,
+    QueryParamScalarList,
+)
 from marivo.datasource.timezone import DatasourceEngineTimezone, probe_engine_timezone
 
 
-def _disconnect(backend: Any) -> None:
+def _disconnect(backend: Any) -> bool:
     """Disconnect a backend, silently ignoring errors or missing method."""
     disconnect = getattr(backend, "disconnect", None)
     if callable(disconnect):
-        with suppress(Exception):
+        try:
             disconnect()
+        except Exception:
+            return False
+        return True
+    return False
 
 
 def _build_backend_from_store(
@@ -87,6 +104,7 @@ class DatasourceConnectionService:
         self._use_datasources = use_datasources
         self._include_semantic_layers = include_semantic_layers
         self._session_backends: dict[str, Any] = {}
+        self._source_sessions: dict[str, SourceSession] = {}
         self._engine_timezones: dict[str, DatasourceEngineTimezone] = {}
 
     @property
@@ -157,6 +175,54 @@ class DatasourceConnectionService:
             self._session_backends[datasource_name] = backend
         return backend
 
+    def source_session(self, name: str, datasource: DatasourceIR) -> SourceSession:
+        """Return the source owner sharing this connection service's backend."""
+        datasource_name = _storage_name(name)
+        session = self._source_sessions.get(datasource_name)
+        if session is None:
+            backend = self.session_backend(datasource_name)
+            if not isinstance(backend, BaseBackend):
+                raise TypeError("a live Ibis backend is required for governed source reads")
+            session = SourceSession(
+                provider_for(datasource.backend_type), datasource, backend, owns_backend=False
+            )
+            self._source_sessions[datasource_name] = session
+        return session
+
+    def bind_source(
+        self,
+        name: str,
+        identity: str,
+        datasource: DatasourceIR,
+        source: EntitySourceIR,
+        source_params: dict[str, QueryParamScalar | QueryParamScalarList] | None = None,
+    ) -> ir.Table:
+        """Bind one Semantic entity to the same source owner used for reads."""
+        session = self.source_session(name, datasource)
+        if source_params:
+            parameter_digest = hashlib.sha256(
+                json.dumps(source_params, sort_keys=True, allow_nan=False).encode("utf-8")
+            ).hexdigest()
+            identity = f"{identity}@{parameter_digest}"
+        return session.bind(source, source_identity=identity, source_params=source_params).relation
+
+    def collect_source(
+        self,
+        name: str,
+        expression: ir.Table,
+        *,
+        purpose: str,
+        max_rows: int,
+    ) -> pd.DataFrame:
+        """Collect a bounded derived expression through its bound source session."""
+        session = self._source_sessions.get(_storage_name(name))
+        if session is None:
+            raise RuntimeError("source expression has no session binding")
+        frame = session.collect_bounded(expression, purpose=purpose, max_rows=max_rows).to_pandas()
+        if not isinstance(frame, pd.DataFrame):
+            raise TypeError("source collection must produce a pandas DataFrame")
+        return frame
+
     def engine_timezone(self, name: str) -> DatasourceEngineTimezone:
         """Return the cached engine timezone for a datasource session backend."""
         datasource_name = _storage_name(name)
@@ -169,7 +235,13 @@ class DatasourceConnectionService:
 
     def close_all(self) -> None:
         """Disconnect all cached session backends and clear the cache."""
-        for backend in self._session_backends.values():
-            _disconnect(backend)
+        for session in self._source_sessions.values():
+            session.close()
+        for name, backend in self._session_backends.items():
+            if _disconnect(backend):
+                bound_session = self._source_sessions.get(name)
+                if bound_session is not None:
+                    bound_session.mark_backend_disconnected()
+        self._source_sessions.clear()
         self._session_backends.clear()
         self._engine_timezones.clear()
