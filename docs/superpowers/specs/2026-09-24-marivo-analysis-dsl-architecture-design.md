@@ -123,7 +123,7 @@ InputSignatures + Parameters
 1. 两次观察共享一个固定 Customer 成员输入，各自按指标变量、贡献归属角色和窗口产生 Observed，保留完整目标域、Customer 身份和真实指标状态。
 2. compare 按同一时间比较设计检验完整且单射的共同身份键，读取两侧 Defined 值，产生 Difference，保留相容的主体映射；Difference 不因此获得原指标的上卷状态。
 3. where 限制为负值子域；它不再覆盖原 Customer 域。
-4. members 取已选实例的主体像并去重，产生新成员域；原量和旅程重数不进入成员身份。
+4. members 取已选实例的主体集合像，产生新成员域；本例 Customer 身份与恒等主体映射经筛选仍唯一，直接投影即可。原量不进入成员身份。
 5. observe 显式引入九月贡献读取。这是新的查询依赖，不是前序结果偷偷回源。
 6. summarize 将这些 Customer 行作为新贡献，产生 RowStatistic；不保留可恢复名单的承诺。
 
@@ -131,6 +131,13 @@ InputSignatures + Parameters
 若用户保留了前面的单位级输入，可以显式使用它，不能声称摘要在任何额外信息下都不可选人。
 无订单客户在完整 sum 观察中仍占一行且值为零；只有一侧实际客户行域不完整才是缺键。
 若下降域为空，最后的全局 mean 仍在 Singleton 上输出 Undefined(empty_mean) 和有效空状态。
+
+members 的 lowering 遵循[接口设计 §5.1、§6.2](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md)：
+Entity 根域投影完整声明主键，版本化根域先解析明确版本，不默认 distinct 或全源唯一性预检。
+Subjects 沿非单射主体映射取集合像时必须消除重复主体，来源实现使用 Ibis distinct 或等价
+集合像表达式；固定输入使用同义本地实现。已有依据的单射或恒等映射可省略去重，筛选保留
+该依据。编译器依据规则推导决定实现，不根据样本碰巧无重复作出判断；输出契约不暴露算法
+开关。集合像去重不能掩盖已观察到的输入身份违约，也不能取消消费契约要求的检查。
 
 ### 3.4 信息、事实与能力同时变化
 
