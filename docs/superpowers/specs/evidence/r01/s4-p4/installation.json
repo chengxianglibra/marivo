@@ -1,0 +1,8 @@
+{
+  "analysis_module": "/private/tmp/marivo-s4-p4-venv/lib/python3.12/site-packages/marivo/analysis/__init__.py",
+  "direct_url": "{\"url\":\"file:///tmp/marivo-s4-p4-wheel/marivo-0.5.3.dev0-py3-none-any.whl\",\"archive_info\":{}}",
+  "module": "/private/tmp/marivo-s4-p4-venv/lib/python3.12/site-packages/marivo/__init__.py",
+  "version": "0.5.3.dev0",
+  "wheel": "/tmp/marivo-s4-p4-wheel/marivo-0.5.3.dev0-py3-none-any.whl",
+  "wheel_sha256": "48b393c3accce8a20c0fe303941d5ec85e9c627e851c46d38821cabd40df95ee"
+}

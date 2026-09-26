@@ -1,0 +1,49 @@
+{
+  "artifacts": {
+    "fixed": "artifact_7451449d46c64f82843fe65fc4863810"
+  },
+  "by_channel": [
+    {
+      "cell_reason": null,
+      "cell_tag": "defined",
+      "group": "mobile",
+      "value": 0.0
+    },
+    {
+      "cell_reason": null,
+      "cell_tag": "defined",
+      "group": "web",
+      "value": 53.3333333333
+    }
+  ],
+  "current_mean": [
+    {
+      "cell_reason": null,
+      "cell_tag": "defined",
+      "value": 43.3333333333
+    }
+  ],
+  "fixed_rollup": [
+    {
+      "cell_reason": null,
+      "cell_tag": "defined",
+      "value": 40.0
+    }
+  ],
+  "journey": "j3",
+  "overall": [
+    {
+      "cell_reason": null,
+      "cell_tag": "defined",
+      "value": 40.0
+    }
+  ],
+  "retained_parts": [
+    "value.denominator.count",
+    "value.denominator.row_count",
+    "value.numerator.non_null_count",
+    "value.numerator.row_count",
+    "value.numerator.sum"
+  ],
+  "session_id": "session_d98810bed68a40189180faffa3ee5188"
+}

@@ -1,0 +1,55 @@
+{
+  "artifacts": {
+    "fixed": "artifact_d42a33451c4f4e45974ea8b27ed0f6d2"
+  },
+  "east_channels": [
+    {
+      "cell_reason": null,
+      "cell_tag": "defined",
+      "group": "mobile",
+      "value": 150
+    },
+    {
+      "cell_reason": null,
+      "cell_tag": "defined",
+      "group": "web",
+      "value": 450
+    }
+  ],
+  "fixed_rollup": [
+    {
+      "cell_reason": null,
+      "cell_tag": "defined",
+      "value": 1000
+    }
+  ],
+  "journey": "j1",
+  "regions": [
+    {
+      "cell_reason": null,
+      "cell_tag": "defined",
+      "group": "east",
+      "value": 600
+    },
+    {
+      "cell_reason": null,
+      "cell_tag": "defined",
+      "group": "south",
+      "value": 400
+    },
+    {
+      "cell_reason": "empty_contribution",
+      "cell_tag": "null",
+      "group": "west",
+      "value": null
+    }
+  ],
+  "session_id": "session_c81f279a44914a7c8f79ab531b9b2d16",
+  "total": [
+    {
+      "cell_reason": null,
+      "cell_tag": "defined",
+      "value": 1000
+    }
+  ]
+}

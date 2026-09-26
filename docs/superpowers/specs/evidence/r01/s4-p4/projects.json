@@ -1,0 +1,50 @@
+[
+  {
+    "facts_sha256": "4602bb83be4abf28db4f2d2d59dfd76e628b8595ee46b0da30957cdc7838f1e0",
+    "fixture_sha256": "318f0ca5493684152abf058876409c725ce0596e599e44f469e61cb7f56c82cc",
+    "journey": "j1",
+    "project": "/tmp/marivo-s4-p4-projects/user/j1"
+  },
+  {
+    "facts_sha256": "8bd6bff6e1988fce3e88276e98d06781be395f62361bec8e377e352ab7a89de9",
+    "fixture_sha256": "2c7ac27202134f1fe6ef71d6c1ad466819c9b086fcb381d0d90482fab1954f94",
+    "journey": "j2",
+    "project": "/tmp/marivo-s4-p4-projects/user/j2"
+  },
+  {
+    "facts_sha256": "acf02e9f6028539935325d887e1ebb145f60be2527af4b2561e6e402522f9c75",
+    "fixture_sha256": "c5305369330b1886e2fe158dc666f7639f44ebb29adce613af449aa5e7f55a75",
+    "journey": "j3",
+    "project": "/tmp/marivo-s4-p4-projects/user/j3"
+  },
+  {
+    "facts_sha256": "ac5e885b01e00a69a848b1e013669873fc70e0e159e65549912e2b9fe007e62d",
+    "fixture_sha256": "619b600ebc52f9d1e39d6d58a24b0a7feb21b2912eb3199d35480193d1669a16",
+    "journey": "j4",
+    "project": "/tmp/marivo-s4-p4-projects/user/j4"
+  },
+  {
+    "facts_sha256": "4602bb83be4abf28db4f2d2d59dfd76e628b8595ee46b0da30957cdc7838f1e0",
+    "fixture_sha256": "d3ff4b2f96f3baf76b6a6cee1ecf25fcd6877a20fdda92fce94decf045c845a1",
+    "journey": "j1",
+    "project": "/tmp/marivo-s4-p4-projects/agent/j1"
+  },
+  {
+    "facts_sha256": "8bd6bff6e1988fce3e88276e98d06781be395f62361bec8e377e352ab7a89de9",
+    "fixture_sha256": "495fedaa185979b6a62e7dcb30eeee7a046911f7dadfb008be81d9ed06b91631",
+    "journey": "j2",
+    "project": "/tmp/marivo-s4-p4-projects/agent/j2"
+  },
+  {
+    "facts_sha256": "acf02e9f6028539935325d887e1ebb145f60be2527af4b2561e6e402522f9c75",
+    "fixture_sha256": "ac9a0a48a51fef52d8f1070471e3d55a93e1a40b60701f2727459aa37411d4cb",
+    "journey": "j3",
+    "project": "/tmp/marivo-s4-p4-projects/agent/j3"
+  },
+  {
+    "facts_sha256": "ac5e885b01e00a69a848b1e013669873fc70e0e159e65549912e2b9fe007e62d",
+    "fixture_sha256": "416e8cd0d9f63a26e007ae4ca36966ad2925ed9472d7eafb314c21774f653232",
+    "journey": "j4",
+    "project": "/tmp/marivo-s4-p4-projects/agent/j4"
+  }
+]
