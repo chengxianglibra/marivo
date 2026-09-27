@@ -483,7 +483,8 @@ def test_catalog_show_renders_full_datasource_model_without_secrets(
     assert "env_refs=auth_env=TRINO_AUTH, user_env=TRINO_USER" in rendered
     assert "business_definition: Curated warehouse tables." in rendered
     assert "guardrails: Use partition filters." in rendered
-    assert ".connect(name)" in rendered
+    assert ".test(name)" in rendered
+    assert ".connect(name)" not in rendered
     assert "super-secret-token" not in rendered
 
     assert catalog.show() is None

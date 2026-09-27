@@ -22,6 +22,7 @@ from marivo.datasource.metadata import (
     TableMetadata,
     TablePhysicalProfile,
     UniqueConstraintMetadata,
+    _inspect_source,
     inspect_table,
 )
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult
@@ -58,11 +59,15 @@ def test_metadata_profiles_use_ibis_schema_without_text_submission(backend_type:
     assert tuple(column.name for column in metadata.columns) == ("id", "amount")
     assert all(column.nullable is None and column.comment is None for column in metadata.columns)
     assert metadata.partition_state == "unknown"
+    assert metadata.is_view is None
     assert metadata.primary_keys == ()
     assert {warning.kind for warning in metadata.warnings} >= {
         "comments_unavailable",
         "partitions_unavailable",
         "primary_keys_unavailable",
+        "view_unavailable",
+        "nullable_unavailable",
+        "physical_profile_unavailable",
         "schema_only_fallback",
     }
 
@@ -79,7 +84,13 @@ def test_duckdb_inspect_reads_schema_and_discloses_optional_metadata(tmp_path: P
     assert tuple(column.name for column in metadata.columns) == ("id", "amount")
     assert metadata.primary_keys == ()
     assert metadata.physical_profile is None
+    assert metadata.is_view is None
     assert any(warning.kind == "primary_keys_unavailable" for warning in metadata.warnings)
+    assert {warning.kind for warning in metadata.warnings} >= {
+        "view_unavailable",
+        "nullable_unavailable",
+        "physical_profile_unavailable",
+    }
 
 
 def test_sqlite_inspect_reads_schema_without_catalog_query(tmp_path: Path) -> None:
@@ -93,6 +104,17 @@ def test_sqlite_inspect_reads_schema_without_catalog_query(tmp_path: Path) -> No
     assert tuple(column.name for column in metadata.columns) == ("id", "amount")
     assert metadata.partition_state == "unknown"
     assert any(warning.kind == "schema_only_fallback" for warning in metadata.warnings)
+
+
+def test_file_inspection_knows_it_is_not_a_view(tmp_path: Path) -> None:
+    source_path = tmp_path / "orders.csv"
+    source_path.write_text("id,amount\n1,2\n")
+    md.register(DuckDBSpec(name="warehouse", path=":memory:"), project_root=tmp_path)
+
+    metadata = _inspect_source("warehouse", source=md.csv(str(source_path)), project_root=tmp_path)
+
+    assert metadata.is_view is False
+    assert "view_unavailable" not in {warning.kind for warning in metadata.warnings}
 
 
 def test_missing_datasource_rejects_metadata_inspection(tmp_path: Path) -> None:

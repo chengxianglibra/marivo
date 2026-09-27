@@ -24,7 +24,6 @@ PUBLIC_CALLABLE_TARGETS = {
     "load",
     "list",
     "describe",
-    "connect",
     "test",
     "table",
     "parquet",
@@ -39,9 +38,7 @@ PUBLIC_CALLABLE_TARGETS = {
     "DatasourceCatalog.list",
     "DatasourceCatalog.get",
     "DatasourceCatalog.describe",
-    "DatasourceCatalog.connect",
     "DatasourceCatalog.test",
-    "DatasourceConnection.disconnect",
     "SourceInspection.partitions",
     "SourceInspection.source_column",
     "SourceInspection.sample",
@@ -75,11 +72,6 @@ EXPECTED_EFFECTS = {
     "load": AuthoringEffects(data_access="local_metadata_read", connection="none"),
     "list": AuthoringEffects(data_access="local_metadata_read", connection="none"),
     "describe": AuthoringEffects(data_access="local_metadata_read", connection="none"),
-    "connect": AuthoringEffects(
-        data_access="local_metadata_read",
-        connection="opens_connection",
-        flags=("may_cache_resolved_secret",),
-    ),
     "test": AuthoringEffects(
         data_access="local_metadata_read",
         connection="opens_connection",
@@ -107,18 +99,12 @@ EXPECTED_EFFECTS = {
     "DatasourceCatalog.describe": AuthoringEffects(
         data_access="local_metadata_read", connection="none"
     ),
-    "DatasourceCatalog.connect": AuthoringEffects(
-        data_access="local_metadata_read",
-        connection="opens_connection",
-        flags=("may_cache_resolved_secret",),
-    ),
     "DatasourceCatalog.test": AuthoringEffects(
         data_access="local_metadata_read",
         connection="opens_connection",
         mutations=("user_global_state",),
         flags=("may_cache_resolved_secret",),
     ),
-    "DatasourceConnection.disconnect": AuthoringEffects(data_access="none", connection="none"),
     "SourceInspection.partitions": AuthoringEffects(
         data_access="live_metadata_read", connection="opens_connection"
     ),
@@ -140,6 +126,14 @@ EXPECTED_EFFECTS = {
 def test_registry_covers_every_datasource_callable_once() -> None:
     assert set(REGISTRY.callable_ids()) == PUBLIC_CALLABLE_TARGETS
     assert len(REGISTRY.callable_ids()) == len(set(REGISTRY.callable_ids()))
+
+
+def test_public_datasource_does_not_expose_backend_connections() -> None:
+    assert not hasattr(md, "connect")
+    assert not hasattr(md, "DatasourceConnection")
+    assert not hasattr(md.DatasourceCatalog, "connect")
+    assert "connect" not in REGISTRY.canonical_ids()
+    assert "DatasourceCatalog.connect" not in REGISTRY.canonical_ids()
 
 
 def test_every_discoverable_capability_belongs_to_one_root_group() -> None:

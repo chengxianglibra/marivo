@@ -7,7 +7,6 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-import marivo.datasource as md
 import marivo.semantic as ms
 
 _MODEL = """import marivo.datasource as md
@@ -86,10 +85,13 @@ def _journey(session: mv.Session) -> mv.LogicalEventDataset:
 def test_authored_relationship_keys_construct_without_source_io(
     relationship_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from marivo.datasource import backends
+
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("relationship resolution attempted source I/O")
 
-    monkeypatch.setattr(md, "connect", forbidden)
+    monkeypatch.setattr(backends, "build_backend", forbidden)
+    monkeypatch.setattr(backends, "build_backend_with_secrets", forbidden)
     session = mv.session.get_or_create("relationship", report_timezone="UTC")
     metric = session.observe(ms.ref.metric("sales.event_count")).with_dimensions(
         ms.ref.dimension("sales.orders.region")

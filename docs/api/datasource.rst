@@ -13,8 +13,6 @@ Registration & lifecycle
    :toctree: api/
    :nosignatures:
 
-   connect
-   DatasourceConnection
    register
    DatasourceSpec
    DuckDBSpec

@@ -286,7 +286,6 @@ ANALYSIS_PUBLIC_ORDER_SHA256 = "8ecff0d812d27524b0db701b8fb5a91d7361cc8ec47fec8c
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",
     "DatasourceCatalog",
-    "DatasourceConnection",
     "DatasourceDescription",
     "DatasourceFailure",
     "DatasourceList",
@@ -308,7 +307,6 @@ DATASOURCE_PUBLIC = {
     "TrinoSpec",
     "UnprunedScope",
     "clickhouse",
-    "connect",
     "csv",
     "describe",
     "duckdb",

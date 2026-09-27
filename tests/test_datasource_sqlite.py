@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource import backends, store
+from marivo.datasource import backends, manage, store
 from marivo.datasource.errors import DatasourceRawSqlError
 from marivo.datasource.metadata import inspect_table
 
@@ -138,10 +138,13 @@ def test_sqlite_metadata_discloses_unavailable_keys_and_view_definition(
     assert table_metadata.unique_constraints == ()
     assert all(column.nullable is None for column in table_metadata.columns)
     assert table_metadata.partition_state == "unknown"
-    assert view_metadata.is_view is False
+    assert view_metadata.is_view is None
     assert view_metadata.view_definition is None
     assert {warning.kind for warning in view_metadata.warnings} >= {
         "comments_unavailable",
+        "view_unavailable",
+        "nullable_unavailable",
+        "physical_profile_unavailable",
         "primary_keys_unavailable",
         "schema_only_fallback",
     }
@@ -208,7 +211,7 @@ def test_sqlite_explicit_and_internal_read_only_connections(
     md.register(md.sqlite(name="app", path=str(database_path), read_only=True))
 
     with (
-        md.connect("app") as connection,
+        manage._connect("app") as connection,
         pytest.raises(sqlite3.DatabaseError, match="not authorized"),
     ):
         connection.raw_sql("INSERT INTO orders VALUES (3, 'c', 30.0, CURRENT_TIMESTAMP)")

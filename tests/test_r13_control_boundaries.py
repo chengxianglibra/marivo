@@ -202,6 +202,9 @@ def test_trino_terminal_session_timeout_and_timezone_are_effective() -> None:
 def test_clickhouse_unsettable_timeout_blocks_before_user_sql(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from marivo.datasource import store
+    from marivo.datasource.errors import DatasourceConnectionError
+    from marivo.datasource.timezone import probe_engine_timezone
     from tests.multisource_environment import clickhouse_analysis as ch
     from tests.multisource_environment.credentials import password
 
@@ -230,6 +233,15 @@ def test_clickhouse_unsettable_timeout_blocks_before_user_sql(
         )
     assert failure.value.effect_observed.query_executed is False
     assert failure.value.repair is not None
+    datasource = store.load_one("ch_reader", project_root=tmp_path)
+    assert datasource is not None
+    backend = build_backend(datasource, read_only=True)
+    try:
+        with pytest.raises(DatasourceConnectionError) as timezone_failure:
+            probe_engine_timezone(backend)
+        assert timezone_failure.value.received == "clickhouse timezone unavailable"
+    finally:
+        backend.disconnect()
 
 
 @pytest.mark.runtime

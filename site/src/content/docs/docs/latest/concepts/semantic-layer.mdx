@@ -1298,7 +1298,7 @@ shown only as `scope=local_node_only` notes; source-wide rows and bytes remain
 `unknown`, and Marivo does not issue a cluster-wide fanout query.
 
 Table inspection returns the bound Ibis schema. Optional catalog facts such as
-comments, partitions, primary keys, physical estimates, and ClickHouse
+comments, view kind, column nullability, partitions, primary keys, physical estimates, and ClickHouse
 `projectable_columns` are marked unavailable when the driver does not expose
 them through the admitted path. If analysis requires one of these facts, that
 source shape stays blocked until independent evidence is available.
@@ -1454,9 +1454,8 @@ Marivo-side wall-clock deadline, overridable with a keyword-only
 `timeout_seconds`; exceeding it fails closed with a `connection_timeout` or
 `connection_roundtrip_timeout` failure code rather than blocking indefinitely,
 even when the backend's own query timeout is not enforceable. A thread-affine
-SQLite datasource is the exception — it opens a local file or in-memory database
-synchronously, so `md.connect` opens it inline on the caller's thread and the
-deadline does not apply. Snapshot
+SQLite datasource opens its local file or in-memory database synchronously on
+the connection-test worker; the open itself cannot be interrupted. Snapshot
 connection, source-resolution, timeout, and execution failures likewise remain
 structured and state whether a query was executed; backend messages are bounded
 and sanitized.

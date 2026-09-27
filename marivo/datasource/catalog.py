@@ -10,12 +10,10 @@ from marivo.datasource.errors import DatasourceMissingError, repair
 from marivo.datasource.ir import AiContextIR
 from marivo.datasource.manage import (
     DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-    DatasourceConnection,
     DatasourceDescription,
     DatasourceList,
     DatasourceSummary,
     DatasourceTestResult,
-    connect,
     describe,
     test,
 )
@@ -79,7 +77,7 @@ class DatasourceCatalog(RenderableResult):
             nearest ancestor manifest, or current directory when omitted.
 
     Returns:
-        DatasourceCatalog with list(), get(), describe(), connect(), and
+        DatasourceCatalog with list(), get(), describe(), and
         test() methods.
 
     Example:
@@ -157,32 +155,6 @@ class DatasourceCatalog(RenderableResult):
         """
         return describe(name)
 
-    def connect(
-        self,
-        name: str,
-        *,
-        timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-    ) -> DatasourceConnection:
-        """Connect to a datasource by name.
-
-        Args:
-            name: The datasource name to connect to.
-            timeout_seconds: Wall-clock deadline for the backend-connect
-                handshake. Defaults to ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``.
-
-        Returns:
-            A ``DatasourceConnection`` proxy for the datasource backend.
-
-        Example:
-            >>> with catalog.connect("wh") as con:
-            ...     con.list_tables()
-
-        Constraints:
-            Direct backend calls bypass governed source reads and the terminal
-            reason, row and timeout guards of ``md.raw_sql``.
-        """
-        return connect(name, timeout_seconds=timeout_seconds)
-
     def test(
         self,
         name: str,
@@ -220,7 +192,6 @@ class DatasourceCatalog(RenderableResult):
                 ".list()",
                 ".get(name)",
                 ".describe(name)",
-                ".connect(name)",
                 ".test(name)",
                 ".show()",
             ),

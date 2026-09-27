@@ -86,6 +86,19 @@ def test_unknown_string_raises_typed_bounded_error() -> None:
     assert "datasource.inspect" in exc_info.value.candidates
 
 
+@pytest.mark.parametrize(
+    "target",
+    (
+        "datasource.connect",
+        "datasource.DatasourceCatalog.connect",
+        "datasource.DatasourceConnection.disconnect",
+    ),
+)
+def test_removed_backend_connection_targets_do_not_resolve(target: str) -> None:
+    with pytest.raises(MarivoHelpTargetError):
+        marivo.help(target)
+
+
 @pytest.fixture
 def datasource_runtime_targets(tmp_path: Path) -> tuple[object, ...]:
     source = md.table("orders")
