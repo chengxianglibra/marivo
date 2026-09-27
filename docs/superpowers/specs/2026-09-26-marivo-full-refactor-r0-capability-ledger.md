@@ -305,6 +305,29 @@ completeness and invocation-bound obligations. They do not prove actual source
 types, checks, resources, publication or numerical execution.
 See the R3.2 section of the acceptance record for commands and measured status.
 
+### R3.3 private graph consumer handoff (2026-09-27)
+
+The new private `core.graph.method_node` and `compiler.graph_plan.plan` consume
+R3.1 Signatures/RuleDerivations and the R3.2 single method registry. Reachable
+source/fixed leaves, explicit node identity, role-bound inputs, scoped pending
+checks and exact physical selections now have one typed handoff for R3.4/R4.
+Source-binding methods explicitly include their live Semantic dependencies;
+fixed Artifact lineage is not traversed. This is private graph construction and
+planning, not migration of B02/B05/B07 public execution consumers.
+Live source leaves retain only static declaration/builder evidence; prior checks,
+observations and deductions cannot clear this invocation's obligations. Known
+field/Metric result type contradictions and bare fixed-leaf reads are rejected
+before the R4 handoff.
+
+B02 J1/Dataset construction and domain methods stay with R5-R8; B05 Run,
+publication and recovery and B07 controlled Artifact reads stay with R4.
+`analysis/session/_lazy_graph.py` continues to read persisted Run/Artifact
+history; it is not the pure definition graph and is not called by the planner.
+No legacy registry, placement, source admission or Store path is used as a
+fallback. Their deletion gates are unchanged. Production physical qualification,
+R3.2 cross-execution single ownership and R3-wide acceptance remain open.
+See the R3.3 acceptance record for bounded tests and recovery conditions.
+
 ## 7. R0.6 breaking changes
 
 本章是目标切换清单，不表示旧导出、SQL 或协议已经删除。静态反查锚点为 `panda` HEAD
