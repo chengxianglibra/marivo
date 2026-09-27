@@ -566,7 +566,7 @@ second handwritten workflow.
 Two checks sit at the end of the write loop:
 
 - **`catalog.readiness(refs=[entry_or_ref_or_runtime_expr])`** runs pure
-  in-memory checks over the governed dependency closure of exact current
+  in-memory checks over the compiled definition graph's dependency closure of exact current
   entries, refs, and closed runtime metric expressions selected for
   certification. Entries normalize to refs before duplicate detection or
   dependency lowering. Runtime expressions lower through
@@ -589,7 +589,9 @@ Two checks sit at the end of the write loop:
   Readiness is independent of discovery snapshots and ordinary preview history.
   It evaluates only the current semantic project, the requested dependency
   closure, and dedicated certified temporal artifacts. Ordinary preview cannot
-  change its status or ready inputs.
+  change its status or ready inputs. For an explicit scope, load warnings about
+  unrelated definitions are excluded; warnings on a requested root or any
+  transitive dependency remain visible.
   A native `ms.datetime()` or `ms.timestamp()` axis without `timezone=` is a
   blocker (`undeclared_naive_time_axis`): runtime would otherwise fall back to
   the datasource read timezone while report windows use the analysis-session
@@ -647,6 +649,12 @@ remain visible on the same report and require an explicit proceed-or-stop
 decision by the caller.
 
 The report and every issue carry the same `catalog_definition_fingerprint`.
+
+The optional ontology is loaded separately with `mo.load(semantic=catalog)`.
+Its `definition_fingerprint` and `semantic_catalog_fingerprint` jointly identify
+the contextual association to the exact loaded definitions. Ontology edges
+do not alter readiness or grant causality, computation, or Artifact authority;
+binding them to a future Artifact belongs to the Runtime handoff.
 
 The report does not create a second transfer object or validation token. After
 readiness succeeds, an agent passes the listed canonical refs or runtime

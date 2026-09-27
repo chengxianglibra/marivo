@@ -57,6 +57,18 @@ _SURFACE_NAMES: tuple[HelpSurface, ...] = (
 )
 
 
+def test_r24_help_keeps_readiness_and_ontology_authority_distinct(capsys) -> None:
+    marivo.help("semantic.readiness")
+    readiness = capsys.readouterr().out
+    assert "compiled dependency closure" in readiness
+    assert "unrelated load warnings are excluded" in readiness
+
+    marivo.help("ontology.authoring")
+    ontology = capsys.readouterr().out
+    assert "fingerprints jointly identify" in ontology
+    assert "no causal, analysis-admission, or Artifact authority" in ontology
+
+
 def test_public_help_wraps_unexpected_surface_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

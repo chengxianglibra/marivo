@@ -66,6 +66,8 @@ live result 获得的 public type、error 和 member target 仍可查询 focused
 摘要引导下一次 focused 查询，而不会展开完整的 public type 或 error algebra。Ontology 构造器的
 focused help 负责精确 entrypoint、签名、输出、约束和声明示例；ontology type 与 error 的
 focused help 负责公开消费方式和 structured repair 细节。
+可通过 `mo.load(semantic=catalog)` 加载可选 ontology 上下文。ontology 与 semantic catalog
+的指纹共同标识当前 Ref 关联；edge 不认证 readiness、不证明因果，也不授权 Artifact。
 
 数据源编写错误会显示稳定的代码和 stage。有界获取在执行阶段
 失败时，只有调用者剩余的数据访问预算允许，才能对完全相同的获取最多重试一次；

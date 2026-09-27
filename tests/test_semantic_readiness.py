@@ -15,6 +15,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair, LiveHelpTarget
 from marivo._compat import UTC
+from marivo.semantic.errors import StructuredWarning
 from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
@@ -215,6 +216,39 @@ def test_direct_requests_only_are_ready_inputs(semantic_project_factory) -> None
     assert report.analysis_ready_inputs == (ms.ref.metric("sales.double_revenue"),)
     assert ms.ref.metric("sales.revenue") not in report.analysis_ready_inputs
     assert ms.ref.measure("sales.orders.amount") not in report.analysis_ready_inputs
+
+
+def test_scoped_readiness_uses_canonical_dependencies_and_local_warnings(
+    semantic_project_factory, monkeypatch
+) -> None:
+    project = _ready_project(semantic_project_factory)
+    monkeypatch.setattr(
+        project,
+        "_warnings",
+        (
+            StructuredWarning(
+                kind="string_ref",
+                message="Measure dependency warning.",
+                refs=("sales.orders.amount",),
+                location=None,
+            ),
+            StructuredWarning(
+                kind="string_ref",
+                message="Unrelated region warning.",
+                refs=("sales.orders.region",),
+                location=None,
+            ),
+        ),
+    )
+
+    metric = project.readiness(refs=(ms.ref.metric("sales.revenue"),))
+    assert metric.analysis_ready_inputs == (ms.ref.metric("sales.revenue"),)
+    assert "sales.orders.amount" in metric.input_summary.refs
+    assert "sales.orders.region" not in metric.input_summary.refs
+    assert tuple(issue.refs for issue in metric.warnings) == (("sales.orders.amount",),)
+
+    region = project.readiness(refs=(ms.ref.dimension("sales.orders.region"),))
+    assert tuple(issue.refs for issue in region.warnings) == (("sales.orders.region",),)
 
 
 def test_unknown_requested_ref_is_blocked(semantic_project_factory) -> None:
