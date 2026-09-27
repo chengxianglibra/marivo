@@ -23,6 +23,7 @@ from marivo.semantic._expression_binding import ExpressionBody
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
+    BusinessOrderDeclarationIR,
     DimensionIR,
     DomainIR,
     EntityIR,
@@ -47,6 +48,7 @@ DefinitionIR: TypeAlias = (
     | RelationshipIR
     | EventIR
     | StateModelDeclarationIR
+    | BusinessOrderDeclarationIR
     | PeriodCalendarIR
     | TemporalSetIR
     | WorkScheduleIR
@@ -128,6 +130,8 @@ def _ir_kind(ir: Any) -> str:
         return "event"
     if isinstance(ir, StateModelDeclarationIR):
         return "state model"
+    if isinstance(ir, BusinessOrderDeclarationIR):
+        return "business order"
     if isinstance(ir, PeriodCalendarIR):
         return "period calendar"
     if isinstance(ir, TemporalSetIR):
@@ -148,6 +152,7 @@ def _check_duplicate(
         | RelationshipIR
         | EventIR
         | StateModelDeclarationIR
+        | BusinessOrderDeclarationIR
         | PeriodCalendarIR
         | TemporalSetIR
         | WorkScheduleIR
@@ -171,6 +176,7 @@ def _check_duplicate(
                 RelationshipIR,
                 EventIR,
                 StateModelDeclarationIR,
+                BusinessOrderDeclarationIR,
                 PeriodCalendarIR,
                 TemporalSetIR,
                 WorkScheduleIR,

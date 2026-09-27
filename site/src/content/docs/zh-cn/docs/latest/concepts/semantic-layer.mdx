@@ -1400,6 +1400,20 @@ def order_paid(order_rows):
 created = ms.lifecycle_state(name="created", initial=True)
 paid = ms.lifecycle_state(name="paid", terminal=True)
 
+order_business_order = ms.business_order(
+    name="order_business_order",
+    subject=orders,
+    conflicts=(
+        ms.precedes(
+            ms.participant_role(event=order_created, name="order"),
+            ms.participant_role(event=order_paid, name="order"),
+        ),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="Creation precedes payment for the same order."
+    ),
+)
+
 order_lifecycle = ms.state_model(
     name="order_lifecycle",
     subject=orders,
@@ -1412,6 +1426,7 @@ order_lifecycle = ms.state_model(
             to_state=paid,
         ),
     ),
+    business_order=order_business_order,
     ai_context=ms.ai_context(
         business_definition="Normative commercial order lifecycle."
     ),
@@ -1428,6 +1443,14 @@ order_lifecycle = ms.state_model(
 起始，但这种模型不能从起始开始重放。当前构造器契约以
 `marivo.help("semantic.state_model")` 为准；用 `catalog.require(...)` 确认精确当前成员，
 用限定范围的 readiness 做静态预检，只在具体运行风险需要时执行 preview。
+
+通过 `catalog.require(ms.ref.business_order("sales.order_business_order"))`
+读取精确顺序声明。序列可用
+`ms.event_sequence(event, value, order="integer")`，也可使用由不同字符串组成的
+显式值序。顺序字段必须属于 Event 来源，且不能直接别名于 occurrence 身份。
+`ms.load()` 校验 Subject、角色、字段归属和 precedence 图。限定范围的 readiness
+会说明来源值和事件历史尚未验证；R7 消费事件时再做该核验。occurrence ID
+本身不能证明业务先后。
 
 ## 明确分位数语义
 

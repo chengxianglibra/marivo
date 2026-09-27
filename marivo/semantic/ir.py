@@ -46,6 +46,8 @@ __all__ = [
     "AggregateFoldValue",
     "AggregationTargetKind",
     "AiContextIR",
+    "BusinessOrderDeclarationIR",
+    "BusinessOrderIR",
     "Composition",
     "CsvSourceIR",
     "CumulativeComposition",
@@ -63,6 +65,9 @@ __all__ = [
     "EntityVersioningIR",
     "EventIR",
     "EventParticipantIR",
+    "EventPrecedenceIR",
+    "EventSequenceDeclarationIR",
+    "EventSequenceIR",
     "HourPrefixParse",
     "JoinKey",
     "JsonSourceIR",
@@ -523,6 +528,65 @@ class EventIR:
     body_ast_hash: str
 
 
+@dataclass(frozen=True, slots=True)
+class EventSequenceDeclarationIR:
+    """An order field before its subject role is resolved."""
+
+    event_ref: str
+    value_ref: str
+    order: Literal["integer"] | tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class EventSequenceIR:
+    """Declared order field on one Event occurrence source."""
+
+    event_ref: str
+    value_ref: str
+    order: Literal["integer"] | tuple[str, ...]
+    participant_role: str
+
+
+@dataclass(frozen=True, slots=True)
+class EventPrecedenceIR:
+    """One same-subject precedence edge between Event roles."""
+
+    before_event: str
+    before_role: str
+    after_event: str
+    after_role: str
+
+
+@dataclass(frozen=True, slots=True)
+class BusinessOrderDeclarationIR:
+    """Authoring-time order awaiting participant role resolution."""
+
+    semantic_id: str
+    domain: str
+    name: str
+    subject: str
+    sequences: tuple[EventSequenceDeclarationIR, ...]
+    conflicts: tuple[EventPrecedenceIR, ...]
+    ai_context: AiContextIR
+    python_symbol: str
+    location: SourceLocation
+
+
+@dataclass(frozen=True, slots=True)
+class BusinessOrderIR:
+    """Canonical named business ordering authority."""
+
+    semantic_id: str
+    domain: str
+    name: str
+    subject: str
+    sequences: tuple[EventSequenceIR, ...]
+    conflicts: tuple[EventPrecedenceIR, ...]
+    ai_context: AiContextIR
+    python_symbol: str
+    location: SourceLocation
+
+
 @dataclass(frozen=True)
 class LifecycleStateIR:
     """One closed state definition owned by a StateModel."""
@@ -578,6 +642,7 @@ class StateModelDeclarationIR:
     ai_context: AiContextIR
     python_symbol: str
     location: SourceLocation
+    business_order: str | None = None
 
 
 @dataclass(frozen=True)
@@ -594,6 +659,7 @@ class StateModelIR:
     ai_context: AiContextIR
     python_symbol: str
     location: SourceLocation
+    business_order: str | None = None
 
 
 @dataclass(frozen=True)

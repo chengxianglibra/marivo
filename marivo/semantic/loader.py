@@ -53,7 +53,12 @@ from marivo.semantic.ir import (
     MetricIR,
     SourceLocation,
 )
-from marivo.semantic.validator import Registry, assembly_validate, canonicalize_state_models
+from marivo.semantic.validator import (
+    Registry,
+    assembly_validate,
+    canonicalize_business_orders,
+    canonicalize_state_models,
+)
 
 if TYPE_CHECKING:
     from marivo.semantic._authoring_context import PendingDefinition
@@ -728,6 +733,7 @@ def _build_registry(
     Pass 2: assemble all pending IR objects into the registry.
     """
     from marivo.semantic.ir import (
+        BusinessOrderDeclarationIR,
         DimensionIR,
         EntityIR,
         EventIR,
@@ -744,6 +750,7 @@ def _build_registry(
     field_owners = {}
     catalog_refs: set[Ref[SemanticKindTag]] = set()
     state_model_declarations: list[StateModelDeclarationIR] = []
+    business_order_declarations: list[BusinessOrderDeclarationIR] = []
     for datasource_ir in datasource_irs:
         registry.datasources[datasource_ir.semantic_id] = datasource_ir
         catalog_refs.add(ref_factory.datasource(datasource_ir.semantic_id))
@@ -783,6 +790,8 @@ def _build_registry(
                 registry.events[sid] = ir
             elif isinstance(ir, StateModelDeclarationIR):
                 state_model_declarations.append(ir)
+            elif isinstance(ir, BusinessOrderDeclarationIR):
+                business_order_declarations.append(ir)
             if expression_body is not None:
                 bodies[ref] = expression_body
 
@@ -794,11 +803,15 @@ def _build_registry(
         field_owners=field_owners,
         catalog_refs=frozenset(catalog_refs),
     )
+    business_order_errors = canonicalize_business_orders(
+        registry,
+        tuple(business_order_declarations),
+    )
     state_model_errors = canonicalize_state_models(
         registry,
         tuple(state_model_declarations),
     )
-    return registry, expression_sidecar, tuple(state_model_errors)
+    return registry, expression_sidecar, (*business_order_errors, *state_model_errors)
 
 
 def _models_root_from_path(path: Path, *, is_external: bool) -> ModelsRoot:

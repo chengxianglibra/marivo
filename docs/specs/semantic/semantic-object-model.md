@@ -16,27 +16,35 @@ export a declaration, Ref, catalog entry, or Help target for it. A later phase
 must separately authorize the declaration and its source-value checks.
 `ms.weighted_mean` retains its existing governed Metric-component meaning.
 
-### Business order and simultaneous events (R2.3 target)
+### Business order and simultaneous events (R2.3 declaration implemented)
 
 `ms.business_order(*, name: str, subject: Ref[EntityKind],
 sequences: tuple[EventSequence, ...] = (),
 conflicts: tuple[EventPrecedence, ...] = (),
-domain: Ref[DomainKind] | None = None) -> Ref[BusinessOrderKind]` is one named,
-versioned order authority. `ms.event_sequence(event: Ref[EventKind],
-value: Ref[DimensionKind]) -> EventSequence` binds a declared integer or
-ordered exact business sequence on that Event's occurrence Entity. All listed
-sequence fields must be comparable for the same Subject and must not be the
-occurrence identity merely renamed. `ms.precedes(before: ParticipantRoleHandle,
+domain: Ref[DomainKind] | None = None,
+ai_context: AiContextValue) -> Ref[BusinessOrderKind]` is one named order
+authority. `ai_context.business_definition` must contain a nonempty business
+rationale, and at least one sequence or precedence is required. The exact
+identity is `ms.ref.business_order(path)`; `catalog.business_orders` and
+`catalog.require(ref)` expose its resolved facts and dependency fingerprint.
+`ms.event_sequence(event: Ref[EventKind], value: Ref[DimensionKind], *,
+order: Literal["integer"] | tuple[str, ...]) -> EventSequence` binds an
+explicit integer or ordered enum contract on that Event's occurrence Entity.
+The enum tuple has at least two distinct nonempty strings. All listed sequence
+fields for one Subject must use the same order contract and must not directly
+alias an occurrence identity field. `ms.precedes(before: ParticipantRoleHandle,
 after: ParticipantRoleHandle) -> EventPrecedence` declares one acyclic,
-same-Subject precedence for simultaneous roles. An author must provide the
-business rationale in the owning definition context; a repeated or
-contradictory rule is rejected. `ms.state_model(..., business_order:
+same-Subject precedence for simultaneous roles. `ms.load()` checks Event
+source and time roles, complete occurrence identity, participant paths and
+complete Subject K; each order role must resolve uniquely with cardinality
+`one` to that Subject. Duplicate, self-referential, and cyclic precedence
+fails loading. `ms.state_model(..., business_order:
 Ref[BusinessOrderKind] | None = None)` binds the default order for that model;
-`session.events.match(..., business_order: Ref[BusinessOrderKind] | None = None)`
-binds the order for one pattern invocation. Both require exact Subject and
-Event membership. Neither can supply an ad hoc Python callback.
+its Subject and every trigger Event must belong to the order definition.
+The canonical IR, fingerprints, catalog detail, and scoped readiness preserve
+the exact order, role, field, and dependency refs.
 
-At consumption, timestamps order different instants; the declared sequence or
+At future R7 consumption, timestamps order different instants; the declared sequence or
 closed precedence orders otherwise ambiguous occurrences. Sequence uniqueness,
 comparability and exact participant mapping are mandatory checks. If the
 authority leaves several allowed orders, matcher/replay may proceed only if
@@ -48,9 +56,9 @@ it is not transported as business evidence. Simultaneous activate/deactivate
 events producing different final states or traces must be rejected until a
 business order or conflict rule resolves them.
 
-Status: accepted target design; amended 2026-09-24 for S1 W1 Semantic declarations.
-The closed additivity, event-time, and value-policy authoring declarations are
-loadable. Analysis DSL execution remains inactive until the later S1 work packages.
+Status: R2.3 declaration and static loading are implemented. Source sequence
+type, uniqueness, unknown enum values, Event history, and equivalence of all
+allowed orders remain unverified until R7. R2.3 adds no matcher or replay API.
 
 This document defines the object contracts of
 `marivo.semantic` (`ms`): the business objects a coding agent declares in Python

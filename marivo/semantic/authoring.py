@@ -72,6 +72,7 @@ from marivo.semantic._dsl_authoring import (
     zero_denominator,
 )
 from marivo.semantic._expression_binding import bind
+from marivo.semantic.business_order import business_order, event_sequence, precedes
 from marivo.semantic.event import all_rows, participant, participant_role
 from marivo.semantic.ir import AggregateFoldInput, AggregateFoldValue
 from marivo.semantic.state_model import (
@@ -93,6 +94,7 @@ __all__ = [
     "ai_context",
     "all_rows",
     "bind",
+    "business_order",
     "calendar_grain",
     "count",
     "cumulative",
@@ -103,6 +105,7 @@ __all__ = [
     "empty",
     "entity",
     "event",
+    "event_sequence",
     "grain_to_date",
     "hour_prefix",
     "inception",
@@ -119,6 +122,7 @@ __all__ = [
     "participant_role",
     "period_calendar",
     "period_correspondence",
+    "precedes",
     "ratio",
     "relationship",
     "snapshot",

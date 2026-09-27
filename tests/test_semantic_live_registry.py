@@ -174,9 +174,9 @@ def test_slice3_activates_native_navigation_and_object_descriptors() -> None:
         "checks",
         *(contract.canonical_id for contract in REGISTRY.object_contracts),
     } <= set(REGISTRY.canonical_ids())
-    assert len(REGISTRY.object_contracts) == 12
+    assert len(REGISTRY.object_contracts) == 13
     assert all(contract in REGISTRY.help_descriptors for contract in REGISTRY.object_contracts)
-    assert len(REGISTRY.object_contracts) == 12
+    assert len(REGISTRY.object_contracts) == 13
 
 
 REQUIRED_DECISION_IDS = MappingProxyType(
@@ -252,6 +252,9 @@ REQUIRED_DECISION_IDS = MappingProxyType(
                 "directed_paths",
                 "participant_cardinality",
             }
+        ),
+        SemanticKind.BUSINESS_ORDER: frozenset(
+            {"order_rationale", "sequence_order", "simultaneous_precedence"}
         ),
         SemanticKind.STATE_MODEL: frozenset(
             {

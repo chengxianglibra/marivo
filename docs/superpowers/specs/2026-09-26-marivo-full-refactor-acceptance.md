@@ -198,3 +198,16 @@ MySQL 基础 Analysis 补充格：启动前 `mysql-analysis` 为 Exited，本轮
 | 公共披露 | **静态回归通过** | 本轮没有新公共导出或 Help target；已有导出快照、Help 可达性和预算随全量测试回归。`site/` latest 中英文去除 Semantic 对象版本表述；未编辑 packaged skills 或 `AGENTS.md`。 |
 
 撤回接口后重新执行 `make check-agent`：lint/import、378 个源码文件 typing、默认测试 **5110 passed、64 skipped** 和 API 文档全部通过。定向 `make test TESTS='tests/test_semantic_r22_metric_graph.py tests/test_semantic_metric_graph_lowering.py tests/test_metric_expression_graph.py tests/test_lazy_observation_contracts.py tests/test_metric_unit_algebra.py tests/test_lazy_group_b_admission.py tests/test_cutover_documentation_examples.py tests/test_public_surface.py'` 为 **121 passed**。`npm --prefix site run build` 成功，Astro 321 页及中英文安装脚本校验通过；生成的 API 和站点目录检索不到撤回的统计权重接口；`git diff --check` 退出码 0。所有 64 个 skip 保持原断言和 R1/R5 等归属，不计 R2.2 或整体阶段通过。未执行六后端实源、wheel、冷恢复或真实 Agent 旅程；R0/R1 阻塞项不因静态图通过而解除，R2.3/R2.4 仍待实施，**R2 整体未通过**。
+
+## R2.3 Event、StateModel、业务顺序与日历声明（2026-09-27）
+
+基线为 `panda` HEAD `51c50301baa5c61510c8216fffc95a973fae072b`。本轮按用户批准的 R2.3 范围实施；未跟踪 R2 实施计划的 SHA-256 为 `7c8488e862195487b05494f86ddb9f44e71b362f8649933cecd041c72299f18c`，原文件未修改，也不纳入本轮改动。提交前已暂存的代码、测试、规范、API 与站点候选（不含本验收记录）的 `git diff --cached --binary HEAD -- marivo tests docs/specs docs/api site/src/content/docs` SHA-256 为 `c2b5f780e9fe52e83fbd39e445cfc61ad1bec6c3715df349290defe0020d5c64`；新增实现 `marivo/semantic/business_order.py` 的 SHA-256 为 `42dd5e9300a9ac7c828163c47fb058407390f42b31a1d9da1be53b01650780a6`，新增反例 `tests/test_semantic_r23_business_order.py` 为 `15a9db6299853870e171a10c9a98baeb9f5139c5f1705cfa8c3a305c6a85aca9`。这些 hash 定位本地候选，不代表来源执行或发布资格。
+
+| 单元 | 本轮结论 | 证据与边界 |
+| --- | --- | --- |
+| C02.c Event/StateModel/业务顺序 | **R2.3 静态声明通过；来源与消费未验证** | 真实 authoring 项目的 `ms.load()`、精确 `ms.ref.business_order(...)` / `catalog.require(...)`、目录详情、定义指纹和 scoped readiness 由新增测试核对。不可变 `EventSequence` 声明整数或显式枚举值序，`EventPrecedence` 使用精确角色；加载拒绝错误角色/Subject、不同顺序契约、重复与成环 precedence、occurrence 身份直接别名及 StateModel 未覆盖的触发 Event。StateModel 指纹随所绑定顺序的值序变化。Event 来源、业务时间、身份、participant 路径与 Subject K 仅作声明校验。readiness 明示值与历史未验证，顺序声明本身不作为可执行分析输入。 |
+| C02.c 日历日期轴 | **R2.3 静态角色通过；原生值未验证** | 加载拒绝已声明的 timestamp-bearing 日期轴；未声明原生类型的日期轴保留现有完整覆盖认证的 civil-date 证明要求。新增声明反例通过；本轮没有对实际日历来源重新认证。 |
+| 同刻相反转移反例 | **声明边界已证明；R7 结果未验证** | 新增测试确认两个相反 Event 的顺序声明不把 occurrence ID 当序列字段，也不从 ID 推出 precedence。实际相同时间戳的输入须由 R7 检查序列值类型、同 Subject 唯一性、未知枚举值，以及所有仍允许的顺序下结果、trace、violation、interval、assignment 与 continuation 保留部件的等价性；不能用静态声明代替该检查。 |
+| 公共披露与阶段边界 | **静态回归通过** | Ref、公共导出、原生 Help、目录成员、API 索引和 `site/` latest 中英文示例同步。没有新增 `session.events.match` 参数、matcher、replayer、窗口或 fold；未改 packaged skills、`AGENTS.md` 或未跟踪计划。 |
+
+定向 Event、StateModel、日历/解析与 readiness 测试 **105 passed**；Ref、Help、公共导出和文档测试 **114 passed**；新增 R2.3 文件 **12 passed**。最终 `make check-agent` 的 lint/import、379 个源码文件 typing、默认测试 **5122 passed、64 skipped** 和 API 文档通过；`npm --prefix site run build` 成功，Astro **321 页**及中英文安装脚本校验通过；`git diff --check` 退出码 0。64 个 skip 保留原断言与 R1/R5 等归属，不计作 C02.c 来源核验。R7、实源后端、wheel、冷恢复及真实 Agent 未验证；R1 遗留格状态不变，**R2 整体未通过**。

@@ -702,6 +702,7 @@ def test_retained_catalog_inputs_are_original_native_descriptors(
         "catalog.metrics",
         "catalog.relationships",
         "catalog.events",
+        "catalog.business_orders",
         "catalog.state_models",
         "catalog.period_calendars",
         "catalog.temporal_sets",

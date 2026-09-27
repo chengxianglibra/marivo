@@ -111,6 +111,7 @@ class ErrorKind(StrEnum):
     INVALID_EVENT_PARTICIPANT_PATH = "invalid_event_participant_path"
     INVALID_EVENT_PARTICIPANT_CARDINALITY = "invalid_event_participant_cardinality"
     INVALID_STATE_MODEL = "invalid_state_model"
+    INVALID_BUSINESS_ORDER = "invalid_business_order"
     AMBIGUOUS_PARTICIPANT_ROLE = "ambiguous_participant_role"
     MODEL_STATE_MISMATCH = "model_state_mismatch"
     ENTITY_CONSTRUCTOR_AS_DECORATOR = "entity_constructor_as_decorator"

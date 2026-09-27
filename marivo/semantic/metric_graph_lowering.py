@@ -220,6 +220,7 @@ def _ref_payload(kind: str, path: str) -> RefPayloadV1:
         "metric",
         "relationship",
         "event",
+        "business_order",
         "state_model",
         "work_schedule",
     }
@@ -436,7 +437,24 @@ def _entry_for(
                 states=model.states,
                 inceptions=model.inceptions,
                 transitions=model.transitions,
+                business_order_ref=(
+                    _ref_payload("business_order", model.business_order)
+                    if model.business_order is not None
+                    else None
+                ),
                 ai_context=model.ai_context,
+            ),
+        )
+    if semantic_kind == "business_order":
+        order = registry.business_orders[semantic_id]
+        return SemanticDependencyEntryV1(
+            ref=_ref_payload("business_order", semantic_id),
+            body_digest=None,
+            fields=_fields(
+                subject_ref=_ref_payload("entity", order.subject),
+                sequences=order.sequences,
+                conflicts=order.conflicts,
+                ai_context=order.ai_context,
             ),
         )
     if semantic_kind == "work_schedule":
@@ -609,10 +627,25 @@ class _DependencyCollector:
                 raise KeyError(ref.path)
             self._add("state_model", ref.path)
             self.collect_entity(model.subject)
+            if model.business_order is not None:
+                self.collect_ref(_create_ref(SemanticKind.BUSINESS_ORDER, model.business_order))
             for inception in model.inceptions:
                 self.collect_ref(_create_ref(SemanticKind.EVENT, inception.trigger.event_ref))
             for transition in model.transitions:
                 self.collect_ref(_create_ref(SemanticKind.EVENT, transition.trigger.event_ref))
+            return
+        if ref.kind is SemanticKind.BUSINESS_ORDER:
+            order = self.registry.business_orders.get(ref.path)
+            if order is None:
+                raise KeyError(ref.path)
+            self._add("business_order", ref.path)
+            self.collect_entity(order.subject)
+            for sequence in order.sequences:
+                self.collect_ref(_create_ref(SemanticKind.EVENT, sequence.event_ref))
+                self.collect_dimension(sequence.value_ref)
+            for edge in order.conflicts:
+                self.collect_ref(_create_ref(SemanticKind.EVENT, edge.before_event))
+                self.collect_ref(_create_ref(SemanticKind.EVENT, edge.after_event))
             return
         if ref.kind is SemanticKind.WORK_SCHEDULE:
             schedule = self.registry.work_schedules.get(ref.path)

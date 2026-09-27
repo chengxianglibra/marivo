@@ -63,6 +63,7 @@ from marivo.preview import (
     validate_preview_limit,
 )
 from marivo.refs import (
+    BusinessOrderKind,
     DatasourceKind,
     DimensionKind,
     DomainKind,
@@ -108,6 +109,7 @@ from marivo.semantic._metric_resolution import (
     resolve_aggregate_temporal_contract,
     resolve_metric_temporal_contract,
 )
+from marivo.semantic.business_order import _business_order_fingerprint
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.dtos import DatasetSource, PreviewBatchResult
 from marivo.semantic.errors import (
@@ -119,6 +121,7 @@ from marivo.semantic.errors import (
 )
 from marivo.semantic.event import _event_fingerprint as _event_definition_fingerprint
 from marivo.semantic.ir import (
+    BusinessOrderIR,
     CumulativeComposition,
     DateParse,
     DatetimeParse,
@@ -181,6 +184,8 @@ if TYPE_CHECKING:
 
 __all__ = [
     "AiContextView",
+    "BusinessOrderDetails",
+    "BusinessOrderEntry",
     "CalendarLevelDetails",
     "CalendarPeriodPage",
     "CatalogCollection",
@@ -396,6 +401,10 @@ def _make_ref(path: str, kind: Literal[SemanticKind.STATE_MODEL]) -> Ref[StateMo
 
 
 @overload
+def _make_ref(path: str, kind: Literal[SemanticKind.BUSINESS_ORDER]) -> Ref[BusinessOrderKind]: ...
+
+
+@overload
 def _make_ref(
     path: str, kind: Literal[SemanticKind.PERIOD_CALENDAR]
 ) -> Ref[PeriodCalendarKind]: ...
@@ -425,6 +434,7 @@ def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
         SemanticKind.EVENT: ref_factory.event,
         SemanticKind.STATE_MODEL: ref_factory.state_model,
+        SemanticKind.BUSINESS_ORDER: ref_factory.business_order,
         SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
         SemanticKind.TEMPORAL_SET: ref_factory.temporal_set,
         SemanticKind.WORK_SCHEDULE: ref_factory.work_schedule,
@@ -1170,6 +1180,7 @@ class StateModelDetails(_DetailsBase):
         ],
         ...,
     ]
+    business_order: Ref[BusinessOrderKind] | None
     definition_fingerprint: str
 
     def _detail_sections(self) -> list[Section]:
@@ -1184,6 +1195,10 @@ class StateModelDetails(_DetailsBase):
         sections.extend(
             (
                 FieldSection(label="subject", value=self.subject.key),
+                FieldSection(
+                    label="business_order",
+                    value=self.business_order.key if self.business_order is not None else "(none)",
+                ),
                 FieldSection(
                     label="states",
                     value="; ".join(
@@ -1216,6 +1231,48 @@ class StateModelDetails(_DetailsBase):
                 FieldSection(
                     label="definition_fingerprint",
                     value=self.definition_fingerprint,
+                ),
+            )
+        )
+        return sections
+
+
+@dataclass(frozen=True, repr=False)
+class BusinessOrderDetails(_DetailsBase):
+    """Complete declared order facts for one exact Subject."""
+
+    subject: Ref[EntityKind]
+    sequences: tuple[
+        tuple[Ref[EventKind], Ref[DimensionKind], Literal["integer"] | tuple[str, ...], str], ...
+    ]
+    conflicts: tuple[tuple[str, str], ...]
+    definition_fingerprint: str
+
+    def _detail_sections(self) -> list[Section]:
+        sections = _common_detail_sections(
+            context=self.context,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
+        sections.extend(
+            (
+                FieldSection(label="subject", value=self.subject.key),
+                FieldSection(label="definition_fingerprint", value=self.definition_fingerprint),
+                FieldSection(
+                    label="sequences",
+                    value="; ".join(
+                        f"{event.key}#{role}: {value.key} order={order!r}"
+                        for event, value, order, role in self.sequences
+                    )
+                    or "(none)",
+                ),
+                FieldSection(
+                    label="precedence",
+                    value="; ".join(f"{before} -> {after}" for before, after in self.conflicts)
+                    or "(none)",
                 ),
             )
         )
@@ -1429,6 +1486,7 @@ _CatalogObjectDetails = (
     | RelationshipDetails
     | EventDetails
     | StateModelDetails
+    | BusinessOrderDetails
     | PeriodCalendarDetails
     | TemporalSetDetails
     | WorkScheduleDetails
@@ -1539,6 +1597,7 @@ class DomainEntry(CatalogEntry[DomainKind]):
         "relationships",
         "events",
         "state_models",
+        "business_orders",
         "period_calendars",
         "temporal_sets",
         "work_schedules",
@@ -1596,6 +1655,12 @@ class DomainEntry(CatalogEntry[DomainKind]):
         )
 
     @property
+    def business_orders(self) -> CatalogCollection[BusinessOrderKind]:
+        return self._catalog._collection(
+            BusinessOrderEntry, SemanticKind.BUSINESS_ORDER, scope_ref=self.ref
+        )
+
+    @property
     def period_calendars(self) -> CatalogCollection[PeriodCalendarKind]:
         return self._catalog._collection(
             PeriodCalendarEntry,
@@ -1646,6 +1711,7 @@ class EntityEntry(CatalogEntry[EntityKind]):
         "relationships",
         "events",
         "state_models",
+        "business_orders",
     )
 
     def details(self) -> EntityDetails:
@@ -1693,6 +1759,12 @@ class EntityEntry(CatalogEntry[EntityKind]):
             StateModelEntry,
             SemanticKind.STATE_MODEL,
             scope_ref=self.ref,
+        )
+
+    @property
+    def business_orders(self) -> CatalogCollection[BusinessOrderKind]:
+        return self._catalog._collection(
+            BusinessOrderEntry, SemanticKind.BUSINESS_ORDER, scope_ref=self.ref
         )
 
 
@@ -1888,6 +1960,12 @@ class StateModelEntry(CatalogEntry[StateModelKind]):
             super()
             ._card()
             .field(label="subject", value=details.subject.key)
+            .field(
+                label="business_order",
+                value=details.business_order.key
+                if details.business_order is not None
+                else "(none)",
+            )
             .field(label="state_count", value=str(len(details.states)))
             .field(
                 label="transition_count",
@@ -1903,6 +1981,25 @@ class StateModelEntry(CatalogEntry[StateModelKind]):
                 value=f"{omitted}; full: .details().show()",
             )
         return card
+
+
+class BusinessOrderEntry(CatalogEntry[BusinessOrderKind]):
+    """Loaded named business ordering authority."""
+
+    ref: Ref[BusinessOrderKind]
+
+    def details(self) -> BusinessOrderDetails:
+        return cast("BusinessOrderDetails", self._details)
+
+    def _card(self) -> Card:
+        details = self.details()
+        return (
+            super()
+            ._card()
+            .field(label="subject", value=details.subject.key)
+            .field(label="sequence_count", value=str(len(details.sequences)))
+            .field(label="precedence_count", value=str(len(details.conflicts)))
+        )
 
 
 class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
@@ -2828,6 +2925,12 @@ class CatalogCollection(RenderableResult, Generic[KindT]):
 
     @overload
     def get(
+        self: CatalogCollection[BusinessOrderKind],
+        key: str | Ref[BusinessOrderKind],
+    ) -> BusinessOrderEntry: ...
+
+    @overload
+    def get(
         self: CatalogCollection[PeriodCalendarKind],
         key: str | Ref[PeriodCalendarKind],
     ) -> PeriodCalendarEntry: ...
@@ -3314,6 +3417,11 @@ def _build_domain_object(
         for model in reg.state_models.values()
         if model.domain == model_ir.name
     )
+    business_order_refs = tuple(
+        _make_ref(order.semantic_id, SemanticKind.BUSINESS_ORDER)
+        for order in reg.business_orders.values()
+        if order.domain == model_ir.name
+    )
     period_calendar_refs = tuple(
         _make_ref(calendar.semantic_id, SemanticKind.PERIOD_CALENDAR)
         for calendar in reg.period_calendars.values()
@@ -3334,6 +3442,7 @@ def _build_domain_object(
         + metrics_refs
         + event_refs
         + state_model_refs
+        + business_order_refs
         + period_calendar_refs
         + temporal_set_refs
         + work_schedule_refs
@@ -3391,7 +3500,20 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry, catalog: SemanticCatalo
         for model in reg.state_models.values()
         if model.subject == ds_ir.semantic_id
     )
-    children = fields_refs + measure_refs + metric_refs + rels_refs + event_refs + state_model_refs
+    business_order_refs = tuple(
+        _make_ref(order.semantic_id, SemanticKind.BUSINESS_ORDER)
+        for order in reg.business_orders.values()
+        if order.subject == ds_ir.semantic_id
+    )
+    children = (
+        fields_refs
+        + measure_refs
+        + metric_refs
+        + rels_refs
+        + event_refs
+        + state_model_refs
+        + business_order_refs
+    )
     metric_dependents = tuple(
         _make_ref(m.semantic_id, SemanticKind.METRIC)
         for m in reg.metrics.values()
@@ -3411,7 +3533,7 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry, catalog: SemanticCatalo
         source_location=ds_ir.location,
         parents=(ds_ref,),
         children=children,
-        dependents=metric_dependents + state_model_dependents,
+        dependents=metric_dependents + state_model_dependents + business_order_refs,
         python_symbol=ds_ir.python_symbol,
         datasource=ds_ref,
         source=ds_ir.source,
@@ -4148,7 +4270,15 @@ def _build_state_model_object(
         domain=model_ir.domain,
         context=model_ir.ai_context,
         source_location=model_ir.location,
-        parents=(subject, *events),
+        parents=(
+            subject,
+            *events,
+            *(
+                (ref_factory.business_order(model_ir.business_order),)
+                if model_ir.business_order is not None
+                else ()
+            ),
+        ),
         children=(),
         dependents=(),
         python_symbol=model_ir.python_symbol,
@@ -4178,6 +4308,11 @@ def _build_state_model_object(
             )
             for item in model_ir.transitions
         ),
+        business_order=(
+            ref_factory.business_order(model_ir.business_order)
+            if model_ir.business_order is not None
+            else None
+        ),
         definition_fingerprint=_state_model_fingerprint(
             ref,
             registry=reg,
@@ -4185,6 +4320,64 @@ def _build_state_model_object(
         ),
     )
     return _object_from_details(StateModelEntry, details, catalog)
+
+
+def _build_business_order_object(
+    order_ir: BusinessOrderIR, reg: Registry, catalog: SemanticCatalog
+) -> BusinessOrderEntry:
+    ref = ref_factory.business_order(order_ir.semantic_id)
+    subject = ref_factory.entity(order_ir.subject)
+    event_paths = {
+        *(item.event_ref for item in order_ir.sequences),
+        *(item.before_event for item in order_ir.conflicts),
+        *(item.after_event for item in order_ir.conflicts),
+    }
+    parents: tuple[Ref[SemanticKindTag], ...] = tuple(
+        dict.fromkeys(
+            (
+                subject,
+                *(ref_factory.event(path) for path in sorted(event_paths)),
+                *(ref_factory.dimension(item.value_ref) for item in order_ir.sequences),
+            )
+        )
+    )
+    details = BusinessOrderDetails(
+        ref=ref,
+        kind=SemanticKind.BUSINESS_ORDER,
+        name=order_ir.name,
+        domain=order_ir.domain,
+        context=order_ir.ai_context,
+        source_location=order_ir.location,
+        parents=parents,
+        children=(),
+        dependents=tuple(
+            ref_factory.state_model(model.semantic_id)
+            for model in reg.state_models.values()
+            if model.business_order == order_ir.semantic_id
+        ),
+        python_symbol=order_ir.python_symbol,
+        subject=subject,
+        sequences=tuple(
+            (
+                ref_factory.event(item.event_ref),
+                ref_factory.dimension(item.value_ref),
+                item.order,
+                item.participant_role,
+            )
+            for item in order_ir.sequences
+        ),
+        conflicts=tuple(
+            (
+                f"event:{item.before_event}#participant:{item.before_role}",
+                f"event:{item.after_event}#participant:{item.after_role}",
+            )
+            for item in order_ir.conflicts
+        ),
+        definition_fingerprint=_business_order_fingerprint(
+            ref, registry=reg, sidecar=catalog._state.sidecar
+        ),
+    )
+    return _object_from_details(BusinessOrderEntry, details, catalog)
 
 
 def _build_period_calendar_object(
@@ -4827,6 +5020,10 @@ class _CatalogIndex:
             _build_state_model_object(item, reg, self.catalog) for item in reg.state_models.values()
         )
         result.extend(
+            _build_business_order_object(item, reg, self.catalog)
+            for item in reg.business_orders.values()
+        )
+        result.extend(
             _build_period_calendar_object(item, reg, self.catalog)
             for item in reg.period_calendars.values()
         )
@@ -4907,6 +5104,8 @@ class _CatalogIndex:
                     for _name, endpoint, _cardinality, _path in details.participants
                 )
             if isinstance(details, StateModelDetails):
+                return scope.ref == details.subject
+            if isinstance(details, BusinessOrderDetails):
                 return scope.ref == details.subject
             if isinstance(details, TemporalSetDetails):
                 return any(parent == scope.ref for parent in details.parents)
@@ -5335,6 +5534,10 @@ class SemanticCatalog(RenderableResult):
     @property
     def state_models(self) -> CatalogCollection[StateModelKind]:
         return self._collection(StateModelEntry, SemanticKind.STATE_MODEL)
+
+    @property
+    def business_orders(self) -> CatalogCollection[BusinessOrderKind]:
+        return self._collection(BusinessOrderEntry, SemanticKind.BUSINESS_ORDER)
 
     @property
     def period_calendars(self) -> CatalogCollection[PeriodCalendarKind]:

@@ -80,7 +80,7 @@ revenue.details().show()
 `catalog.domains`, `catalog.datasources`, `catalog.entities`,
 `catalog.dimensions`, `catalog.time_dimensions`, `catalog.measures`,
 `catalog.metrics`, `catalog.relationships`, `catalog.events`,
-`catalog.state_models`, `catalog.period_calendars`, `catalog.temporal_sets`,
+`catalog.business_orders`, `catalog.state_models`, `catalog.period_calendars`, `catalog.temporal_sets`,
 and `catalog.work_schedules`. Each is a
 `CatalogCollection[T]` with `.items`, `.refs`, `.get(key)`, `.render()`,
 `.show()`, `len()`, and iteration. `catalog.require(ref)` is the
@@ -105,6 +105,11 @@ Ordinary preview returns current execution results and never persists an
 authoring checkpoint. Dedicated period-calendar, temporal-set, and work-schedule
 preview may publish their immutable certified artifact after an exhaustive
 bounded read.
+For an exact BusinessOrder ref or a StateModel bound to one, scoped readiness
+includes the order's Event, role, and sequence-field dependencies. It reports
+an advisory that source sequence values and Event history remain unverified;
+the BusinessOrder declaration itself is not an executable analysis input.
+R7 must validate those values before matcher or replay consumption.
 
 ### Navigation matrix
 
@@ -113,9 +118,9 @@ container object exposes typed collection properties:
 
 | Object | Navigation properties |
 |---|---|
-| `Domain` | `entities`, `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships`, `events`, `state_models` |
+| `Domain` | `entities`, `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships`, `events`, `business_orders`, `state_models` |
 | `Datasource` | `entities` |
-| `Entity` | `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships`, `events`, `state_models` |
+| `Entity` | `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships`, `events`, `business_orders`, `state_models` |
 | `Relationship` | `from_entity`, `to_entity` |
 | `Dimension` / `TimeDimension` / `Measure` / `Metric` | leaf objects — use `details()` for dependency information |
 
