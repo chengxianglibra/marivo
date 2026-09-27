@@ -110,11 +110,9 @@ _SHARED_KEYS_NO_REL = (
 _SHARED_KEYS_WITH_REL = (
     "import marivo.datasource as md\nimport marivo.semantic as ms\n"
     "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['customer_id'], source=md.table('orders'))\n"
-    "@ms.dimension(entity=orders, name='order_customer')\n"
-    "def order_customer(table):\n    return table.customer_id\n"
+    "order_customer = ms.dimension_column(name='order_customer', entity=orders, column='customer_id')\n"
     "customers = ms.entity(name='customers', datasource=ms.ref.datasource('warehouse'), primary_key=['customer_id'], source=md.table('customers'))\n"
-    "@ms.dimension(entity=customers, name='customer_pk')\n"
-    "def customer_pk(table):\n    return table.customer_id\n"
+    "customer_pk = ms.dimension_column(name='customer_pk', entity=customers, column='customer_id')\n"
     "ms.relationship(name='orders_to_customers', from_entity=orders,\n"
     "    to_entity=customers, keys=[ms.join_on(order_customer, customer_pk)])\n"
 )

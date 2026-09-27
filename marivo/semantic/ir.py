@@ -147,7 +147,7 @@ class SourceLocation:
 
 @dataclass(frozen=True)
 class SnapshotVersioningIR:
-    """Daily snapshot versioning metadata for Phase 1 latest joins."""
+    """Exact daily business-snapshot declaration, separate from stable identity."""
 
     kind: Literal["snapshot"]
     partition_field: str
@@ -158,7 +158,7 @@ class SnapshotVersioningIR:
 
 @dataclass(frozen=True)
 class ValidityVersioningIR:
-    """SCD2 validity interval versioning metadata for Phase 2."""
+    """Exact SCD2 validity interval declaration, separate from stable identity."""
 
     kind: Literal["validity"]
     valid_from: str
@@ -1098,6 +1098,20 @@ class RelationshipIR:
     keys: tuple[JoinKey, ...]
     ai_context: AiContextIR
     location: SourceLocation
+
+
+@dataclass(frozen=True, slots=True)
+class TargetRelationshipContract:
+    """Directed mapping facts derived from declared identity without source I/O."""
+
+    ref: RefPayloadV1
+    from_entity_ref: RefPayloadV1
+    to_entity_ref: RefPayloadV1
+    role: str
+    keys: tuple[tuple[str, str], ...]
+    cardinality: Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"]
+    from_version_resolution_required: bool
+    to_version_resolution_required: bool
 
 
 # ---------------------------------------------------------------------------

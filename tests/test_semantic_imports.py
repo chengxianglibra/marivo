@@ -374,6 +374,7 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "cross_datasource_not_supported",
     "duplicate_default_time_dimension",
     "invalid_relationship_endpoint",
+    "invalid_relationship_mapping",
     "organization_error",
     "invalid_project",
     "missing_metric_additivity",

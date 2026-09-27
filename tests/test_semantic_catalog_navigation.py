@@ -44,19 +44,14 @@ orders = ms.entity(
     source=md.table("orders"),
     primary_key=["user_id"],
 )
-users = ms.entity(name="users", datasource=ms.ref.datasource("warehouse"), source=md.table("users"))
+users = ms.entity(name="users", datasource=ms.ref.datasource("warehouse"), source=md.table("users"), primary_key=["id"])
 
 @ms.dimension(entity=orders)
 def region(table):
     return table.region
 
-@ms.dimension(entity=orders)
-def user_id(table):
-    return table.user_id
-
-@ms.dimension(entity=users)
-def id(table):
-    return table.id
+user_id = ms.dimension_column(name="user_id", entity=orders, column="user_id")
+id = ms.dimension_column(name="id", entity=users, column="id")
 
 @ms.time_dimension(entity=orders, granularity="day", parse=ms.timestamp(timezone="UTC"))
 def ordered_at(table):

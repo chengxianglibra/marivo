@@ -38,28 +38,19 @@ from marivo.semantic.metric_graph import (
     WeightedMeanAggregateNodeV1,
     component_node,
 )
-from marivo.semantic.validator import Registry, normalize_target_dimension, normalize_target_entity
+from marivo.semantic.validator import (
+    Registry,
+    normalize_target_dimension,
+    normalize_target_entity,
+    normalize_target_relationship,
+)
 
 
 def relationship_columns(
     registry: Registry, relationship: RelationshipIR
 ) -> tuple[tuple[str, str], ...]:
     """Resolve authored Dimension refs to their exact endpoint source columns."""
-    columns = []
-    for key in relationship.keys:
-        left = normalize_target_dimension(registry, key.from_key)
-        right = normalize_target_dimension(registry, key.to_key)
-        if (
-            left.entity_ref.path != relationship.from_entity
-            or right.entity_ref.path != relationship.to_entity
-        ):
-            raise construction_error(
-                "relationship key Dimensions owned by their declared endpoints",
-                f"{relationship.semantic_id}: join keys reference another Entity",
-                repair="Bind each join key to a direct-column Dimension on its relationship endpoint.",
-            )
-        columns.append((left.source_column, right.source_column))
-    return tuple(columns)
+    return normalize_target_relationship(registry, relationship.semantic_id).keys
 
 
 def functional_path(
@@ -76,13 +67,15 @@ def functional_path(
         return ()
     edges: dict[str, list[tuple[str, str]]] = {}
     for relation in registry.relationships.values():
-        left = registry.entities[relation.from_entity]
-        right = registry.entities[relation.to_entity]
-        columns = relationship_columns(registry, relation)
-        if right.primary_key and tuple(right_key for _, right_key in columns) == right.primary_key:
-            edges.setdefault(left.semantic_id, []).append((right.semantic_id, relation.semantic_id))
-        if left.primary_key and tuple(left_key for left_key, _ in columns) == left.primary_key:
-            edges.setdefault(right.semantic_id, []).append((left.semantic_id, relation.semantic_id))
+        mapping = normalize_target_relationship(registry, relation.semantic_id)
+        if mapping.cardinality in {"one_to_one", "many_to_one"}:
+            edges.setdefault(relation.from_entity, []).append(
+                (relation.to_entity, relation.semantic_id)
+            )
+        if mapping.cardinality in {"one_to_one", "one_to_many"}:
+            edges.setdefault(relation.to_entity, []).append(
+                (relation.from_entity, relation.semantic_id)
+            )
     found: list[tuple[str, ...]] = []
 
     def walk(current: str, visited: frozenset[str], path: tuple[str, ...]) -> None:
@@ -144,6 +137,7 @@ def governed_path(registry: Registry, source: str, target: str) -> tuple[str, ..
         return ()
     edges: dict[str, list[tuple[str, str]]] = {}
     for relation in registry.relationships.values():
+        mapping = normalize_target_relationship(registry, relation.semantic_id)
         left = normalize_target_entity(registry, relation.from_entity)
         right = normalize_target_entity(registry, relation.to_entity)
         left_types, right_types = dict(left.columns), dict(right.columns)
@@ -153,10 +147,7 @@ def governed_path(registry: Registry, source: str, target: str) -> tuple[str, ..
             for left_key, right_key in columns
         ):
             continue
-        if not (
-            tuple(left_key for left_key, _ in columns) == left.primary_key
-            or tuple(right_key for _, right_key in columns) == right.primary_key
-        ):
+        if mapping.cardinality == "many_to_many":
             continue
         edges.setdefault(relation.from_entity, []).append(
             (relation.to_entity, relation.semantic_id)
@@ -192,11 +183,10 @@ def path_is_functional(registry: Registry, source: str, path: tuple[str, ...]) -
         relation = registry.relationships[name]
         forward = current == relation.from_entity
         current = relation.to_entity if forward else relation.from_entity
-        keys = tuple(
-            right_key if forward else left_key
-            for left_key, right_key in relationship_columns(registry, relation)
-        )
-        if keys != registry.entities[current].primary_key:
+        mapping = normalize_target_relationship(registry, name)
+        if (forward and mapping.cardinality not in {"one_to_one", "many_to_one"}) or (
+            not forward and mapping.cardinality not in {"one_to_one", "one_to_many"}
+        ):
             return False
     return True
 

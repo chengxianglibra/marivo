@@ -423,7 +423,14 @@ unknown datasource; a metric referencing an unknown entity or component; a
 cross-domain `ms.ref.<kind>(path)` that is missing, type-mismatched, or cyclic; an
 `entities=[...]` count that disagrees with the function arity; an hour time
 dimension missing its required prefix; invalid relationship endpoints, join
-dimension refs, entity membership, or arity. Tier-1 metric filters must resolve
+dimension refs, entity membership, or arity. Relationship assembly also resolves
+each join ref to one direct source column on its declared endpoint, rejects
+repeated key columns, and derives structural cardinality from coverage of each
+endpoint's complete stable `primary_key`. Target match completeness is not
+declared on Relationship in R2.1 and remains unknown at static load. Versioned
+one sides still need exact version resolution, and missing matches or duplicate
+source rows are not proven at load.
+Tier-1 metric filters must resolve
 every local key to a declared dimension on the target entity; failures use
 `invalid_filter` with focused `semantic.where` repair. On failure the registry
 is `errored` and retains `load_errors`.

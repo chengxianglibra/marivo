@@ -925,7 +925,6 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "multiplicity_fanout",
                     "Which multiplicity and fanout implications are expected?",
                     "relationship",
-                    "ai_context",
                 ),
                 _source_decision(
                     "evidence_checks",
@@ -2262,7 +2261,12 @@ _PARAMETER_NAMES_BY_CAPABILITY: Mapping[str, tuple[tuple[str, ...], ...]] = Mapp
         "ratio": (("name",), ("numerator",), ("denominator",), ("zero_denominator",)),
         "weighted_mean": (("name",), ("value",), ("weight",)),
         "linear": (("name",), ("add",)),
-        "relationship": (("name",), ("from_entity",), ("to_entity",), ("keys",)),
+        "relationship": (
+            ("name",),
+            ("from_entity",),
+            ("to_entity",),
+            ("keys",),
+        ),
         "event": (("name",), ("identity",), ("occurred_at",), ("participants",)),
         "participant": (("name",), ("path",)),
         "participant_role": (("event",), ("name",)),
@@ -2780,6 +2784,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             constraints=(
                 "active_loader_context",
                 "relationship_endpoints",
+                "relationship_mapping",
                 "ref_shape",
             ),
             example=(

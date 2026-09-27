@@ -114,6 +114,7 @@ def _make_registry(**overrides: object) -> Registry:
         kind=DimensionKind.CATEGORICAL,
         python_symbol="amount",
         location=_LOC,
+        source_column="amount",
     )
     registry.dimensions["sales.orders.order_date"] = DimensionIR(
         semantic_id="sales.orders.order_date",
@@ -127,6 +128,7 @@ def _make_registry(**overrides: object) -> Registry:
         parse=DateParse(),
         python_symbol="order_date",
         location=_LOC,
+        source_column="order_date",
     )
     registry.metrics["sales.revenue"] = MetricIR(
         semantic_id="sales.revenue",
@@ -447,13 +449,9 @@ def test_relationship_field_arity_mismatch() -> None:
         location=_LOC,
     )
     errors, _warnings = assembly_validate(registry)
-    # The second key's to_key matches, so no arity mismatch error from the
-    # JoinKey-based schema. The test originally checked for arity mismatch;
-    # with JoinKey pairs, each key is self-contained so there's no structural
-    # arity issue. Just check that there are no MISSING_DIMENSION_REF errors
-    # pointing at bad_arity.
+    # Reusing the target key column makes the directed mapping ambiguous.
     rel_errors = [e for e in errors if "sales.bad_arity" in e.semantic_refs]
-    assert len(rel_errors) == 0
+    assert any(error.kind == ErrorKind.INVALID_RELATIONSHIP_MAPPING for error in rel_errors)
 
 
 # ---------------------------------------------------------------------------

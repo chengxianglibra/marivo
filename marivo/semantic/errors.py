@@ -124,6 +124,7 @@ class ErrorKind(StrEnum):
     CROSS_MODEL_CYCLE = "cross_model_cycle"
 
     INVALID_RELATIONSHIP_ENDPOINT = "invalid_relationship_endpoint"
+    INVALID_RELATIONSHIP_MAPPING = "invalid_relationship_mapping"
     ORGANIZATION_ERROR = "organization_error"
     INVALID_PROJECT = "invalid_project"
     MISSING_METRIC_ADDITIVITY = "missing_metric_additivity"

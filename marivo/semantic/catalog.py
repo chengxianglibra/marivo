@@ -1070,12 +1070,9 @@ class RelationshipDetails(_DetailsBase):
     to_entity: Ref[SemanticKindTag]
     from_keys: tuple[str, ...]
     to_keys: tuple[str, ...]
-
-    def __post_init__(self) -> None:
-        # Compatibility: these are no longer stored directly on RelationshipIR,
-        # but RelationshipDetails still exposes them for catalog consumers.
-        # Set by _build_relationship_object from JoinKey pairs.
-        pass
+    cardinality: Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"]
+    from_version_resolution_required: bool
+    to_version_resolution_required: bool
 
     def _detail_sections(self) -> list[Section]:
         sections = _common_detail_sections(
@@ -1090,6 +1087,15 @@ class RelationshipDetails(_DetailsBase):
             (
                 FieldSection(label="from", value=self.from_entity.key),
                 FieldSection(label="to", value=self.to_entity.key),
+                FieldSection(label="role", value=self.name),
+                FieldSection(label="structural_cardinality", value=self.cardinality),
+                FieldSection(
+                    label="version_resolution_required",
+                    value=(
+                        f"from={str(self.from_version_resolution_required).lower()}, "
+                        f"to={str(self.to_version_resolution_required).lower()}"
+                    ),
+                ),
                 FieldSection(
                     label="join_keys",
                     value=", ".join(
@@ -3924,6 +3930,9 @@ def _build_metric_object(
 def _build_relationship_object(
     r_ir: RelationshipIR, reg: Registry, catalog: SemanticCatalog
 ) -> RelationshipEntry:
+    from marivo.semantic.validator import normalize_target_relationship
+
+    normalized = normalize_target_relationship(reg, r_ir.semantic_id)
     ref = _make_ref(r_ir.semantic_id, SemanticKind.RELATIONSHIP)
     from_ref = _make_ref(r_ir.from_entity, SemanticKind.ENTITY)
     to_ref = _make_ref(r_ir.to_entity, SemanticKind.ENTITY)
@@ -3942,6 +3951,9 @@ def _build_relationship_object(
         to_entity=to_ref,
         from_keys=tuple(k.from_key for k in r_ir.keys),
         to_keys=tuple(k.to_key for k in r_ir.keys),
+        cardinality=normalized.cardinality,
+        from_version_resolution_required=normalized.from_version_resolution_required,
+        to_version_resolution_required=normalized.to_version_resolution_required,
     )
     return _object_from_details(RelationshipEntry, details, catalog)
 
