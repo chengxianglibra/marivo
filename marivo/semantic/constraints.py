@@ -53,6 +53,7 @@ class ConstraintId(StrEnum):
     TIME_DIMENSION_DTYPE_COMPAT = "time_dimension_dtype_compat"
     TIME_DIMENSION_DEFAULT_UNIQUE = "time_dimension_default_unique"
     RELATIONSHIP_ENDPOINTS = "relationship_endpoints"
+    RELATIONSHIP_MAPPING = "relationship_mapping"
     PROJECT_ORGANIZATION = "project_organization"
     PROJECT_ROOT_VALID = "project_root_valid"
     METRIC_EXISTS = "metric_exists"
@@ -551,6 +552,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Relationship endpoints must be registered entities.",
         "The compiler uses relationships to plan joins between known entities.",
         "Pass Ref[entity] values or qualified entity ids to from_entity and to_entity.",
+    ),
+    ConstraintId.RELATIONSHIP_MAPPING: _constraint(
+        ConstraintId.RELATIONSHIP_MAPPING,
+        "invalid_relationship_mapping",
+        "assembly",
+        ("relationship",),
+        "Relationship keys must be direct Dimensions on their exact endpoints; a structural one side follows complete stable identity coverage.",
+        "Versioned endpoints still require exact version selection before a one side is single-valued.",
+        "Bind direct endpoint Dimensions for every key; cardinality follows complete primary_key coverage.",
     ),
     ConstraintId.PROJECT_ORGANIZATION: _constraint(
         ConstraintId.PROJECT_ORGANIZATION,

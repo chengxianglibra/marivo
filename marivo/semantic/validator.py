@@ -66,6 +66,7 @@ from marivo.semantic.ir import (
     StrptimeParse,
     TargetDimensionContract,
     TargetEntityContract,
+    TargetRelationshipContract,
     TargetSnapshotSelection,
     TargetSnapshotVersion,
     TargetValiditySelection,
@@ -404,6 +405,92 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
         columns=columns,
         version=version,
         credential_slots=credential_slots,
+    )
+
+
+def normalize_target_relationship(
+    registry: Registry, relationship_id: str
+) -> TargetRelationshipContract:
+    """Resolve directed keys and structural multiplicity without source I/O."""
+    relationship = registry.relationships[relationship_id]
+    left_entity = registry.entities.get(relationship.from_entity)
+    right_entity = registry.entities.get(relationship.to_entity)
+
+    def invalid(expected: str, received: str, action: str) -> NoReturn:
+        raise SemanticLoadError(
+            kind=ErrorKind.INVALID_RELATIONSHIP_MAPPING,
+            message=f"Relationship {relationship_id!r} has an invalid directed mapping.",
+            refs=(relationship_id,),
+            location=relationship.location,
+            expected=expected,
+            received=received,
+            hint=action,
+            constraint_id=ConstraintId.RELATIONSHIP_MAPPING,
+            repair=repair(kind="reauthor", canonical_id="relationship", action=action),
+        )
+
+    if left_entity is None or right_entity is None:
+        invalid(
+            "two loaded Entity endpoints",
+            f"{relationship.from_entity!r} -> {relationship.to_entity!r}",
+            "Declare both endpoint Entities before loading the Relationship.",
+        )
+    if not relationship.keys:
+        invalid("one or more join key pairs", "empty keys", "Add ms.join_on(...) pairs.")
+    columns: list[tuple[str, str]] = []
+    for pair in relationship.keys:
+        left = registry.dimensions.get(pair.from_key)
+        right = registry.dimensions.get(pair.to_key)
+        if (
+            left is None
+            or right is None
+            or left.entity != relationship.from_entity
+            or right.entity != relationship.to_entity
+            or left.source_column is None
+            or right.source_column is None
+        ):
+            invalid(
+                "direct-column Dimensions on the exact from/to Entity endpoints",
+                f"{pair.from_key!r} -> {pair.to_key!r}",
+                "Bind each join key to a direct-column Dimension on its declared endpoint.",
+            )
+        columns.append((left.source_column, right.source_column))
+    from_columns = tuple(left for left, _right in columns)
+    to_columns = tuple(right for _left, right in columns)
+    if len(set(from_columns)) != len(columns) or len(set(to_columns)) != len(columns):
+        invalid(
+            "each endpoint key column used once",
+            repr(columns),
+            "Remove repeated source or target key columns from the relationship keys.",
+        )
+    from_covers_key = bool(left_entity.primary_key) and set(left_entity.primary_key).issubset(
+        from_columns
+    )
+    to_covers_key = bool(right_entity.primary_key) and set(right_entity.primary_key).issubset(
+        to_columns
+    )
+    cardinality: Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"]
+    if from_covers_key and to_covers_key:
+        cardinality = "one_to_one"
+    elif from_covers_key:
+        cardinality = "one_to_many"
+    elif to_covers_key:
+        cardinality = "many_to_one"
+    else:
+        cardinality = "many_to_many"
+    return TargetRelationshipContract(
+        ref=RefPayloadV1.from_ref(_create_ref(SemanticKind.RELATIONSHIP, relationship_id)),
+        from_entity_ref=RefPayloadV1.from_ref(
+            _create_ref(SemanticKind.ENTITY, relationship.from_entity)
+        ),
+        to_entity_ref=RefPayloadV1.from_ref(
+            _create_ref(SemanticKind.ENTITY, relationship.to_entity)
+        ),
+        role=relationship.name,
+        keys=tuple(columns),
+        cardinality=cardinality,
+        from_version_resolution_required=left_entity.versioning is not None,
+        to_version_resolution_required=right_entity.versioning is not None,
     )
 
 
@@ -2061,7 +2148,15 @@ def assembly_validate(
         #  This will become meaningful when typed refs are more common.)
 
         versioning = ds_ir.versioning
-        if versioning is not None:
+        projected_names = {name for name, _physical in _target_columns(ds_ir)}
+        missing_projected_key = bool(projected_names) and any(
+            name not in projected_names for name in ds_ir.primary_key
+        )
+        if (
+            (versioning is not None or ds_ir.primary_key)
+            and ds_ir.datasource in registry.datasources
+            and not missing_projected_key
+        ):
             _validate_entity_versioning(errors, ds_id, registry)
 
     # -- Validate entity refs on dimensions ----------------------------------
@@ -2851,6 +2946,19 @@ def assembly_validate(
                             },
                         )
                     )
+
+        if (
+            r_ir.from_entity in registry.entities
+            and r_ir.to_entity in registry.entities
+            and all(
+                key.from_key in registry.dimensions and key.to_key in registry.dimensions
+                for key in r_ir.keys
+            )
+        ):
+            try:
+                normalize_target_relationship(registry, r_id)
+            except SemanticError as error:
+                errors.append(error)
 
     # -- Validate HourPrefixParse prefix cross-reference ---------------------
     for f_id, f_ir in registry.dimensions.items():

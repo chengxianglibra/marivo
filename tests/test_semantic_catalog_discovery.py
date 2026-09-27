@@ -170,13 +170,9 @@ def test_discovery_relationships_returns_relationships(semantic_project_factory)
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), source=md.table('users'))\n"
-                "@ms.dimension(entity=orders)\n"
-                "def user_id(table):\n"
-                "    return table.user_id\n"
-                "@ms.dimension(entity=users)\n"
-                "def id(table):\n"
-                "    return table.id\n"
+                "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), source=md.table('users'), primary_key=['id'])\n"
+                "user_id = ms.dimension_column(name='user_id', entity=orders, column='user_id')\n"
+                "id = ms.dimension_column(name='id', entity=users, column='id')\n"
                 "ms.relationship(\n"
                 "    name='orders_to_users',\n"
                 "    from_entity=orders,\n"
@@ -506,6 +502,9 @@ def test_discovery_relationship_details_render():
         to_entity=_make_ref("sales.users", SemanticKind.ENTITY),
         from_keys=("user_id",),
         to_keys=("id",),
+        cardinality="many_to_one",
+        from_version_resolution_required=False,
+        to_version_resolution_required=False,
     )
     rendered = d.render()
     assert "orders_to_users" in rendered

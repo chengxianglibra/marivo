@@ -853,6 +853,23 @@ obeys it. Ambiguous paths still fail during planning; temporal matches use the
 declared selection without choosing a cheaper or first path. A path that permits coordinate enrichment does not itself prove
 that overlapping contributions can be summed when a coordinate is removed.
 
+`name` is the business role and direction is always `from_entity` to `to_entity`.
+The directed structural cardinality (`one_to_one`, `many_to_one`, `one_to_many`,
+or `many_to_many`) follows whether distinct join columns cover each endpoint's
+complete stable `primary_key`. Authors do not repeat that derived fact. Whether
+every source row must match a target is a separate business requirement, not
+part of the Relationship constructor in R2.1. Static loading cannot derive or
+prove it from physical metadata or a sample. Every `keys` pair resolves to a
+direct-column Dimension or TimeDimension ref on its exact endpoint, without
+interpreting a semantic ref path as a physical column.
+For a versioned endpoint, this is conditional on the consuming operation's
+exact snapshot or validity selection. Loading checks these declarations without
+reading rows; actual multiplicity, missing matches, and version overlap remain
+consumer/source checks. A weaker many side never grants fanout safety. Derived
+cardinality grants no evidence of actual rows. When completeness matters, an
+explicit bounded `source_check.relationship_matches(...)` can test its declared
+scope; source-health results do not become a global business guarantee.
+
 ## Event and StateModel boundaries
 
 Event keeps its existing occurrence identity, business `occurred_at` axis,

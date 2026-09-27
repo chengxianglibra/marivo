@@ -1210,6 +1210,11 @@ on_hand_units = ms.measure_column(
 
 Declares how two entities join, so metrics and dimensions can reach across them.
 Keys are dimension refs, not raw column names.
+Loading derives structural cardinality from complete endpoint identity key
+coverage. Target match completeness is not declared by this constructor; use an
+explicit, bounded `source_check.relationship_matches(...)` when it matters. A
+versioned target still needs an exact version selection before it can be treated
+as single valued; source row multiplicity and missing matches need runtime checks.
 Use `marivo.help("semantic.objects.relationship")` to settle directed meaning,
 endpoint grains, key equivalence, multiplicity, and evidence checks. The exact
 constructor leaf routes the `keys` input to `marivo.help("semantic.join_on")`.

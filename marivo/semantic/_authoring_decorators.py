@@ -96,6 +96,7 @@ def entity(
         source: Structured physical source, usually ``md.table(...)``,
             ``md.parquet(...)``, ``md.csv(...)``, or ``md.json(...)``.
         primary_key: Optional stable Entity identity columns; version coordinates belong only in versioning.
+        versioning: Explicit snapshot or validity representation; never inferred from source partitions.
         domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
@@ -105,7 +106,8 @@ def entity(
 
     Raises:
         SemanticDecoratorError: ``datasource`` is not a datasource ref, ``name``
-            collides with another object, or ``source`` is not an entity source.
+            collides with another object, ``source`` is not an entity source, or
+            ``primary_key`` is not a list of non-empty column names.
 
     Example:
         >>> orders = ms.entity(
@@ -129,6 +131,19 @@ def entity(
         )
 
     ds_ref = _resolve_datasource_ref(datasource)
+    if primary_key is not None and (
+        type(primary_key) is not list
+        or any(type(column) is not str or not column.strip() for column in primary_key)
+    ):
+        _raise(
+            ErrorKind.INVALID_REF,
+            "entity primary_key must be a list of non-empty source output column names.",
+            cls=SemanticDecoratorError,
+            refs=(semantic_id,),
+            expected="list[str] of non-empty source output columns, or None for an unkeyed source",
+            received=repr(primary_key),
+            hint="List the complete stable Entity identity in primary_key; declare version columns separately.",
+        )
     pk = tuple(primary_key) if primary_key else ()
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
@@ -895,8 +910,7 @@ def relationship(
         A ``Ref[relationship]``.
 
     Raises:
-        SemanticDecoratorError: ``name`` is missing, the entities are unknown, or
-            ``keys`` is empty.
+        SemanticDecoratorError: A ref or key shape is invalid.
 
     Example:
         >>> ms.relationship(
@@ -904,6 +918,12 @@ def relationship(
         ...     from_entity=orders, to_entity=customers,
         ...     keys=[ms.join_on(customer_id, id)],
         ... )
+
+    Constraints:
+        Load derives structural multiplicity from complete endpoint identity key
+        coverage. Actual source multiplicity and missing matches require separate
+        runtime evidence; a versioned endpoint needs an exact version selection
+        before its one side can be consumed.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)

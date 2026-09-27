@@ -858,21 +858,16 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
+        orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"), primary_key=["order_id"])
 
-        items = ms.entity(name="items", datasource=ms.ref.datasource("wh"), source=md.table("items"))
+        items = ms.entity(name="items", datasource=ms.ref.datasource("wh"), source=md.table("items"), primary_key=["item_id"])
     """)
     fields_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        @ms.dimension(entity=ms.ref.entity("sales.orders"))
-        def order_id(table):
-            return table.order_id
-
-        @ms.dimension(entity=ms.ref.entity("sales.items"))
-        def item_order_id(table):
-            return table.order_id
+        order_id = ms.dimension_column(name="order_id", entity=ms.ref.entity("sales.orders"), column="order_id")
+        item_order_id = ms.dimension_column(name="item_order_id", entity=ms.ref.entity("sales.items"), column="order_id")
     """)
     rels_py = textwrap.dedent("""\
         import marivo.datasource as md

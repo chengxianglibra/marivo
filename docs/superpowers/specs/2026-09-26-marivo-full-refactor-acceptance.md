@@ -2,7 +2,7 @@
 
 Date: 2026-09-26
 
-Status: R0.1–R0.5 静态产物已登记，R0.6 未开展；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验。R0 和 R1 整体均未验收。
+Status: R0.1–R0.5 静态产物已登记，R0.6 未开展；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验；R2.1 静态定义候选已核验。R0、R1 和 R2 整体均未验收。
 
 本文件按[主计划](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)和[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)续记实际证据。历史验收不自动转成新 DSL 的技术、后端、安装包或真实 Agent 资格。
 
@@ -170,3 +170,16 @@ MySQL 基础 Analysis 补充格：启动前 `mysql-analysis` 为 Exited，本轮
 静态核验：`git status --short --branch`、`git rev-parse HEAD`、`shasum -a 256 <五份输入及 SQL 台账>`、`rg -n 'raw_sql|statement\(|submit\(|\.sql\(|SELECT |WITH |SHOW |PRAGMA |CREATE |SET ' marivo/{datasource,semantic,analysis}`、`rg -n 'postprocess_sql|read_parquet|compile_event_bundle|integrity_sql' marivo`、导出/Help/消费者反查及 Markdown 相对链接检查；`git diff --check` 退出码 0。`source_health.py` 的实际路径为 `marivo/semantic/source_health.py`，扫描已覆盖。`make test TESTS='tests/test_datasource_raw_sql.py'` 在本次修订后 41 项通过，证明当前公共 raw SQL 路线的现有测试行为，不能授予新 DSL 的真实后端资格。独立反例按 owning spec/台账审阅了 DST、重叠 Anchor、25/5/70 界、权重缺层、比率缺侧与同刻顺序；这些是规则审阅，非测试执行通过。
 
 未验证：新目标测试文件/独立 oracle 执行、真实六后端/表形态/资源、安装 wheel、真实 Agent 旅程；旧 J1–J4 或 C0–C10 成绩不转授。阻塞：R0.5 的无 SQL 控制/认证替代仍待实证，R0.6 交接未开展。后续阶段应分别记录实际代码 SHA、diff hash、owning spec 版本、通过/失败/未验证/阻塞单元及精确命令。
+
+## R2.1 身份、版本与关系定义候选（2026-09-27）
+
+起点 `panda` HEAD `4105c48d7c43bdf8771c7bcd0bf05fac78de804e`。本轮依据本地未跟踪的 R2 实施文档 `docs/superpowers/specs/2026-09-27-marivo-full-algebra-dsl-r2-implementation-plan.md`，其 SHA-256 为 `7c8488e862195487b05494f86ddb9f44e71b362f8649933cecd041c72299f18c`；原文件未改，也不属于本次提交。代码、测试、示例与 owning spec、`site/` latest 中英文本轮候选（不含本验收记录）的 `git diff --binary HEAD -- marivo tests devtools docs/specs site/src/content/docs` SHA-256 为 `d1094b94c6edeb416c81d9085b1c4b2d488262f2d1fbd3a95d2bc06b1b99bafe`，新增独立反例文件 `tests/test_semantic_r21_identity_relationship.py` 的 SHA-256 为 `374acf811b7df122a841f4f8efbb06001f8e3bdeb25c4b9b7a99580ba3c26ca0`。这些 hash 定位提交前候选；未作 wheel、真实来源或 Agent 验收。
+
+| 单元 | 本轮结论 | 独立预期、证据与恢复条件 |
+| --- | --- | --- |
+| C02.a：Entity K、版本声明及 Ref | **R2.1 静态通过；来源未验证** | 无来源 I/O 的真实 authoring 文件声明复合 K `(tenant_id, order_id)`，规范版本行键为 `(tenant_id, order_id, snapshot_day)`；排除终点 `2026-09-27 00:00 UTC` 精确落在 `2026-09-26`，不查询可用分区或回退旧快照。非版本实体重复 K、错误投影别名与版本坐标混入 K 在加载时拒绝。R5 仍须以实际来源行检查 Null/重复、缺失快照及 validity 重叠；不通过历史 `distinct(K)` 修复。 |
+| C02.b：Relationship 子集 | **R2.1 部分通过；可缺失性契约未闭合，来源未验证** | 公开构造器只接收有向端点与 join Ref；`name` 是角色。唯一规范解析把 join Ref 绑定到直接输出列，重复键和错端点结构化拒绝，并按两端完整 K 的覆盖推导结构性 `cardinality`；未覆盖的一侧只得多值性质，不由作者猜测单值。两条同端点角色路径保持歧义而不自动选；反向一对多不获可加性。版本化单值侧保留需精确版本选择的事实。`required` 已从关系声明移除：静态加载不判定每个源行是否应有目标，显式有界 `source_check.relationship_matches` 只核所选来源范围；全局可缺失性业务契约及消费门禁仍待后续设计/实现。实际多重匹配、缺失匹配、重叠贡献与 fanout 来源证据仍由 R5/消费者检查。 |
+| C02.c Event/StateModel/order/calendar | **未验证** | R2.3 承接；本轮旧 Event/StateModel 测试回归不等于业务顺序目标通过。 |
+| C17.a ontology Ref/Artifact 关联 | **未验证** | R2.4 承接；本轮跨实体 reverse-index 回归不授 ontology 规划或计算准入。 |
+
+定向 `make test TESTS='tests/test_semantic_r21_identity_relationship.py tests/test_semantic_live_registry.py tests/test_semantic_catalog.py tests/test_semantic_catalog_discovery.py tests/test_semantic_source_health.py'` 为 **233 passed**；附加键覆盖与路径反例定向 **87 passed**；既有 validity、Ref、assembly、catalog、Event/StateModel 和跨实体正反例参加完整默认门禁。`make check-agent` 的 lint/import、378 个源码文件 typing、默认测试 **5107 passed、64 skipped** 及 API 文档均通过；`npm --prefix site run build` 成功，Astro 321 页，中英文安装脚本校验通过；`git diff --check` 退出码 0。64 个跳过继续保持 R1/R5 等原归属与恢复条件，不能算 R2.1 通过。此次没有修改 packaged skills 或 `AGENTS.md`，R1 的公共 SQL 旁路、metadata、远端终止等阻塞状态不变。修复静态声明失败须修改精确 Ref/输出别名或完整身份键并重新 `ms.load()`；来源行违约不能以改静态声明或回退旧数据标记通过，须在 R5 对对应来源形态重验。
