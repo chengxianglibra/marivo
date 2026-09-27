@@ -2,7 +2,7 @@
 
 Date: 2026-09-26
 
-Status: R0.1–R0.4 与 R0.6 的静态产物已登记，R0.5 替代可行性仍阻塞；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验，R1.5 公共连接切换与逐格复核见下；R2.1–R2.4 及后续静态交接有有界证据；R3.1 私有纯构造候选有有界测试证据。R0、R1、R2 和 R3 整体均未验收。
+Status: R0.1–R0.4 与 R0.6 的静态产物已登记，R0.5 替代可行性仍阻塞；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验，R1.5 公共连接切换与逐格复核见下；R2.1–R2.4 及后续静态交接有有界证据；R3.1 私有纯构造与 R3.2 私有注册有有界测试证据，R3.2 跨执行单一 owner 未通过。R0、R1、R2 和 R3 整体均未验收。
 
 本文件按[主计划](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)和[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)续记实际证据。历史验收不自动转成新 DSL 的技术、后端、安装包或真实 Agent 资格。
 
@@ -353,3 +353,55 @@ The existing skips retain their assertions and recovery conditions. No full
 Runtime, backend, cold-recovery, or real-Agent acceptance was run. The preceding
 candidate's hashes and gate counts remain historical evidence; R3 remains
 unaccepted as a whole.
+
+
+## R3.2 接入方法的私有语义与物理资格注册（2026-09-27）
+
+实施起点为 `77277ac085` 加工作区已暂存的 R3.1 修正；工作期间这些已有修正和
+R2/R3 计划由其他操作分别提交为 `96ea065561`、`dfece459aa`。本候选以当前
+`dfece459aa` 为差异基线，未更改两份计划、R3.1 测试、`core/model.py`、
+`AGENTS.md` 或 packaged skills。
+
+本轮边界是已确认的逐项接入：六类规则、两个 Cell 方法、五个当前行方法及
+`state_rollup@v1` 的私有注册/构造。`core.rules.derive`、当前行状态组件构造和
+原状态组件准入消费唯一注册；原状态仍限定 `sum@v1`，不扩大 R3.1 的完整绑定、
+whole-input singleton 或精确部件要求。旧 J1/operator/Dataset 的领域执行方法
+尚未迁入，保留 R4–R8 归属；新注册不导入、查询或转发其注册，旧资格不能补路。
+审查确认旧 J1 的当前行 sum/count/mean、rollup、difference 仍有独立可执行注册；
+其中旧 count 合同写 `strict`，新私有 count 写 `count_all`。因此本轮只完成私有 core
+入口的归并，R3.2 计划要求的跨执行路径单一 owner **未通过**，须随 R5/R6 消费者
+迁移删除重叠注册后复核。保留旧公开执行路径不等于给予新注册物理资格。
+
+| R3.2 单元 | 本轮状态 | 独立预期、证据边界与恢复条件 |
+| --- | --- | --- |
+| 唯一语义 owner 与闭合方法 | **私有构造通过；跨旧执行单一 owner 阻塞** | 独立枚举 11 个具体方法到六个规则的映射；重复 owner、未知方法/版本、旧 J1 ID、datasource SQL 终端、错误参数/输入拒绝。Count/defined-count/strict 政策固定，当前行状态与原量状态分离；旧 J1 重叠注册仍在。 |
+| 精确物理资格键 | **纯声明与匹配通过；真实物理资格未验证** | 方法/版本、数值类型、Decimal precision/scale、有序域、backend/source/table/time/route 完整匹配；输入类型与域位置及方法元数、count 整数精度和其他数值方法精度的不一致均拒绝；冲突键、缺 checker/part/resource/evidence 拒绝。测试中的 Qualified 使用明确 test-only 证据标识，不对应生产后端资格。 |
+| 义务及部件运输 | **静态准入通过；来源检查未执行** | 选择保留原 RuleDerivation 的 quantity、unit、state、Pre 与 pending obligations；补足每个本次输入绑定的检查及输出部件才可返回声明。裁剪部件、错误 contribution/method/coverage scope 会撤销原状态 rollup 的条件式 K；旧 scope 的 StatisticalWeight 既不能开启加权 K，也不能进入加权方法。后继仍须重新推导。 |
+| 三态资格缺口及路线 | **精确拒绝通过；生产实现阻塞** | unsupported/unverified/blocked 的理由与 recovery 分立；缺省生产注册全部 blocked，无 qualified implementation。显式 Ibis、Ibis→Python、Artifact→Python 路线不可互补；拒绝或语义消费失败直接传播。没有执行器，因此不声称完成运行失败注入或后端无回退验收。 |
+| 零 I/O 与旧注册隔离 | **定向反例通过** | 禁止 DuckDB/SQLite 连接、SourceSession、Store、Runtime 初始化/访问及旧注册查询后，装配/推导/精确选择仍完成；清空新注册时既有 core 入口拒绝，不回到本地或旧 registry。 |
+| 公共披露与后续阶段 | **本轮无公共扩张；R3 整体未通过** | 未改 `__all__`、Help、CLI、site latest API 示例或 packaged skills；既有默认测试包含公共快照/披露回归。R3.3 图、R3.4 lowering、R4 Runtime 和 R5–R8 方法执行、R9 后端资格继续开放。 |
+
+核验命令与实际结果：
+
+- `make test TESTS='tests/test_analysis_methods_r32.py tests/test_analysis_core_r31.py'`：**63 passed**。
+- `make typecheck TYPECHECK_TARGETS='marivo/analysis/core marivo/analysis/methods'`：**8 source files passed**。
+- `make check-agent`：lint/format/import、**387 source files typing**、默认测试
+  **5191 passed、64 skipped** 及 API 文档构建全部通过。历史 skip 未改变，不计本阶段通过。
+- `make runtime-test TESTS='tests/test_analysis_dsl_public.py::test_public_j3_ratio_rollup_differs_from_current_row_mean'`：**1 passed**，确认旧 J1 重叠路线仍可执行；不计作新注册资格。
+- 前一 R3.2 候选的站点 `npm run build`：**通过**；Astro check 为 0 errors / 0 warnings，构建 321 页，并通过英中安装脚本校验。本轮未重跑站点构建，未修改 `site/`。
+
+没有运行全量 Runtime、release-check、六后端实源、wheel、冷恢复或真实 Agent。
+生产恢复条件：连接 R3.3/R3.4 及对应 R4–R8 的真实消费者，证明精确物理键、
+数值/资源条件，并由执行 owner 履行本次绑定检查；注册声明不替代这些证据。
+
+代码 SHA-256（提交前内容哈希，用于定位本次实现）：
+
+| 文件 | SHA-256 |
+| --- | --- |
+| `marivo/analysis/core/rules.py` | `9ebe6eab8fd11413ef32dc9a74c14a36c13ca468cffd7f0fa8fae888dd17d54e` |
+| `marivo/analysis/methods/__init__.py` | `1d444ef8da6147c795d4ead808ca0eefec656505c60a6231ae8e102d3bd8432d` |
+| `marivo/analysis/methods/errors.py` | `654b22197b5009c9e1c99bccff7deb84394e79cc42eea0bb2017aafd7e02d996` |
+| `marivo/analysis/methods/physical.py` | `77db5ff8d67dbc918fb019fa0f896073395d09497d944dfd6c599a55c817f8ce` |
+| `marivo/analysis/methods/registry.py` | `a9c44ccc4497d7aae5e01e1e0c027a09f116113f6bd0394bbcb0813a8cfea984` |
+| `marivo/analysis/methods/semantics.py` | `465b03f0df34e158405400b99b66115ec2fbcccd77345135cd31330b4256cc00` |
+| `tests/test_analysis_methods_r32.py` | `d979e5085df4cb4250f337a8a13656080435f39e0b46f428e690f7d543dee508` |

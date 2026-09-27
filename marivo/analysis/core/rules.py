@@ -744,7 +744,11 @@ def _row_state(inputs: tuple[Signature, ...], params: RowState) -> RuleDerivatio
         if params.method == "count"
         else _premise(inputs, numeric, check_id=params.numeric_check_id, before="consume")
     )
-    method_version = f"row.{params.method}@v1"
+    from marivo.analysis.methods.registry import REGISTRY
+    from marivo.analysis.methods.semantics import key_for_parameters
+
+    method_semantics = REGISTRY.lookup(key_for_parameters(params)).semantics
+    method_version = str(method_semantics.key)
     quantity = RowStatisticQuantity(
         params.definition_id,
         method_version,
@@ -760,11 +764,7 @@ def _row_state(inputs: tuple[Signature, ...], params: RowState) -> RuleDerivatio
         quantity.definition_id,
         method_version,
         source.domain.definition_id,
-        ("weighted_sum", "weight_sum")
-        if params.method == "weighted_mean"
-        else ("sum", "count")
-        if params.method == "mean"
-        else (params.method,),
+        method_semantics.state_components,
         "v1",
     )
     return _result(
@@ -783,6 +783,10 @@ def _row_state(inputs: tuple[Signature, ...], params: RowState) -> RuleDerivatio
 
 
 def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> RuleDerivation:
+    from marivo.analysis.methods.registry import REGISTRY
+    from marivo.analysis.methods.semantics import MethodKey
+
+    method_semantics = REGISTRY.lookup(MethodKey("state_rollup")).semantics
     if len(inputs) != 1 or inputs[0].quantity is None:
         reject(
             "one observed relation",
@@ -810,8 +814,8 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
         or state.quantity_id != quantity.definition_id
         or state.method_version != quantity.method_version
         or state.contribution_id != quantity.contribution_id
-        or state.method_version != "sum@v1"
-        or state.components != ("sum", "non_null_count")
+        or state.method_version != method_semantics.original_state_method
+        or state.components != method_semantics.state_components
         or state.version != "v1"
     ):
         reject(
@@ -941,26 +945,10 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
 
 
 def derive(inputs: tuple[Signature, ...], params: RuleParameters) -> RuleDerivation:
-    """Derive one closed rule without reading a source, Artifact, Run, or Store."""
-    if type(params) is BindProject:
-        return _bind_project(inputs, params)
-    if type(params) is MapCorrespond:
-        return _map_correspond(inputs, params)
-    if type(params) is CellDerive:
-        return _cell_derive(inputs, params)
-    if type(params) is RowState:
-        return _row_state(inputs, params)
-    if type(params) is OriginalReduce:
-        return _original_reduce(inputs, params)
-    if type(params) is PartsTransport:
-        return _parts_transport(inputs, params)
-    reject(
-        "one of the six closed R3.1 rule parameters",
-        type(params).__name__,
-        "Use a core rule variant.",
-        "core.derive",
-    )
-    raise AssertionError("unreachable")
+    """Derive through the unique method owner without source or Runtime I/O."""
+    from marivo.analysis.methods.registry import REGISTRY
+
+    return REGISTRY.derive(inputs, params)
 
 
 Key: TypeAlias = tuple[str | int, ...]
