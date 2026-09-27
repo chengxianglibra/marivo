@@ -213,6 +213,17 @@ Ibis 12 cannot compile their `StructColumn`. The R1.2 acceptance record keeps
 backend, form, exact type, permission, and resource evidence separate, and
 retains the earlier full-gate failures for older source methods.
 
+## R1.4 consumer and disclosure handoff
+
+The internal `SourceSession` is the admitted route for the basic source-backed
+Dataset path described above. Existing Event, Lifecycle, Attribution, mean,
+time-scoped and other older source methods still reject at `source_admission`;
+their prior J1–J4 or Group A evidence does not qualify them under this route.
+Fixed Artifact continuation retains its separately admitted path. The R1
+acceptance record names remaining old text consumers and their R5–R9 owners.
+Datasource inspection and connectivity establish physical facts only, not
+method admission.
+
 ## S1 W1 private J1 construction
 
 W1 loads the closed Semantic additivity, event-time, and value-policy declarations

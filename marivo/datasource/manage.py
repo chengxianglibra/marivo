@@ -337,12 +337,14 @@ class DatasourceConnection:
     Example:
         >>> import marivo.datasource as md
         >>> with md.connect("wh") as con:
-        ...     con.raw_sql("SELECT 1")
+        ...     con.list_tables()
 
     Constraints:
         ``with`` blocks yield the raw ibis backend and disconnect on exit.
         Scripts that cannot use ``with`` may call ``.disconnect()`` manually.
         The ``.backend`` property exposes the raw backend for explicit handoff.
+        Direct backend calls bypass governed ``SourceSession`` reads and the
+        reason, row and timeout guards of ``md.raw_sql``.
     """
 
     def __init__(self, backend: Any) -> None:
@@ -524,11 +526,13 @@ def connect(
     Example:
         >>> import marivo.datasource as md
         >>> with md.connect("wh") as con:
-        ...     con.raw_sql("SELECT 1")
+        ...     con.list_tables()
 
     Constraints:
         Prefer ``with md.connect(...) as con`` so cleanup is automatic. For
         manual lifetime management, call ``connection.disconnect()`` when done.
+        Direct backend operations are outside governed source reads and do not
+        receive ``md.raw_sql`` terminal guards.
         Env-sourced secrets used to open this backend are remembered on the
         connection object so that a subsequent round-trip validation can persist
         them via ``secrets.persist_backend_env_sourced``.
