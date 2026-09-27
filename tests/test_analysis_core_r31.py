@@ -18,6 +18,7 @@ from marivo.analysis.core.model import (
     DomainSignature,
     Evidence,
     Fact,
+    FactInput,
     FixedReferencePart,
     Null,
     Obligation,
@@ -39,6 +40,7 @@ from marivo.analysis.core.rules import (
     OriginalReduce,
     PartsTransport,
     RowState,
+    TransportMode,
     derive,
     derive_numeric_cell,
     entity_members,
@@ -513,9 +515,22 @@ def test_parts_transport_drops_dependent_continuations_and_never_promotes_post()
 def test_evidence_scope_is_not_a_queued_check_or_parent_post() -> None:
     source = _observed()
     binding = source.domain.binding
-    declaration = _evidence("key_set_equal", binding, "delta")
-    current = replace(source, evidence=(declaration,))
     baseline = Signature(source.domain, _quantity("baseline"))
+    declaration = Evidence(
+        Fact(
+            "key_set_equal",
+            binding,
+            "delta",
+            "v1",
+            (
+                FactInput(source.domain, source.quantity),
+                FactInput(baseline.domain, baseline.quantity),
+            ),
+        ),
+        "check",
+        "fixed-input-oracle",
+    )
+    current = replace(source, evidence=(declaration,))
     derived = derive(
         (current, baseline),
         CellDerive(
@@ -637,3 +652,149 @@ def test_all_six_rules_construct_without_source_store_or_run_io(
         derive((observed,), PartsTransport("projection", observed.domain, (), True)).rule
         == "parts_transport@v1"
     )
+
+
+@pytest.mark.parametrize("change", ("input", "scope", "quantity", "domain", "order"))
+def test_pairing_evidence_cannot_authorize_different_endpoints(change: str) -> None:
+    current = _observed()
+    baseline = Signature(
+        replace(current.domain, binding=replace(_binding(), input_id="baseline")),
+        _quantity("baseline"),
+    )
+    params = CellDerive(
+        "difference",
+        "delta",
+        "strict",
+        "CNY",
+        "august",
+        "source.exact_pairing@v1",
+        "source.finite_numeric@v1",
+    )
+    checked = derive((current, baseline), params)
+    evidence = tuple(Evidence(item.fact, "check", "checked-pair") for item in checked.obligations)
+    proven = replace(current, evidence=evidence)
+    no_checks = replace(params, pairing_check_id=None, numeric_check_id=None)
+    assert not derive((proven, baseline), no_checks).obligations
+    changed = baseline
+    if change == "input":
+        changed = replace(
+            baseline,
+            domain=replace(
+                baseline.domain, binding=replace(baseline.domain.binding, input_id="different")
+            ),
+        )
+    elif change == "scope":
+        changed = replace(
+            baseline,
+            domain=replace(
+                baseline.domain, binding=replace(baseline.domain.binding, scope_id="july")
+            ),
+        )
+    elif change == "quantity":
+        changed = replace(baseline, quantity=_quantity("profit"))
+    elif change == "domain":
+        changed = replace(baseline, domain=replace(baseline.domain, definition_id="other-domain"))
+    inputs = (baseline, proven) if change == "order" else (proven, changed)
+    with pytest.raises(CoreRuleError, match="no matching evidence"):
+        derive(inputs, no_checks)
+    assert derive(inputs, params).obligations != checked.obligations
+    endpoint = require_part(checked.output, "baseline_endpoint")
+    assert endpoint.binding == baseline.domain.binding
+    transported = derive(
+        (checked.output,),
+        PartsTransport("view", checked.output.domain, ("baseline_endpoint",), True),
+    )
+    assert require_part(transported.output, "baseline_endpoint") == endpoint
+
+
+@pytest.mark.parametrize("mode", ("where", "projection", "compare", "view", "materialize"))
+def test_transport_rejects_unproved_input_and_domain_changes(mode: TransportMode) -> None:
+    source = _observed(state=True, coverage=True)
+    targets = (
+        replace(source.domain, binding=replace(_binding(), input_id="unrelated-source")),
+        replace(source.domain, definition_id="unproved-selection"),
+        replace(source.domain, target_key=()),
+    )
+    for target in targets:
+        with pytest.raises(CoreRuleError, match="exact input domain"):
+            derive((source,), PartsTransport(mode, target, ("original_state", "coverage"), True))
+    same = derive(
+        (source,), PartsTransport(mode, source.domain, ("original_state", "coverage"), True)
+    )
+    assert same.output.parts == source.parts
+
+
+def test_reducers_reject_unmapped_groups_and_foreign_singletons() -> None:
+    source = _observed(state=True, coverage=True)
+    key = (Coordinate(ms.ref.entity("sales.customer"), "undeclared_group", "group"),)
+    targets = (
+        DomainSignature(_binding(), "group", key, key, "invented-groups"),
+        DomainSignature(replace(_binding(), input_id="foreign"), "singleton", (), (), "all"),
+        DomainSignature(_binding("july"), "singleton", (), (), "all"),
+    )
+    for target in targets:
+        with pytest.raises(CoreRuleError, match="singleton over the exact input"):
+            derive((source,), RowState("count", target, "group-count", "count_all"))
+        with pytest.raises(CoreRuleError, match="singleton over the exact input"):
+            derive(
+                (source,),
+                OriginalReduce(
+                    target, "source.contribution_partition@v1", "source.complete_coverage@v1"
+                ),
+            )
+
+
+@pytest.mark.parametrize(
+    "components", (("unrelated_component",), ("sum",), ("sum", "non_null_count", "extra"))
+)
+def test_original_reduce_rejects_incomplete_or_unknown_components(
+    components: tuple[str, ...],
+) -> None:
+    source = _observed(state=True, coverage=True)
+    state = require_part(source, "original_state")
+    assert isinstance(state, OriginalStatePart)
+    bad = replace(
+        source, parts=(replace(state, components=components), require_part(source, "coverage"))
+    )
+    target = DomainSignature(_binding(), "singleton", (), (), "all")
+    with pytest.raises(CoreRuleError, match="complete state bound"):
+        derive(
+            (bad,),
+            OriginalReduce(
+                target, "source.contribution_partition@v1", "source.complete_coverage@v1"
+            ),
+        )
+
+
+@pytest.mark.parametrize("method,version", (("mean@v1", "v1"), ("sum@v1", "v2")))
+def test_original_reduce_rejects_unimplemented_state_contracts(method: str, version: str) -> None:
+    source = _observed(state=True, coverage=True)
+    state = require_part(source, "original_state")
+    assert isinstance(state, OriginalStatePart)
+    quantity = _quantity()
+    bad = replace(
+        source,
+        quantity=replace(quantity, method_version=method),
+        parts=(
+            replace(state, method_version=method, version=version),
+            require_part(source, "coverage"),
+        ),
+    )
+    target = DomainSignature(_binding(), "singleton", (), (), "all")
+    with pytest.raises(CoreRuleError, match="complete state bound"):
+        derive(
+            (bad,),
+            OriginalReduce(
+                target, "source.contribution_partition@v1", "source.complete_coverage@v1"
+            ),
+        )
+
+
+@pytest.mark.parametrize("value", (float("inf"), float("-inf"), float("nan")))
+@pytest.mark.parametrize("denominator", (0, 1))
+def test_ratio_rejects_nonfinite_numerator_before_zero_policy(
+    value: float, denominator: int
+) -> None:
+    with pytest.raises(CoreRuleError, match="finite numeric cells"):
+        derive_numeric_cell("ratio", Defined(value), Defined(denominator))
+    assert derive_numeric_cell("ratio", Defined(5), Defined(0)) == Undefined("zero_denominator")
