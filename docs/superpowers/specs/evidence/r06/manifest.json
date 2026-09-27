@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "baseline_head": "784135090b98c32b60d4b8f8cf69c02982d883d5",
+  "files": [
+    {
+      "path": "docs/specs/analysis/python-analysis-design.md",
+      "sha256": "b5f3e9d4a5764293a517fe6fa3448429a9fea0e458e4b87f194fe49208d64b6b",
+      "bytes": 74731
+    },
+    {
+      "path": "docs/specs/semantic/datasource-layer.md",
+      "sha256": "dd0477fe87ea78d4b5992eb3550d0990a333109d5b2fcbb45a7dea18fab2b723",
+      "bytes": 36610
+    },
+    {
+      "path": "docs/specs/semantic/semantic-object-model.md",
+      "sha256": "08621707f6806a5a607e1690bac9e6686507d2b460c11a74ee45b59962f17f64",
+      "bytes": 53175
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-23-analysis-algebra-theory.md",
+      "sha256": "40ce44e730a245b9a9dad50ac6fe64effa5c374960ef658ec9eaaa328f6a2e14",
+      "bytes": 95007
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-24-marivo-analysis-dsl-architecture-design.md",
+      "sha256": "1c8bf9f9ccae7961b165b6ace061b721962bd634489a9e6dd95d0909e4d074b5",
+      "bytes": 44321
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-24-marivo-semantic-analysis-dsl-interface-design.md",
+      "sha256": "d31aa12ac4f4bffe571572e7824a7d2f33f83f6e8a372817905c5dd30ab5e4ad",
+      "bytes": 171634
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md",
+      "sha256": "0256bb9e31be905e7d77774aee7607b455b035b08d4e9394293c3194a8d14d08",
+      "bytes": 15250
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-26-marivo-full-algebra-dsl-r1-implementation-plan.md",
+      "sha256": "77ccf2d5f3ca75dba164fa024f8552497b08fcf8a68f2e574f00be600d047338",
+      "bytes": 13307
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md",
+      "sha256": "e44e7f8628a3646cf9d571be25ec863ef8c0b605917315969a44f5c491f876de",
+      "bytes": 65042
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-26-marivo-full-refactor-acceptance.md",
+      "sha256": "b0d7e4502e8ae2b84dc3d71832de1a25db6def38c81253a2999bf86d9b7d84a2",
+      "bytes": 70864
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-26-marivo-full-refactor-r0-capability-ledger.md",
+      "sha256": "be5b17e6032d077e4050f56aeb1e8ff5178ede978e7576eccebdcd66b6908454",
+      "bytes": 69225
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-26-marivo-full-refactor-r0-evidence-index.md",
+      "sha256": "e859557f0177ccea9a9885f25f69b055f3c3dce3796368fcbfdf44e991227daf",
+      "bytes": 13987
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-26-marivo-full-refactor-r0-sql-ledger.md",
+      "sha256": "c7d3de0b4b92649258b5f83ec76957cf0ae99a277b60e35d268081facbcf0461",
+      "bytes": 26547
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r01/manifest.json",
+      "sha256": "82a038e0646a674879578e0f9d00805180743315cf64feedee5ad27fd85d8414",
+      "bytes": 54070
+    }
+  ]
+}
