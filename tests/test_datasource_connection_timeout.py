@@ -1,4 +1,4 @@
-"""Bounded timeout contract for ``md.connect`` / ``md.test`` / ``md.test_no_persist``.
+"""Bounded timeout contract for internal connect, ``md.test``, and doctor.
 
 These tests use fakes that block on a ``threading.Event`` so the Marivo-side
 wall-clock deadline is exercised without a real hanging gateway. Each blocking
@@ -87,7 +87,7 @@ def _patch_blocking_select_backend(
 
 def test_connect_rejects_non_positive_timeout() -> None:
     with pytest.raises(ValueError, match="timeout_seconds must be positive"):
-        md.connect("warehouse", timeout_seconds=0)
+        manage_mod._connect("warehouse", timeout_seconds=0)
 
 
 def test_test_rejects_non_positive_timeout() -> None:
@@ -109,7 +109,7 @@ def test_connect_raises_typed_timeout_when_handshake_blocks(
     try:
         started = time.monotonic()
         with pytest.raises(DatasourceConnectionTimeoutError) as exc_info:
-            md.connect("warehouse", timeout_seconds=1)
+            manage_mod._connect("warehouse", timeout_seconds=1)
         elapsed = time.monotonic() - started
     finally:
         block_event.set()
@@ -122,7 +122,7 @@ def test_connect_raises_typed_timeout_when_handshake_blocks(
     assert exc_info.value.repair is not None
     assert exc_info.value.repair.kind == "reconnect"
     assert "timeout_seconds" in exc_info.value.repair.action
-    assert "md.connect" in exc_info.value.location
+    assert "md.test" in exc_info.value.location
 
 
 def test_test_returns_connection_timeout_when_handshake_blocks(

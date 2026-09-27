@@ -146,7 +146,7 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
     backend = _FakeBackend()
     import marivo.datasource.manage as registry_mod
 
-    monkeypatch.setattr(registry_mod, "connect", lambda _name, **kwargs: backend)
+    monkeypatch.setattr(registry_mod, "_connect", lambda _name, **kwargs: backend)
 
     result = md.test("wh")
 
@@ -184,7 +184,7 @@ def test_connect_context_manager_yields_backend_and_disconnects(
         lambda _datasource: BuiltDatasourceBackend(backend=backend, env_sourced_secrets=()),
     )
 
-    connection = md.connect("wh")
+    connection = registry_mod._connect("wh")
     assert connection.backend is backend
     assert connection.list_tables() == ["orders"]
 
@@ -218,7 +218,7 @@ def test_connect_context_manager_disconnects_after_error(
         lambda _datasource: BuiltDatasourceBackend(backend=backend, env_sourced_secrets=()),
     )
 
-    with pytest.raises(RuntimeError, match="boom"), md.connect("wh"):
+    with pytest.raises(RuntimeError, match="boom"), registry_mod._connect("wh"):
         raise RuntimeError("boom")
 
     assert backend.disconnect_calls == 1
@@ -246,7 +246,7 @@ def test_connect_manual_disconnect_is_idempotent(
         lambda _datasource: BuiltDatasourceBackend(backend=backend, env_sourced_secrets=()),
     )
 
-    connection = md.connect("wh")
+    connection = registry_mod._connect("wh")
     connection.disconnect()
     connection.disconnect()
     with connection:
@@ -382,7 +382,7 @@ def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
 
     monkeypatch.setattr(
         manage_mod,
-        "connect",
+        "_connect",
         lambda _name, **kwargs: (_ for _ in ()).throw(
             RuntimeError(
                 "connect postgresql://alice:uri-secret@db.example "
@@ -414,7 +414,7 @@ def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
         def disconnect(self) -> None:
             return None
 
-    monkeypatch.setattr(manage_mod, "connect", lambda _name, **kwargs: _FakeBackend())
+    monkeypatch.setattr(manage_mod, "_connect", lambda _name, **kwargs: _FakeBackend())
     monkeypatch.setattr(
         manage_mod._secrets,
         "persist_backend_env_sourced",

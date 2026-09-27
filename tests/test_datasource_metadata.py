@@ -98,9 +98,9 @@ def test_table_metadata_to_dict_includes_view_fields() -> None:
         partition_state="unknown",
         warnings=(),
     )
-    assert base.is_view is False
+    assert base.is_view is None
     assert base.view_definition is None
-    assert base.to_dict()["is_view"] is False
+    assert base.to_dict()["is_view"] is None
     assert base.to_dict()["view_definition"] is None
 
     view = TableMetadata(

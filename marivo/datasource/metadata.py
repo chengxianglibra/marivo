@@ -35,6 +35,8 @@ MetadataWarningKind = Literal[
     "table_comments_unavailable",
     "column_comments_unavailable",
     "nullable_unavailable",
+    "view_unavailable",
+    "physical_profile_unavailable",
     "partitions_unavailable",
     "primary_keys_unavailable",
     "metadata_query_failed",
@@ -179,7 +181,7 @@ class TableMetadata(RenderableResult):
     warnings: tuple[MetadataWarning, ...]
     projectable_columns: tuple[ColumnMetadata, ...] = ()
     partition_state: Literal["known", "none", "unknown"] = "unknown"
-    is_view: bool = False
+    is_view: bool | None = None
     view_definition: str | None = None
     primary_keys: tuple[str, ...] = ()
     unique_constraints: tuple[UniqueConstraintMetadata, ...] = ()
@@ -312,6 +314,7 @@ def _schema_only(
     backend_type: str,
     table_expr: Any,
     warnings: Iterable[MetadataWarning],
+    is_view: bool | None = None,
 ) -> TableMetadata:
     return TableMetadata(
         datasource=datasource,
@@ -322,8 +325,27 @@ def _schema_only(
         columns=_schema_columns(table_expr),
         partitions=(),
         partition_state="unknown",
+        is_view=is_view,
         warnings=(
             *warnings,
+            *(
+                (
+                    MetadataWarning(
+                        kind="view_unavailable",
+                        message="Table or view kind is unavailable through the bound Ibis schema.",
+                    ),
+                )
+                if is_view is None
+                else ()
+            ),
+            MetadataWarning(
+                kind="nullable_unavailable",
+                message="Column nullability is unavailable through the bound Ibis schema.",
+            ),
+            MetadataWarning(
+                kind="physical_profile_unavailable",
+                message="Physical row and size estimates are unavailable through the bound Ibis schema.",
+            ),
             MetadataWarning(
                 kind="schema_only_fallback",
                 message="metadata inspection returned schema-only metadata",
@@ -616,6 +638,7 @@ def _inspect_source(
                 database=None,
                 backend_type=datasource_ir.backend_type,
                 table_expr=table_expr,
+                is_view=False,
                 warnings=(
                     MetadataWarning(
                         kind="comments_unavailable",

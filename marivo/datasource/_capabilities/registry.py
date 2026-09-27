@@ -31,7 +31,6 @@ INPUT_FAMILIES = frozenset(
         "DatasourceName",
         "DatasourceReferenceInput",
         "DatasourceCatalog",
-        "DatasourceConnection",
         "TableSource",
         "ProjectionColumns",
         "PhysicalColumnName",
@@ -69,7 +68,6 @@ OUTPUT_FAMILIES = frozenset(
         "DatasourceList",
         "DatasourceDescription",
         "DatasourceCatalog",
-        "DatasourceConnection",
         "DatasourceTestResult",
         "TableSource",
         "SourceParameter",
@@ -117,7 +115,6 @@ def _effects(
 
 _NONE = _effects()
 _LOCAL = _effects("local_metadata_read")
-_CONNECT = _effects("local_metadata_read", "opens_connection", flags=("may_cache_resolved_secret",))
 _TEST = _effects(
     "local_metadata_read",
     "opens_connection",
@@ -278,16 +275,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             effects=_LOCAL,
             constraints=constraints["configured"],
             example='md.describe("warehouse")',
-        ),
-        _capability(
-            "connect",
-            "marivo.datasource.manage.connect",
-            "Open a live Ibis backend for explicit external work, bounded by a 30s wall-clock connect deadline (SQLite opens inline). Backend calls are outside governed SourceSession reads and md.raw_sql terminal guards.",
-            output="DatasourceConnection",
-            inputs=_inputs(("subject", "DatasourceName")),
-            effects=_CONNECT,
-            constraints=constraints["configured"],
-            example='with md.connect("warehouse") as con:\n    print(con.list_tables())',
         ),
         _capability(
             "test",
@@ -467,18 +454,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             public_entrypoint="catalog.describe",
         ),
         _capability(
-            "DatasourceCatalog.connect",
-            "marivo.datasource.catalog.DatasourceCatalog.connect",
-            "Open one raw Ibis backend from a loaded catalog for caller-owned work outside governed SourceSession reads and md.raw_sql terminal guards.",
-            kind="method",
-            output="DatasourceConnection",
-            inputs=_inputs(("receiver", "DatasourceCatalog"), ("subject", "DatasourceName")),
-            effects=_CONNECT,
-            constraints=constraints["configured"],
-            example='with md.load().connect("warehouse") as con:\n    print(con.list_tables())',
-            public_entrypoint="catalog.connect",
-        ),
-        _capability(
             "DatasourceCatalog.test",
             "marivo.datasource.catalog.DatasourceCatalog.test",
             "Round-trip a configured datasource from a loaded catalog.",
@@ -489,16 +464,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             constraints=constraints["configured"],
             example=('result = md.load().test("warehouse")\nresult.show()'),
             public_entrypoint="catalog.test",
-        ),
-        _capability(
-            "DatasourceConnection.disconnect",
-            "marivo.datasource.manage.DatasourceConnection.disconnect",
-            "Close a managed datasource connection.",
-            kind="method",
-            output="None",
-            inputs=_inputs(("receiver", "DatasourceConnection")),
-            example='connection = md.connect("warehouse")\nconnection.disconnect()',
-            public_entrypoint="connection.disconnect",
         ),
         _capability(
             "SourceInspection.partitions",
@@ -619,7 +584,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "load",
                 "list",
                 "describe",
-                "connect",
                 "test",
             ),
             "physical_sources": (
@@ -681,7 +645,6 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         TableSourceIR,
     )
     from marivo.datasource.manage import (
-        DatasourceConnection,
         DatasourceDescription,
         DatasourceFailure,
         DatasourceList,
@@ -733,14 +696,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         DatasourceCatalog,
         "DatasourceCatalog",
         ("load",),
-        methods=("list", "get", "describe", "connect", "test", *show_render),
-    )
-    add(
-        DatasourceConnection,
-        "DatasourceConnection",
-        ("connect", "DatasourceCatalog.connect"),
-        properties=("backend",),
-        methods=("disconnect",),
+        methods=("list", "get", "describe", "test", *show_render),
     )
     add(
         DatasourceSummary,

@@ -62,9 +62,7 @@ def _raw_ir(name: str, *, backend_type: str, fields: dict[str, object]) -> Datas
 
 def test_build_duckdb_in_memory(project_root: Path) -> None:
     md.register(_spec("local", backend_type="duckdb", path=":memory:"))
-    backend = md.connect("local")
-    # ibis DuckDB backend exposes list_tables(); empty for a fresh in-memory db.
-    assert backend.list_tables() == []
+    assert md.test("local").ok is True
 
 
 def test_duckdb_extra_kwargs_pass_through(

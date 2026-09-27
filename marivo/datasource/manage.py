@@ -42,7 +42,7 @@ RAW_SQL_DEFAULT_LIMIT = 100
 """Default row bound for ``md.raw_sql`` when the caller omits ``limit``."""
 
 DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
-"""Default wall-clock deadline for ``md.connect`` and ``md.test``.
+"""Default wall-clock deadline for ``md.test`` and internal connections.
 
 Bounds both the backend-connect handshake and the Ibis literal round-trip.
 Callers may override it with a keyword ``timeout_seconds``; a non-positive
@@ -55,7 +55,7 @@ _THREAD_AFFINE_BACKEND_TYPES = frozenset({"sqlite"})
 SQLite (opened via ``sqlite3.connect`` with the default ``check_same_thread``)
 raises if the connection is used from a thread other than the one that opened
 it. Such backends also open a local file or in-memory database synchronously
-and cannot block on a network handshake, so ``md.connect`` opens them inline on
+and cannot block on a network handshake, so the internal connector opens them inline on
 the caller's thread instead of on a deadline worker thread.
 """
 
@@ -325,7 +325,7 @@ class RawSqlResult(RenderableResult):
         return df
 
 
-class DatasourceConnection:
+class _DatasourceConnection:
     """Context-manageable datasource backend connection.
 
     Args:
@@ -336,7 +336,7 @@ class DatasourceConnection:
 
     Example:
         >>> import marivo.datasource as md
-        >>> with md.connect("wh") as con:
+        >>> with _connect("wh") as con:
         ...     con.list_tables()
 
     Constraints:
@@ -506,12 +506,12 @@ def describe(name: str) -> DatasourceDescription:
     )
 
 
-def connect(
+def _connect(
     name: str,
     *,
     timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-) -> DatasourceConnection:
-    """Open a context-manageable live ibis backend for a datasource.
+) -> _DatasourceConnection:
+    """Open an internal context-manageable ibis backend for a datasource.
 
     Args:
         name: The datasource name to connect to.
@@ -520,16 +520,16 @@ def connect(
             value is rejected before any connection is attempted.
 
     Returns:
-        A ``DatasourceConnection`` proxy that delegates backend methods and
+        A private connection proxy that delegates backend methods and
         disconnects automatically when used as a context manager.
 
     Example:
         >>> import marivo.datasource as md
-        >>> with md.connect("wh") as con:
+        >>> with _connect("wh") as con:
         ...     con.list_tables()
 
     Constraints:
-        Prefer ``with md.connect(...) as con`` so cleanup is automatic. For
+        Prefer ``with _connect(...) as con`` so cleanup is automatic. For
         manual lifetime management, call ``connection.disconnect()`` when done.
         Direct backend operations are outside governed source reads and do not
         receive ``md.raw_sql`` terminal guards.
@@ -555,7 +555,7 @@ def connect(
         # back a connection bound to that thread, unusable from the caller.
         return _connect_internal(name)
     return cast(
-        "DatasourceConnection",
+        "_DatasourceConnection",
         _run_with_deadline(
             lambda: _connect_internal(name),
             timeout_seconds=timeout_seconds,
@@ -607,7 +607,7 @@ def _run_with_deadline(
             timeout_seconds=timeout_seconds,
             elapsed_ms=elapsed_ms,
             datasource_name=datasource_name,
-            location=f"md.connect({datasource_name!r})",
+            location=f"md.test({datasource_name!r}) connection",
         )
     if "error" in outcome:
         raise outcome["error"]
@@ -619,7 +619,7 @@ def _connect_internal(
     *,
     project_root: Path | None = None,
     include_semantic_layers: bool = False,
-) -> DatasourceConnection:
+) -> _DatasourceConnection:
     datasource = (
         _store.load_one_layered(name, project_root=project_root)
         if include_semantic_layers
@@ -645,7 +645,7 @@ def _connect_internal(
             ),
         )
     built = _backends.build_backend_with_secrets(datasource)
-    connection = DatasourceConnection(built.backend)
+    connection = _DatasourceConnection(built.backend)
     _secrets.remember_env_sourced(built.backend, built.env_sourced_secrets)
     _secrets.remember_env_sourced(connection, built.env_sourced_secrets)
     return connection
@@ -858,7 +858,7 @@ def test(
         raise ValueError("timeout_seconds must be positive.")
 
     def roundtrip(state: dict[str, Any]) -> DatasourceTestResult:
-        state["backend"] = connect(datasource_name, timeout_seconds=timeout_seconds)
+        state["backend"] = _connect(datasource_name, timeout_seconds=timeout_seconds)
         state["phase"] = "roundtrip"
         from marivo.datasource.adapters import provider_for
 

@@ -142,21 +142,12 @@ def test_source_inspection_renders_physical_extent_scope_notes(
     assert query_spy.user_data_queries == 0
 
 
-def test_inspect_rejects_connection_with_direct_ref_guidance(project_root: Path) -> None:
-    path = _register_duckdb(project_root)
-    _create_orders(path)
-    connection = md.connect("warehouse")
-
-    try:
-        with pytest.raises(TypeError) as exc_info:
-            md.inspect(connection, md.table("orders"))  # type: ignore[arg-type]
-    finally:
-        connection.disconnect()
-
+def test_inspect_rejects_untyped_backend_with_direct_ref_guidance() -> None:
+    with pytest.raises(TypeError) as exc_info:
+        md.inspect(object(), md.table("orders"))  # type: ignore[arg-type]
     message = str(exc_info.value)
-    assert "DatasourceConnection" in message
-    assert "does not require md.connect" in message
-    assert 'md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))' in message
+    assert "Ref[datasource]" in message
+    assert "ms.ref.datasource('warehouse')" in message
 
 
 def test_inspect_rejects_bare_datasource_name_and_invalid_source() -> None:

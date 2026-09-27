@@ -1395,8 +1395,7 @@ def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspe
         Does not execute a user-data query. Tables use metadata hooks and
         Parquet reads footer metadata. The backend may open local CSV and JSON
         files to discover their columns and observed types. Remote HTTP JSON is
-        not fetched. ``datasource`` is the typed ref itself; do not call
-        ``md.connect`` before inspection.
+        not fetched. ``datasource`` is the typed ref itself.
     """
     project_root = find_project_root() or Path.cwd()
     return _inspect_in_project(datasource, source, project_root=project_root)
@@ -1411,12 +1410,6 @@ def _inspect_in_project(
     """Inspect one source against an already-resolved project root."""
     if type(datasource) is not Ref or datasource.kind is not SemanticKind.DATASOURCE:
         received = type(datasource).__name__
-        if received == "DatasourceConnection":
-            raise TypeError(
-                "datasource must be Ref[datasource], got DatasourceConnection. "
-                "md.inspect does not require md.connect; use "
-                'md.inspect(ms.ref.datasource("warehouse"), md.table("orders")).'
-            )
         if isinstance(datasource, str):
             raise TypeError(
                 "datasource must be Ref[datasource], got a bare string. Use "

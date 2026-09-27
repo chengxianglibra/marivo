@@ -318,11 +318,7 @@ class DatasourceConnectionTimeoutError(DatasourceConnectionError):
         phase = (
             "connection handshake" if stage == "connection_timeout" else "Ibis literal round-trip"
         )
-        resolved_location = location or (
-            f"md.connect({datasource_name!r})"
-            if stage == "connection_timeout"
-            else f"md.test({datasource_name!r})"
-        )
+        resolved_location = location or f"md.test({datasource_name!r})"
         super().__init__(
             message=(
                 f"datasource {datasource_name!r} {stage} exceeded the "

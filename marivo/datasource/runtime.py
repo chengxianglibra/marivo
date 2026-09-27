@@ -90,8 +90,8 @@ class DatasourceConnectionService:
 
     This service uses ``backends.build_backend()`` (without secrets
     tracking) because it is intended for short-lived scoped operations
-    such as inspections and previews.  The public ``connect()`` API in
-    ``manage.py`` continues to handle secrets separately.
+    such as inspections and previews. The private connectivity probe in
+    ``manage.py`` handles validated secret caching separately.
     """
 
     def __init__(

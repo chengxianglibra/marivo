@@ -298,7 +298,7 @@ Event matching、Lifecycle replay、归因、排名、相关、预测各用独�
 | B10；C01/C02 | R0.2 快照的 `ms.from_sql`/`SqlProvenance`/执行 provenance 的 `parity_check` 已在 R1.3 删除；历史 site 版本和旧契约仍可检索 | 当前目标以 `ai_context` 记录历史说明、用独立业务来源或受治理 Ibis oracle 在声明外验证；SQL 文本无执行/准入权限，不恢复 parity Help 或兼容 alias。semantic/R1.3 已实施，R10 再扫打包/历史与当前版本边界 | C-A/C-D；[Semantic owner](../../specs/semantic/semantic-object-model.md#historical-sql-context-and-verification)、R1.3 主验收记录 |
 | B11；C10 | 旧 distinct/quantile Dataset 的原量 rollup、`distinct_membership`/`distribution_shapley` 等续算仍有实现/披露；部分路径受来源准入阻断 | exact distinct/quantile 可直接观察，但首次只允许有当前行依据的统计/筛选；原量 rollup 和对应归因以部件不足结构化拒绝，除非另立可验证规则。methods R5，精确类型/后端 R9，R10 删除误导 Help | C-A/C-B/C-D；§5、§6.1 C10，独立原始身份集合/排序 oracle |
 | B12；C02/C03/C08/C11–C13/C18 | 旧调用允许或暗示不完整身份键、模糊版本、隐式权重/参照、occurrence ID 排序与动态列回灌；C18 现无公开构造 | 按 owning specs 要求完整 K、精确 `at/before_end`、显式 `StatisticalWeight/ReferenceWeights`、可证业务顺序、typed Anchor 和固定 Ω；无依据输入结构化拒绝，不提供任意回调/字典兼容。semantic R2 声明、R5/R6/R7 消费；C08 权重声明仍为 deferred target | C-A/C-B/C-D；§5、[Analysis owner](../../specs/analysis/python-analysis-design.md#r03-accepted-full-algebra-target-inactive)、[Semantic owner](../../specs/semantic/semantic-object-model.md#r03-full-algebra-target-decisions-inactive) |
-| B13；C01.c/C16 | `md.connect` 当前公开返回可调用原始 SQL 的 Ibis backend；Help `datasource.connect` 和最新 site 明示该旁路，绕过 `md.raw_sql` 的 reason/行界/超时 | [Datasource owner](../../specs/semantic/datasource-layer.md#r06-public-connection-cutover-target) 冻结 R1 目标：删除公开 backend-returning `md.connect` 与对应 Help，内部连接仅属 adapter；连通性用 `md.test`，物理事实用 `md.inspect`，自定义 SQL 用终端 `md.raw_sql`。实施前保持当前披露，R1 未关闭此格即阻塞唯一入口验收 | C-A/C-D；`tests/test_datasource_profiles_backends.py`、`test_public_surface.py`、R1.4 主验收 C01.c/DS02 |
+| B13；C01.c/C16 | R1.5 已删除公开 `md.connect`、`DatasourceCatalog.connect`、`DatasourceConnection` 与对应 Help；当前无公开 backend-returning 连接对象 | [Datasource owner](../../specs/semantic/datasource-layer.md#r06-public-connection-cutover-target) 的 R1 目标已在公共面实施：内部连接仅属 adapter；连通性用 `md.test`，物理事实用 `md.inspect`，自定义 SQL 用终端 `md.raw_sql`。唯一入口的公共旁路子格已关闭，C01.c 仍受 MySQL/ClickHouse timeout 等物理格阻塞 | C-A/C-D；`tests/test_datasource_live_registry.py`、`test_datasource_live_help.py`、`test_public_surface.py`、R1.5 主验收 C01.c/DS02 |
 
 ### 7.1 同迁消费者与披露门禁
 
@@ -311,8 +311,8 @@ Event matching、Lifecycle replay、归因、排名、相关、预测各用独�
 
 ### 7.2 当前处置与禁止推断
 
-B10 的 R1.3 删除和 B08 的现存 Store 版本拒绝是已观察现状，其余多数 B 行是目标/待迁移；
-B13 的目标已冻结但公共旁路仍存在。R1/R2 的局部通过不能把 B01–B09、B11–B13 标为
+B10 的 R1.3 删除、B13 的 R1.5 公共旁路删除和 B08 的现存 Store 版本拒绝是已观察现状，其余多数 B 行是目标/待迁移。
+R1/R2 的局部通过不能把 B01–B09、B11–B12 或整体 C01 标为
 删除完成。旧 J1–J4、C0–C10、S4 wheel/Agent 记录只归 [R0.1 历史索引](2026-09-26-marivo-full-refactor-r0-evidence-index.md)；
 新目标测试文件 `tests/test_full_algebra_contracts.py` 与 `tests/test_full_algebra_backend_matrix.py`
 尚不存在，R0.5 写出的示例命令是待实施验收索引，不能列为已运行。
@@ -327,7 +327,7 @@ owner/消费者/反例与实际状态，不另造第二份资格矩阵。R1/R2 �
 | 接收包 | 冻结目标、接口责任与首批格 | 同迁消费者、必须保留的独立正反例 | 当前交接状态与恢复条件 |
 | --- | --- | --- | --- |
 | R1 C01.a/b | datasource adapter 七职责，`SourceSession` 接 typed Table/File/JSON、物理 schema、Ibis 表达身份、固定 Arrow schema 与资源；首批 DuckDB table/view/file/HTTP JSON、SQLite main table/view，再逐 PostgreSQL/MySQL/Trino/ClickHouse 表形态和 `base-int64/base-float64`，目标矩阵仍有 Decimal/时间/复合键 | `md.inspect/sample/test`、Semantic preview/source-health、基础成员和 sum/count；重复/Null 复合身份、空流 schema、无效日期/Decimal/时间精度、远端取消；R0.1 原始事实与 R1.2 定向输入分别保留 | 本地及部分远端基础读取有有界证据；DS03–DS09 丰富 metadata、MySQL 复合键、远端终止、认证 HTTP/时区/timeout 格仍阻塞或未验证。完整资格须按 R0.5 §4 每格实源重验 |
-| R1 C01.c 与 SQL | `md.raw_sql` 终端保留，B13 公开 backend-returning `md.connect` 目标删除；Ibis 受治理读取与 Store SQLite 事务分权，内部 SQL 例外为空。DS01–DS21/AN01–AN33 按 R1/R5–R9 owner 和删除时点逐行交接 | Datasource Help/CLI/双语 site、Semantic 历史 SQL 说明与独立 oracle；伪造编译句柄、原样提交、终端 typed reentry、timeout/权限/秘密负例 | R1.3 已删 provenance parity 路线并完成部分后端控制；`md.connect` 当前仍公开、MySQL/ClickHouse timeout、DS15 认证、旧 AN 文本路由未闭合。R1 不得标通过，R9 再扫实际提交 |
+| R1 C01.c 与 SQL | `md.raw_sql` 终端保留，B13 公开 backend-returning 连接目标已删除；Ibis 受治理读取与 Store SQLite 事务分权，内部 SQL 例外为空。DS01–DS21/AN01–AN33 按 R1/R5–R9 owner 和删除时点逐行交接 | Datasource Help/CLI/双语 site、Semantic 历史 SQL 说明与独立 oracle；伪造编译句柄、原样提交、终端 typed reentry、timeout/权限/秘密负例 | R1.3 已删 provenance parity 路线并完成部分后端控制；R1.5 已封闭 `md.connect` 与 catalog 公共旁路。MySQL/ClickHouse timeout、DS15 认证、旧 AN 文本路由仍未闭合。R1 不得标通过，R9 再扫实际提交 |
 | R2 C02.a/b/c、C17.a | semantic 拥有完整身份 K、精确版本、变量/单位、规范 Metric 图、结构 Relationship 与业务顺序/日历定义；ontology 只关联精确 Ref。R5 才验证选定成员的关系匹配；R4 建 Artifact 身份，R10 才读其 ontology 上下文 | `ms.load/catalog.require/scoped readiness`、Analysis Ref binding 与 ontology；两版复合键、缺失/重复/fanout、同刻相反顺序、单位/组件手算，错 Ref kind/过期上下文拒绝；不把静态定义当来源完整性 | R2.1–R2.4 与随后 C02.b/C17.a 静态收口有定向证据；C02.b 的实际来源匹配、C17.a 新 Artifact 侧与 R2 整体仍未通过。权重角色仅是 deferred target，未公开 |
 
 R1/R2 之外的首个依赖交接是 R3 的唯一规则/graph、R4 的统一 Run/Artifact/Store 和

@@ -2,7 +2,7 @@
 
 Date: 2026-09-26
 
-Status: R1 execution plan；本文只规划 R1，产品实现和 R1 验收尚未开始。
+Status: R1 execution plan；R1.1–R1.5 已部分实施，整体验收仍未通过；当前证据见阶段验收主记录。
 
 本工作包执行[全量重构实施计划 §9 R1](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md#r1--统一-datasource-adapters-与基础-ibis-读取)。
 R1 接收 R0 的[C01 能力去向](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#2-c01c18-能力去向)、
@@ -22,8 +22,9 @@ R0.6 未开展及 R0.5 控制/认证替代可行性未证。执行 R1 前须核�
 R0.6 于 2026-09-27 补交[breaking change 与 R1/R2 交接](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#7-r06-breaking-changes)。
 其中 B13 的 [Datasource owning spec 目标](../../specs/semantic/datasource-layer.md#r06-public-connection-cutover-target)
 要求在 R1 公共切换时删除返回原生 backend 的公开 `md.connect` 和对应 Help target，迁移
-消费者后使 `md.raw_sql` 成为唯一公共原始 SQL 终端。R1.4 已披露该旁路，但尚未移除；
-披露不能算唯一入口验收。原起草快照与后续 R1.1–R1.4 的实际通过/阻塞仍以主验收记录为准。
+消费者后使 `md.raw_sql` 成为唯一公共原始 SQL 终端。R1.5 已同时移除
+`DatasourceCatalog.connect`、公开 `DatasourceConnection` 与相应 Help；原起草快照与
+R1.1–R1.5 的实际通过/阻塞仍以主验收记录为准。
 
 R1 主责是 C01.a/b/c 及其 C16 公共披露：六种 typed datasource spec 的连接、表和文件/JSON
 来源、作用域参数、inspect/sample/test/preview/source-health 的物理读取、秘密边界与唯一终端

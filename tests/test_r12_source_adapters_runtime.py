@@ -12,6 +12,7 @@ import pyarrow as pa
 import pytest
 
 from marivo.datasource.adapters import PhysicalRequirement, SourceSession, provider_for
+from marivo.datasource.engines.base import MetadataInspectRequest
 from marivo.datasource.errors import DatasourceSourceCapabilityError
 from marivo.datasource.ir import (
     AiContextIR,
@@ -48,6 +49,28 @@ def _assert_table_read(
     expected: list[dict[str, object]],
 ) -> None:
     bound = session.bind(source, source_identity=identity)
+    metadata = session.provider.metadata.inspect_table(
+        MetadataInspectRequest(
+            datasource=session.datasource.name,
+            backend=session._backend,
+            table=source.table,
+            database=source.database,
+            table_expr=bound.relation,
+            include_partitions=True,
+            datasource_ir=session.datasource,
+        )
+    )
+    assert {"id", "amount"} <= {column.name for column in metadata.columns}
+    assert metadata.partition_state == "unknown"
+    assert metadata.is_view is None
+    assert {warning.kind for warning in metadata.warnings} >= {
+        "comments_unavailable",
+        "partitions_unavailable",
+        "primary_keys_unavailable",
+        "view_unavailable",
+        "nullable_unavailable",
+        "physical_profile_unavailable",
+    }
     qualified = session.qualify(
         bound,
         PhysicalRequirement("r12.basic", 1, frozenset({"scan", "filter", "project"})),

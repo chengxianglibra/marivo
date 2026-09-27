@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
-import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import ArtifactNotFoundError, SessionNotFoundError
@@ -33,12 +32,15 @@ def test_new_public_session_starts_with_empty_v6_store(
 def test_public_construction_has_no_datasource_io_and_rejects_cross_session(
     authoring_evidence_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from marivo.datasource import backends
+
     monkeypatch.chdir(authoring_evidence_project)
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("logical construction performed datasource I/O")
 
-    monkeypatch.setattr(md, "connect", forbidden)
+    monkeypatch.setattr(backends, "build_backend", forbidden)
+    monkeypatch.setattr(backends, "build_backend_with_secrets", forbidden)
     first = mv.session.get_or_create("first", report_timezone="UTC")
     second = mv.session.get_or_create("second", report_timezone="UTC")
     population = first.population(ms.ref.entity("sales.orders"))

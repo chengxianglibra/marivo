@@ -1269,7 +1269,7 @@ coverage 和 cache identity；值默认只在内存。
 `scope=local_node_only` 说明展示；源表级行与 bytes 保持 `unknown`，Marivo
 不会默认发起 cluster-wide 扩散查询。
 
-表检查返回绑定 Ibis 来源的 schema。注释、分区、主键、物理估计和 ClickHouse
+表检查返回绑定 Ibis 来源的 schema。注释、表或视图类型、列可空性、分区、主键、物理估计和 ClickHouse
 `projectable_columns` 等可选 catalog 事实，若无法从合格路径取得，会标为 unavailable。
 分析若必须依赖其中某项事实，对应来源形态保持阻断，直到取得独立证据。
 
@@ -1300,8 +1300,8 @@ coverage 和 cache identity；值默认只在内存。
 `.failure` 和专项 `.repair`。连接握手与 Ibis 编译的 literal 往返受 30 秒 Marivo 侧 wall-clock
 deadline 约束，可用关键字参数 `timeout_seconds` 覆盖；超时会以 `connection_timeout`
 或 `connection_roundtrip_timeout` 失败码 fail-closed 返回，而不是无限阻塞——即使后端
-自身的查询超时无法强制执行也一样。线程亲和型 SQLite 数据源是唯一例外：它同步打开本地
-文件或内存数据库，`md.connect` 会在调用方线程内联打开，deadline 不生效。快照的连接、
+自身的查询超时无法强制执行也一样。线程亲和型 SQLite 数据源会在连接测试的 worker 中
+同步打开本地文件或内存数据库，打开动作本身不能中断。快照的连接、
 来源解析、timeout 与执行失败同样保持结构化，并明确查询是否已经执行；后端 message 会被
 有界化和脱敏。
 

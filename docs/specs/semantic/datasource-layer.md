@@ -441,21 +441,12 @@ md.test(spec.ref).show()  # validated live round trip
 - Storage is **layered / multi-root**: datasource files are discovered across
   the configured model roots, so a shared base project and a local overlay can
   coexist.
-- `md.connect(name)` opens a live `DatasourceConnection`; `md.test(ref)` returns
-  a `DatasourceTestResult` and triggers post-validation secret caching. Both
-  accept a keyword-only `timeout_seconds` (default 30s) that bounds the connect
-  handshake and an Ibis-compiled literal round-trip with a Marivo-side wall-clock deadline.
-  When the deadline is exceeded the call fails closed — `md.connect` raises a
-  `DatasourceConnectionTimeoutError` and `md.test` returns a timeout failure —
-  rather than blocking indefinitely, regardless of whether the backend's own
-  query timeout is enforceable. A thread-affine backend (SQLite) is the one
-  exception: it opens a local file or in-memory database synchronously and
-  cannot block on a network handshake, so `md.connect` opens it inline on the
-  caller's thread and the wall-clock deadline does not apply.
-  `md.connect` exposes the raw Ibis backend for explicit caller-owned work.
-  Calls through it bypass governed `SourceSession` binding and decode rules
-  and the terminal `md.raw_sql` reason, row and timeout guards. They confer
-  no Analysis method qualification or `md.raw_sql` terminal evidence.
+- `md.test(ref, timeout_seconds=30)` returns a `DatasourceTestResult` and
+  triggers post-validation secret caching. Its connect handshake and
+  Ibis-compiled literal round-trip share a Marivo-side wall-clock deadline.
+  Timeout returns a structured failure; a local SQLite connection opens on
+  the caller's worker thread and its synchronous open cannot be interrupted.
+  Live backends remain private to the datasource adapter.
 
 `DatasourceTestResult.show()` is the authoritative connection-test stop point.
 On failure, `.failure` carries a bounded `DatasourceFailure` with a stable stage
@@ -594,8 +585,9 @@ only their requested business scope. Optional metadata failures may yield
 schema-only or unavailable observations; a fact required for admission cannot
 be inferred from a sample or silently supplied. Six backend metadata profiles
 now read the bound Ibis relation schema. Optional comments, partition topology,
-view definitions, primary keys, and physical estimates that cannot be obtained
-through that route are explicitly marked unavailable. A consumer requiring one
+view kind/definitions, column nullability, primary keys, and physical estimates
+that cannot be obtained through that route are explicitly marked unavailable.
+Unknown view kind is `None`, not `False`. A consumer requiring one
 of those facts rejects the affected cell. Trino `$partitions` and ClickHouse
 `system.tables` / `system.parts` partition reads continue through bound Ibis
 expressions. Authenticated DuckDB HTTP sources reject before secret resolution
@@ -605,9 +597,8 @@ or connection until a qualified credential API is available.
 limit: int = 100, timeout_seconds: int = 30, include_types: bool = True,
 project_root: Path | None = None) -> RawSqlResult` remains Marivo's managed
 terminal SQL escape hatch for questions outside its governed Analysis capability.
-The public `md.connect` raw-backend access described above remains a separate
-unguarded SQL bypass; R1 acceptance must resolve this public-surface conflict
-before claiming `md.raw_sql` is the only public SQL entry.
+The R1 public connection cutover removes backend-returning connection entry
+points; `md.raw_sql` is the only public raw SQL terminal entry.
 It submits SQL text verbatim with a required nonempty reason, positive
 returned-row limit and enforceable timeout. The input is not parsed to classify
 SQL as a diagnostic. Read-only protection relies on connection and backend permissions
@@ -635,8 +626,8 @@ SQLite transactions have separate internal persistence authority.
 
 ### R0.6 public connection cutover target
 
-This target is inactive until the R1 public cutover. Remove the backend-returning
-`md.connect` export and its `datasource.connect` Help target. Connection
+R1 removes the backend-returning `md.connect`, `DatasourceCatalog.connect`,
+and public `DatasourceConnection` type and their Help targets. Connection
 creation remains private to the datasource adapter. A caller checks
 connectivity with `md.test`, inspects
 physical facts with `md.inspect`, uses bound Ibis reads only through governed
@@ -645,11 +636,8 @@ Existing calls that require a raw Ibis backend must change to one of those
 purpose-specific paths; they do not receive a compatibility alias or a wrapper
 that exposes `backend.sql`/`raw_sql`. R1 must migrate the current Help,
 docstrings, latest English and Chinese site examples, and public surface tests
-together. Check that CLI doctor still uses its bounded datasource test path,
-then verify that no other public connection object
-provides the same bypass. Until that change is implemented, the current
-`md.connect` behavior described above remains a disclosed R1 blocker, and the
-single-public-SQL-entry target is not met.
+together. CLI doctor uses its bounded datasource test path; no public
+connection object provides the same bypass.
 
 ## Handoff to semantics
 

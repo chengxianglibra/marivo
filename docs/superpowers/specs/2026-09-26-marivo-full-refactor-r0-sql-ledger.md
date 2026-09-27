@@ -2,9 +2,20 @@
 
 Date: 2026-09-26
 
-Status: 目标处置已登记；仅静态追踪当前调用链。`md.raw_sql` 是唯一具名公共终端 SQL 通道；内部方法 SQL 例外 **空**。新 Ibis 路线、六后端真实资格和资源行为均未验证。
+Status: R0.5 静态目标与调用链保留，R1.5 当前状态覆盖见下节。`md.raw_sql` 是唯一公共终端 SQL 通道；内部方法 SQL 例外 **空**。六后端基础来源已有分格证据，完整资格和资源终止仍未验证。
 
 依据：[主计划 §2、§5、§9](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)、[R0 实施文档 R0.5](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)、[能力台账 §6](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#6-r04-六类元算子规则冻结)。本文记录当前生产构造/提交的迁移责任，**不**批准将手写 SQL 搬进 Analysis adapter。`I`=由 typed Ibis 表达式构造及原样编译提交，`D`=经驱动公开配置/metadata API，`P`=执行前准入的 Ibis 准备→Python，`T`=唯一公共终端 `md.raw_sql`，`X`=删除，`S`=仅 Store SQLite 事务。每行状态均为“当前定位；目标路线未实证”；表中“证明”是以后阶段必须取得的真实证据，不是本轮通过。
+
+## R1.5 当前状态覆盖（2026-09-27）
+
+下表更新早期静态“当前定位”，精确实测格见[阶段验收 R1.5](2026-09-26-marivo-full-refactor-acceptance.md#r15-公共连接切换与剩余格复核2026-09-27)；原表的目标路线与内部 SQL 例外空集不变。
+
+| 台账 ID | 当前处置与未闭合格 |
+| --- | --- |
+| DS02/B13 | 公开 `md.connect`、`DatasourceCatalog.connect`、`DatasourceConnection` 及 Help 已删除；`md.raw_sql` 是唯一公开终端 SQL 入口，typed reentry 拒绝 |
+| DS03–DS07、DS09 | 六后端 schema-only Ibis metadata 有实测 unavailable 披露；45 个丰富 metadata 断言仍跳过，不能记作其原目标通过 |
+| DS11、DS13、DS15 | MySQL/ClickHouse 可执行 timeout、时区事实和带认证 DuckDB HTTP 仍有精确阻塞；无内部 SQL 替代 |
+| DS17、DS21；AN33 | 基础来源读取/样本及新 `SourceSession` 提交有有界证据；完整来源形态和远端终止未齐，旧具体文本执行类待 R4–R9 清除 |
 
 ## 1. 源端与 Semantic SQL 入口
 

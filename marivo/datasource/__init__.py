@@ -27,13 +27,11 @@ from marivo.datasource.inspection import (
     inspect,
 )
 from marivo.datasource.manage import (
-    DatasourceConnection,
     DatasourceDescription,
     DatasourceFailure,
     DatasourceList,
     DatasourceSummary,
     DatasourceTestResult,
-    connect,
     describe,
     list,
     raw_sql,
@@ -59,7 +57,6 @@ from marivo.datasource.source import (
 __all__ = [
     "ClickHouseSpec",
     "DatasourceCatalog",
-    "DatasourceConnection",
     "DatasourceDescription",
     "DatasourceFailure",
     "DatasourceList",
@@ -81,7 +78,6 @@ __all__ = [
     "TrinoSpec",
     "UnprunedScope",
     "clickhouse",
-    "connect",
     "csv",
     "describe",
     "duckdb",
