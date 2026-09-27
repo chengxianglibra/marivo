@@ -2,7 +2,7 @@
 
 Date: 2026-09-26
 
-Status: R0.1–R0.4 与 R0.6 的静态产物已登记，R0.5 替代可行性仍阻塞；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验，R1.5 公共连接切换与逐格复核见下；R2.1–R2.4 及后续静态交接有有界证据；R3.1 私有纯构造与 R3.2 私有注册有有界测试证据，R3.2 跨执行单一 owner 未通过。R0、R1、R2 和 R3 整体均未验收。
+Status: R0.1–R0.4 与 R0.6 的静态产物已登记，R0.5 替代可行性仍阻塞；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验，R1.5 公共连接切换与逐格复核见下；R2.1–R2.4 及后续静态交接有有界证据；R3.1 私有纯构造与 R3.2 私有注册有有界测试证据，R3.2 跨执行单一 owner 未通过；R3.3 私有图与纯计划有有界测试证据。R0、R1、R2 和 R3 整体均未验收。
 
 本文件按[主计划](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)和[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)续记实际证据。历史验收不自动转成新 DSL 的技术、后端、安装包或真实 Agent 资格。
 
@@ -405,3 +405,36 @@ whole-input singleton 或精确部件要求。旧 J1/operator/Dataset 的领域�
 | `marivo/analysis/methods/registry.py` | `a9c44ccc4497d7aae5e01e1e0c027a09f116113f6bd0394bbcb0813a8cfea984` |
 | `marivo/analysis/methods/semantics.py` | `465b03f0df34e158405400b99b66115ec2fbcccd77345135cd31330b4256cc00` |
 | `tests/test_analysis_methods_r32.py` | `d979e5085df4cb4250f337a8a13656080435f39e0b46f428e690f7d543dee508` |
+
+
+## R3.3 私有有类型图与纯计划（2026-09-27）
+
+实施基线为 `panda` / `c2c9418676`，本节记录该基线上的 R3.3 交付。
+`analysis/core/graph.py` 接通 R3.1 Signature/RuleDerivation 与 R3.2 注册，
+`analysis/compiler/graph_plan.py` 提供私有分类、选路、阶段和 R4 检查交接。
+结果类型的静态矛盾检查归 `MethodSemantics` 所有，不在图中复制方法语义。
+本轮不更改生产物理资格，不迁移公共 J1/Dataset 执行，不实施 R3.4 lowering。
+
+| R3.3 单元 | 本轮状态 | 独立预期、证据与恢复条件 |
+| --- | --- | --- |
+| 图身份、签名及角色 | **私有构造通过** | 独立同形节点指纹相同但 identity 不同；共享节点只产出一个阶段。重复 identity、环、错误角色、跨 owner、错误方法版本、定义指纹不匹配和篡改推导拒绝；缺少原状态部件及与已知字段/Metric 声明矛盾的输出类型在构造期拒绝。现场来源叶子只接受声明和 builder 依据；旧检查、观察或推导依据不得清除本次义务。 |
+| 输入分类与早拒绝 | **私有分类通过** | 只访问执行根闭包；固定叶子不展开历史来源。深层混合、多 datasource 现场组合在选路前拒绝。BindProject 显式登记字段 owner、关系端点和 Metric computation roots 的来源依赖，来源依赖保持唯一且 scope 精确绑定，固定主体再读取现场字段仍判混合。 |
+| 精确选路及阶段 | **测试专用注册通过；生产阻塞** | 独立断言 Ibis、Ibis preparation→Python、Artifact→Python 的阶段顺序、数量及共享行为。类型、表形态、时间形态不匹配拒绝；裸来源和裸固定叶子均不能产生读取计划。每个方法显式选择一个路线，不失败后换路，不把本地输出送回来源阶段。生产注册仍无合格实现；恢复需 R3.4/R4-R8 真实消费者和精确资格证据。 |
+| 检查与物理事实交接 | **私有交接通过；执行未验证** | 保留原输入/范围及 consume/publish 截止义务；consume 绑定方法的首个消费阶段，publish 绑定最终输出阶段。子义务不丢失、条件 Post 不自动升级为 evidence。物理输入/输出类型、时间/表形态、精度和资源仍需 R4 实测及执行约束。 |
+| 零 I/O 边界 | **哨兵反例通过** | 连接、SourceSession 构造/绑定/批读取、Artifact payload 读取、SessionStore 构造/Run admit/Artifact 查询均设置调用即失败哨兵，覆盖构造、三条测试路线计划与混合拒绝。没有实际提交、Run 分配或 Artifact 发布。 |
+| 公共消费者与阶段出口 | **未迁移；R3 整体未通过** | 公共 J1/Dataset、旧 placement/source admission 和 Store 历史图保持原 owner，未作为新图 fallback。R3.2 跨执行单一 owner、R3.4 lowering、R4 Runtime/Store、R5-R8 方法执行和 R9 后端资格继续开放。 |
+
+验证命令与结果：
+
+- `make test TESTS='tests/test_analysis_graph_r33.py tests/test_analysis_core_r31.py tests/test_analysis_methods_r32.py'`：**90 passed**，其中 R3.3 新增 **27** 项。
+- `make typecheck TYPECHECK_TARGETS='marivo/analysis/core/graph.py marivo/analysis/compiler/graph_plan.py marivo/analysis/methods/semantics.py'`：通过；最终全范围门禁覆盖其余源码。
+- 定向 `make lint-agent`：通过；最终 `make check-agent` 覆盖所有修改文件的格式、lint、导入边界、**389** 个源码文件 typing、默认测试 **5218 passed / 64 skipped** 及 API 文档构建。
+- `git diff --check`：通过。64 项历史 skip 不变，原断言、归属及恢复条件保留，不作为本阶段验收。
+
+此处来源 Ref/定义指纹、Signature 与物理形态是传入的静态绑定；图不扫描来源或
+读取 receipt 来证明它们。纯计划初版要求单一精确来源/时间形态，异构形态不隐式
+转换；裸来源或固定叶子不能绕过方法注册授权读取。固定叶子若仍带待履行义务则拒绝。
+R4 必须在消费前验证实际 schema、精确 Artifact 绑定及资源条件，并履行所有检查。
+本轮没有六后端实源、全量 Runtime、wheel、冷恢复或真实 Agent 验收；没有修改
+公共导出、Help、CLI、site latest 示例或 packaged skills，不将静态计划证据升级为
+公共执行、后端或 R3 整体通过。

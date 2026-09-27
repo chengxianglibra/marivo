@@ -67,6 +67,66 @@ implementations. Other unmigrated operator/Dataset methods retain their phase
 boundaries. `md.raw_sql` remains a datasource terminal and cannot be registered
 here.
 
+### R3.3 private definition graph and pure planning
+
+`analysis/core/graph.py` owns the private immutable definition DAG consumed by
+`analysis/compiler/graph_plan.py`. `SourceLeaf` captures a Semantic Ref,
+definition fingerprint, datasource Ref, declared shape, exact value type and
+Signature. `FixedLeaf` captures an ArtifactRef, definition fingerprint, retained
+Signature and declared fixed shape. These are supplied metadata contracts, not
+source inspection or Artifact receipt validation. R4 must verify their actual
+physical and persisted bindings before consumption. Historical Artifact lineage
+is deliberately absent from the data-dependency graph.
+Live `SourceLeaf` signatures admit only declaration and builder evidence. Check,
+observation and derived evidence from an earlier realization cannot discharge
+this invocation's pending source checks.
+
+`method_node` derives through the single method registry. Its ordered edges
+identify subject/quantity inputs and current/baseline comparison endpoints;
+`BindProject` additionally requires explicit source leaves covering its field
+owner, relationship endpoints and Metric computation roots. Those source edges
+participate in classification even when the subject input is fixed. Each required
+source occurs once and retains the exact Session, owner and scope. Other
+connected methods cannot introduce hidden source edges. Each node has an
+explicit identity independent of its definition fingerprint. Equal definitions
+constructed separately remain separate; repeated references to the same node
+share one stage. Identity collisions, cycles, method/version/role mismatches,
+foreign owners and altered derivations fail before planning.
+`BindProject` also rejects an output type that contradicts a known bound field
+or Metric logical type; unresolved physical details remain R4 obligations.
+
+`classify_inputs` visits only the reachable DAG and returns source, artifact or
+mixed inputs. `plan` rejects mixed inputs and multiple live datasources before
+implementation selection. The initial private planner also requires one exact
+source/time shape; heterogeneous shapes have no implicit coercion or federation.
+Every reachable method receives exactly one explicit route choice: `ibis`,
+`ibis_python` or `artifact_python`, matched against the full registration key.
+There is no automatic route retry. A local output cannot feed another source
+stage. A bare source leaf cannot authorize a read without a registered method;
+a bare fixed leaf likewise cannot authorize an Artifact read without a
+registered local method. A fixed leaf with unfinished publication obligations
+is rejected.
+
+The returned GraphPlan contains dependency-ordered source binding, Artifact
+read, source method and local method stages. Ibis-to-Python has an explicit
+preparation stage feeding its registered local stage. It also retains bound
+CheckRequirements and PhysicalRequirements, including declared input and output
+types, time/table shape, precision and resources. Source binding stages are
+pure descriptors, not independently authorized reads. R3.4/R4 must lower and
+validate the admitted prefix before executing it. The R4 consumer must satisfy
+`consume` obligations before the owning method uses their facts and `publish`
+obligations before publication; inherited obligations keep their original
+bindings. Pending Post never becomes established evidence through planning.
+Static implementation qualification does not satisfy invocation checks.
+
+These APIs are private and do not expand public Help, exports, or continuation
+capabilities. No production physical implementation is qualified by this change.
+Synthetic registrations test stage selection only. Existing J1/Dataset execution
+and the Store-backed Session history graph remain owned by their current
+consumers pending R4-R8 migration; the private planner never calls them as a
+fallback. R3.4 lowering, Run allocation, execution, publication and recovery
+remain outside this increment.
+
 ### Relative Anchor observation and retention (C18)
 
 The single public entry shape is

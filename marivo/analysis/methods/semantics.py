@@ -7,11 +7,15 @@ obligations. Physical declarations never replace or amend those derivations.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, TypeAlias, get_args
+from typing import TYPE_CHECKING, Literal, TypeAlias, get_args
 
 from marivo.analysis.core import rules
 from marivo.analysis.core.model import CheckId, PartRole, Signature, StatisticalWeightPart
 from marivo.analysis.methods.errors import reject
+
+if TYPE_CHECKING:
+    from marivo.analysis.methods.physical import ValueType
+
 
 MethodName: TypeAlias = Literal[
     "bind_project",
@@ -92,6 +96,72 @@ class MethodSemantics:
     def __post_init__(self) -> None:
         if type(self.key) is not MethodKey or self.owner != "analysis.core.rules":
             reject("a complete connected semantic owner", repr(self), "Use analysis.core.rules.")
+
+    def validate_output_type(
+        self, inputs: tuple[ValueType, ...], output: ValueType, params: rules.RuleParameters
+    ) -> None:
+        """Reject known type contradictions; exact physical metadata remains a runtime check."""
+        from marivo.analysis.methods.physical import DecimalType, ScalarType
+
+        name = self.key.name
+        if name == "bind_project":
+            assert isinstance(params, rules.BindProject)
+            contract = (
+                params.metric_contract
+                if params.metric_contract is not None
+                else params.field_contract
+            )
+            if contract is not None:
+                logical_type = contract.logical_type
+                known_scalars = {
+                    "boolean": ScalarType("boolean"),
+                    "string": ScalarType("string"),
+                    "int64": ScalarType("int64"),
+                    "float64": ScalarType("float64"),
+                    "date": ScalarType("date"),
+                    "timestamp": ScalarType("timestamp"),
+                }
+                declared_type = known_scalars.get(logical_type)
+                if declared_type is not None and output != declared_type:
+                    reject(
+                        f"declared {logical_type} result type",
+                        repr(output),
+                        "Use the bound field or Metric type.",
+                    )
+                if logical_type == "decimal" and not isinstance(output, DecimalType):
+                    reject(
+                        "declared Decimal result type",
+                        repr(output),
+                        "Use a Decimal type and verify precision before consumption.",
+                    )
+            return
+        if name in ("parts_transport", "map_correspond"):
+            if any(value != output for value in inputs):
+                reject(
+                    "unchanged value type for transport/correspondence",
+                    repr(output),
+                    "Retain the exact input value type.",
+                )
+            return
+        if name in ("row.count", "row.count_defined"):
+            expected: ValueType = ScalarType("int64")
+        elif any(isinstance(value, DecimalType) for value in inputs):
+            if not isinstance(output, DecimalType):
+                reject(
+                    "an exact declared Decimal result type",
+                    repr(output),
+                    "Preserve Decimal typing and verify precision before consumption.",
+                )
+            return
+        elif (
+            name in ("row.mean", "row.weighted_mean", "cell.ratio")
+            or ScalarType("float64") in inputs
+        ):
+            expected = ScalarType("float64")
+        else:
+            expected = ScalarType("int64")
+        if output != expected:
+            reject(f"result type {expected}", repr(output), "Use the method's exact result type.")
 
     @property
     def rule(self) -> rules.RuleId:
