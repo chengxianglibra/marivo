@@ -222,6 +222,30 @@ def test_ratio_role_order_changes_identity() -> None:
     assert node_fingerprint(swapped) != root_record.node_id
 
 
+def test_explicit_undefined_denominator_policy_round_trips() -> None:
+    graph = _ratio_graph()
+    root_record = next(record for record in graph.nodes if record.node_id == graph.roots[0])
+    assert isinstance(root_record.node, RatioNodeV1)
+    updated = _record(replace(root_record.node, zero_division="undefined"))
+    changed = replace(
+        graph,
+        roots=(updated.node_id,),
+        nodes=tuple(
+            sorted(
+                (updated, *(record for record in graph.nodes if record != root_record)),
+                key=lambda record: record.node_id,
+            )
+        ),
+        occurrences=tuple(
+            replace(occurrence, node_id=updated.node_id)
+            if occurrence.path == "root[0]"
+            else occurrence
+            for occurrence in graph.occurrences
+        ),
+    )
+    assert metric_graph_from_bytes(canonical_bytes(changed)) == changed
+
+
 @pytest.mark.parametrize("depth", [1, 10])
 def test_depth_at_or_below_limit_is_accepted(depth: int) -> None:
     validate_graph(_slice_chain(depth))

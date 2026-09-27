@@ -38,7 +38,6 @@ from marivo.semantic.metric_graph import (
     RatioNodeV1,
     SliceNodeV1,
     TargetMetricContract,
-    WeightedMeanAggregateNodeV1,
     component_node,
     node_child_ids,
 )
@@ -312,36 +311,28 @@ def _metric_authority(
     for component in {item.node_id: item for item in metric.components}.values():
         node = component_node(metric.graph, component.node_id)
         kind: Literal["sum", "count", "min", "max", "mean", "weighted_mean", "opaque"] = "opaque"
-        if isinstance(node, WeightedMeanAggregateNodeV1):
+        if component.numeric_method == "sum@v1":
+            kind = "sum"
+        elif component.numeric_method == "count@v1":
+            kind = "count"
+        elif component.numeric_method == "min@v1":
+            kind = "min"
+        elif component.numeric_method == "max@v1":
+            kind = "max"
+        elif component.numeric_method == "mean@v1":
+            kind = "mean"
+        elif component.numeric_method == "weighted_mean@v1":
             kind = "weighted_mean"
-        elif isinstance(node, AggregateNodeV1) and node.agg in (
-            "sum",
-            "count",
-            "min",
-            "max",
-            "mean",
-        ):
-            if node.agg == "sum":
-                kind = "sum"
-            elif node.agg == "count":
-                kind = "count"
-            elif node.agg == "min":
-                kind = "min"
-            elif node.agg == "max":
-                kind = "max"
-            else:
-                kind = "mean"
-        spatial: Merge = "min" if kind == "min" else "max" if kind == "max" else "sum"
-        temporal: Merge = spatial
+        spatial: Merge = component.spatial_merge
+        temporal: Merge = component.time_merge
         cumulative = bool(metric.cumulative)
-        if kind == "opaque" or component.requires_source_recompute:
+        if component.requires_source_recompute:
             spatial = "blocked"
             temporal = "blocked"
-        # Matching extrema commute exactly without endpoint alignment. Other
-        # status folds need their separately retained evaluation-state protocol.
-        if component.time_fold == kind and kind in ("min", "max"):
-            spatial = kind
-            temporal = kind
+        if component.time_fold in ("min", "max"):
+            # The Semantic resolver proved the temporal extrema algebra.
+            spatial = component.spatial_merge
+            temporal = component.time_merge
             kind = "opaque"
         if (
             isinstance(node, AggregateNodeV1)
@@ -351,9 +342,6 @@ def _metric_authority(
             and component.computation_root.path == definition.entity.ref.path
         ):
             spatial = "sum"
-        if component.time_fold in ("min", "max"):
-            temporal = "min" if component.time_fold == "min" else "max"
-            kind = "opaque"
         if cumulative:
             temporal = "last"
         digest = _canonical_digest((metric.key, component.node_id))[:20]

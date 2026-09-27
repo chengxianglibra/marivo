@@ -127,6 +127,40 @@ def test_equivalent_catalog_aggregates_share_value_graph_not_authority_digest(
     assert root.unit_override is None
 
 
+def test_intrinsic_component_state_keeps_method_and_time_order() -> None:
+    from marivo.semantic.metric_graph_lowering import normalize_target_metric
+    from tests.shared_fixtures import load_inline_semantic
+
+    with load_inline_semantic(_CATALOG_SOURCE) as loaded:
+        assert loaded.registry is not None
+        assert loaded.expression_sidecar is not None
+        registry = loaded.registry
+        sidecar = loaded.expression_sidecar
+        revenue = normalize_target_metric(registry, "test.revenue", sidecar=sidecar)
+        component = revenue.components[0]
+        assert component.numeric_method == "sum@v1"
+        assert component.required_state == ("sum", "non_null_count", "row_count")
+        assert (component.spatial_merge, component.time_merge) == ("sum", "sum")
+        assert component.unit == "CNY"
+
+        weighted = normalize_target_metric(registry, "test.weighted", sidecar=sidecar)
+        weighted_component = weighted.components[0]
+        assert weighted_component.numeric_method == "weighted_mean@v1"
+        assert weighted_component.required_state == (
+            "weighted_numerator",
+            "weight_sum",
+            "non_null_pair_count",
+            "row_count",
+        )
+        assert weighted_component.null_rule == "non_null_pairs"
+
+        folded = normalize_target_metric(registry, "test.inherited_folded_mean", sidecar=sidecar)
+        folded_component = folded.components[0]
+        assert folded_component.time_fold == ("percentile", 0.95)
+        assert folded_component.time_merge == "blocked"
+        assert folded_component.requires_source_recompute
+
+
 def test_catalog_aggregate_filter_and_explicit_unit_override_are_value_inputs(
     catalog_registry: Registry,
 ) -> None:
@@ -274,6 +308,7 @@ def test_dependency_digest_excludes_name_context_and_source_location(
 
     assert original.dependency_digest == changed.dependency_digest
     assert original.graph == changed.graph
+    assert original.bound_graph_fingerprint == changed.bound_graph_fingerprint
 
 
 def test_measure_definition_digest_changes_aggregate_graph_identity(
@@ -295,6 +330,7 @@ def test_measure_definition_digest_changes_aggregate_graph_identity(
 
     assert original.dependency_digest.digest != changed.dependency_digest.digest
     assert original.graph.roots != changed.graph.roots
+    assert original.bound_graph_fingerprint != changed.bound_graph_fingerprint
 
 
 def test_projected_source_bindings_are_complete_dependency_identity() -> None:

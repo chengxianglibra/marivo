@@ -1,31 +1,22 @@
 # Semantic Object Model
 
-## R0.3 full-algebra target decisions (inactive)
+## R0.3 full-algebra target decisions (inactive unless explicitly activated)
 
-The declarations in this section are accepted target contracts, not current
-exports. They are the Semantic authority consumed by the R0.3 Analysis rules;
-runtime checks remain Analysis and datasource responsibilities. Declaration
-identity and version enter the bound definition and Artifact receipt. An
-author-declared business fact is a trusted premise, not a measured source fact.
+The declarations in this section are accepted target contracts; their status
+is stated per subsection. They are the Semantic authority consumed by the R0.3
+Analysis rules; runtime checks remain Analysis and datasource responsibilities.
+Declaration identity and effective dependency fingerprint enter the bound
+definition and Artifact receipt. An author-declared business fact is a trusted
+premise, not a measured source fact.
 
-### Named statistical-weight role
+### Named statistical-weight role (deferred)
 
-`ms.statistical_weight(*, name: str, value: Ref[MeasureKind] |
-Ref[MetricKind], unit: Ref[EntityKind], domain: Ref[DomainKind] | None = None)
--> Ref[StatisticalWeightKind]` is an independent named declaration. `value`
-must resolve to a numeric, dimensionless, nonnegative statistical weight per
-`unit` instance; the author is responsible for its sampling/statistical
-meaning. The loader checks exact ownership, unit, version, numeric kind and
-known contradictions. The declaration does not rewrite a Measure or Metric,
-grant additivity, or let an Analysis caller relabel an arbitrary order count,
-allocation share or sampling-control value as a weight. `mv.statistical_weight`
-binds a relation derived from that exact value and validates actual finite
-nonnegative values and instance correspondence at execution. A role mismatch
-reports the expected declared value/unit and a repair to author or select the
-right role. `ms.weighted_mean` keeps its existing governed Metric-component
-meaning; it is distinct from the new current-row statistical method.
+The R0.3 statistical-weight role remains a target contract. R2.2 does not
+export a declaration, Ref, catalog entry, or Help target for it. A later phase
+must separately authorize the declaration and its source-value checks.
+`ms.weighted_mean` retains its existing governed Metric-component meaning.
 
-### Business order and simultaneous events
+### Business order and simultaneous events (R2.3 target)
 
 `ms.business_order(*, name: str, subject: Ref[EntityKind],
 sequences: tuple[EventSequence, ...] = (),
@@ -516,10 +507,11 @@ def paid_revenue(order_rows):
 ### Grain, root entity, and fan-out
 
 Every base Metric has a computation root: the Entity whose governed facts and
-join paths define its contributions. Single-Entity Metrics resolve `root_entity`
-automatically; multi-Entity expression Metrics name it explicitly. Aggregate
-receivers in a base body belong to that root; joined Entities may contribute
-Dimensions and filters. The root does not also select the analysis Population,
+join paths define its contributions. For a single-Entity Metric, the explicit
+`entities=[entity]` declaration identifies that root; a multi-Entity expression
+Metric must name `root_entity` explicitly. The function body does not select
+it. Aggregate receivers in a base body belong to that root; joined Entities may
+contribute Dimensions and filters. The root does not also select the analysis Population,
 observation window, or reporting coordinates.
 
 Analysis may bind multiple computation roots to one explicitly chosen Population
@@ -641,6 +633,17 @@ capabilities from its `additivity` label alone. Unsupported transformations fail
 with repair to express the business meaning using existing governed builders or
 perform an already-admitted observation at the required grain. This amendment
 does not add a generic reaggregation callback or opaque-state API.
+
+R2.2 keeps the content-addressed value DAG reusable across equivalent Metric
+declarations. A bound graph fingerprint additionally hashes the canonical DAG
+and effective semantic dependency digest; it does not introduce Semantic-object
+version management. Each leaf retains exact component roles, policies,
+time/path/filter facts, numerical method and required state. The shared
+Semantic resolver derives only intrinsic state and ordering requirements.
+Analysis checks the selected Population, coordinate contributions, and actual
+retained parts before allowing a transformation. The restricted Ibis body of
+an expression Metric supplies a computation expression, not an inferred
+component graph or fold license.
 
 ### Accepted S0 DSL declaration facts (inactive)
 

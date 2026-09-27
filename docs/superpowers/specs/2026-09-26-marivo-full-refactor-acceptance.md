@@ -2,7 +2,7 @@
 
 Date: 2026-09-26
 
-Status: R0.1–R0.5 静态产物已登记，R0.6 未开展；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验；R2.1 静态定义候选已核验。R0、R1 和 R2 整体均未验收。
+Status: R0.1–R0.5 静态产物已登记，R0.6 未开展；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验；R2.1 静态定义候选、R2.2 Metric 图静态候选已核验。R0、R1 和 R2 整体均未验收。
 
 本文件按[主计划](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)和[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)续记实际证据。历史验收不自动转成新 DSL 的技术、后端、安装包或真实 Agent 资格。
 
@@ -183,3 +183,18 @@ MySQL 基础 Analysis 补充格：启动前 `mysql-analysis` 为 Exited，本轮
 | C17.a ontology Ref/Artifact 关联 | **未验证** | R2.4 承接；本轮跨实体 reverse-index 回归不授 ontology 规划或计算准入。 |
 
 定向 `make test TESTS='tests/test_semantic_r21_identity_relationship.py tests/test_semantic_live_registry.py tests/test_semantic_catalog.py tests/test_semantic_catalog_discovery.py tests/test_semantic_source_health.py'` 为 **233 passed**；附加键覆盖与路径反例定向 **87 passed**；既有 validity、Ref、assembly、catalog、Event/StateModel 和跨实体正反例参加完整默认门禁。`make check-agent` 的 lint/import、378 个源码文件 typing、默认测试 **5107 passed、64 skipped** 及 API 文档均通过；`npm --prefix site run build` 成功，Astro 321 页，中英文安装脚本校验通过；`git diff --check` 退出码 0。64 个跳过继续保持 R1/R5 等原归属与恢复条件，不能算 R2.1 通过。此次没有修改 packaged skills 或 `AGENTS.md`，R1 的公共 SQL 旁路、metadata、远端终止等阻塞状态不变。修复静态声明失败须修改精确 Ref/输出别名或完整身份键并重新 `ms.load()`；来源行违约不能以改静态声明或回退旧数据标记通过，须在 R5 对对应来源形态重验。
+
+## R2.2 Metric 声明与规范计算图静态候选（2026-09-27）
+
+基线为 `panda` HEAD `0ec27acc01149ea6201c116574f8f917c20354d7`；起点没有受跟踪的未提交改动，原未跟踪的 R2 实施文档 SHA-256 仍为 `7c8488e862195487b05494f86ddb9f44e71b362f8649933cecd041c72299f18c`，未修改。用户实施中撤回 `ms.statistical_weight`：本轮不提供声明、Ref、catalog 或 Help 接口。提交前已暂存的代码、测试与文档候选（不含本记录）的 `git diff --binary HEAD -- marivo tests docs/specs docs/api site/src/content/docs` SHA-256 为 `f7d8a34b4b57472ff0e1f90bcaa06659448e088b68413810622bfc3d031ee141`；新增图契约测试文件 SHA-256 为 `1caffac8069eb2af6003e889d716e3d7cd5910a20c70c2119fe315c467933460`。这些只定位本地候选，不代表来源执行或 R2 阶段验收。
+
+| 单元 | 状态 | 独立预期、当前证据及后续条件 |
+| --- | --- | --- |
+| 声明与组件 | **静态通过** | `@ms.metric` 仍由受限 Ibis body 校验；其显式 Entity 列表（多 Entity 时另有 `root_entity`）、业务时间、单位、可加性与值政策构成声明事实，opaque body 不推断 ratio 分子/分母或原量归约权。规范组件保留根、过滤、路径、事件/状态时间、fold、单位、Null/空值政策、数值方法和所需原状态；未声明的政策字段保持缺失。`test_semantic_metric_graph_lowering.py`、`test_lazy_observation_contracts.py` 与 `test_lazy_group_b_admission.py` 核对；具体 Population 和来源贡献许可仍由 R5 验证。 |
+| 数值与状态手算 oracle | **静态图通过；来源执行未验证** | ratio 的分子 18、分母 6 应为 3，不能对行比率直接求和；linear 的 `8 CNY - 3 CNY` 为 `5 CNY`，`CNY + kg` 不相称；weighted mean 的 `(10,2)、(Null,9)、(20,1)` 必须用同一非 Null 配对，结果为 `40/3`，不能纳入孤立权重 9。sum/mean 保留和、非 Null 数及行数，count 保留计数与行数，min/max 保留极值与空值状态；distinct 和分位数没有通用可合并和。`test_lazy_local_fold.py`、`test_metric_unit_algebra.py`、`test_semantic_metric_graph_lowering.py`、`test_lazy_state_admission.py` 与 `test_metric_expression_graph.py` 分别提供独立数值和图边界断言；这些既有局部执行测试不授新来源路线资格。 |
+| 空间与时间次序 | **静态通过；来源行重叠未验证** | 对两日 A/B 的贡献 `(10,0)` 与 `(0,20)`，先按地区取时间最大再空间求和为 30，先逐日求和再取时间最大为 20，不能交换。半可加 `max` 的图只给时间极值，禁不安全的空间归约；匹配的极值方法才可同时合并。一个 100 的贡献落在两个重叠标签时，两标签各见 100，去标签仍须 100 而非 200；R5 须以具体贡献和来源行证明。`test_lazy_observation_contracts.py` 与 `test_lazy_distinct_numeric.py` 保留现有反例。 |
+| 图身份与消费者 | **静态通过** | 同内容 DAG 共享节点；绑定图指纹同时包含图与有效依赖摘要，声明变化会改变持久/准入身份而展示文案不会。Analysis 折叠消费者读取图给出的内在合并与数值方法，继续独立检查 Population、坐标、贡献与保留状态；不创建 Semantic 对象版本。`test_semantic_r22_metric_graph.py`、`test_semantic_metric_graph_lowering.py`、`test_metric_expression_graph.py` 核对。 |
+| 统计权重角色 | **撤回；未实施** | 用户明确取消本轮 `ms.statistical_weight` 接口。R0.3 目标条款只保留为延期背景；没有该声明、Ref、catalog 条目、Help target 或执行资格。`ms.weighted_mean` 的 Metric 组件语义保持原契约。 |
+| 公共披露 | **静态回归通过** | 本轮没有新公共导出或 Help target；已有导出快照、Help 可达性和预算随全量测试回归。`site/` latest 中英文去除 Semantic 对象版本表述；未编辑 packaged skills 或 `AGENTS.md`。 |
+
+撤回接口后重新执行 `make check-agent`：lint/import、378 个源码文件 typing、默认测试 **5110 passed、64 skipped** 和 API 文档全部通过。定向 `make test TESTS='tests/test_semantic_r22_metric_graph.py tests/test_semantic_metric_graph_lowering.py tests/test_metric_expression_graph.py tests/test_lazy_observation_contracts.py tests/test_metric_unit_algebra.py tests/test_lazy_group_b_admission.py tests/test_cutover_documentation_examples.py tests/test_public_surface.py'` 为 **121 passed**。`npm --prefix site run build` 成功，Astro 321 页及中英文安装脚本校验通过；生成的 API 和站点目录检索不到撤回的统计权重接口；`git diff --check` 退出码 0。所有 64 个 skip 保持原断言和 R1/R5 等归属，不计 R2.2 或整体阶段通过。未执行六后端实源、wheel、冷恢复或真实 Agent 旅程；R0/R1 阻塞项不因静态图通过而解除，R2.3/R2.4 仍待实施，**R2 整体未通过**。
