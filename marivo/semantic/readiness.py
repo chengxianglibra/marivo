@@ -26,7 +26,6 @@ ReadinessIssueKind = Literal[
     "load_error",
     "unknown_ref",
     "cross_datasource_unfederated",
-    "sql_parity_unverified",
     "fragile_string_ref",
     "time_dimension_pushdown_advisory",
     "undeclared_naive_time_axis",
@@ -251,12 +250,6 @@ def _issue(
         repair=repair,
         details={} if details is None else details,
     )
-
-
-def _parity_passed(project: SemanticProject, ref: str) -> bool:
-    """Check whether a metric with SQL provenance has passed parity verification."""
-    parity_result = project._parity_results.get(ref)
-    return parity_result is not None and parity_result.ok
 
 
 def _object_maps(project: SemanticProject) -> tuple[dict[str, SemanticKind], dict[str, object]]:
@@ -1058,35 +1051,6 @@ def build_readiness_report(
                         kind="reauthor",
                         canonical_id="objects.metric",
                         action="Move integration upstream, enable a federated backend, or split the metric.",
-                    ),
-                )
-            )
-
-    # SQL parity unverified warnings.
-    for ref in checked_refs:
-        if kinds.get(ref) != SemanticKind.METRIC:
-            continue
-        path = _display_path(ref)
-        obj = objects.get(ref)
-        if obj is None:
-            continue
-        prov = getattr(obj, "provenance", None)
-        if prov is None:
-            continue
-        provenance_sql = prov.sql
-        if provenance_sql is None:
-            continue
-        if not _parity_passed(project, path):
-            warnings.append(
-                _issue(
-                    "sql_parity_unverified",
-                    "warning",
-                    (path,),
-                    f"{path} has provenance SQL but parity has not been confirmed.",
-                    repair(
-                        kind="retry",
-                        canonical_id="parity_check",
-                        action=f"Run ms.parity_check({path!r}) when parity matters, or report the warning as non-blocking when the certification policy allows it.",
                     ),
                 )
             )

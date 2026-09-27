@@ -115,8 +115,7 @@ Datasource → Domain → Entity → dimensions / time dimension / measures → 
 ```
 
 Python 声明就是契约。装饰器函数体返回 Ibis 表达式，而不是原始 SQL 字符串。
-需要用 SQL 与既有查询做一致性检查时，SQL 只能作为
-`provenance=ms.from_sql(sql=..., dialect=...)` 元数据存在。
+既有 SQL 如有助于解释指标，可写入 `ai_context`；这些文字不会执行，也不代表已验证。
 
 这个简化表示包含一个 `orders` 实体、一个 `region` 维度、一个
 `order_date` 时间维度、一个 `amount` 度量，以及一个 `revenue` 聚合指标。
@@ -885,11 +884,8 @@ catalog.source_health(
 只有通过 `ms.source_check` 声明的 check 才会读取用户数据；每个 check 都必须提供并
 披露精确的有界 scope。Marivo 不会从 discovery sample 推断数据期望。
 
-另外两个诊断支持编写：
-
-- `ms.richness()` —— 建议性的覆盖度/深度报告；永不阻塞。
-- `ms.parity_check("sales.revenue")` —— 用指标的 `provenance` SQL 运行并比对结果。
-  需要 `provenance=ms.from_sql(...)`。
+`ms.richness()` 提供建议性的覆盖度/深度报告，永不阻塞。执行 SQL 的公开
+parity 入口已移除；迁移指标需要对照独立业务来源，并另行记录核验结果。
 
 就绪检查如何判断“是否就绪”，见 [就绪检查](/zh-cn/docs/latest/concepts/readiness/)。
 分析如何记录结论，见 [证据链](/zh-cn/docs/latest/concepts/evidence/)。
@@ -1044,19 +1040,17 @@ structured repair 的唯一来源。
     nulls=ms.nulls.ignore(),
     empty=ms.empty.null(),
     name="revenue",
-    provenance=ms.from_sql(
-        sql="SELECT SUM(amount) AS revenue FROM orders",
-        dialect="duckdb",
+    ai_context=ms.ai_context(
+        business_definition="Gross order amount before refunds; historically calculated from paid orders."
     ),
-    ai_context=ms.ai_context(business_definition="Gross order amount before refunds."),
 )
 def revenue(table):
     return table.amount.sum()
 ```
 ### 分析正确性的约束
 
-可加性与时间行为决定智能体更改分析粒度或增加切分时，数值是否仍有意义。SQL 来源信息
-不会执行指标；它为 `ms.parity_check(...)` 提供参考查询，以检查已声明的语义是否与既有实现一致。
+可加性与时间行为决定智能体更改分析粒度或增加切分时，数值是否仍有意义。既有 SQL
+可记录在 `ai_context` 中，但不会验证指标，也不会进入执行。
 
 - `ms.additive(over=(...))`、`ms.additive_all(except_=(...))` 与
   `ms.non_additive()` 显式声明坐标可加性。快照/状态事实在 `except_=` 中固定
@@ -1064,8 +1058,8 @@ def revenue(table):
   `status_time_fold=` 指定 `"last"`、`"first"`、`"mean"`、`"max"` 或
   `("percentile", 0.95)`。
 - `ms.nulls.ignore()` 与 `ms.empty.null()` 显式保留聚合的 Null 输入及完整空贡献语义。
-- `ms.from_sql(sql, dialect)` —— 把 SQL 作为**仅来源信息** 附加，用于启用
-  `ms.parity_check(...)`。它永远不会作为指标请求体执行。
+- `ms.ai_context(business_definition=..., guardrails=[...])` —— 记录业务解释与可选
+  的历史背景。迁移后的行为应在声明外对照独立来源。
 
 ```python
 snapshot_date = ms.time_dimension_column(
@@ -1267,15 +1261,14 @@ coverage 和 cache identity；值默认只在内存。
 `scope=local_node_only` 说明展示；源表级行与 bytes 保持 `unknown`，Marivo
 不会默认发起 cluster-wide 扩散查询。
 
-ClickHouse 检查还会在 `projectable_columns` 中列出安全的 adapter-only
-物理列。该表有界展示，每一项都给出包含精确物理名的可复制投影示例；类型和
-可空性只用于 inspection 展示，不进入语义来源声明。active parts 间类型冲突或无法解析的后端类型只会
-产生 warning，并且不会列为可投影列。这并不枚举动态 MapV2 key：未物化 key
-必须在上游物化、通过数据库 view 暴露，或仅在终端 `md.raw_sql(...)` 中使用。
-根据问题选择 inspection、可选的显式有界 sample，和/或用于来源特定元数据、分布、
-join 与条件逻辑的 `md.raw_sql(...)`。Raw SQL 是普通的受治理探索选项，保持只读、
-正整数行数与 timeout guard，并且结果是终端结果：事实可以用于编写语义 Python，
-结果本身不能进入类型化分析。
+表检查返回绑定 Ibis 来源的 schema。注释、分区、主键、物理估计和 ClickHouse
+`projectable_columns` 等可选 catalog 事实，若无法从合格路径取得，会标为 unavailable。
+分析若必须依赖其中某项事实，对应来源形态保持阻断，直到取得独立证据。
+
+可按问题选择 inspection、可选的显式有界 sample，或单独的终端
+`md.raw_sql(...)` 诊断。`md.raw_sql` 不解析或归类输入，原样提交 SQL 文本，执行正数返回行界与
+有效超时；只读性依赖连接和后端权限，属于尽力控制。其结果不能进入类型化分析。
+
 另一进程可以恢复快照 identity、profiles 和 coverage，但不能恢复 retained values。
 只有后续进程确实需要 retained values 或 retained-row
 认证，并且接受有界值证据明文写入项目本地 cache 时，才应在原始 sample 中使用

@@ -103,7 +103,7 @@ def test_sqlite_register_inspect_sample_and_raw_sql(
         "amount",
         "created_at",
     ]
-    assert inspection.partitioning.state == "none"
+    assert inspection.partitioning.state == "unknown"
     assert inspection.physical_extent.row_count is None
     assert inspection.physical_extent.size_bytes is None
     assert inspection.execution_capabilities.timeout_enforced is True
@@ -114,7 +114,7 @@ def test_sqlite_register_inspect_sample_and_raw_sql(
     )
 
 
-def test_sqlite_metadata_exposes_keys_and_view_definition(
+def test_sqlite_metadata_discloses_unavailable_keys_and_view_definition(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -125,52 +125,26 @@ def test_sqlite_metadata_exposes_keys_and_view_definition(
 
     table_metadata = inspect_table("app", table="orders", project_root=tmp_path)
     view_metadata = inspect_table(
-        "app",
-        table="order_totals",
-        database="main",
-        project_root=tmp_path,
-    )
-    composite_metadata = inspect_table(
-        "app",
-        table="composite_keys",
-        project_root=tmp_path,
-    )
-    descending_metadata = inspect_table(
-        "app",
-        table="descending_integer_key",
-        project_root=tmp_path,
-    )
-    strict_metadata = inspect_table(
-        "app",
-        table="strict_keys",
-        project_root=tmp_path,
-    )
-    without_rowid_metadata = inspect_table(
-        "app",
-        table="without_rowid_keys",
-        project_root=tmp_path,
+        "app", table="order_totals", database="main", project_root=tmp_path
     )
 
-    assert table_metadata.primary_keys == ("order_id",)
-    assert [constraint.columns for constraint in table_metadata.unique_constraints] == [("code",)]
-    assert table_metadata.partition_state == "none"
-    assert table_metadata.physical_profile is None
-    assert view_metadata.is_view is True
-    assert view_metadata.view_definition is not None
-    assert "CREATE VIEW order_totals" in view_metadata.view_definition
-    assert composite_metadata.primary_keys == ("account_id", "region")
-    assert {column.name: column.nullable for column in composite_metadata.columns} == {
-        "account_id": True,
-        "region": True,
+    assert tuple(column.name for column in table_metadata.columns) == (
+        "order_id",
+        "code",
+        "amount",
+        "created_at",
+    )
+    assert table_metadata.primary_keys == ()
+    assert table_metadata.unique_constraints == ()
+    assert all(column.nullable is None for column in table_metadata.columns)
+    assert table_metadata.partition_state == "unknown"
+    assert view_metadata.is_view is False
+    assert view_metadata.view_definition is None
+    assert {warning.kind for warning in view_metadata.warnings} >= {
+        "comments_unavailable",
+        "primary_keys_unavailable",
+        "schema_only_fallback",
     }
-    assert [constraint.columns for constraint in composite_metadata.unique_constraints] == [
-        ("region",)
-    ]
-    assert descending_metadata.columns[0].nullable is True
-    assert strict_metadata.primary_keys == ("account_id", "region")
-    assert all(column.nullable is False for column in strict_metadata.columns)
-    assert without_rowid_metadata.primary_keys == ("account_id", "region")
-    assert all(column.nullable is False for column in without_rowid_metadata.columns)
 
 
 def test_sqlite_raw_sql_timeout_remains_armed_during_cursor_fetch(
@@ -195,7 +169,9 @@ def test_sqlite_raw_sql_timeout_remains_armed_during_cursor_fetch(
 
     class _Service:
         @contextmanager
-        def use_backend(self, _name: str, *, read_only: bool) -> Iterator[Any]:
+        def use_backend(
+            self, _name: str, *, read_only: bool, terminal_timeout_seconds: int | None = None
+        ) -> Iterator[Any]:
             assert read_only is True
             yield backend
 
@@ -233,7 +209,7 @@ def test_sqlite_explicit_and_internal_read_only_connections(
 
     with (
         md.connect("app") as connection,
-        pytest.raises(sqlite3.OperationalError, match="readonly"),
+        pytest.raises(sqlite3.DatabaseError, match="not authorized"),
     ):
         connection.raw_sql("INSERT INTO orders VALUES (3, 'c', 30.0, CURRENT_TIMESTAMP)")
 
@@ -243,7 +219,7 @@ def test_sqlite_explicit_and_internal_read_only_connections(
     assert datasource_ir is not None
     backend = backends.build_backend(datasource_ir, read_only=True)
     try:
-        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
             backend.raw_sql("DELETE FROM orders")
     finally:
         backend.disconnect()

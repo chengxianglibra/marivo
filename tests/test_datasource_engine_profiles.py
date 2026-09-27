@@ -56,7 +56,7 @@ def test_every_profile_populates_required_fields() -> None:
         assert callable(profile.translate_strptime_format)
         assert not hasattr(profile, "postprocess_sql")
         assert profile.datetime_decode_policy in {"local_naive_label", "utc_naive_instant"}
-        assert callable(profile.authoring_timeout)
+        assert callable(profile.authoring_timeout) == (backend_type != "mysql")
 
 
 def test_every_profile_declares_real_authoring_capabilities() -> None:
@@ -64,7 +64,7 @@ def test_every_profile_declares_real_authoring_capabilities() -> None:
         "duckdb": (True, False, True, False),
         "sqlite": (True, False, True, False),
         "trino": (True, False, True, True),
-        "mysql": (True, False, True, True),
+        "mysql": (True, False, False, True),
         "postgres": (True, False, True, True),
         "clickhouse": (True, False, True, True),
     }
@@ -92,207 +92,80 @@ def test_profile_rejects_timeout_capability_without_matching_hook() -> None:
         replace(ENGINE_PROFILES["duckdb"], authoring_timeout=None)
 
 
-class _Cursor:
-    def __init__(self, row: tuple[object, ...] | None = None) -> None:
-        self._row = row
+class _Connection:
+    def __init__(self) -> None:
+        self.read_only = True
+        self.autocommit = False
+        self.session_properties = {"query_max_run_time": "2s"}
+        self.params = {"max_execution_time": "60"}
+        self.rollbacks = 0
 
-    def fetchone(self) -> tuple[object, ...] | None:
-        return self._row
-
-
-class _RawBackend:
-    def __init__(self, events: list[str], *, fail_on: str | None = None) -> None:
-        self.events = events
-        self.calls: list[str] = []
-        self.fail_on = fail_on
-
-    def raw_sql(self, sql: str) -> _Cursor:
-        self.calls.append(sql)
-        if sql in {
-            "SET SESSION query_max_run_time = '2s'",
-            "SET SESSION MAX_EXECUTION_TIME = 2000",
-            "SET LOCAL statement_timeout = '2000ms'",
-        }:
-            self.events.append("setup")
-        elif sql in {
-            "SET SESSION query_max_run_time = '5m'",
-            "SET SESSION MAX_EXECUTION_TIME = 2500",
-            "ROLLBACK",
-        }:
-            self.events.append("cleanup")
-        if self.fail_on is not None and self.fail_on in sql:
-            raise RuntimeError("setup failed")
-        if sql.startswith("SHOW SESSION"):
-            return _Cursor(("query_max_run_time", "5m"))
-        if "@@SESSION.MAX_EXECUTION_TIME" in sql:
-            return _Cursor((2500,))
-        return _Cursor()
+    def rollback(self) -> None:
+        self.rollbacks += 1
 
 
-class _ClickHouseParams(dict[str, str]):
-    def __init__(self, events: list[str], *, fail_setup: bool = False) -> None:
-        super().__init__({"max_execution_time": "60"})
-        self.events = events
-        self.fail_setup = fail_setup
-
-    def __setitem__(self, key: str, value: str) -> None:
-        if key == "max_execution_time":
-            self.events.append("setup" if value == "2" else "cleanup")
-            if value == "2" and self.fail_setup:
-                raise RuntimeError("setup failed")
-        super().__setitem__(key, value)
+class _Backend:
+    def __init__(self) -> None:
+        self.con = _Connection()
+        self._marivo_terminal_timeout_seconds = 2
 
 
-class _ClickHouseConnection:
-    def __init__(self, events: list[str], *, fail_setup: bool = False) -> None:
-        self.params = _ClickHouseParams(events, fail_setup=fail_setup)
+def test_mysql_timeout_is_unavailable_without_driver_control() -> None:
+    profile = ENGINE_PROFILES["mysql"]
+    assert profile.authoring_timeout is None
+    assert profile.authoring_capabilities.timeout_enforced is False
 
 
-class _ClickHouseBackend:
-    def __init__(self, events: list[str], *, fail_setup: bool = False) -> None:
-        self.con = _ClickHouseConnection(events, fail_setup=fail_setup)
-
-
-@pytest.mark.parametrize("backend_type", tuple(ENGINE_PROFILES))
-def test_authoring_timeout_orders_setup_execute_cleanup_on_error(
-    backend_type: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    profile = ENGINE_PROFILES[backend_type]
-    hook = profile.authoring_timeout
+@pytest.mark.parametrize("backend_type", ("postgres", "trino", "clickhouse"))
+def test_remote_timeout_uses_driver_state_without_control_sql(backend_type: str) -> None:
+    backend = _Backend()
+    hook = ENGINE_PROFILES[backend_type].authoring_timeout
     assert hook is not None
+    with hook(cast("BaseBackend", backend), 2):
+        assert not hasattr(backend, "raw_sql")
+    if backend_type == "postgres":
+        assert backend.con.rollbacks == 1
+    else:
+        assert backend.con.rollbacks == 0
+    assert backend.con.params["max_execution_time"] == "60"
+
+
+@pytest.mark.parametrize("backend_type", ("postgres", "trino"))
+def test_remote_timeout_rejects_missing_connection_configuration(backend_type: str) -> None:
+    backend = _Backend()
+    backend._marivo_terminal_timeout_seconds = 3
+    hook = ENGINE_PROFILES[backend_type].authoring_timeout
+    assert hook is not None
+    with pytest.raises(RuntimeError, match="no configured"), hook(cast("BaseBackend", backend), 2):
+        pytest.fail("execution started without timeout")
+
+
+@pytest.mark.parametrize("backend_type", ("duckdb", "sqlite"))
+def test_local_timeout_uses_driver_interrupt(
+    backend_type: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     events: list[str] = []
 
-    if backend_type in {"duckdb", "sqlite"}:
+    class Timer:
+        def __init__(self, _seconds: int, _interrupt: object) -> None:
+            pass
 
-        class _Timer:
-            def start(self) -> None:
-                events.append("setup")
+        def start(self) -> None:
+            events.append("start")
 
-            def cancel(self) -> None:
-                events.append("cleanup")
+        def cancel(self) -> None:
+            events.append("cancel")
 
-        monkeypatch.setattr(
-            f"marivo.datasource.engines.{backend_type}.Timer",
-            lambda _seconds, _interrupt: _Timer(),
-        )
-        backend_object = (
-            ibis.duckdb.connect() if backend_type == "duckdb" else ibis.sqlite.connect()
-        )
-    elif backend_type == "clickhouse":
-        backend_object = _ClickHouseBackend(events)
-    else:
-        backend_object = _RawBackend(events)
-    backend = cast("BaseBackend", backend_object)
-
+    monkeypatch.setattr(f"marivo.datasource.engines.{backend_type}.Timer", Timer)
+    backend = ibis.duckdb.connect() if backend_type == "duckdb" else ibis.sqlite.connect()
+    hook = ENGINE_PROFILES[backend_type].authoring_timeout
+    assert hook is not None
     try:
-        with pytest.raises(RuntimeError, match="execution failed"), hook(backend, 2):
+        with hook(backend, 2):
             events.append("execute")
-            raise RuntimeError("execution failed")
     finally:
-        disconnect = getattr(backend_object, "disconnect", None)
-        if callable(disconnect):
-            disconnect()
-
-    if backend_type == "mysql":
-        assert events == ["setup", "execute", "cleanup", "cleanup"]
-    else:
-        assert events == ["setup", "execute", "cleanup"]
-    if backend_type == "trino":
-        assert isinstance(backend_object, _RawBackend)
-        assert backend_object.calls == [
-            "SHOW SESSION LIKE 'query_max_run_time'",
-            "SET SESSION query_max_run_time = '2s'",
-            "SET SESSION query_max_run_time = '5m'",
-        ]
-    elif backend_type == "mysql":
-        assert isinstance(backend_object, _RawBackend)
-        assert backend_object.calls == [
-            "SELECT @@SESSION.MAX_EXECUTION_TIME",
-            "START TRANSACTION READ ONLY",
-            "SET SESSION MAX_EXECUTION_TIME = 2000",
-            "ROLLBACK",
-            "SET SESSION MAX_EXECUTION_TIME = 2500",
-        ]
-    elif backend_type == "postgres":
-        assert isinstance(backend_object, _RawBackend)
-        assert backend_object.calls == [
-            "BEGIN READ ONLY",
-            "SET LOCAL statement_timeout = '2000ms'",
-            "ROLLBACK",
-        ]
-    elif backend_type == "clickhouse":
-        assert isinstance(backend_object, _ClickHouseBackend)
-        assert backend_object.con.params["max_execution_time"] == "60"
-
-
-@pytest.mark.parametrize(
-    ("backend_type", "failure_statement"),
-    [
-        ("duckdb", None),
-        ("sqlite", None),
-        ("trino", "SET SESSION query_max_run_time = '2s'"),
-        ("mysql", "SET SESSION MAX_EXECUTION_TIME = 2000"),
-        ("postgres", "SET LOCAL statement_timeout = '2000ms'"),
-        ("clickhouse", None),
-    ],
-)
-def test_authoring_timeout_setup_failure_never_enters_execution(
-    backend_type: str,
-    failure_statement: str | None,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    profile = ENGINE_PROFILES[backend_type]
-    hook = profile.authoring_timeout
-    assert hook is not None
-    events: list[str] = []
-    if backend_type in {"duckdb", "sqlite"}:
-
-        class _FailingTimer:
-            def start(self) -> None:
-                events.append("setup")
-                raise RuntimeError("setup failed")
-
-            def cancel(self) -> None:
-                events.append("cleanup")
-
-        monkeypatch.setattr(
-            f"marivo.datasource.engines.{backend_type}.Timer",
-            lambda _seconds, _interrupt: _FailingTimer(),
-        )
-        backend_object = (
-            ibis.duckdb.connect() if backend_type == "duckdb" else ibis.sqlite.connect()
-        )
-    elif backend_type == "clickhouse":
-        backend_object = _ClickHouseBackend(events, fail_setup=True)
-    else:
-        backend_object = _RawBackend(events, fail_on=failure_statement)
-    executions = 0
-
-    try:
-        with (
-            pytest.raises(RuntimeError, match="setup failed"),
-            hook(cast("BaseBackend", backend_object), 2),
-        ):
-            executions += 1
-    finally:
-        disconnect = getattr(backend_object, "disconnect", None)
-        if callable(disconnect):
-            disconnect()
-
-    assert executions == 0
-    if backend_type == "mysql":
-        assert events == ["setup", "cleanup", "cleanup"]
-    else:
-        assert events == ["setup", "cleanup"]
-    if not isinstance(backend_object, _RawBackend):
-        return
-    if backend_type == "trino":
-        assert backend_object.calls[-1] == "SET SESSION query_max_run_time = '5m'"
-    elif backend_type == "mysql":
-        assert backend_object.calls[-1] == "SET SESSION MAX_EXECUTION_TIME = 2500"
-    elif backend_type == "postgres":
-        assert backend_object.calls[-1] == "ROLLBACK"
+        backend.disconnect()
+    assert events == ["start", "execute", "cancel"]
 
 
 def test_aliases_are_unique_and_resolve_to_profiles() -> None:

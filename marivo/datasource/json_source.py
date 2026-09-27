@@ -14,10 +14,6 @@ import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 import pyarrow as pa
 
-from marivo.datasource.backends import (
-    apply_json_http_settings,
-    json_http_headers,
-)
 from marivo.datasource.ir import (
     JsonQueryParamValue,
     JsonSourceIR,
@@ -179,12 +175,11 @@ def _resolved_json_body(
 
 
 def _request_payload(
-    backend: object,
     source: JsonSourceIR,
     supplied: Mapping[str, QueryParamScalar | QueryParamScalarList],
 ) -> object:
     url = json_source_url(source, supplied)
-    headers = {"Accept": "application/json", **json_http_headers(backend, url)}
+    headers = {"Accept": "application/json"}
     body: bytes | None = None
     if source.method == "POST":
         body = _resolved_json_body(source, supplied).encode("utf-8")
@@ -448,9 +443,8 @@ def read_json_source(
     source_params: Mapping[str, QueryParamScalar | QueryParamScalarList] | None = None,
 ) -> ir.Table:
     """Read JSON once and infer projected physical types from returned values."""
-    apply_json_http_settings(backend, source)
     supplied = normalize_json_source_params(source, source_params)
     if source.path.lower().startswith(("http://", "https://")):
-        payload = _request_payload(backend, source, supplied)
+        payload = _request_payload(source, supplied)
         return _arrow_table(backend, _project_rows(payload, source), source)
     return _inferred_table(backend, source)

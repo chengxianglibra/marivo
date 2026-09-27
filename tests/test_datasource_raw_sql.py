@@ -51,16 +51,17 @@ def test_raw_sql_requires_reason_before_connecting(tmp_path: Path) -> None:
         md.raw_sql(ms.ref.datasource("warehouse"), "SELECT 1", reason="", project_root=tmp_path)
 
 
-def test_raw_sql_rejects_multi_statement_input(tmp_path: Path) -> None:
+def test_raw_sql_does_not_classify_sql_text(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
 
-    with pytest.raises(ValueError, match="single read-only statement"):
-        md.raw_sql(
-            ms.ref.datasource("warehouse"),
-            "SELECT 1; SELECT 2",
-            reason="diagnose duplicate keys",
-            project_root=tmp_path,
-        )
+    result = md.raw_sql(
+        ms.ref.datasource("warehouse"),
+        "SELECT ';' AS marker",
+        reason="check statement submission",
+        project_root=tmp_path,
+    )
+    assert result.sql == "SELECT ';' AS marker"
+    assert result.rows == ({"marker": ";"},)
 
 
 def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
@@ -270,7 +271,13 @@ class _RawSqlService:
         self.backend = backend
         self.calls: list[tuple[str, bool]] = []
 
-    def use_backend(self, datasource: str, *, read_only: bool) -> _RawSqlBackendContext:
+    def use_backend(
+        self,
+        datasource: str,
+        *,
+        read_only: bool,
+        terminal_timeout_seconds: int | None = None,
+    ) -> _RawSqlBackendContext:
         self.calls.append((datasource, read_only))
         return _RawSqlBackendContext(self.backend)
 
@@ -378,7 +385,7 @@ def test_raw_sql_trino_show_executes_directly_and_bounds_rows(
     assert result.is_truncated is False
 
 
-def test_raw_sql_trino_select_injects_probe_limit_without_transaction(
+def test_raw_sql_trino_select_submits_verbatim_without_transaction(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -391,7 +398,7 @@ def test_raw_sql_trino_select_injects_probe_limit_without_transaction(
         ),
         project_root=tmp_path,
     )
-    backend = _RawSqlBackend({"FROM orders LIMIT 101": _FakeCursor(["n"], [(2,)])})
+    backend = _RawSqlBackend({"FROM orders": _FakeCursor(["n"], [(2,)])})
     service = _RawSqlService(backend)
 
     import marivo.datasource.manage as manage_mod
@@ -407,11 +414,11 @@ def test_raw_sql_trino_select_injects_probe_limit_without_transaction(
         project_root=tmp_path,
     )
 
-    assert backend.calls == ["SELECT COUNT(*) AS n FROM orders LIMIT 101"]
+    assert backend.calls == ["SELECT count(*) AS n FROM orders"]
     assert result.rows == ({"n": 2},)
 
 
-def test_raw_sql_trino_group_by_order_by_keeps_order_before_probe_limit(
+def test_raw_sql_trino_group_by_order_by_is_submitted_verbatim(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -432,7 +439,7 @@ def test_raw_sql_trino_group_by_order_by_keeps_order_before_probe_limit(
         project_root=tmp_path,
     )
     backend = _RawSqlBackend(
-        {"ORDER BY delta DESC LIMIT 101": _FakeCursor(["category", "delta"], [("a", 5.0)])}
+        {"ORDER BY delta DESC": _FakeCursor(["category", "delta"], [("a", 5.0)])}
     )
     service = _RawSqlService(backend)
 
@@ -450,8 +457,7 @@ def test_raw_sql_trino_group_by_order_by_keeps_order_before_probe_limit(
     )
 
     assert backend.calls == [
-        "SELECT category, SUM(amount) AS delta FROM orders GROUP BY category "
-        "ORDER BY delta DESC LIMIT 101"
+        "SELECT category, sum(amount) AS delta FROM orders GROUP BY category ORDER BY delta DESC"
     ]
     assert result.rows == ({"category": "a", "delta": 5.0},)
 
@@ -552,7 +558,7 @@ def test_raw_sql_trino_user_fetch_first_is_preserved(
     assert backend.calls == ["SELECT id FROM orders ORDER BY id FETCH FIRST 5 ROWS ONLY"]
 
 
-def test_raw_sql_trino_cte_keeps_order_before_probe_limit(
+def test_raw_sql_trino_cte_is_submitted_verbatim(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -565,9 +571,7 @@ def test_raw_sql_trino_cte_keeps_order_before_probe_limit(
         ),
         project_root=tmp_path,
     )
-    backend = _RawSqlBackend(
-        {"ORDER BY amount DESC LIMIT 101": _FakeCursor(["id", "amount"], [(2, 20.0)])}
-    )
+    backend = _RawSqlBackend({"ORDER BY amount DESC": _FakeCursor(["id", "amount"], [(2, 20.0)])})
     service = _RawSqlService(backend)
 
     import marivo.datasource.manage as manage_mod
@@ -586,46 +590,8 @@ def test_raw_sql_trino_cte_keeps_order_before_probe_limit(
 
     assert backend.calls == [
         "WITH recent AS (SELECT id, amount FROM orders WHERE amount > 0) "
-        "SELECT id, amount FROM recent ORDER BY amount DESC LIMIT 101"
+        "SELECT id, amount FROM recent ORDER BY amount DESC"
     ]
-
-
-def _bounded(statement: str, limit: int = 100) -> str:
-    from marivo.datasource.manage import _bounded_execution_sql
-
-    return _bounded_execution_sql(statement, limit)
-
-
-def test_bounded_execution_sql_select_into_falls_back_to_invalid_wrapper() -> None:
-    """``SELECT ... INTO`` is a write; the round-trip must not turn it into a CTAS."""
-    assert _bounded("SELECT * INTO new_t FROM orders") == (
-        "SELECT * FROM (SELECT * INTO new_t FROM orders) AS marivo_raw_sql LIMIT 101"
-    )
-    assert _bounded("SELECT id INTO @x FROM t") == (
-        "SELECT * FROM (SELECT id INTO @x FROM t) AS marivo_raw_sql LIMIT 101"
-    )
-
-
-def test_bounded_execution_sql_explicit_nulls_ordering_falls_back_to_wrapper() -> None:
-    """Explicit ``NULLS FIRST/LAST`` is preserved verbatim, not stripped."""
-    assert _bounded("SELECT id FROM t ORDER BY id DESC NULLS LAST") == (
-        "SELECT * FROM (SELECT id FROM t ORDER BY id DESC NULLS LAST) AS marivo_raw_sql LIMIT 101"
-    )
-    assert _bounded("SELECT id FROM t ORDER BY id ASC NULLS FIRST") == (
-        "SELECT * FROM (SELECT id FROM t ORDER BY id ASC NULLS FIRST) AS marivo_raw_sql LIMIT 101"
-    )
-
-
-def test_bounded_execution_sql_tablesample_falls_back_to_wrapper() -> None:
-    """``TABLESAMPLE BERNOULLI(n)`` must keep its percentage unit, not become rows."""
-    assert _bounded("SELECT id FROM orders TABLESAMPLE BERNOULLI(10)") == (
-        "SELECT * FROM (SELECT id FROM orders TABLESAMPLE BERNOULLI(10)) AS marivo_raw_sql LIMIT 101"
-    )
-
-
-def test_bounded_execution_sql_plain_select_still_injects_probe_limit() -> None:
-    """A hazard-free statement still gets the same-top-level probe LIMIT."""
-    assert _bounded("SELECT id FROM t ORDER BY id") == "SELECT id FROM t ORDER BY id LIMIT 101"
 
 
 def test_raw_sql_trino_select_into_is_not_normalized_to_ctas(
@@ -641,7 +607,7 @@ def test_raw_sql_trino_select_into_is_not_normalized_to_ctas(
         ),
         project_root=tmp_path,
     )
-    backend = _RawSqlBackend({"marivo_raw_sql": _FakeCursor(["n"], [(0,)])})
+    backend = _RawSqlBackend({"SELECT * INTO": _FakeCursor(["n"], [(0,)])})
     service = _RawSqlService(backend)
 
     import marivo.datasource.manage as manage_mod
@@ -649,7 +615,7 @@ def test_raw_sql_trino_select_into_is_not_normalized_to_ctas(
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
     _patch_trino_timeout_to_noop(monkeypatch)
 
-    md.raw_sql(
+    result = md.raw_sql(
         ms.ref.datasource("trino_wh"),
         "SELECT * INTO new_t FROM orders",
         limit=100,
@@ -657,35 +623,15 @@ def test_raw_sql_trino_select_into_is_not_normalized_to_ctas(
         project_root=tmp_path,
     )
 
-    # The subquery wrapper (invalid SQL on every backend) is what was executed,
-    # never a normalized CREATE TABLE ... AS SELECT.
-    assert backend.calls == [
-        "SELECT * FROM (SELECT * INTO new_t FROM orders) AS marivo_raw_sql LIMIT 101"
-    ]
+    assert result.rows == ({"n": 0},)
+    assert backend.calls
 
 
-def test_mysql_authoring_timeout_opens_readonly_transaction() -> None:
-    from marivo.datasource.engines.mysql import authoring_timeout
+def test_mysql_raw_sql_timeout_is_not_admitted_without_driver_control() -> None:
+    from marivo.datasource.engines.mysql import PROFILE
 
-    class _MysqlBackend:
-        def __init__(self) -> None:
-            self.calls: list[str] = []
-
-        def raw_sql(self, sql: str) -> _FakeCursor:
-            self.calls.append(sql)
-            if "MAX_EXECUTION_TIME" in sql and sql.startswith("SELECT"):
-                return _FakeCursor(["val"], [(1000,)])
-            return _FakeCursor([], [])
-
-    backend = _MysqlBackend()
-    with authoring_timeout(backend, 5):
-        backend.raw_sql("SELECT 1")
-    assert backend.calls[0] == "SELECT @@SESSION.MAX_EXECUTION_TIME"
-    assert backend.calls[1] == "START TRANSACTION READ ONLY"
-    assert "SET SESSION MAX_EXECUTION_TIME = 5000" in backend.calls[2]
-    assert backend.calls[3] == "SELECT 1"
-    assert backend.calls[-2] == "ROLLBACK"
-    assert "SET SESSION MAX_EXECUTION_TIME = 1000" in backend.calls[-1]
+    assert PROFILE.authoring_timeout is None
+    assert PROFILE.authoring_capabilities.timeout_enforced is False
 
 
 def test_raw_sql_rejects_non_positive_timeout(tmp_path: Path) -> None:

@@ -78,6 +78,34 @@ MySQL 基础 Analysis 补充格：启动前 `mysql-analysis` 为 Exited，本轮
 
 依赖方法完成时移除对应 skip 并运行原独立预期和 `make check-agent`，不能把当前置灰结果作为验收通过。置灰后定向为 14 skipped；最新 `make check-agent` 的 lint、import、379 文件 typing、默认测试和 API 文档阶段全部通过，默认测试为 5186 passed、18 skipped，其中 14 项为本表新置灰，其他 4 项为原有跳过。R1.1 原全量失败记录和 R1/R5 未验收状态保持可见。
 
+## R1.3 SQL、控制与凭据边界候选记录（2026-09-27）
+
+基线为 `panda` HEAD `a2a7caf8e6e738651eb9edc52e861ee2c53b380b`；本节为该基线上未提交的 R1.3 候选。R1.2 尚未验收，R1.1 旧领域来源准入仍有已记录缺口，因此 **R1 整体未通过**。用户在实施中补充两项决定：`md.raw_sql` 不解析/归类输入 SQL，只读依连接及后端权限尽力控制，无法保证只读本身不阻断；删除 `ms.from_sql` 专用属性/入口，历史 SQL 的说明放 `ai_context`。R0.5 台账记录的是迁移前调用点，以下逐行记录本轮实际处置。
+
+| SQL 台账行 | 当前候选处置与代码证据 | 状态及边界 |
+| --- | --- | --- |
+| DS01、DS18 | `adapters._probe_backend` 构造 `ibis.literal(1).name("probe").as_table()`，以 `backend.compile(..., limit=None)` 的结果向 native cursor 提交；`md.test` 和 source-health 消费同一 provider 探测。`test_governed_probe_submits_exact_ibis_compilation` 捕获本地真实 DuckDB 提交并逐字比较编译结果 | **DuckDB 通过**；SQLite 的原有连接探测回归通过；四个远端在本轮 **未验证** |
+| DS02 | `manage.raw_sql` 仅校验非空 SQL、理由和正数界，原文交给独立 `backend.raw_sql`；游标只取 `limit+1`、关闭并披露截断/成本/只读尽力控制。timeout 控制在用户 SQL 前失效时报告 `query_executed=False`。`RawSqlResult` 与其 `to_pandas()` 副本不得绑定 Semantic/Analysis；错误只展示异常类型，带结构化 repair | **DuckDB、SQLite、PostgreSQL、Trino 所测控制通过**：DuckDB 写入被只读连接拒绝，SQLite 递归查询被 interrupt；PostgreSQL `pg_sleep(3)` 被 1 秒 statement timeout 中断且 CREATE TEMP 被拒；Trino 1 秒 session timeout 实际返回 `EXCEEDED_TIME_LIMIT`，CREATE 被服务端拒绝。MySQL 因无可执行 timeout **阻塞**；ClickHouse 只读账号的 `max_execution_time` 不可改，用户 SQL 前 **阻塞**。只读能力本身不作为阻断条件 |
+| DS03–DS07、DS09 | 六个 profile 的文本 metadata 查询与 `metadata._query_rows` 已移除；`schema_only_metadata_inspect` 返回绑定 Ibis schema，注释、分区、主键等可选事实披露 unavailable。必要事实缺失的来源形态不得获准入 | **DuckDB、SQLite schema-only 本地通过**；远端新 metadata 路径 **未验证**。原有 45 个丰富 metadata 断言保留测试体并显式 skip，恢复条件是合格公开 metadata API 或 Ibis 来源事实及真实后端证据，不能计为通过 |
+| DS08、DS10、DS17、DS21 | Trino `$partitions`、ClickHouse `system.tables`/`system.parts` 与受治理业务值读取沿用 R1.2 的绑定 Ibis 来源路线；本轮没有重授领域资格 | PostgreSQL、MySQL、Trino、ClickHouse 的 R1.2 定向实源读取回归分别 **1、2、2、2 通过**；Trino/ClickHouse 分区绑定读取在所测形态通过。其余远端 metadata 组合未验证 |
+| DS11–DS14 | PostgreSQL 终端连接以 `statement_timeout` 和 UTC 参数、driver `read_only`/rollback 配置；Trino 以连接 `timezone` 和 `session_properties` 配置；MySQL 无可执行 timeout，`md.raw_sql` 在连接前拒绝。SQLite 用驱动 authorizer 拒绝写入；旧 `timezone_probe_sql`、`readonly_tx_start` profile 字段已删除，旧隔离执行类转向 driver timezone 事实 | **DuckDB/SQLite、PostgreSQL、Trino 所测控制通过**；PostgreSQL 服务端 `SHOW statement_timeout=1s`、driver TimeZone=UTC，Trino 服务端 `SHOW SESSION query_max_run_time=1s`、`current_timezone()=UTC` 且实际 timeout。ClickHouse timeout 不可设置而 **阻塞**；MySQL timeout 与实际驱动无法提供的 MySQL/ClickHouse 时区必需格 **阻塞**。DS14 方言后处理钩子仍保持删除 |
+| DS15、DS16、AN32 | DuckDB HTTP bearer/header 凭据在秘密解析和连接前拒绝；删除内部 `CREATE SECRET` 与 `SET force_download`。`force_download` 作为连接参数传入 | 认证 HTTP **阻塞**；无凭据 HTTP 的 R1.2 证据保留。真实 DuckDB `current_setting` 返回 UTC、1 thread、`force_download=true`，故 DS16 本地设置 **通过**；远端 HTTP 凭据形态未尝试 |
+| DS19、DS20 | 删除执行 provenance SQL 的 `ms.parity_check`、`ParityResult`、`ParityStatus`、Catalog 状态与 `verification_mode`；删除 `ms.from_sql`、`SqlProvenance`、执行改写函数。`ai_context` 可记历史背景，readiness 披露未验证并指向独立业务来源或受治理 Ibis 参照 | **公开面/静态入口与定向测试通过**；本阶段没有替代 parity API，也不宣称历史 SQL 已校验 |
+| AN15、AN30 | 新 DuckDB adapter 的线程/时区连接设置有真实运行断言；Trino/ClickHouse 新 provider 控制使用驱动 session properties/settings。旧领域方法的控制/SQL 路径仍受 R1.1 Run 前阻断，不接入 `SourceSession` | **DuckDB、Trino 所测新控制通过**；ClickHouse 只读账号的 timeout 控制前置 **阻塞**，其时区事实亦无法由当前 driver 证明；远端取消/恢复 **未验证**。旧 AN01–AN33 领域实现的剩余文本路径不获 R1.3 资格，依 R5–R9 逐格清理 |
+
+本轮本地版本：Ibis 12.0.0、DuckDB 1.5.3、SQLite 3.53.1、PyArrow 25.0.1。实际命令 `make test TESTS='tests/test_r13_control_boundaries.py tests/test_datasource_raw_sql.py tests/test_datasource_engine_profiles.py tests/test_datasource_profiles_backends.py'` 为 **77 passed**；追加 `make test TESTS='tests/test_r13_control_boundaries.py'` 为 **4 passed**，包括真实 SQLite interrupt。首次最终 `make check-agent` 为 5098 passed、64 skipped、1 failed：旧 `test_lazy_postgres_errors` 要求无驱动时区事实时回退系统时区，与本次拒绝规则冲突；改为断言结构化拒绝后，`make test TESTS='tests/test_lazy_postgres_errors.py tests/test_r13_control_boundaries.py'` 为 9 passed。随后及新增远端实测后的最终 `make check-agent` 均通过 lint/import、378 个源码 typing、默认测试（**5099 passed、64 skipped**）与 API 文档；`npm --prefix site run build` 通过，Astro 构建 321 页。`make runtime-test TESTS='tests/test_r12_source_adapters_runtime.py tests/test_lazy_source_runtime_acceptance.py'` 在未启用远端 opt-in 时为 8 skipped、1 failed；失败是 R1.1 旧 `metric.limit` 来源续算的 `source_admission` 缺口，不计作 R1.3 新回归。
+
+默认 Docker context 的 `/var/run/docker.sock` 不存在；发现 `colima-marivo-multisource` profile 正运行后，改用仓库 `tests/multisource_environment/manage.sh` 启停专用服务。起始所有服务 Exited；本轮仅按顺序启动 PostgreSQL analysis、Trino（含 catalog PostgreSQL）、ClickHouse、MySQL analysis，退出后 `docker --context colima-marivo-multisource ps -a` 证实它们全部恢复 Exited，卷未清理。实际远端命令与结果：
+
+| 服务及版本 | R1.3 控制/负例与 R1.2 读取回归 |
+| --- | --- |
+| PostgreSQL 17.11 | `MARIVO_POSTGRES_ANALYSIS_TEST=1 make runtime-test TESTS='tests/test_r13_control_boundaries.py::test_postgres_terminal_control_uses_server_timeout_and_read_only' RUNTIME_WORKERS=1`：1 passed；服务端 `SHOW statement_timeout=1s`，`pg_sleep(3)` 中断，driver UTC/read_only，CREATE TEMP 拒绝，失败后 SELECT 1 可用。`tests/test_r12_source_adapters_runtime.py::test_postgres_table_view_namespace_and_exact_decimal`：1 passed |
+| Trino 483 | `MARIVO_TRINO_ANALYSIS_TEST=1 make runtime-test TESTS='tests/test_r13_control_boundaries.py::test_trino_terminal_session_timeout_and_timezone_are_effective' RUNTIME_WORKERS=1`：1 passed；服务端 session `query_max_run_time=1s`、UTC，重查询报 `EXCEEDED_TIME_LIMIT`，CREATE 被拒。R1.2 Iceberg/non-Iceberg 表/view 与 Iceberg 分区 metadata 两项：2 passed |
+| ClickHouse 26.3.33.24 | `MARIVO_CLICKHOUSE_ANALYSIS_TEST=1 make runtime-test TESTS='tests/test_r13_control_boundaries.py::test_clickhouse_unsettable_timeout_blocks_before_user_sql' RUNTIME_WORKERS=1`：1 passed；只读账号的 `max_execution_time` 为不可修改，`md.raw_sql` 记录 `query_executed=False`。R1.2 MergeTree 表/view 与 system.parts 分区读取两项：2 passed |
+| MySQL 8.4.11 | `MARIVO_MYSQL_ANALYSIS_TEST=1 make runtime-test TESTS='tests/test_r13_control_boundaries.py::test_mysql_unverifiable_timezone_blocks_time_sensitive_read tests/test_r12_source_adapters_runtime.py::test_mysql_table_view_and_exact_decimal tests/test_r12_source_adapters_runtime.py::test_mysql_invalid_date_and_read_only_permission' RUNTIME_WORKERS=1`：3 passed；驱动无可验证时区时结构化拒绝，读账号不能 CREATE；基础表/view 与无效日期负例回归通过 |
+
+这些命令逐一验证连接设置、实际服务端 timeout/权限或前置阻断，不把 mock 当远端资格。远端取消后服务器终止仍未验证；必要 metadata 丰富事实仍 unavailable，R1.2 整体状态不变。
+
 ## R0.3–R0.5 本次快照与核验
 
 起点分支 `panda`，HEAD `ba79036dcd4642e609d4e9c2a76570ecf25d4542`；以下 hash 固定提交前的文档候选，与本文件一同提交后可按 Git 提交复核。五份输入在本轮开始时的 SHA-256：

@@ -1054,7 +1054,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             self._add_error(
                 ErrorKind.SQL_ESCAPE_HATCH,
                 f"{self.body_label} of {self.fn_name!r} uses .{node.attr}(), "
-                f"which is not allowed. Use provenance=ms.from_sql(...) on the decorator instead.",
+                f"which is not allowed. Use an Ibis expression body instead.",
                 constraint_id=ConstraintId.AST_SQL_ESCAPE_HATCH,
             )
         # Check for ibis Table attribute shadowing (e.g. orders.schema instead of orders["schema"])
@@ -2891,42 +2891,6 @@ def assembly_validate(
     # -- Cross-model cycle detection (basic) --------------------------------
     # Check for cycles in metric component references
     _detect_metric_cycles(registry, errors)
-
-    # -- Metric provenance contract ------------------------------------------
-    # SqlProvenance carries sql + dialect; verification_mode is always "sql_parity".
-    # - Base metrics: SqlProvenance.sql requires a non-empty dialect
-    # - Derived metrics: must not carry provenance
-    for m_id, m_ir in registry.metrics.items():
-        prov = m_ir.provenance
-        if m_ir.metric_type == "derived":
-            if prov is not None:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.INVALID_VERIFICATION_MODE,
-                        message=(
-                            f"Derived metric {m_id!r} must omit provenance. "
-                            "Verify its component metrics instead."
-                        ),
-                        refs=(m_id,),
-                        location=m_ir.location,
-                        constraint_id=ConstraintId.METRIC_VERIFICATION_MODE_VALID,
-                    )
-                )
-            continue
-
-        if prov is not None and not prov.dialect:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.PROVENANCE_DIALECT_MISSING,
-                    message=(
-                        f"Metric {m_id!r} declares provenance SQL but not a dialect. "
-                        "Both are required for SQL parity verification."
-                    ),
-                    refs=(m_id,),
-                    location=m_ir.location,
-                    constraint_id=ConstraintId.PROVENANCE_DIALECT_REQUIRED,
-                )
-            )
 
     # -- Warnings -----------------------------------------------------------
     # String ref warnings: datasource names are intentionally strings in the

@@ -480,8 +480,7 @@ def test_dataset_json_source_lowers_runtime_bindings_to_encoded_url(
 
     requests: list[str] = []
 
-    def request_payload(backend, source, supplied):
-        assert isinstance(backend, _Backend)
+    def request_payload(source, supplied):
         requests.append(json_source.json_source_url(source, supplied))
         return [{"value": 1.25}]
 

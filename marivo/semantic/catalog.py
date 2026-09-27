@@ -132,14 +132,12 @@ from marivo.semantic.ir import (
     LinearComposition,
     MeasureIR,
     MetricIR,
-    ParityStatus,
     PeriodCalendarIR,
     RatioComposition,
     RelationshipIR,
     SampleIntervalIR,
     SnapshotVersioningIR,
     SourceLocation,
-    SqlProvenance,
     StateModelIR,
     StrptimeParse,
     TemporalSetIR,
@@ -151,7 +149,6 @@ from marivo.semantic.ir import (
     additivity_bucket,
     composition_components,
 )
-from marivo.semantic.parity import propagated_parity_status
 from marivo.semantic.preview_scope import (
     NormalizedPreviewScope,
     PreviewScope,
@@ -559,12 +556,6 @@ def _versioning_text(versioning: EntityVersioning | None) -> str:
     return repr(versioning)
 
 
-def _provenance_text(provenance: SqlProvenance | None) -> str:
-    if provenance is None:
-        return "(none)"
-    return f"{provenance.kind} dialect={provenance.dialect} sql={provenance.sql!r}"
-
-
 def _common_detail_sections(
     *,
     context: AiContextView,
@@ -823,8 +814,6 @@ def _metric_common_sections(
     status_time_dimension: str | None,
     fanout_policy: Literal["block", "aggregate_then_join"],
     unit: str | None,
-    provenance: SqlProvenance | None,
-    parity_status: ParityStatus,
 ) -> list[Section]:
     """Render sections shared by all metric detail variants."""
     sections: list[Section] = [
@@ -851,8 +840,6 @@ def _metric_common_sections(
     sections.append(FieldSection(label="fanout_policy", value=fanout_policy))
     if unit:
         sections.append(FieldSection(label="unit", value=unit))
-    sections.append(FieldSection(label="provenance", value=_provenance_text(provenance)))
-    sections.append(FieldSection(label="parity_status", value=str(parity_status)))
     return sections
 
 
@@ -874,8 +861,6 @@ class SimpleMetricDetails(_DetailsBase):
     status_time_dimension: str | None
     fanout_policy: Literal["block", "aggregate_then_join"]
     unit: str | None
-    provenance: SqlProvenance | None
-    parity_status: ParityStatus
     aggregation_target: Ref[SemanticKindTag] | None = None
     aggregation_target_kind: Literal["measure", "entity"] | None = None
     filter: tuple[tuple[str, WhereValue], ...] | None = None
@@ -920,8 +905,6 @@ class SimpleMetricDetails(_DetailsBase):
                 status_time_dimension=self.status_time_dimension,
                 fanout_policy=self.fanout_policy,
                 unit=self.unit,
-                provenance=self.provenance,
-                parity_status=self.parity_status,
             )
         )
         if self.dsl_additivity is not None:
@@ -1002,8 +985,6 @@ class DerivedMetricDetails(_DetailsBase):
     status_time_dimension: str | None
     fanout_policy: Literal["block", "aggregate_then_join"]
     unit: str | None
-    provenance: SqlProvenance | None
-    parity_status: ParityStatus
     effective_entities: tuple[Ref[SemanticKindTag], ...] = ()
     candidate_dimensions: tuple[Ref[SemanticKindTag], ...] = ()
     candidate_time_dimensions: tuple[Ref[SemanticKindTag], ...] = ()
@@ -1036,8 +1017,6 @@ class DerivedMetricDetails(_DetailsBase):
                 status_time_dimension=self.status_time_dimension,
                 fanout_policy=self.fanout_policy,
                 unit=self.unit,
-                provenance=self.provenance,
-                parity_status=self.parity_status,
             )
         )
         sections.append(FieldSection(label="composition", value=self.composition))
@@ -3852,7 +3831,6 @@ def _build_metric_object(
         if m2.composition is not None
         and m_ir.semantic_id in composition_components(m2.composition).values()
     )
-    parity_status = propagated_parity_status(project, m_ir.semantic_id)
     add = m_ir.additivity
     temporal_contract = resolve_metric_temporal_contract(m_ir, reg)
     if m_ir.metric_type == "derived":
@@ -3883,8 +3861,6 @@ def _build_metric_object(
             ),
             fanout_policy=m_ir.fanout_policy,
             unit=m_ir.unit,
-            provenance=m_ir.provenance,
-            parity_status=parity_status,
             effective_entities=effective_entities,
             candidate_dimensions=candidate_dimensions,
             candidate_time_dimensions=candidate_time_dimensions,
@@ -3916,8 +3892,6 @@ def _build_metric_object(
             ),
             fanout_policy=m_ir.fanout_policy,
             unit=m_ir.unit,
-            provenance=m_ir.provenance,
-            parity_status=parity_status,
             aggregation_target=aggregation_target,
             aggregation_target_kind=m_ir.aggregation_target_kind
             or ("measure" if m_ir.measure else None),

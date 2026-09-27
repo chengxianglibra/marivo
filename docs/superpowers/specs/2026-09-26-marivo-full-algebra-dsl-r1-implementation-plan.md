@@ -92,16 +92,18 @@ Arrow 身份结构重建、空流和类型精度、重复/Null 身份及完整�
 
 按 R0.5 的 DS/AN 行逐点处理连接和读取旁路。`md.test` 与 source-health 的 `SELECT 1`
 改为 Ibis literal 或合格 driver ping；metadata 和数据校验改用对应 API/Ibis；不再执行
-provenance SQL 来计算 parity，`ms.from_sql(...)` 仅保留文本依据。删除为执行改写 provenance
+provenance SQL 来计算 parity。删除 `ms.from_sql(...)` 属性/入口；历史 SQL 的业务说明放在
+`ai_context`，没有专用 SQL 字段。删除为执行改写 provenance
 文本的路径。DS11–DS16、AN15、AN30 的 timeout、query-only、时区、HTTP secret、
 force-download、事务/会话控制必须取得实际公开 API 与运行证据；找不到等价实现时，精确
 来源或后端格标阻塞，内部 SQL 例外仍为空。保留 Store owner 的 SQLite 事务白名单。
 
 `md.raw_sql`、`RawSqlResult`、`datasource.raw_sql` Help target 和公共导出继续存在：
-单条只读、必填理由、正数返回行界、可执行超时、显式截断/成本披露；返回行或
+输入 SQL 不做解析或语句类别判定；必填理由、正数返回行界、可执行超时、显式截断/成本披露。
+只读性由连接和后端权限尽力控制，无法保证只读本身不阻断；返回行或
 `to_pandas()` 副本不能输入 Semantic/Analysis、形成 Artifact 或获得续算。它使用隔离的
 终端提交路径，不调用受治理 adapter 的编译产物入口来伪装表达式，也不能为失败的
-Analysis 后端格兜底。测试须包括实际只读提交、超时、截断、错误 repair、秘密脱敏和
+Analysis 后端格兜底。测试须包括实际后端权限观察、超时、截断、错误 repair、秘密脱敏和
 typed reentry 拒绝。
 
 **交付：**DS01–DS21 与 R1 所属 AN 行的实际处置和未闭合格；源码扫描、受控提交记录
@@ -151,7 +153,7 @@ R1 只有同时满足以下条件才标为通过：
    提交证据；共用 `statement(sql)`/SQL 后处理不能被新执行链调用。
 3. 来源、metadata、样本、连接探测与 source-health 的事实范围和资源生命周期得到验证；
    schema、覆盖、主体身份与业务完整性不相互冒充。
-4. `md.raw_sql` 的只读、超时、截断、脱敏、结构化错误及不可重入边界通过；provenance
+4. `md.raw_sql` 的连接/后端只读权限观察、超时、截断、脱敏、结构化错误及不可重入边界通过；provenance
    文本不执行；内部 SQL 例外与阻塞逐行可查。
 5. 相关测试、typing、lint、公共披露和文档门禁通过；未完成的 R2–R9 方法资格保持
    未验证或阻塞，不通过旧路径、fallback、批量 xfail 或目标降级填平。

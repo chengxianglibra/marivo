@@ -139,7 +139,6 @@ guards = (
     (secrets.EnvProvider, 'get', 'credentials'),
     (secrets.LocalPlaintextCache, 'get', 'credentials'),
     (metadata, 'inspect_table', 'metadata'),
-    (metadata, '_query_rows', 'metadata'),
     (ibis, 'connect', 'backend'),
     (ibis, 'memtable', 'arrow'),
     (Backend, '__init__', 'backend'),
@@ -348,7 +347,7 @@ def test_complete_source_construction_has_no_io() -> None:
     assert evidence["aggregates"] == 8
     assert evidence["ties"] == 4
     assert evidence["guarded_negative_failures"] == 8
-    assert evidence["guarded_entrypoints"] == 60
+    assert evidence["guarded_entrypoints"] == 59
     assert evidence["checked_definitions"] == 56
     assert evidence["telemetry_enabled"] is True
     assert set(evidence["attempts"]) == {

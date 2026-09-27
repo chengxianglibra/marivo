@@ -7,7 +7,7 @@ description: Give an agent a business question, then review the analysis and its
 
 Use a project metric whose business meaning is approved and that the current
 catalog can load. If the metric is missing or disputed, typed analysis stops;
-the agent may use bounded read-only `md.raw_sql(...)` with disclosed temporary
+the agent may use bounded terminal `md.raw_sql(...)` with disclosed temporary
 semantics, but hands a reusable gap to semantic authoring and asks only about
 unresolved business meaning.
 

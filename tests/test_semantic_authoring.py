@@ -1519,43 +1519,43 @@ def test_metric_with_entity_ref() -> None:
         _exit_ctx()
 
 
-def test_metric_provenance_fields() -> None:
+def test_metric_historical_sql_in_ai_context() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
         @ms.metric(
             entities=[ref_factory.entity("sales.orders")],
             additivity=ms.additive_all(),
-            provenance=ms.from_sql(sql="SELECT SUM(amount) FROM orders", dialect="ansi"),
+            ai_context=ms.ai_context(
+                business_definition="Historical ANSI SQL: SELECT SUM(amount) FROM orders"
+            ),
         )
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
         ir, _ = _pending_objects(ctx)[-1]
-        prov = ir.provenance
-        assert prov is not None
-        assert prov.sql == "SELECT SUM(amount) FROM orders"
-        assert prov.dialect == "ansi"
-        assert prov.verification_mode == "sql_parity"
+        assert (
+            ir.ai_context.business_definition
+            == "Historical ANSI SQL: SELECT SUM(amount) FROM orders"
+        )
+        assert not hasattr(ir, "provenance")
     finally:
         _exit_ctx()
 
 
-def test_metric_rejects_invalid_provenance_value() -> None:
+def test_metric_rejects_removed_provenance_parameter() -> None:
     _enter_ctx(default_domain="sales")
     try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
+        with pytest.raises(TypeError, match="provenance"):
 
             @ms.metric(
                 entities=[ref_factory.entity("sales.orders")],
                 additivity=ms.additive_all(),
-                provenance=object(),  # type: ignore[arg-type]
+                provenance=object(),  # type: ignore[call-arg]
             )
             def revenue(table: object) -> object:
                 return None  # type: ignore[unreachable]
 
-        assert exc_info.value.kind == ErrorKind.INVALID_REF
-        assert "provenance" in str(exc_info.value)
     finally:
         _exit_ctx()
 

@@ -13,11 +13,8 @@ import ibis
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource import backends as datasource_backends
 from marivo.datasource.adapters import SourceSession, provider_for
-from marivo.datasource.backends import apply_json_http_settings
-from marivo.datasource.errors import DatasourceMetadataError
-from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation, JsonSourceIR
+from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.json_source import json_source_url, read_json_source
 
 _EVENT_SCHEMA = {"event_id": "int64", "amount": "int64", "status": "string"}
@@ -60,75 +57,6 @@ def _post_json_server(
         server.shutdown()
         server.server_close()
         thread.join()
-
-
-class _RawSqlRecorder:
-    def __init__(self) -> None:
-        self.calls: list[str] = []
-
-    def raw_sql(self, sql: str) -> None:
-        self.calls.append(sql)
-
-
-def test_apply_json_http_settings_enables_force_download_for_remote_json() -> None:
-    backend = _RawSqlRecorder()
-
-    apply_json_http_settings(
-        backend,
-        JsonSourceIR(
-            path="https://example.com/events.json",
-            columns=(("event_id", "event_id"),),
-        ),
-    )
-
-    assert backend.calls == ["SET force_download=true"]
-
-
-def test_apply_json_http_settings_ignores_local_http_prefixed_paths_and_non_json() -> None:
-    backend = _RawSqlRecorder()
-
-    apply_json_http_settings(
-        backend,
-        JsonSourceIR(path="http_exports/events.json", columns=(("event_id", "event_id"),)),
-    )
-    apply_json_http_settings(
-        backend, md.csv("https://example.com/events.csv", columns={"event_id": "event_id"})
-    )
-
-    assert backend.calls == []
-
-
-def test_apply_json_http_settings_teaches_when_backend_lacks_raw_sql() -> None:
-    with pytest.raises(DatasourceMetadataError) as exc_info:
-        apply_json_http_settings(
-            object(),
-            JsonSourceIR(
-                path="https://example.com/events.json",
-                columns=(("event_id", "event_id"),),
-            ),
-        )
-
-    message = str(exc_info.value)
-    assert "http(s)" in message
-    assert "remote GET and JSON-body POST" in message
-    assert exc_info.value.location == "md.json('https://example.com/events.json')"
-    assert exc_info.value.repair is not None
-
-
-def test_apply_json_http_settings_rejects_non_callable_raw_sql() -> None:
-    class _NonCallableRawSql:
-        raw_sql = "not a method"
-
-    with pytest.raises(DatasourceMetadataError) as exc_info:
-        apply_json_http_settings(
-            _NonCallableRawSql(),
-            JsonSourceIR(
-                path="https://example.com/events.json",
-                columns=(("event_id", "event_id"),),
-            ),
-        )
-
-    assert exc_info.value.received == "backend without raw_sql"
 
 
 def test_json_source_url_encodes_fixed_and_bound_query_values() -> None:
@@ -322,7 +250,7 @@ def test_json_source_url_rejects_query_name_declared_twice() -> None:
         json_source_url(source)
 
 
-def test_post_json_source_binds_body_values_and_sends_multiple_scoped_headers() -> None:
+def test_post_json_source_binds_body_values_without_credentials() -> None:
     response = {
         "data": {
             "change_infos": [
@@ -333,16 +261,6 @@ def test_post_json_source_binds_body_values_and_sends_multiple_scoped_headers() 
     }
     with _post_json_server(response) as (url, requests):
         backend = ibis.duckdb.connect(":memory:")
-        auth = datasource_backends._configure_duckdb_http_auth(
-            backend,
-            scope=url,
-            bearer_token=None,
-            headers={
-                "x-secretid": "secret-id",
-                "x-signature": "secret-signature",
-            },
-        )
-        backend.__dict__["_marivo_duckdb_http_auth"] = auth
         source = md.json(
             url,
             columns={"change_id": "change_id", "title": "title"},
@@ -381,8 +299,8 @@ def test_post_json_source_binds_body_values_and_sends_multiple_scoped_headers() 
     headers = requests[0]["headers"]
     assert isinstance(headers, dict)
     normalized_headers = {str(name).lower(): value for name, value in headers.items()}
-    assert normalized_headers["x-secretid"] == "secret-id"
-    assert normalized_headers["x-signature"] == "secret-signature"
+    assert "x-secretid" not in normalized_headers
+    assert "x-signature" not in normalized_headers
     assert normalized_headers["content-type"] == "application/json"
 
 

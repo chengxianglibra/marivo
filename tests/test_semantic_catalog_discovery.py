@@ -29,7 +29,7 @@ from marivo.semantic.catalog import (
     TimeDimensionDetails,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.ir import ParityStatus, SourceLocation
+from marivo.semantic.ir import SourceLocation
 from tests.ref_helpers import make_ref
 
 # ---------------------------------------------------------------------------
@@ -332,8 +332,6 @@ def test_discovery_metric_details_repr_is_single_line():
         additivity="additive",
         fanout_policy="block",
         unit=None,
-        provenance=None,
-        parity_status=ParityStatus.UNVERIFIED,
         fold=None,
         status_time_dimension=None,
     )
@@ -362,8 +360,6 @@ def test_discovery_metric_details_render_shows_additivity():
         additivity="additive",
         fanout_policy="block",
         unit=None,
-        provenance=None,
-        parity_status=ParityStatus.UNVERIFIED,
         fold=None,
         status_time_dimension=None,
     )

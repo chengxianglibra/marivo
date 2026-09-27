@@ -134,7 +134,6 @@ def _decimal_registry(
             target,
             None,
             None,
-            None,
             AiContextIR(),
             "direct",
             name,

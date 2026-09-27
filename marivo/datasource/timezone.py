@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from marivo.datasource.engines import profile_for_backend
@@ -89,30 +89,6 @@ def _fallback(warning: str | None = None) -> DatasourceEngineTimezone:
     return system_tz
 
 
-def _scalar_from_result(result: Any) -> object:
-    if hasattr(result, "iloc"):
-        return result.iloc[0, 0]
-    if isinstance(result, list | tuple):
-        first = result[0]
-        if isinstance(first, list | tuple):
-            return first[0]
-        return first
-    if isinstance(result, dict):
-        return next(iter(result.values()))
-    return result
-
-
-def _execute_scalar(backend: Any, query: str) -> object:
-    sql = getattr(backend, "sql", None)
-    if not callable(sql):
-        raise RuntimeError("backend does not expose sql(query)")
-    expr = sql(query)
-    execute = getattr(expr, "execute", None)
-    if not callable(execute):
-        raise RuntimeError("backend sql(query) did not return an executable expression")
-    return _scalar_from_result(execute())
-
-
 def parse_timezone(value: str) -> tuple[str, tzinfo]:
     """Normalize IANA or explicit offsets without guessing timezone abbreviations."""
     offset = value[3:] if value.startswith("UTC") else value
@@ -170,10 +146,45 @@ def resolve_engine_timezone(
 
 
 def probe_engine_timezone(backend: object) -> DatasourceEngineTimezone:
-    """Probe actual reader timezone; fallback only for engines without a probe."""
-    return resolve_engine_timezone(
-        profile_for_backend(backend).timezone_probe_sql,
-        lambda query: _execute_scalar(backend, query),
+    """Read a configured or driver-reported timezone without submitting SQL."""
+    profile = profile_for_backend(backend)
+    if profile.name in {"sqlite", "generic"}:
+        return _fallback()
+    name = getattr(backend, "_marivo_timezone_name", None)
+    if profile.name == "postgres":
+        connection = getattr(backend, "con", None)
+        info = getattr(connection, "info", None)
+        parameter_status = getattr(info, "parameter_status", None)
+        name = parameter_status("TimeZone") if callable(parameter_status) else None
+    if not isinstance(name, str) or not name:
+        raise DatasourceConnectionError(
+            message="The reader timezone is unavailable from the driver.",
+            expected="a configured or driver-reported IANA timezone",
+            received=f"{profile.name} timezone unavailable",
+            repair=repair(
+                kind="configure",
+                canonical_id="test",
+                action="Use a backend connection with a verifiable timezone before time-sensitive analysis.",
+            ),
+        )
+    try:
+        normalized, zone = parse_timezone(name)
+    except (ValueError, ZoneInfoNotFoundError) as exc:
+        raise DatasourceConnectionError(
+            message="The reader reported an invalid timezone.",
+            expected="a valid IANA timezone or UTC offset",
+            received="invalid_engine_timezone",
+            repair=repair(
+                kind="configure",
+                canonical_id="test",
+                action="Configure a valid reader timezone.",
+            ),
+        ) from exc
+    return DatasourceEngineTimezone(
+        engine_timezone_name=normalized,
+        engine_timezone_tz=zone,
+        engine_timezone_resolution="fixed_offset" if isinstance(zone, timezone) else "iana",
+        read_tz_resolution="engine",
     )
 
 

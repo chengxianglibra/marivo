@@ -225,7 +225,6 @@ def _derived(
         measure=None,
         composition=composition,
         additivity=None,
-        provenance=None,
         ai_context=ai_ctx,
         body_ast_hash=_compute_composition_hash(composition),
         python_symbol=name,

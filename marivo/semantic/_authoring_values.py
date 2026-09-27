@@ -28,7 +28,6 @@ from marivo.semantic.ir import (
     HourPrefixParse,
     JoinKey,
     SnapshotVersioningIR,
-    SqlProvenance,
     StrptimeParse,
     TimestampParse,
     ValidityVersioningIR,
@@ -229,19 +228,6 @@ def validity(
         open_end=open_end,
         timezone=timezone,
     )
-
-
-def from_sql(*, sql: str, dialect: str) -> SqlProvenance:
-    """Declare SQL parity provenance for a Python metric body.
-
-    Use as the ``provenance=`` value on ``@ms.metric(...)``::
-
-        @ms.metric(entities=[orders], additivity=ms.additive_all(),
-                   provenance=ms.from_sql(sql="select sum(amount) from orders", dialect="duckdb"))
-        def revenue(orders_table):
-            return orders_table.amount.sum()
-    """
-    return SqlProvenance(sql=sql, dialect=dialect)
 
 
 def join_on(

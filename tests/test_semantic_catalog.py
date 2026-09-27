@@ -55,7 +55,7 @@ from marivo.semantic.catalog import (
     ValidityVersioning,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.ir import ParityStatus, SourceLocation
+from marivo.semantic.ir import SourceLocation
 
 # --- SemanticKind ---
 
@@ -351,8 +351,6 @@ def test_metric_details_fields():
         additivity="additive",
         fanout_policy="block",
         unit=None,
-        provenance=None,
-        parity_status=ParityStatus.UNVERIFIED,
         fold=None,
         status_time_dimension=None,
     )
@@ -1138,7 +1136,7 @@ def test_catalog_details_render_includes_agent_consumption_context(
     assert "python_symbol: revenue" in metric_rendered
     assert "parents: entity:sales.orders" in metric_rendered
     assert "measure: measure:sales.orders.amount" in metric_rendered
-    assert "parity_status:" in metric_rendered
+    assert "parity_status:" not in metric_rendered
 
     entity_rendered = catalog.require(ms.ref.entity("sales.orders")).details().render()
     assert "datasource: datasource:warehouse" in entity_rendered
@@ -1169,8 +1167,6 @@ def test_catalog_details_render_bounds_long_business_definition():
         additivity="additive",
         fanout_policy="block",
         unit=None,
-        provenance=None,
-        parity_status=ParityStatus.UNVERIFIED,
         fold=None,
         status_time_dimension=None,
     )

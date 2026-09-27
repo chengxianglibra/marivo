@@ -193,9 +193,11 @@ def test_same_named_column_on_another_relation_stays_unused(
 @pytest.mark.skipif(
     os.environ.get("MARIVO_POSTGRES_ANALYSIS_TEST") != "1", reason="opt-in PostgreSQL service"
 )
-def test_postgres_reader_column_comments(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_postgres_reader_discloses_unavailable_column_comments(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from marivo.datasource.backends import _build_backend_from_effective, _effective_kwargs
-    from marivo.datasource.engines.postgres import _inspect_postgres
+    from marivo.datasource.engines.base import MetadataInspectRequest, schema_only_metadata_inspect
     from tests.multisource_environment import postgres_analysis as pg
 
     with _source("postgres", tmp_path, monkeypatch, "valid") as (registry, sidecar):
@@ -210,18 +212,21 @@ def test_postgres_reader_column_comments(tmp_path: Path, monkeypatch: pytest.Mon
             datasource, _effective_kwargs(datasource), read_only=True
         ).backend
         try:
-            metadata = _inspect_postgres(
-                datasource=datasource.name,
-                backend=backend,
-                table=name,
-                database="public",
-                table_expr=backend.table(name, database="public"),
-                include_partitions=False,
-                default_schema=None,
+            metadata = schema_only_metadata_inspect(
+                MetadataInspectRequest(
+                    datasource=datasource.name,
+                    backend=backend,
+                    table=name,
+                    database="public",
+                    table_expr=backend.table(name, database="public"),
+                    include_partitions=False,
+                    datasource_ir=datasource,
+                )
             )
             comments = {column.name: column.comment for column in metadata.columns}
-            assert comments["gross"] == "Gross order amount"
-            assert comments["tenant"] == "Unused source context"
+            assert comments["gross"] is None
+            assert comments["tenant"] is None
             assert comments["weight"] is None
+            assert any(warning.kind == "comments_unavailable" for warning in metadata.warnings)
         finally:
             backend.disconnect()

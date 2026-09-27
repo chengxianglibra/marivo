@@ -172,7 +172,6 @@ OUTPUT_FAMILIES = frozenset(
         "RelationshipCardinalitySourceCheck",
         "SourceHealthReport",
         "RichnessReport",
-        "ParityResult",
         "Ref",
         "Ref[domain]",
         "Ref[datasource]",
@@ -190,7 +189,6 @@ OUTPUT_FAMILIES = frozenset(
         "Ref[dimension | time_dimension]",
         "Ref[dimension | time_dimension | measure]",
         "JoinKey",
-        "SqlProvenance",
         "AiContextValue",
         "Additivity",
         "ValuePolicy",
@@ -308,7 +306,6 @@ _CERTIFYING_PREVIEW = _effects(
         "may_publish_certified_artifact",
     ),
 )
-_PARITY = _effects("potentially_unbounded_read", "opens_connection")
 
 
 def _capability(
@@ -865,11 +862,6 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "trailing",
                 ),
                 _business_decision(
-                    "provenance",
-                    "Does governed SQL provenance require parity evidence?",
-                    "from_sql",
-                ),
-                _business_decision(
                     "guardrails",
                     "Which reusable exclusions and interpretation guardrails apply?",
                     "ai_context",
@@ -899,14 +891,13 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
             ),
             supporting=(
                 "where",
-                "from_sql",
                 "grain_to_date",
                 "trailing",
                 "ai_context",
                 "bind",
                 "quantile_metric",
             ),
-            checks=("load", "readiness", "preview", "parity_check"),
+            checks=("load", "readiness", "preview"),
         ),
         _object_contract(
             SemanticKind.RELATIONSHIP,
@@ -1282,7 +1273,7 @@ def _builder_topics() -> tuple[SemanticBuilderTopic, ...]:
         (
             "builders.field_metric_support",
             "Field and Metric support",
-            "Build Field and Metric parameters, provenance, anchors, and expressions.",
+            "Build Field and Metric parameters, context, anchors, and expressions.",
             (
                 "where",
                 "additive_all",
@@ -1295,7 +1286,6 @@ def _builder_topics() -> tuple[SemanticBuilderTopic, ...]:
                 "zero_denominator",
                 "zero_denominator.error",
                 "bind",
-                "from_sql",
                 "grain_to_date",
                 "trailing",
                 "quantile_metric",
@@ -1395,12 +1385,6 @@ def _check_topic() -> SemanticCheckTopic:
                 (_target("source_health"),),
                 "Ephemeral current source evidence for declared checks.",
                 "Business approval or readiness mutation.",
-            ),
-            route(
-                "Does a Metric agree with its governed SQL provenance?",
-                (_target("parity_check"),),
-                "The exact parity result for the declared comparison.",
-                "General correctness outside that comparison.",
             ),
             route(
                 "Is the semantic project rich enough for current demand?",
@@ -2288,7 +2272,6 @@ _PARAMETER_NAMES_BY_CAPABILITY: Mapping[str, tuple[tuple[str, ...], ...]] = Mapp
         "state_model": (("name",), ("subject",), ("states",), ("transitions",), ("transitions",)),
         "model_state": (("model",), ("name",)),
         "join_on": (("from_key", "to_key"),),
-        "from_sql": (("sql",), ("dialect",)),
         "bind": (("field",), ("entity_alias",)),
         "metric": (
             ("name",),
@@ -2313,7 +2296,6 @@ _PARAMETER_NAMES_BY_CAPABILITY: Mapping[str, tuple[tuple[str, ...], ...]] = Mapp
         "source_health": ((), ("refs",), ("checks",), ("scope",)),
         "readiness": ((), ("refs",)),
         "richness": (("demand",),),
-        "parity_check": (("name",), ("rel_tol",), ("abs_tol",), ("force",)),
         "SemanticCatalog.items": ((), ("kind",)),
         "SemanticCatalog.require": ((), ("ref",)),
         "CatalogCollection.get": ((), ("key",)),
@@ -2330,9 +2312,6 @@ _OPTIONAL_PARAMETER_REQUIREMENTS = frozenset(
         ("participant", 1),
         ("metric", 0),
         ("readiness", 1),
-        ("parity_check", 1),
-        ("parity_check", 2),
-        ("parity_check", 3),
     }
 )
 
@@ -2981,15 +2960,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_AUTHOR,
             example="ms.join_on(order_customer_id, customer_id)",
         ),
-        _capability(
-            "from_sql",
-            "marivo.semantic._authoring_values.from_sql",
-            "Build a SQL provenance value for parity checking.",
-            output="SqlProvenance",
-            inputs=_inputs(("subject", "SqlText"), ("dependency", "SqlDialect")),
-            effects=_AUTHOR,
-            example="ms.from_sql(sql='SELECT SUM(amount) FROM orders', dialect='duckdb')",
-        ),
         # ------------------------------------------------------------------
         # Low-level expression builders (public authoring surface)
         # ------------------------------------------------------------------
@@ -3377,26 +3347,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_LOCAL,
             example="report = ms.richness()",
         ),
-        _capability(
-            "parity_check",
-            "marivo.semantic.parity_check",
-            "Run parity check for a metric against its source SQL.",
-            output="ParityResult",
-            inputs=_inputs(
-                ("subject", "Ref[metric]"),
-                ("dependency", "RelTol"),
-                ("dependency", "AbsTol"),
-                ("dependency", "ForceFlag"),
-            ),
-            effects=_PARITY,
-            constraints=(
-                "provenance_dialect_required",
-                "parity_value_match",
-                "parity_scalar_result",
-            ),
-            example="result = ms.parity_check('sales.revenue')",
-            repair_kinds=("reauthor",),
-        ),
         # ------------------------------------------------------------------
         # SemanticCatalog methods
         # ------------------------------------------------------------------
@@ -3505,8 +3455,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         WorkScheduleEntry,
     )
     from marivo.semantic.dtos import PreviewBatchResult
-    from marivo.semantic.ir import JoinKey, SqlProvenance
-    from marivo.semantic.parity import ParityResult
+    from marivo.semantic.ir import JoinKey
     from marivo.semantic.readiness import (
         ReadinessInputSummary,
         ReadinessIssue,
@@ -3930,12 +3879,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=("show", "render", "to_dict"),
     )
     add(
-        ParityResult,
-        "ParityResult",
-        ("parity_check",),
-        properties=("ok", "expected", "actual", "rel_tol", "abs_tol", "error"),
-    )
-    add(
         ReadinessInputSummary,
         "ReadinessInputSummary",
         (),
@@ -4078,11 +4021,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ("join_on",),
         methods=("to_tuple",),
     )
-    add(
-        SqlProvenance,
-        "SqlProvenance",
-        ("from_sql",),
-    )
     # Enum and value types
     add(
         SemanticKind,
@@ -4110,7 +4048,6 @@ def _error_types() -> Mapping[str, type]:
         SemanticHelpTargetError,
         SemanticLoadError,
         SemanticLoadFailed,
-        SemanticParityError,
         SemanticRuntimeError,
     )
 
@@ -4120,7 +4057,6 @@ def _error_types() -> Mapping[str, type]:
             "SemanticDecoratorError": SemanticDecoratorError,
             "SemanticLoadError": SemanticLoadError,
             "SemanticRuntimeError": SemanticRuntimeError,
-            "SemanticParityError": SemanticParityError,
             "SemanticHelpTargetError": SemanticHelpTargetError,
             "SemanticContractScopeError": SemanticContractScopeError,
             "SemanticLoadFailed": SemanticLoadFailed,

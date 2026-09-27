@@ -411,8 +411,9 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "raw_sql",
             "marivo.datasource.manage.raw_sql",
-            "Run governed read-only SQL exploration with bounded returned rows and an "
-            "enforced timeout. Results are terminal evidence and cannot enter typed analysis; "
+            "Submit one terminal SQL diagnostic verbatim with bounded returned rows and an "
+            "enforced timeout. Read-only behavior relies on connection permissions and is best effort. "
+            "Results cannot enter typed analysis; "
             "always check is_truncated before drawing conclusions.",
             output="RawSqlResult",
             inputs=_inputs(

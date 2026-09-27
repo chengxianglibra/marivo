@@ -74,7 +74,6 @@ def _mk(**over):
         "measure": None,
         "composition": None,
         "additivity": "additive",
-        "provenance": None,
         "ai_context": AiContextIR(),
         "body_ast_hash": "h",
         "python_symbol": "m",

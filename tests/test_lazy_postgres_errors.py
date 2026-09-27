@@ -1,6 +1,5 @@
 """Concrete PostgreSQL boundary failures remain actionable before source I/O."""
 
-from dataclasses import replace
 from typing import get_args
 
 import ibis
@@ -16,7 +15,7 @@ from marivo.analysis.materialization.postgres_execution import (
     bind_postgres,
 )
 from marivo.analysis.operators.registry import BackendName, backend_execution
-from marivo.datasource.engines.postgres import PROFILE
+from marivo.datasource.errors import DatasourceConnectionError
 
 
 def test_backend_declarations_have_matching_runtime_factories() -> None:
@@ -74,20 +73,15 @@ def test_invalid_binding_identifies_type_and_preserves_run() -> None:
     assert "PostgreSQL connection owner" in invalid.value.repair.action
 
 
-def test_unsupported_operations_and_missing_timezone_identify_the_request(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_unsupported_operations_and_missing_timezone_identify_the_request() -> None:
     adapter = PostgresExecutionAdapter(Backend())
     with pytest.raises(MaterializationError) as parquet:
         adapter.read_parquet("private-path-canary", table_name="input")
     assert parquet.value.received == "an unsupported physical operation was requested: read_parquet"
     assert "private-path-canary" not in str(parquet.value)
-    monkeypatch.setattr(
-        "marivo.datasource.engines.require_profile_for_backend_type",
-        lambda name: replace(PROFILE, timezone_probe_sql=None),
-    )
-    monkeypatch.setenv("TZ", "UTC")
-    assert adapter.timezone().read_tz_resolution == "system_fallback"
+    with pytest.raises(DatasourceConnectionError) as timezone_error:
+        adapter.timezone()
+    assert timezone_error.value.received == "postgres timezone unavailable"
 
 
 def test_malformed_identity_records_report_shape_without_row_contents() -> None:

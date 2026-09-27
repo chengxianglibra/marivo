@@ -126,11 +126,9 @@ class EngineProfile:
     required_modules: tuple[str, ...]
     connect: Callable[[str, Mapping[str, object]], BaseBackend]
     apply_read_only_kwargs: Callable[[Mapping[str, object]], dict[str, object]]
-    timezone_probe_sql: str | None
     identifier_quote: str
     table_name_parts: Callable[[TableRefRequest], tuple[str, ...]]
     inspect_partition_values: Callable[[PartitionProbeRequest], PartitionProbeResult] | None
-    readonly_tx_start: str | None
     metadata: EngineMetadataIntrospection
     authoring_capabilities: AuthoringCapabilities
     translate_strptime_format: Callable[[str], str]
@@ -252,6 +250,33 @@ def generic_metadata_inspect(request: MetadataInspectRequest) -> TableMetadata:
     )
 
 
+def schema_only_metadata_inspect(request: MetadataInspectRequest) -> TableMetadata:
+    """Read physical columns through the bound Ibis relation alone."""
+    from marivo.datasource.metadata import MetadataWarning, _schema_only
+
+    return _schema_only(
+        datasource=request.datasource,
+        table=request.table,
+        database=request.database,
+        backend_type=request.datasource_ir.backend_type,
+        table_expr=request.table_expr,
+        warnings=(
+            MetadataWarning(
+                kind="comments_unavailable",
+                message="Table and column comments are unavailable through the bound Ibis schema.",
+            ),
+            MetadataWarning(
+                kind="partitions_unavailable",
+                message="Partition metadata is unavailable through the bound Ibis schema.",
+            ),
+            MetadataWarning(
+                kind="primary_keys_unavailable",
+                message="Key constraints are unavailable through the bound Ibis schema.",
+            ),
+        ),
+    )
+
+
 def decode_cursor_frame(
     cursor: object,
     *,
@@ -295,11 +320,9 @@ GENERIC_PROFILE = EngineProfile(
     required_modules=(),
     connect=_generic_connect_unsupported,
     apply_read_only_kwargs=identity_read_only_kwargs,
-    timezone_probe_sql=None,
     identifier_quote='"',
     table_name_parts=default_table_name_parts,
     inspect_partition_values=None,
-    readonly_tx_start=None,
     metadata=EngineMetadataIntrospection(inspect_table=generic_metadata_inspect),
     authoring_capabilities=AuthoringCapabilities(
         partition_predicate_supported=False,

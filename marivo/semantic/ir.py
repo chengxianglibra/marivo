@@ -72,7 +72,6 @@ __all__ = [
     "MeasureIR",
     "MetricAdditivity",
     "MetricIR",
-    "ParityStatus",
     "ParquetSourceIR",
     "PeriodCalendarIR",
     "RatioComposition",
@@ -83,7 +82,6 @@ __all__ = [
     "SemiAdditive",
     "SnapshotVersioningIR",
     "SourceLocation",
-    "SqlProvenance",
     "StateInceptionIR",
     "StateModelIR",
     "StateTransitionIR",
@@ -116,14 +114,6 @@ class DimensionKind(StrEnum):
 
     CATEGORICAL = "categorical"
     TIME = "time"
-
-
-class ParityStatus(StrEnum):
-    """Parity verification status for metrics."""
-
-    VERIFIED = "verified"
-    UNVERIFIED = "unverified"
-    DRIFTED = "drifted"
 
 
 class MetricAdditivity(StrEnum):
@@ -711,26 +701,8 @@ SemanticParse = DateParse | DatetimeParse | TimestampParse | StrptimeParse | Hou
 
 
 # ---------------------------------------------------------------------------
-# Provenance and join-key value objects
+# Join-key value objects
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class SqlProvenance:
-    """SQL parity provenance for a Python-authored metric body."""
-
-    sql: str
-    dialect: str
-    kind: Literal["from_sql"] = "from_sql"
-
-    def __post_init__(self) -> None:
-        _require_non_empty_str(self.sql, "SqlProvenance.sql")
-        _require_non_empty_str(self.dialect, "SqlProvenance.dialect")
-        _require_kind(self.kind, field_name="SqlProvenance.kind", expected="from_sql")
-
-    @property
-    def verification_mode(self) -> Literal["sql_parity"]:
-        return "sql_parity"
 
 
 @dataclass(frozen=True)
@@ -1020,7 +992,6 @@ class MetricIR:
     measure: str | None
     composition: Composition | None
     additivity: Additivity | None
-    provenance: SqlProvenance | None
     ai_context: AiContextIR
     body_ast_hash: str
     python_symbol: str

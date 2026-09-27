@@ -36,23 +36,10 @@ from marivo.semantic.ir import (
     SampleIntervalIR,
     SemanticParse,
     SemiAdditive,
-    SqlProvenance,
     StrptimeParse,
     TimeFoldIR,
     TimestampParse,
 )
-
-
-def _validate_metric_provenance(provenance: SqlProvenance | None) -> None:
-    if provenance is None:
-        return
-    if not isinstance(provenance, SqlProvenance):
-        _raise(
-            ErrorKind.INVALID_REF,
-            "metric provenance must be constructed with ms.from_sql(sql=..., dialect=...).",
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
 
 
 def _validate_time_parse(parse: SemanticParse | None) -> None:
