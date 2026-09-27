@@ -258,6 +258,46 @@ def test_source_health_runs_only_explicit_bounded_data_checks(
     assert all(check.scopes for check in explicit.values())
 
 
+def test_missing_relationship_rows_do_not_change_structural_cardinality_or_readiness(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory,
+) -> None:
+    catalog, database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
+    relationship = ms.ref.relationship("sales.orders_to_customers")
+    before = catalog.readiness(refs=[relationship])
+    details = catalog.require(relationship).details()
+    assert details.cardinality == "many_to_one"
+
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            "INSERT INTO orders VALUES (4, NULL, 'paid', 40.0, '2020-01-04 00:00:00')"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    scope = md.unpruned(max_rows=20, timeout_seconds=5)
+    report = catalog.source_health(
+        [relationship],
+        checks=[ms.source_check.relationship_matches(relationship, side="from")],
+        scope={
+            ms.ref.entity("sales.orders"): scope,
+            ms.ref.entity("sales.customers"): scope,
+        },
+    )
+    check = next(item for item in report.checks if item.kind == "relationship_matches")
+    assert check.status == "failed"
+    assert check.user_data_queried is True
+    assert check.observed["from_unmatched_count"] == 2
+    assert len(check.scopes) == 2
+    assert catalog.require(relationship).details().cardinality == "many_to_one"
+    assert catalog.readiness(refs=[relationship]).to_dict() | {"checked_at": None} == (
+        before.to_dict() | {"checked_at": None}
+    )
+
+
 def test_schema_drift_reports_current_affected_refs_and_repair(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -52,7 +52,7 @@ Status: R0.2 现状反查完成；R0.3 目标契约与 R0.4 规则/责任已登�
 | ID | 当前代码与 Help；当前 owner/证据 | 目标唯一入口及 L/M、目标 K；去向/阶段 |
 | --- | --- | --- |
 | C01 | `datasource/{authoring,source,inspection,manage,json_source,engines}*`；H `datasource.authoring/table/csv/parquet/json/inspect/raw_sql`；旧 C1/C2/C5/C10 | `md` typed 声明、inspect/sample、`md.raw_sql` 终端逃生通道与 adapter；Datasource result 的现态 `.show()`/repair，非分析 K。保留公共 raw SQL，内部读取仍由 Ibis；R1 重验真实读取/元数据/JSON/认证和终端边界 |
-| C02 | `semantic/{authoring,ir,resolver,validator,metric_graph*,runtime_metric*,event,state_model}*`；H `semantic.objects/*builder`；旧 C3–C9 | `ms` Entity/变量/Relationship/Metric/Event/StateModel/Calendar Ref 和 builder；分析域/Relation 只消费 Ref；定义结果非分析 K。保留并收紧身份、版本、业务顺序依据，R2 |
+| C02 | `semantic/{authoring,ir,resolver,validator,metric_graph*,runtime_metric*,event,state_model}*`；H `semantic.objects/*builder`；旧 C3–C9 | `ms` Entity/变量/Relationship/Metric/Event/StateModel/Calendar Ref 和 builder；Relationship 在 R2 只推导结构基数，R5 消费者核验选定成员的匹配要求；定义结果非分析 K。保留并收紧身份、版本、业务顺序依据，R2/R5 |
 | C03 | `session/core.py:population,members`、`observation/{population,dsl_j1}.py`；H `analysis.population/session.members/inputs.population`；J1 | `session.members(EntityRef, at=...)` → L/M AnalysisDomain；K 为获准 `read/observe/group_by/each/execute` 与材料化后固定续算。旧 population 删除，版本化与多列身份增量 R5 |
 | C04 | `session.observe`、`observation/metric.py`、`runtime_metric.py`、`dsl_j1.py:J1Observed/J3Observed`；H `analysis.observe/runtime_metric.*/dsl.LogicalAnalysisDomain.observe`；J1/J3、旧 C4 | `domain.observe(MetricRef|RuntimeMetricExpr, during, via)` → L/M NumericRelation；K 为合法 `where/group_by/summarize/rollup/compare/execute`，按部件收紧。旧多量 Dataset 删除，R5 |
 | C05 | `observation/{aggregation,coordinates,rollup}.py`、`metric.py`、`public_dsl.Grouped*`；H `analysis.metric_dataset.aggregate/rollup/dsl.*`；J1/J3 | `relation.group_by(...).summarize(method)` 与 `.rollup()` → L/M NumericRelation；K 不得由当前行统计自动升级为原量上卷。保留两种归约、删除旧 `.aggregate()` 同义路径，R5 |
@@ -67,7 +67,7 @@ Status: R0.2 现状反查完成；R0.3 目标契约与 R0.4 规则/责任已登�
 | C14 | `operators/{discovery,association,forecast*}.py`、`compiler/{correlation,entity_candidate,driver_candidate}.py`；H `analysis.discovery.*/metric_dataset.correlate/forecast`；旧 C8、J4 | Relation `.discover/.correlate(*others)/.forecast(...)` → L/M Candidate/Association/Forecast 具体变体；K 含合法具名视图筛选、排名，不含原量相关/预测上卷。保留闭合方法，R8 |
 | C15 | `materialization/{admission,dataset_execution,dsl_j1_runtime,store,reconciliation,reads}*`、`session/core.py`、`evidence/*`；H `analysis.runtime.sessions/artifacts/evidence`；J1–J4/P4 | 唯一 Session/Run/Artifact/Store owner；所有 L `.execute()` 和 M 固定续算，共用 source reevaluation / fixed exact-hit、receipt/恢复 K。保留服务、替换双运行协议，R4+ |
 | C16 | `marivo/_help/*`、三层 `_capabilities/*`、`analysis/_public.py`、`errors.py`、CLI/site/skills；H `analysis.entry/methods/inputs/dsl.*` | 单一原生 Help/有界 `repr/show/contract`、类型与结构化 repair；K 披露必须与材料化部件一致。保留披露能力、删除旧 Help alias/inventory，逐阶段/R10 |
-| C17 | `marivo/ontology/*`、`project.py`、`cli.py`、telemetry、打包/可选依赖；H `ontology.authoring`、各 surface project/diagnostic | ontology 仅关联新 Ref/Artifact，不授分析规划/准入；项目/秘密/诊断/依赖保留。非分析 K；R2/R10 |
+| C17 | `marivo/ontology/*`、`project.py`、`cli.py`、telemetry、打包/可选依赖；H `ontology.authoring`、各 surface project/diagnostic | R2 验证精确 Semantic Ref；R4 建立新 Artifact 身份/receipt 后由 R10 只读关联，ontology 不授分析规划/准入；项目/秘密/诊断/依赖保留。非分析 K；R2/R4/R10 |
 | C18 | 当前无公开 Anchor/retention 构造；理论/接口设计 §8.2 有目标问题，不能把 `EventPattern` 绝对随访冒充相对窗口 | R0.3 已定 L/M Anchor/Retention typed 变体、固定 Ω、两种单位/量词、K+/K-/K? 与 K；R7 实施。现状：目标必需但未实现 |
 
 ## 3. 独立准入方法子单元
@@ -80,7 +80,8 @@ Status: R0.2 现状反查完成；R0.3 目标契约与 R0.4 规则/责任已登�
 | C01.b 物理来源与参数 | `source.py/json_source.py/inspection.py`；H `table/csv/parquet/json/source_param/inspect/SourceInspection.sample`；`test_datasource_json_source.py` | Table/CSV/Parquet/JSON 和作用域参数，Ibis 读取；+ 文件/JSON 样本与字段，− 非法 scope/认证泄露。SQL 移除见 C01.c/R0.5 |
 | C01.c SQL/parity 边界 | `manage.py:raw_sql`、`semantic/parity.py`；H `datasource.raw_sql/semantic.parity_check`；`test_datasource_raw_sql.py`、`test_semantic_parity.py` | 保留 `md.raw_sql`/`RawSqlResult`/Help 的单条只读终端查询；`ms.from_sql` 仅 provenance，产品 parity 不执行 SQL。+ 截断/超时/终端边界，− raw 结果回流 Analysis 或内部 `backend.sql` 绕过；逐提交点在 SQL 台账处理 |
 | C02.a Entity/变量/版本 | `semantic/{authoring,ir,validator,resolver}.py`；H `entity/dimension/measure/time_dimension/snapshot/validity`；`test_semantic_phase2_validity.py` | Ref-only、完整复合键和精确版本；+ exact at，− last-known/历史去重；R2/R5 |
-| C02.b Relationship/Metric | `semantic/{metric_graph*,runtime_metric*,unit_algebra}.py`；H `relationship/aggregate/count/ratio/weighted_mean/linear/metric`；`test_semantic_metric_graph_lowering.py` | 声明与 builder 推导依据分开；+ 合格唯一映射，− fanout/单位数值碰巧一致；R2 |
+| C02.b Relationship/Metric 静态契约 | `semantic/{authoring,validator,metric_graph*,runtime_metric*,unit_algebra}.py`；H `relationship/aggregate/count/ratio/weighted_mean/linear/metric`；`test_semantic_r21_identity_relationship.py`、`test_semantic_metric_graph_lowering.py` | Relationship 只声明有向映射并推导结构基数，无全局 `required`；声明与 builder 推导依据分开；+ 完整 K 的结构性单值，− 把该结论当作每行必配或实际唯一；R2 |
+| C02.b 消费与来源核验 | `analysis` 各使用关系路径的方法、`semantic.source_health`；H 对应 Analysis 方法及 `semantic.source_check.relationship_matches`；R5 独立反例 | 消费者按成员范围、角色与精确版本规定必配或允许缺失的结果语义；实际缺失必配目标和单值路径多重匹配结构化拒绝；有界 source-health 不作全局证明；R5 |
 | C02.c Event/State/calendar | `semantic/{event,state_model,_authoring_temporal}.py`；H `event/participant/state_model/period_calendar/temporal_set`；`test_semantic_event.py`、`test_semantic_state_model.py` | occurrence、业务顺序与日历定义；+ 明确先后，− 同时刻仅按 ID 排序；顺序契约 R0.3/R2 |
 | C03.a 根成员/身份 | `dsl_j1.py:J1Context.members`、`session/core.py:members`，旧 `population`；H `session.members/population`；`test_analysis_dsl_j1_construction.py` | Entity Ref→L/M Domain；+ 两成员完整键，− 重复键/复合键截断；单列限制迁移 R5 |
 | C03.b 版本成员 | `session.population` 的 `time_scope`、`semantic/validity`；H `inputs.population`；`test_semantic_phase2_validity.py` | `members(at=exact|before_end)`；+ 指定快照，− 最近可得版本；当前 J1 无该公开参数，R5 |
@@ -116,7 +117,8 @@ Status: R0.2 现状反查完成；R0.3 目标契约与 R0.4 规则/责任已登�
 | C15.b publication/recovery | `store.py`、`dsl_j1_receipt.py`、各 codec/publication、`reads.py`；H `session.artifact/revalidate/evidence`；`test_analysis_dsl_exchange.py` | receipt/parts/Run 原子发布和冷恢复 K；+ 断源固定续算，− 损坏 receipt 或未知提交重复发布；R4 |
 | C16.a Help/动态 K | 三层 `_capabilities/`、`_help/`、`public_dsl.AnalysisContract`；H `analysis.entry/dsl.Value.contract`；`test_agent_api_drift.py` | 具体 L/M、同 owner 静态 Help 与当前 K；+ 可达精确 target，− 展示禁用续算；逐阶段/R10 |
 | C16.b 安装包/Agent | site latest EN/ZH、packaged skills、CLI、`devtools/analysis_dsl_s4_p3/`；S4 旧记录 | 新 wheel、独立 oracle、真实 Agent 各自验收；+ fresh session 完整路径，− 旧 trace/脚本冒新 DSL；R10 |
-| C17.a ontology | `marivo/ontology/`；H `ontology.authoring`；`test_ontology_extension.py` | 可选关联新 Ref/Artifact；+ 正确身份，− ontology 自动授因果/计算准入；R2/R10 |
+| C17.a Semantic Ref 关联 | `marivo/ontology/`；H `ontology.authoring`；`test_ontology_extension.py` | `mo.load(semantic=catalog)` 验证当前精确 Ref，ontology 与 semantic catalog 指纹共同定位上下文；− ontology 自动授因果/计算准入；R2 |
+| C17.a Artifact 交接 | Runtime Artifact 身份、receipt、精确语义依赖及 ontology 消费；R4/R10 独立反例 | R4 先建立新 Artifact 权威，R10 才能只读关联精确上下文；错误身份/角色或损坏 receipt 拒绝，不回退当前 catalog 猜测；R4/R10 |
 | C17.b 项目/遥测/依赖 | `project.py`、`cli.py`、`telemetry/`、package metadata；`test_project.py`、`test_telemetry.py` | 秘密与主体键不泄露、可选依赖隔离；+ 离线基本 import，− 缺可选驱动导致核心 import 失败；R10 |
 | C18.a Anchor 相对观察 | 当前无实现；仅接口设计 §8.2/理论 §8.5 | R0.3 已定 Event/Journey typed Anchor、elapsed/calendar、共享重叠及 K，见 §5；+ DST 对照，− 七日=168h；R7 |
 | C18.b retention | 当前无实现；不可用 Event 绝对窗口代替 | R0.3 已定固定 Ω、两种单位/量词、K+/K-/K?、确定性界及 K，见 §5；+ 25/5/70→[25%,95%]，− 删未知单点率；R7 |
@@ -173,7 +175,8 @@ Event matching、Lifecycle replay、归因、排名、相关、预测各用独�
 | C01.b | `source.bind@v1`；datasource adapters/R1 | typed Table/File/JSON→物理 relation；inspect/sample | 原文件/JSON 与 schema 清单 |
 | C01.c | `raw_sql_terminal@v1`；datasource/R1 | `Ref[DatasourceKind] × SqlText × reason/limit/timeout → RawSqlResult`，无 Analysis L/M/K；保留公开导出/Help | 单条只读、截断/超时、typed reentry 拒绝及实际提交审计 |
 | C02.a | `entity.resolve@v1`；semantic/R2 | 版本化 Ref→定义；exact at/before_end | 两版本复合键手算 |
-| C02.b | `metric_graph@v1`；semantic/R2 | 声明/组件→规范图；按已证规则交 Analysis | 单位与贡献分解手算 |
+| C02.b 静态 | `metric_graph@v1` 及 Relationship 映射；semantic/R2 | 声明/组件→规范图，关系完整 K 覆盖→结构基数；不产生匹配完整性证明 | 单位与贡献分解手算；相同键覆盖下空键/缺目标不改变静态基数 |
+| C02.b 消费 | 使用 Relationship 路径的 Analysis 方法；analysis/R5 | 精确成员、版本及角色→必配或允许缺失语义；必配缺失/单值多重匹配拒绝 | 有界检查与完整来源结果分离；缺失、重复、版本反例 |
 | C02.c | `event_order@v1`；semantic/R2 | Event/State/calendar/order Ref→定义；领域消费 | 同刻相反顺序轨迹 |
 | C03.a | `members@v1`；analysis relations/R5 | Domain L→M；read/observe/group/each/members | 原始完整主体键集合 |
 | C03.b | `members_at@v1`；analysis relations/R5 | 版本 Domain L→M；同 C03.a 且精确时点 | 快照/validity 手算 |
@@ -209,7 +212,8 @@ Event matching、Lifecycle replay、归因、排名、相关、预测各用独�
 | C15.b | `publish_recover@v1`；analysis materialization/session/R4 | Artifact→固定 K；精确 receipt/parts | 断源恢复与损坏注入 |
 | C16.a | `disclose@v1`；analysis core/R3–R10 | repr/show/contract/Help；只呈实际 K | 导出/Help/动态 K 独立枚举 |
 | C16.b | `agent_journeys@v1`；analysis session/R10 | 安装包完整用户旅程；终端结果 | 新 wheel 独立 oracle/真实轨迹 |
-| C17.a | `ontology_handoff@v1`；semantic/R2/R10 | Ref/Artifact 关联；无新分析权限 | 精确身份和错误角色 |
+| C17.a Ref | `ontology_handoff@v1`；semantic/R2 | 当前 catalog 的精确 Ref 与双指纹关联；无新分析权限 | 错端点与错误 Ref kind |
+| C17.a Artifact | `ontology_handoff@v1` 的 Artifact 侧；Runtime/R4、ontology 消费/R10 | 新 Artifact 身份、receipt、语义依赖与 ontology 上下文只读关联；无新分析权限 | 错误角色、身份不符、损坏 receipt、过期上下文 |
 | C17.b | `project_tools@v1`；项目工具/R10 | 管理/诊断；无分析 K | 无可选驱动导入与脱敏 |
 | C18.a | `relative_anchor@v1`；analysis methods/R7 | Anchor Domain/Relative Relation L→M；实例视图/固定续算 | DST、重叠窗口逐事件表 |
 | C18.b | `retention@v1`；analysis methods/R7 | Instance/Subject Retention L→M；状态视图/合格选人 | 25/5/70 界与量词真值表 |

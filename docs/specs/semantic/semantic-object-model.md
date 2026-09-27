@@ -868,9 +868,13 @@ that overlapping contributions can be summed when a coordinate is removed.
 The directed structural cardinality (`one_to_one`, `many_to_one`, `one_to_many`,
 or `many_to_many`) follows whether distinct join columns cover each endpoint's
 complete stable `primary_key`. Authors do not repeat that derived fact. Whether
-every source row must match a target is a separate business requirement, not
-part of the Relationship constructor in R2.1. Static loading cannot derive or
-prove it from physical metadata or a sample. Every `keys` pair resolves to a
+every selected source member must match a target is a consuming operation's
+business requirement, not a global Relationship field. The consumer must bind
+its selected membership, exact version, and role before requiring a match; if
+absence is allowed, that operation must define the resulting missing value or
+member behavior. An operation with no such rule cannot infer completeness from
+the mapping. Static loading cannot derive or prove matches from physical
+metadata or a sample. Every `keys` pair resolves to a
 direct-column Dimension or TimeDimension ref on its exact endpoint, without
 interpreting a semantic ref path as a physical column.
 For a versioned endpoint, this is conditional on the consuming operation's
@@ -879,7 +883,11 @@ reading rows; actual multiplicity, missing matches, and version overlap remain
 consumer/source checks. A weaker many side never grants fanout safety. Derived
 cardinality grants no evidence of actual rows. When completeness matters, an
 explicit bounded `source_check.relationship_matches(...)` can test its declared
-scope; source-health results do not become a global business guarantee.
+scope; source-health results do not become a global business guarantee. R5
+consumers must reject actual missing matches when their selected members require
+one, and reject duplicate matches on a single-valued path, with structured
+expected/received/repair diagnostics. A consumer may preserve an absent match
+only when its own contract gives that absence an explicit meaning.
 
 ## Event and StateModel boundaries
 

@@ -223,6 +223,24 @@ class SourceCheckNamespace:
         *,
         side: RelationshipSide,
     ) -> RelationshipMatchesSourceCheck:
+        """Build a bounded check for unmatched relationship keys.
+
+        Args:
+            relationship: Exact Relationship ref to inspect.
+            side: Check the directed ``from`` side or ``both`` sides.
+
+        Returns:
+            A check consumed by ``catalog.source_health(..., checks=..., scope=...)``.
+
+        Example:
+            ms.source_check.relationship_matches(
+                ms.ref.relationship("sales.orders_to_customers"), side="from"
+            )
+
+        Constraints:
+            The result describes only the explicitly selected source scopes. It
+            neither declares global match completeness nor changes readiness.
+        """
         return RelationshipMatchesSourceCheck(relationship=relationship, side=side)
 
     def relationship_cardinality(

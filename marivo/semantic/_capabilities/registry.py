@@ -910,7 +910,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
         ),
         _object_contract(
             SemanticKind.RELATIONSHIP,
-            "Executable directed join contract between Entities.",
+            "Directed Entity mapping with derived structural cardinality; match completeness belongs to each consumer.",
             decisions=(
                 _business_decision(
                     "directed_meaning",
@@ -2245,7 +2245,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
         _capability(
             "source_check.relationship_matches",
             "marivo.semantic.source_health.SourceCheckNamespace.relationship_matches",
-            "Require declared relationship keys to match on the selected side.",
+            "Check unmatched relationship keys only within the selected bounded source scopes.",
             kind="method",
             output="RelationshipMatchesSourceCheck",
             inputs=(
@@ -2856,7 +2856,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "relationship",
             "marivo.semantic._authoring_decorators.relationship",
-            "Declare a relationship between two entities.",
+            "Declare a directed Entity mapping; key coverage derives structural cardinality, not required matches.",
             output="Ref[relationship]",
             inputs=_inputs(
                 ("mapping_key", "RelationshipName"),

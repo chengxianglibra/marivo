@@ -432,9 +432,11 @@ dimension refs, entity membership, or arity. Relationship assembly also resolves
 each join ref to one direct source column on its declared endpoint, rejects
 repeated key columns, and derives structural cardinality from coverage of each
 endpoint's complete stable `primary_key`. Target match completeness is not
-declared on Relationship in R2.1 and remains unknown at static load. Versioned
-one sides still need exact version resolution, and missing matches or duplicate
-source rows are not proven at load.
+declared on Relationship and remains unknown at static load. The consuming
+operation owns any required-match policy for its selected members, role, and
+exact version; an allowed absence also needs that operation's explicit result
+semantics. Versioned one sides still need exact version resolution, and missing
+matches or duplicate source rows are not proven at load.
 Tier-1 metric filters must resolve
 every local key to a declared dimension on the target entity; failures use
 `invalid_filter` with focused `semantic.where` repair. On failure the registry
@@ -654,7 +656,11 @@ The optional ontology is loaded separately with `mo.load(semantic=catalog)`.
 Its `definition_fingerprint` and `semantic_catalog_fingerprint` jointly identify
 the contextual association to the exact loaded definitions. Ontology edges
 do not alter readiness or grant causality, computation, or Artifact authority;
-binding them to a future Artifact belongs to the Runtime handoff.
+binding them to a future Artifact belongs to the Runtime handoff. R4 must first
+establish the Artifact identity, validated receipt, and exact semantic dependency
+lineage. R10 may then expose an optional, read-only association only after
+checking the ontology context and endpoint roles against those exact identities;
+a mismatch cannot be repaired by a current catalog guess or grant admission.
 
 The report does not create a second transfer object or validation token. After
 readiness succeeds, an agent passes the listed canonical refs or runtime
