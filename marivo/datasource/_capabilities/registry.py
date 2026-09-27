@@ -282,12 +282,12 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "connect",
             "marivo.datasource.manage.connect",
-            "Open a managed live datasource connection, bounded by a 30s wall-clock deadline (SQLite opens inline on the caller's thread).",
+            "Open a live Ibis backend for explicit external work, bounded by a 30s wall-clock connect deadline (SQLite opens inline). Backend calls are outside governed SourceSession reads and md.raw_sql terminal guards.",
             output="DatasourceConnection",
             inputs=_inputs(("subject", "DatasourceName")),
             effects=_CONNECT,
             constraints=constraints["configured"],
-            example='with md.connect("warehouse") as con:\n    con.raw_sql("SELECT 1")',
+            example='with md.connect("warehouse") as con:\n    print(con.list_tables())',
         ),
         _capability(
             "test",
@@ -469,13 +469,13 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "DatasourceCatalog.connect",
             "marivo.datasource.catalog.DatasourceCatalog.connect",
-            "Connect to one configured datasource from a loaded catalog.",
+            "Open one raw Ibis backend from a loaded catalog for caller-owned work outside governed SourceSession reads and md.raw_sql terminal guards.",
             kind="method",
             output="DatasourceConnection",
             inputs=_inputs(("receiver", "DatasourceCatalog"), ("subject", "DatasourceName")),
             effects=_CONNECT,
             constraints=constraints["configured"],
-            example='with md.load().connect("warehouse") as con:\n    con.raw_sql("SELECT 1")',
+            example='with md.load().connect("warehouse") as con:\n    print(con.list_tables())',
             public_entrypoint="catalog.connect",
         ),
         _capability(

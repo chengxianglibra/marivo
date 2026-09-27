@@ -2,7 +2,7 @@
 
 Date: 2026-09-26
 
-Status: R0.1–R0.5 的静态产物已登记；R0.5 替代路线可行性和运行资格未验证，R0.6 未开展，R0 整体未验收。
+Status: R0.1–R0.5 静态产物已登记，R0.6 未开展；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验。R0 和 R1 整体均未验收。
 
 本文件按[主计划](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)和[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)续记实际证据。历史验收不自动转成新 DSL 的技术、后端、安装包或真实 Agent 资格。
 
@@ -105,6 +105,53 @@ MySQL 基础 Analysis 补充格：启动前 `mysql-analysis` 为 Exited，本轮
 | MySQL 8.4.11 | `MARIVO_MYSQL_ANALYSIS_TEST=1 make runtime-test TESTS='tests/test_r13_control_boundaries.py::test_mysql_unverifiable_timezone_blocks_time_sensitive_read tests/test_r12_source_adapters_runtime.py::test_mysql_table_view_and_exact_decimal tests/test_r12_source_adapters_runtime.py::test_mysql_invalid_date_and_read_only_permission' RUNTIME_WORKERS=1`：3 passed；驱动无可验证时区时结构化拒绝，读账号不能 CREATE；基础表/view 与无效日期负例回归通过 |
 
 这些命令逐一验证连接设置、实际服务端 timeout/权限或前置阻断，不把 mock 当远端资格。远端取消后服务器终止仍未验证；必要 metadata 丰富事实仍 unavailable，R1.2 整体状态不变。
+
+## R1.4 消费者、披露和阶段收口记录（2026-09-27）
+
+本轮起点 `panda` HEAD `a452a57f820924d52930adb3b5381f73aac7c1e6`，工作树原先干净。受影响的 Help、公共 docstring、Datasource/Semantic/Analysis owning spec 与 `site/` latest 中英文文档候选（不含本验收记录）的 `git diff --binary HEAD -- <12 个修改文件>` SHA-256 为 `d69f1892f07f92186aef645d5ae4b94fbc84f05d892e2f4eb89992e336f3e943`。此 hash 定位未提交候选，不是产品或阶段通过证明。本轮没有新公共导出、Help target 或函数签名；原有导出快照、Help reachability/drift/预算用例由全量默认测试重新执行。`marivo doctor` CLI 仍只提供静态声明检查和显式连接探测，没有新增 Dataset 方法准入命令；本轮未改 CLI 行为或 packaged skills。
+
+消费者反查：`md.inspect`/sample/snapshot、Semantic preview/source-health 和 `md.test` 仍消费 R1.2/R1.3 的绑定来源读取或 Ibis literal 探测；metadata 可选事实缺失继续以 unavailable 披露。基础单表 Population 与无时间范围 sum/count Metric 消费 `SourceSession`；旧 Event/Lifecycle/Attribution、mean、时间范围、rank/limit 等来源路线在 `source_admission` 阻断，旧具体执行类的文本方法仍在源码中，按下表交给 R5–R9。固定 Artifact 续算是单独准入的 R4 路线，不借旧来源 SQL 兜底。`md.connect` 公开返回原生 Ibis backend，调用者可以直接 `raw_sql`，不受 `md.raw_sql` 的 reason、行界和 timeout 约束；Help、docstring 和 Datasource owning spec 已明确披露。这与 R1 “唯一公开原始 SQL 终端入口”的出口相冲突，**R1 阻塞**，后续须收紧或移除这一公共旁路并迁移其消费者，不得仅改措辞算通过。
+
+| C01 子单元 | 本轮结论 | 证据边界与恢复条件 |
+| --- | --- | --- |
+| C01.a typed 连接、来源与 metadata | **部分通过 / 阻塞** | R1.2 六 provider 的实测基础形态见上表；schema-only 使可选注释、PK、物理估计等 unavailable，45 个原丰富 metadata 断言仍跳过。必需 metadata 缺失的形态拒绝；需合格 metadata API/Ibis 事实及真实后端反例后恢复 |
+| C01.b Ibis 编译、提交、解码与资源 | **部分通过 / 未验证** | R1.2 记录了各所测形态 `session.submissions[-1].sql == read.sql`、独立行/Decimal/身份预期、空流与早关闭；远端终止、六后端适用 Null/非有限数/时间精度全矩阵及额外形态未验证。旧来源具体类仍有文本提交，不能宣称 R1 出口闭合 |
+| C01.c 终端 raw SQL | **部分通过 / 阻塞** | R1.3 的所测 DuckDB/SQLite/PostgreSQL/Trino 超时、权限、截断、错误与 typed reentry 证据保留；MySQL 缺可执行 timeout、ClickHouse 只读账号不能设置 timeout，所测形态阻塞；`md.connect` 公共 raw backend 旁路仍在，唯一入口条件不成立 |
+
+| SQL 台账 ID | 当前处置与状态 | 尚缺的精确证据或负责阶段 |
+| --- | --- | --- |
+| DS01 | **所测通过**：`md.test` 的 Ibis literal 提交；本轮本地回归 | 四远端 R1.3 连接探测未在本轮重跑 |
+| DS02 | **部分通过 / 阻塞**：`md.raw_sql` 是受控终端结果；公共 `md.connect` 仍可直接调用 backend SQL | 移除或约束公共旁路；MySQL/ClickHouse timeout 格见 C01.c |
+| DS03 | **schema 通过 / 丰富 metadata 阻塞**：DuckDB 可选注释、约束等 unavailable | 恢复原断言并取真实 API/表达式证据 |
+| DS04 | **schema 路线已迁 / 远端未验证**：PostgreSQL 注释、分区等 unavailable | namespace/权限/丰富事实真实正反例 |
+| DS05 | **schema 路线已迁 / 远端未验证**：MySQL 列/分区丰富事实 unavailable | 表/view 与只读账号 metadata 正反例 |
+| DS06 | **schema 通过 / 丰富 metadata 阻塞**：SQLite 索引、约束等 unavailable | main/view/attached 原断言恢复 |
+| DS07 | **schema 路线已迁 / 部分未验证**：Trino Iceberg/non-Iceberg 基础读取已测，丰富 metadata unavailable | Hive `$partitions` 及 connector metadata |
+| DS08 | **所测通过**：Trino Iceberg `$partitions` 绑定 Ibis 实源读取 | Hive 形态未验证 |
+| DS09 | **schema 路线已迁 / 部分阻塞**：ClickHouse 可选拓扑和 `projectable_columns` unavailable | 只读权限和 Distributed 物理事实 |
+| DS10 | **所测通过**：ClickHouse `system.parts` 绑定读取 | 其他权限/分区形态未验证 |
+| DS11 | **部分通过 / 阻塞**：PostgreSQL/Trino timeout 已实测 | MySQL 无可执行 timeout；ClickHouse 只读账号不能设置 timeout |
+| DS12 | **所测通过**：SQLite driver authorizer 写入拒绝、终端 interrupt | 其他 SQLite 配置未转授 |
+| DS13 | **部分通过 / 阻塞**：PostgreSQL/Trino UTC 有服务端事实 | MySQL/ClickHouse 必需时区事实无合格 driver API |
+| DS14 | **通过静态删除**：`postprocess_sql` 钩子无生产定义 | 旧领域文本执行仍属 AN 行 |
+| DS15 | **阻塞**：带认证 DuckDB HTTP 在秘密解析前拒绝 | 合格认证 API 与真实脱敏/HTTP 反例 |
+| DS16 | **所测通过**：DuckDB `force_download` driver 设置实测 | 不转授 DS15 认证形态 |
+| DS17 | **部分通过 / 未验证**：source-health 基础业务值检查走绑定读取 | 六后端关系/Null/重复完整正反例未齐 |
+| DS18 | **所测通过**：source-health 共用 Ibis literal 探测 | 四远端本轮未重跑 |
+| DS19 | **通过静态删除**：`ms.parity_check`/结果状态入口移除 | 历史 SQL 不作为运行 oracle |
+| DS20 | **通过静态删除**：`ms.from_sql`/执行改写入口移除 | 历史说明只留 `ai_context` |
+| DS21 | **部分通过 / 未验证**：sample、snapshot、preview 共用绑定来源 | 所有六后端作用域/空流/资源组合未齐 |
+| AN13、AN14 | **所测通过**：基础 count 与私有成员完整性 Ibis 路线 | R4/R9 实源、receipt 与方法复核 |
+| AN15、AN16、AN17 | **部分通过**：新 DuckDB 设置、schema、文件读取；旧具体执行类仍有 `statement` | R4 清旧固定路线文本；R9 扩展形态 |
+| AN19、AN20 | **部分通过 / 阻塞**：MySQL 基础表/view、无效日期；旧日期文本校验仍在具体类 | R5/R9 迁移所有旧来源消费者；时区见 DS13 |
+| AN21、AN22 | **部分通过**：SQLite 基础来源及存储型拒绝；旧具体类仍有文本 schema/控制 | R4/R9 清理与实源复核 |
+| AN23、AN24、AN25 | **部分通过 / 未验证**：PostgreSQL 新基础读取有原样编译提交；旧具体类保留 schema/值检查文本 | R5–R9 方法迁移与数值矩阵 |
+| AN26、AN27 | **部分通过 / 未验证**：Trino 新基础读取有原样编译提交；旧具体类保留 schema/非有限值文本 | R5–R9 方法迁移与 Iceberg/non-Iceberg 类型矩阵 |
+| AN28、AN29、AN30 | **部分通过 / 阻塞**：ClickHouse 新基础读取和分区值已测；旧具体类保留 metadata/值校验文本，timeout 控制不可设 | R5–R9 迁移、控制 API 和取消实证 |
+| AN31、AN32 | **部分通过 / 阻塞**：基础数值/时间 Ibis 路线；带认证 HTTP 仍拒绝 | R5/R9 领域时间 lowering、DS15 认证 API |
+| AN33 | **新链通过 / 旧类阻塞**：`SourceSession` 拒伪造编译句柄、原样提交；旧具体 `statement(sql)` 仍可在源码中调用 | R4–R9 删除旧类文本入口，重做调用反查 |
+
+本轮本地版本 Ibis 12.0.0、DuckDB 1.5.3、SQLite 3.53.1、PyArrow 25.0.1。`make test TESTS='tests/test_datasource_live_help.py tests/test_unified_help.py tests/test_datasource_raw_sql.py tests/test_datasource_profiles_registry.py tests/test_public_surface.py tests/test_r13_control_boundaries.py'` 为 **122 passed**；最终 Help 文案调整后 `make test TESTS='tests/test_datasource_live_help.py tests/test_unified_help.py tests/test_agent_api_drift.py tests/test_public_surface.py'` 为 **87 passed**。`make runtime-test TESTS='tests/test_r11_legacy_domain_block.py tests/test_r12_source_adapters_runtime.py tests/test_r13_control_boundaries.py' RUNTIME_WORKERS=1` 为 **11 passed、12 skipped**，跳过远端 opt-in，不能算远端重验。`make check-agent` 的 lint/import、378 个源码文件 typing、默认测试 **5099 passed、64 skipped**、Sphinx API 文档全部通过；64 个 skip 不计验收通过，其中 14 个 R5 旧来源正例和 45 个丰富 metadata 断言保留原断言与恢复条件。文案调整后 `make docs-api-agent` 仍通过；`npm --prefix site run build` 成功，Astro 321 页；`git diff --check` 通过。静态 `rg` 仍发现 `marivo/analysis/materialization/{scalar_sql_execution,duckdb_execution,postgres_execution,mysql_execution,sqlite_execution,trino_execution,clickhouse_execution}.py` 的旧 `statement`/`submit` 路线，以及 `compiler/driver_numeric.py` 的旧宏提交；这是 R1 第 2、5 项出口不能通过的直接反例。本轮没有重启远端服务、wheel 安装、真实 Agent 旅程或远端取消终止证据，R1 整体保持 **未通过**。
 
 ## R0.3–R0.5 本次快照与核验
 

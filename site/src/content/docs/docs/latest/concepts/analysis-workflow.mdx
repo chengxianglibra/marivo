@@ -13,9 +13,13 @@ execution boundaries, inspect the Dataset contract, and follow the concrete
 structured repair for unsupported shapes. Remote sources require read-only
 accounts; uploading retained results to bypass admission is unsupported.
 
-During R1.1, qualified one-table, unscoped Population scan/filter and sum/count
-Metric aggregate on DuckDB or SQLite execute through an internal `SourceSession`.
-The basic Metric route also supports grouping by a direct dimension. Other older
+During the current R1 transition, qualified one-table, unscoped Population
+scan/filter and sum/count Metric aggregate use an internal `SourceSession`.
+DuckDB and SQLite have local basic-read evidence; MySQL has tested single-key
+Population table/view and sum/count table evidence. PostgreSQL, Trino and
+ClickHouse have tested adapter reads, but that does not qualify every Dataset
+method or physical shape. The basic Metric route supports grouping by a direct
+dimension. Other older
 source-backed `Dataset.execute()` routes stop with a structured
 `source_admission` error before a Run or source read. The error names the
 R5–R8 migration stage that must qualify the method.
@@ -26,8 +30,9 @@ trusts Entity identity and time declarations without source-data preflight. An u
 complex column does not block a supported scalar calculation. For example, the
 existing revenue example still works when its table also declares an unused JSON
 payload; referencing that payload does not gain a new supported method or type.
-Column comments remain available through datasource inspection, including for
-columns unused by the current Dataset.
+Optional column comments may be unavailable through datasource inspection,
+including for columns unused by the current Dataset. A required missing
+physical fact blocks the affected source shape.
 
 ## Construct and execute
 
@@ -252,6 +257,13 @@ Run has no successful local output; it does not prove a remote
 server query stopped. Never automatically resubmit an ambiguously submitted action.
 
 ## Backend implementation boundaries
+
+The backend and method descriptions below preserve pre-refactor qualification
+history. At the current R1 checkout, they do not grant execution to the older
+source routes: Event, Lifecycle, Attribution, mean, time-scoped observation,
+ranking and other non-basic methods reject at `source_admission` until their
+R5–R9 migration and fresh backend qualification. Check the Dataset contract
+and the repository's R1 acceptance record for current evidence.
 
 Operators share one semantic contract and backend registration mechanism. DuckDB
 retains its existing Event/Lifecycle and Candidate implementations; its

@@ -175,7 +175,11 @@ class DatasourceCatalog(RenderableResult):
 
         Example:
             >>> with catalog.connect("wh") as con:
-            ...     con.raw_sql("SELECT 1")
+            ...     con.list_tables()
+
+        Constraints:
+            Direct backend calls bypass governed source reads and the terminal
+            reason, row and timeout guards of ``md.raw_sql``.
         """
         return connect(name, timeout_seconds=timeout_seconds)
 

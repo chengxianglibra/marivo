@@ -331,18 +331,19 @@ Marivo's bounded read-only paths enforce the ClickHouse server setting
 write-enabled connection.
 
 SQLite datasources use `md.table(...)` for tables and views. `read_only=True`
-enables SQLite's connection-level query-only mode, and `type_map={...}` can map
+uses a driver authorizer to reject writes, and `type_map={...}` can map
 declared SQLite type names to Ibis type strings when affinity inference is not
 enough. Parquet, CSV, and JSON descriptors remain DuckDB-only. SQLite does not
 support median or percentile metrics, or string `strptime` expressions in the current Ibis
 backend; Marivo reports these as structured unsupported-operation errors. Use a
 supported aggregation and a native temporal column instead.
 
-Datasource authoring support is separate from Dataset execution. PostgreSQL,
-MySQL, SQLite, Trino and ClickHouse Group A each admit one unversioned table with direct-column
-scalar Metrics under their observed physical types and table restrictions. Individually
-qualified relational/date methods also support mean, weighted mean, ratio, same-source
-relationships and native-date analysis; complete aggregates can feed local methods.
+Datasource authoring support is separate from Dataset execution. During the
+current R1 transition, only the basic one-table, unscoped Population and
+sum/count Metric source route is admitted by `SourceSession`, subject to its
+backend and physical-shape checks. Earlier Group A, relational and date-method
+qualifications do not carry into the new route; the analysis contract reports
+the R5–R9 migration needed for other source methods.
 See the [analysis boundaries](/docs/latest/concepts/analysis-workflow/#backend-implementation-boundaries).
 Declaring a datasource does not enable other Dataset methods or backends.
 
@@ -1277,8 +1278,9 @@ partition scopes, time ranges can bound a transformed temporal partition.
 Scope cards keep the predicate bounded and point to `.values` when a partition
 mapping is omitted; unpruned scope is labeled as a broad read.
 
-Inspection is metadata-only and reports schema, physical extent, partition state,
-and enforceable capabilities before sampling. Scope requires positive row and
+Inspection is metadata-only and reports the bound schema plus any available
+physical extent, partition state and execution capabilities before sampling.
+Unavailable optional facts are marked as such. Scope requires positive row and
 timeout guards plus explicit columns. `LIMIT` does not guarantee bytes scanned.
 For a ClickHouse `Distributed` source, local `system.parts` observations are
 shown only as `scope=local_node_only` notes; source-wide rows and bytes remain

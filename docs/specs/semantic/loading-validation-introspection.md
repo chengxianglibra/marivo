@@ -235,7 +235,7 @@ text). Every details type exposes `ref`, `kind`, `name`, `domain`, `context`,
 `dependents`, plus type-specific facts (datasource `backend_type`/`fields`/
 `env_refs`; entity `datasource`/`source`/`primary_key`/`versioning`; measure
 `additivity`/`unit`; time dimension parse/granularity/timezone; metric
-entity/composition/additivity/provenance/parity/unit; relationship join keys).
+entity/composition/additivity/unit; relationship join keys).
 Metric details also expose `effective_entities`, `candidate_dimensions`,
 `candidate_time_dimensions`, and role-keyed `measure_lineage`. Derived metrics
 keep their authored `entities=()` shape; effective entities and measures are
@@ -345,8 +345,8 @@ Backend resolution rules:
 - With no live backend, a dry compiler for that `backend_type` is used when
   available; otherwise a structured `compile_error` is returned rather than
   executing a query.
-- Multi-datasource metrics fail closed in compile and parity (federation is a
-  separate design).
+- Multi-datasource metrics fail closed in compile (federation is a separate
+  design).
 
 Target-design temporal materialization receives the exact temporal boundary and
 its closed interpretation from the consuming Analysis operation: an instant or
@@ -388,8 +388,8 @@ source types enter downstream realized schemas when execution first needs them.
 
 To inspect a metric's caliber without executing analysis, use typed details and
 scoped readiness after the project has loaded successfully. Use
-`catalog.preview(..., scope=...)` for a scoped runtime check. Parity is a
-separate potentially unbounded provenance SQL diagnostic.
+`catalog.preview(..., scope=...)` for a scoped runtime check. Historical SQL
+does not execute as a Semantic parity diagnostic.
 
 ## Validation and failure semantics
 
@@ -512,8 +512,8 @@ against an independent business source and report that evidence separately.
 
 Data-free policy checks prohibit
 `backend.sql(...)` / raw-SQL escape hatches / dialect-specific SQL in metric
-bodies (vendor differences belong in datasource compilation and parity, not in a
-body). The SQL-escape-hatch check scans the materialized Ibis expression tree;
+bodies (vendor differences belong in datasource compilation, not in a body).
+The SQL-escape-hatch check scans the materialized Ibis expression tree;
 decorator-time only rejects obvious method names to avoid false positives on
 ordinary column access.
 
@@ -610,6 +610,11 @@ authoritative source inspection seams. It returns current datasource/source
 identity, affected semantic refs, schema and capability fingerprints, per-check
 status and time, typed repair direction, and exact user-data/scope disclosure.
 It stores no history and neither reads nor changes readiness.
+The connection roundtrip uses the datasource provider's Ibis literal probe;
+requested business checks read bounded rows through the same bound
+`SourceSession` owner as preview. Optional metadata facts may be unavailable;
+connectivity or a bounded sample cannot supply a missing fact required for
+method admission.
 
 With no `checks`, only connectivity and metadata checks run and `scope` must be
 omitted. Data expectations are closed, call-time values from `ms.source_check`:

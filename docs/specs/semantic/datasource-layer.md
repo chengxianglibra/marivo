@@ -452,6 +452,10 @@ md.test(spec.ref).show()  # validated live round trip
   exception: it opens a local file or in-memory database synchronously and
   cannot block on a network handshake, so `md.connect` opens it inline on the
   caller's thread and the wall-clock deadline does not apply.
+  `md.connect` exposes the raw Ibis backend for explicit caller-owned work.
+  Calls through it bypass governed `SourceSession` binding and decode rules
+  and the terminal `md.raw_sql` reason, row and timeout guards. They confer
+  no Analysis method qualification or `md.raw_sql` terminal evidence.
 
 `DatasourceTestResult.show()` is the authoritative connection-test stop point.
 On failure, `.failure` carries a bounded `DatasourceFailure` with a stable stage
@@ -599,8 +603,11 @@ or connection until a qualified credential API is available.
 
 `md.raw_sql(datasource: Ref[DatasourceKind], sql: str, *, reason: str,
 limit: int = 100, timeout_seconds: int = 30, include_types: bool = True,
-project_root: Path | None = None) -> RawSqlResult` remains the one public raw
-SQL escape hatch for questions outside Marivo's governed Analysis capability.
+project_root: Path | None = None) -> RawSqlResult` remains Marivo's managed
+terminal SQL escape hatch for questions outside its governed Analysis capability.
+The public `md.connect` raw-backend access described above remains a separate
+unguarded SQL bypass; R1 acceptance must resolve this public-surface conflict
+before claiming `md.raw_sql` is the only public SQL entry.
 It submits SQL text verbatim with a required nonempty reason, positive
 returned-row limit and enforceable timeout. The input is not parsed to classify
 SQL as a diagnostic. Read-only protection relies on connection and backend permissions
