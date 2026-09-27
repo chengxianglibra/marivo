@@ -7,7 +7,11 @@ from datetime import datetime
 import pytest
 
 import marivo.semantic as ms
-from marivo.analysis.observation.coordinates import governed_path, path_is_functional
+from marivo.analysis.observation.coordinates import (
+    functional_path,
+    governed_path,
+    path_is_functional,
+)
 from marivo.analysis.observation.errors import ObservationConstructionError
 from marivo.semantic.catalog import RelationshipDetails, SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed
@@ -83,6 +87,8 @@ def test_composite_identity_and_versioned_relationship_are_declared_without_sour
     assert details.cardinality == "many_to_one"
     assert "structural_cardinality: many_to_one" in details.render()
     assert details.to_version_resolution_required is True
+    with pytest.raises(ObservationConstructionError, match="versioned source or intermediate path"):
+        functional_path(project._registry, "sales.lines", "sales.orders")
     selection = normalize_target_version_selection(
         orders, boundary=datetime(2026, 9, 27), interpretation="before_endpoint"
     )

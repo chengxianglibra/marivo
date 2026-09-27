@@ -921,9 +921,11 @@ def relationship(
 
     Constraints:
         Load derives structural multiplicity from complete endpoint identity key
-        coverage. Actual source multiplicity and missing matches require separate
-        runtime evidence; a versioned endpoint needs an exact version selection
-        before its one side can be consumed.
+        coverage. The relationship declares no global required-match policy.
+        Each consumer decides whether its selected members require a match and
+        what an allowed absence means. Actual multiplicity and missing matches
+        require separate runtime evidence; a versioned endpoint needs an exact
+        version selection before its one side can be consumed.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)

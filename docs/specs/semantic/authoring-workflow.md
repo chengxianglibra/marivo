@@ -146,7 +146,10 @@ user data and therefore requires no scope. Null, enum, uniqueness, freshness,
 relationship, and cardinality expectations exist only when explicitly built
 with `ms.source_check`; those data-reading checks require an exact bounded
 scope and disclose it in every result. Source health is ephemeral and never
-changes readiness or semantic source.
+changes readiness or semantic source. A passing relationship-match check covers
+only the selected source rows. It cannot decide whether a consuming operation
+requires matches for its own selected members or how that operation treats an
+allowed absence.
 
 ## Business meaning and first-use authority
 

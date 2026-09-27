@@ -225,3 +225,17 @@ MySQL 基础 Analysis 补充格：启动前 `mysql-analysis` 为 Exited，本轮
 | 公共披露 | **静态通过** | 公共 docstring/类型、原生 Help、结构化 repair、`__all__` 快照、独立可达性与预算测试，以及 owning spec、API 和 `site/` latest 中英文说明对齐；没有新增导出、兼容 alias 或影子图。未改 packaged skills、`AGENTS.md` 或已撤回的 `ms.statistical_weight`。 |
 
 定向 `make test TESTS='tests/test_semantic_r24_handoff.py tests/test_semantic_readiness.py tests/test_ontology_extension.py tests/test_unified_help.py tests/test_semantic_catalog.py tests/test_public_surface.py tests/test_semantic_r23_business_order.py'` 为 **228 passed**；触及的五个生产模块定向 typecheck 和九个文件的 lint/import 通过。`make check-agent` 的 lint/import、379 个源码文件 typing、默认测试 **5125 passed、64 skipped** 与 API 文档通过；`npm --prefix site run build` 成功，Astro **321 页**，中英文安装脚本校验通过；`git diff --check` 退出码 0。64 个 skip 维持原断言、依赖和恢复条件，不计 R2 通过。R0.6、R1 的 SQL/metadata/远端资格及 R5–R9 的实源执行、Runtime、冷恢复、wheel、真实 Agent 均未由本轮证明。**R2.4 交付完成，R2 整体未通过。**
+
+## C02.b 静态契约与 C17.a Artifact 交接收口（2026-09-27）
+
+基线代码 SHA 为 `962cda619526fb27de5925f8b6e00d5d1f423ae1`（已提交的 R2.4）。提交前实现、测试、owning spec、API、站点及 R0 能力台账候选（不含本验收记录）的 `git diff --binary HEAD -- marivo tests docs/specs docs/api site/src/content/docs docs/superpowers/specs/2026-09-26-marivo-full-refactor-r0-capability-ledger.md` SHA-256 为 `7943b8fd62fefb5d34a438a9bc939a21d116a9314963734bfd95eee00344afc8`。原未跟踪 R2 计划 SHA-256 为 `7c8488e862195487b05494f86ddb9f44e71b362f8649933cecd041c72299f18c`，未修改、未纳入提交。候选 hash 只标识本地改动，不能代表来源执行或发布资格。
+
+| 单元 | 本轮状态 | 独立预期、实际证据与失败恢复条件 |
+| --- | --- | --- |
+| C02.b R2 静态映射契约 | **通过；C02.b 完整能力仍部分通过** | 完整目标 K 覆盖只能推导结构性 `many_to_one`，不能推导每个订单都匹配客户。新增 SQLite 反例在原有缺目标键 `99` 外加入空外键：有界 `relationship_matches(side="from")` 报告两笔未匹配，Relationship 详情仍为 `many_to_one`，readiness 前后除检查时刻外一致。`functional_path` 默认拒绝版本化目标路径，静态详情披露所需的版本解析；消费侧精确选择及实际匹配仍待 R5。`tests/test_semantic_r21_identity_relationship.py` 与 `test_semantic_source_health.py` 核对。若键、版本或披露回归，修正精确声明/消费前提并重跑对应正反例；不能靠 source-health 结果改写静态资格。 |
+| C02.b R5 消费与来源核验 | **未实施；未验证** | 消费者须对所选成员、业务角色与精确版本定义必配或允许缺失的语义；实际必配缺失或单值路径多重匹配须产生结构化 expected/received/repair。R5 要以已具资格的后端和物理形态对真实来源行逐格实测，区分有界诊断、实际执行和 fanout/重叠贡献；完成前不能把 C02.b 整格标为通过。 |
+| C17.a 精确 Semantic Ref | **R2 静态通过；本轮回归通过** | `mo.load(semantic=catalog)` 只接受当前 catalog 的精确端点，ontology 指纹与 `semantic_catalog_fingerprint` 共同标识上下文；现有错误端点、错误角色和 R2.4 真实项目断言参加定向回归。若指纹或端点校验失效，修复 ontology loader 并重新核对错误 repair；边仍不改变 readiness 或授予因果、计算资格。 |
+| C17.a Artifact 关联 | **未实施；R4/R10 待验证** | R4 先建立新 Artifact 身份、可校验 receipt 和精确语义依赖；R10 才能按 ontology 上下文只读关联并拒绝错误角色、身份不符、损坏 receipt 或过期上下文。当前 Session 局部 ArtifactRef 和静态 Ref 测试不能代替这些证据；不得新增 ontology authoring 绑定或把本格写为通过。 |
+| 公共披露 | **静态通过** | Relationship 无全局 `required`，Help、docstring、Semantic owning spec 与 `site/` latest 中英文说明一致；API 文档不再把尚未实现的 Analysis ontology 发现入口写成现行能力。无新增导出、别名或第二套关系图；未改 packaged skills、`AGENTS.md` 或已撤回的 `ms.statistical_weight`。若公开说明与签名/行为再漂移，按同一 owner 同步修正并重跑 Help、API 和站点检查。 |
+
+定向 `make test TESTS='tests/test_semantic_r21_identity_relationship.py tests/test_semantic_source_health.py tests/test_semantic_r24_handoff.py tests/test_ontology_extension.py tests/test_unified_help.py'` 为 **72 passed**；`make typecheck TYPECHECK_TARGETS='marivo/semantic/_authoring_decorators.py marivo/semantic/source_health.py marivo/semantic/_capabilities/registry.py'` 和五个改动 Python 文件的定向 `make lint-agent` 通过。`make check-agent` 的 lint/import、379 个源码文件 typing、默认测试 **5126 passed、64 skipped** 与 API 文档通过；`npm --prefix site run build` 成功，Astro **321 页**及中英文安装脚本校验通过；`git diff --check` 退出码 0。64 个 skip 保持原归属，不转授 R1 或 R5 资格。本轮只关闭 R2 的可缺失性静态契约与 C17.a 的阶段交接；**C02.b、C17.a 完整能力及 R2 整体仍未通过**。
