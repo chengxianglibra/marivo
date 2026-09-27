@@ -19,6 +19,7 @@ from marivo.analysis.core.model import (
     EndpointPart,
     Evidence,
     Fact,
+    FactInput,
     FactKind,
     MissingCoordinate,
     Obligation,
@@ -185,8 +186,16 @@ def _output_domain(binding: Binding, domain: DomainSignature, location: str) -> 
         )
 
 
-def _fact(kind: FactKind, binding: Binding, subject: str) -> Fact:
-    return Fact(kind, binding, subject, "v1")
+def _fact(
+    kind: FactKind, binding: Binding, subject: str, inputs: tuple[Signature, ...] = ()
+) -> Fact:
+    return Fact(
+        kind,
+        binding,
+        subject,
+        "v1",
+        tuple(FactInput(item.domain, item.quantity) for item in inputs),
+    )
 
 
 def _premise(
@@ -524,13 +533,13 @@ def _map_correspond(inputs: tuple[Signature, ...], params: MapCorrespond) -> Rul
         pre = (
             ()
             if params.mode == "union_keys"
-            else (_fact("key_set_equal", binding, params.output_domain.definition_id),)
+            else (_fact("key_set_equal", binding, params.output_domain.definition_id, inputs),)
         )
         if params.mode == "one_to_one":
             pre = (
                 *pre,
-                _fact("single_value", binding, params.output_domain.definition_id),
-                _fact("mapping_injective", binding, params.output_domain.definition_id),
+                _fact("single_value", binding, params.output_domain.definition_id, inputs),
+                _fact("mapping_injective", binding, params.output_domain.definition_id, inputs),
             )
         obligations = tuple(
             obligation
@@ -562,8 +571,8 @@ def _map_correspond(inputs: tuple[Signature, ...], params: MapCorrespond) -> Rul
                 "core.map.group",
             )
         pre = (
-            _fact("mapping_total", binding, params.output_domain.definition_id),
-            _fact("single_value", binding, params.output_domain.definition_id),
+            _fact("mapping_total", binding, params.output_domain.definition_id, inputs),
+            _fact("single_value", binding, params.output_domain.definition_id, inputs),
         )
         obligations = tuple(
             obligation
@@ -640,8 +649,8 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
             "Use a closed cell method.",
             "core.cell.method",
         )
-    pair = _fact("key_set_equal", binding, params.definition_id)
-    numeric = _fact("finite_numeric", binding, params.definition_id)
+    pair = _fact("key_set_equal", binding, params.definition_id, inputs)
+    numeric = _fact("finite_numeric", binding, params.definition_id, inputs)
     obligations = (
         *_premise(inputs, pair, check_id=params.pairing_check_id, before="consume"),
         *_premise(inputs, numeric, check_id=params.numeric_check_id, before="consume"),
@@ -656,7 +665,7 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
     )
     parts: tuple[Part, ...] = (
         EndpointPart(binding, "current", left.quantity.definition_id, "v1"),
-        EndpointPart(binding, "baseline", right.quantity.definition_id, "v1"),
+        EndpointPart(right.domain.binding, "baseline", right.quantity.definition_id, "v1"),
     )
     return _result(
         "cell_derive@v1",
@@ -673,6 +682,22 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
     )
 
 
+def _reduction_domain(source: DomainSignature, target: DomainSignature) -> None:
+    """Only the whole-input singleton has an implemented reduction mapping."""
+    if (
+        target.kind != "singleton"
+        or target.binding != source.binding
+        or target.version_selection != source.version_selection
+        or target.correspondence is not None
+    ):
+        reject(
+            "a singleton over the exact input binding and version",
+            repr(target),
+            "Use the whole-input singleton; grouped reduction requires a registered mapping.",
+            "core.reduction.domain",
+        )
+
+
 def _row_state(inputs: tuple[Signature, ...], params: RowState) -> RuleDerivation:
     if len(inputs) != 1 or inputs[0].quantity is None:
         reject(
@@ -684,6 +709,7 @@ def _row_state(inputs: tuple[Signature, ...], params: RowState) -> RuleDerivatio
     source = inputs[0]
     binding = _binding(inputs, "core.row_state")
     _output_domain(binding, params.output_domain, "core.row_state")
+    _reduction_domain(source.domain, params.output_domain)
     if params.method not in ("sum", "mean", "count", "count_defined", "weighted_mean"):
         reject(
             "a closed current-row method",
@@ -767,6 +793,7 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
     source = inputs[0]
     binding = _binding(inputs, "core.original_reduce")
     _output_domain(binding, params.output_domain, "core.original_reduce")
+    _reduction_domain(source.domain, params.output_domain)
     quantity = source.quantity
     assert quantity is not None
     if not isinstance(quantity, (ObservedQuantity, RolledQuantity)):
@@ -783,12 +810,14 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
         or state.quantity_id != quantity.definition_id
         or state.method_version != quantity.method_version
         or state.contribution_id != quantity.contribution_id
-        or not state.components
+        or state.method_version != "sum@v1"
+        or state.components != ("sum", "non_null_count")
+        or state.version != "v1"
     ):
         reject(
             "complete state bound to this original quantity",
             repr(state),
-            "Restore the exact original components.",
+            "Retain sum@v1 state (sum, non_null_count), version v1; other states are not admitted.",
             "core.original_reduce.state",
         )
     if (
@@ -868,10 +897,14 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
             "Drop coverage or establish a new scoped coverage fact.",
             "core.parts_transport.coverage",
         )
-    parts = tuple(
-        replace(require_part(source, role), binding=params.output_domain.binding)
-        for role in params.retained_roles
-    )
+    if params.output_domain != source.domain:
+        reject(
+            "transport within the exact input domain",
+            repr(params.output_domain),
+            "Preserve the domain; changed inputs or selections require a registered transport mapping.",
+            "core.parts_transport.domain",
+        )
+    parts = tuple(require_part(source, role) for role in params.retained_roles)
     if not params.keep_quantity and any(
         role
         in (
@@ -1073,16 +1106,16 @@ def derive_numeric_cell(method: Literal["difference", "ratio"], left: Cell, righ
             "Bind numeric quantities.",
             "core.cell.eval",
         )
+    if not math.isfinite(left_value) or not math.isfinite(right_value):
+        reject(
+            "finite numeric cells",
+            repr((left_value, right_value)),
+            "Correct the numeric input.",
+            "core.cell.eval",
+        )
     if method == "ratio":
         if right_value == 0:
             return Undefined("zero_denominator")
-        if not math.isfinite(left_value) or not math.isfinite(right_value):
-            reject(
-                "finite numeric cells",
-                repr((left_value, right_value)),
-                "Correct the numeric input.",
-                "core.cell.eval",
-            )
         result = left_value / right_value
         if not math.isfinite(result):
             reject(
@@ -1092,13 +1125,6 @@ def derive_numeric_cell(method: Literal["difference", "ratio"], left: Cell, righ
                 "core.cell.eval",
             )
         return Defined(result)
-    if not math.isfinite(left_value) or not math.isfinite(right_value):
-        reject(
-            "finite numeric cells",
-            repr((left_value, right_value)),
-            "Correct the numeric input.",
-            "core.cell.eval",
-        )
     result = left_value - right_value
     if not math.isfinite(result):
         reject(

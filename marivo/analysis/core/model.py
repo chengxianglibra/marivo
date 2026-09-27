@@ -556,11 +556,20 @@ FactKind: TypeAlias = Literal[
 
 
 @dataclass(frozen=True, slots=True)
+class FactInput:
+    """Exact domain and quantity consumed by an ordered relational premise."""
+
+    domain: DomainSignature
+    quantity: Quantity | None
+
+
+@dataclass(frozen=True, slots=True)
 class Fact:
     kind: FactKind
     binding: Binding
     subject_id: str
     version: str
+    inputs: tuple[FactInput, ...] = ()
 
     def __post_init__(self) -> None:
         if self.kind not in (

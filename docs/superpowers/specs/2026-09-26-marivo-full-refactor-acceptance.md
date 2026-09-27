@@ -323,3 +323,33 @@ B01–B13 无缺号，文档相对链接所指文件存在，`git diff --check` 
 | 依据、义务与无 I/O | **构造边界通过；物理履行未实施** | 声明、builder 的字段归属推导及已完成检查分别记录；声明或 builder 依据不能声明来源唯一性等运行事实，错误 binding、未履行义务和依赖未闭合的 deduction 不成为可用依据。子节点 `Post` 在义务完成前不能向父节点传播为已证事实。六规则构造测试禁止 DuckDB/SQLite 连接、SourceSession、SessionStore 与 DatasetRuntime 初始化；闭合 check id 是将来 checker 的交接标识，不是现成检查实现。 |
 
 定向 `make test TESTS='tests/test_analysis_core_r31.py tests/test_analysis_dsl_j1_construction.py tests/test_lazy_dataset_registry.py tests/test_analysis_dsl_j1_source.py'` 为 **103 passed**；`make typecheck TYPECHECK_TARGETS='marivo/analysis/core'`、`make lint-agent LINT_TARGETS='marivo/analysis/core tests/test_analysis_core_r31.py'` 均通过。最终 `make check-agent` 的 lint/import、382 个源码文件 typing、默认测试 **5138 passed、64 skipped** 和 API 文档全部通过。64 项 skip 保留原断言、归属及恢复条件，不计 R3.1 或 R0–R2 通过。本轮没有执行 Runtime 全量、六后端实源、wheel、冷恢复或真实 Agent；没有 R3.2 方法注册、R3.3 执行图、R3.4 lowering，也没有旧 J1/Dataset 路线迁移。后续须按 R4–R9 逐格接入真实消费者、履行检查义务并核验实际数据/后端；**R3 整体未通过**。
+
+
+### R3.1 adversarial review corrections (2026-09-27)
+
+Review-fix baseline: `77277ac085`. The private candidate now binds relational
+premises to ordered, complete input domains and quantity definitions; changing
+an endpoint's input, scope, domain, quantity, or side invalidates prior evidence.
+Endpoint parts retain their own input bindings through unchanged-domain transport.
+No public API, Help, packaged skill, or site contract changes in this correction.
+
+Current admission is deliberately bounded: `parts_transport` preserves the exact
+domain and retained part bindings; changed-domain selection or materialization
+requires a subsequently implemented transport mapping. `row_state` and
+`original_reduce` accept only a whole-input singleton with the exact input binding
+and version. Grouped reduction remains unsupported until its mapping contract is
+consumed. Original reduction admits only `sum@v1` state version `v1` with exactly
+`(sum, non_null_count)`; other method/state contracts remain unsupported pending
+method registration. These restrictions are not evidence of completed R3.2–R3.4.
+Non-finite numeric inputs fail before the zero-denominator policy is applied.
+
+Regression checks cover stale endpoint evidence, all five transport modes,
+unmapped groups and foreign singleton inputs, missing/extra/unknown components,
+unsupported state versions/methods, and NaN/Infinity with zero and nonzero divisors.
+Validation: `make test TESTS='tests/test_analysis_core_r31.py'` passed **32 tests**.
+`make check-agent` passed lint/import contracts, typing for **382 source files**,
+the default suite (**5160 passed, 64 skipped**), and the API documentation build.
+The existing skips retain their assertions and recovery conditions. No full
+Runtime, backend, cold-recovery, or real-Agent acceptance was run. The preceding
+candidate's hashes and gate counts remain historical evidence; R3 remains
+unaccepted as a whole.
