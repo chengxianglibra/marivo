@@ -633,6 +633,24 @@ or required timezone facts block the affected execution cell. A required governe
 without an Ibis or registered prepare-then-Python route is blocked. Local Store
 SQLite transactions have separate internal persistence authority.
 
+### R0.6 public connection cutover target
+
+This target is inactive until the R1 public cutover. Remove the backend-returning
+`md.connect` export and its `datasource.connect` Help target. Connection
+creation remains private to the datasource adapter. A caller checks
+connectivity with `md.test`, inspects
+physical facts with `md.inspect`, uses bound Ibis reads only through governed
+operations, and submits custom SQL only through terminal `md.raw_sql`.
+Existing calls that require a raw Ibis backend must change to one of those
+purpose-specific paths; they do not receive a compatibility alias or a wrapper
+that exposes `backend.sql`/`raw_sql`. R1 must migrate the current Help,
+docstrings, latest English and Chinese site examples, and public surface tests
+together. Check that CLI doctor still uses its bounded datasource test path,
+then verify that no other public connection object
+provides the same bypass. Until that change is implemented, the current
+`md.connect` behavior described above remains a disclosed R1 blocker, and the
+single-public-SQL-entry target is not met.
+
 ## Handoff to semantics
 
 Once a datasource is registered and validated, semantic authoring uses its ref

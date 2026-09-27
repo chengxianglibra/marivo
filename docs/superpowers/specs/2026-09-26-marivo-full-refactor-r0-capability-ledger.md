@@ -2,7 +2,7 @@
 
 Date: 2026-09-26
 
-Status: R0.2 现状反查完成；R0.3 目标契约与 R0.4 规则/责任已登记。R0.5 物理资格见独立 SQL 台账。本文不代表新 DSL、后端或 Agent 验收通过。
+Status: R0.2–R0.4 静态契约与 R0.6 破坏性变更/交接已登记；R0.5 物理资格见独立 SQL 台账，必需控制/认证格仍阻塞。本文不代表新 DSL、后端或 Agent 验收通过。
 
 依据：[主计划 §3、§6](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)、[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)、[代数 v0.5](2026-09-23-analysis-algebra-theory.md)、[接口设计](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md)、[架构设计](2026-09-24-marivo-analysis-dsl-architecture-design.md)、[R0.1 历史证据索引](2026-09-26-marivo-full-refactor-r0-evidence-index.md)。§1–§4 保留 R0.2 当时的现状快照和待办表述；§5–§6 是本轮接受的目标，冲突时以 owning spec 为准。
 
@@ -133,7 +133,7 @@ R0.4 的每个方法行按 `方法版本 × 数值类型 × 时间/来源形状 
 | 目标已登记：目标签名 | C18、普通 Relation ratio、StatisticalWeight/ReferenceWeights、业务顺序等目标输入及 K 见 §5；`count_defined`、time_grid 仍非当前导出 |
 | 目标已登记：规则/模块 | 六类元算子、44 子单元的目标方法版本/K/owner 和消费者同迁见 §6；实现未验证 |
 | 目标已登记：物理资格 | SQL 提交点、adapter 七职责、六后端/类型/表形态/路线矩阵见 R0.5 SQL 台账；真实环境资格未验证 |
-| 阻塞：R0 整体 | R0.6 交接及 R0.5 控制 API/必需路线可行性尚未闭合；不能把旧 J1–J4/C0–C10 的历史通过转授新 DSL |
+| 阻塞：R0 整体 | R0.6 静态交接见 §7–§8；R0.5 控制 API/必需路线可行性、`md.connect` 公共旁路及资格格尚未闭合；不能把旧 J1–J4/C0–C10 的历史通过转授新 DSL |
 
 复核本台账的静态命令：`git status --short --branch`、`git rev-parse HEAD`、`shasum -a 256 <五份输入>`、`rg -n '__all__|class J1Context|class J3Observed|def execute_j1' marivo/{datasource,semantic,analysis}`、`rg -n 'def (members|population|observe|match|replay|artifact|revalidate)' marivo/analysis/session`、`rg -n 'J1Context|J3Observed|LogicalPopulationDataset|raw_sql|parity_check' marivo tests devtools site/src/content/docs`、`git diff --check`。这些是事实扫描，不运行产品测试。目标正反例的旧独立 oracle 和精确历史复跑命令见 [R0.1 §5](2026-09-26-marivo-full-refactor-r0-evidence-index.md#5-可复用的独立-oracle故障与业务问题)；新目标测试命令须随 R0.4/R0.5 的规则和资格格落地，不以本页的历史文件名充数。
 
@@ -274,3 +274,65 @@ Event matching、Lifecycle replay、归因、排名、相关、预测各用独�
 | `materialization/{admission,dataset_execution,dsl_j1_runtime,store,*_codec,*_publication,reads}.py`、`session/*`；CLI/evidence/ontology | session 拥有唯一 Run/Artifact/Store；materialization 拥有交换/receipt/固定续算；R4 同迁旧 Dataset/J1 双执行协议，R10 收束遗留 Help/状态；Store SQLite 仍独立事务 owner |
 
 类型依赖方向为 `semantic Ref/definition → analysis core/method contract → relations/graph → compiler → datasource adapter`；`session → graph/compiler/adapter + materialization/Store`。adapter 不导入 Analysis 公共对象或 Store；Store 不决定方法语义。上表只冻结责任及删除时机，不预建空包或把旧名字改为 shim。
+
+## 7. R0.6 breaking changes
+
+本章是目标切换清单，不表示旧导出、SQL 或协议已经删除。静态反查锚点为 `panda` HEAD
+`784135090b98c32b60d4b8f8cf69c02982d883d5`；R0.2 的 34/108/323 Help target 数和
+44 个子单元是其原快照，不能冒充本 HEAD 的重新计数。每行以 §2–§3 的能力、§6.2 的
+模块 owner 和 [R0.5 DS/AN 行](2026-09-26-marivo-full-refactor-r0-sql-ledger.md)为索引。
+“删除”指目标切换后不可导入、不可经 Help 重定向，旧状态也不升级或双读；实施阶段必须
+同时迁移本表的消费者。下面的 C 组在 §7.1 展开到 Help、CLI、site、测试。
+
+| ID；能力 | 旧使用处与本 HEAD 状态 | 目标入口或结构化拒绝；owner/阶段 | 消费者组、验收定位 |
+| --- | --- | --- | --- |
+| B01；C03–C14 | `session/core.py:population/observe`、`session/_lazy_sources.py`、`analysis/datasets/*` 的 Population/Metric/Delta/Event/Lifecycle/Candidate/Forecast Dataset 家族仍可调用；`analysis/__init__.py` 仍导出旧类 | `session.members(EntityRef, at=...)` 起始 AnalysisDomain，随后 typed `read/observe` 与领域结果；按 §3 子单元迁 R5–R8，旧构造、旧 `Dataset` 类型及同义动作删除；未迁路线在 Run 前给结构化 `source_admission` 拒绝，不能转发到旧实现 | C-A/C-B/C-D；§2 C03–C14、§6.2、[主计划 R5–R8](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md#r5--完整成员观察坐标与数值归约) |
+| B02；C04/C07/C14/C15 | `observation/dsl_j1.py:J1Context/J3Observed`、`public_dsl.py` 的窄 J1–J4 路线和 `DatasetRuntime.execute_j1` 仍在；旧 devtools 将场景名当执行入口 | J1–J4 只保留为验收旅程 ID；新方法版本、统一 graph/Run/Artifact 取代场景专属节点、receipt、执行与恢复。R3/R4 建内核和 Runtime，R5/R6/R8 迁方法，R10 清公开发现面；不留 J1 shim | C-A/C-B/C-D；§6.1 C04/C07/C14/C15、R0.1 §3 独立 oracle |
+| B03；C05–C14 | `observation/metric.py` 的 `.aggregate/.with_time_axis/.compare/.correlate/.forecast/.discover` 与各 Dataset `.where/.rank/.limit` 由旧 registry/Help 披露 | 分别以 `group_by(...).summarize(method)`、有条件 `.rollup()`、`time_grid/each`、Relation/领域具名方法替换；无原部件的续算结构化拒绝，禁止把旧方法名留作 alias。relations/methods R5–R8，R10 删除旧公开符号 | C-A/C-B/C-D；§3 C05–C14、§6.1 方法行 |
+| B04；C16 | `analysis/_capabilities/{registry,dataset_registry,dataset_navigation,dataset_model,catalog_inputs}.py` 和 `datasets/registry.py` 与 `public_dsl` Help/`dsl.*` 并存；`tests/test_public_surface.py` 固定旧 `__all__` | 每能力只保留一个公开目标、一个 native Help owner 和实际可达的 L/M/K；不提供旧 target 重定向或 shadow registry。随能力迁移更新 Help/docstring、reachability/drift/budget/`__all__`，R10 清旧群 | C-A/C-B/C-D；§2 C16、§6.2、[主计划 R10](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md#r10--公共契约收口安装包与完整交付验收) |
+| B05；C15 | `materialization/{admission,dataset_execution,dsl_j1_runtime,*_codec,*_publication}.py` 和 `store.py` 仍承载 Dataset 与 J1 两套构造、codec、receipt；`session/core.py:artifact/runs/revalidate` 消费 | 唯一 graph→Run→Artifact、主表/parts/receipt、Store 原子提交及冷恢复；R4 同迁两链及全部恢复消费者，R10 删除残余旧 codec/协议。损坏、不同身份或未确认提交必须拒绝，不重放 | C-B/C-C/C-D；§6.1 C15、R0.1 §5 故障注入 |
+| B06；C15 | `dataset_execution.py` 仍有 `execution_key(dataset.definition_fingerprint)`；旧 definition-only 来源命中会把同定义当可复用计算 | R4 将来源新求值绑定有效 execution key、Run 和实际来源身份；仅已提交固定 Artifact 的精确命中可复用。来源变更、定义同而读取不同或 mixed 图在求值/发布前拒绝；删除 definition-only cache | C-B/C-C/C-D；[主计划 R4](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md#r4--统一-runtime交换与存储吸收-mvp)、`tests/test_analysis_dsl_execution_identity.py` |
+| B07；C15 | `materialization/{parquet_scan,source_preparation,inspection,duckdb_execution}.py` 仍把固定 Artifact receipt 接到 DuckDB `read_parquet`/临时视图；J1 固定续算另有独立路径 | 固定结果只由 receipt-bound Parquet→Arrow→pandas 的注册本地方法读取，主表与 parts 同样核对；R4 同迁固定续算及资源/断源消费者，删 Artifact→DuckDB。没有精确 receipt/部件时拒绝，不能读当前来源替补 | C-B/C-C/C-D；§6.1 C15、[SQL 台账 AN 行](2026-09-26-marivo-full-refactor-r0-sql-ledger.md#2-analysis-sql-构造与提交链) |
+| B08；C15 | `store.py` 当前只接受 `user_version=6` 并拒绝其他版本；旧 Dataset/J1 reader、codec、状态仍在，同一项目里的旧 Session 不能凭名字获得新协议身份 | 新协议只接受其精确 Store/receipt 版本；旧 Store 原样保留，打开旧状态给结构化版本错误和新 Session 修复，不做双读、升级、回填或重算。R4 定义新格式和读前拒绝，R10 检查无旧 reader | C-C/C-D；`tests/test_analysis_dsl_exchange.py`、`test_lazy_materialization_store.py`；当前版本拒绝不等于新协议完成 |
+| B09；C01/C04–C15 | `materialization/{scalar_sql_execution,*_execution}.py` 的 `statement(sql)`、`compiler/{lifecycle,driver_numeric,...}.py` 的 SQL 模板/补丁及部分 metadata/控制路径仍可见；R1.1 已阻断多数旧来源 Run | 受治理读取/校验只由绑定 Ibis 表达式及原样编译产物，复杂方法可在执行前准入 Ibis→Python；R1 迁基础来源，R5–R8 迁方法，R9 逐 DS01–DS21/AN01–AN33 清零并实测。无合格路线即精确格阻塞；不允许失败后旧 SQL fallback。`md.raw_sql` 仅是 C01.c 终端例外 | C-A/C-B/C-D；R0.5 §1–§5、R1.4 主验收 DS/AN 格 |
+| B10；C01/C02 | R0.2 快照的 `ms.from_sql`/`SqlProvenance`/执行 provenance 的 `parity_check` 已在 R1.3 删除；历史 site 版本和旧契约仍可检索 | 当前目标以 `ai_context` 记录历史说明、用独立业务来源或受治理 Ibis oracle 在声明外验证；SQL 文本无执行/准入权限，不恢复 parity Help 或兼容 alias。semantic/R1.3 已实施，R10 再扫打包/历史与当前版本边界 | C-A/C-D；[Semantic owner](../../specs/semantic/semantic-object-model.md#historical-sql-context-and-verification)、R1.3 主验收记录 |
+| B11；C10 | 旧 distinct/quantile Dataset 的原量 rollup、`distinct_membership`/`distribution_shapley` 等续算仍有实现/披露；部分路径受来源准入阻断 | exact distinct/quantile 可直接观察，但首次只允许有当前行依据的统计/筛选；原量 rollup 和对应归因以部件不足结构化拒绝，除非另立可验证规则。methods R5，精确类型/后端 R9，R10 删除误导 Help | C-A/C-B/C-D；§5、§6.1 C10，独立原始身份集合/排序 oracle |
+| B12；C02/C03/C08/C11–C13/C18 | 旧调用允许或暗示不完整身份键、模糊版本、隐式权重/参照、occurrence ID 排序与动态列回灌；C18 现无公开构造 | 按 owning specs 要求完整 K、精确 `at/before_end`、显式 `StatisticalWeight/ReferenceWeights`、可证业务顺序、typed Anchor 和固定 Ω；无依据输入结构化拒绝，不提供任意回调/字典兼容。semantic R2 声明、R5/R6/R7 消费；C08 权重声明仍为 deferred target | C-A/C-B/C-D；§5、[Analysis owner](../../specs/analysis/python-analysis-design.md#r03-accepted-full-algebra-target-inactive)、[Semantic owner](../../specs/semantic/semantic-object-model.md#r03-full-algebra-target-decisions-inactive) |
+| B13；C01.c/C16 | `md.connect` 当前公开返回可调用原始 SQL 的 Ibis backend；Help `datasource.connect` 和最新 site 明示该旁路，绕过 `md.raw_sql` 的 reason/行界/超时 | [Datasource owner](../../specs/semantic/datasource-layer.md#r06-public-connection-cutover-target) 冻结 R1 目标：删除公开 backend-returning `md.connect` 与对应 Help，内部连接仅属 adapter；连通性用 `md.test`，物理事实用 `md.inspect`，自定义 SQL 用终端 `md.raw_sql`。实施前保持当前披露，R1 未关闭此格即阻塞唯一入口验收 | C-A/C-D；`tests/test_datasource_profiles_backends.py`、`test_public_surface.py`、R1.4 主验收 C01.c/DS02 |
+
+### 7.1 同迁消费者与披露门禁
+
+| 组 | Help/CLI/site/测试及处理 |
+| --- | --- |
+| C-A 公开入口 | Help：三层 `_capabilities/` 的精确旧 target 与 `__all__`；CLI：`marivo doctor --datasource ... --connect` 仍走 Datasource 诊断，`marivo init` 安装 packaged skills，CLI 无独立 Analysis Dataset 子命令；site：`site/src/content/docs/{docs,zh-cn/docs}/latest/` 的 `first-analysis`、`concepts/analysis-workflow`、`concepts/semantic-layer` 和 datasource 说明，中英文同时改；测试：`test_public_surface.py`、`test_agent_api_drift.py`、`test_unified_help.py` 与相应入口测试。历史 versioned site 仅作为旧版本记录，不静默改写 |
+| C-B 方法/执行 | Help：`analysis.datasets/*`、`analysis.dsl.*`、`analysis.methods/*` 的方法与 K；CLI：无独立方法命令，核对 doctor/打包导入；site：latest `first-analysis`、`analysis-workflow` 及业务问题示例；测试：`test_analysis_dsl_public.py`、`test_analysis_dsl_fixtures.py`、`test_lazy_*`、领域/数值独立 oracle；`devtools/analysis_dsl_s4_p3/{j1,j2,j3,j4,recover}.py` 仅是历史复跑入口，须在新 wheel 重新实现旅程 |
+| C-C Store/Artifact | Help：`analysis.runtime.*`、`analysis.artifacts/evidence` 与结果 `.contract()`；CLI：无公开 Store 迁移命令，不新增自动迁移；site：latest `concepts/evidence`、`analysis-workflow`；测试：`test_analysis_dsl_exchange.py`、`test_analysis_dsl_execution_identity.py`、`test_lazy_materialization_store.py`、断源/损坏/并发 Runtime worker。旧 receipt/Store 测试不能变为新协议预期 |
+| C-D 最终发现面 | Help：native target、动态 `repr/show/contract` 与错误 repair 同源；CLI：`marivo init/doctor`、安装产物中导入与秘密披露；site：latest 中英文及 API 生成页；测试：reachability/drift/budget、`__all__` 快照、包安装与真实 Agent。packaged `marivo-semantic`/`marivo-analysis` skill 若需同步，先取得 AGENTS.md 要求的明确用户批准；本 R0.6 不编辑 skill |
+
+### 7.2 当前处置与禁止推断
+
+B10 的 R1.3 删除和 B08 的现存 Store 版本拒绝是已观察现状，其余多数 B 行是目标/待迁移；
+B13 的目标已冻结但公共旁路仍存在。R1/R2 的局部通过不能把 B01–B09、B11–B13 标为
+删除完成。旧 J1–J4、C0–C10、S4 wheel/Agent 记录只归 [R0.1 历史索引](2026-09-26-marivo-full-refactor-r0-evidence-index.md)；
+新目标测试文件 `tests/test_full_algebra_contracts.py` 与 `tests/test_full_algebra_backend_matrix.py`
+尚不存在，R0.5 写出的示例命令是待实施验收索引，不能列为已运行。
+
+## 8. R0.6 R1/R2 handoff
+
+冻结目标按 §2 C01–C18、§5 owning spec 决定、§6.1 方法版本/K 和 R0.5 §4 的
+`方法 × 数值类型 × 时间/来源形状 × 后端/表类型 × 路线` 键读取；本节只指定第一批
+owner/消费者/反例与实际状态，不另造第二份资格矩阵。R1/R2 已先行实施的条目按
+[主验收](2026-09-26-marivo-full-refactor-acceptance.md)逐格读取，不能因本交接补文档而升级。
+
+| 接收包 | 冻结目标、接口责任与首批格 | 同迁消费者、必须保留的独立正反例 | 当前交接状态与恢复条件 |
+| --- | --- | --- | --- |
+| R1 C01.a/b | datasource adapter 七职责，`SourceSession` 接 typed Table/File/JSON、物理 schema、Ibis 表达身份、固定 Arrow schema 与资源；首批 DuckDB table/view/file/HTTP JSON、SQLite main table/view，再逐 PostgreSQL/MySQL/Trino/ClickHouse 表形态和 `base-int64/base-float64`，目标矩阵仍有 Decimal/时间/复合键 | `md.inspect/sample/test`、Semantic preview/source-health、基础成员和 sum/count；重复/Null 复合身份、空流 schema、无效日期/Decimal/时间精度、远端取消；R0.1 原始事实与 R1.2 定向输入分别保留 | 本地及部分远端基础读取有有界证据；DS03–DS09 丰富 metadata、MySQL 复合键、远端终止、认证 HTTP/时区/timeout 格仍阻塞或未验证。完整资格须按 R0.5 §4 每格实源重验 |
+| R1 C01.c 与 SQL | `md.raw_sql` 终端保留，B13 公开 backend-returning `md.connect` 目标删除；Ibis 受治理读取与 Store SQLite 事务分权，内部 SQL 例外为空。DS01–DS21/AN01–AN33 按 R1/R5–R9 owner 和删除时点逐行交接 | Datasource Help/CLI/双语 site、Semantic 历史 SQL 说明与独立 oracle；伪造编译句柄、原样提交、终端 typed reentry、timeout/权限/秘密负例 | R1.3 已删 provenance parity 路线并完成部分后端控制；`md.connect` 当前仍公开、MySQL/ClickHouse timeout、DS15 认证、旧 AN 文本路由未闭合。R1 不得标通过，R9 再扫实际提交 |
+| R2 C02.a/b/c、C17.a | semantic 拥有完整身份 K、精确版本、变量/单位、规范 Metric 图、结构 Relationship 与业务顺序/日历定义；ontology 只关联精确 Ref。R5 才验证选定成员的关系匹配；R4 建 Artifact 身份，R10 才读其 ontology 上下文 | `ms.load/catalog.require/scoped readiness`、Analysis Ref binding 与 ontology；两版复合键、缺失/重复/fanout、同刻相反顺序、单位/组件手算，错 Ref kind/过期上下文拒绝；不把静态定义当来源完整性 | R2.1–R2.4 与随后 C02.b/C17.a 静态收口有定向证据；C02.b 的实际来源匹配、C17.a 新 Artifact 侧与 R2 整体仍未通过。权重角色仅是 deferred target，未公开 |
+
+R1/R2 之外的首个依赖交接是 R3 的唯一规则/graph、R4 的统一 Run/Artifact/Store 和
+R5 的成员/数值方法；它们不得复用 B02/B05 的场景协议或 B06 的 definition-only 命中。
+R7 保留 Event/Lifecycle 领域独立方法及 C18 的 DST、重叠与 25/5/70 三态反例；R8 保留
+相关的完整配对与预测未来格反例。R10 才能以新 wheel、独立 oracle 和真实 Agent 旅程
+确认最终公开面。C01–C18 的旧测试、旧 Help、历史 site、生成 SQL 与静态扫描均不足以
+替代上述运行/安装/Agent 资格。

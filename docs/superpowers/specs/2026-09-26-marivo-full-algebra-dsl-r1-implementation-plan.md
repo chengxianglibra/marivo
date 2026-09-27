@@ -19,6 +19,12 @@ R0.6 未开展及 R0.5 控制/认证替代可行性未证。执行 R1 前须核�
 基线，将验收主记录与已完成事实对齐；不能因本实施文档或用户的进度说明，把未运行的后端格
 改成通过。若交接中仍有独立阻塞单元，R1 先推进不依赖它的工作，并在同一主记录留下精确格子。
 
+R0.6 于 2026-09-27 补交[breaking change 与 R1/R2 交接](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#7-r06-breaking-changes)。
+其中 B13 的 [Datasource owning spec 目标](../../specs/semantic/datasource-layer.md#r06-public-connection-cutover-target)
+要求在 R1 公共切换时删除返回原生 backend 的公开 `md.connect` 和对应 Help target，迁移
+消费者后使 `md.raw_sql` 成为唯一公共原始 SQL 终端。R1.4 已披露该旁路，但尚未移除；
+披露不能算唯一入口验收。原起草快照与后续 R1.1–R1.4 的实际通过/阻塞仍以主验收记录为准。
+
 R1 主责是 C01.a/b/c 及其 C16 公共披露：六种 typed datasource spec 的连接、表和文件/JSON
 来源、作用域参数、inspect/sample/test/preview/source-health 的物理读取、秘密边界与唯一终端
 `md.raw_sql`。基础 Analysis 来源链只接入成员所需的扫描、过滤、投影、分组和必要校验设施；

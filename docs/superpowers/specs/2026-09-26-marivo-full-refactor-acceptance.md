@@ -2,7 +2,7 @@
 
 Date: 2026-09-26
 
-Status: R0.1–R0.5 静态产物已登记，R0.6 未开展；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验；R2.1–R2.3 的静态候选及 R2.4 加载/披露候选已核验。R0、R1 和 R2 整体均未验收。
+Status: R0.1–R0.4 与 R0.6 的静态产物已登记，R0.5 替代可行性仍阻塞；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验；R2.1–R2.4 及后续静态交接有有界证据。R0、R1 和 R2 整体均未验收。
 
 本文件按[主计划](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)和[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)续记实际证据。历史验收不自动转成新 DSL 的技术、后端、安装包或真实 Agent 资格。
 
@@ -10,12 +10,12 @@ Status: R0.1–R0.5 静态产物已登记，R0.6 未开展；R1.1/R1.2 部分实
 | --- | --- | --- |
 | R0.1 工作基线、输入 hash、历史证据边界 | **通过（索引与归档）** | [R0.1 索引](2026-09-26-marivo-full-refactor-r0-evidence-index.md)与 [manifest](evidence/r01/manifest.json)；S0/组合正文及 P4 小型机器结果已复制。S4 原轨迹与 wheel 为本机专有历史附件，未授予新资格 |
 | R0.2 C01–C18 与消费者反查 | **通过（静态反查）** | [能力台账 §1–§4](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#1-本次可复核快照与读法)列出 C01–C18、44 个现有子单元、导出/Help、双执行链、主要消费者与去向；目标运行资格仍未验证 |
-| R0.3 必需 owning spec 决定 | **通过（目标契约文档；C01.c 已按用户决定修订）** | [Analysis R0.3](../../specs/analysis/python-analysis-design.md#r03-accepted-full-algebra-target-inactive)、[Semantic R0.3](../../specs/semantic/semantic-object-model.md#r03-full-algebra-target-decisions-inactive)、[Datasource SQL 目标](../../specs/semantic/datasource-layer.md#r03-target-ibis-owned-analysis-reads-and-terminal-raw-sql)及[能力台账 §5](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#5-r03-接受的契约索引)：C18、权重/参照、普通 ratio、业务顺序、原状态/当前行及 SQL/provenance 已给 typed 目标、Cell/部件/错误/K/反例。`md.raw_sql`/`RawSqlResult`/Help 保留为终端只读逃生通道，不能重入 Analysis；其他新 DSL 目标尚未实现 |
+| R0.3 必需 owning spec 决定 | **通过（目标契约文档；C01.c 已按用户决定修订）** | [Analysis R0.3](../../specs/analysis/python-analysis-design.md#r03-accepted-full-algebra-target-inactive)、[Semantic R0.3](../../specs/semantic/semantic-object-model.md#r03-full-algebra-target-decisions-inactive)、[Datasource SQL 目标](../../specs/semantic/datasource-layer.md#r03-target-ibis-owned-analysis-reads-and-terminal-raw-sql)及[能力台账 §5](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#5-r03-接受的契约索引)：C18、权重/参照、普通 ratio、业务顺序、原状态/当前行及 SQL/provenance 已给 typed 目标、Cell/部件/错误/K/反例。`md.raw_sql`/`RawSqlResult`/Help 保留为终端 SQL 逃生通道，只读依连接/权限尽力控制，结果不能重入 Analysis；其他新 DSL 目标尚未实现 |
 | R0.4 规则、方法、模块责任 | **通过（规则和迁移台账）** | [能力台账 §6](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#6-r04-六类元算子规则冻结)：六类元算子含 Pre、RequiredParts、PartTransform、Post、Transport、Eval；44 个子单元及展开方法记录版本、K、独立 oracle、阶段；§6.2 登记旧实现/消费者同迁删除点。新规则尚无产品执行证据 |
-| R0.5 SQL/adapter/六后端目标资格 | **静态台账通过；替代可行性阻塞、运行未验证** | [SQL/adapter 台账](2026-09-26-marivo-full-refactor-r0-sql-ledger.md)列 DS01–DS21、AN01–AN33 的构造/调用/提交与 Ibis/驱动替代，Store SQLite 事务白名单、七项 adapter 责任及六后端目标矩阵。DS02 是具名公共终端 SQL 路线；其他内部 SQL 例外为空。DS11/DS15 等控制/认证操作尚无已证等价驱动 API；六后端、表形态、数值/时间和资源格仍未实跑 |
-| R0.6 破坏性变更与 R1/R2 交接 | **未验证** | 目标入口、消费者及验收索引尚未收束 |
+| R0.5 SQL/adapter/六后端目标资格 | **静态台账通过；替代可行性阻塞、完整运行未验证** | [SQL/adapter 台账](2026-09-26-marivo-full-refactor-r0-sql-ledger.md)列 DS01–DS21、AN01–AN33 的构造/调用/提交与 Ibis/驱动替代，Store SQLite 事务白名单、七项 adapter 责任及六后端目标矩阵。DS02 是具名公共终端 SQL 路线；其他内部 SQL 例外为空。后续 R1.3 对 PostgreSQL/Trino 的部分 DS11 控制取得实证，MySQL/ClickHouse timeout、DS15 认证、部分 metadata/时区及完整六后端方法/资源矩阵仍阻塞或未验证；不得将 R0.5 整体升级 |
+| R0.6 破坏性变更与 R1/R2 交接 | **通过（静态清单与交接）** | [能力台账 §7–§8](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#7-r06-breaking-changes)给出 B01–B13 的旧使用处、目标入口/拒绝、owner/阶段、Help/CLI/site/测试消费者、R1/R2 首批格与独立反例；[Datasource R0.6 target](../../specs/semantic/datasource-layer.md#r06-public-connection-cutover-target)冻结 `md.connect` 公共原生 backend 的删除目标。本节下文记录快照、hash 与未闭合项；这是文档收口，不证明切换已实施 |
 
-R0 整体不得标为通过。R0.1 没有改产品代码，也没有重跑旧 Runtime、安装包或 Agent；可移植原始 Agent 轨迹与 wheel 缺口在索引 §6 记录为历史待补证。R0.2 在 panda 的代码 HEAD 为 `d5e06022c7fcd355b2a31ab6935aea593b60f0d1`，只执行静态扫描并编写文档，未运行产品测试或远端后端。R0.3–R0.5 按用户指定直接在干净的 `panda` 起点实施，未创建隔离工作树，未改产品代码、packaged skills 或 `AGENTS.md`。
+R0 整体不得标为通过。R0.1 没有改产品代码，也没有重跑旧 Runtime、安装包或 Agent；可移植原始 Agent 轨迹与 wheel 缺口在索引 §6 记录为历史待补证。R0.2 在 panda 的代码 HEAD 为 `d5e06022c7fcd355b2a31ab6935aea593b60f0d1`，只执行静态扫描并编写文档，未运行产品测试或远端后端。R0.3–R0.5 按用户指定直接在干净的 `panda` 起点实施，未创建隔离工作树，未改产品代码、packaged skills 或 `AGENTS.md`。后续各节的“R0.6 未开展”均为当时快照，以本表及末节的本次记录为当前状态。
 
 ## R1.1 实施中记录
 
@@ -239,3 +239,50 @@ MySQL 基础 Analysis 补充格：启动前 `mysql-analysis` 为 Exited，本轮
 | 公共披露 | **静态通过** | Relationship 无全局 `required`，Help、docstring、Semantic owning spec 与 `site/` latest 中英文说明一致；API 文档不再把尚未实现的 Analysis ontology 发现入口写成现行能力。无新增导出、别名或第二套关系图；未改 packaged skills、`AGENTS.md` 或已撤回的 `ms.statistical_weight`。若公开说明与签名/行为再漂移，按同一 owner 同步修正并重跑 Help、API 和站点检查。 |
 
 定向 `make test TESTS='tests/test_semantic_r21_identity_relationship.py tests/test_semantic_source_health.py tests/test_semantic_r24_handoff.py tests/test_ontology_extension.py tests/test_unified_help.py'` 为 **72 passed**；`make typecheck TYPECHECK_TARGETS='marivo/semantic/_authoring_decorators.py marivo/semantic/source_health.py marivo/semantic/_capabilities/registry.py'` 和五个改动 Python 文件的定向 `make lint-agent` 通过。`make check-agent` 的 lint/import、379 个源码文件 typing、默认测试 **5126 passed、64 skipped** 与 API 文档通过；`npm --prefix site run build` 成功，Astro **321 页**及中英文安装脚本校验通过；`git diff --check` 退出码 0。64 个 skip 保持原归属，不转授 R1 或 R5 资格。本轮只关闭 R2 的可缺失性静态契约与 C17.a 的阶段交接；**C02.b、C17.a 完整能力及 R2 整体仍未通过**。
+
+## R0.6 破坏性变更、证据与交接收口（2026-09-27）
+
+本轮按用户要求在 `panda` 直接实施。开工 HEAD 为
+`784135090b98c32b60d4b8f8cf69c02982d883d5`，跟踪文件 diff 为空，
+`git diff --binary` 的 SHA-256 为
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`。
+开工仅有未跟踪的 R2 实施计划，SHA-256 为
+`7c8488e862195487b05494f86ddb9f44e71b362f8649933cecd041c72299f18c`；
+实施中工作树又出现未跟踪的 R3 计划。两份均不属于本次产物，未移动、覆盖或纳入提交。
+R0.6 先建立的空隔离工作树已按用户指定移除；没有产品代码或 packaged skill 改动。
+
+| 输入与 R0 产物 | 本次 SHA-256；实际状态 |
+| --- | --- |
+| [代数 v0.5](2026-09-23-analysis-algebra-theory.md)、[接口设计](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md)、[架构设计](2026-09-24-marivo-analysis-dsl-architecture-design.md) | `40ce44e730a245b9a9dad50ac6fe64effa5c374960ef658ec9eaaa328f6a2e14`、`d31aa12ac4f4bffe571572e7824a7d2f33f83f6e8a372817905c5dd30ab5e4ad`、`1c8bf9f9ccae7961b165b6ace061b721962bd634489a9e6dd95d0909e4d074b5`；受跟踪的设计输入，非运行证据 |
+| [主计划](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)、[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md) | `e44e7f8628a3646cf9d571be25ec863ef8c0b605917315969a44f5c491f876de`、`0256bb9e31be905e7d77774aee7607b455b035b08d4e9394293c3194a8d14d08`；出口依据 |
+| [R1 实施文档](2026-09-26-marivo-full-algebra-dsl-r1-implementation-plan.md) | `77ccf2d5f3ca75dba164fa024f8552497b08fcf8a68f2e574f00be600d047338`；已补 B13 交接，原起草快照仍为历史语境 |
+| R0.1 [历史索引](2026-09-26-marivo-full-refactor-r0-evidence-index.md)、[218 项 manifest](evidence/r01/manifest.json) | `e859557f0177ccea9a9885f25f69b055f3c3dce3796368fcbfdf44e991227daf`、`82a038e0646a674879578e0f9d00805180743315cf64feedee5ad27fd85d8414`；原 Agent 轨迹及旧 wheel 的部分附件仍仅本机可得，待新验收 |
+| R0.2/R0.4/R0.6 [能力、规则、breaking 与交接台账](2026-09-26-marivo-full-refactor-r0-capability-ledger.md) | `be5b17e6032d077e4050f56aeb1e8ff5178ede978e7576eccebdcd66b6908454`；§7 B01–B13，§8 R1/R2 首批格；本轮候选内容 hash，最终同受版本控制文件核对 |
+| R0.5 [SQL/adapter/六后端台账](2026-09-26-marivo-full-refactor-r0-sql-ledger.md) | `c7d3de0b4b92649258b5f83ec76957cf0ae99a277b60e35d268081facbcf0461`；DS01–DS21、AN01–AN33 与目标矩阵是静态索引 |
+| R0.3/R0.6 owning specs：[Analysis](../../specs/analysis/python-analysis-design.md)、[Semantic](../../specs/semantic/semantic-object-model.md)、[Datasource](../../specs/semantic/datasource-layer.md) | `b5f3e9d4a5764293a517fe6fa3448429a9fea0e458e4b87f194fe49208d64b6b`、`08621707f6806a5a607e1690bac9e6686507d2b460c11a74ee45b59962f17f64`、`dd0477fe87ea78d4b5992eb3550d0990a333109d5b2fcbb45a7dea18fab2b723`；分别核对 C18/权重/ratio/Cell、身份/顺序/历史 SQL、Ibis/raw SQL 与 R0.6 公共连接目标；后者仍是 inactive 目标 |
+| 本主验收记录 | 当前内容的 SHA-256 另记于 [R0.6 manifest](evidence/r06/manifest.json)，避免在本文自引用；本次只增 R0.6 文档证据，不继承旧运行通过 |
+
+能力台账、Datasource owning spec 与 R1 交接补注的候选 diff（不含本主记录）的
+`git diff --binary HEAD -- docs/specs/semantic/datasource-layer.md docs/superpowers/specs/2026-09-26-marivo-full-refactor-r0-capability-ledger.md docs/superpowers/specs/2026-09-26-marivo-full-algebra-dsl-r1-implementation-plan.md`
+SHA-256 为 `d36675e4948654e0d724d6348686e95f805aeba37982ec516201f03304b16301`。
+这些 hash 供跨 checkout 识别文档版本；不等于某方法、后端或安装包的运行证明。
+
+| R0.6 出口 | 状态及可复核定位 |
+| --- | --- |
+| 破坏性变更逐项收束 | **通过（静态清单）**：[能力台账 §7](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#7-r06-breaking-changes) 的 B01–B13 覆盖旧 Population/Dataset、J1–J4 身份、旧 Help/registry/codec/协议、definition-only 命中、Artifact→DuckDB、Store 不迁移、SQL/parity、distinct/quantile K、公开参数和 `md.connect` 旁路；每行有旧位置、目标/拒绝、阶段、消费者及验收索引。已删除的 B10 与待切换行分开 |
+| R1/R2 可执行交接 | **通过（静态交接）**：[能力台账 §8](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#8-r06-r1r2-handoff)按 C01/C02/C17 给 adapter/semantic/ontology 唯一责任、首批 backend/类型/形状/路线、CLI/Help/site/测试消费者、独立正反例和恢复条件；R3/R4/R5 的下游责任另列。未把未跟踪 R2/R3 计划作为验收唯一附件 |
+| 受控证据与披露 | **通过（文档核对）**：本表和 R0.6 manifest 记录实际 hash、owning spec 版本及本 HEAD；R0.1 缺失原始附件与 R0.5 未验证格保留。packaged skills 的后续同步需依 AGENTS.md 取得明确用户批准，本次没有编辑 |
+
+R0 **整体仍阻塞**：R0.5 的 MySQL/ClickHouse timeout/时区、DS15 认证及必需 Ibis/驱动
+替代可行性没有逐格闭合；完整六后端/表形态/Decimal/时间/取消矩阵仍未验证。R1 的
+`md.connect` 公共原生 backend 仍可绕过唯一 `md.raw_sql` 终端，此次只在 owning spec
+冻结删除目标，未改公开代码。R4 的统一协议、旧 Store 不迁移和固定 Artifact 方法尚待实现；
+R5–R9 的方法来源路线、R10 的 wheel/真实 Agent 均未取得新资格。R1/R2 只能继续推进
+不依赖阻塞格的工作，旧 J1–J4/C0–C10、静态扫描、编译或跳过断言不能转授通过。
+
+本轮静态核验：`rg -n 'md\.connect|from_sql|parity_check|user_version=6|execution_key\(dataset.definition_fingerprint\)|def execute_j1|attach_parquet_scan|class J1Context|class J3Observed' marivo/datasource marivo/semantic marivo/analysis`
+反查目标仍在或已删；`git ls-files` 确认 R0 原台账/owning specs 受跟踪，
+`git check-ignore -v` 确认旧 `docs/superpowers/plans/` 附件被忽略；
+`shasum -a 256` 与 R0.6 manifest 的逐文件 SHA-256/字节数核对 **14/14**，
+B01–B13 无缺号，文档相对链接所指文件存在，`git diff --check` 退出码 **0**。
+未运行 Python/Runtime/六后端测试、站点构建、wheel 或真实 Agent；本轮未改产品行为。
