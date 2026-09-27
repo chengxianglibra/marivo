@@ -2,7 +2,7 @@
 
 Date: 2026-09-26
 
-Status: R0.1–R0.4 与 R0.6 的静态产物已登记，R0.5 替代可行性仍阻塞；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验，R1.5 公共连接切换与逐格复核见下；R2.1–R2.4 及后续静态交接有有界证据。R0、R1 和 R2 整体均未验收。
+Status: R0.1–R0.4 与 R0.6 的静态产物已登记，R0.5 替代可行性仍阻塞；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验，R1.5 公共连接切换与逐格复核见下；R2.1–R2.4 及后续静态交接有有界证据；R3.1 私有纯构造候选有有界测试证据。R0、R1、R2 和 R3 整体均未验收。
 
 本文件按[主计划](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)和[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)续记实际证据。历史验收不自动转成新 DSL 的技术、后端、安装包或真实 Agent 资格。
 
@@ -307,3 +307,19 @@ R5–R9 的方法来源路线、R10 的 wheel/真实 Agent 均未取得新资格
 `shasum -a 256` 与 R0.6 manifest 的逐文件 SHA-256/字节数核对 **14/14**，
 B01–B13 无缺号，文档相对链接所指文件存在，`git diff --check` 退出码 **0**。
 未运行 Python/Runtime/六后端测试、站点构建、wheel 或真实 Agent；本轮未改产品行为。
+
+## R3.1 内部值模型与六类规则（2026-09-27）
+
+基线为 `panda` HEAD `f388916c1430a3e1618e6629320215e9c3b67a8d`。输入为 [Analysis owning spec](../../specs/analysis/python-analysis-design.md)（SHA-256 `b5f3e9d4a5764293a517fe6fa3448429a9fea0e458e4b87f194fe49208d64b6b`）、[R0.4 六规则台账](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#6-r04-六类元算子规则冻结)（SHA-256 `e10191bcb6ca605b3fe56fed8983ba96df2a2e26cf8b44f285bb1cff4a722a2f`）及本轮 R3 实施计划（原未跟踪文件 SHA-256 `8a8f7e5d5fb675f3f0e5f77b3f4095f6e18e71be467e091c1f74dd58d9acd987`）。原未跟踪 R2 计划 SHA-256 `7c8488e862195487b05494f86ddb9f44e71b362f8649933cecd041c72299f18c`；两份计划均未修改或纳入提交。本轮新增私有 `analysis/core` 值模型与规则，未更改公共导出、Help、站点示例、旧 J1/Dataset 消费者、packaged skills 或 `AGENTS.md`。
+
+候选文件 SHA-256：`marivo/analysis/core/__init__.py` 为 `88572d7d567bc981cc1506b192c47835413a7305d42e5ad71a3fdb0d3abfaade`，`model.py` 为 `5601d9cadc65eeb64c914ca0a854b4e59326010822d15a87527640420677c94b`，`rules.py` 为 `4bcfd24c21789e51a027de786470812f7e38c4160e32fd949a6d03a9cbb2cc95`，独立反例 `tests/test_analysis_core_r31.py` 为 `27b97bcafc6ab888fc30c7c1aff5c119c11fe1c2bf768c71c8f858bac00f1b3a`。这些 hash 只定位本地候选，不证明来源执行或阶段总验收。
+
+| R3.1 单元 | 本轮状态 | 固定输入、独立预期、实际证据与恢复条件 |
+| --- | --- | --- |
+| 域、量、Cell 与 Entity 成员身份 | **纯构造通过；实际成员未求值** | 以复合键 `(tenant_id, customer_id)` 和显式 `snapshot_day=2026-08-01` 为输入，签名须保留完整键和选中版本；缺选版、错误版本或不完整规范身份拒绝。完整键声明只给 `declared_key`；实际来源唯一性另有 `source.unique_key@v1` 待履行义务，不能以 `distinct` 消隐重复。固定键 helper 拒绝重复。Cell 的 Defined、Null、Undefined、Unknown 分立，缺侧由配对结果 `MissingCoordinate` 表示。测试无来源扫描，真实成员集合与来源重复行检查仍需 R4/R5 执行证据。 |
+| `bind_project@v1` 与 `map_correspond@v1` | **规则构造通过；来源检查未履行** | 规范字段/Metric Ref、owner、graph 指纹及有向 Relationship 路径必须精确匹配；错误 kind、owner、路径和量绑定拒绝。`(1)→A,(2)→A,(3)→B` 的非单射主体集合像预期为 `{A,B}`，而非三行或强制单射。完整实际坐标 `[(east,aug),(west,sep)] ∪ [(east,sep)]` 预期三个二元组；缺侧 `(1)` 和 `(3)` 单列报告。精确配对、分组映射及来源单值性保留绑定检查义务，不能以构造成功称已完成。 |
+| `cell_derive@v1` 与 `row_state@v1` | **规则构造及固定数值反例通过；真实求值未验证** | 固定 Cell `5−2=3`，`5/0=Undefined(zero_denominator)`；Null/Undefined/Unknown 不冒充 Defined，缺侧不作为 Cell。当前行 `count` 与 `count_defined` 为不同方法，`mean` 生成新的 RowStatistic 与当前行状态；其输出不能送入原量 rollup。数值有效性、Cell 政策与精确配对只有闭合检查标识和义务，尚无 R3.2 方法注册或来源检查器。 |
+| `original_reduce@v1` 与 `parts_transport@v1` | **部件续算约束通过；归约数值未执行** | 仅接受同绑定、同量、同方法版本/贡献的原状态组件和范围覆盖；缺覆盖或错量部件拒绝。投影只保留主体/固定参照时撤销原状态与覆盖续算；范围收窄不能沿用旧覆盖。`OriginalReduce` 保留来源贡献分区与完整覆盖义务，尚须 R5/R9 对真实贡献和后端证明。 |
+| 依据、义务与无 I/O | **构造边界通过；物理履行未实施** | 声明、builder 的字段归属推导及已完成检查分别记录；声明或 builder 依据不能声明来源唯一性等运行事实，错误 binding、未履行义务和依赖未闭合的 deduction 不成为可用依据。子节点 `Post` 在义务完成前不能向父节点传播为已证事实。六规则构造测试禁止 DuckDB/SQLite 连接、SourceSession、SessionStore 与 DatasetRuntime 初始化；闭合 check id 是将来 checker 的交接标识，不是现成检查实现。 |
+
+定向 `make test TESTS='tests/test_analysis_core_r31.py tests/test_analysis_dsl_j1_construction.py tests/test_lazy_dataset_registry.py tests/test_analysis_dsl_j1_source.py'` 为 **103 passed**；`make typecheck TYPECHECK_TARGETS='marivo/analysis/core'`、`make lint-agent LINT_TARGETS='marivo/analysis/core tests/test_analysis_core_r31.py'` 均通过。最终 `make check-agent` 的 lint/import、382 个源码文件 typing、默认测试 **5138 passed、64 skipped** 和 API 文档全部通过。64 项 skip 保留原断言、归属及恢复条件，不计 R3.1 或 R0–R2 通过。本轮没有执行 Runtime 全量、六后端实源、wheel、冷恢复或真实 Agent；没有 R3.2 方法注册、R3.3 执行图、R3.4 lowering，也没有旧 J1/Dataset 路线迁移。后续须按 R4–R9 逐格接入真实消费者、履行检查义务并核验实际数据/后端；**R3 整体未通过**。
