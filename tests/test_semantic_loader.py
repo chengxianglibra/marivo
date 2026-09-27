@@ -739,7 +739,7 @@ def test_derived_metric_with_provenance_errors(semantic_project_factory) -> None
                 name="ratio",
                 numerator="sales.revenue",
                 denominator="sales.revenue",
-                provenance=ms.from_sql(sql="SELECT 1", dialect="duckdb"),
+                provenance="SELECT 1",
             )
 
 

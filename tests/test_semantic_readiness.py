@@ -94,14 +94,14 @@ def test_report_json_and_render_expose_only_analysis_ready_inputs() -> None:
         blockers=(),
         warnings=(
             ReadinessIssue(
-                kind="sql_parity_unverified",
+                kind="provenance_unverified",
                 severity="warning",
                 refs=("sales.revenue",),
-                message="Parity remains advisory.",
+                message="Historical provenance remains unverified.",
                 repair=AuthoringRepair(
-                    kind="retry",
-                    help_target=LiveHelpTarget(surface="semantic", canonical_id="parity_check"),
-                    action="Run parity_check when parity matters.",
+                    kind="reauthor",
+                    help_target=LiveHelpTarget(surface="semantic", canonical_id="metric"),
+                    action="Review against an independent business source.",
                 ),
             ),
         ),

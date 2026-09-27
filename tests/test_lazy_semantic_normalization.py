@@ -142,7 +142,6 @@ def _metric(name: str, *, agg: AggKind = "sum", entity: str = "orders") -> Metri
         measure=f"sales.{entity}.amount",
         composition=None,
         additivity=None,
-        provenance=None,
         ai_context=AiContextIR(),
         body_ast_hash="direct",
         python_symbol=name,

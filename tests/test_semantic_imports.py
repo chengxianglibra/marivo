@@ -39,11 +39,9 @@ from marivo.semantic.ir import (
     EntityProvenance,
     EventIR,
     MetricIR,
-    ParityStatus,
     RelationshipIR,
     SemanticKind,
     SourceLocation,
-    SqlProvenance,
     TargetDimensionContract,
 )
 
@@ -91,7 +89,6 @@ def test_all_list_matches_expected() -> None:
         "PeriodCalendarKind",
         "TemporalSetKind",
         "PeriodCorrespondence",
-        "ParityResult",
         "Participant",
         "ParticipantRoleHandle",
         "PreviewBatchResult",
@@ -108,7 +105,6 @@ def test_all_list_matches_expected() -> None:
         "SourceCheck",
         "SourceHealthCheckResult",
         "SourceHealthReport",
-        "SqlProvenance",
         "StateModelDetails",
         "StateModelEntry",
         "StateTransition",
@@ -138,7 +134,6 @@ def test_all_list_matches_expected() -> None:
         "calendar_grain",
         "count",
         "cumulative",
-        "from_sql",
         "grain_to_date",
         "hour_prefix",
         "inception",
@@ -155,7 +150,6 @@ def test_all_list_matches_expected() -> None:
         "nulls",
         "empty",
         "zero_denominator",
-        "parity_check",
         "participant",
         "participant_role",
         "period_calendar",
@@ -297,10 +291,6 @@ def test_runtime_error_is_semantic_error() -> None:
     assert issubclass(errors_mod.SemanticRuntimeError, errors_mod.SemanticError)
 
 
-def test_parity_error_is_semantic_error() -> None:
-    assert issubclass(errors_mod.SemanticParityError, errors_mod.SemanticError)
-
-
 def test_load_failed_not_semantic_error() -> None:
     assert not issubclass(errors_mod.SemanticLoadFailed, errors_mod.SemanticError)
     assert issubclass(errors_mod.SemanticLoadFailed, Exception)
@@ -382,7 +372,6 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "missing_metric_ref",
     "cross_model_cycle",
     "cross_datasource_not_supported",
-    "provenance_dialect_missing",
     "duplicate_default_time_dimension",
     "invalid_relationship_endpoint",
     "organization_error",
@@ -390,7 +379,6 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "missing_metric_additivity",
     "missing_metric_root_entity",
     "invalid_metric_root_entity",
-    "invalid_verification_mode",
     "invalid_entity_versioning",
     "duplicate_identity_key",
     "missing_identity_key_column",
@@ -404,7 +392,6 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "missing_time_fold",
     "missing_status_time_dimension",
     "invalid_status_time_dimension",
-    "unverified_provenance",
     "invalid_measure_aggregation",
     "incommensurable_linear_units",
     "missing_measure_additivity",
@@ -437,12 +424,7 @@ _EXPECTED_RUNTIME_KINDS = {
     "filter_value_runtime_incompatible",
 }
 
-_EXPECTED_PARITY_KINDS = {
-    "provenance_dialect_missing",
-    "unverified_provenance",
-    "parity_value_mismatch",
-    "parity_not_scalar",
-}
+_EXPECTED_PARITY_KINDS: set[str] = set()
 
 
 def test_error_kind_decorator_kinds() -> None:
@@ -498,7 +480,6 @@ def test_hints_cover_all_kinds() -> None:
 _FROZEN_CLASSES = [
     SourceLocation,
     AiContextIR,
-    SqlProvenance,
     DomainIR,
     DatasourceIR,
     EntityIR,
@@ -541,12 +522,6 @@ def test_symbol_kind_values() -> None:
     assert actual == expected
 
 
-def test_parity_status_values() -> None:
-    expected = {"verified", "unverified", "drifted"}
-    actual = {k.value for k in ParityStatus}
-    assert actual == expected
-
-
 def test_dataset_provenance_values() -> None:
     expected = {"ibis_table", "sql_view", "table_projection"}
     actual = {k.value for k in EntityProvenance}
@@ -556,11 +531,6 @@ def test_dataset_provenance_values() -> None:
 def test_symbol_kind_is_str_enum() -> None:
     assert isinstance(SemanticKind.DOMAIN, str)
     assert SemanticKind.DOMAIN.value == "domain"
-
-
-def test_parity_status_is_str_enum() -> None:
-    assert isinstance(ParityStatus.VERIFIED, str)
-    assert ParityStatus.VERIFIED.value == "verified"
 
 
 def test_field_kind_values() -> None:
@@ -690,12 +660,12 @@ def test_structured_warning_is_frozen() -> None:
     from marivo.semantic.errors import StructuredWarning
 
     warn = StructuredWarning(
-        kind="unverified_provenance",
+        kind="string_ref",
         message="test warning",
         refs=("ref1",),
         location=None,
     )
-    assert warn.kind == "unverified_provenance"
+    assert warn.kind == "string_ref"
     assert warn.message == "test warning"
     assert warn.refs == ("ref1",)
     assert warn.location is None
@@ -758,29 +728,18 @@ def test_materializer_class_exists() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Parity module
+# Removed SQL provenance entry
 # ---------------------------------------------------------------------------
 
 
-def test_parity_result_frozen() -> None:
-    from marivo.semantic.parity import ParityResult
+def test_sql_provenance_has_no_public_entry() -> None:
+    import marivo.semantic as ms
+    from marivo.semantic.reader import SemanticProject
 
-    result = ParityResult(ok=True)
-    assert result.ok is True
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        result.ok = False  # type: ignore[misc]
-
-
-def test_parity_check_callable() -> None:
-    from marivo.semantic.parity import parity_check
-
-    assert callable(parity_check)
-
-
-def test_propagated_parity_status_callable() -> None:
-    from marivo.semantic.parity import propagated_parity_status
-
-    assert callable(propagated_parity_status)
+    assert not hasattr(ms, "from_sql")
+    assert not hasattr(ms, "SqlProvenance")
+    assert not hasattr(ms, "parity_check")
+    assert not hasattr(SemanticProject, "parity_check")
 
 
 # ---------------------------------------------------------------------------

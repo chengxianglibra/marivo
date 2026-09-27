@@ -39,7 +39,6 @@ from marivo.semantic._authoring_validation import (
     _compute_agg_hash,
     _normalize_additivity,
     _normalize_time_fold,
-    _validate_metric_provenance,
     _validate_unit,
     _validate_value_policies,
 )
@@ -58,7 +57,6 @@ from marivo.semantic.ir import (
     AggregateFoldInput,
     DomainIR,
     MetricIR,
-    SqlProvenance,
     WeightedMeanAggregation,
     WhereFilter,
     WhereValue,
@@ -226,7 +224,6 @@ def aggregate(
         measure=measure_id,
         composition=None,
         additivity=None,
-        provenance=None,
         ai_context=ai_ctx,
         body_ast_hash=_compute_agg_hash(measure_id, agg, fold_ir, filter=filter_pairs),
         python_symbol=obj_name,
@@ -286,7 +283,6 @@ def weighted_mean(
         measure=None,
         composition=None,
         additivity=None,
-        provenance=None,
         ai_context=_build_ai_context(ai_context),
         body_ast_hash=body_hash,
         python_symbol=name,
@@ -459,7 +455,6 @@ def count(
         measure=None,
         composition=None,
         additivity=None,
-        provenance=None,
         ai_context=ai_ctx,
         body_ast_hash=_compute_agg_hash(entity_id, "count", None, filter=filter_pairs),
         python_symbol=name,
@@ -488,7 +483,6 @@ def metric(
     root_entity: Ref[EntityKind] | None = None,
     fanout_policy: Literal["block", "aggregate_then_join"] = "block",
     unit: str | None = None,
-    provenance: SqlProvenance | None = None,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
 ) -> Callable[[Callable[..., Any]], Ref[MetricKind]]:
@@ -507,7 +501,6 @@ def metric(
         root_entity: Required when more than one entity is provided.
         fanout_policy: ``"block"`` (default) or ``"aggregate_then_join"``.
         unit: UCUM unit token.
-        provenance: Optional ``SqlProvenance`` from ``ms.from_sql(sql=..., dialect=...)``.
         domain: Override the active domain namespace.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
@@ -528,7 +521,6 @@ def metric(
         ref = ref_factory.metric(semantic_id)
         _check_duplicate(ctx, semantic_id, MetricIR)
         _validate_unit(unit, semantic_id)
-        _validate_metric_provenance(provenance)
         _validate_value_policies(
             semantic_id=semantic_id,
             nulls=nulls,
@@ -604,7 +596,6 @@ def metric(
                 status_time_dimension=status_id,
                 status_time_fold=status_fold,
             ),
-            provenance=provenance,
             ai_context=ai_ctx,
             body_ast_hash=expression_body.body_ast_hash,
             python_symbol=fn.__name__,

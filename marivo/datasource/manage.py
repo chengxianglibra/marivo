@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import builtins
 import copy
-import re
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -947,32 +946,11 @@ def _require_raw_sql_reason(reason: str) -> str:
     return reason.strip()
 
 
-def _require_single_statement(sql: str) -> str:
-    """Reject empty SQL and ``;``-separated multi-statement input.
-
-    Read-only is enforced at the connection level (and via a read-only transaction
-    for transaction-based backends), not by parsing the statement shape, so this
-    check only guards statement count.
-    """
-    text = sql.strip()
-    if not text:
+def _require_nonempty_sql(sql: str) -> str:
+    """Validate presence without parsing or rewriting the caller's SQL."""
+    if not isinstance(sql, str) or not sql.strip():
         raise ValueError("sql must be non-empty.")
-    stripped = text.rstrip(";")
-    if ";" in stripped:
-        raise ValueError("raw_sql accepts a single read-only statement.")
-    return stripped
-
-
-_RAW_SQL_METADATA_KEYWORDS = {"SHOW", "DESCRIBE", "DESC", "EXPLAIN"}
-
-
-def _raw_sql_keyword(sql: str) -> str:
-    match = re.match(r"([A-Za-z_]+)", sql.lstrip())
-    return match.group(1).upper() if match else ""
-
-
-def _is_metadata_diagnostic_sql(sql: str) -> bool:
-    return _raw_sql_keyword(sql) in _RAW_SQL_METADATA_KEYWORDS
+    return sql
 
 
 def _extract_raw_sql_frame(
@@ -991,76 +969,6 @@ def _extract_raw_sql_frame(
     return frame.columns, frame.rows, frame.types
 
 
-_EXPLICIT_NULLS_ORDERING = re.compile(r"\bNULLS\s+(FIRST|LAST)\b", re.IGNORECASE)
-
-
-def _has_explicit_nulls_ordering(statement: str) -> bool:
-    """True when *statement* carries an explicit ``NULLS FIRST/LAST`` clause.
-
-    sqlglot's default dialect fills in (and then strips) null-ordering clauses
-    using MySQL's defaults — ``ASC`` defaults to ``NULLS FIRST``, ``DESC`` to
-    ``NULLS LAST``. Trino/Postgres/DuckDB default the opposite way, so a
-    stripped explicit clause silently flips the Top-N row set. Detecting the
-    clause in the source text (the AST cannot distinguish explicit from
-    default) lets the caller fall back to the verbatim wrapper.
-    """
-    return _EXPLICIT_NULLS_ORDERING.search(statement) is not None
-
-
-def _bounded_execution_sql(statement: str, limit: int) -> str:
-    """Bound a read-only SELECT to ``limit + 1`` rows without disturbing ORDER BY.
-
-    ``raw_sql`` previously wrapped the user statement in an unordered subquery and
-    applied ``LIMIT`` on the outside. Trino (and the SQL standard) only honor
-    ``ORDER BY`` in the query that directly contains it, so an outer ``LIMIT``
-    with no ``ORDER BY`` may select an arbitrary set — silently discarding a
-    user's ``ORDER BY ... LIMIT`` Top-N intent. We therefore inject the
-    ``limit + 1`` truncation probe into the same top-level statement via
-    sqlglot, so any user ``ORDER BY`` still governs which rows the probe keeps.
-
-    Statements that already carry their own row boundary (``LIMIT``, ``OFFSET``,
-    or ``FETCH FIRST``) are returned verbatim: overriding them would change the
-    user's result-set contract. Truncation detection still works because the
-    client-side ``decode_cursor_frame`` probe fetches ``limit + 1`` rows and
-    ``is_truncated`` compares the fetched count against ``limit``.
-
-    Statements whose default-dialect round-trip would change their meaning fall
-    back to the original subquery wrapper instead of being rewritten:
-
-    * ``SELECT ... INTO`` is a write; the default dialect normalizes it into a
-      valid ``CREATE TABLE ... AS SELECT``, which would execute on backends
-      without connection-level read-only (Trino). The wrapper turns it back into
-      invalid SQL.
-    * ``TABLESAMPLE BERNOULLI(n)`` is rewritten as ``BERNOULLI(n ROWS)``,
-      changing percentage sampling into a row count.
-    * An explicit ``NULLS FIRST/LAST`` clause is stripped when it matches the
-      MySQL-style default, silently flipping the Top-N null ordering.
-
-    Unparseable SQL and non-SELECT top-level statements also fall back to the
-    original subquery wrapper.
-    """
-    probe_limit = limit + 1
-    import sqlglot
-    from sqlglot import exp
-
-    fallback = f"SELECT * FROM ({statement}) AS marivo_raw_sql LIMIT {probe_limit}"
-
-    try:
-        parsed = sqlglot.parse_one(statement)
-    except sqlglot.errors.ParseError:
-        return fallback
-    if not isinstance(parsed, (exp.Select, exp.SetOperation)):
-        return fallback
-    if parsed.args.get("into") is not None:
-        return fallback
-    if parsed.args.get("limit") is not None or parsed.args.get("offset") is not None:
-        return statement
-    if parsed.find(exp.TableSample) is not None or _has_explicit_nulls_ordering(statement):
-        return fallback
-    parsed.set("limit", exp.Limit(expression=exp.Literal.number(probe_limit)))
-    return parsed.sql()
-
-
 def raw_sql(
     datasource: Ref[DatasourceKind],
     sql: str,
@@ -1071,15 +979,12 @@ def raw_sql(
     include_types: bool = True,
     project_root: Path | None = None,
 ) -> RawSqlResult:
-    """Run governed read-only SQL exploration against a datasource.
+    """Run a bounded terminal SQL diagnostic against a datasource.
 
     Args:
         datasource: Datasource reference returned by ``ms.ref.datasource("warehouse")``.
-        sql: Single read-only SQL statement. ``SELECT`` and ``WITH`` diagnostics
-            are bounded to ``limit + 1`` rows by injecting a probe ``LIMIT`` into
-            the same top-level query (preserving any user ``ORDER BY``);
-            metadata diagnostics such as ``SHOW``, ``DESCRIBE``, ``DESC``, and
-            ``EXPLAIN`` execute directly so backend metadata syntax remains valid.
+        sql: SQL text submitted verbatim. Choose a read-only diagnostic;
+            Marivo does not parse or classify the statement before submission.
         reason: Required exploration reason shown in the result. Name the
             physical or semantic question and disclose inferred assumptions.
         limit: Maximum rows to return. Defaults to ``RAW_SQL_DEFAULT_LIMIT``
@@ -1099,19 +1004,14 @@ def raw_sql(
         >>> md.raw_sql(ms.ref.datasource("warehouse"), "SELECT 1 AS ok", reason="check query path")
 
     Constraints:
-        Rejects empty reasons, empty SQL, multi-statement SQL, non-positive limit,
-        and non-positive timeout before execution. Read-only is enforced at the
-        connection level: DuckDB and ClickHouse open in read-only mode, Postgres
-        and MySQL run inside a ``READ ONLY`` transaction via the engine profile
-        ``authoring_timeout`` context, and Trino rejects non-SELECT statements by
-        refusing to execute them through the probe-LIMIT path (write statements,
-        including ``SELECT ... INTO``, are turned into invalid SQL by the subquery
-        fallback wrapper rather than being normalized into a runnable ``CREATE
-        TABLE ... AS SELECT``). The timeout
+        Rejects empty reasons, empty SQL, non-positive limit, and non-positive
+        timeout before execution. Read-only
+        behavior relies on the selected connection and backend permissions; it
+        is best effort and may not prevent writes on every backend. The timeout
         remains armed from before
         the user statement executes through bounded result fetching; if the profile
         has no enforceable timeout the function fails closed with
-        ``DatasourceRawSqlError(stage="timeout_setup")``.
+        ``DatasourceRawSqlError`` before submitting the statement.
         This is a normal source-exploration option when inspection or a generic
         sample cannot answer the current question. Inferred semantics remain
         provisional and must be disclosed at closeout.
@@ -1133,7 +1033,7 @@ def raw_sql(
     if timeout_seconds < 1:
         raise ValueError("timeout_seconds must be positive.")
     reason_text = _require_raw_sql_reason(reason)
-    statement = _require_single_statement(sql)
+    statement = _require_nonempty_sql(sql)
     datasource_id = _storage_name(datasource)
     datasource_ir = _store.load_one(datasource_id, project_root=project_root)
     if datasource_ir is None:
@@ -1167,28 +1067,48 @@ def raw_sql(
             ),
         )
     service = DatasourceConnectionService(project_root)
-    with service.use_backend(datasource_id, read_only=True) as backend:
-        is_metadata_diagnostic = _is_metadata_diagnostic_sql(statement)
+    with service.use_backend(
+        datasource_id,
+        read_only=True,
+        terminal_timeout_seconds=timeout_seconds,
+    ) as backend:
         fetch_limit = limit
-        execution_sql = (
-            statement if is_metadata_diagnostic else _bounded_execution_sql(statement, limit)
-        )
         start = time.monotonic()
+        query_started = False
         try:
             with timeout(backend, timeout_seconds):
-                cursor = backend.raw_sql(execution_sql)
-                columns, extracted_rows, types = _extract_raw_sql_frame(
-                    cursor,
-                    include_types,
-                    limit=fetch_limit,
-                )
+                query_started = True
+                cursor = backend.raw_sql(statement)
+                try:
+                    columns, extracted_rows, types = _extract_raw_sql_frame(
+                        cursor,
+                        include_types,
+                        limit=fetch_limit,
+                    )
+                finally:
+                    close = getattr(cursor, "close", None)
+                    if callable(close):
+                        close()
         except DatasourceError:
             raise
         except Exception as exc:
+            if not query_started:
+                raise DatasourceRawSqlError(
+                    message="raw_sql timeout control is unavailable before execution.",
+                    expected="an enforceable backend timeout for this connection",
+                    received=type(exc).__name__,
+                    location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
+                    effect_observed=DatasourceObservedEffects(query_executed=False),
+                    repair=repair(
+                        kind="configure",
+                        canonical_id="raw_sql",
+                        action="Use a backend connection with an enforceable query timeout.",
+                    ),
+                ) from exc
             raise DatasourceRawSqlError(
-                message="raw_sql execution or result fetching failed; no side effects were applied.",
-                expected="a read-only diagnostic the datasource backend can execute",
-                received=str(exc),
+                message="raw_sql execution or result fetching failed.",
+                expected="SQL the datasource backend can execute under its connection permissions",
+                received=type(exc).__name__,
                 location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
                 effect_observed=DatasourceObservedEffects(query_executed=True),
                 repair=repair(
@@ -1203,6 +1123,7 @@ def raw_sql(
         warnings = [
             "raw SQL diagnostics can be expensive even when returned rows are bounded",
             "terminal custom analysis; no metric, time-scope, slice, lineage, or canonical analysis contract",
+            "read-only behavior depends on connection and backend permissions; writes may be possible",
         ]
         if is_truncated:
             warnings.append(_truncation_warning(limit))

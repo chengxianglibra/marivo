@@ -20,7 +20,6 @@ from marivo.semantic.ir import (
     SemanticKind,
     SemanticParse,
     SourceLocation,
-    SqlProvenance,
     StrptimeParse,
     TimestampParse,
     ValidityVersioningIR,
@@ -243,22 +242,14 @@ def test_time_parse_value_objects_reject_invalid_payloads() -> None:
         DateParse(kind="datetime")  # type: ignore[arg-type]
 
 
-def test_metric_provenance_and_join_key_value_objects() -> None:
-    assert (
-        SqlProvenance(sql="select sum(amount) from orders", dialect="duckdb").verification_mode
-        == "sql_parity"
-    )
+def test_join_key_value_object() -> None:
     assert JoinKey(from_key="sales.orders.customer_id", to_key="sales.customers.id").to_tuple() == (
         "sales.orders.customer_id",
         "sales.customers.id",
     )
 
 
-def test_metric_provenance_and_join_key_reject_invalid_payloads() -> None:
-    with pytest.raises(TypeError, match=r"SqlProvenance\.sql"):
-        SqlProvenance(sql=42, dialect="duckdb")  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match=r"SqlProvenance\.dialect"):
-        SqlProvenance(sql="select 1", dialect="")
+def test_join_key_rejects_invalid_payloads() -> None:
     with pytest.raises(TypeError, match=r"JoinKey\.from_key"):
         JoinKey(from_key=42, to_key="sales.customers.id")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match=r"JoinKey\.to_key"):
@@ -277,7 +268,7 @@ def test_validity_open_end_has_no_any_payload() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 1c: Semantic Authoring Surface (measure, metric, from_sql, join_on)
+# Phase 1c: Semantic Authoring Surface (measure, metric, join_on)
 # ---------------------------------------------------------------------------
 
 
@@ -303,7 +294,9 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
         @ms.metric(
             entities=[orders],
             additivity=ms.additive_all(),
-            provenance=ms.from_sql(sql="select sum(amount) from orders", dialect="duckdb"),
+            ai_context=ms.ai_context(
+                business_definition="Historical SQL: select sum(amount) from orders"
+            ),
         )
         def revenue(orders_table):
             return orders_table.amount.sum()

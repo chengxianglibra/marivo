@@ -15,7 +15,6 @@ from marivo.semantic.catalog import (
     SemanticKind,
 )
 from marivo.semantic.errors import SemanticRuntimeError
-from marivo.semantic.ir import SqlProvenance
 from tests.lazy_observation_fixtures import make_sources
 from tests.ref_helpers import make_ref
 
@@ -48,7 +47,7 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 @ms.metric(
     entities=[orders],
     additivity=ms.additive_all(),
-    provenance=ms.from_sql(sql="select sum(amount) from orders", dialect="duckdb"),
+    ai_context=ms.ai_context(business_definition="Historical SQL: select sum(amount) from orders"),
 )
 def native_revenue(orders):
     return orders.amount.sum()
@@ -118,7 +117,7 @@ def test_entity_children_include_dimension_measure_time_dimension_metrics_and_re
     assert ("sales.native_revenue", SemanticKind.METRIC) in child_refs
 
 
-def test_metric_details_measure_ref_and_provenance_are_phase3_shape(
+def test_metric_details_measure_ref_and_context_are_phase3_shape(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
@@ -128,12 +127,12 @@ def test_metric_details_measure_ref_and_provenance_are_phase3_shape(
 
     assert isinstance(aggregate_metric, MetricDetails)
     assert aggregate_metric.measure == make_ref("sales.orders.amount", SemanticKind.MEASURE)
-    assert aggregate_metric.provenance is None
+    assert not hasattr(aggregate_metric, "provenance")
 
     assert isinstance(native_metric, MetricDetails)
-    assert native_metric.provenance == SqlProvenance(
-        sql="select sum(amount) from orders",
-        dialect="duckdb",
+    assert (
+        native_metric.context.business_definition
+        == "Historical SQL: select sum(amount) from orders"
     )
 
 

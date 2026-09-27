@@ -102,7 +102,6 @@ Provenance
    :toctree: api/
    :nosignatures:
 
-   from_sql
 
 Readiness & runtime checks
 --------------------------
@@ -112,7 +111,6 @@ Readiness & runtime checks
    :nosignatures:
 
    richness
-   parity_check
 
 ``catalog.source_health(refs, checks=..., scope=...)`` independently checks
 current connectivity, physical schema/capability identity, and only explicitly
@@ -217,15 +215,6 @@ routing and boundaries only; it does not duplicate these API recipes.
    TemporalOccurrencePage
    WorkScheduleEntry
 
-Sources & provenance
---------------------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   SqlProvenance
-
 Readiness & assessment
 ----------------------
 
@@ -237,7 +226,6 @@ Readiness & assessment
    ReadinessIssue
    ReadinessInputSummary
    RichnessReport
-   ParityResult
    PreviewBatchResult
    SourceHealthReport
    SourceHealthCheckResult

@@ -55,7 +55,6 @@ from marivo.semantic.authoring import (
     empty,
     entity,
     event,
-    from_sql,
     grain_to_date,
     hour_prefix,
     inception,
@@ -132,9 +131,7 @@ from marivo.semantic.ir import (
     AggregateFoldInput,
     AggregateFoldValue,
     JoinKey,
-    SqlProvenance,
 )
-from marivo.semantic.parity import ParityResult
 from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
@@ -190,42 +187,6 @@ def richness(
     return project.richness(demand=demand)
 
 
-def parity_check(
-    name: str,
-    *,
-    rel_tol: float | None = None,
-    abs_tol: float | None = None,
-    force: bool = False,
-) -> ParityResult:
-    """Run parity check for a metric against its source SQL.
-
-    Datasource backends are resolved internally via the connection service.
-
-    Args:
-        name: Fully qualified metric ref (e.g. ``"sales.revenue"``).
-        rel_tol: Relative tolerance for numeric comparison. None uses default.
-        abs_tol: Absolute tolerance for numeric comparison. None uses default.
-        force: If True, re-runs parity even if cached results exist.
-
-    Returns:
-        ParityResult with comparison details and pass/fail status.
-
-    Example:
-        >>> import marivo.semantic as ms
-        >>> result = ms.parity_check("sales.revenue")
-        >>> result.show()
-
-    Constraints:
-        Requires the metric to declare ``provenance=ms.from_sql(sql=..., dialect=...)``.
-        Raises ``SemanticRuntimeError`` if the metric has no provenance.
-    """
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject()
-    project.load()
-    return project.parity_check(name, rel_tol=rel_tol, abs_tol=abs_tol, force=force)
-
-
 __all__ = [
     "AggregateFoldInput",
     "AggregateFoldValue",
@@ -254,7 +215,6 @@ __all__ = [
     "MetricDetails",
     "MetricEntry",
     "ModelStateHandle",
-    "ParityResult",
     "Participant",
     "ParticipantRoleHandle",
     "PeriodCalendarDetails",
@@ -276,7 +236,6 @@ __all__ = [
     "SourceCheck",
     "SourceHealthCheckResult",
     "SourceHealthReport",
-    "SqlProvenance",
     "StateModelDetails",
     "StateModelEntry",
     "StateTransition",
@@ -306,7 +265,6 @@ __all__ = [
     "entity",
     "errors",
     "event",
-    "from_sql",
     "grain_to_date",
     "hour_prefix",
     "inception",
@@ -320,7 +278,6 @@ __all__ = [
     "model_state",
     "non_additive",
     "nulls",
-    "parity_check",
     "participant",
     "participant_role",
     "period_calendar",

@@ -136,10 +136,9 @@ need separate user instructions.
 Datasource → Domain → Entity → dimensions / time dimension / measures → metric
 ```
 
-Python declarations are the contract. Decorator bodies return ibis expressions,
-not raw SQL strings. SQL is metadata only, through
-`provenance=ms.from_sql(sql=..., dialect=...)`, for example when checking
-parity with an established query.
+Python declarations are the contract. Decorator bodies return Ibis expressions,
+not raw SQL strings. Describe historical SQL in `ai_context` when it helps
+explain a metric; that text is not executed or treated as verification.
 
 This small representation has one `orders` entity, a `region` dimension, an
 `order_date` time dimension, an `amount` measure, and a `revenue`
@@ -993,11 +992,9 @@ Only checks declared through `ms.source_check` read user data, and each requires
 and discloses an exact bounded scope. Marivo does not infer data expectations
 from discovery samples.
 
-Two additional diagnostics support authoring:
-
-- `ms.richness()` — advisory coverage/depth report; never blocks.
-- `ms.parity_check("sales.revenue")` — runs the metric against its
-  `provenance` SQL and compares results. Requires `provenance=ms.from_sql(...)`.
+`ms.richness()` provides an advisory coverage/depth report and never blocks.
+The SQL-executing parity entry point has been removed. Verify a migrated metric
+against an independent business source and report the result separately.
 
 For how readiness decides what is "ready," see [Readiness](/docs/latest/concepts/readiness/).
 For how analysis records what it concludes, see [Evidence](/docs/latest/concepts/evidence/).
@@ -1156,7 +1153,7 @@ aggregation, and you declare `additivity` directly.
 This is the explicit escape hatch advertised by
 `marivo.help("semantic.objects.metric")`. Once selected,
 `marivo.help("semantic.metric")` is the sole source for its installed signature,
-fanout constraints, provenance input, and structured repairs.
+fanout constraints, AI context, and structured repairs.
 
 ```python
 @ms.metric(
@@ -1167,11 +1164,9 @@ fanout constraints, provenance input, and structured repairs.
     nulls=ms.nulls.ignore(),
     empty=ms.empty.null(),
     name="revenue",
-    provenance=ms.from_sql(
-        sql="SELECT SUM(amount) AS revenue FROM orders",
-        dialect="duckdb",
+    ai_context=ms.ai_context(
+        business_definition="Gross order amount before refunds; historically calculated from paid orders."
     ),
-    ai_context=ms.ai_context(business_definition="Gross order amount before refunds."),
 )
 def revenue(table):
     return table.amount.sum()
@@ -1179,9 +1174,8 @@ def revenue(table):
 ### Correctness rules for analysis
 
 Additivity and time behavior determine whether a number remains meaningful when
-an agent changes the analysis grain or segments it. SQL provenance does not
-execute a metric; it gives `ms.parity_check(...)` a reference query for checking
-that the declared semantics match an established implementation.
+an agent changes the analysis grain or segments it. Historical SQL can be
+recorded in `ai_context`, but it does not verify the metric or enter execution.
 
 - `ms.additive(over=(...))`, `ms.additive_all(except_=(...))`, and
   `ms.non_additive()` declare coordinate additivity. Snapshot/status facts keep
@@ -1190,8 +1184,9 @@ that the declared semantics match an established implementation.
   `"max"`, or `("percentile", 0.95)` when a fold is needed.
 - `ms.nulls.ignore()` and `ms.empty.null()` explicitly preserve an aggregate's
   Null-input and complete-empty-contribution behavior.
-- `ms.from_sql(sql, dialect)` — attaches SQL as **provenance only**, enabling
-  `ms.parity_check(...)`. It is never executed as the metric body.
+- `ms.ai_context(business_definition=..., guardrails=[...])` — records the
+  business interpretation and optional historical context. Confirm migrated
+  behavior against an independent source outside the declaration.
 
 ```python
 snapshot_date = ms.time_dimension_column(
@@ -1289,19 +1284,17 @@ For a ClickHouse `Distributed` source, local `system.parts` observations are
 shown only as `scope=local_node_only` notes; source-wide rows and bytes remain
 `unknown`, and Marivo does not issue a cluster-wide fanout query.
 
-ClickHouse inspection also lists safe adapter-only physical columns under
-`projectable_columns`. The table is bounded and each row includes a copyable
-projection using the exact physical name. Columns whose active parts disagree
-on type, or whose backend type cannot
-be parsed, are warned about and omitted. This does not enumerate dynamic MapV2
-keys: an unmaterialized key must be materialized upstream, exposed through a
-database view, or used only through terminal `md.raw_sql(...)`.
+Table inspection returns the bound Ibis schema. Optional catalog facts such as
+comments, partitions, primary keys, physical estimates, and ClickHouse
+`projectable_columns` are marked unavailable when the driver does not expose
+them through the admitted path. If analysis requires one of these facts, that
+source shape stays blocked until independent evidence is available.
 
-Choose evidence according to the question: inspection only, optional explicitly
-scoped sampling, and/or `md.raw_sql(...)` for bounded source-specific metadata,
-distributions, joins, or conditional scratch work. Raw SQL is a normal governed
-exploration option with read-only, positive row and timeout guards. Its terminal
-result may inform semantic Python but cannot enter typed analysis.
+Choose evidence according to the question: inspection, optional explicitly
+scoped sampling, or terminal `md.raw_sql(...)` for a separate diagnostic.
+`md.raw_sql` submits SQL text verbatim without parsing or classifying it, enforces a positive returned-row
+limit and executable timeout, and relies on connection permissions for
+best-effort read-only behavior. Its result cannot enter typed analysis.
 
 `md.duckdb(...)` declares the datasource. `md.table(...)` selects an internal
 table or view inside that datasource. `md.parquet(...)` and `md.csv(...)` are

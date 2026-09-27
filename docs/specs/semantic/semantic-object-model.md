@@ -109,7 +109,7 @@ These rules hold for every object type.
   metadata (provenance), never an executable body. Any other statement is
   rejected at decoration time. Refs remain data-only; nested field expressions
   use `ms.bind(field_ref, entity_alias)` rather than calling the ref.
-- **Fail closed.** If decoration, assembly, materialization, or parity cannot
+- **Fail closed.** If decoration, assembly, or materialization cannot
   prove the contract holds, the object raises a structured error rather than
   degrading to a best-effort guess.
 
@@ -507,9 +507,7 @@ metric cannot be expressed as measure + aggregate. It declares dependencies with
     unit="CNY",
     nulls=ms.nulls.ignore(),
     empty=ms.empty.null(),
-    provenance=ms.from_sql(
-        sql="select sum(amount) as value from orders where pay_status=1", dialect="duckdb"
-    ),
+    ai_context=ms.ai_context(business_definition="Historical DuckDB query summed paid orders; confirm the current business definition independently."),
 )
 def paid_revenue(order_rows):
     return order_rows.filter(is_paid(order_rows)).amount.sum()
@@ -896,41 +894,20 @@ No semantic Population, Sample, or `complete=True` authoring field is introduced
    source-only Entity with an absent key becomes a subject. Declared snapshot or
    StateModel meaning does not create runtime completeness evidence.
 
-## Provenance and parity
+## Historical SQL context and verification
 
-For the R0.3 target, `ms.from_sql(sql=..., dialect=...)` is an inert provenance
-value. No production method executes its text, compiles it through
-`backend.sql`, or treats it as an Ibis expression. The current SQL-executing
-`ms.parity_check` path is removed in R1; `md.raw_sql` remains a separate
-terminal datasource escape hatch and never executes provenance on behalf of
-Semantic. A governed
-parity diagnostic may instead compare a Semantic result with an independently
-supplied expected value or a reference built from typed Ibis expressions. Such
-a result reports the source, scope and method of comparison and never confers
-business authority merely because values match. Independent SQL oracle code
-may remain in test processes. The following legacy status table describes the
-currently shipped parity workflow until that target migration; it does not
-authorize SQL execution in the full-algebra target.
+`ms.metric` accepts only an Ibis expression body. If historical SQL helps explain
+where a business definition came from, describe it in
+`ai_context=ms.ai_context(business_definition=..., guardrails=[...])`. That text
+has no execution authority and carries no verification status. `ms.from_sql`,
+`SqlProvenance`, `ms.parity_check`, parity results, and Catalog parity status are
+removed from the public surface. Readiness does not infer verification from a
+stored query or from the absence of one.
 
-A metric's business origin is declared as
-`provenance=ms.from_sql(sql=..., dialect=...)`. `verification_mode` is inferred:
-when provenance is present, SQL parity verification is enabled; when absent, the
-metric is trusted as semantically expressed.
-
-| Provenance | Meaning | Parity status |
-|---|---|---|
-| `provenance=ms.from_sql(...)` | Migrated from SQL/BI/knowledge base | starts `unverified`; `verified` after `ms.parity_check(...)` passes, else `drifted` |
-| (none) | Python/Ibis is the sole source | immediately `verified` (trusted) |
-
-Provenance is single-dialect (use fixture-based parity tests for multi-dialect
-needs). Derived metrics must omit provenance — they cannot be parity-checked
-directly; their effective status propagates from components (all `verified` →
-`verified`; any `drifted` → `drifted`; otherwise any `unverified` →
-`unverified`). Parity status is visible on metric details; persisted analysis evidence
-retains the semantic authority used for execution. Adding a metric without provenance is allowed but is not a
-"done" state — confirm the business source, and CI can forbid `unverified`
-metrics via `--strict-provenance` (see
-[loading-validation-introspection.md](loading-validation-introspection.md)).
+Confirm a migrated metric against an independent business source or a governed
+Ibis reference outside the declaration, and report the scope and result of that
+comparison separately. `md.raw_sql` remains a terminal datasource diagnostic;
+its result cannot enter Semantic or typed Analysis.
 
 ### Explicit percentile method contract
 

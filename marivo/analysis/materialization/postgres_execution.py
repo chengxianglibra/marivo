@@ -702,13 +702,9 @@ class PostgresExecutionAdapter(ObservedExecution):
         return ibis.table(self.get_schema(name), name=name)
 
     def timezone(self) -> DatasourceEngineTimezone:
-        from marivo.datasource.engines import require_profile_for_backend_type
-        from marivo.datasource.timezone import resolve_engine_timezone
+        from marivo.datasource.timezone import probe_engine_timezone
 
-        return resolve_engine_timezone(
-            require_profile_for_backend_type("postgres").timezone_probe_sql,
-            lambda query: self.read_scalar(self.statement(query, role="source_timezone")),
-        )
+        return probe_engine_timezone(self._backend)
 
     def initialize(self) -> None:
         if self._closed:

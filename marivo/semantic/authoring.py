@@ -56,7 +56,6 @@ from marivo.semantic._authoring_temporal import (
 from marivo.semantic._authoring_values import (
     ai_context,
     datetime,
-    from_sql,
     hour_prefix,
     join_on,
     snapshot,
@@ -104,7 +103,6 @@ __all__ = [
     "empty",
     "entity",
     "event",
-    "from_sql",
     "grain_to_date",
     "hour_prefix",
     "inception",

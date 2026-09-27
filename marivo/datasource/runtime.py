@@ -43,6 +43,7 @@ def _build_backend_from_store(
     project_root: Path | None,
     *,
     read_only: bool = False,
+    terminal_timeout_seconds: int | None = None,
     include_semantic_layers: bool = False,
 ) -> Any:
     """Load a datasource from the project store and open a live backend."""
@@ -70,7 +71,11 @@ def _build_backend_from_store(
                 candidates=tuple(available),
             ),
         )
-    return backends.build_backend(datasource_ir, read_only=read_only)
+    return backends.build_backend(
+        datasource_ir,
+        read_only=read_only,
+        terminal_timeout_seconds=terminal_timeout_seconds,
+    )
 
 
 class DatasourceConnectionService:
@@ -112,7 +117,13 @@ class DatasourceConnectionService:
         return self._project_root
 
     @contextmanager
-    def use_backend(self, name: str, *, read_only: bool = False) -> Iterator[Any]:
+    def use_backend(
+        self,
+        name: str,
+        *,
+        read_only: bool = False,
+        terminal_timeout_seconds: int | None = None,
+    ) -> Iterator[Any]:
         """Yield a live backend, disconnecting on exit (success or error)."""
         datasource_name = _storage_name(name)
         if self._include_semantic_layers:
@@ -120,6 +131,7 @@ class DatasourceConnectionService:
                 datasource_name,
                 self._project_root,
                 read_only=read_only,
+                terminal_timeout_seconds=terminal_timeout_seconds,
                 include_semantic_layers=True,
             )
         else:
@@ -127,6 +139,7 @@ class DatasourceConnectionService:
                 datasource_name,
                 self._project_root,
                 read_only=read_only,
+                terminal_timeout_seconds=terminal_timeout_seconds,
             )
         try:
             yield backend

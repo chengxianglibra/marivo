@@ -398,14 +398,9 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
                 )
             if isinstance(datatype, dt.Timestamp):
                 if not temporal_transport_checked:
-                    from marivo.datasource.timezone import resolve_engine_timezone
+                    from marivo.datasource.timezone import probe_engine_timezone
 
-                    transport = resolve_engine_timezone(
-                        "SELECT timezone()",
-                        lambda query: self.read_scalar(
-                            self.statement(query, role="engine_check.clickhouse_timestamp_timezone")
-                        ),
-                    )
+                    transport = probe_engine_timezone(self._backend)
                     if transport.engine_timezone_tz.utcoffset(None) != timedelta(0):
                         raise self.error(
                             "a verified UTC ClickHouse timestamp execution timezone",
@@ -439,13 +434,9 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         return ibis.schema(fields)
 
     def timezone(self) -> DatasourceEngineTimezone:
-        from marivo.datasource.engines import require_profile_for_backend_type
-        from marivo.datasource.timezone import resolve_engine_timezone
+        from marivo.datasource.timezone import probe_engine_timezone
 
-        return resolve_engine_timezone(
-            require_profile_for_backend_type("clickhouse").timezone_probe_sql,
-            lambda query: self.read_scalar(self.statement(query, role="source_timezone")),
-        )
+        return probe_engine_timezone(self._backend)
 
     def disconnect(self) -> None:
         if self._closed:

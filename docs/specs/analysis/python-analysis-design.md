@@ -182,8 +182,8 @@ Ibis expressions; fixed Artifact continuation is controlled local decoding to
 pandas/NumPy/SciPy. `md.raw_sql` remains a terminal, read-only datasource
 escape hatch outside typed Analysis; neither its SQL text nor its result can
 become an Analysis source, method implementation, Artifact or continuation.
-SQL-executing product parity is a target removal; `ms.from_sql` remains inert
-provenance text and tests may retain independent SQL oracles.
+The public SQL-executing parity route and `ms.from_sql` are removed. Historical
+SQL can be described in `ai_context`; tests may retain independent SQL oracles.
 
 ## R1.1 transition status
 

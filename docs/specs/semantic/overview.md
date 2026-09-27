@@ -55,11 +55,11 @@ The design holds to these goals:
   `models/datasources/*.py` and are referenced by global name; a semantic domain
   only references a datasource, it does not define one.
 - **Objects are statically readable.** Entities, dimensions, time dimensions,
-  measures, metrics, relationships, decompositions, and provenance all have
+  measures, metrics, relationships, decompositions, and AI context all have
   explicit Python declarations.
 - **Caliber is never guessed.** Business meaning is not inferred from column
   names, table names, or natural language. An agent converges through decorated
-  refs, function signatures, `provenance=ms.from_sql(...)`, parity results, and
+  refs, function signatures, `ai_context=ms.ai_context(...)`, and
   structured errors.
 - **Ownership is explicit.** Domain membership comes from an explicit `domain=`
   or an explicit default domain — never from a file path. A metric's entity comes

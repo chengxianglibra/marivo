@@ -57,7 +57,7 @@ def test_build_metric_object_metric(semantic_project_factory):
     assert rev.measure is not None
     assert rev.measure.path == "sales.orders.amount"
     assert rev.measure.kind == "measure"
-    assert rev.provenance is None
+    assert not hasattr(rev, "provenance")
     assert rev.additivity == "additive"
     assert rev.fold is None
 

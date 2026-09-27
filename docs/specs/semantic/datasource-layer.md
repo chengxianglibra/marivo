@@ -132,7 +132,7 @@ one-line pointer to this card rather than a dataclass field dump.
 
 SQLite uses `md.table(...)` for tables and views. It does not consume the
 DuckDB-owned Parquet, CSV, or JSON descriptors. `read_only=True` enables
-connection-level `PRAGMA query_only`; Marivo's bounded inspection and diagnostic
+connection-level SQLite authorizer write denial; Marivo's bounded inspection and diagnostic
 reads enable the same protection internally. SQLite does not compile median or
 percentile aggregations or string `strptime` expressions in Ibis 12, so those operations
 fail through the structured Marivo contract; use a supported aggregation and a
@@ -588,21 +588,23 @@ describes only selected bounded rows, `md.test` and source-health connectivity
 prove one compiled literal round trip, and explicit source-health checks report
 only their requested business scope. Optional metadata failures may yield
 schema-only or unavailable observations; a fact required for admission cannot
-be inferred from a sample or silently supplied. Provider-specific metadata
-hooks still contain internal SQL and need their R1.2 replacement or qualified
-unavailability. Trino `$partitions` and ClickHouse `system.tables`/`system.parts`
-partition enumeration now use bound Ibis reads. A read-only ClickHouse account
-without `SHOW COLUMNS` on the system catalog reports partition metadata
-unavailable; it does not infer values from business rows. Authenticated HTTP
-setup and session controls remain R1.3 work. This state does not establish the
-R0.3 target or R1 exit.
+be inferred from a sample or silently supplied. Six backend metadata profiles
+now read the bound Ibis relation schema. Optional comments, partition topology,
+view definitions, primary keys, and physical estimates that cannot be obtained
+through that route are explicitly marked unavailable. A consumer requiring one
+of those facts rejects the affected cell. Trino `$partitions` and ClickHouse
+`system.tables` / `system.parts` partition reads continue through bound Ibis
+expressions. Authenticated DuckDB HTTP sources reject before secret resolution
+or connection until a qualified credential API is available.
 
 `md.raw_sql(datasource: Ref[DatasourceKind], sql: str, *, reason: str,
 limit: int = 100, timeout_seconds: int = 30, include_types: bool = True,
 project_root: Path | None = None) -> RawSqlResult` remains the one public raw
 SQL escape hatch for questions outside Marivo's governed Analysis capability.
-It executes one read-only statement against the selected datasource with a
-required nonempty reason, positive returned-row limit and enforceable timeout.
+It submits SQL text verbatim with a required nonempty reason, positive
+returned-row limit and enforceable timeout. The input is not parsed to classify
+SQL as a diagnostic. Read-only protection relies on connection and backend permissions
+and is best effort where the backend cannot guarantee it.
 The result reports columns, types, bounded rows, truncation and execution
 context; callers must inspect `is_truncated` before terminal computation.
 Returned-row limits do not bound source scan cost. `RawSqlResult` is terminal:
@@ -619,9 +621,8 @@ Ibis expressions. An adapter may submit the unmodified compiled result of a
 bound Ibis expression through a native driver; it records the expression
 identity, purpose and actual submission. The user-authored text submitted by
 `md.raw_sql` is the explicit terminal exception, not an implementation route
-for Analysis or a way to satisfy an unqualified method/backend cell. Internal
-driver configuration and non-query control commands remain itemized in the
-R0.5 SQL ledger without an implicit exception. A required governed operation
+for Analysis or a way to satisfy an unqualified method/backend cell. Driver settings and read-only controls use connection APIs; unavailable timeout
+or required timezone facts block the affected execution cell. A required governed operation
 without an Ibis or registered prepare-then-Python route is blocked. Local Store
 SQLite transactions have separate internal persistence authority.
 

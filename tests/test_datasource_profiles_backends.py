@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -75,7 +76,7 @@ def test_duckdb_extra_kwargs_pass_through(
         @staticmethod
         def connect(**kwargs: object) -> object:
             captured.update(kwargs)
-            return object()
+            return SimpleNamespace()
 
     class _FakeIbis:
         duckdb = _FakeDuckdb()
@@ -100,61 +101,29 @@ def test_duckdb_extra_kwargs_pass_through(
 
 
 @pytest.mark.parametrize(
-    ("auth_kwargs", "env_values", "sql_fragment", "parameters", "expected_headers"),
+    ("auth_kwargs", "env_name"),
     [
-        (
-            {"http_bearer_token_env": "HAWKEYE_TOKEN"},
-            {"HAWKEYE_TOKEN": "secret-bearer"},
-            "BEARER_TOKEN ?",
-            ["secret-bearer", "https://api.example/v1/"],
-            {"Authorization": "Bearer secret-bearer"},
-        ),
-        (
-            {
-                "http_headers_env": {
-                    "x-secretid": "CHANGE_FOCUS_SECRET_ID",
-                    "x-signature": "CHANGE_FOCUS_SIGNATURE",
-                },
-            },
-            {
-                "CHANGE_FOCUS_SECRET_ID": "secret-id",
-                "CHANGE_FOCUS_SIGNATURE": "secret-signature",
-            },
-            "EXTRA_HTTP_HEADERS ?",
-            [
-                {"x-secretid": "secret-id", "x-signature": "secret-signature"},
-                "https://api.example/v1/",
-            ],
-            {"x-secretid": "secret-id", "x-signature": "secret-signature"},
-        ),
+        ({"http_bearer_token_env": "HAWKEYE_TOKEN"}, "HAWKEYE_TOKEN"),
+        ({"http_headers_env": {"X-API-Key": "HAWKEYE_KEY"}}, "HAWKEYE_KEY"),
     ],
 )
-def test_duckdb_http_auth_creates_parameterized_temporary_scoped_secret(
+def test_authenticated_http_source_is_blocked_before_connect_or_secret_resolution(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
     auth_kwargs: dict[str, object],
-    env_values: dict[str, str],
-    sql_fragment: str,
-    parameters: list[object],
-    expected_headers: dict[str, str],
+    env_name: str,
 ) -> None:
-    calls: list[tuple[str, dict[str, object]]] = []
-    connect_kwargs: dict[str, object] = {}
+    connected = False
 
-    class _Backend:
-        def raw_sql(self, sql: str, **kwargs: object) -> None:
-            calls.append((sql, kwargs))
-
-    class _Profile:
-        def connect(self, _name: str, kwargs: dict[str, object]) -> _Backend:
-            connect_kwargs.update(kwargs)
-            return _Backend()
+    class Profile:
+        def connect(self, _name: str, _kwargs: dict[str, object]) -> None:
+            nonlocal connected
+            connected = True
 
     monkeypatch.setattr(
-        datasource_backends, "require_profile_for_backend_type", lambda _kind: _Profile()
+        datasource_backends, "require_profile_for_backend_type", lambda _kind: Profile()
     )
-    for env_name, env_value in env_values.items():
-        monkeypatch.setenv(env_name, env_value)
+    monkeypatch.setenv(env_name, "sensitive-token")
     datasource = datasource_store.save_one(
         DuckDBSpec(
             name="hawkeye",
@@ -163,55 +132,12 @@ def test_duckdb_http_auth_creates_parameterized_temporary_scoped_secret(
         )
     )
 
-    backend = datasource_backends.build_backend(datasource)
-
-    assert connect_kwargs == {"path": ":memory:", "read_only": False}
-    assert len(calls) == 1
-    sql, kwargs = calls[0]
-    assert sql_fragment in sql
-    assert all(env_value not in sql for env_value in env_values.values())
-    assert kwargs == {"parameters": parameters}
-    assert (
-        datasource_backends.json_http_headers(backend, "https://api.example/v1/query")
-        == expected_headers
-    )
-    assert datasource_backends.json_http_headers(backend, "https://api.example/v2/query") == {}
-
-
-def test_duckdb_http_auth_disconnects_when_secret_configuration_fails(
-    project_root: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    disconnected = False
-
-    class _Backend:
-        def raw_sql(self, _sql: str, **_kwargs: object) -> None:
-            raise RuntimeError("secret setup failed")
-
-        def disconnect(self) -> None:
-            nonlocal disconnected
-            disconnected = True
-
-    class _Profile:
-        def connect(self, _name: str, _kwargs: dict[str, object]) -> _Backend:
-            return _Backend()
-
-    monkeypatch.setattr(
-        datasource_backends, "require_profile_for_backend_type", lambda _kind: _Profile()
-    )
-    monkeypatch.setenv("HAWKEYE_TOKEN", "secret")
-    datasource = datasource_store.save_one(
-        DuckDBSpec(
-            name="hawkeye",
-            http_scope="https://api.example/v1/",
-            http_bearer_token_env="HAWKEYE_TOKEN",
-        )
-    )
-
-    with pytest.raises(RuntimeError, match="secret setup failed"):
+    with pytest.raises(DatasourceFieldInvalidError, match="Authenticated HTTP sources") as error:
         datasource_backends.build_backend(datasource)
 
-    assert disconnected is True
+    assert connected is False
+    assert "sensitive-token" not in str(error.value)
+    assert error.value.repair is not None
 
 
 def test_env_ref_resolution(project_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -340,12 +266,11 @@ def test_trino_session_properties_pass_through(
         @staticmethod
         def connect(**kwargs: object) -> object:
             captured.update(kwargs)
-            return object()
+            return SimpleNamespace()
 
     class _FakeIbis:
         trino = _FakeTrino()
 
-    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     monkeypatch.setenv("TRINO_USER", "reader")
     monkeypatch.setenv("MARIVO_WH_USER", "ambient-user")
     monkeypatch.setenv("MARIVO_WH_AUTH", "ambient-auth")
@@ -359,6 +284,7 @@ def test_trino_session_properties_pass_through(
             session_properties={"query_max_run_time": "5m"},
         )
     )
+    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
 
     datasource_backends.build_backend(datasource)
 
@@ -376,12 +302,11 @@ def test_trino_catalog_maps_to_ibis_database_and_optional_kwargs_pass_through(
         @staticmethod
         def connect(**kwargs: object) -> object:
             captured.update(kwargs)
-            return object()
+            return SimpleNamespace()
 
     class _FakeIbis:
         trino = _FakeTrino()
 
-    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     monkeypatch.setenv("TRINO_USER", "reader")
     monkeypatch.setenv("TRINO_AUTH", "token")
     datasource = datasource_store.save_one(
@@ -396,6 +321,7 @@ def test_trino_catalog_maps_to_ibis_database_and_optional_kwargs_pass_through(
             client_tags="agent, semantic-authoring",
         )
     )
+    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
 
     datasource_backends.build_backend(datasource)
 
@@ -404,7 +330,7 @@ def test_trino_catalog_maps_to_ibis_database_and_optional_kwargs_pass_through(
     assert "catalog" not in captured
     assert captured["user"] == "reader"
     assert captured["auth"] == "token"
-    assert captured["timezone"] == "Asia/Shanghai"
+    assert captured["timezone"] == "UTC"
     assert captured["client_tags"] == ["agent", "semantic-authoring"]
 
 
@@ -415,7 +341,7 @@ def test_mysql_user_is_optional(monkeypatch: pytest.MonkeyPatch, project_root: P
 
     def fake_connect(self: object, **kwargs: object) -> object:
         captured.update(kwargs)
-        return object()
+        return SimpleNamespace()
 
     monkeypatch.setattr(Backend, "connect", fake_connect)
     datasource = datasource_store.save_one(
@@ -434,7 +360,7 @@ def test_postgres_user_is_optional(monkeypatch: pytest.MonkeyPatch, project_root
         @staticmethod
         def connect(**kwargs: object) -> object:
             captured.update(kwargs)
-            return object()
+            return SimpleNamespace()
 
     class _FakeIbis:
         postgres = _FakePostgres()
@@ -456,13 +382,16 @@ def test_postgres_user_is_optional(monkeypatch: pytest.MonkeyPatch, project_root
 
 
 def test_clickhouse_dispatch_with_host(monkeypatch: pytest.MonkeyPatch, project_root: Path) -> None:
+    from marivo.datasource.engines import clickhouse as _clickhouse_profile
+
+    assert _clickhouse_profile.PROFILE.name == "clickhouse"
     captured: dict[str, object] = {}
 
     class _FakeClickhouse:
         @staticmethod
         def connect(**kwargs: object) -> object:
             captured.update(kwargs)
-            return object()
+            return SimpleNamespace()
 
     class _FakeIbis:
         clickhouse = _FakeClickhouse()
@@ -483,13 +412,16 @@ def test_clickhouse_dispatch_with_host(monkeypatch: pytest.MonkeyPatch, project_
 def test_clickhouse_allows_explicit_autogenerated_session_override(
     monkeypatch: pytest.MonkeyPatch, project_root: Path
 ) -> None:
+    from marivo.datasource.engines import clickhouse as _clickhouse_profile
+
+    assert _clickhouse_profile.PROFILE.name == "clickhouse"
     captured: dict[str, object] = {}
 
     class _FakeClickhouse:
         @staticmethod
         def connect(**kwargs: object) -> object:
             captured.update(kwargs)
-            return object()
+            return SimpleNamespace()
 
     class _FakeIbis:
         clickhouse = _FakeClickhouse()
@@ -525,7 +457,7 @@ def test_clickhouse_optional_fields_pass_through(
         @staticmethod
         def connect(**kwargs: object) -> object:
             captured.update(kwargs)
-            return object()
+            return SimpleNamespace()
 
     class _FakeIbis:
         clickhouse = _FakeClickhouse()

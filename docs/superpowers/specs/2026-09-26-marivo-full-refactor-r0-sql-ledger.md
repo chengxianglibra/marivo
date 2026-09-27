@@ -13,7 +13,7 @@ Status: 目标处置已登记；仅静态追踪当前调用链。`md.raw_sql` �
 | ID | 当前构造/调用方 → 实际提交；分类、后端、输入 | 目标处置；owner/阶段；真实证明 |
 | --- | --- | --- |
 | DS01 | `manage.test/test_no_persist` → `backend.raw_sql("SELECT 1")`；连接探测、六后端、固定文本 | Ibis literal scalar 或获准 driver ping，禁止手写查询；datasource adapters/R1；真实 roundtrip/超时/权限 |
-| DS02 | `manage.raw_sql/_bounded_execution_sql` → `backend.raw_sql(execution_sql)`；用户提供单条只读 SQL，全部已准入 SQL 后端；sqlglot 的限行改写/保序探针仅属于此终端入口 | T：保留 `md.raw_sql`、`RawSqlResult`、Help/CLI，必填 reason、正数返回行界/超时、显式截断，不能重入 Semantic/Analysis；datasource/R1；`tests/test_datasource_raw_sql.py` 及真实只读/超时/截断/成本披露/typed reentry 拒绝；不得供内部方法调用 |
+| DS02 | `manage.raw_sql/_bounded_execution_sql` → `backend.raw_sql(execution_sql)`；R0 基线的用户 SQL、sqlglot 限行改写/保序探针 | T：保留 `md.raw_sql`、`RawSqlResult`、Help；输入不做 SQL 解析或类别判定，原文终端提交；必填 reason、正数返回行界/可执行超时、显式截断，不能重入 Semantic/Analysis。只读依赖连接/后端权限，尽力控制，无法保证本身不阻断；datasource/R1；实测权限、超时、截断、typed reentry；不得供内部方法调用 |
 | DS03 | `engines/duckdb._inspect_duckdb` → `metadata._query_rows`；catalog/table/view/schema/constraint 元数据，DuckDB，手写 `duckdb_tables()/duckdb_views()` 等 | D metadata API 或 Ibis schema；datasource adapters/R1；表/视图/约束实测，非业务行 |
 | DS04 | `engines/postgres._inspect_postgres` → `_query_rows`；注释、列、分区、大小，PostgreSQL，`pg_catalog`/information_schema 模板 | D 或 Ibis schema；datasource adapters/R1；schema/search path/权限实测 |
 | DS05 | `engines/mysql._inspect_mysql` → `_query_rows`；表/列/分区/视图，MySQL，`SHOW FULL COLUMNS`、information_schema 模板 | D 或 Ibis schema；datasource adapters/R1；视图/类型/只读账号实测 |
@@ -23,15 +23,15 @@ Status: 目标处置已登记；仅静态追踪当前调用链。`md.raw_sql` �
 | DS09 | `engines/clickhouse._inspect_clickhouse`/`_clickhouse_physical_profile`/`_clickhouse_projectable_columns` → `backend.raw_sql`；system.tables/columns/parts_columns 物理元数据，ClickHouse | D metadata API 或 Ibis relation；datasource adapters/R1；MergeTree/Distributed/冲突 part 类型实测 |
 | DS10 | `engines/clickhouse.inspect_partition_values`/`clickhouse_system_parts_target` → `backend.raw_sql`；system.parts 分区值/拓扑，ClickHouse | I 若读业务分区值，D 仅物理拓扑；datasource adapters/R1；活跃 part 与权限实测 |
 | DS11 | `engines/{mysql,postgres,trino}.authoring_timeout` → `backend.raw_sql`；SET/SHOW 会话控制，三后端，手写设置文本 | D 驱动公开 timeout/session API；不存在等价能力则阻塞，例外空；datasource adapters/R1；超时与恢复实测 |
-| DS12 | `engines/sqlite.connect` → `backend.raw_sql("PRAGMA query_only = ON")`；连接只读控制，SQLite | D SQLite connection query-only API/URI；datasource adapters/R1；写入拒绝实测 |
+| DS12 | `engines/sqlite.connect` → `backend.raw_sql("PRAGMA query_only = ON")`；R0 基线连接只读控制，SQLite | D SQLite 驱动 authorizer/只读连接；datasource adapters/R1；写入拒绝实测 |
 | DS13 | `engines/{mysql,postgres,trino}.timezone_probe_sql`、`timezone._execute_scalar` → `backend.sql`/`raw_sql`；时区/会话读取，三后端 | D driver/session metadata；datasource adapters/R1；IANA/固定偏移及失败状态实测 |
 | DS14 | `engines/clickhouse.postprocess_sql` 与 `EngineProfile.postprocess_sql`；ClickHouse 方言文本改写钩子。当前 `marivo/` 搜索仅找到定义/赋值，未找到生产调用，不能记作已提交 | X：移除未使用钩子并禁止重新接入；datasource adapters/R1/R9；静态无调用、实际提交与 Ibis 产物逐字核对 |
 | DS15 | `backends._marivo_duckdb_http_auth` → native `raw_sql(CREATE OR REPLACE SECRET...)`；HTTP 凭据控制，DuckDB | D 驱动/extension 认证 API；无等价则该来源阻塞且不得把密钥打日志；datasource adapters/R1；HTTP 认证/脱敏实测 |
 | DS16 | `backends._configure_http` → `raw_sql("SET force_download=true")`；下载控制，DuckDB | D 驱动 setting API 或拒绝该来源；datasource adapters/R1；HTTP 范围与重试实测 |
 | DS17 | `semantic.source_health._field_frame/_execute_relationship_check` → `Ibis .execute()`；字段/关系业务事实读取，六后端 | I 保留 typed 构造但改走统一 adapter 批次/检查；semantic+adapters/R1/R2；not-null/唯一/关系反例实测 |
 | DS18 | `semantic.source_health.run_source_health` → `backend.raw_sql("SELECT 1")`；连接探测，六后端 | 同 DS01 的单一 ping owner；semantic 只消费结果；R1/R2；真实连接失败/超时 |
-| DS19 | `semantic.parity.parity_check` → `backend.sql(qualified_sql)`；执行 provenance SQL oracle，六后端、用户文本 | X；保留 `ms.from_sql` 文本，未来 parity 只收独立预期或受治理 Ibis 参照；semantic/R1；旧 SQL 不可执行与新对照反例 |
-| DS20 | `datasource.ir.qualify_provenance_sql` → `sqlglot.parse_one/.sql`；provenance 文本转换，不是数据提交 | X：不为执行改写 provenance；保留原文和方言作 inert 元数据；semantic/R1；文本绝不进入 executor |
+| DS19 | `semantic.parity.parity_check` → `backend.sql(qualified_sql)`；R0 基线执行 provenance SQL oracle | X：删除 `ms.parity_check`、结果/状态和公开入口；本阶段不建替代 API；semantic/R1；历史 SQL 不进入 executor |
+| DS20 | `datasource.ir.qualify_provenance_sql` → `sqlglot.parse_one/.sql`；R0 基线 provenance 文本转换 | X：删除执行改写函数和 `ms.from_sql` 字段/入口；历史说明可放 `ai_context`，无执行权限；semantic/R1 |
 | DS21 | `semantic.catalog` preview、`datasource.snapshot/inspection` → bound Ibis `.execute()`/reader；有界抽样/物理检查，六后端 | I 经统一 adapter，保留范围、身份、资源；datasource adapters/R1；真实样本/空 schema/提前关闭 |
 
 ## 2. Analysis SQL 构造与提交链
@@ -94,12 +94,12 @@ Store 白名单仅覆盖 `materialization/store.py` 的 schema/PRAGMA/BEGIN/COMM
 
 ## 4. 六后端目标资格矩阵
 
-矩阵键为 `method@version × numeric type × time/source shape × backend/table form × route`，不把一个旧成功拓展成全部组合。下表每个格子是**必需目标或需显式拒绝的物理形状**，不是已获资格：`I`=真实 Ibis 来源；`P`=真实 Ibis 准备→Python；`F`=固定 Artifact 本地；`T`=公共终端 SQL；`N`=无该来源问题；`!`=必须记录拒绝反例。六后端的共同 Analysis 基线是普通表/视图、完整复合主体键、int64/float64、精确 UTC 时间或无时间、I+F；扩展 Decimal、原生/解析时间、文件/JSON、跨根/领域方法按行验证。Trino 的表形态细分 Iceberg/non-Iceberg；ClickHouse 为本地 MergeTree/Distributed；SQLite 为 main 普通表/view；各格均包括空输入、重复键、Null/Unknown、早关闭和无执行后回退负例。T 单独验证只读、超时、截断和不可重入，不承袭 Analysis 的数值/时间资格。没有真实环境的格为**未验证或阻塞**。
+矩阵键为 `method@version × numeric type × time/source shape × backend/table form × route`，不把一个旧成功拓展成全部组合。下表每个格子是**必需目标或需显式拒绝的物理形状**，不是已获资格：`I`=真实 Ibis 来源；`P`=真实 Ibis 准备→Python；`F`=固定 Artifact 本地；`T`=公共终端 SQL；`N`=无该来源问题；`!`=必须记录拒绝反例。六后端的共同 Analysis 基线是普通表/视图、完整复合主体键、int64/float64、精确 UTC 时间或无时间、I+F；扩展 Decimal、原生/解析时间、文件/JSON、跨根/领域方法按行验证。Trino 的表形态细分 Iceberg/non-Iceberg；ClickHouse 为本地 MergeTree/Distributed；SQLite 为 main 普通表/view；各格均包括空输入、重复键、Null/Unknown、早关闭和无执行后回退负例。T 单独验证连接/后端只读权限观察、超时、截断和不可重入，不承袭 Analysis 的数值/时间资格。没有真实环境的格为**未验证或阻塞**。
 
 | 方法单元@v1 / 数值、时间、来源形状 | DuckDB | PostgreSQL | MySQL | SQLite | Trino | ClickHouse |
 | --- | --- | --- | --- | --- | --- | --- |
 | C01.a/b typed 来源/metadata；文件/JSON/认证 | I/F，文件+HTTP | I/F，表/view | I/F，表/view | I/F，main 表/view | I/F，Iceberg+non-Iceberg | I/F，MergeTree+Distributed |
-| C01.c `raw_sql_terminal@v1`；单条只读/reason/limit/timeout/不可重入 | T，文件/表 | T，表/view | T，表/view | T，main 表/view | T，Iceberg+non-Iceberg | T，MergeTree+Distributed |
+| C01.c `raw_sql_terminal@v1`；原文提交/只读尽力控制/reason/limit/timeout/不可重入 | T，文件/表 | T，表/view | T，表/view | T，main 表/view | T，Iceberg+non-Iceberg | T，MergeTree+Distributed |
 | C02.a/b/c 定义绑定；版本/顺序/日历 | I/F | I/F | I/F | I/F | I/F | I/F |
 | C03.a/b/c 成员/版本/read；复合键、时间、分类 | I/F | I/F | I/F | I/F | I/F | I/F |
 | C04.a/b/c 单/多根观察与封闭 runtime；int/float/Decimal | I/F | I/F | I/F，Decimal! | I/F，Decimal! | I/F，Decimal! | I/F，Decimal! |
@@ -121,7 +121,7 @@ Store 白名单仅覆盖 `materialization/store.py` 的 schema/PRAGMA/BEGIN/COMM
 
 `P` 是执行前选择的目标路线，不是来源失败后的回退；若完整输入、资源或数值精度不能满足该方法，具体格阻塞，不能靠近似或缩小目标域通过。后续可新增单独验收的 Ibis 源端实现，但不得替换此必需目标格来跳过 P 验收。基线正例用 R0.1 §5 的原始事实与独立 SQL/Fraction/状态机/DST oracle 重新求目标结果；负例至少包含行中的 `!` 及相应 C 单元 §3 的拒绝例。计划中的统一运行命令为 `make runtime-test TESTS='tests/test_full_algebra_backend_matrix.py -k C03a'`（每个单元替换精确 ID，按真实 backend/表形态参数化），语义命令为 `make test TESTS='tests/test_full_algebra_contracts.py -k C18b'`；这两个目标测试文件尚未创建，**不能记为本轮已运行证据**。每个实际资格记录必须另附命令、服务/驱动版本、表形态、数值/时间类型、提交语句来源、资源与退出码。旧 C0–C10 只给反例线索；R1/R9 从零获得新 DSL 资格。
 
-上表的每个 `I`/`P` 格须按下面的适用形状展开，不把同一格的 float 通过转授 Decimal/时间/表形态；`F` 对每个已发布的主表和必需部件使用独立断源恢复检查。
+上表的 `T` 行沿用 R0 静态目标表述；R1.3 用户决定已改为输入不做 SQL 解析/归类、只读依连接与后端权限尽力控制。每个 `I`/`P` 格须按下面的适用形状展开，不把同一格的 float 通过转授 Decimal/时间/表形态；`F` 对每个已发布的主表和必需部件使用独立断源恢复检查。
 
 | 形状键 | 适用方法与必需输入/拒绝 |
 | --- | --- |

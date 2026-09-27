@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -9,29 +8,16 @@ from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.timezone import probe_engine_timezone
 
 
-@dataclass
-class _SqlResult:
-    value: object
-
-    def execute(self) -> list[tuple[object]]:
-        return [(self.value,)]
-
-
 class _Backend:
     def __init__(self, *, name: str, value: object = "Asia/Shanghai", fails: bool = False) -> None:
         self.name = name
-        self.value = value
-        self.fails = fails
-        self.sql_calls: list[str] = []
-
-    def sql(self, query: str) -> _SqlResult:
-        self.sql_calls.append(query)
-        if self.fails:
-            raise RuntimeError("probe failed")
-        return _SqlResult(self.value)
+        if not fails:
+            self._marivo_timezone_name = value
 
 
-def test_probe_engine_timezone_uses_duckdb_current_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_probe_engine_timezone_uses_configured_duckdb_timezone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("TZ", "UTC")
     backend = _Backend(name="duckdb", value="Asia/Shanghai")
 
@@ -40,7 +26,7 @@ def test_probe_engine_timezone_uses_duckdb_current_setting(monkeypatch: pytest.M
     assert resolved.engine_timezone_name == "Asia/Shanghai"
     assert resolved.engine_timezone_tz == ZoneInfo("Asia/Shanghai")
     assert resolved.read_tz_resolution == "engine"
-    assert backend.sql_calls == ["select current_setting('TimeZone') as timezone"]
+    assert not hasattr(backend, "sql")
 
 
 def test_probe_engine_timezone_uses_system_fallback_for_bigquery(
@@ -53,7 +39,7 @@ def test_probe_engine_timezone_uses_system_fallback_for_bigquery(
 
     assert resolved.engine_timezone_name == "Asia/Tokyo"
     assert resolved.read_tz_resolution == "system_fallback"
-    assert backend.sql_calls == []
+    assert not hasattr(backend, "sql")
 
 
 def test_probe_engine_timezone_uses_system_fallback_when_probe_fails(
@@ -66,8 +52,7 @@ def test_probe_engine_timezone_uses_system_fallback_when_probe_fails(
 
     with pytest.raises(DatasourceConnectionError) as failure:
         probe_engine_timezone(backend)
-    assert failure.value.received == "timezone_probe_failed"
-    assert isinstance(failure.value.__cause__, RuntimeError)
+    assert failure.value.received == "clickhouse timezone unavailable"
 
 
 def test_datasource_connection_service_caches_engine_timezone(
@@ -85,7 +70,7 @@ def test_datasource_connection_service_caches_engine_timezone(
 
     assert first is second
     assert first.engine_timezone_name == "Asia/Shanghai"
-    assert backend.sql_calls == ["select current_setting('TimeZone') as timezone"]
+    assert not hasattr(backend, "sql")
 
 
 def test_probe_engine_timezone_resolves_presto_alias(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -96,7 +81,7 @@ def test_probe_engine_timezone_resolves_presto_alias(monkeypatch: pytest.MonkeyP
 
     assert resolved.engine_timezone_name == "Asia/Shanghai"
     assert resolved.read_tz_resolution == "engine"
-    assert backend.sql_calls == ["select current_timezone() as timezone"]
+    assert not hasattr(backend, "sql")
 
 
 def test_probe_engine_timezone_does_not_probe_snowflake(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -107,15 +92,15 @@ def test_probe_engine_timezone_does_not_probe_snowflake(monkeypatch: pytest.Monk
 
     assert resolved.engine_timezone_name == "Asia/Tokyo"
     assert resolved.read_tz_resolution == "system_fallback"
-    assert backend.sql_calls == []
+    assert not hasattr(backend, "sql")
 
 
-def test_probe_engine_timezone_reads_mysql_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_probe_engine_timezone_rejects_mysql_without_driver_fact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("TZ", "Asia/Tokyo")
-    backend = _Backend(name="mysql", value="UTC")
+    backend = _Backend(name="mysql", fails=True)
+    from marivo.datasource.errors import DatasourceConnectionError
 
-    resolved = probe_engine_timezone(backend)
-
-    assert resolved.engine_timezone_name == "UTC"
-    assert resolved.read_tz_resolution == "engine"
-    assert len(backend.sql_calls) == 1
+    with pytest.raises(DatasourceConnectionError, match="timezone is unavailable"):
+        probe_engine_timezone(backend)

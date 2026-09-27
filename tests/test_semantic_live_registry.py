@@ -231,7 +231,6 @@ REQUIRED_DECISION_IDS = MappingProxyType(
                 "root_fanout",
                 "unit_additivity",
                 "temporal_behavior",
-                "provenance",
                 "guardrails",
             }
         ),
@@ -752,7 +751,6 @@ def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
     from marivo.preview import PreviewResult
     from marivo.semantic.catalog import CalendarPeriodPage, TemporalOccurrencePage
     from marivo.semantic.dtos import PreviewBatchResult
-    from marivo.semantic.parity import ParityResult
     from marivo.semantic.readiness import ReadinessReport
     from marivo.semantic.richness import RichnessReport
     from marivo.semantic.source_health import SourceHealthCheckResult, SourceHealthReport
@@ -764,7 +762,6 @@ def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
         SourceHealthReport,
         SourceHealthCheckResult,
         RichnessReport,
-        ParityResult,
         CalendarPeriodPage,
         TemporalOccurrencePage,
     )

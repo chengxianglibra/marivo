@@ -33,7 +33,6 @@ __all__ = [
     "SemanticHelpTargetError",
     "SemanticLoadError",
     "SemanticLoadFailed",
-    "SemanticParityError",
     "SemanticRuntimeError",
     "StructuredWarning",
     "WarningKind",
@@ -134,7 +133,6 @@ class ErrorKind(StrEnum):
     MISSING_MEASURE_ADDITIVITY = "missing_measure_additivity"
     INVALID_MEASURE_AGGREGATION = "invalid_measure_aggregation"
     INCOMMENSURABLE_LINEAR_UNITS = "incommensurable_linear_units"
-    INVALID_VERIFICATION_MODE = "invalid_verification_mode"
     INVALID_ENTITY_VERSIONING = "invalid_entity_versioning"
     DUPLICATE_IDENTITY_KEY = "duplicate_identity_key"
     MISSING_IDENTITY_KEY_COLUMN = "missing_identity_key_column"
@@ -175,12 +173,6 @@ class ErrorKind(StrEnum):
     BINDING_CYCLE = "binding_cycle"
     BINDING_RESULT_INVALID = "binding_result_invalid"
     FILTER_VALUE_RUNTIME_INCOMPATIBLE = "filter_value_runtime_incompatible"
-
-    # parity
-    PROVENANCE_DIALECT_MISSING = "provenance_dialect_missing"
-    UNVERIFIED_PROVENANCE = "unverified_provenance"
-    PARITY_VALUE_MISMATCH = "parity_value_mismatch"
-    PARITY_NOT_SCALAR = "parity_not_scalar"
 
 
 # ---------------------------------------------------------------------------
@@ -317,10 +309,6 @@ class SemanticRuntimeError(SemanticError):
     """Error raised during runtime operations (materialize, compile)."""
 
 
-class SemanticParityError(SemanticError):
-    """Error raised during parity checking."""
-
-
 class SemanticHelpTargetError(SemanticError):
     """Semantic-owned rejection of an unsupported live help target."""
 
@@ -382,7 +370,6 @@ class WarningKind(StrEnum):
     """Canonical warning kind identifiers for non-fatal issues."""
 
     STRING_REF = "string_ref"
-    UNVERIFIED_PROVENANCE = "unverified_provenance"
     POTENTIALLY_FRAGILE_REFERENCE = "potentially_fragile_reference"
     TIME_DIMENSION_PUSHDOWN_ADVISORY = "time_dimension_pushdown_advisory"
     TIME_DIMENSION_DTYPE_ADVISORY = "time_dimension_dtype_advisory"
@@ -398,7 +385,6 @@ class StructuredWarning:
 
     kind: Literal[
         "string_ref",
-        "unverified_provenance",
         "potentially_fragile_reference",
         "time_dimension_pushdown_advisory",
         "time_dimension_dtype_advisory",

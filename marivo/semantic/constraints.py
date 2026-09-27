@@ -65,7 +65,6 @@ class ConstraintId(StrEnum):
     LINEAR_UNIT_COMMENSURABLE = "linear_unit_commensurable"
     METRIC_ROOT_ENTITY_REQUIRED = "metric_root_entity_required"
     METRIC_ROOT_ENTITY_VALID = "metric_root_entity_valid"
-    METRIC_VERIFICATION_MODE_VALID = "metric_verification_mode_valid"
     METRIC_ROOT_ONLY_AGGREGATE = "metric_root_only_aggregate"
     METRIC_FANOUT_POLICY_VALID = "metric_fanout_policy_valid"
     METRIC_FANOUT_POLICY_DERIVED = "metric_fanout_policy_derived"
@@ -78,10 +77,6 @@ class ConstraintId(StrEnum):
     COMPILE_EXPRESSION = "compile_expression"
     EXPRESSION_BINDING = "expression_binding"
     SINGLE_DATASOURCE_METRIC = "single_datasource_metric"
-    PROVENANCE_DIALECT_REQUIRED = "provenance_dialect_required"
-    PROVENANCE_VERIFIED = "provenance_verified"
-    PARITY_VALUE_MATCH = "parity_value_match"
-    PARITY_SCALAR_RESULT = "parity_scalar_result"
     AMBIGUOUS_REFERENCE = "ambiguous_reference"
     BACKEND_FACTORY_AVAILABLE = "backend_factory_available"
     INSPECT_SOURCE_AVAILABLE = "inspect_source_available"
@@ -447,8 +442,8 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ast",
         ("entity", "dimension", "time_dimension", "metric"),
         "Raw SQL calls are not allowed in Python-track expression bodies.",
-        "The Python semantic track stores ibis expressions; SQL text is provenance only.",
-        "Use ibis expressions in the body and put the original SQL in provenance=ms.from_sql(...) on metrics.",
+        "The Python semantic track stores Ibis expressions; SQL text cannot execute in a metric body.",
+        "Use Ibis expressions in the body; describe historical SQL in ai_context if needed.",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.AST_IBIS_ATTR_SHADOW: _constraint(
@@ -629,15 +624,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "The root entity anchors the metric's aggregation grain.",
         "Use an Ref[entity] from the metric's entities list as root_entity.",
     ),
-    ConstraintId.METRIC_VERIFICATION_MODE_VALID: _constraint(
-        ConstraintId.METRIC_VERIFICATION_MODE_VALID,
-        "invalid_verification_mode",
-        "assembly",
-        ("metric",),
-        "Metric provenance must be consistent.",
-        "provenance enables SQL parity verification; derived metrics must omit provenance.",
-        "Base metrics: use provenance=ms.from_sql(sql=..., dialect=...). Derived metrics: remove provenance.",
-    ),
     ConstraintId.METRIC_ROOT_ONLY_AGGREGATE: _constraint(
         ConstraintId.METRIC_ROOT_ONLY_AGGREGATE,
         "non_root_metric_aggregate",
@@ -784,42 +770,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "A metric can only span one datasource.",
         "Cross-datasource metric execution has no single backend to compile against.",
         "Keep component datasets on one datasource or model the integration upstream.",
-    ),
-    ConstraintId.PROVENANCE_DIALECT_REQUIRED: _constraint(
-        ConstraintId.PROVENANCE_DIALECT_REQUIRED,
-        "provenance_dialect_missing",
-        "parity",
-        ("metric",),
-        "Metric provenance SQL requires a dialect.",
-        "The parity engine compares Python metric output with the original SQL.",
-        "Add provenance=ms.from_sql(sql=..., dialect=...) to the metric decorator.",
-    ),
-    ConstraintId.PROVENANCE_VERIFIED: _constraint(
-        ConstraintId.PROVENANCE_VERIFIED,
-        "unverified_provenance",
-        "parity",
-        ("metric",),
-        "Source SQL provenance should be parity checked.",
-        "Agents need to know whether Python semantics match the original SQL definition.",
-        "Run project.parity_check(...) or semantic check --parity.",
-    ),
-    ConstraintId.PARITY_VALUE_MATCH: _constraint(
-        ConstraintId.PARITY_VALUE_MATCH,
-        "parity_value_mismatch",
-        "parity",
-        ("metric",),
-        "Parity expected and actual values must match.",
-        "A mismatch means the Python metric has drifted from source SQL semantics.",
-        "Compare the compiled metric expression with provenance SQL and update the metric body.",
-    ),
-    ConstraintId.PARITY_SCALAR_RESULT: _constraint(
-        ConstraintId.PARITY_SCALAR_RESULT,
-        "parity_not_scalar",
-        "parity",
-        ("metric",),
-        "Parity SQL must return exactly one scalar result.",
-        "Scalar parity compares one metric value to one source SQL value.",
-        "Adjust provenance SQL so it returns one row and one column.",
     ),
     ConstraintId.AMBIGUOUS_REFERENCE: _constraint(
         ConstraintId.AMBIGUOUS_REFERENCE,

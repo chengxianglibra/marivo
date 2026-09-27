@@ -79,8 +79,9 @@ There is no mandatory inspect-snapshot-projection ladder. Every user-data read
 has positive row and timeout guards; a returned-row limit is not a scan bound.
 
 `md.raw_sql`/`RawSqlResult` remains available for a source-specific question
-outside Marivo's governed Analysis capability. It executes one read-only SQL
-statement with a reason, returned-row limit and timeout, and its result is
+outside Marivo's governed Analysis capability. It submits SQL text without
+parsing or classifying it, with a reason, returned-row limit and enforced timeout.
+Read-only behavior depends on connection and backend permissions. Its result is
 terminal. To bring an answer into typed Analysis, author an upstream governed
 view or a qualified Ibis expression and bind it through normal Semantic facts;
 neither provenance text nor terminal raw-query rows are Analysis inputs.

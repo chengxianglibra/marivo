@@ -20,7 +20,9 @@ def test_use_backend_disconnects_after_success(
 ) -> None:
     backend = FakeBackend()
     monkeypatch.setattr(
-        runtime, "_build_backend_from_store", lambda name, project_root, read_only=False: backend
+        runtime,
+        "_build_backend_from_store",
+        lambda name, project_root, read_only=False, terminal_timeout_seconds=None: backend,
     )
 
     service = runtime.DatasourceConnectionService(project_root=tmp_path)
@@ -36,7 +38,9 @@ def test_use_backend_disconnects_after_error(
 ) -> None:
     backend = FakeBackend()
     monkeypatch.setattr(
-        runtime, "_build_backend_from_store", lambda name, project_root, read_only=False: backend
+        runtime,
+        "_build_backend_from_store",
+        lambda name, project_root, read_only=False, terminal_timeout_seconds=None: backend,
     )
     service = runtime.DatasourceConnectionService(project_root=tmp_path)
 

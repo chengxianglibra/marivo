@@ -43,7 +43,6 @@ from marivo.semantic.ir import (
     RelationshipIR,
     SemiAdditive,
     SourceLocation,
-    SqlProvenance,
     StrptimeParse,
     TableSourceIR,
     TimeFoldIR,
@@ -138,7 +137,6 @@ def _make_registry(**overrides: object) -> Registry:
         aggregation=None,
         measure=None,
         composition=None,
-        provenance=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc123",
         python_symbol="revenue",
@@ -182,7 +180,6 @@ def test_missing_entity_ref_on_metric() -> None:
         aggregation=None,
         measure=None,
         composition=None,
-        provenance=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc",
         python_symbol="bad_metric",
@@ -229,7 +226,6 @@ def test_missing_metric_ref_in_decomposition() -> None:
             numerator="sales.nonexistent",
             denominator="sales.revenue",
         ),
-        provenance=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc",
         python_symbol="ratio_metric",
@@ -480,7 +476,6 @@ def test_metric_cycle_detected() -> None:
             numerator="sales.metric_b",
             denominator="sales.revenue",
         ),
-        provenance=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc",
         python_symbol="metric_a",
@@ -499,7 +494,6 @@ def test_metric_cycle_detected() -> None:
             numerator="sales.metric_a",
             denominator="sales.revenue",
         ),
-        provenance=None,
         ai_context=AiContextIR(),
         body_ast_hash="def",
         python_symbol="metric_b",
@@ -525,7 +519,6 @@ def test_no_cycle_when_valid() -> None:
             numerator="sales.revenue",
             denominator="sales.revenue",
         ),
-        provenance=None,
         ai_context=AiContextIR(),
         body_ast_hash="ghi",
         python_symbol="double_revenue",
@@ -534,55 +527,6 @@ def test_no_cycle_when_valid() -> None:
     )
     errors, _warnings = assembly_validate(registry)
     assert not any(e.kind == ErrorKind.CROSS_MODEL_CYCLE for e in errors)
-
-
-# ---------------------------------------------------------------------------
-# Verification mode validation
-# ---------------------------------------------------------------------------
-
-
-def test_metric_provenance_without_dialect_errors() -> None:
-    with pytest.raises(ValueError, match=r"SqlProvenance\.dialect"):
-        SqlProvenance(
-            sql="SELECT SUM(amount) FROM orders",
-            dialect="",
-        )
-
-
-def test_no_provenance_sql_no_error() -> None:
-    """Metric without SQL provenance should not produce provenance errors."""
-    registry = _make_registry()
-    registry.metrics["sales.native_metric"] = MetricIR(
-        semantic_id="sales.native_metric",
-        domain="sales",
-        name="native_metric",
-        entities=("sales.orders",),
-        metric_type="simple",
-        aggregation=None,
-        measure=None,
-        composition=None,
-        provenance=None,
-        ai_context=AiContextIR(),
-        body_ast_hash="abc",
-        python_symbol="native_metric",
-        location=_LOC,
-        additivity="additive",
-    )
-    errors, warnings = assembly_validate(registry)
-    assert not errors
-    assert not warnings
-
-
-def test_no_provenance_sql_no_warning() -> None:
-    """Metric without SQL provenance should not produce warnings."""
-    registry = _make_registry()
-    registry.metrics["sales.revenue"] = dataclasses.replace(
-        registry.metrics["sales.revenue"],
-        provenance=None,
-    )
-    errors, warnings = assembly_validate(registry)
-    assert not errors
-    assert not warnings
 
 
 # ---------------------------------------------------------------------------
@@ -839,7 +783,6 @@ def test_missing_metric_ref_includes_did_you_mean() -> None:
             numerator="sales.revenu",
             denominator="sales.revenue",
         ),
-        provenance=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc",
         python_symbol="ratio_metric",
@@ -965,7 +908,6 @@ def _derived_metric(semantic_id: str, name: str, composition: object) -> MetricI
         measure=None,
         composition=composition,  # type: ignore[arg-type]
         additivity=None,
-        provenance=None,
         ai_context=AiContextIR(),
         body_ast_hash=semantic_id,
         python_symbol=name,

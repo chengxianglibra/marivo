@@ -27,7 +27,6 @@ from marivo.semantic.errors import (
 )
 from marivo.semantic.loader import LoadResult, load_project
 from marivo.semantic.materializer import EntityRuntimeMetadata
-from marivo.semantic.parity import ParityResult, parity_check
 from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
@@ -130,7 +129,6 @@ class SemanticProject:
         self._compiled_state: CompiledSemanticState | None = None
         self._filtered_domains: tuple[str, ...] = ()
         self._runtime_metadata: dict[str, EntityRuntimeMetadata] = {}
-        self._parity_results: dict[str, ParityResult] = {}
         self._connection_service_instance: DatasourceConnectionService | None = None
         self._datasource_irs: tuple[DatasourceIR, ...] = ()
 
@@ -174,7 +172,6 @@ class SemanticProject:
             self._expression_sidecar = None
             self._compiled_state = None
             self._runtime_metadata = {}
-            self._parity_results = {}
             self._datasource_irs = ()
         if self._semantic_root.exists() and not self._semantic_root.is_dir():
             _raise(
@@ -382,30 +379,6 @@ class SemanticProject:
                 continue
             seen |= self._flatten_ids(node)
         return len(seen - set(refs))
-
-    # -- parity -------------------------------------------------------------
-
-    def parity_check(
-        self,
-        name: str,
-        *,
-        rel_tol: float | None = None,
-        abs_tol: float | None = None,
-        force: bool = False,
-    ) -> ParityResult:
-        """Run parity check for a metric against its source SQL.
-
-        See :func:`marivo.semantic.parity.parity_check` for details.
-        Datasource backends are resolved internally via
-        ``DatasourceConnectionService``.
-        """
-        return parity_check(
-            self,
-            name,
-            rel_tol=rel_tol,
-            abs_tol=abs_tol,
-            force=force,
-        )
 
     # -- readiness ----------------------------------------------------------
 
