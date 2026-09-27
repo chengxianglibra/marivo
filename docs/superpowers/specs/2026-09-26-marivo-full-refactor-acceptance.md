@@ -2,7 +2,7 @@
 
 Date: 2026-09-26
 
-Status: R0.1–R0.5 静态产物已登记，R0.6 未开展；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验；R2.1 静态定义候选、R2.2 Metric 图静态候选已核验。R0、R1 和 R2 整体均未验收。
+Status: R0.1–R0.5 静态产物已登记，R0.6 未开展；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验；R2.1–R2.3 的静态候选及 R2.4 加载/披露候选已核验。R0、R1 和 R2 整体均未验收。
 
 本文件按[主计划](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)和[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)续记实际证据。历史验收不自动转成新 DSL 的技术、后端、安装包或真实 Agent 资格。
 
@@ -211,3 +211,17 @@ MySQL 基础 Analysis 补充格：启动前 `mysql-analysis` 为 Exited，本轮
 | 公共披露与阶段边界 | **静态回归通过** | Ref、公共导出、原生 Help、目录成员、API 索引和 `site/` latest 中英文示例同步。没有新增 `session.events.match` 参数、matcher、replayer、窗口或 fold；未改 packaged skills、`AGENTS.md` 或未跟踪计划。 |
 
 定向 Event、StateModel、日历/解析与 readiness 测试 **105 passed**；Ref、Help、公共导出和文档测试 **114 passed**；新增 R2.3 文件 **12 passed**。最终 `make check-agent` 的 lint/import、379 个源码文件 typing、默认测试 **5122 passed、64 skipped** 和 API 文档通过；`npm --prefix site run build` 成功，Astro **321 页**及中英文安装脚本校验通过；`git diff --check` 退出码 0。64 个 skip 保留原断言与 R1/R5 等归属，不计作 C02.c 来源核验。R7、实源后端、wheel、冷恢复及真实 Agent 未验证；R1 遗留格状态不变，**R2 整体未通过**。
+
+## R2.4 加载、披露、ontology 与阶段出口（2026-09-27）
+
+基线为 `panda` HEAD `1dafbb7f60c10a67b1ca207fbc5f83132e1bbb88`（R2.3 已提交），起点只有未跟踪的 R2 实施文档，其 SHA-256 为 `7c8488e862195487b05494f86ddb9f44e71b362f8649933cecd041c72299f18c`；本轮保留该文件且不纳入提交。提交前代码、测试、owning spec、API 和站点候选（不含本记录和新增测试文件）的 `git diff --binary HEAD -- marivo tests docs/specs docs/api site/src/content/docs ':(exclude)tests/test_semantic_r24_handoff.py'` SHA-256 为 `05b14ed93d40f868c22969b6f3c578a9896e0c7885efbcc15eb7c4b520db93c5`；新增跨模块用例 `tests/test_semantic_r24_handoff.py` 的 SHA-256 为 `dfff68265626cbcb989cdf7d3fad9bca80283acef3ecca0471afdc4e498951a2`。这些 hash 仅定位本地候选，不授来源或发布资格。
+
+| 单元 | 本轮结论 | 独立预期、实际证据与恢复条件 |
+| --- | --- | --- |
+| C02.a/b/c 加载、精确 Ref 与闭包 | **R2.4 静态交接通过；C02.b 仍部分通过** | 一个实际 authoring 项目加载 Metric、Event、StateModel、业务顺序及日历，`catalog.require(...)` 精确解析四类请求根。readiness 改用已编译的唯一规范依赖图：Metric 请求的诊断闭包含 Measure、Entity 和 Datasource，但 `analysis_ready_inputs` 只返回直接请求的 Metric；错误 kind 或缺失 Ref 由既有结构化 repair 拒绝。无关定义的加载 warning 不进入 scoped 报告，依赖上的 warning 保留。`tests/test_semantic_r24_handoff.py`、`test_semantic_readiness.py`、`test_semantic_catalog.py` 提供独立断言。C02.b 的全局可缺失性契约及来源 fanout 仍未闭合；须由 owning spec 决定并实现后重验，不能因闭包通过而标为通过。 |
+| 时间与业务顺序前提 | **静态通过；执行未验证** | 同一项目的 StateModel readiness 保留 `business_order_values_unverified` advisory；业务顺序声明不进入可执行输入。未认证的 period calendar 返回 `period_calendar_artifact_missing` blocker，不借来源样本放行；完整来源认证和同刻事件结果等价仍由相应 R5/R7 边界复核。 |
+| preview 与 source-health | **所测 DuckDB 范围通过；其他来源未验证** | 测试库的四笔金额 `125.25 + 250.50 + 375.75 + 0` 在显式 `max_rows=10` scope 下 preview 为 `751.5`，结果注明 `sample_only`。同一来源的 `allowed_values(region={'moon-base'})` 对实际 `orbital` 返回 `failed`，披露查询及精确 scope；前后 readiness 除检查时刻外相同。此为所测本地 DuckDB/物理表证据，不能转授全源唯一性、六后端形态或 Analysis 方法资格；缺失资格仍需来源 owner 实测。 |
+| C17.a ontology 身份 | **当前 Semantic Ref 关联通过；Artifact 关联未实施** | `mo.load(semantic=catalog)` 验证精确端点；ontology 指纹与 `semantic_catalog_fingerprint` 共同标识当前上下文。错误角色/缺失端点的既有反例和本轮实际项目回归通过。边不改变 readiness，也不授因果、计算或 Artifact 权限；R4/R10 接入新 Artifact 身份后须独立验证关联和错误角色，故 C17.a 不写作整体通过。 |
+| 公共披露 | **静态通过** | 公共 docstring/类型、原生 Help、结构化 repair、`__all__` 快照、独立可达性与预算测试，以及 owning spec、API 和 `site/` latest 中英文说明对齐；没有新增导出、兼容 alias 或影子图。未改 packaged skills、`AGENTS.md` 或已撤回的 `ms.statistical_weight`。 |
+
+定向 `make test TESTS='tests/test_semantic_r24_handoff.py tests/test_semantic_readiness.py tests/test_ontology_extension.py tests/test_unified_help.py tests/test_semantic_catalog.py tests/test_public_surface.py tests/test_semantic_r23_business_order.py'` 为 **228 passed**；触及的五个生产模块定向 typecheck 和九个文件的 lint/import 通过。`make check-agent` 的 lint/import、379 个源码文件 typing、默认测试 **5125 passed、64 skipped** 与 API 文档通过；`npm --prefix site run build` 成功，Astro **321 页**，中英文安装脚本校验通过；`git diff --check` 退出码 0。64 个 skip 维持原断言、依赖和恢复条件，不计 R2 通过。R0.6、R1 的 SQL/metadata/远端资格及 R5–R9 的实源执行、Runtime、冷恢复、wheel、真实 Agent 均未由本轮证明。**R2.4 交付完成，R2 整体未通过。**

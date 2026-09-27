@@ -7,8 +7,10 @@ description: Snapshot-independent technical certification for semantic inputs.
 
 `catalog.readiness(refs=[...])` is Marivo's explicit, zero-query certification
 for selected current catalog entries, exact refs, and closed runtime metric
-expressions. It checks the current semantic project and each requested
-dependency closure. Analysis APIs do not invoke it automatically.
+expressions. It checks each requested root through the compiled semantic
+definition graph. A warning on a transitive dependency stays visible; a warning
+on an unrelated definition does not enter the scoped report. Analysis APIs do
+not invoke readiness automatically.
 
 Readiness does not read discovery snapshots or ordinary preview history. The
 same definition therefore produces the same status, issues, and ready inputs
@@ -93,7 +95,7 @@ Running source health cannot change `ReadinessReport.status`, issues, or
 | --- | --- |
 | `scope` | Always `"semantic_static"`; operation-specific execution checks remain with the consuming API. |
 | `status` | `"ready"`, `"ready_with_warnings"`, or `"blocked"`. |
-| `analysis_ready_inputs` | Ordered requested refs or runtime expressions whose full dependency closures contain no blocker. |
+| `analysis_ready_inputs` | Ordered, directly requested refs or runtime expressions whose full dependency closures contain no blocker; dependencies appear only in `input_summary`. |
 | `blockers` | Issues that prevent the affected requested roots from being handed to analysis. |
 | `warnings` | Non-blocking warnings and advisories. |
 | `input_summary` | Datasources, refs, and tables considered by the check. |

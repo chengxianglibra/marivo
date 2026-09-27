@@ -5585,7 +5585,23 @@ class SemanticCatalog(RenderableResult):
         return self.items(kind)
 
     def require(self, ref: Ref[KindT], /) -> CatalogEntry[KindT]:
-        """Require exact membership of one typed ref in this compiled catalog."""
+        """Resolve one exact typed ref in this compiled catalog.
+
+        Args:
+            ref: Current semantic identity, including its kind and full path.
+
+        Returns:
+            The catalog-owned entry for that exact identity.
+
+        Example:
+            >>> revenue = catalog.require(ms.ref.metric("sales.revenue"))
+            >>> revenue.details().show()
+
+        Constraints:
+            Strings, wrong-kind refs, and absent refs are rejected with a
+            structured repair. This lookup does not query a datasource or
+            certify the entry for analysis.
+        """
         exact_ref = _require_semantic_ref(ref, parameter="require(ref)")
         found = self._require_index().require(exact_ref)
         if found is not None:
@@ -6989,7 +7005,8 @@ def load(
 
     Constraints:
         Raises a typed load error on failure. Does not return a partial catalog.
-        Does not print to stdout.
+        Does not query a datasource or print to stdout. Source validation is
+        separate from this project-level static validation event.
         Configured layer paths must point at authored ``models/`` roots that
         contain both ``datasources/`` and ``semantic/``.
     """

@@ -2202,6 +2202,7 @@ def test_catalog_readiness_accepts_runtime_expression_and_mixed_roots(
         "sales.orders.amount",
         "sales.orders.region",
         "sales.orders",
+        "warehouse",
     )
     assert report.to_dict()["analysis_ready_inputs"][1]["schema"] == (
         "marivo.runtime_metric_expr/v1"

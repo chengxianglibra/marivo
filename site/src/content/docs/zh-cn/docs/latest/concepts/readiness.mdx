@@ -6,7 +6,8 @@ description: 与快照无关的语义输入技术认证。
 ## 就绪检查判断什么
 
 `catalog.readiness(refs=[...])` 是面向当前目录条目、精确引用与封闭运行时指标
-表达式的显式零查询认证。它只检查当前语义项目和每个请求输入的依赖闭包。
+表达式的显式零查询认证。每个请求根的依赖闭包来自编译后的规范语义定义图。
+传递依赖上的 warning 会保留，无关定义的 warning 不会进入限定范围的报告。
 分析 API 不会自动调用它。
 
 就绪检查不读取 discovery snapshot，也不读取普通 preview 的历史记录。因此，同一
@@ -85,7 +86,7 @@ repair，以及是否在什么精确 scope 下查询了用户数据。
 | --- | --- |
 | `scope` | 固定为 `"semantic_static"`；操作专属执行检查仍由消费 API 负责。 |
 | `status` | `"ready"`、`"ready_with_warnings"` 或 `"blocked"`。 |
-| `analysis_ready_inputs` | 按请求顺序保留完整依赖闭包中没有 blocker 的引用或运行时表达式。 |
+| `analysis_ready_inputs` | 按请求顺序仅保留完整依赖闭包中没有 blocker 的直接请求引用或运行时表达式；依赖只进入 `input_summary`。 |
 | `blockers` | 阻止受影响请求根进入分析的问题。 |
 | `warnings` | 不阻塞的 warning 与 advisory。 |
 | `input_summary` | 本次检查涉及的数据源、引用和表。 |

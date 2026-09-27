@@ -11,6 +11,9 @@ catalog. It can suggest unscored Metric hypotheses through
 ``session.discover.semantic_hypotheses(...)``; it cannot define identity,
 joins, filters, readiness, SQL, or causal evidence. Use
 ``marivo.help("ontology.authoring")`` for the live authoring contract.
+``OntologyCatalog.definition_fingerprint`` and
+``semantic_catalog_fingerprint`` jointly identify the current contextual
+association. An ontology edge does not bind or authorize an Artifact.
 
 Catalog and identity
 --------------------

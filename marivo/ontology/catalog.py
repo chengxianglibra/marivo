@@ -103,7 +103,11 @@ def _load_edges(path: Path) -> tuple[SemanticEdgeIR, ...]:
 
 @dataclass(frozen=True, repr=False)
 class OntologyCatalog(RenderableResult):
-    """Immutable, bounded view of one optional project ontology."""
+    """Immutable optional ontology bound to an exact semantic catalog fingerprint.
+
+    The ontology and semantic fingerprints jointly identify this association.
+    Its edges are discovery context, not analysis admission or Artifact binding.
+    """
 
     configured: bool
     definition_fingerprint: str
@@ -178,6 +182,7 @@ def load(*, semantic: SemanticCatalog) -> OntologyCatalog:
     Constraints:
         Reads only ``models/ontology.py`` under the semantic catalog workspace.
         Invalid sources raise OntologyLoadError; no partial catalog is returned.
+        Edges grant no causal, computation, or Artifact authority.
     """
     if type(semantic) is not SemanticCatalog:
         raise InvalidOntologyRefError(
