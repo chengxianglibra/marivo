@@ -275,6 +275,36 @@ Event matching、Lifecycle replay、归因、排名、相关、预测各用独�
 
 类型依赖方向为 `semantic Ref/definition → analysis core/method contract → relations/graph → compiler → datasource adapter`；`session → graph/compiler/adapter + materialization/Store`。adapter 不导入 Analysis 公共对象或 Store；Store 不决定方法语义。上表只冻结责任及删除时机，不预建空包或把旧名字改为 shim。
 
+### R3.2 connected registration handoff (2026-09-27)
+
+The R3 private core now resolves its six rules through `analysis/methods`.
+Concrete `cell.difference@v1`, `cell.ratio@v1` and the five `row.*@v1`
+methods retain their R3.1 quantity identities; `state_rollup@v1` is the
+connected operation over the original `sum@v1` state. This is a private
+construction/qualification handoff for C04/C05/C07, not completion of their
+R5/R6 public methods. Original-state method identity is not the rollup operation
+identity, and neither is a J1 journey ID.
+
+The migrated consumers are `core.rules.derive`, current-row state component
+construction and original-state component admission. Their duplicate dispatch
+and component inventories were removed in favor of the new semantic owner.
+No legacy J1/operator/Dataset execution method is migrated or requalified by
+this increment. Those consumers remain assigned to R4-R8 above; the new
+registry rejects their IDs and never consults their registries. There is no
+compatibility alias or route that inherits historical backend qualification.
+The active J1 current-row sum/count/mean, rollup and difference registrations
+still overlap these private method semantics. The cross-path single-owner
+deliverable in the R3.2 plan remains open until their R5/R6 consumers migrate;
+private registry isolation alone does not satisfy it.
+
+All connected production physical cells remain blocked until the graph,
+lowering and execution consumers are connected and the exact key is qualified.
+Unit tests cover precise method/type/time/source/backend/table/route matching,
+input position and arity, numeric precision compatibility, static checker/part
+completeness and invocation-bound obligations. They do not prove actual source
+types, checks, resources, publication or numerical execution.
+See the R3.2 section of the acceptance record for commands and measured status.
+
 ## 7. R0.6 breaking changes
 
 本章是目标切换清单，不表示旧导出、SQL 或协议已经删除。静态反查锚点为 `panda` HEAD

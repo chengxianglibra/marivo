@@ -11,6 +11,62 @@ Materialized result after `execute()`; a fixed continuation consumes retained
 Artifact data and parts, never silently rereads a source. A failure names the
 expected type/identity/fact, the received value, and a focused repair target.
 
+### R3.2 private method registration (connected construction only)
+
+`analysis/methods` is the single registration owner for R3 private core
+construction. `core.rules.derive` resolves that registration; it no longer
+owns a second method dispatch. The six meta-rule identities are distinct from
+concrete `cell.difference`, `cell.ratio`, `row.{sum,mean,count,count_defined,
+weighted_mean}` and `state_rollup` method identities, all at version 1.
+`bind_project`, `map_correspond` and `parts_transport` retain their versioned
+rule names as the connected method identities. These are private contracts,
+not new public API or Help targets.
+
+Semantic derivation consumes the existing closed core parameter variants and
+exact Signatures. Its RuleDerivation owns bound Pre, quantity and unit, Cell
+policy, state, RequiredParts, part transformations, Post and still-pending
+obligations. Count uses `count_all`, defined-count uses `defined_only`, and
+connected numeric cell/current-row methods use `strict`; an adapter cannot
+replace these policies. Original reduction still accepts only `sum@v1` state
+version `v1` with `(sum, non_null_count)`, exact contribution binding and
+coverage, and a whole-input singleton. Current-row statistics remain a new
+quantity and cannot acquire original rollup by retaining their display values.
+Statistical weights must belong to the exact input binding and scope.
+Conditional private continuation requirements are pruned when required parts
+or their bindings are absent; successor derivation must still validate exact
+parameters and premises. These requirements are not executable public K.
+
+A physical qualification key includes method/version, ordered exact value
+types (including Decimal precision/scale), ordered domain kinds, source form,
+backend/table kind, exact time shape and an explicit route. Supported routes
+are source Ibis, source Ibis preparation followed by Python, and fixed Artifact
+Python. Registration rejects mismatched value-type/domain positions, method
+input arity, conflicting keys, missing semantic checks/parts, unknown types,
+and types incompatible with the method. Integer counts require checked-int64
+precision; other connected numeric methods require exact Decimal, finite
+float64, or checked-int64 precision according to their inputs and result.
+Selection compares the whole key and additionally requires all bound checks and
+retained/output parts.
+It returns one declaration and the unchanged pending semantic derivation;
+there is no execution, route retry, source inspection, Run allocation or Store
+access. Static qualification evidence never discharges an invocation's Pre.
+Physical type/time/shape facts and resource limits must be verified and enforced
+by the subsequent compiler/execution consumers; this private registry does not
+observe them itself.
+
+The production registry has **no qualified physical implementations** yet. Each
+connected method carries an explicit blocked reason and recovery condition for
+R3.3/R3.4 and the owning R4-R8 consumer. Synthetic qualification declarations in
+unit tests prove matching and rejection only. They do not qualify a backend.
+J1 `current_row_{sum,count,mean}`, rollup, and difference still have separate
+executable contracts and consumers. Their overlap with these private method
+semantics means the R3.2 single-owner deliverable across execution paths remains
+open until the R5/R6 consumer migration. These old contracts are neither
+imported nor consulted by the new registry and cannot serve as fallback
+implementations. Other unmigrated operator/Dataset methods retain their phase
+boundaries. `md.raw_sql` remains a datasource terminal and cannot be registered
+here.
+
 ### Relative Anchor observation and retention (C18)
 
 The single public entry shape is

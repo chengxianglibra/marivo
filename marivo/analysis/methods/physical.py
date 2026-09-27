@@ -1,0 +1,243 @@
+"""Exact physical keys and declarations, independent of method business semantics."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal, TypeAlias, get_args
+
+from marivo.analysis.core.model import CheckId, DomainKind, PartRole
+from marivo.analysis.methods.errors import reject
+from marivo.analysis.methods.semantics import MethodKey
+
+Backend: TypeAlias = Literal["duckdb", "postgres", "mysql", "sqlite", "trino", "clickhouse"]
+ScalarName: TypeAlias = Literal["boolean", "string", "int64", "float64", "date", "timestamp"]
+Route: TypeAlias = Literal["ibis", "ibis_python", "artifact_python"]
+
+
+@dataclass(frozen=True, slots=True)
+class ScalarType:
+    name: ScalarName
+
+    def __post_init__(self) -> None:
+        if self.name not in get_args(ScalarName):
+            reject(
+                "an exact scalar type", str(self.name), "Declare a supported scalar or DecimalType."
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class DecimalType:
+    precision: int
+    scale: int
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.precision) is not int
+            or type(self.scale) is not int
+            or not 0 <= self.scale <= self.precision
+            or self.precision < 1
+        ):
+            reject(
+                "positive Decimal precision and scale within precision",
+                repr(self),
+                "Bind exact decimal metadata.",
+            )
+
+
+ValueType: TypeAlias = ScalarType | DecimalType
+
+
+@dataclass(frozen=True, slots=True)
+class NoTime:
+    """No temporal axis participates in this physical shape."""
+
+
+@dataclass(frozen=True, slots=True)
+class TimeShape:
+    kind: Literal["instant", "elapsed", "calendar"]
+    unit: Literal["s", "ms", "us", "ns", "day", "week", "month", "year"]
+    timezone: str
+
+    def __post_init__(self) -> None:
+        if (
+            self.kind not in ("instant", "elapsed", "calendar")
+            or self.unit not in ("s", "ms", "us", "ns", "day", "week", "month", "year")
+            or type(self.timezone) is not str
+            or not self.timezone
+            or (self.kind in ("instant", "elapsed") and self.unit not in ("s", "ms", "us", "ns"))
+            or (self.kind == "calendar" and self.unit not in ("day", "week", "month", "year"))
+        ):
+            reject(
+                "a precise time kind, unit and zone",
+                repr(self),
+                "Preserve the source time shape; do not coerce calendar to elapsed time.",
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class SourceShape:
+    backend: Backend
+    form: Literal["table", "parquet", "csv", "json"]
+    table_kind: str
+    time: NoTime | TimeShape
+
+    def __post_init__(self) -> None:
+        if (
+            self.backend not in get_args(Backend)
+            or self.form not in ("table", "parquet", "csv", "json")
+            or type(self.table_kind) is not str
+            or not self.table_kind
+            or type(self.time) not in (NoTime, TimeShape)
+        ):
+            reject(
+                "an exact backend, source form and physical table kind",
+                repr(self),
+                "Bind the adapter's precise shape; wildcard qualifications are not supported.",
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class FixedShape:
+    time: NoTime | TimeShape
+
+    def __post_init__(self) -> None:
+        if type(self.time) not in (NoTime, TimeShape):
+            reject(
+                "a fixed Artifact time shape", repr(self.time), "Preserve retained time metadata."
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class QualificationKey:
+    method: MethodKey
+    input_types: tuple[ValueType, ...]
+    input_domains: tuple[DomainKind, ...]
+    shape: SourceShape | FixedShape
+    route: Route
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.method) is not MethodKey
+            or type(self.input_types) is not tuple
+            or not self.input_types
+            or any(type(item) not in (ScalarType, DecimalType) for item in self.input_types)
+            or type(self.input_domains) is not tuple
+            or not self.input_domains
+            or any(item not in get_args(DomainKind) for item in self.input_domains)
+            or len(self.input_types) != len(self.input_domains)
+            or type(self.shape) not in (SourceShape, FixedShape)
+            or self.route not in get_args(Route)
+            or (type(self.shape) is FixedShape) != (self.route == "artifact_python")
+        ):
+            reject(
+                "a complete exact method/type/domain/shape/route key",
+                repr(self),
+                "Use Ibis source routes or fixed Artifact Python; never import Artifacts into DuckDB.",
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceRequirements:
+    batch: Literal["stream", "complete"]
+    owner: Literal["producer", "caller"]
+    max_rows: int | None
+
+    def __post_init__(self) -> None:
+        if (
+            self.batch not in ("stream", "complete")
+            or self.owner not in ("producer", "caller")
+            or (self.max_rows is not None and (type(self.max_rows) is not int or self.max_rows < 1))
+        ):
+            reject(
+                "explicit batch, owner and positive optional row limit",
+                repr(self),
+                "Declare resource constraints before execution.",
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class Qualified:
+    """Static qualification evidence; never proof of this invocation's obligations."""
+
+    implementation_id: str
+    consumer_id: str
+    evidence_id: str
+
+    def __post_init__(self) -> None:
+        if any(
+            type(value) is not str or not value
+            for value in (self.implementation_id, self.consumer_id, self.evidence_id)
+        ):
+            reject(
+                "implementation, consumer and qualification evidence",
+                repr(self),
+                "Connect and qualify a real consumer before selecting this route.",
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class Unavailable:
+    status: Literal["unsupported", "unverified", "blocked"]
+    reason: str
+    recovery: str
+
+    def __post_init__(self) -> None:
+        if self.status not in ("unsupported", "unverified", "blocked") or any(
+            type(value) is not str or not value for value in (self.reason, self.recovery)
+        ):
+            reject(
+                "a named unavailable status, reason and recovery",
+                repr(self),
+                "Record the exact qualification gap.",
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class Implementation:
+    key: QualificationKey
+    checks: tuple[CheckId, ...]
+    parts: tuple[PartRole, ...]
+    precision: Literal["exact", "checked_int64", "finite_float64"]
+    resources: ResourceRequirements
+    qualification: Qualified | Unavailable
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.key) is not QualificationKey
+            or type(self.checks) is not tuple
+            or any(item not in get_args(CheckId) for item in self.checks)
+            or len(set(self.checks)) != len(self.checks)
+            or type(self.parts) is not tuple
+            or any(item not in get_args(PartRole) for item in self.parts)
+            or len(set(self.parts)) != len(self.parts)
+            or self.precision not in ("exact", "checked_int64", "finite_float64")
+            or type(self.resources) is not ResourceRequirements
+            or type(self.qualification) not in (Qualified, Unavailable)
+        ):
+            reject(
+                "complete immutable implementation obligations and qualification",
+                repr(self),
+                "Declare exact checks, parts, precision, resources and evidence.",
+            )
+        if self.key.route == "artifact_python" and self.resources.owner != "caller":
+            reject(
+                "caller-owned fixed input resources",
+                repr(self.resources),
+                "Keep fixed input execution in the caller.",
+            )
+        if self.key.route != "artifact_python" and self.resources.owner != "producer":
+            reject(
+                "producer-owned source resources",
+                repr(self.resources),
+                "Keep source preparation and resources with the producer.",
+            )
+        if (
+            any(type(item) is DecimalType for item in self.key.input_types)
+            and self.key.method.name not in ("row.count", "row.count_defined")
+            and self.precision != "exact"
+        ):
+            reject(
+                "exact Decimal precision",
+                self.precision,
+                "Qualify the exact Decimal shape without float conversion.",
+            )
