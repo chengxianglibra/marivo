@@ -1408,7 +1408,7 @@ def metric_contracts(
                     if isinstance(metric.identity, CatalogMetricIdentity)
                     else _runtime_metric_identity(metric.identity.expression_fingerprint)
                 ),
-                derivation_identity=metric.dependency_fingerprint,
+                derivation_identity=metric.bound_graph_fingerprint,
                 logical_type_id=metric.logical_type,
                 physical_type_state=_deferred_type(metric.logical_type, ids=ids),
                 nullable=True,
@@ -2197,7 +2197,9 @@ def semantic_dependency_digest(
             semantic_facts = (
                 "metric",
                 entity_payload(definition.entity),
-                tuple((metric.key, metric.dependency_fingerprint) for metric in definition.metrics),
+                tuple(
+                    (metric.key, metric.bound_graph_fingerprint) for metric in definition.metrics
+                ),
                 definition.source_dependency_fingerprint,
                 definition.coordinate_dependencies,
                 None

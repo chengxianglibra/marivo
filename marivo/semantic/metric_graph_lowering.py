@@ -108,6 +108,11 @@ class MetricExpressionForestV1:
     presentation: ExpressionPresentationV1
     root_dependency_refs: tuple[tuple[RefPayloadV1, ...], ...] = ()
 
+    @property
+    def bound_graph_fingerprint(self) -> str:
+        """Bind a reusable value DAG to its effective Semantic definitions."""
+        return fingerprint(("metric-bound-graph/v1", self.graph, self.dependency_digest.digest))
+
 
 def _fail(*, kind: str, metric_id: str, path: str, message: str) -> NoReturn:
     raise MetricGraphLoweringError(
@@ -1548,6 +1553,33 @@ def normalize_target_metric_inputs(
     return tuple(result)
 
 
+def _intrinsic_component_merges(
+    method: str,
+    *,
+    status_time_dimension: RefPayloadV1 | None,
+    time_fold: object,
+) -> tuple[
+    Literal["sum", "min", "max", "blocked"],
+    Literal["sum", "min", "max", "last", "blocked"],
+]:
+    """Describe merge algebra only; coordinate and contribution checks remain Analysis-owned."""
+    if method in {"sum", "count", "mean", "weighted_mean"}:
+        spatial: Literal["sum", "min", "max", "blocked"] = "sum"
+    elif method == "min":
+        spatial = "min"
+    elif method == "max":
+        spatial = "max"
+    else:
+        return "blocked", "blocked"
+    if time_fold in ("min", "max"):
+        if time_fold == method and method in ("min", "max"):
+            return spatial, spatial
+        return "blocked", time_fold
+    if status_time_dimension is None:
+        return spatial, spatial
+    return spatial, "blocked"
+
+
 def _normalize_target_graph(
     registry: Registry,
     forest: MetricExpressionForestV1,
@@ -1724,6 +1756,12 @@ def _normalize_target_graph(
             empty_policy = declaration.empty_policy if declaration is not None else None
             event_time_path = declaration.event_time_path if declaration is not None else ()
             event_time_id = declaration.event_time_dimension if declaration is not None else None
+            agg_name = node.agg[0] if isinstance(node.agg, tuple) else node.agg
+            spatial_merge, time_merge = _intrinsic_component_merges(
+                agg_name,
+                status_time_dimension=status_time_dimension,
+                time_fold=node.fold,
+            )
             components.append(
                 TargetMetricComponent(
                     node_id,
@@ -1748,6 +1786,24 @@ def _normalize_target_graph(
                         else None
                     ),
                     tuple(_ref_payload("relationship", path) for path in event_time_path),
+                    unit=node.unit_override or unit,
+                    numeric_method=(
+                        "linear_interpolation@v1"
+                        if agg_name in {"median", "percentile"}
+                        else f"{agg_name}@v1"
+                    ),
+                    spatial_merge=spatial_merge,
+                    time_merge=time_merge,
+                    declaration_ref=(
+                        _ref_payload("metric", declaration.semantic_id)
+                        if declaration is not None
+                        else None
+                    ),
+                    additivity_policy=(
+                        declaration.dsl_additivity if declaration is not None else None
+                    ),
+                    null_policy=declaration.null_policy if declaration is not None else None,
+                    empty_policy=empty_policy,
                 )
             )
             return (
@@ -1788,6 +1844,12 @@ def _normalize_target_graph(
                 status_time_dimension = _ref_payload("time_dimension", value_additivity.over)
                 source_recompute = True
                 requirements.add("metric.source_temporal_fold@v1")
+            declaration = component_declarations.get(role)
+            spatial_merge, time_merge = _intrinsic_component_merges(
+                "weighted_mean",
+                status_time_dimension=status_time_dimension,
+                time_fold=time_fold,
+            )
             components.append(
                 TargetMetricComponent(
                     node_id,
@@ -1802,6 +1864,20 @@ def _normalize_target_graph(
                     status_time_dimension,
                     time_fold is not None,
                     policies.get(role, "block"),
+                    unit=node.unit_override or unit,
+                    numeric_method="weighted_mean@v1",
+                    spatial_merge=spatial_merge,
+                    time_merge=time_merge,
+                    declaration_ref=(
+                        _ref_payload("metric", declaration.semantic_id)
+                        if declaration is not None
+                        else None
+                    ),
+                    additivity_policy=(
+                        declaration.dsl_additivity if declaration is not None else None
+                    ),
+                    null_policy=declaration.null_policy if declaration is not None else None,
+                    empty_policy=declaration.empty_policy if declaration is not None else None,
                 )
             )
             if value_type == "unknown" or weight_type == "unknown":
@@ -1919,6 +1995,7 @@ def _normalize_target_graph(
         identity=forest.identities[0],
         name=name,
         graph=forest.graph,
+        bound_graph_fingerprint=forest.bound_graph_fingerprint,
         dependency_fingerprint=forest.dependency_digest.digest,
         computation_roots=tuple(
             dict.fromkeys(component.computation_root for component in components)

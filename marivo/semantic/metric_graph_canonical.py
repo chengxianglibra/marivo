@@ -281,12 +281,14 @@ def _fold_value(value: object, *, context: str) -> AggregateFoldInput:
     return ("percentile", float(pair[1]))
 
 
-def _zero_division_value(value: object, *, context: str) -> Literal["null", "error"]:
+def _zero_division_value(value: object, *, context: str) -> Literal["null", "undefined", "error"]:
     if value == "null":
         return "null"
     if value == "error":
         return "error"
-    _invalid(f"{context} must be 'null' or 'error'")
+    if value == "undefined":
+        return "undefined"
+    _invalid(f"{context} must be 'null', 'undefined', or 'error'")
 
 
 def _cumulative_anchor(value: object, *, context: str) -> CumulativeAnchorV1:

@@ -290,6 +290,14 @@ class TargetMetricComponent:
     fanout_policy: Literal["block", "aggregate_then_join"] = "block"
     event_time_dimension: RefPayloadV1 | None = None
     event_time_path: tuple[RefPayloadV1, ...] = ()
+    unit: str | None = None
+    numeric_method: str | None = None
+    spatial_merge: Literal["sum", "min", "max", "blocked"] = "blocked"
+    time_merge: Literal["sum", "min", "max", "last", "blocked"] = "blocked"
+    declaration_ref: RefPayloadV1 | None = None
+    additivity_policy: AdditivityPolicy | None = None
+    null_policy: NullInputPolicyV1 | None = None
+    empty_policy: EmptyContributionPolicyV1 | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,6 +318,7 @@ class TargetMetricContract:
     identity: MetricIdentity
     name: str
     graph: MetricExpressionGraphV1
+    bound_graph_fingerprint: str
     dependency_fingerprint: str
     computation_roots: tuple[RefPayloadV1, ...]
     components: tuple[TargetMetricComponent, ...]
