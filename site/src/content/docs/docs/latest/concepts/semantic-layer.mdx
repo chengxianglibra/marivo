@@ -1564,6 +1564,20 @@ def order_paid(order_rows):
 created = ms.lifecycle_state(name="created", initial=True)
 paid = ms.lifecycle_state(name="paid", terminal=True)
 
+order_business_order = ms.business_order(
+    name="order_business_order",
+    subject=orders,
+    conflicts=(
+        ms.precedes(
+            ms.participant_role(event=order_created, name="order"),
+            ms.participant_role(event=order_paid, name="order"),
+        ),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="Creation precedes payment for the same order."
+    ),
+)
+
 order_lifecycle = ms.state_model(
     name="order_lifecycle",
     subject=orders,
@@ -1576,6 +1590,7 @@ order_lifecycle = ms.state_model(
             to_state=paid,
         ),
     ),
+    business_order=order_business_order,
     ai_context=ms.ai_context(
         business_definition="Normative commercial order lifecycle."
     ),
@@ -1594,6 +1609,15 @@ ready for replay from inception. Use `marivo.help("semantic.state_model")` for
 the current constructor contract. Use `catalog.require(...)` for exact current
 membership, scoped readiness for static preflight, and preview only for a
 concrete runtime risk.
+
+Use `catalog.require(ms.ref.business_order("sales.order_business_order"))` to
+inspect the exact order declaration. Sequence declarations use
+`ms.event_sequence(event, value, order="integer")` or an explicit ordered tuple
+of distinct strings. The value field belongs to the Event source and cannot
+directly alias its occurrence identity. `ms.load()` checks the declared roles,
+Subject, field ownership, and precedence graph. Scoped readiness reports that
+source values and Event history remain unverified; R7 will check them when
+consuming events. An occurrence ID alone never establishes business order.
 
 ## Explicit quantile meaning
 

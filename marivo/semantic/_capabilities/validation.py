@@ -32,6 +32,7 @@ _RETURN_FAMILY_ALIASES = {
     "Ref[MetricKind]": "Ref[metric]",
     "Ref[RelationshipKind]": "Ref[relationship]",
     "Ref[EventKind]": "Ref[event]",
+    "Ref[BusinessOrderKind]": "Ref[business_order]",
     "Ref[StateModelKind]": "Ref[state_model]",
     "Ref[PeriodCalendarKind]": "Ref[period_calendar]",
     "Ref[TemporalSetKind]": "Ref[temporal_set]",

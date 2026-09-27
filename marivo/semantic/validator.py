@@ -41,6 +41,8 @@ from marivo.semantic.errors import (
     repair,
 )
 from marivo.semantic.ir import (
+    BusinessOrderDeclarationIR,
+    BusinessOrderIR,
     CumulativeComposition,
     DateParse,
     DatetimeParse,
@@ -49,6 +51,7 @@ from marivo.semantic.ir import (
     DomainIR,
     EntityIR,
     EventIR,
+    EventSequenceIR,
     HourPrefixParse,
     LinearComposition,
     MeasureIR,
@@ -86,6 +89,7 @@ if TYPE_CHECKING:
 __all__ = [
     "Registry",
     "assembly_validate",
+    "canonicalize_business_orders",
     "canonicalize_state_models",
     "validate_decorator_call",
     "validate_event_body_ast",
@@ -111,6 +115,7 @@ class Registry:
     relationships: dict[str, RelationshipIR] = field(default_factory=dict)
     events: dict[str, EventIR] = field(default_factory=dict)
     state_models: dict[str, StateModelIR] = field(default_factory=dict)
+    business_orders: dict[str, BusinessOrderIR] = field(default_factory=dict)
     period_calendars: dict[str, PeriodCalendarIR] = field(default_factory=dict)
     temporal_sets: dict[str, TemporalSetIR] = field(default_factory=dict)
     work_schedules: dict[str, WorkScheduleIR] = field(default_factory=dict)
@@ -130,6 +135,7 @@ class Registry:
             "relationships",
             "events",
             "state_models",
+            "business_orders",
             "period_calendars",
             "temporal_sets",
             "work_schedules",
@@ -595,6 +601,187 @@ def _participant_endpoint(
     return endpoint, participant.cardinality
 
 
+def canonicalize_business_orders(
+    registry: Registry,
+    declarations: tuple[BusinessOrderDeclarationIR, ...],
+) -> list[SemanticError]:
+    """Resolve declared business order roles against exact loaded Event identities."""
+    errors: list[SemanticError] = []
+    for declaration in declarations:
+        local: list[SemanticError] = []
+
+        def reject(
+            expected: str,
+            received: object,
+            action: str,
+            *,
+            current: BusinessOrderDeclarationIR = declaration,
+            current_errors: list[SemanticError] = local,
+        ) -> None:
+            current_errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_BUSINESS_ORDER,
+                    message=f"Business order {current.semantic_id!r} has invalid order authority.",
+                    refs=(current.semantic_id,),
+                    expected=expected,
+                    received=repr(received),
+                    location=current.location,
+                    hint=action,
+                    repair=repair(kind="reauthor", canonical_id="business_order", action=action),
+                )
+            )
+
+        subject = registry.entities.get(declaration.subject)
+        if subject is None or not subject.primary_key:
+            reject(
+                "loaded Subject Entity with a complete non-empty K",
+                declaration.subject,
+                "Declare the exact Subject Entity and its complete primary_key.",
+            )
+        sequences: list[EventSequenceIR] = []
+        sequence_events: set[str] = set()
+        sequence_orders: set[object] = set()
+        for item in declaration.sequences:
+            event = registry.events.get(item.event_ref)
+            value = registry.dimensions.get(item.value_ref)
+            if event is None or value is None or value.is_time_dimension:
+                reject(
+                    "loaded Event and categorical Dimension",
+                    (item.event_ref, item.value_ref),
+                    "Use exact loaded Event and Dimension refs.",
+                )
+                continue
+            if item.event_ref in sequence_events:
+                reject(
+                    "one sequence per Event",
+                    item.event_ref,
+                    "Remove the duplicate Event sequence rule.",
+                )
+                continue
+            sequence_events.add(item.event_ref)
+            if value.entity != event.source_entity:
+                reject(
+                    f"Dimension owned by {event.source_entity}",
+                    value.entity,
+                    "Choose a sequence Dimension on the Event occurrence Entity.",
+                )
+                continue
+            identity_columns = {
+                registry.dimensions[path].source_column
+                for path in event.identity
+                if path in registry.dimensions
+            }
+            if item.value_ref in event.identity or (
+                value.source_column is not None and value.source_column in identity_columns
+            ):
+                reject(
+                    "a business sequence distinct from occurrence identity",
+                    item.value_ref,
+                    "Declare a separate business sequence field, not an occurrence ID alias.",
+                )
+                continue
+            qualifying = tuple(
+                part.name
+                for part in event.participants
+                if _participant_endpoint(event, participant_name=part.name, registry=registry)
+                == (declaration.subject, "one")
+            )
+            if len(qualifying) != 1:
+                reject(
+                    "one unambiguous cardinality-one participant for the Subject",
+                    (item.event_ref, qualifying),
+                    "Resolve Event participant roles so exactly one maps to the order Subject.",
+                )
+                continue
+            sequence_orders.add(item.order)
+            sequences.append(
+                EventSequenceIR(
+                    event_ref=item.event_ref,
+                    value_ref=item.value_ref,
+                    order=item.order,
+                    participant_role=qualifying[0],
+                )
+            )
+        if len(sequence_orders) > 1:
+            reject(
+                "one comparable sequence order contract per Subject",
+                tuple(sorted(sequence_orders, key=repr)),
+                "Use the same integer mode or exact ordered-value tuple for every sequence.",
+            )
+
+        edges: set[tuple[tuple[str, str], tuple[str, str]]] = set()
+        for precedence in declaration.conflicts:
+            before_event = registry.events.get(precedence.before_event)
+            after_event = registry.events.get(precedence.after_event)
+            if before_event is None or after_event is None:
+                reject(
+                    "loaded Event roles",
+                    (precedence.before_event, precedence.after_event),
+                    "Use participant roles of loaded Events.",
+                )
+                continue
+            before = (precedence.before_event, precedence.before_role)
+            after = (precedence.after_event, precedence.after_role)
+            if _participant_endpoint(
+                before_event, participant_name=precedence.before_role, registry=registry
+            ) != (declaration.subject, "one") or _participant_endpoint(
+                after_event, participant_name=precedence.after_role, registry=registry
+            ) != (declaration.subject, "one"):
+                reject(
+                    "two cardinality-one roles on the exact Subject",
+                    (before, after),
+                    "Select exact Event participant roles ending at the order Subject.",
+                )
+                continue
+            edge = (before, after)
+            if before == after or edge in edges:
+                reject(
+                    "distinct unique precedence edge",
+                    edge,
+                    "Remove self-precedence or repeated rules.",
+                )
+                continue
+            edges.add(edge)
+
+        outgoing: dict[tuple[str, str], set[tuple[str, str]]] = {}
+        indegree: dict[tuple[str, str], int] = {}
+        for before, after in edges:
+            outgoing.setdefault(before, set()).add(after)
+            indegree.setdefault(before, 0)
+            indegree[after] = indegree.get(after, 0) + 1
+        pending = [node for node, degree in indegree.items() if degree == 0]
+        visited = 0
+        while pending:
+            node = pending.pop()
+            visited += 1
+            for after in outgoing.get(node, ()):
+                indegree[after] -= 1
+                if indegree[after] == 0:
+                    pending.append(after)
+        if visited != len(indegree):
+            reject(
+                "acyclic simultaneous precedence",
+                tuple(sorted(edges)),
+                "Remove the cycle from ms.precedes(...) rules.",
+            )
+        errors.extend(local)
+        if local:
+            continue
+
+        registry.business_orders[declaration.semantic_id] = BusinessOrderIR(
+            semantic_id=declaration.semantic_id,
+            domain=declaration.domain,
+            name=declaration.name,
+            subject=declaration.subject,
+            sequences=tuple(sequences),
+            conflicts=declaration.conflicts,
+            ai_context=declaration.ai_context,
+            python_symbol=declaration.python_symbol,
+            location=declaration.location,
+        )
+    return errors
+
+
 def canonicalize_state_models(
     registry: Registry,
     declarations: tuple[StateModelDeclarationIR, ...],
@@ -619,6 +806,45 @@ def canonicalize_state_models(
                 )
             )
             continue
+
+        if declaration.business_order is not None:
+            order = registry.business_orders.get(declaration.business_order)
+            trigger_events = {item.event_ref for item in declaration.inceptions} | {
+                trigger.event_ref for _source, trigger, _target in declaration.transitions
+            }
+            order_events = (
+                set()
+                if order is None
+                else {item.event_ref for item in order.sequences}
+                | {item.before_event for item in order.conflicts}
+                | {item.after_event for item in order.conflicts}
+            )
+            if (
+                order is None
+                or order.subject != declaration.subject
+                or not trigger_events <= order_events
+            ):
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_STATE_MODEL,
+                        message=f"StateModel {declaration.semantic_id!r} has an incompatible business order.",
+                        refs=(declaration.semantic_id, declaration.business_order),
+                        expected="loaded business order on the exact Subject covering every trigger Event",
+                        received=repr(
+                            {
+                                "subject": None if order is None else order.subject,
+                                "missing_events": tuple(sorted(trigger_events - order_events)),
+                            }
+                        ),
+                        location=declaration.location,
+                        repair=repair(
+                            kind="reauthor",
+                            canonical_id="state_model",
+                            action="Bind an exact business order with the same Subject and all trigger Events.",
+                        ),
+                    )
+                )
+                continue
 
         def resolve_trigger(
             trigger: object,
@@ -833,6 +1059,7 @@ def canonicalize_state_models(
             states=declaration.states,
             inceptions=tuple(inceptions),
             transitions=tuple(transitions),
+            business_order=declaration.business_order,
             ai_context=declaration.ai_context,
             python_symbol=declaration.python_symbol,
             location=declaration.location,
@@ -2199,6 +2426,26 @@ def assembly_validate(
                 )
             )
             continue
+        if isinstance(date_field.parse, (DatetimeParse, TimestampParse, HourPrefixParse)) or (
+            isinstance(date_field.parse, StrptimeParse)
+            and is_time_bearing_format(date_field.parse.format)
+        ):
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_REF,
+                    message=f"Period calendar {calendar_id!r} date axis declares timestamp meaning.",
+                    refs=(calendar_id, calendar.date),
+                    expected="civil-date TimeDimension at day grain",
+                    received=type(date_field.parse).__name__,
+                    hint="Declare a civil-date axis; native untyped axes must prove date values during complete certification.",
+                    repair=repair(
+                        kind="reauthor",
+                        canonical_id="period_calendar",
+                        action="Choose a civil-date TimeDimension and reload the calendar.",
+                    ),
+                )
+            )
+            continue
         for level, level_ref in calendar.levels:
             field = registry.dimensions.get(level_ref)
             if field is None or field.is_time_dimension or field.entity != date_field.entity:
@@ -2356,6 +2603,11 @@ def assembly_validate(
                     refs=(event_id, event_ir.source_entity),
                     expected="owner(occurred_at) present in the compiled catalog",
                     received=event_ir.source_entity,
+                    repair=repair(
+                        kind="reauthor",
+                        canonical_id="event",
+                        action="Declare occurred_at on a loaded Event source Entity and reload.",
+                    ),
                 )
             )
             continue
@@ -2372,6 +2624,11 @@ def assembly_validate(
                     refs=(event_id, event_ir.occurred_at),
                     expected=f"Ref[time_dimension] owned by {event_ir.source_entity}",
                     received=event_ir.occurred_at,
+                    repair=repair(
+                        kind="reauthor",
+                        canonical_id="event",
+                        action="Choose a source-owned business time dimension and reload.",
+                    ),
                 )
             )
         for identity_ref in event_ir.identity:
@@ -2391,6 +2648,11 @@ def assembly_validate(
                         refs=(event_id, identity_ref),
                         expected=f"Ref[dimension] owned by {event_ir.source_entity}",
                         received=identity_ref,
+                        repair=repair(
+                            kind="reauthor",
+                            canonical_id="event",
+                            action="Use source-owned categorical occurrence identity fields and reload.",
+                        ),
                     )
                 )
         for participant in event_ir.participants:
@@ -2411,6 +2673,11 @@ def assembly_validate(
                                 "missing"
                                 if relationship is None
                                 else f"{relationship.from_entity} -> {relationship.to_entity}"
+                            ),
+                            repair=repair(
+                                kind="reauthor",
+                                canonical_id="participant",
+                                action="Declare a directed relationship path from the Event source and reload.",
                             ),
                         )
                     )
@@ -2433,6 +2700,11 @@ def assembly_validate(
                         refs=(event_id, endpoint),
                         expected="a non-empty endpoint Entity primary_key",
                         received="empty primary_key",
+                        repair=repair(
+                            kind="reauthor",
+                            canonical_id="participant",
+                            action="Declare the participant Subject's complete primary_key and reload.",
+                        ),
                     )
                 )
             if endpoint_entity is not None and endpoint_entity.datasource != source.datasource:
@@ -2446,6 +2718,11 @@ def assembly_validate(
                         refs=(event_id, event_ir.source_entity, endpoint),
                         expected=f"datasource {source.datasource}",
                         received=endpoint_entity.datasource,
+                        repair=repair(
+                            kind="reauthor",
+                            canonical_id="participant",
+                            action="Keep Event participant paths within the source datasource and reload.",
+                        ),
                     )
                 )
 

@@ -109,6 +109,10 @@ The `date` ref must be a civil-date `TimeDimension` with day granularity. V1 doe
 not accept an instant or wall-clock timestamp as a date-spine key; authors must
 expose a true date column. This establishes the one source entity for every
 level and correspondence column. Authors do not repeat the entity or source.
+Loading rejects a date axis whose parse declaration is timestamp-bearing,
+including a time-bearing `strptime` format. A native axis without an explicit
+parse type remains a declaration premise until the existing exhaustive
+calendar certification proves every covered source value is a civil date.
 `coverage` is a half-open civil-date interval. `boundary_timezone` is an IANA
 timezone and is part of the certified content.
 

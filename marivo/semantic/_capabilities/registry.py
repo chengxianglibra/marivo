@@ -66,6 +66,7 @@ INPUT_FAMILIES = frozenset(
         "Ref[event]",
         "Ref[event] | ParticipantRoleHandle",
         "Ref[state_model]",
+        "Ref[business_order]",
         "Ref[period_calendar]",
         "Ref[temporal_set]",
         "Ref[work_schedule]",
@@ -143,6 +144,10 @@ INPUT_FAMILIES = frozenset(
         "StateTransition",
         "ModelStateHandle",
         "StateModelName",
+        "BusinessOrderName",
+        "EventSequence",
+        "EventPrecedence",
+        "SequenceOrder",
         "LifecycleStateName",
         "PeriodCorrespondence",
         "Grain",
@@ -183,6 +188,7 @@ OUTPUT_FAMILIES = frozenset(
         "Ref[relationship]",
         "Ref[event]",
         "Ref[state_model]",
+        "Ref[business_order]",
         "Ref[period_calendar]",
         "Ref[temporal_set]",
         "Ref[work_schedule]",
@@ -208,6 +214,8 @@ OUTPUT_FAMILIES = frozenset(
         "LifecycleState",
         "Inception",
         "StateTransition",
+        "EventSequence",
+        "EventPrecedence",
         "ModelStateHandle",
         "PeriodCorrespondence",
         "Grain",
@@ -403,6 +411,7 @@ def _source_contracts() -> Mapping[str, AuthoringSourceContract]:
         ),
         SemanticKind.RELATIONSHIP: ("relationship",),
         SemanticKind.EVENT: ("event",),
+        SemanticKind.BUSINESS_ORDER: ("business_order",),
         SemanticKind.STATE_MODEL: ("state_model",),
         SemanticKind.PERIOD_CALENDAR: ("period_calendar",),
         SemanticKind.TEMPORAL_SET: ("temporal_set",),
@@ -1054,8 +1063,8 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 ),
                 _decision(
                     "excluded_replay_policies",
-                    "Which replay, seed, ordering, or violation policies are deliberately excluded?",
-                    "StateModel owns normative lifecycle meaning only; analysis owns replay policy.",
+                    "Which replay, seed, or violation policies are deliberately excluded?",
+                    "StateModel owns normative lifecycle meaning and an optional order ref; analysis owns replay policy.",
                     "business_authority",
                     unsupported_reason=(
                         "The current StateModel object does not encode replay policy; use the exact "
@@ -1075,6 +1084,11 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "objects.event",
                     "Inceptions and transitions use exact Event triggers or participant handles.",
                 ),
+                _relationship(
+                    "may_reference",
+                    "objects.business_order",
+                    "A StateModel may bind one default business order.",
+                ),
             ),
             supporting=(
                 "lifecycle_state",
@@ -1084,6 +1098,50 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 "participant_role",
                 "ai_context",
             ),
+            checks=("load", "readiness"),
+        ),
+        _object_contract(
+            SemanticKind.BUSINESS_ORDER,
+            "Named same-subject sequence and simultaneous-precedence authority.",
+            decisions=(
+                _business_decision(
+                    "order_rationale",
+                    "Why does this business order hold?",
+                    "business_order",
+                    "ai_context",
+                ),
+                _business_decision(
+                    "sequence_order",
+                    "Which exact Event value order is authoritative?",
+                    "event_sequence",
+                ),
+                _business_decision(
+                    "simultaneous_precedence",
+                    "Which same-subject roles have precedence?",
+                    "precedes",
+                ),
+            ),
+            construction_modes=(
+                _mode(
+                    "Declare one versioned same-subject order authority.",
+                    "default",
+                    "business_order",
+                ),
+            ),
+            relationships=(
+                _relationship(
+                    "owned_by", "objects.entity", "The Subject's complete K fixes order ownership."
+                ),
+                _relationship(
+                    "requires", "objects.event", "Each ordered occurrence has an exact Event role."
+                ),
+                _relationship(
+                    "consumed_by",
+                    "objects.state_model",
+                    "StateModels may bind this order as their default.",
+                ),
+            ),
+            supporting=("event_sequence", "precedes", "participant_role", "ai_context"),
             checks=("load", "readiness"),
         ),
         _object_contract(
@@ -1294,7 +1352,14 @@ def _builder_topics() -> tuple[SemanticBuilderTopic, ...]:
             "builders.relationship_event",
             "Relationship and Event support",
             "Build join keys, participants, participant handles, and all-row predicates.",
-            ("join_on", "participant", "participant_role", "all_rows"),
+            (
+                "join_on",
+                "participant",
+                "participant_role",
+                "all_rows",
+                "event_sequence",
+                "precedes",
+            ),
         ),
         (
             "builders.state_model",
@@ -2268,12 +2333,28 @@ _PARAMETER_NAMES_BY_CAPABILITY: Mapping[str, tuple[tuple[str, ...], ...]] = Mapp
             ("keys",),
         ),
         "event": (("name",), ("identity",), ("occurred_at",), ("participants",)),
+        "event_sequence": (("event",), ("value",), ("order",)),
+        "precedes": (("before",), ("after",)),
+        "business_order": (
+            ("name",),
+            ("subject",),
+            ("sequences",),
+            ("conflicts",),
+            ("ai_context",),
+        ),
         "participant": (("name",), ("path",)),
         "participant_role": (("event",), ("name",)),
         "lifecycle_state": (("name",),),
         "inception": (("on",),),
         "transition": (("from_state",), ("on",), ("to_state",)),
-        "state_model": (("name",), ("subject",), ("states",), ("transitions",), ("transitions",)),
+        "state_model": (
+            ("name",),
+            ("subject",),
+            ("states",),
+            ("transitions",),
+            ("transitions",),
+            ("business_order",),
+        ),
         "model_state": (("model",), ("name",)),
         "join_on": (("from_key", "to_key"),),
         "bind": (("field",), ("entity_alias",)),
@@ -2313,6 +2394,9 @@ _OPTIONAL_PARAMETER_REQUIREMENTS = frozenset(
         ("measure", 0),
         ("cumulative", 2),
         ("event", 0),
+        ("business_order", 2),
+        ("business_order", 3),
+        ("state_model", 5),
         ("participant", 1),
         ("metric", 0),
         ("readiness", 1),
@@ -2869,6 +2953,53 @@ def _build_registry() -> SemanticCapabilityRegistry:
             see_also=(_target("event"),),
         ),
         _capability(
+            "event_sequence",
+            "marivo.semantic.business_order.event_sequence",
+            "Declare an Event source field with one explicit business value order.",
+            output="EventSequence",
+            inputs=_inputs(
+                ("subject", "Ref[event]"),
+                ("dependency", "Ref[dimension]"),
+                ("dependency", "SequenceOrder"),
+            ),
+            effects=_NONE,
+            example="ms.event_sequence(payment, sequence_number, order='integer')",
+            see_also=(_target("business_order"),),
+        ),
+        _capability(
+            "precedes",
+            "marivo.semantic.business_order.precedes",
+            "Declare same-subject precedence for simultaneous Event roles.",
+            output="EventPrecedence",
+            inputs=_inputs(
+                ("subject", "ParticipantRoleHandle"),
+                ("dependency", "ParticipantRoleHandle"),
+            ),
+            effects=_NONE,
+            example="ms.precedes(activated_role, deactivated_role)",
+            see_also=(_target("business_order"), _target("participant_role")),
+        ),
+        _capability(
+            "business_order",
+            "marivo.semantic.business_order.business_order",
+            "Declare one named same-subject business order authority.",
+            output="Ref[business_order]",
+            inputs=_inputs(
+                ("mapping_key", "BusinessOrderName"),
+                ("subject", "Ref[entity]"),
+                ("dependency", "EventSequence"),
+                ("dependency", "EventPrecedence"),
+                ("evidence", "AiContextValue"),
+            ),
+            effects=_AUTHOR,
+            example=(
+                "ms.business_order(name='payment_order', subject=orders, "
+                "sequences=(ms.event_sequence(payment, sequence_number, order='integer'),), "
+                "ai_context=ms.ai_context(business_definition='Ledger order per subject'))"
+            ),
+            see_also=(_target("event_sequence"), _target("precedes"), _target("state_model")),
+        ),
+        _capability(
             "lifecycle_state",
             "marivo.semantic.state_model.lifecycle_state",
             "Declare one immutable local state for a StateModel.",
@@ -2920,6 +3051,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 ("dependency", "LifecycleState"),
                 ("dependency", "Inception"),
                 ("dependency", "StateTransition"),
+                ("dependency", "Ref[business_order]"),
             ),
             effects=_AUTHOR,
             constraints=(
@@ -2937,6 +3069,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 _target("inception"),
                 _target("transition"),
                 _target("model_state"),
+                _target("business_order"),
             ),
         ),
         _capability(
@@ -3420,11 +3553,20 @@ REGISTRY = _build_registry()
 def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     """Build private type contracts without exposing constructors as help targets."""
     from marivo.preview import PreviewResult
-    from marivo.refs import PeriodCalendarKind, Ref, SemanticKind, WorkScheduleKind
+    from marivo.refs import (
+        BusinessOrderKind,
+        PeriodCalendarKind,
+        Ref,
+        SemanticKind,
+        WorkScheduleKind,
+    )
     from marivo.refs import ref as ref_factory
     from marivo.semantic._authoring_metrics import GrainToDate
     from marivo.semantic._authoring_temporal import PeriodCorrespondence
+    from marivo.semantic.business_order import EventPrecedence, EventSequence
     from marivo.semantic.catalog import (
+        BusinessOrderDetails,
+        BusinessOrderEntry,
         CalendarLevelDetails,
         CalendarPeriodPage,
         CatalogCollection,
@@ -3652,6 +3794,18 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     add(
         EventDetails,
         "EventDetails",
+        (),
+        methods=show_render,
+    )
+    add(
+        BusinessOrderEntry,
+        "BusinessOrderEntry",
+        (),
+        methods=("details", "show", "render"),
+    )
+    add(
+        BusinessOrderDetails,
+        "BusinessOrderDetails",
         (),
         methods=show_render,
     )
@@ -3928,6 +4082,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "relationship",
             "event",
             "state_model",
+            "business_order",
             "period_calendar",
             "temporal_set",
             "work_schedule",
@@ -3946,6 +4101,11 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         "ref",
         (),
         methods=factory_methods("ref"),
+    )
+    add(
+        BusinessOrderKind,
+        "BusinessOrderKind",
+        ("business_order",),
     )
     add(
         PeriodCalendarKind,
@@ -3978,6 +4138,20 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ("participant",),
         properties=("name", "path", "cardinality"),
         consumers=("event",),
+    )
+    add(
+        EventSequence,
+        "EventSequence",
+        ("event_sequence",),
+        properties=("event", "value", "order"),
+        consumers=("business_order",),
+    )
+    add(
+        EventPrecedence,
+        "EventPrecedence",
+        ("precedes",),
+        properties=("before", "after"),
+        consumers=("business_order",),
     )
     add(
         ParticipantRoleHandle,

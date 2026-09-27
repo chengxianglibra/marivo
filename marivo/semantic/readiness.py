@@ -32,6 +32,7 @@ ReadinessIssueKind = Literal[
     "metric_graph_invalid",
     "snapshot_fold_unobservable",
     "state_model_seed_missing",
+    "business_order_values_unverified",
     "period_calendar_artifact_missing",
     "period_calendar_artifact_stale",
     "period_calendar_artifact_invalid",
@@ -179,6 +180,7 @@ def _exact_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
         SemanticKind.EVENT: ref_factory.event,
         SemanticKind.STATE_MODEL: ref_factory.state_model,
+        SemanticKind.BUSINESS_ORDER: ref_factory.business_order,
         SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
         SemanticKind.TEMPORAL_SET: ref_factory.temporal_set,
         SemanticKind.WORK_SCHEDULE: ref_factory.work_schedule,
@@ -289,6 +291,10 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, SemanticKind], dic
         key = _exact_key(state_model.semantic_id, SemanticKind.STATE_MODEL)
         kinds[key] = SemanticKind.STATE_MODEL
         objects[key] = state_model
+    for order in reg.business_orders.values():
+        key = _exact_key(order.semantic_id, SemanticKind.BUSINESS_ORDER)
+        kinds[key] = SemanticKind.BUSINESS_ORDER
+        objects[key] = order
     for calendar in reg.period_calendars.values():
         key = _exact_key(calendar.semantic_id, SemanticKind.PERIOD_CALENDAR)
         kinds[key] = SemanticKind.PERIOD_CALENDAR
@@ -464,6 +470,25 @@ def _dependencies_for_ref(
         return (
             _exact_key(model.subject, SemanticKind.ENTITY),
             *tuple(_exact_key(event_ref, SemanticKind.EVENT) for event_ref in sorted(event_refs)),
+            *(
+                (_exact_key(model.business_order, SemanticKind.BUSINESS_ORDER),)
+                if model.business_order is not None
+                else ()
+            ),
+        )
+    if kind == SemanticKind.BUSINESS_ORDER:
+        from marivo.semantic.ir import BusinessOrderIR
+
+        order = cast("BusinessOrderIR", obj)
+        event_refs = (
+            {item.event_ref for item in order.sequences}
+            | {item.before_event for item in order.conflicts}
+            | {item.after_event for item in order.conflicts}
+        )
+        return (
+            _exact_key(order.subject, SemanticKind.ENTITY),
+            *tuple(_exact_key(path, SemanticKind.EVENT) for path in sorted(event_refs)),
+            *tuple(_exact_key(item.value_ref, SemanticKind.DIMENSION) for item in order.sequences),
         )
     return ()
 
@@ -849,6 +874,18 @@ def build_readiness_report(
     blockers.extend(naive_time_axis_blockers)
     warnings.extend(naive_time_axis_warnings)
     blockers.extend(_snapshot_fold_unobservable_issues(checked_refs, kinds, objects, reg))
+    for ref in checked_refs:
+        if kinds.get(ref) is SemanticKind.BUSINESS_ORDER:
+            path = _display_path(ref)
+            warnings.append(
+                _issue(
+                    "business_order_values_unverified",
+                    "advisory",
+                    (path,),
+                    f"{path} has a valid order declaration; source sequence values and Event history have not been verified.",
+                    details={"verification_stage": "R7"},
+                )
+            )
 
     # Period calendars are executable semantic dependencies. Unlike ordinary
     # preview output, a missing/stale certified artifact is a hard blocker
@@ -1100,7 +1137,9 @@ def build_readiness_report(
         )
     )
     analysis_ready_inputs = tuple(
-        _exact_ref(_display_path(ref), kinds[ref]) for ref in analysis_ready_ids if ref in kinds
+        _exact_ref(_display_path(ref), kinds[ref])
+        for ref in analysis_ready_ids
+        if ref in kinds and kinds[ref] is not SemanticKind.BUSINESS_ORDER
     )
 
     datasources_checked: tuple[str, ...] = scoped_datasources if reg is not None else ()

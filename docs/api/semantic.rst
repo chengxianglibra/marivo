@@ -38,6 +38,18 @@ return a restricted boolean expression; unfiltered bodies explicitly return
 .. autofunction:: participant_role
 .. autofunction:: all_rows
 
+Business order and lifecycle
+----------------------------
+
+``ms.business_order`` declares one same-Subject order authority. Loading
+validates exact Event roles, source-owned sequence fields, and acyclic
+precedence. Source values and Event history remain for R7 verification.
+
+.. autofunction:: event_sequence
+.. autofunction:: precedes
+.. autofunction:: business_order
+.. autofunction:: state_model
+
 Aggregation & measure helpers
 -----------------------------
 
@@ -167,6 +179,8 @@ Details types
    MetricDetails
    RelationshipDetails
    EventDetails
+   BusinessOrderDetails
+   StateModelDetails
    TimeDimensionDetails
    DomainDetails
    DatasourceDetails
@@ -209,6 +223,9 @@ routing and boundaries only; it does not duplicate these API recipes.
    CatalogCollection
    CatalogEntry
    SemanticKind
+   EventSequence
+   EventPrecedence
+   BusinessOrderEntry
    PeriodCalendarEntry
    CalendarPeriodPage
    TemporalSetEntry
