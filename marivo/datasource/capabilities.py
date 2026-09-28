@@ -207,12 +207,17 @@ def execute_provider_statement(
     log.append(submission)
     try:
         cursor = backend.raw_sql(sql)
+        # DuckDB raw_sql returns a connection-local result handle whose close()
+        # would sever the shared connection; never close it here. Other drivers
+        # get a best-effort DB-API cursor close.
+        connection_local = getattr(backend, "name", None) == "duckdb"
         try:
             frame = decode_cursor_frame(cursor, include_types=False, max_rows=None)
         finally:
-            close = getattr(cursor, "close", None)
-            if callable(close):
-                close()
+            if not connection_local:
+                close = getattr(cursor, "close", None)
+                if callable(close):
+                    close()
     except Exception as exc:
         submission.state = "failed"
         submission.failure_summary = _backend_failure_summary(exc).message
