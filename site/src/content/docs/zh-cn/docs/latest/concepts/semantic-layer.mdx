@@ -1269,9 +1269,10 @@ coverage 和 cache identity；值默认只在内存。
 `scope=local_node_only` 说明展示；源表级行与 bytes 保持 `unknown`，Marivo
 不会默认发起 cluster-wide 扩散查询。
 
-表检查返回绑定 Ibis 来源的 schema。注释、表或视图类型、列可空性、分区、主键、物理估计和 ClickHouse
-`projectable_columns` 等可选 catalog 事实，若无法从合格路径取得，会标为 unavailable。
-分析若必须依赖其中某项事实，对应来源形态保持阻断，直到取得独立证据。
+表检查返回绑定 schema 以及 provider 可取得的 catalog 事实：注释、表或视图类型与定义、
+列可空性、分区、provider 能暴露的主键、物理估计和 ClickHouse `projectable_columns`。
+这些事实来自 provider 自有的固定语句注册表；当前账号或来源形态下 provider 无法取得的
+事实仍标为 unavailable，分析若必须依赖某项事实，对应来源形态保持阻断，直到取得独立证据。
 
 可按问题选择 inspection、可选的显式有界 sample，或单独的终端
 `md.raw_sql(...)` 诊断。`md.raw_sql` 不解析或归类输入，原样提交 SQL 文本，执行正数返回行界与
