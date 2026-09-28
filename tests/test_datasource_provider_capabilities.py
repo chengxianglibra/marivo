@@ -54,12 +54,30 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
     """The channel SQL text is frozen; edits must update this snapshot deliberately."""
     import hashlib
 
+    # Load every engine module so each provider's statements are registered.
+    assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
+
     # Every registered provider statement must appear here verbatim. Add the
     # (provider, statement_id) -> sha256(template) pair when registering one.
-    pinned: dict[tuple[str, str], str] = {}
+    pinned: dict[tuple[str, str], str] = {
+        (
+            "duckdb",
+            "duckdb.http_secret_bearer",
+        ): hashlib.sha256(
+            b"CREATE OR REPLACE SECRET marivo_http_auth (TYPE HTTP, BEARER_TOKEN ?, SCOPE ?)"
+        ).hexdigest(),
+        (
+            "duckdb",
+            "duckdb.http_secret_headers",
+        ): hashlib.sha256(
+            b"CREATE OR REPLACE SECRET marivo_http_auth (TYPE HTTP, EXTRA_HTTP_HEADERS ?, SCOPE ?)"
+        ).hexdigest(),
+    }
     observed = {
         (provider, statement_id): hashlib.sha256(statement.template.encode("utf-8")).hexdigest()
         for provider, owned in provider_statement_catalog().items()
+        # The local "probe" provider registers throwaway test-only statements.
+        if provider != "probe"
         for statement_id, statement in sorted(owned.items())
     }
     assert observed == pinned
@@ -198,9 +216,12 @@ def test_execute_failure_marks_submission_failed_and_reraises() -> None:
     assert log[0].state == "failed"
 
 
-def test_http_credentials_field_is_none_except_owner() -> None:
+def test_http_credentials_field_is_owned_only_by_duckdb() -> None:
     for backend, profile in ENGINE_PROFILES.items():
-        assert profile.http_credentials is None, f"{backend} must not own credentials yet"
+        if backend == "duckdb":
+            assert profile.http_credentials is not None
+        else:
+            assert profile.http_credentials is None, f"{backend} must not own credentials"
 
 
 def test_url_is_in_http_scope_boundaries() -> None:

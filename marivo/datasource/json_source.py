@@ -175,11 +175,14 @@ def _resolved_json_body(
 
 
 def _request_payload(
+    backend: object,
     source: JsonSourceIR,
     supplied: Mapping[str, QueryParamScalar | QueryParamScalarList],
 ) -> object:
+    from marivo.datasource.capabilities import json_http_headers
+
     url = json_source_url(source, supplied)
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", **json_http_headers(backend, url)}
     body: bytes | None = None
     if source.method == "POST":
         body = _resolved_json_body(source, supplied).encode("utf-8")
@@ -445,6 +448,6 @@ def read_json_source(
     """Read JSON once and infer projected physical types from returned values."""
     supplied = normalize_json_source_params(source, source_params)
     if source.path.lower().startswith(("http://", "https://")):
-        payload = _request_payload(source, supplied)
+        payload = _request_payload(backend, source, supplied)
         return _arrow_table(backend, _project_rows(payload, source), source)
     return _inferred_table(backend, source)
