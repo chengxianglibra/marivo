@@ -187,14 +187,14 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "members",
             "LogicalAnalysisDomain",
             "result = session.members(entity_ref)",
-            "Construct the governed Entity member domain without source I/O.",
+            "Bind a typed Entity member graph using schema-only R1 preflight; no business rows or Run.",
         ),
         (
             Session,
             "artifact",
-            "Materialized Dataset or admitted J1–J4 relation variant",
+            "Verified materialized relation variant",
             "result = session.artifact(artifact_ref)",
-            "Recover the exact committed family and state; J1–J4 requires a validated continuation snapshot and never replays sources.",
+            "Recover the exact Store 7 relation type after snapshot, receipt and required-part validation; never load current sources or Semantic.",
         ),
         (
             Session,

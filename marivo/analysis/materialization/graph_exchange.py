@@ -11,7 +11,7 @@ import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.compiler.graph_plan import CheckRequirement
-from marivo.analysis.core.model import Signature, part_role
+from marivo.analysis.core.model import CoordinateStatePart, Signature, part_role
 from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
@@ -19,7 +19,11 @@ from marivo.analysis.materialization.execution import BatchStream
 from marivo.analysis.materialization.reads import open_receipt_batch_stream
 from marivo.analysis.materialization.storage import _hash_file, _open_payload
 from marivo.analysis.methods.semantics import MethodKey
-from marivo.analysis.methods.state_validation import state_matches
+from marivo.analysis.methods.state_validation import (
+    coordinate_state_matches,
+    difference_matches,
+    state_matches,
+)
 
 
 def _invalid(received: str) -> MaterializationError:
@@ -59,9 +63,19 @@ class ExchangeContract:
     state_kind: str = "none"
     state_schema: pa.Schema | None = None
     pending_checks: tuple[CheckRequirement, ...] = ()
+    allow_empty_singleton: bool = False
 
     def __post_init__(self) -> None:
         method_states = {
+            "cell.difference": "difference",
+            "metric.observe": "original_sum",
+            "metric.ratio": "original_ratio",
+            "state_rollup.ratio": "original_ratio",
+            "metric.sum_zero": "original_sum_zero",
+            "state_rollup.sum_zero": "original_sum_zero",
+            "metric.count": "original_count",
+            "state_rollup.count": "original_count",
+            "state_rollup": "original_sum",
             "row.sum": "row_sum",
             "row.count": "row_count",
             "row.count_defined": "row_count_defined",
@@ -85,6 +99,9 @@ class ExchangeContract:
             not in (
                 "none",
                 "original_sum",
+                "original_sum_zero",
+                "original_count",
+                "original_ratio",
                 "row_sum",
                 "row_count",
                 "row_count_defined",
@@ -96,6 +113,11 @@ class ExchangeContract:
             or (self.state_kind == "none") != (self.state_schema is None)
             or self.state_kind != method_states.get(self.method.name, "none")
             or any(not isinstance(item, CheckRequirement) for item in self.pending_checks)
+            or type(self.allow_empty_singleton) is not bool
+            or (
+                self.allow_empty_singleton
+                and (self.key_fields or self.method.name != "parts_transport")
+            )
         ):
             raise _invalid("invalid method, binding, schema or ordered keys")
         if len(self.key_fields) != len(self.signature.domain.instance_key):
@@ -262,8 +284,10 @@ def collect(
         stream.close()
     if not stream.completed:
         raise _invalid("producer did not complete")
-    if not contract.key_fields and primary.num_rows != 1:
-        raise _invalid("singleton result must contain exactly one row")
+    if not contract.key_fields and primary.num_rows not in (
+        (0, 1) if contract.allow_empty_singleton else (1,)
+    ):
+        raise _invalid("singleton result has an invalid row count")
     if tuple(part.role for part in parts) != tuple(part.role for part in contract.parts):
         raise _invalid("missing, reordered or extra method state part")
     primary_keys = _table_keys(primary, contract.key_fields)
@@ -277,6 +301,27 @@ def collect(
             raise _invalid(f"{declared.role} key types differ")
         if _table_keys(part.table, declared.key_fields) != primary_keys:
             raise _invalid(f"{declared.role} complete keys differ")
+    coordinate = next(
+        (part for part in contract.signature.parts if isinstance(part, CoordinateStatePart)), None
+    )
+    if coordinate is not None:
+        by_role = {part.role: part.table for part in parts}
+        if "original_state" not in by_role or "coordinate_state" not in by_role:
+            raise _invalid("coordinate partition lacks original or coordinate components")
+        original = {
+            tuple(row[name] for name in contract.key_fields): row
+            for row in by_role["original_state"].to_pylist()
+        }
+        for row in by_role["coordinate_state"].to_pylist():
+            key = tuple(row[name] for name in contract.key_fields)
+            if not coordinate_state_matches(
+                coordinate.components,
+                coordinate.value_type,
+                row.get("coordinate_state__groups"),
+                original[key],
+                coordinate.columns,
+            ):
+                raise _invalid("coordinate partition differs from its complete original state")
     if contract.state_schema is None:
         if method_state is not None:
             raise _invalid("unexpected method state vector")
@@ -291,29 +336,30 @@ def collect(
             tuple(row[name] for name in contract.key_fields): row["status"]
             for row in method_state.to_pylist()
         }
-        role = "pair_counts" if contract.state_kind == "spearman" else "row_state"
-        state_part = next((part.table for part in parts if part.role == role), None)
-        if state_part is None:
-            raise _invalid("missing required numerical state part")
-        keyed_parts = {
-            tuple(row[name] for name in contract.key_fields): row for row in state_part.to_pylist()
-        }
-        for row in primary.to_pylist():
-            key = tuple(row[name] for name in contract.key_fields)
-            if not state_matches(contract.state_kind, row, keyed_parts[key]):
-                raise _invalid("method part and primary numerical state disagree")
-            status = states[tuple(row[name] for name in contract.key_fields)]
-            if not isinstance(status, str) or not status:
-                raise _invalid("missing method state status")
-            if contract.state_kind == "spearman":
+        if contract.state_kind == "difference":
+            endpoints = {
+                part.role: {
+                    tuple(row[name] for name in contract.key_fields): row
+                    for row in part.table.to_pylist()
+                }
+                for part in parts
+                if part.role in ("current_endpoint", "baseline_endpoint")
+            }
+            if set(endpoints) != {"current_endpoint", "baseline_endpoint"}:
+                raise _invalid("missing ordered Difference endpoints")
+            for row in primary.to_pylist():
+                key = tuple(row[name] for name in contract.key_fields)
                 if (
-                    row.get("status") != status
-                    or (status == "valid") != (row["cell_tag"] == "defined")
-                    or (status != "valid" and row["cell_reason"] != status)
+                    not difference_matches(
+                        row,
+                        endpoints["current_endpoint"][key],
+                        endpoints["baseline_endpoint"][key],
+                    )
+                    or states[key] != row["cell_tag"]
                 ):
-                    raise _invalid("Spearman state and primary Cell disagree")
-            elif status != row.get("cell_tag"):
-                raise _invalid("method state and primary Cell disagree")
+                    raise _invalid("Difference endpoints and primary Cell disagree")
+        else:
+            _verify_single_state_part(contract, parts, primary, states)
     if any(
         not any(check.requirement == pending for pending in contract.pending_checks)
         for check in completed_checks
@@ -325,6 +371,44 @@ def collect(
     ):
         raise _invalid("method result retains an uncompleted check")
     return ExchangeResult(contract, primary, parts, completed_checks, method_state)
+
+
+def _verify_single_state_part(
+    contract: ExchangeContract,
+    parts: tuple[ExchangePart, ...],
+    primary: pa.Table,
+    states: dict[tuple[object, ...], object],
+) -> None:
+    role = (
+        "pair_counts"
+        if contract.state_kind == "spearman"
+        else "original_state"
+        if contract.state_kind
+        in ("original_sum", "original_sum_zero", "original_count", "original_ratio")
+        else "row_state"
+    )
+    state_part = next((part.table for part in parts if part.role == role), None)
+    if state_part is None:
+        raise _invalid("missing required numerical state part")
+    keyed_parts = {
+        tuple(row[name] for name in contract.key_fields): row for row in state_part.to_pylist()
+    }
+    for row in primary.to_pylist():
+        key = tuple(row[name] for name in contract.key_fields)
+        if not state_matches(contract.state_kind, row, keyed_parts[key]):
+            raise _invalid("method part and primary numerical state disagree")
+        status = states[key]
+        if not isinstance(status, str) or not status:
+            raise _invalid("missing method state status")
+        if contract.state_kind == "spearman":
+            if (
+                row.get("status") != status
+                or (status == "valid") != (row["cell_tag"] == "defined")
+                or (status != "valid" and row["cell_reason"] != status)
+            ):
+                raise _invalid("Spearman state and primary Cell disagree")
+        elif status != row.get("cell_tag"):
+            raise _invalid("method state and primary Cell disagree")
 
 
 def _table_keys(table: pa.Table, fields: tuple[str, ...]) -> set[tuple[object, ...]]:

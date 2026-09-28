@@ -10,6 +10,7 @@ from marivo.analysis._pages import _BoundedPage
 from marivo.analysis.datasets.descriptors import DatasetByteCount
 from marivo.analysis.evidence._dataset_types import ArtifactEvidenceSummary, ArtifactIssueCounts
 from marivo.analysis.materialization.contracts import RunDatasetInput, RunFailure, invalid
+from marivo.analysis.materialization.graph_protocol import FixedRunInput, RunInput, SourceRunInput
 from marivo.analysis.refs import ArtifactRef
 from marivo.render import Card, RenderableResult
 
@@ -54,7 +55,7 @@ class _RunBase(RenderableResult):
     run_id: str
     session_id: str
     admitted_at: datetime
-    dataset_input: RunDatasetInput
+    dataset_input: RunDatasetInput | RunInput
     input_artifact_refs: tuple[ArtifactRef, ...]
 
     def __post_init__(self) -> None:
@@ -63,7 +64,7 @@ class _RunBase(RenderableResult):
         _identity(self.run_id)
         _identity(self.session_id)
         _aware(self.admitted_at)
-        if type(self.dataset_input) is not RunDatasetInput:
+        if type(self.dataset_input) not in (RunDatasetInput, SourceRunInput, FixedRunInput):
             raise invalid("Run input must use the exact typed projection")
         _ordered_refs(self.input_artifact_refs)
         if isinstance(self, SucceededRun):
@@ -90,7 +91,12 @@ class _RunBase(RenderableResult):
             Card(identity=self._repr_identity(), available=(".show()", ".dataset_input"))
             .status(self.lifecycle)
             .field("admitted_at", self.admitted_at.isoformat())
-            .field("shape", str(self.dataset_input.shape_id))
+            .field(
+                "shape",
+                str(self.dataset_input.shape_id)
+                if isinstance(self.dataset_input, RunDatasetInput)
+                else self.dataset_input.kind,
+            )
             .field("definition", self.dataset_input.definition_fingerprint)
             .listing("inputs", (str(ref) for ref in self.input_artifact_refs))
         )

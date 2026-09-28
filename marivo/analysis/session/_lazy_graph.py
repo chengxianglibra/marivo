@@ -14,6 +14,7 @@ from marivo.analysis.errors import (
     SessionGraphLimitError,
     SessionGraphTooLargeError,
 )
+from marivo.analysis.materialization import graph_store
 from marivo.analysis.materialization.contracts import invalid
 from marivo.analysis.materialization.store import SessionStore, _one, _rows, _text
 from marivo.analysis.refs import ArtifactRef
@@ -264,7 +265,11 @@ def graph(
             if kind == "run":
                 runs[identity] = run_in_snapshot(store, conn, session_ref, identity)
             else:
-                record = store._artifact(conn, identity)
+                record = (
+                    graph_store.artifact(store, conn, identity)
+                    if store.layout.generation == 7
+                    else store._artifact(conn, identity)
+                )
                 if record is None:
                     raise invalid("selected graph Artifact is missing")
                 artifacts[identity] = summary_in_snapshot(store, conn, record)

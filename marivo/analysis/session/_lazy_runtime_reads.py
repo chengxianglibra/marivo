@@ -18,6 +18,7 @@ from marivo.analysis.errors import (
     SessionStateError,
 )
 from marivo.analysis.evidence._dataset_types import ArtifactEvidenceSummary, ArtifactIssueCounts
+from marivo.analysis.materialization import graph_store
 from marivo.analysis.materialization.contracts import (
     ArtifactRecord,
     SessionRecord,
@@ -187,7 +188,11 @@ def run_in_snapshot(
     )
     if row is None:
         raise RunNotFoundError.for_id(run_id)
-    value = store._run(conn, run_id)
+    value = (
+        graph_store.run(store, conn, run_id)
+        if store.layout.generation == 7
+        else store._run(conn, run_id)
+    )
     if value is None or value.session_ref != session_ref:
         raise invalid("selected Run identity mismatch")
     admitted_at = aware_datetime(value.admitted_at)
@@ -326,8 +331,12 @@ def get_run(store: SessionStore, session_ref: str, run_id: str) -> RunRecord:
 
 
 def summary_in_snapshot(
-    store: SessionStore, conn: sqlite3.Connection, record: ArtifactRecord
+    store: SessionStore,
+    conn: sqlite3.Connection,
+    record: ArtifactRecord | graph_store.GraphArtifact,
 ) -> ArtifactSummary:
+    if isinstance(record, graph_store.GraphArtifact):
+        return _graph_summary(store, conn, record)
     producer = store._run(conn, record.producing_run_ref)
     if producer is None or producer.terminal_at is None or producer.lifecycle != "succeeded":
         raise invalid("Artifact summary has no succeeded producer")
@@ -369,6 +378,51 @@ def summary_in_snapshot(
     )
 
 
+def _graph_summary(
+    store: SessionStore, conn: sqlite3.Connection, record: graph_store.GraphArtifact
+) -> ArtifactSummary:
+    from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, digest, encode
+
+    producer = graph_store.run(store, conn, record.producing_run_ref)
+    row = _one(
+        conn,
+        "SELECT committed_at FROM dataset_artifacts WHERE artifact_ref=?",
+        (record.artifact_ref,),
+    )
+    if (
+        producer is None
+        or producer.terminal_at is None
+        or producer.lifecycle != "succeeded"
+        or row is None
+    ):
+        raise invalid("Artifact summary has no succeeded producer")
+    descriptor = record.descriptor
+    authority = digest(encode(descriptor, DESCRIPTOR))
+    return ArtifactSummary(
+        artifact_ref=ArtifactRef(ref=record.artifact_ref),
+        artifact_session_ref=record.session_ref,
+        run_admitted_at=aware_datetime(producer.admitted_at),
+        run_finished_at=aware_datetime(producer.terminal_at),
+        family_id="graph",
+        shape_id=descriptor.signature.domain.kind,
+        definition_fingerprint=descriptor.definition_fingerprint,
+        committed_at=aware_datetime(_text(row, "committed_at")),
+        producing_run_ref=record.producing_run_ref,
+        realized_row_count=descriptor.primary_receipt.local.realized_row_count,
+        realized_byte_count=_exact_byte_count(descriptor.primary_receipt.local.realized_byte_count),
+        storage_kind_id="parquet",
+        content_authority_digest=authority,
+        evidence=ArtifactEvidenceSummary(
+            quality_summary_digest=authority,
+            typed_issue_digest=digest("[]"),
+            evidence_digest=authority,
+            finding_count=0,
+            finding_set_digest=digest("[]"),
+        ),
+        issue_counts=ArtifactIssueCounts(warning=0, blocking=0),
+    )
+
+
 def missing_artifact(artifact_ref: str) -> ArtifactNotFoundError:
     return ArtifactNotFoundError(
         message="The selected Artifact does not exist in this Store.",
@@ -385,7 +439,11 @@ def missing_artifact(artifact_ref: str) -> ArtifactNotFoundError:
 
 def artifact_summary(store: SessionStore, artifact_ref: str) -> ArtifactSummary:
     with store._read() as conn:
-        record = store._artifact(conn, artifact_ref)
+        record = (
+            graph_store.artifact(store, conn, artifact_ref)
+            if store.layout.generation == 7
+            else store._artifact(conn, artifact_ref)
+        )
         if record is None:
             raise missing_artifact(artifact_ref)
         return summary_in_snapshot(store, conn, record)

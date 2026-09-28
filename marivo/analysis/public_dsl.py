@@ -1,4 +1,4 @@
-"""Typed first-round Analysis DSL over the existing J1 Runtime and Store."""
+"""Existing public Analysis receivers over one typed graph Runtime and Store 7."""
 
 from __future__ import annotations
 
@@ -11,45 +11,46 @@ from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, overload
 import pandas as pd
 
 from marivo._temporal import TimeScope
-from marivo.analysis.datasets.descriptors import (
-    _DifferenceQuantity,
-    _ObservedQuantity,
-    _RowStatisticQuantity,
+from marivo.analysis.core.graph import FixedLeaf
+from marivo.analysis.core.model import (
+    DerivedQuantity,
+    ObservedQuantity,
+    RolledQuantity,
+    RowStatisticQuantity,
+    part_role,
+)
+from marivo.analysis.core.predicates import ValuePredicate
+from marivo.analysis.core.rules import (
+    AssociationScore,
+    BindProject,
+    CellDerive,
+    MapCorrespond,
+    PartsTransport,
+    RowState,
 )
 from marivo.analysis.datasets.errors import DatasetConstructionError
-from marivo.analysis.materialization.dsl_j1_artifact import J1Node
-from marivo.analysis.observation.dsl_j1 import (
-    J1CategoryField,
-    J1Difference,
-    J1Group,
-    J1Members,
-    J1NumericField,
-    J1NumericPredicate,
-    J1Observed,
-    J1Predicate,
-    J1Read,
-    J1SelectedCategory,
-    J1SelectedDifference,
-    J1Statistic,
-    J3Grouped,
-    J3Observed,
-    J3Route,
-    J3Routes,
-    J4Association,
-    J4CoefficientSelection,
-    J4CoefficientStatistic,
-    j3_route,
-    j3_routes,
+from marivo.analysis.materialization.graph_dataset import GraphDataset
+from marivo.analysis.materialization.graph_fields import (
+    CategoryField,
+    CategoryPredicate,
+    NumericField,
+    NumericPredicate,
+    RootRoutesValue,
+    RootRouteValue,
+    root_route,
+    root_routes,
 )
+from marivo.analysis.materialization.graph_relation import FrozenBinding, Relation
+from marivo.analysis.methods.physical import ScalarType
 from marivo.refs import DimensionKind, EntityKind, MetricKind, Ref, RelationshipKind
+from marivo.semantic.validator import normalize_target_relationship
 
 if TYPE_CHECKING:
     from marivo.analysis.datasets.state import MaterializedDatasetState
     from marivo.analysis.materialization.admission import DatasetRuntime
-    from marivo.analysis.observation.dsl_j1_dataset import MaterializedJ1Dataset
 
-RootRoute: TypeAlias = J3Route
-RootRoutes: TypeAlias = J3Routes
+RootRoute: TypeAlias = RootRouteValue
+RootRoutes: TypeAlias = RootRoutesValue
 _TOKEN = object()
 
 
@@ -113,7 +114,7 @@ def route(root: Ref[EntityKind], *, through: tuple[Ref[RelationshipKind], ...]) 
     Example: ``path = mv.route(order, through=(buyer,))``.
     Constraints: The route is validated against the selected member and Metric.
     """
-    return j3_route(root, through=through)
+    return root_route(root, through=through)
 
 
 def routes(*items: RootRoute) -> RootRoutes:
@@ -124,7 +125,7 @@ def routes(*items: RootRoute) -> RootRoutes:
     Example: ``pair = mv.routes(line_route, order_route)``.
     Constraints: Route order follows the Metric's declared component order.
     """
-    return j3_routes(*items)
+    return root_routes(*items)
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,102 +186,242 @@ class AnalysisContract:
         return f"<AnalysisContract kind={self.kind} phase={self.phase}; use .show()>"
 
 
-def _kind(node: J1Node) -> str:
-    return node.root.shape_id.local_shape_id
-
-
-def _actions(node: J1Node, *, fixed: bool) -> tuple[str, ...]:
-    if isinstance(node, J1Members):
-        return () if fixed else ("read", "group_by", "observe", "execute")
-    if isinstance(node, J1Read):
-        return ("where",) if fixed else ("where", "group_by", "execute")
-    if isinstance(node, J1SelectedCategory):
-        return ("members",) if fixed else ("members", "execute")
-    if isinstance(node, J1Group):
-        return ("observe",) if not fixed else ()
-    if isinstance(node, (J1Observed, J3Observed)):
-        if node.domain.kind != "entity":
-            return ("summarize",) if fixed else ("summarize", "execute")
-        methods: tuple[str, ...] = ("group_by", "rollup", "summarize")
-        if not fixed:
-            methods = (*methods, "execute")
-        return (*methods, "compare", "correlate") if isinstance(node, J1Observed) else methods
-    if isinstance(node, J1Difference):
-        return ("where", "summarize") if fixed else ("where", "summarize", "execute")
-    if isinstance(node, J1SelectedDifference):
-        return ("members", "summarize") if fixed else ("members", "summarize", "execute")
-    if isinstance(node, J4Association):
-        return ("coefficient",) if fixed else ("execute",)
-    if isinstance(node, (J4CoefficientSelection, J4CoefficientStatistic, J1Statistic)):
-        if isinstance(node, J4CoefficientSelection):
-            return ("summarize",) if fixed else ("summarize", "execute")
-        return () if fixed else ("execute",)
-    return () if fixed else ("execute",)
+def _kind(node: Relation) -> str:
+    definition = node.definition
+    params, quantity = definition.parameters, definition.signature.quantity
+    if isinstance(params, RowState):
+        return "summarize"
+    if isinstance(params, AssociationScore):
+        return "correlate"
+    if isinstance(params, CellDerive):
+        return "compare"
+    if isinstance(params, BindProject):
+        return "read"
+    if isinstance(params, MapCorrespond):
+        return "group" if params.mode == "group" else "members"
+    if isinstance(params, PartsTransport):
+        if not params.keep_quantity:
+            return "members"
+        if isinstance(quantity, DerivedQuantity):
+            return (
+                "correlate_where"
+                if quantity.method_version == "association.spearman@v1"
+                else "where"
+            )
+        return "where"
+    if isinstance(quantity, (ObservedQuantity, RolledQuantity)):
+        ratio = quantity.method_version == "ratio@v1"
+        rolled = isinstance(quantity, RolledQuantity)
+        return (
+            "ratio_rollup"
+            if ratio and rolled
+            else "ratio_observe"
+            if ratio
+            else "rollup"
+            if rolled
+            else "observe"
+        )
+    return "members"
 
 
 class _Value:
-    __slots__ = ("_dataset", "_inputs", "_node", "_runtime")
+    __slots__ = ("_dataset", "_node", "_runtime")
+    _runtime: DatasetRuntime
+    _node: Relation
+    _dataset: GraphDataset | None
 
     def __init__(
         self,
         token: object,
-        node: J1Node,
+        node: Relation,
         runtime: DatasetRuntime,
         *,
         inputs: tuple[_Value, ...] = (),
-        dataset: MaterializedJ1Dataset | None = None,
+        dataset: GraphDataset | None = None,
     ) -> None:
         if token is not _TOKEN:
             raise TypeError(
                 "Construct Analysis values through a Session or another Analysis value."
             )
-        self._node = node
-        self._runtime = runtime
-        self._inputs = inputs
-        self._dataset = dataset
+        if any(
+            item._runtime.session_ref != runtime.session_ref
+            or item._runtime.store.store_id != runtime.store.store_id
+            for item in inputs
+        ):
+            raise _reject(
+                "one Session", "foreign Session inputs", "Use this Session's exact inputs."
+            )
+        self._runtime, self._dataset = runtime, dataset
+        self._node = (
+            node
+            if dataset is None
+            or (
+                isinstance(node.root, FixedLeaf)
+                and node.root.artifact.ref == dataset.artifact.artifact_ref
+            )
+            else Relation.restore(dataset)
+        )
 
     def contract(self) -> AnalysisContract:
-        """Return current, non-executing kind and valid continuation names.
+        """Return the verified relation state and its mechanically valid next calls.
 
-        Args:
-            None.
-        Returns: An AnalysisContract describing the current shape and valid continuations.
-        Example: ``result = relation.contract()``.
-        Constraints: This reads local contract metadata and does not execute a source.
+        Args: None.
+        Returns: An AnalysisContract for this exact relation.
+        Example: ``relation.contract().show()``.
+        Constraints: Fixed results verify their Store 7 files without opening sources.
         """
-        from marivo.analysis.materialization.dsl_j1_artifact import _meaning
-
-        fixed = self._dataset is not None
-        domain, quantity = _meaning(self._node)
-        retained_parts: tuple[str, ...] = ()
         if self._dataset is not None:
-            record = self._runtime.store.artifact(self._dataset.state.artifact_ref.ref)
-            if record is not None:
-                retained_parts = tuple(
-                    sorted(part.role for part in record.descriptor.retained_parts)
-                )
-        required_parts = (
-            quantity.required_parts
-            if isinstance(quantity, (_ObservedQuantity, _RowStatisticQuantity, _DifferenceQuantity))
-            else ()
-        )
-        names = (
-            ("execute",)
-            if not fixed and self._has_fixed() and isinstance(self._node, J1Members)
-            else _actions(self._node, fixed=fixed)
-        )
-        if fixed and not set(required_parts).issubset(retained_parts):
+            self._dataset.verified()
+        signature = self._node.root.signature
+        kind, fixed = _kind(self._node), self._dataset is not None
+        roles = tuple(part_role(part) for part in signature.parts)
+        names: tuple[str, ...]
+        if isinstance(self, MaterializedCoefficientRelation):
+            names = ("where", "summarize")
+        elif kind == "members":
+            names = (
+                ()
+                if fixed
+                else ("execute",)
+                if self._has_fixed()
+                else ("read", "group_by", "observe", "execute")
+            )
+        elif kind == "read":
+            names = ("where",) if fixed else ("where", "group_by", "execute")
+        elif kind == "group":
+            names = ("observe",)
+        elif kind == "correlate":
+            names = ("coefficient",) if fixed else ("execute",)
+        elif kind == "correlate_where":
+            names = ("summarize",)
+        elif kind == "compare":
+            names = ("where", "summarize")
+        elif kind == "where":
+            names = ("members", "summarize") if signature.quantity is not None else ("members",)
+        elif kind in ("observe", "ratio_observe", "rollup", "ratio_rollup"):
+            names = (
+                *(("group_by",) if "coordinate_state" in roles else ()),
+                *(("rollup",) if "original_state" in roles and "coverage" in roles else ()),
+                "summarize",
+                *(
+                    (("compare",) if "coordinate_state" in roles else ("compare", "correlate"))
+                    if kind == "observe" and signature.domain.kind == "entity"
+                    else ()
+                ),
+            )
+        else:
             names = ()
+        if not fixed and kind not in ("members", "read", "group", "correlate"):
+            names = (*names, "execute")
+        if self._node.root.value_type != ScalarType("int64"):
+            names = tuple(name for name in names if name != "compare")
+        required = tuple(role for role in roles if role != "subject")
         return AnalysisContract(
-            _kind(self._node),
+            kind,
             "materialized" if fixed else "logical",
             self._action_contract(names),
-            domain.kind,
-            None if quantity is None else quantity.kind,
-            required_parts,
-            retained_parts,
+            signature.domain.kind,
+            None if signature.quantity is None else signature.quantity.kind,
+            required,
+            roles if fixed else (),
             self._contract_facts(),
         )
+
+    def _contract_facts(self) -> tuple[tuple[str, str], ...]:
+        signature = self._node.root.signature
+        quantity = signature.quantity
+        facts: list[tuple[str, str]] = []
+        if _kind(self._node) in ("ratio_observe", "ratio_rollup"):
+            facts.append(("weighting", "original numerator and denominator components"))
+        if quantity is not None:
+            facts.extend(
+                (
+                    ("unit", quantity.unit or "not declared"),
+                    (
+                        "method",
+                        quantity.method_version.split("@")[0]
+                        .removeprefix("row.")
+                        .removeprefix("cell."),
+                    ),
+                    (
+                        "statistical_unit",
+                        "one current row"
+                        if isinstance(quantity, RowStatisticQuantity)
+                        else "one Entity member"
+                        if signature.domain.kind == "entity"
+                        else "one current group"
+                        if signature.domain.kind == "group"
+                        else "one selected domain",
+                    ),
+                )
+            )
+            if isinstance(quantity, ObservedQuantity):
+                facts.append(("metric", quantity.metric_ref.path))
+            if quantity.method_version == "ratio@v1":
+                facts.append(("weighting", "original numerator and denominator components"))
+            if (
+                isinstance(quantity, RowStatisticQuantity)
+                and quantity.method_version == "row.mean@v1"
+            ):
+                facts.append(("weighting", "equal current rows"))
+        if self._dataset is not None:
+            state = self._dataset.state
+            facts.extend(
+                (
+                    ("rows", str(state.realized_row_count)),
+                    ("source", "exact retained Artifact; no source reconnect"),
+                )
+            )
+            cells = tuple(
+                field.name for field in state.realized_schema.columns if field.role_id == "cell"
+            )
+            if cells:
+                facts.append(("cell_state_fields", ",".join(cells)))
+        else:
+            facts.append(("source", "logical definition; no business rows read"))
+        return tuple(facts)
+
+    def __repr__(self) -> str:
+        identity = (
+            self._dataset.state.artifact_ref.ref[:40]
+            if self._dataset is not None
+            else self._node.root.fingerprint[:22]
+        )
+        detail = ".show()" if self._dataset is not None else ".contract().show()"
+        return f"<{type(self).__name__} kind={_kind(self._node)} id={identity}; use {detail}>"
+
+    def _has_fixed(self) -> bool:
+        return isinstance(self._node.binding, FrozenBinding)
+
+    def _run(self) -> GraphDataset:
+        return self._dataset if self._dataset is not None else self._node.execute()
+
+    def _select(self, predicate: CategoryPredicate | NumericPredicate) -> Relation:
+        if (
+            not isinstance(predicate, (CategoryPredicate, NumericPredicate))
+            or predicate.root is not self._node.root
+        ):
+            raise _reject(
+                "a predicate on this exact relation",
+                "foreign predicate",
+                "Build it from this relation.value.",
+            )
+        if isinstance(predicate, CategoryPredicate):
+            value = ValuePredicate(self._node.root.signature.domain.binding, "eq", predicate.value)
+        else:
+            operations: dict[str, Literal["lt", "le", "gt", "ge", "eq"]] = {
+                "lt": "lt",
+                "lte": "le",
+                "gt": "gt",
+                "gte": "ge",
+                "eq": "eq",
+            }
+            value = ValuePredicate(
+                self._node.root.signature.domain.binding,
+                operations[predicate.operation],
+                predicate.threshold,
+            )
+        return self._node.where(value)
 
     def _action_contract(self, names: tuple[str, ...]) -> tuple[AnalysisAction, ...]:
         from marivo.analysis._capabilities.registry import REGISTRY
@@ -314,151 +455,6 @@ class _Value:
                 )
             )
         return tuple(actions)
-
-    def _contract_facts(self) -> tuple[tuple[str, str], ...]:
-        node = self._node
-        facts: list[tuple[str, str]] = []
-        if isinstance(node, (J1Observed, J3Observed)):
-            unit = "not declared" if node.plan.unit is None else node.plan.unit
-            observation_unit = {
-                "entity": "one Entity member",
-                "group": "one current group",
-                "singleton": "one selected domain",
-            }[node.domain.kind]
-            facts.extend(
-                (
-                    ("metric", node.metric.path),
-                    ("method", node.plan.method),
-                    ("unit", unit),
-                    ("null_policy", node.plan.null_rule),
-                    ("empty_policy", node.plan.empty_rule),
-                    ("statistical_unit", observation_unit),
-                    ("source_assumption", "governed member Entity and explicit observation scope"),
-                )
-            )
-            if node.plan.method == "ratio":
-                facts.append(("weighting", "original numerator and denominator components"))
-        elif isinstance(node, J1Difference):
-            facts.extend(
-                (
-                    ("metric", node.current.metric.path),
-                    (
-                        "unit",
-                        "not declared"
-                        if node.current.plan.unit is None
-                        else node.current.plan.unit,
-                    ),
-                    ("method", "ordered absolute difference"),
-                    ("statistical_unit", "one paired Entity member"),
-                )
-            )
-        elif isinstance(node, J1Statistic):
-            facts.extend((("method", node.method), ("statistical_unit", "one current row")))
-            if node.method == "mean":
-                facts.append(("weighting", "equal current rows"))
-        elif isinstance(node, J4Association):
-            facts.extend(
-                (
-                    ("method", "spearman"),
-                    ("statistical_unit", "one complete Entity member pair"),
-                    ("source_assumption", "same members and observation scope"),
-                )
-            )
-        if self._dataset is not None:
-            facts.append(("rows", str(self._dataset.state.realized_row_count)))
-            cell_fields = tuple(
-                column.name for column in self._dataset.schema.columns if column.role_id == "cell"
-            )
-            if cell_fields:
-                facts.append(("cell_state_fields", ",".join(cell_fields[:4])))
-            if set(self._contract_required_parts()).difference(self._contract_retained_parts()):
-                facts.append(("continuation", "required retained components unavailable"))
-            facts.append(("source", "exact retained Artifact; no source reconnect"))
-        else:
-            facts.append(("source", "logical definition; no business rows read"))
-        return tuple(facts)
-
-    def _contract_required_parts(self) -> tuple[str, ...]:
-        from marivo.analysis.materialization.dsl_j1_artifact import _meaning
-
-        _, quantity = _meaning(self._node)
-        return (
-            quantity.required_parts
-            if isinstance(quantity, (_ObservedQuantity, _RowStatisticQuantity, _DifferenceQuantity))
-            else ()
-        )
-
-    def _contract_retained_parts(self) -> tuple[str, ...]:
-        if self._dataset is None:
-            return ()
-        record = self._runtime.store.artifact(self._dataset.state.artifact_ref.ref)
-        return (
-            () if record is None else tuple(part.role for part in record.descriptor.retained_parts)
-        )
-
-    def __repr__(self) -> str:
-        identity = (
-            self._dataset.state.artifact_ref.ref[:40]
-            if self._dataset is not None
-            else self._node.root.definition_fingerprint[:22]
-        )
-        detail = ".show()" if self._dataset is not None else ".contract().show()"
-        return f"<{type(self).__name__} kind={_kind(self._node)} id={identity}; use {detail}>"
-
-    def _is_live(self) -> bool:
-        return self._dataset is None and (
-            not self._inputs or any(item._is_live() for item in self._inputs)
-        )
-
-    def _has_fixed(self) -> bool:
-        return self._dataset is not None or any(item._has_fixed() for item in self._inputs)
-
-    def _run(self) -> MaterializedJ1Dataset:
-        if self._dataset is not None:
-            return self._dataset
-        if self._is_live() and self._has_fixed():
-            raise _reject(
-                "source-only or fixed-only inputs",
-                "mixed live and materialized dependencies",
-                "Keep the member and observation graph logical, or use only exact saved Artifacts.",
-            )
-        from marivo.analysis.materialization.dsl_public_snapshot import encode_public_node
-
-        snapshot = encode_public_node(self._node)
-        if self._is_live():
-            from marivo.analysis.materialization.dsl_public_source import public_j1_source
-
-            return self._runtime.execute_j1(
-                self._node,
-                source=lambda: public_j1_source(self._node, str(self._runtime.store.project_root)),
-                public_snapshot=snapshot,
-            )
-        if len(self._inputs) == 1:
-            parent = self._inputs[0]
-            saved = parent._run()
-            return self._runtime.execute_j1(
-                self._node,
-                input_node=parent._node,
-                input_artifact_ref=saved.state.artifact_ref.ref,
-                public_snapshot=snapshot,
-            )
-        if len(self._inputs) == 2:
-            left, right = self._inputs
-            left_saved, right_saved = left._run(), right._run()
-            return self._runtime.execute_j1(
-                self._node,
-                input_nodes=(left._node, right._node),
-                input_artifact_refs=(
-                    left_saved.state.artifact_ref.ref,
-                    right_saved.state.artifact_ref.ref,
-                ),
-                public_snapshot=snapshot,
-            )
-        raise _reject(
-            "one or two retained predecessors",
-            "unbound continuation",
-            "Rebuild the relation from exact inputs.",
-        )
 
 
 class _MaterializedValue(_Value):
@@ -531,14 +527,6 @@ class LogicalAnalysisDomain(_Value):
         Example: ``result = relation.read(dimension)``.
         Constraints: The Dimension must be declared and single valued.
         """
-        if self._has_fixed():
-            raise _reject(
-                "logical source members",
-                "fixed selected members",
-                "Read before materializing the selection.",
-            )
-        if not isinstance(self._node, J1Members):
-            raise _reject("Entity members", _kind(self._node), "Select a member domain first.")
         return LogicalCategoryRelation(
             _TOKEN, self._node.read(dimension), self._runtime, inputs=(self,)
         )
@@ -552,16 +540,8 @@ class LogicalAnalysisDomain(_Value):
         Example: ``result = relation.group_by(dimension)``.
         Constraints: Only declared member Dimensions or retained coordinates are admitted.
         """
-        if self._has_fixed():
-            raise _reject(
-                "logical source members",
-                "fixed selected members",
-                "Group before materializing the selection.",
-            )
-        if not isinstance(self._node, J1Members):
-            raise _reject("Entity members", _kind(self._node), "Select a member domain first.")
         return GroupedAnalysisDomain(
-            _TOKEN, self._node.group_by(dimension), self._runtime, inputs=(self,)
+            _TOKEN, self._node.group_members(dimension), self._runtime, inputs=(self,)
         )
 
     @overload
@@ -603,17 +583,26 @@ class LogicalAnalysisDomain(_Value):
         Example: ``result = relation.observe(metric, during=during, via=via, coordinates=coordinates)``.
         Constraints: The Metric, window, path, and member binding must be admitted.
         """
-        if self._has_fixed():
-            raise _reject(
-                "source-only or fixed-only inputs",
-                "fixed selected members plus live Metric",
-                "Observe before materializing the selection.",
+        if isinstance(via, RootRoutesValue):
+            live = self._node._live()
+            for route in via.routes:
+                relationship = normalize_target_relationship(
+                    live.graph.registry, route.through[0].path
+                )
+                if relationship.from_entity_ref.path != route.root.path:
+                    raise _reject(
+                        "the declared contribution root",
+                        route.root.path,
+                        "Bind the exact route root.",
+                    )
+            observed = self._node.observe_ratio(
+                metric,
+                during=during,
+                paths=(via.routes[0].through, via.routes[1].through),
+                coordinates=coordinates,
             )
-        if not isinstance(self._node, J1Members):
-            raise _reject("Entity members", _kind(self._node), "Select a member domain first.")
-        observed = self._node.observe(metric, during=during, via=via, coordinates=coordinates)
-        if isinstance(observed, J3Observed):
             return LogicalRatioRelation(_TOKEN, observed, self._runtime, inputs=(self,))
+        observed = self._node.observe(metric, during=during, via=via, coordinates=coordinates)
         return LogicalNumericRelation(_TOKEN, observed, self._runtime, inputs=(self,))
 
 
@@ -665,8 +654,6 @@ class GroupedAnalysisDomain(_Value):
         Example: ``result = relation.observe(metric, during=during, via=via)``.
         Constraints: The Metric, window, path, and member binding must be admitted.
         """
-        if not isinstance(self._node, J1Group):
-            raise _reject("member grouping", _kind(self._node), "Group members by a Dimension.")
         return GroupedNumericRelation(
             _TOKEN,
             self._node.observe(metric, during=during, via=via),
@@ -679,7 +666,7 @@ class LogicalCategoryRelation(_Value):
     """Unexecuted categorical member attribute relation."""
 
     @property
-    def value(self) -> J1CategoryField:
+    def value(self) -> CategoryField:
         """Return this relation's bound categorical field.
 
         Args:
@@ -688,13 +675,9 @@ class LogicalCategoryRelation(_Value):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        if not isinstance(self._node, J1Read):
-            raise _reject(
-                "category read", _kind(self._node), "Use read() before selecting a category."
-            )
-        return self._node.value
+        return CategoryField(self._node.root)
 
-    def where(self, predicate: J1Predicate) -> LogicalSelectedCategoryRelation:
+    def where(self, predicate: CategoryPredicate) -> LogicalSelectedCategoryRelation:
         """Select rows using a predicate bound to this category relation.
 
         Args:
@@ -703,12 +686,9 @@ class LogicalCategoryRelation(_Value):
         Example: ``result = relation.where(predicate)``.
         Constraints: The predicate must be bound to this exact relation field.
         """
-        if not isinstance(self._node, J1Read):
-            raise _reject(
-                "category read", _kind(self._node), "Build the predicate from this relation.value."
-            )
-        selected = self._node.where(predicate)
-        return LogicalSelectedCategoryRelation(_TOKEN, selected, self._runtime, inputs=(self,))
+        return LogicalSelectedCategoryRelation(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
 
     def group_by(self) -> GroupedAnalysisDomain:
         """Group by this bound categorical value.
@@ -719,11 +699,7 @@ class LogicalCategoryRelation(_Value):
         Example: ``result = relation.group_by()``.
         Constraints: Only declared member Dimensions or retained coordinates are admitted.
         """
-        if not isinstance(self._node, J1Read):
-            raise _reject(
-                "category read", _kind(self._node), "Read the categorical Dimension first."
-            )
-        return GroupedAnalysisDomain(_TOKEN, self._node.group_by(), self._runtime, inputs=(self,))
+        return GroupedAnalysisDomain(_TOKEN, self._node.group_read(), self._runtime, inputs=(self,))
 
     def execute(self) -> MaterializedCategoryRelation:
         """Evaluate and publish this categorical relation.
@@ -741,7 +717,7 @@ class MaterializedCategoryRelation(_MaterializedValue):
     """Fixed categorical relation retaining admitted member identity."""
 
     @property
-    def value(self) -> J1CategoryField:
+    def value(self) -> CategoryField:
         """Return this relation's bound categorical field.
 
         Args:
@@ -750,11 +726,9 @@ class MaterializedCategoryRelation(_MaterializedValue):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        if not isinstance(self._node, J1Read):
-            raise _reject("category read", _kind(self._node), "Select the original read relation.")
-        return self._node.value
+        return CategoryField(self._node.root)
 
-    def where(self, predicate: J1Predicate) -> LogicalSelectedCategoryRelation:
+    def where(self, predicate: CategoryPredicate) -> LogicalSelectedCategoryRelation:
         """Build a fixed-only categorical selection.
 
         Args:
@@ -763,10 +737,8 @@ class MaterializedCategoryRelation(_MaterializedValue):
         Example: ``result = relation.where(predicate)``.
         Constraints: The predicate must be bound to this exact relation field.
         """
-        if not isinstance(self._node, J1Read):
-            raise _reject("category read", _kind(self._node), "Select the original read relation.")
         return LogicalSelectedCategoryRelation(
-            _TOKEN, self._node.where(predicate), self._runtime, inputs=(self,)
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
         )
 
 
@@ -782,9 +754,9 @@ class LogicalSelectedCategoryRelation(_Value):
         Example: ``result = relation.members()``.
         Constraints: Projects exact selected keys and cannot introduce a new source into fixed state.
         """
-        if not isinstance(self._node, J1SelectedCategory):
-            raise _reject("selected category", _kind(self._node), "Select category rows first.")
-        return LogicalAnalysisDomain(_TOKEN, self._node.members(), self._runtime, inputs=(self,))
+        return LogicalAnalysisDomain(
+            _TOKEN, self._node.selected_members(), self._runtime, inputs=(self,)
+        )
 
     def execute(self) -> MaterializedSelectedCategoryRelation:
         """Evaluate and publish this category selection.
@@ -812,10 +784,8 @@ class MaterializedSelectedCategoryRelation(_MaterializedValue):
         Example: ``result = relation.members()``.
         Constraints: Projects exact selected keys and cannot introduce a new source into fixed state.
         """
-        if not isinstance(self._node, J1SelectedCategory):
-            raise _reject("selected category", _kind(self._node), "Recover the selected category.")
         return LogicalFixedAnalysisDomain(
-            _TOKEN, self._node.members(), self._runtime, inputs=(self,)
+            _TOKEN, self._node.selected_members(), self._runtime, inputs=(self,)
         )
 
 
@@ -825,7 +795,7 @@ class GroupedNumericRelation(_Value):
     def __init__(
         self,
         token: object,
-        grouped: J1Observed,
+        grouped: Relation,
         runtime: DatasetRuntime,
         *,
         inputs: tuple[_Value, ...],
@@ -860,18 +830,17 @@ class GroupedNumericRelation(_Value):
 class GroupedRatioRelation(_Value):
     """Grouped original ratio components awaiting a target-domain rollup."""
 
-    __slots__ = ("_grouped",)
+    __slots__ = ()
 
     def __init__(
         self,
         token: object,
-        grouped: J3Grouped,
+        grouped: Relation,
         runtime: DatasetRuntime,
         *,
         inputs: tuple[_Value, ...],
     ) -> None:
-        self._grouped = grouped
-        super().__init__(token, grouped.observed, runtime, inputs=inputs)
+        super().__init__(token, grouped, runtime, inputs=inputs)
 
     def contract(self) -> AnalysisContract:
         """Report the ratio group's one admitted continuation.
@@ -893,16 +862,14 @@ class GroupedRatioRelation(_Value):
         Example: ``result = relation.rollup()``.
         Constraints: Requires original retained components; subgroup values are not averaged.
         """
-        return LogicalRolledRatioRelation(
-            _TOKEN, self._grouped.rollup(), self._runtime, inputs=self._inputs
-        )
+        return LogicalRolledRatioRelation(_TOKEN, self._node, self._runtime, inputs=(self,))
 
 
 class LogicalNumericRelation(_Value):
     """One unexecuted original Metric observation over an Entity domain."""
 
     @property
-    def value(self) -> J1NumericField:
+    def value(self) -> NumericField:
         """Return the bound numeric field for an admitted strict predicate.
 
         Args:
@@ -911,7 +878,7 @@ class LogicalNumericRelation(_Value):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return J1NumericField(self._node.root)
+        return NumericField(self._node.root)
 
     def compare(self, baseline: LogicalNumericRelation) -> LogicalDifferenceRelation:
         """Construct an exact same-member absolute time difference.
@@ -922,14 +889,11 @@ class LogicalNumericRelation(_Value):
         Example: ``result = relation.compare(baseline)``.
         Constraints: Endpoints need the same member, Metric, route, and distinct windows.
         """
-        if not isinstance(self._node, J1Observed) or not isinstance(baseline._node, J1Observed):
-            raise _reject(
-                "two observed Metrics",
-                "incompatible comparison",
-                "Compare two same-member observations.",
-            )
         return LogicalDifferenceRelation(
-            _TOKEN, self._node.compare(baseline._node), self._runtime, inputs=(self, baseline)
+            _TOKEN,
+            self._node.combine(baseline._node, "difference"),
+            self._runtime,
+            inputs=(self, baseline),
         )
 
     def correlate(
@@ -947,17 +911,10 @@ class LogicalNumericRelation(_Value):
         Example: ``result = relation.correlate(other, method=method)``.
         Constraints: Only same-member, no-lag Spearman is admitted.
         """
-        if not isinstance(self._node, J1Observed) or not isinstance(other._node, J1Observed):
-            raise _reject(
-                "two observed Metrics",
-                "incompatible association",
-                "Correlate two same-member observations.",
-            )
+        if method != "spearman":
+            raise _reject("spearman", str(method), "Use the qualified Spearman method.")
         return LogicalAssociationResult(
-            _TOKEN,
-            self._node.correlate(other._node, method=method),
-            self._runtime,
-            inputs=(self, other),
+            _TOKEN, self._node.combine(other._node, "spearman"), self._runtime, inputs=(self, other)
         )
 
     def group_by(self, dimension: Ref[DimensionKind]) -> GroupedNumericRelation:
@@ -969,13 +926,8 @@ class LogicalNumericRelation(_Value):
         Example: ``result = relation.group_by(dimension)``.
         Constraints: Only declared member Dimensions or retained coordinates are admitted.
         """
-        if isinstance(self._node, J1Observed):
-            grouped = self._node.group_by(dimension)
-            return GroupedNumericRelation(_TOKEN, grouped, self._runtime, inputs=(self,))
-        raise _reject(
-            "observed relation with retained coordinate",
-            _kind(self._node),
-            "Observe with coordinates first.",
+        return GroupedNumericRelation(
+            _TOKEN, self._node.rollup(dimension), self._runtime, inputs=(self,)
         )
 
     def rollup(self) -> LogicalRolledNumericRelation:
@@ -987,12 +939,6 @@ class LogicalNumericRelation(_Value):
         Example: ``result = relation.rollup()``.
         Constraints: Requires original retained components; subgroup values are not averaged.
         """
-        if not isinstance(self._node, J1Observed):
-            raise _reject(
-                "observation with original state",
-                _kind(self._node),
-                "Use summarize for current-row statistics.",
-            )
         return LogicalRolledNumericRelation(
             _TOKEN, self._node.rollup(), self._runtime, inputs=(self,)
         )
@@ -1008,15 +954,10 @@ class LogicalNumericRelation(_Value):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed current-row method."
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
             )
-        node = self._node
-        if isinstance(node, J1Observed):
-            return LogicalStatisticRelation(
-                _TOKEN, node.summarize(method.kind), self._runtime, inputs=(self,)
-            )
-        raise _reject(
-            "numeric rows with admitted statistic", _kind(node), "Use a retained numeric relation."
+        return LogicalStatisticRelation(
+            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
         )
 
     def execute(self) -> MaterializedNumericRelation:
@@ -1035,7 +976,7 @@ class MaterializedNumericRelation(_MaterializedValue):
     """Exact fixed original Metric observation with retained components."""
 
     @property
-    def value(self) -> J1NumericField:
+    def value(self) -> NumericField:
         """Return the bound numeric field for a fixed-only predicate.
 
         Args:
@@ -1044,7 +985,7 @@ class MaterializedNumericRelation(_MaterializedValue):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return J1NumericField(self._node.root)
+        return NumericField(self._node.root)
 
     def compare(self, baseline: MaterializedNumericRelation) -> LogicalDifferenceRelation:
         """Compare exact retained observed endpoints after binding checks.
@@ -1055,12 +996,11 @@ class MaterializedNumericRelation(_MaterializedValue):
         Example: ``result = relation.compare(baseline)``.
         Constraints: Endpoints need the same member, Metric, route, and distinct windows.
         """
-        if not isinstance(self._node, J1Observed) or not isinstance(baseline._node, J1Observed):
-            raise _reject(
-                "two observed Metrics", "incompatible comparison", "Compare retained observations."
-            )
         return LogicalDifferenceRelation(
-            _TOKEN, self._node.compare(baseline._node), self._runtime, inputs=(self, baseline)
+            _TOKEN,
+            self._node.combine(baseline._node, "difference"),
+            self._runtime,
+            inputs=(self, baseline),
         )
 
     def correlate(
@@ -1075,17 +1015,10 @@ class MaterializedNumericRelation(_MaterializedValue):
         Example: ``result = relation.correlate(other, method=method)``.
         Constraints: Only same-member, no-lag Spearman is admitted.
         """
-        if not isinstance(self._node, J1Observed) or not isinstance(other._node, J1Observed):
-            raise _reject(
-                "two observed Metrics",
-                "incompatible association",
-                "Correlate retained observations.",
-            )
+        if method != "spearman":
+            raise _reject("spearman", str(method), "Use the qualified Spearman method.")
         return LogicalAssociationResult(
-            _TOKEN,
-            self._node.correlate(other._node, method=method),
-            self._runtime,
-            inputs=(self, other),
+            _TOKEN, self._node.combine(other._node, "spearman"), self._runtime, inputs=(self, other)
         )
 
     def group_by(self, dimension: Ref[DimensionKind]) -> GroupedNumericRelation:
@@ -1097,14 +1030,8 @@ class MaterializedNumericRelation(_MaterializedValue):
         Example: ``result = relation.group_by(dimension)``.
         Constraints: Only declared member Dimensions or retained coordinates are admitted.
         """
-        if isinstance(self._node, J1Observed):
-            return GroupedNumericRelation(
-                _TOKEN, self._node.group_by(dimension), self._runtime, inputs=(self,)
-            )
-        raise _reject(
-            "observed relation with retained coordinate",
-            _kind(self._node),
-            "Use an original observation.",
+        return GroupedNumericRelation(
+            _TOKEN, self._node.rollup(dimension), self._runtime, inputs=(self,)
         )
 
     def rollup(self) -> LogicalRolledNumericRelation:
@@ -1116,12 +1043,6 @@ class MaterializedNumericRelation(_MaterializedValue):
         Example: ``result = relation.rollup()``.
         Constraints: Requires original retained components; subgroup values are not averaged.
         """
-        if not isinstance(self._node, J1Observed):
-            raise _reject(
-                "observation with original state",
-                _kind(self._node),
-                "Use summarize for current rows.",
-            )
         return LogicalRolledNumericRelation(
             _TOKEN, self._node.rollup(), self._runtime, inputs=(self,)
         )
@@ -1135,20 +1056,12 @@ class MaterializedNumericRelation(_MaterializedValue):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        return LogicalStatisticRelation(
-            _TOKEN, self._summarize_node(method), self._runtime, inputs=(self,)
-        )
-
-    def _summarize_node(self, method: RowMethod) -> J1Node:
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed current-row method."
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
             )
-        node = self._node
-        if isinstance(node, J1Observed):
-            return node.summarize(method.kind)
-        raise _reject(
-            "numeric rows with admitted statistic", _kind(node), "Use a retained numeric relation."
+        return LogicalStatisticRelation(
+            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
         )
 
 
@@ -1164,9 +1077,9 @@ class MaterializedGroupedNumericRelation(_MaterializedValue):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod) or not isinstance(self._node, J1Observed):
+        if not isinstance(method, RowMethod):
             raise _reject(
-                "group observation and RowMethod", _kind(self._node), "Use mv.sum/count/mean()."
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1185,9 +1098,9 @@ class LogicalRolledNumericRelation(_Value):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod) or not isinstance(self._node, J1Observed):
+        if not isinstance(method, RowMethod):
             raise _reject(
-                "rolled observation and RowMethod", _kind(self._node), "Use mv.sum/count/mean()."
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1219,9 +1132,9 @@ class MaterializedRolledNumericRelation(_MaterializedValue):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod) or not isinstance(self._node, J1Observed):
+        if not isinstance(method, RowMethod):
             raise _reject(
-                "rolled observation and RowMethod", _kind(self._node), "Use mv.sum/count/mean()."
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1240,10 +1153,8 @@ class LogicalRatioRelation(_Value):
         Example: ``result = relation.group_by(dimension)``.
         Constraints: Only declared member Dimensions or retained coordinates are admitted.
         """
-        if not isinstance(self._node, J3Observed):
-            raise _reject("ratio observation", _kind(self._node), "Observe a governed ratio.")
         return GroupedRatioRelation(
-            _TOKEN, self._node.group_by(dimension), self._runtime, inputs=(self,)
+            _TOKEN, self._node.rollup(dimension), self._runtime, inputs=(self,)
         )
 
     def rollup(self) -> LogicalRolledRatioRelation:
@@ -1255,8 +1166,6 @@ class LogicalRatioRelation(_Value):
         Example: ``result = relation.rollup()``.
         Constraints: Requires original retained components; subgroup values are not averaged.
         """
-        if not isinstance(self._node, J3Observed):
-            raise _reject("ratio observation", _kind(self._node), "Observe a governed ratio.")
         return LogicalRolledRatioRelation(
             _TOKEN, self._node.rollup(), self._runtime, inputs=(self,)
         )
@@ -1270,9 +1179,9 @@ class LogicalRatioRelation(_Value):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod) or not isinstance(self._node, J3Observed):
+        if not isinstance(method, RowMethod):
             raise _reject(
-                "ratio observation and RowMethod", _kind(self._node), "Use mv.sum/count/mean()."
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1302,10 +1211,8 @@ class MaterializedRatioRelation(_MaterializedValue):
         Example: ``result = relation.group_by(dimension)``.
         Constraints: Only declared member Dimensions or retained coordinates are admitted.
         """
-        if not isinstance(self._node, J3Observed):
-            raise _reject("ratio observation", _kind(self._node), "Recover the original ratio.")
         return GroupedRatioRelation(
-            _TOKEN, self._node.group_by(dimension), self._runtime, inputs=(self,)
+            _TOKEN, self._node.rollup(dimension), self._runtime, inputs=(self,)
         )
 
     def rollup(self) -> LogicalRolledRatioRelation:
@@ -1317,8 +1224,6 @@ class MaterializedRatioRelation(_MaterializedValue):
         Example: ``result = relation.rollup()``.
         Constraints: Requires original retained components; subgroup values are not averaged.
         """
-        if not isinstance(self._node, J3Observed):
-            raise _reject("ratio observation", _kind(self._node), "Recover the original ratio.")
         return LogicalRolledRatioRelation(
             _TOKEN, self._node.rollup(), self._runtime, inputs=(self,)
         )
@@ -1332,9 +1237,9 @@ class MaterializedRatioRelation(_MaterializedValue):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod) or not isinstance(self._node, J3Observed):
+        if not isinstance(method, RowMethod):
             raise _reject(
-                "ratio observation and RowMethod", _kind(self._node), "Use mv.sum/count/mean()."
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1353,9 +1258,9 @@ class LogicalRolledRatioRelation(_Value):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod) or not isinstance(self._node, J3Observed):
+        if not isinstance(method, RowMethod):
             raise _reject(
-                "rolled ratio and RowMethod", _kind(self._node), "Use mv.sum/count/mean()."
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1387,9 +1292,9 @@ class MaterializedRolledRatioRelation(_MaterializedValue):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod) or not isinstance(self._node, J3Observed):
+        if not isinstance(method, RowMethod):
             raise _reject(
-                "rolled ratio and RowMethod", _kind(self._node), "Use mv.sum/count/mean()."
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1400,7 +1305,7 @@ class LogicalDifferenceRelation(_Value):
     """Unexecuted exact same-member absolute Difference."""
 
     @property
-    def value(self) -> J1NumericField:
+    def value(self) -> NumericField:
         """Return the Difference-bound strict numeric field.
 
         Args:
@@ -1409,9 +1314,9 @@ class LogicalDifferenceRelation(_Value):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return J1NumericField(self._node.root)
+        return NumericField(self._node.root)
 
-    def where(self, predicate: J1NumericPredicate) -> LogicalSelectedDifferenceRelation:
+    def where(self, predicate: NumericPredicate) -> LogicalSelectedDifferenceRelation:
         """Select Defined Difference rows through this exact field.
 
         Args:
@@ -1420,10 +1325,8 @@ class LogicalDifferenceRelation(_Value):
         Example: ``result = relation.where(predicate)``.
         Constraints: The predicate must be bound to this exact relation field.
         """
-        if not isinstance(self._node, J1Difference):
-            raise _reject("Difference", _kind(self._node), "Compare observations first.")
         return LogicalSelectedDifferenceRelation(
-            _TOKEN, self._node.where(predicate), self._runtime, inputs=(self,)
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
         )
 
     def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
@@ -1435,8 +1338,10 @@ class LogicalDifferenceRelation(_Value):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod) or not isinstance(self._node, J1Difference):
-            raise _reject("Difference and RowMethod", _kind(self._node), "Use mv.sum/count/mean().")
+        if not isinstance(method, RowMethod):
+            raise _reject(
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+            )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
         )
@@ -1459,7 +1364,7 @@ class MaterializedDifferenceRelation(_MaterializedValue):
     """Fixed exact Difference with retained paired endpoints."""
 
     @property
-    def value(self) -> J1NumericField:
+    def value(self) -> NumericField:
         """Return the bound strict numeric field.
 
         Args:
@@ -1468,9 +1373,9 @@ class MaterializedDifferenceRelation(_MaterializedValue):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return J1NumericField(self._node.root)
+        return NumericField(self._node.root)
 
-    def where(self, predicate: J1NumericPredicate) -> LogicalSelectedDifferenceRelation:
+    def where(self, predicate: NumericPredicate) -> LogicalSelectedDifferenceRelation:
         """Build a fixed-only Difference selection.
 
         Args:
@@ -1479,10 +1384,8 @@ class MaterializedDifferenceRelation(_MaterializedValue):
         Example: ``result = relation.where(predicate)``.
         Constraints: The predicate must be bound to this exact relation field.
         """
-        if not isinstance(self._node, J1Difference):
-            raise _reject("Difference", _kind(self._node), "Recover the original Difference.")
         return LogicalSelectedDifferenceRelation(
-            _TOKEN, self._node.where(predicate), self._runtime, inputs=(self,)
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
         )
 
     def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
@@ -1494,8 +1397,10 @@ class MaterializedDifferenceRelation(_MaterializedValue):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod) or not isinstance(self._node, J1Difference):
-            raise _reject("Difference and RowMethod", _kind(self._node), "Use mv.sum/count/mean().")
+        if not isinstance(method, RowMethod):
+            raise _reject(
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+            )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
         )
@@ -1513,9 +1418,9 @@ class LogicalSelectedDifferenceRelation(_Value):
         Example: ``result = relation.members()``.
         Constraints: Projects exact selected keys and cannot introduce a new source into fixed state.
         """
-        if not isinstance(self._node, J1SelectedDifference):
-            raise _reject("selected Difference", _kind(self._node), "Select Difference rows first.")
-        return LogicalAnalysisDomain(_TOKEN, self._node.members(), self._runtime, inputs=(self,))
+        return LogicalAnalysisDomain(
+            _TOKEN, self._node.selected_members(), self._runtime, inputs=(self,)
+        )
 
     def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
         """Calculate a statistic over selected current rows.
@@ -1526,9 +1431,9 @@ class LogicalSelectedDifferenceRelation(_Value):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod) or not isinstance(self._node, J1SelectedDifference):
+        if not isinstance(method, RowMethod):
             raise _reject(
-                "selected Difference and RowMethod", _kind(self._node), "Use mv.sum/count/mean()."
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1560,12 +1465,8 @@ class MaterializedSelectedDifferenceRelation(_MaterializedValue):
         Example: ``result = relation.members()``.
         Constraints: Projects exact selected keys and cannot introduce a new source into fixed state.
         """
-        if not isinstance(self._node, J1SelectedDifference):
-            raise _reject(
-                "selected Difference", _kind(self._node), "Recover the selected Difference."
-            )
         return LogicalFixedAnalysisDomain(
-            _TOKEN, self._node.members(), self._runtime, inputs=(self,)
+            _TOKEN, self._node.selected_members(), self._runtime, inputs=(self,)
         )
 
     def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
@@ -1577,9 +1478,9 @@ class MaterializedSelectedDifferenceRelation(_MaterializedValue):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod) or not isinstance(self._node, J1SelectedDifference):
+        if not isinstance(method, RowMethod):
             raise _reject(
-                "selected Difference and RowMethod", _kind(self._node), "Use mv.sum/count/mean()."
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1609,7 +1510,7 @@ class MaterializedCoefficientRelation(_MaterializedValue):
     """Coefficient view bound to an exact retained Association."""
 
     @property
-    def value(self) -> J1NumericField:
+    def value(self) -> NumericField:
         """Return the bound coefficient field.
 
         Args:
@@ -1618,9 +1519,9 @@ class MaterializedCoefficientRelation(_MaterializedValue):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return J1NumericField(self._node.root)
+        return NumericField(self._node.root)
 
-    def where(self, predicate: J1NumericPredicate) -> LogicalCoefficientSelectionRelation:
+    def where(self, predicate: NumericPredicate) -> LogicalCoefficientSelectionRelation:
         """Select a Defined coefficient on this Association.
 
         Args:
@@ -1629,10 +1530,8 @@ class MaterializedCoefficientRelation(_MaterializedValue):
         Example: ``result = relation.where(predicate)``.
         Constraints: The predicate must be bound to this exact relation field.
         """
-        if not isinstance(self._node, J4Association):
-            raise _reject("Association", _kind(self._node), "Recover the original Association.")
         return LogicalCoefficientSelectionRelation(
-            _TOKEN, self._node.coefficient.where(predicate), self._runtime, inputs=(self,)
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
         )
 
     def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
@@ -1644,12 +1543,12 @@ class MaterializedCoefficientRelation(_MaterializedValue):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod) or not isinstance(self._node, J4Association):
+        if not isinstance(method, RowMethod):
             raise _reject(
-                "Association and RowMethod", _kind(self._node), "Use mv.sum/count/mean()."
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
             )
         return LogicalStatisticRelation(
-            _TOKEN, self._node.coefficient.summarize(method.kind), self._runtime, inputs=(self,)
+            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
         )
 
 
@@ -1665,9 +1564,9 @@ class LogicalCoefficientSelectionRelation(_Value):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod) or not isinstance(self._node, J4CoefficientSelection):
+        if not isinstance(method, RowMethod):
             raise _reject(
-                "coefficient selection and RowMethod", _kind(self._node), "Use mv.sum/count/mean()."
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1699,9 +1598,9 @@ class MaterializedCoefficientSelectionRelation(_MaterializedValue):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod) or not isinstance(self._node, J4CoefficientSelection):
+        if not isinstance(method, RowMethod):
             raise _reject(
-                "coefficient selection and RowMethod", _kind(self._node), "Use mv.sum/count/mean()."
+                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1736,9 +1635,6 @@ class MaterializedAssociationResult(_MaterializedValue):
         Example: ``result = relation.coefficient``.
         Constraints: Uses the exact retained Association Artifact.
         """
-        if not isinstance(self._node, J4Association):
-            raise _reject("Association", _kind(self._node), "Recover the original Association.")
-        assert self._dataset is not None
         return MaterializedCoefficientRelation(
             _TOKEN, self._node, self._runtime, dataset=self._dataset
         )
@@ -1762,42 +1658,39 @@ PublicMaterialized: TypeAlias = (
 
 
 def wrap_materialized(
-    node: J1Node, runtime: DatasetRuntime, dataset: MaterializedJ1Dataset
+    node: Relation, runtime: DatasetRuntime, dataset: GraphDataset
 ) -> PublicMaterialized:
-    """Choose the closed public materialized variant for an admitted J1 root."""
-    if isinstance(node, J1Members):
+    """Restore the existing public result variant from its checked typed graph."""
+    kind = _kind(node)
+    if kind == "members":
         return MaterializedAnalysisDomain(_TOKEN, node, runtime, dataset=dataset)
-    if isinstance(node, J1Read):
+    if kind == "read":
         return MaterializedCategoryRelation(_TOKEN, node, runtime, dataset=dataset)
-    if isinstance(node, J1SelectedCategory):
-        return MaterializedSelectedCategoryRelation(_TOKEN, node, runtime, dataset=dataset)
-    if isinstance(node, J4Association):
-        return MaterializedAssociationResult(_TOKEN, node, runtime, dataset=dataset)
-    if isinstance(node, J3Observed):
-        if node.root.operator_id == "dsl.j1.ratio_rollup":
-            return MaterializedRolledRatioRelation(_TOKEN, node, runtime, dataset=dataset)
-        return MaterializedRatioRelation(_TOKEN, node, runtime, dataset=dataset)
-    if isinstance(node, J1Difference):
-        return MaterializedDifferenceRelation(_TOKEN, node, runtime, dataset=dataset)
-    if isinstance(node, J1SelectedDifference):
+    if kind == "where":
+        if node.root.signature.quantity is None:
+            return MaterializedSelectedCategoryRelation(_TOKEN, node, runtime, dataset=dataset)
         return MaterializedSelectedDifferenceRelation(_TOKEN, node, runtime, dataset=dataset)
-    if isinstance(node, (J1Statistic, J4CoefficientStatistic)):
-        return MaterializedStatisticRelation(_TOKEN, node, runtime, dataset=dataset)
-    if isinstance(node, J4CoefficientSelection):
+    if kind == "compare":
+        return MaterializedDifferenceRelation(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "correlate":
+        return MaterializedAssociationResult(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "correlate_where":
         return MaterializedCoefficientSelectionRelation(_TOKEN, node, runtime, dataset=dataset)
-    if isinstance(node, J1Observed):
-        if node.domain.kind == "group":
+    if kind == "summarize":
+        return MaterializedStatisticRelation(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "ratio_observe":
+        return MaterializedRatioRelation(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "ratio_rollup":
+        return MaterializedRolledRatioRelation(_TOKEN, node, runtime, dataset=dataset)
+    if kind in ("observe", "rollup"):
+        if node.root.signature.domain.kind == "group":
             return MaterializedGroupedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
-        if node.domain.kind == "singleton":
+        if node.root.signature.domain.kind == "singleton":
             return MaterializedRolledNumericRelation(_TOKEN, node, runtime, dataset=dataset)
         return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
-    raise _reject(
-        "admitted materialized J1–J4 variant",
-        type(node).__name__,
-        "Recover the exact public Artifact.",
-    )
+    raise _reject("a qualified public result", kind, "Recover the exact public Artifact.")
 
 
-def new_members(node: J1Members, runtime: DatasetRuntime) -> LogicalAnalysisDomain:
-    """Bind a source-free private member node to its public Session owner."""
+def new_members(node: Relation, runtime: DatasetRuntime) -> LogicalAnalysisDomain:
+    """Bind a typed member graph to the existing public Session receiver."""
     return LogicalAnalysisDomain(_TOKEN, node, runtime)

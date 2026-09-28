@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Literal
 
 from marivo.analysis.core.model import CheckId, DomainKind, PartRole
 from marivo.analysis.core.rules import (
     AssociationScore,
     BindProject,
+    CellDerive,
     MapCorrespond,
+    ObserveCount,
+    ObserveMetric,
+    OriginalRatio,
+    OriginalReduce,
     PartsTransport,
     RowState,
     RuleParameters,
@@ -23,19 +29,128 @@ from marivo.analysis.methods.physical import (
     ResourceRequirements,
     ScalarType,
     SourceShape,
+    TimeShape,
 )
 from marivo.analysis.methods.semantics import MethodKey
 
-PARTS: tuple[PartRole, ...] = ("subject", "original_state", "row_state", "coverage")
+PARTS: tuple[PartRole, ...] = (
+    "subject",
+    "original_state",
+    "row_state",
+    "coverage",
+    "coordinate_state",
+)
 CHECKS: tuple[CheckId, ...] = (
     "source.unique_key@v1",
     "source.exact_pairing@v1",
     "source.cell_policy@v1",
+    "source.group_mapping@v1",
+    "source.contribution_partition@v1",
+    "source.complete_coverage@v1",
 )
 NUMERIC_CHECKS: tuple[CheckId, ...] = (*CHECKS, "source.finite_numeric@v1")
 
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
+    if method.name in ("metric.ratio", "state_rollup.ratio"):
+        ratio_shapes: tuple[SourceShape | FixedShape, ...] = (
+            SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
+            SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
+        )
+        if method.name == "state_rollup.ratio":
+            ratio_shapes += (FixedShape(NoTime()), FixedShape(TimeShape("instant", "us", "UTC")))
+        return tuple(
+            Implementation(
+                QualificationKey(
+                    method,
+                    (ScalarType("int64"), ScalarType("int64"))
+                    if method.name == "metric.ratio"
+                    else (ScalarType("float64"),),
+                    (domain, domain) if method.name == "metric.ratio" else (domain,),
+                    shape,
+                    "artifact_python" if isinstance(shape, FixedShape) else "ibis",
+                ),
+                NUMERIC_CHECKS,
+                PARTS,
+                "finite_float64",
+                ResourceRequirements("complete", "caller", None)
+                if isinstance(shape, FixedShape)
+                else ResourceRequirements("stream", "producer", None),
+                Qualified(
+                    f"r45.{method}.{shape}.{domain}@v1",
+                    "analysis.materialization.graph_local_execution"
+                    if isinstance(shape, FixedShape)
+                    else "analysis.compiler.graph_lowering",
+                    "tests/test_analysis_graph_preflight_r45.py",
+                ),
+            )
+            for shape in ratio_shapes
+            for domain in ("entity", "group")
+        )
+    if method.name in ("state_rollup", "state_rollup.count", "state_rollup.sum_zero"):
+        rollup_types: tuple[Literal["int64", "float64"], ...] = (
+            ("int64",) if method.name == "state_rollup.count" else ("int64", "float64")
+        )
+        rollup_shapes: tuple[SourceShape | FixedShape, ...] = (
+            SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
+            SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
+            FixedShape(NoTime()),
+            FixedShape(TimeShape("instant", "us", "UTC")),
+        )
+        return tuple(
+            Implementation(
+                QualificationKey(
+                    method,
+                    (ScalarType(value_type),),
+                    (domain,),
+                    shape,
+                    "artifact_python" if isinstance(shape, FixedShape) else "ibis",
+                ),
+                NUMERIC_CHECKS,
+                PARTS,
+                "checked_int64" if value_type == "int64" else "finite_float64",
+                ResourceRequirements("complete", "caller", None)
+                if isinstance(shape, FixedShape)
+                else ResourceRequirements("stream", "producer", None),
+                Qualified(
+                    f"r45.rollup.{shape}.{value_type}.{domain}@v1",
+                    "analysis.materialization.graph_local_execution"
+                    if isinstance(shape, FixedShape)
+                    else "analysis.compiler.graph_lowering",
+                    "tests/test_analysis_graph_preflight_r45.py",
+                ),
+            )
+            for shape in rollup_shapes
+            for value_type in rollup_types
+            for domain in ("entity", "group", "singleton")
+        )
+    if method.name in ("metric.observe", "metric.count", "metric.sum_zero"):
+        observation_shapes: tuple[tuple[Literal["table", "parquet"], str], ...] = (
+            ("table", "native"),
+            ("parquet", "parquet"),
+        )
+        return tuple(
+            Implementation(
+                QualificationKey(
+                    method,
+                    (ScalarType(key_type),),
+                    ("entity",),
+                    SourceShape("duckdb", form, table_kind, TimeShape("instant", "us", "UTC")),
+                    "ibis",
+                ),
+                NUMERIC_CHECKS,
+                PARTS,
+                "exact",
+                ResourceRequirements("stream", "producer", None),
+                Qualified(
+                    f"r45.{method}.{form}.{key_type}@v1",
+                    "analysis.compiler.graph_lowering",
+                    "tests/test_analysis_graph_preflight_r45.py",
+                ),
+            )
+            for form, table_kind in observation_shapes
+            for key_type in ("int64", "string")
+        )
     if method.name == "association.spearman":
         pair_checks: tuple[CheckId, ...] = (*NUMERIC_CHECKS,)
         pair_parts: tuple[PartRole, ...] = (*PARTS, "pair_counts")
@@ -96,9 +211,20 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         ),
                     )
                 )
-        return tuple(pair_declarations)
+        temporal_pairs = tuple(
+            replace(
+                item,
+                key=replace(
+                    item.key, shape=replace(item.key.shape, time=TimeShape("instant", "us", "UTC"))
+                ),
+            )
+            for item in pair_declarations
+            if isinstance(item.key.shape, SourceShape)
+        )
+        return (*pair_declarations, *temporal_pairs)
     if method.name not in (
         "bind_project",
+        "cell.difference",
         "parts_transport",
         "map_correspond",
         "row.count",
@@ -115,27 +241,53 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     domain: DomainKind = "entity"
     for form, table_kind in shapes:
         shape = SourceShape("duckdb", form, table_kind, NoTime())
-        for arity in (1, 2) if method.name == "map_correspond" else (1,):
-            declarations.append(
-                Implementation(
-                    QualificationKey(
-                        method, (ScalarType("int64"),) * arity, (domain,) * arity, shape, "ibis"
-                    ),
-                    NUMERIC_CHECKS if method.name in ("row.sum", "row.mean") else CHECKS,
-                    PARTS,
-                    "finite_float64"
-                    if method.name == "row.mean"
-                    else "checked_int64"
-                    if method.name.startswith("row.")
-                    else "exact",
-                    ResourceRequirements("stream", "producer", None),
-                    Qualified(
-                        f"r34.ibis.{method}",
-                        "analysis.compiler.graph_lowering",
-                        "tests/test_analysis_lowering_r34.py",
-                    ),
-                )
+        for arity in (
+            (2,)
+            if method.name == "cell.difference"
+            else (1, 2)
+            if method.name == "map_correspond"
+            else (1,)
+        ):
+            key_types: tuple[Literal["int64", "string"], ...] = (
+                ("int64", "string")
+                if method.name in ("bind_project", "parts_transport", "map_correspond")
+                else ("int64",)
             )
+            for key_type in key_types:
+                declarations.append(
+                    Implementation(
+                        QualificationKey(
+                            method,
+                            (ScalarType(key_type),) * arity,
+                            (domain,) * arity,
+                            shape,
+                            "ibis",
+                        ),
+                        NUMERIC_CHECKS,
+                        (*PARTS, "current_endpoint", "baseline_endpoint")
+                        if method.name in ("cell.difference", "parts_transport")
+                        else PARTS,
+                        "finite_float64"
+                        if method.name == "row.mean"
+                        else "checked_int64"
+                        if method.name.startswith("row.") or method.name == "cell.difference"
+                        else "exact",
+                        ResourceRequirements("stream", "producer", None),
+                        Qualified(
+                            f"r45.ibis.{method}.int64@v1"
+                            if method.name == "cell.difference"
+                            else f"r34.ibis.{method}"
+                            if key_type == "int64"
+                            else f"r45.ibis.{method}.{key_type}@v1",
+                            "analysis.compiler.graph_lowering",
+                            "tests/test_analysis_graph_preflight_r45.py"
+                            if method.name == "cell.difference"
+                            else "tests/test_analysis_lowering_r34.py"
+                            if key_type == "int64"
+                            else "tests/test_analysis_graph_preflight_r45.py",
+                        ),
+                    )
+                )
     if method.name in ("row.count", "row.count_defined", "row.sum", "row.mean"):
         declarations.append(
             Implementation(
@@ -146,11 +298,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     FixedShape(NoTime()),
                     "artifact_python",
                 ),
-                ("source.cell_policy@v1",)
-                if method.name == "row.count_defined"
-                else NUMERIC_CHECKS
-                if method.name not in ("row.count",)
-                else (),
+                NUMERIC_CHECKS,
                 ("row_state",),
                 "finite_float64" if method.name == "row.mean" else "checked_int64",
                 ResourceRequirements(
@@ -165,7 +313,129 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 ),
             )
         )
-    return tuple(declarations)
+    if method.name == "cell.difference":
+        declarations.append(
+            Implementation(
+                QualificationKey(
+                    method,
+                    (ScalarType("int64"), ScalarType("int64")),
+                    ("entity", "entity"),
+                    FixedShape(NoTime()),
+                    "artifact_python",
+                ),
+                ("source.exact_pairing@v1", "source.finite_numeric@v1"),
+                ("subject", "current_endpoint", "baseline_endpoint"),
+                "checked_int64",
+                ResourceRequirements("complete", "caller", None),
+                Qualified(
+                    "r45.local.cell.difference.int64@v1",
+                    "analysis.materialization.graph_local_execution",
+                    "tests/test_analysis_graph_publication_r44.py",
+                ),
+            )
+        )
+    if method.name == "parts_transport":
+        fixed_shapes: tuple[tuple[Literal["int64", "string", "float64"], DomainKind], ...] = (
+            ("int64", "entity"),
+            ("string", "entity"),
+            ("float64", "singleton"),
+        )
+        for name, domain_kind in fixed_shapes:
+            declarations.append(
+                Implementation(
+                    QualificationKey(
+                        method,
+                        (ScalarType(name),),
+                        (domain_kind,),
+                        FixedShape(NoTime()),
+                        "artifact_python",
+                    ),
+                    NUMERIC_CHECKS,
+                    (*PARTS, "current_endpoint", "baseline_endpoint", "pair_counts"),
+                    "exact",
+                    ResourceRequirements("complete", "caller", None),
+                    Qualified(
+                        f"r45.local.parts_transport.{name}.{domain_kind}@v1",
+                        "analysis.materialization.graph_local_execution",
+                        "tests/test_analysis_graph_publication_r44.py",
+                    ),
+                )
+            )
+    if method.name in ("row.count", "row.count_defined", "row.sum", "row.mean"):
+        numeric_types: tuple[Literal["int64", "float64"], ...] = ("int64", "float64")
+        row_domains: tuple[DomainKind, ...] = ("entity", "group", "singleton")
+        templates = tuple(declarations)
+        for template in templates:
+            for numeric_type in numeric_types:
+                for row_domain in row_domains:
+                    key = replace(
+                        template.key,
+                        input_types=(ScalarType(numeric_type),),
+                        input_domains=(row_domain,),
+                    )
+                    if any(existing.key == key for existing in declarations):
+                        continue
+                    declarations.append(
+                        replace(
+                            template,
+                            key=key,
+                            precision="finite_float64"
+                            if method.name == "row.mean"
+                            or (method.name == "row.sum" and numeric_type == "float64")
+                            else "checked_int64",
+                            qualification=Qualified(
+                                f"r45.{method}.{key.shape}.{numeric_type}.{row_domain}@v1",
+                                "analysis.materialization.graph_local_execution"
+                                if isinstance(key.shape, FixedShape)
+                                else "analysis.compiler.graph_lowering",
+                                "tests/test_analysis_graph_preflight_r45.py",
+                            ),
+                        )
+                    )
+    if method.name == "parts_transport":
+        transport_shapes: tuple[tuple[Literal["int64", "float64"], DomainKind], ...] = (
+            ("float64", "entity"),
+            ("float64", "group"),
+            ("float64", "singleton"),
+            ("int64", "group"),
+            ("int64", "singleton"),
+        )
+        for template in tuple(declarations):
+            if template.key.input_types != (ScalarType("int64"),):
+                continue
+            for numeric_type, target_domain in transport_shapes:
+                key = replace(
+                    template.key,
+                    input_types=(ScalarType(numeric_type),),
+                    input_domains=(target_domain,),
+                )
+                if any(existing.key == key for existing in declarations):
+                    continue
+                declarations.append(
+                    replace(
+                        template,
+                        key=key,
+                        qualification=Qualified(
+                            f"r45.transport.{key.shape}.{numeric_type}.{target_domain}@v1",
+                            "analysis.materialization.graph_local_execution"
+                            if isinstance(key.shape, FixedShape)
+                            else "analysis.compiler.graph_lowering",
+                            "tests/test_analysis_graph_preflight_r45.py",
+                        ),
+                    )
+                )
+    temporal = tuple(
+        replace(
+            implementation,
+            key=replace(
+                implementation.key,
+                shape=replace(implementation.key.shape, time=TimeShape("instant", "us", "UTC")),
+            ),
+        )
+        for implementation in declarations
+        if isinstance(implementation.key.shape, SourceShape)
+    )
+    return (*declarations, *temporal)
 
 
 def admit(implementation: Implementation, params: RuleParameters) -> None:
@@ -176,25 +446,64 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             repr(implementation.key),
             "Qualify a real lowerer and all required checkers for this exact key.",
         )
-    if isinstance(params, BindProject):
+    if isinstance(params, ObserveCount):
+        if len(params.path) not in (1, 2):
+            reject(
+                "one qualified count route", repr(params.path), "Use a direct member relationship."
+            )
+    elif isinstance(params, ObserveMetric):
+        if len(params.path) not in (1, 2) or params.amount_type not in ("int64", "float64"):
+            reject(
+                "one qualified to-one observation route",
+                repr(params.path),
+                "Use the qualified direct contribution-to-member route.",
+            )
+    elif isinstance(params, BindProject):
         if (
             params.path
             or params.metric_contract is not None
             or params.field_contract is None
             or params.field_contract.parse is not None
-            or params.field_contract.logical_type != "int64"
+            or params.field_contract.logical_type not in ("int64", "string")
         ):
             reject(
-                "direct int64 field binding without parsing",
+                "direct int64 or string field binding without parsing",
                 repr(params.ref),
                 "Qualify the relationship, Metric or temporal lowering separately.",
             )
-    elif isinstance(params, MapCorrespond):
-        if params.mode not in ("exact_keys", "one_to_one", "union_keys", "subjects"):
+    elif isinstance(params, OriginalRatio):
+        pass
+    elif isinstance(params, OriginalReduce):
+        if params.output_domain.kind not in ("singleton", "group") or (
+            (params.output_domain.kind == "group") != (params.coordinate is not None)
+        ):
             reject(
-                "qualified complete-key correspondence",
+                "a whole-domain or retained-coordinate original rollup",
+                repr(params.output_domain),
+                "Use the qualified singleton target.",
+            )
+    elif isinstance(params, MapCorrespond):
+        if params.mode not in ("exact_keys", "one_to_one", "union_keys", "subjects", "group"):
+            reject(
+                "qualified complete-key or single-string group correspondence",
                 params.mode,
-                "Qualify explicit grouping and its target domain separately.",
+                "Bind a supported correspondence and its exact target domain.",
+            )
+        if params.mode == "group" and params.check_id != "source.group_mapping@v1":
+            reject(
+                "the registered Group mapping check",
+                repr(params.check_id),
+                "Bind source.group_mapping@v1 for the exact Group projection.",
+            )
+    elif isinstance(params, CellDerive):
+        if params.method != "difference" or (
+            params.pairing_check_id != "source.exact_pairing@v1"
+            or params.numeric_check_id != "source.finite_numeric@v1"
+        ):
+            reject(
+                "strict paired absolute difference with exact checks",
+                repr(params),
+                "Bind the ordered comparable endpoints and registered checks.",
             )
     elif isinstance(params, PartsTransport):
         if params.mode not in ("where", "projection", "view") or (

@@ -43,7 +43,7 @@ _INPUT_GUIDANCE = {
     "dimension": "Use a declared categorical Dimension Ref on this receiver's domain.",
     "during": "Use mv.time_scope(start=..., end=...) with absolute bounds.",
     "via": "Use the exact relationship Ref or mv.routes(...) required by this Metric.",
-    "coordinates": "Optional declared contribution Dimension Refs; omit when none are needed.",
+    "coordinates": "Up to two distinct string contribution Dimension Refs; omit when none are needed.",
     "baseline": "Use a distinct observation of the same members and Metric.",
     "other": "Use another Metric observation on the same members and time scope.",
     "method": "Use one closed mv.sum/count/mean() value or the stated method literal.",
@@ -68,9 +68,11 @@ def _doc_section(value: object, heading: str) -> str:
 
 def _effects(name: str) -> str:
     if name == "execute":
-        return "Evaluate the admitted graph and publish or recover an exact Artifact."
+        return "Execute one qualified graph in Store 7; publish atomically or reuse an exact fixed key."
     if name in ("show", "to_pandas"):
         return "Read the exact committed Artifact under bounded or isolated-read guards."
+    if name in ("read", "group_by", "observe"):
+        return "Bind a typed graph; live inputs may use schema-only R1 preflight, without business rows or Run."
     if name == "contract":
         return "Read bound definition and retained metadata without source I/O."
     return "Construct a typed continuation without business-source I/O."
@@ -191,7 +193,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 else "RootRoutes"
                 if name == "routes"
                 else "RowMethod",
-                constraints=("Only declared J1–J4 input shapes are admitted.",),
+                constraints=("Only qualified typed graph input shapes are admitted.",),
                 effects="Pure argument construction; no source read or Run.",
                 failures=("AnalysisError: use the structured expected and received repair.",),
                 example=ExampleInput(

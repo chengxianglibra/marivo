@@ -215,7 +215,7 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
     from marivo.analysis.materialization.store import SessionStore
     from marivo.telemetry import tracked_capability
 
-    SessionStore(telemetry_project).create_session(
+    SessionStore._graph_store(telemetry_project).create_session(
         "demo",
         session_ref="session_existing",
         question="persisted question",
@@ -466,7 +466,7 @@ def test_failed_session_resume_does_not_disclose_identity(
 ) -> None:
     from marivo.analysis.materialization.store import SessionStore
 
-    SessionStore(telemetry_project)
+    SessionStore._graph_store(telemetry_project)
     identity = "private-session-name"
 
     with pytest.raises(mv.errors.SessionNotFoundError):

@@ -105,6 +105,35 @@ continuations justified by its own retained parts and exact input binding.
 These public operations use the method rules and implementation registrations
 below; they do not introduce a second method policy or source adapter.
 
+### R4.5 current public qualification
+
+The typed graph registry and Store 7 supersede the historical S1–S4 physical
+registrations described below. Public qualification is limited to the exact
+DuckDB table and local Parquet source shapes and verified Arrow/Parquet-to-pandas
+fixed routes recorded in the R4.5 acceptance ledger. Schema-only R1 inspection
+may precede Run admission; business reads cannot precede physical qualification.
+String member reads/grouping, int64 or float64 original sums, explicit sum-zero,
+Entity count, int64 absolute Difference, original ratio and paired Spearman use
+one graph execution entry. Other physical variants fail before business reads
+and Run allocation. Public comparison requires int64 endpoints; the historical
+float64 comparison statement below is not a current qualification.
+
+Original sum, sum-zero, count and ratio have distinct v1 state contracts and an
+`original_state` part plus coverage. Ratio stores numerator sum/non-null count
+and denominator count together as named original components, rather than
+separate numerator/denominator parts. Optional `coordinate_state` preserves one
+or two ordered string coordinates and the complete original component tuple.
+Ratio primary rows use the complete member-and-coordinate union; row statistics
+consume those rows, while rollup merges original components. Subject and ordered
+endpoint parts are retained only where the frozen method definition requires
+them. Every advertised continuation requires verified receipts, exact binding,
+state version and completed checks; it cannot be inferred from displayed values.
+Public Spearman rejects coordinate-bearing endpoints. Fixed coefficient
+selection and sum/count/mean execute from the verified coefficient and pair counts
+without reopening sources or recomputing ranks.
+
+### Historical S1–S4 implementation sequence
+
 S1 W1 records J1 sum observation and original-state rollup method semantics
 with retained sum, non-null-count and row-count parts and no qualified source
 or pandas implementation. Private construction may bind them; execution
@@ -321,7 +350,7 @@ coefficient Cells and their own status, not a fabricated zero coefficient.
 | `spearman` | `pair_counts` with ordered Metric keys and input, matched, Null and complete-pair counts, independently matched to the primary coefficient/status. | Coefficient selection/current-row statistics only; no recomputation of ranks or member recovery. |
 
 Every primary and part uses its own
-[`receipt/v1`](session-state-and-runtime.md#r41-frozen-runtime-and-store-target-inactive)
+[`receipt/v1`](session-state-and-runtime.md#r41-frozen-runtime-and-store-target)
 with complete ordered keys, physical schema, cardinality and file hash.
 `none` has an empty ordered part-role tuple; all other variants require exactly
 the listed roles in the listed order. A method that creates only a subset must

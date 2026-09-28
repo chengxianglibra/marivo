@@ -80,6 +80,7 @@ def get_or_create(
         name,
         question=question,
         report_timezone=report_timezone,
+        _generation=7,
     )
     return Session._from_runtime(runtime)
 
@@ -95,9 +96,12 @@ def current() -> Session | None:
     from marivo.analysis.materialization.admission import DatasetRuntime
 
     root = resolve_project_root()
-    if not MaterializationLayout(root).store_db.is_file():
+    if not MaterializationLayout(root, generation=7).store_db.is_file():
+        generations = root / ".marivo" / "analysis" / "generations"
+        if generations.exists() and any(generations.iterdir()):
+            SessionStore._graph_store(root, existing_only=True)
         return None
-    store = SessionStore.open_existing(root)
+    store = SessionStore._graph_store(root, existing_only=True)
     record = store.current()
     return (
         None
@@ -106,6 +110,7 @@ def current() -> Session | None:
             DatasetRuntime.open(
                 root,
                 record.session_ref,
+                _generation=7,
             )
         )
     )
@@ -139,7 +144,7 @@ def resume(identity: str, *, by: Literal["name", "id"] | None = None) -> Session
     if not isinstance(identity, str) or not identity.strip():
         raise _invalid("a nonempty Session name or id", "empty or invalid identity")
     root = resolve_project_root()
-    store = SessionStore.open_existing(root)
+    store = SessionStore._graph_store(root, existing_only=True)
     named = store.session_by_name(identity) if by != "id" else None
     keyed = store.session(identity) if by != "name" else None
     if named is not None and keyed is not None and named.session_ref != keyed.session_ref:
@@ -186,6 +191,7 @@ def resume(identity: str, *, by: Literal["name", "id"] | None = None) -> Session
         DatasetRuntime.create(
             root,
             record.name,
+            _generation=7,
         )
     )
 
@@ -200,9 +206,15 @@ def recent(*, limit: int = 20, cursor: str | None = None) -> SessionSummaryPage:
     Example: ``mv.session.recent(limit=5).show()``.
     Constraints: History reads do not activate or recover Sessions.
     """
-    from marivo.analysis.materialization.admission import DatasetRuntime
+    from marivo.analysis.session import _lazy_history
+    from marivo.analysis.session._lazy_runtime_reads import page_after
 
-    return DatasetRuntime.recent(resolve_project_root(), limit=limit, cursor=cursor)
+    page_after(limit, cursor, operation="recent")
+    return _lazy_history.recent(
+        SessionStore._graph_store(resolve_project_root(), existing_only=True),
+        limit=limit,
+        cursor=cursor,
+    )
 
 
 def inspect(name: str, *, run_limit: int = 5, run_cursor: str | None = None) -> SessionInspection:
@@ -216,10 +228,15 @@ def inspect(name: str, *, run_limit: int = 5, run_cursor: str | None = None) -> 
     Example: ``mv.session.inspect('revenue-review').show()``.
     Constraints: This metadata read never consults current datasource state.
     """
-    from marivo.analysis.materialization.admission import DatasetRuntime
+    from marivo.analysis.session import _lazy_history
+    from marivo.analysis.session._lazy_runtime_reads import page_after
 
-    return DatasetRuntime.inspect(
-        resolve_project_root(), name, run_limit=run_limit, run_cursor=run_cursor
+    page_after(run_limit, run_cursor, operation="inspect")
+    return _lazy_history.inspect(
+        SessionStore._graph_store(resolve_project_root(), existing_only=True),
+        name,
+        run_limit=run_limit,
+        run_cursor=run_cursor,
     )
 
 
@@ -233,7 +250,7 @@ def abandon_run(*, session_id: str, run_id: str) -> None:
     Example: ``mv.session.abandon_run(session_id=session_id, run_id=run_id)``.
     Constraints: Local publication safety is mandatory; remote read status may remain unknown. Committed success cannot be abandoned.
     """
-    store = SessionStore.open_existing(resolve_project_root())
+    store = SessionStore._graph_store(resolve_project_root(), existing_only=True)
     with session_writer_guard(store.layout.lock_path(session_id), session_ref=session_id):
         reconcile_session(
             store,

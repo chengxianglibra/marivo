@@ -6,7 +6,7 @@ import base64
 import hashlib
 import json
 from dataclasses import dataclass, replace
-from typing import Annotated, Literal, TypeVar
+from typing import Annotated, Literal, TypeVar, get_args
 
 import pyarrow as pa
 from pydantic import BeforeValidator, PlainSerializer, TypeAdapter, ValidationError
@@ -14,7 +14,8 @@ from pydantic import BeforeValidator, PlainSerializer, TypeAdapter, ValidationEr
 from marivo.analysis.compiler.graph_plan import CheckRequirement, GraphPlan, RouteChoice
 from marivo.analysis.compiler.graph_plan import plan as make_plan
 from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
-from marivo.analysis.core.model import Signature
+from marivo.analysis.core.model import Evidence, PartRole, Signature, part_role
+from marivo.analysis.core.rules import PartsTransport
 from marivo.analysis.materialization.contracts import (
     LocalReceipt,
     canonical_json,
@@ -39,6 +40,7 @@ def invalid(received: str) -> IntegrityError:
         received=received,
         repair="Preserve existing state; use a fresh project for v7 or restore the exact committed files and metadata.",
         stage="graph_protocol",
+        help_target="session.artifact",
     )
 
 
@@ -148,14 +150,23 @@ class MethodState:
     ordered_part_roles: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        roles = (
+        required = (
             ()
             if self.kind == "none"
-            else ("pair_counts" if self.kind == "spearman" else "row_state",)
+            else ("pair_counts",)
+            if self.kind == "spearman"
+            else ("current_endpoint", "baseline_endpoint")
+            if self.kind == "difference"
+            else ("original_state", "coverage")
+            if self.kind
+            in ("original_sum", "original_sum_zero", "original_count", "original_ratio")
+            else ("row_state",)
         )
         if (
             self.contract_id != f"marivo.analysis.state.{self.kind}"
-            or self.ordered_part_roles != roles
+            or len(set(self.ordered_part_roles)) != len(self.ordered_part_roles)
+            or any(role not in get_args(PartRole) for role in self.ordered_part_roles)
+            or not set(required).issubset(self.ordered_part_roles)
             or not self.input_binding
             or REGISTRY.lookup(MethodKey(self.method_name)).semantics.persistent_state_kind
             != self.kind
@@ -235,7 +246,7 @@ class RowContract:
 
 @dataclass(frozen=True, slots=True)
 class RowSetContract:
-    kind: Literal["keyed", "singleton"]
+    kind: Literal["keyed", "singleton", "optional_singleton"]
     ordering: Literal["unordered"]
 
 
@@ -264,6 +275,25 @@ class Descriptor:
     method_state: MethodState
     continuation_snapshot: str
     continuation_snapshot_digest: str
+
+
+def fixed_signature(value: Descriptor) -> Signature:
+    """Expose a checked Artifact's semantic signature to a fixed-only graph."""
+    root = validate_descriptor(value)
+    admitted = descriptor_plan(value, root)
+    proven = tuple(
+        Evidence(
+            check.obligation.fact,
+            "check",
+            digest(actual.producing_run_ref + actual.result_digest + actual.origin_node),
+        )
+        for check, actual in zip(admitted.checks, value.completed_checks, strict=True)
+    )
+    return replace(
+        value.signature,
+        obligations=(),
+        evidence=tuple(dict.fromkeys((*value.signature.evidence, *proven))),
+    )
 
 
 DESCRIPTOR = TypeAdapter(Descriptor)
@@ -355,9 +385,17 @@ def validate_descriptor(value: Descriptor) -> Node:
         or value.primary_receipt.input_binding != state.input_binding
         or value.primary_receipt.key_fields != keys
         or tuple(p.role for p in value.parts) != state.ordered_part_roles
+        or state.ordered_part_roles != tuple(part_role(p) for p in value.signature.parts)
         or value.primary_receipt.local.schema_fingerprint
         != hashlib.sha256(schema.serialize().to_pybytes()).hexdigest()
-        or value.row_set_contract.kind != ("keyed" if keys else "singleton")
+        or value.row_set_contract.kind
+        != (
+            "keyed"
+            if keys
+            else "optional_singleton"
+            if isinstance(root.parameters, PartsTransport) and root.parameters.mode == "where"
+            else "singleton"
+        )
         or any(
             p.input_binding != state.input_binding
             or p.key_fields != keys

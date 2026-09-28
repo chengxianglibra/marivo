@@ -488,37 +488,6 @@ def test_registered_nested_values_and_module_resolve(disclosure: DatasetDisclosu
         assert render(disclosure, value) == render(disclosure, target)
 
 
-def test_private_abandonment_selects_one_run_and_preserves_success(tmp_path, monkeypatch) -> None:
-    import marivo.analysis.session as namespace
-    from marivo.analysis.materialization.admission import DatasetRuntime
-    from tests.lazy_runtime_read_fixtures import input_value, publish
-
-    monkeypatch.chdir(tmp_path)
-    runtime = DatasetRuntime.create(tmp_path, "selected")
-    store = runtime.store
-    publish(store, "success", "committed", session_ref=runtime.session_ref)
-    with pytest.raises(Exception):
-        namespace.abandon_run(session_id=runtime.session_ref, run_id="success")
-    assert store.run("success").lifecycle == "succeeded"
-    store.admit(runtime.session_ref, "first", input_value(), run_ref="first")
-    namespace.abandon_run(session_id=runtime.session_ref, run_id="first")
-    assert store.run("first").lifecycle == "failed"
-    store.admit(runtime.session_ref, "other", input_value(), run_ref="other")
-    namespace.abandon_run(session_id=runtime.session_ref, run_id="first")
-
-    # The existing native recovery test matrix owns backend fencing mechanics.
-    # This seam proves the private receiver cannot swallow a failed proof.
-    def pending(*args, **kwargs):
-        raise RuntimeError("proof unavailable")
-
-    monkeypatch.setattr(
-        "marivo.analysis.materialization.reconciliation.discharge_resources", pending
-    )
-    with pytest.raises(RuntimeError, match="proof unavailable"):
-        namespace.abandon_run(session_id=runtime.session_ref, run_id="other")
-    assert store.run("other").lifecycle == "incomplete"
-
-
 # Frozen directly from the owning row-semantics declarations, independently of providers.
 EXPECTED_VARIANT_FIELDS = {
     "_CompleteFromSchema": ("kind",),

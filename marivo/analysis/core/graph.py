@@ -8,8 +8,16 @@ from typing import Literal, TypeAlias
 from uuid import uuid4
 
 from marivo.analysis.core.model import Signature, reject
-from marivo.analysis.core.rules import BindProject, CellDerive, RuleDerivation, RuleParameters
-from marivo.analysis.methods.physical import FixedShape, SourceShape, ValueType
+from marivo.analysis.core.rules import (
+    BindProject,
+    CellDerive,
+    ObserveCount,
+    ObserveMetric,
+    PartsTransport,
+    RuleDerivation,
+    RuleParameters,
+)
+from marivo.analysis.methods.physical import FixedShape, ScalarType, SourceShape, ValueType
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 from marivo.analysis.methods.semantics import MethodKey, key_for_parameters
 from marivo.analysis.refs import ArtifactRef
@@ -188,6 +196,21 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
         or any(type(e) is not Edge for e in node.inputs)
     ):
         _fail("ordered immutable data dependencies", node.identity)
+    if isinstance(node.parameters, PartsTransport):
+        physical = node.inputs[0].node.value_type
+        for predicate in node.parameters.predicates:
+            value = predicate.value
+            if not isinstance(physical, ScalarType) or not (
+                (physical.name == "string" and type(value) is str and predicate.operator == "eq")
+                or (physical.name == "int64" and type(value) is int)
+                or (
+                    physical.name == "float64"
+                    and (
+                        type(value) is float or (type(value) is int and -(2**53) <= value <= 2**53)
+                    )
+                )
+            ):
+                _fail("a lossless predicate literal for the exact physical type", repr(physical))
     if node.method != key_for_parameters(node.parameters):
         _fail("the parameter variant's exact method version", str(node.method))
     roles = tuple(e.role for e in node.inputs)
@@ -201,7 +224,14 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
         _fail(f"ordered input roles {expected}", repr(roles))
     if type(node.sources) is not tuple or any(type(s) is not SourceLeaf for s in node.sources):
         _fail("immutable explicit source dependencies", node.identity)
-    if isinstance(node.parameters, BindProject):
+    if isinstance(node.parameters, (ObserveMetric, ObserveCount)):
+        required = {node.parameters.contribution.path}
+        for path in node.parameters.path:
+            required.update((path.from_entity_ref.path, path.to_entity_ref.path))
+        actual = {source.definition.ref.path for source in node.sources}
+        if actual != required or len(actual) != len(node.sources):
+            _fail(f"explicit observation sources for {sorted(required)}", repr(sorted(actual)))
+    elif isinstance(node.parameters, BindProject):
         params = node.parameters
         required = {params.field_owner.path}
         for path in params.path_contracts:

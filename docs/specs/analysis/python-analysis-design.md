@@ -269,7 +269,7 @@ fixed key  = H(("marivo.analysis.execution_key/v1", "fixed",
 
 Each source binding occurrence is `(source definition fingerprint, datasource
 Ref, physical source shape, semantic dependency digest, exact selected source
-binding fingerprint)`. It is captured before opening the source; the Run ref
+binding fingerprint)`. It is captured before the business-row source read; the Run ref
 is the fresh evaluation identity, so the same Lazy value cannot hit an earlier
 source result. The semantic dependency digest is an independent frozen input,
 not an alias for the source definition fingerprint; the opened R1 source proves
@@ -285,12 +285,17 @@ the original Artifact without a Run. A miss admits exactly one new Run under
 the writer guard. The existing Store uniqueness on `(Session, execution key)`
 remains the publication arbiter.
 
-Pure classification and capability checks precede the writer guard, source
-open, Artifact row read and Run allocation. Mixed live/fixed roots, foreign
+Pure classification and declaration-level capability checks precede the writer
+guard, schema preflight, Artifact row read and Run allocation. Mixed live/fixed roots, foreign
 Session inputs, unmatched ordered comparison/member bindings and unavailable
-physical implementations reject there. The guard then reconciles the exact
-unfinished Run. Source-only allocates a Run and new key before first source
-read; fixed-only validates a hit before allocating a Run. R4 consumes the
+backend/source forms reject there. For source-only graphs whose Entity key or
+field type is unknown in Semantic metadata, R4.5 may open the selected R1
+source for schema only before allocating a Run. This preflight submits no
+business-row query, fixes exact physical qualifications, and must be checked
+against the bindings opened for execution; changed schemas reject without
+fallback. The guard then reconciles the exact unfinished Run. Source-only
+allocates a Run and new key before first business-row read; fixed-only
+validates a hit before allocating a Run. R4 consumes the
 unchanged emitted Ibis expression with its recorded `source_ids`, fulfills
 each bound check before its consume/publish deadline, and records completed
 evidence from this invocation. No failed check, type mismatch, cancellation
@@ -298,7 +303,7 @@ or implementation error changes the selected route or starts a new identity.
 R4.3 owns the common source/Parquet/pandas Arrow exchange; R4.4 owns the v7
 Store/descriptor/receipt switch; R4.5 owns exact source-free recovery. Their
 frozen metadata and failure boundaries are in
-[Session State and Runtime](session-state-and-runtime.md#r41-frozen-runtime-and-store-target-inactive).
+[Session State and Runtime](session-state-and-runtime.md#r41-frozen-runtime-and-store-target).
 
 ### R4.3 private exchange and method execution
 
@@ -315,6 +320,22 @@ Source bindings declare allowed non-Defined Cell reasons. Transport retains
 that exact policy; producers of new Cells use their registered method policy.
 An undeclared reason rejects the transient result instead of being inferred
 from encountered rows.
+The R4.5 qualifications cover string member reads and grouping,
+windowed direct sum (explicit Null or zero empty policy) and Entity count,
+one- or two-hop to-one contribution paths, ordered int64 Difference, and
+same-member Spearman. Original ratios merge independent sum-zero and count
+components before division. A zero denominator yields Undefined, including
+when both original components are zero. Whole-domain and retained-coordinate
+rollups preserve these components. DuckDB table and local Parquet paths have
+separate evidence; checked fixed Artifacts use the registered local consumers.
+Fixed selection, original rollup and current-row sum/mean/count/count-defined
+can share a multi-node schedule with one Run and one final publication.
+Public J1–J4 evidence is recorded separately in the R4.5 acceptance ledger. A fixed
+leaf uses the frozen signature with pending obligations discharged only after
+the Store has validated the exact completed-check evidence and receipts.
+An exact fixed predicate on a singleton coefficient may yield zero or one row;
+the closed `optional_singleton` row-set contract is recorded in the descriptor
+and enforced again on receipt reads.
 
 The fixed route verifies its selected primary and required part receipts before
 the pandas method reads rows. It cannot attach an Artifact to DuckDB or a
@@ -331,8 +352,9 @@ Ibis preparation followed by Python. Fixed receipt execution qualifies
 `row.count`, `row.count_defined`, int64 `row.sum`/`row.mean`, and ordered int64/float64 Spearman
 pairs. Only fixed `row.count` retains the R3.4 100,000-row limit; other
 complete-input algorithms have no implicit row cap or sample. Mean requires
-exactly representable int64 operands. Unregistered J1–J3 reductions,
-comparison/ratio variants, Decimal, temporal shapes and other backends remain
+exactly representable int64 operands. R4.5 adds the exact qualifications listed
+above and in the public execution section. Other reduction, comparison/ratio
+variants, Decimal, unqualified temporal shapes and other backends remain
 unavailable before business reads; legacy execution results do not qualify
 them. Private results do not publish a new protocol Artifact or authorize
 product continuation K.
@@ -550,139 +572,50 @@ acceptance record names remaining old text consumers and their R5–R9 owners.
 Datasource inspection and connectivity establish physical facts only, not
 method admission.
 
-## S1 W1 private J1 construction
+## R4.5 public graph execution and recovery
 
-W1 loads the closed Semantic additivity, event-time, and value-policy declarations
-through normal authoring, then builds a private J1 Logical chain for members,
-Region read and strict selection, Region grouping, builder-backed Revenue
-observation, Channel contribution coordinates, and original-state rollup.
-Construction and field handles do not read business sources. The accepted method
-semantics require a declared directed Buyer path, a single-valued member Region,
-sum retained parts, ignore-Null and empty-Null behavior, and a declared event
-time. The method has no registered source or pandas implementation in W1, so
-the independent SQL oracle remains an oracle rather than DSL execution evidence.
-An opaque Metric body may load but cannot continue through this private path.
+The former S1–S3 scenario builders, executors and J1 exchange codecs have been
+replaced. `session.members(...)` and every existing public relation hold a
+`core.graph` definition. Their `execute()` methods enter the same
+`DatasetRuntime._execute_graph` scheduler. Public Session creation, resume,
+current/history reads and Artifact recovery select Store 7 only; old-generation
+projects remain untouched and are rejected rather than migrated or dual-read.
 
-## S1 W2 private J1 execution
+R1 schema-only preflight may open a qualified source before Run allocation to
+resolve unknown Entity keys and exact value types. It submits no business rows.
+Business source opening and reads follow physical qualification and Run admission;
+the Runtime verifies the preflight schema again. Unsupported backends, physical
+types, mixed source/fixed graphs and R5–R9 Dataset families reject before business
+reads and Run allocation. Existing signatures remain; those families have no
+Store 7 execution qualification yet.
 
-W2 attaches those exact J1 roots to Dataset row and row-set contracts and a
-private placement check. A selected DuckDB Ibis backend lowers the admitted
-members, Region read/strict selection, Region grouping, Revenue observation,
-Channel contribution grouping, original-state rollup, and current-row
-sum/count/mean to Ibis expressions. Ibis compiles the source expressions and
-checks; a source failure ends that route. The source adapter validates physical
-string/int64 keys, string categories, int64/float64 contribution values,
-finite floats, complete keys, Cell tags, and checked sum/count state.
+The qualified J1–J4 routes include DuckDB native tables and local Parquet sources,
+string/int64 Entity identity, direct string member reads/grouping, UTC microsecond
+event windows, direct int64/float64 sums, Entity count, one- or two-hop to-one
+paths, ordered int64 comparison, original int64 sum-zero/count ratios, and
+same-member Spearman. Original ratios keep independent component roots. With
+contribution coordinates, the complete row key is member plus the ordered string
+coordinate tuple (at most two). Missing numerator contributions are zero; a zero
+denominator is Undefined. Whole and coordinate rollup merge original components;
+current-row statistics operate on the actual rows, so their mean can differ.
 
-The private pandas route consumes an exact J1 predecessor from an exhausted,
-receipt-checked local read or a complete source result. A category read can be
-selected or grouped after a fixed receipt; a coordinate-free Revenue
-observation retains keyed sum, non-null count, and row-count parts for local
-rollup after its fixed receipt. An in-memory source result with a retained
-Channel coordinate can group that coordinate by explicit key. Persisted
-coordinate parts and successful Artifact publication/cold recovery are described
-in the W3 section below. These private calls do not activate public Analysis
-DSL signatures or claim Runtime publication.
+Two independently published endpoints may combine only when their frozen
+observation definitions retain the same explicit member node. Equal values or
+equal-looking independently constructed selections do not establish this binding.
+Comparison also requires matching Metric, path and coordinates and distinct
+windows; Spearman requires matching windows and one observation per member.
+Ordered endpoint occurrences are retained in exact keys and parts. Shared nodes
+are evaluated once in one top-level Run with only the final result published.
 
-For J1 builder-backed `ms.aggregate(..., agg="sum")`, the graph fixes
-ignore-Null inputs and a Null result for complete empty contributions; the
-builder has no separate value-policy parameters. Explicit authored policy
-facts, when present on a normalized Metric, must agree with that graph before
-J1 admission. Both routes apply the same versioned Cell and numeric admission
-policy. DuckDB and pandas accumulate float64 in different orders, so a float64
-sum or mean is not promised to be bit-identical across routes. J1 exchange
-vectors compare float64 with an explicit tolerance and preserve exact int64
-checks; a retained coordinate float64 partition must pass its own bounded
-sum-state check before publication.
-
-## S1 W3 private J1 Artifact exchange
-
-W3 uses one closed schema-first Arrow stream contract for J1 member relations
-and Cell-valued rows. The DuckDB/Ibis producer and receipt-checked local Parquet
-reader complete row, key, Cell and content checks before yielding publication
-evidence. An exact admitted Run publishes the main rows and separately receipted
-sum/count and optional coordinate parts through the existing Store. Recovery
-requires the exact Artifact reference, J1 definition, method version and input
-binding; it reads every selected receipt before pandas continuation. A cold
-process can continue with saved category rows, current-row statistics and
-Channel coordinate rollup without a source connection.
-
-## S1 W4 private J1 Runtime execution
-
-The internal `DatasetRuntime.execute_j1(...)` action now owns J1 admission,
-Session writer exclusion, incomplete-Run reconciliation, and publication
-outcome read-back. A source call opens its supplied DuckDB/Ibis source factory
-only after Run admission and assigns a new v2 key from the stable J1 definition
-binding and the allocated Run ref. Repeating the same J1 node reads current
-source data and publishes a separate immutable Artifact.
-
-A fixed local continuation selects an exact saved predecessor and binds its
-primary and retained-part receipts into the v2 key. A fully validated exact
-hit returns its original Artifact without a Run; a miss reads the retained
-state through the controlled Parquet reader and executes the admitted pandas
-method. Live-source work combined with an explicit saved predecessor rejects
-before source opening, Artifact row reads, or Run admission. The J1 semantic
-node retains its definition fingerprint; the invocation binding additionally
-encodes source or exact Artifact input and method version. Run, publication,
-exchange binding, and read-back retain the selected key. Existing non-J1
-Dataset execution keeps its v1 key and cache behavior. This is a private
-execution chain, not a public DSL or general production `execute()` route.
-
-## S2 P1 private two-predecessor binding
-
-The private `J1Observed.compare(baseline)` constructor admits two Entity-level
-observations of the same Metric, component plan, coordinates and non-time
-scope facts with distinct time scopes. Both branches must descend from the same explicit member root;
-matching definitions or keys alone do not establish that identity. The
-ordered current/baseline root computes a strict absolute difference. It has a
-Difference quantity with endpoint requirements and does not inherit the
-Metric's original-state rollup authority. Selection from Difference and new
-observation remain later S2 work.
-
-For a source-only compare, the DuckDB/Ibis adapter first checks the complete
-logical shape and method route, then realizes the shared member relation once
-per invocation and supplies that realization to both observations. It checks
-unique and equal endpoint keys and finite Defined numeric Cells before
-publishing the result and independently receipted endpoint parts. A second
-top-level execution gets a new Run, member realization and Artifact.
-
-For fixed input, the private Runtime requires two exact ordered observed
-Artifacts whose exchange metadata names the same nonempty member realization.
-The fixed key binds both Artifact references, receipts, parts and member
-binding. A validated hit has no new Run; a miss reads both retained inputs and
-uses pandas for the same strict difference. Mixed live and fixed inputs, or
-independently captured endpoints, fail before Artifact row reads and Run
-admission. This route is limited to the admitted J1 compare shape and is not a
-public multi-output capture API.
-
-## S2 P2 private J2 selection and next observation
-
-A private Difference now has a bound numeric value field with finite
-`lt/lte/gt/gte/eq` thresholds. Float64 `eq` uses exact binary equality. Strict
-`where` keeps the Difference value and
-filters both retained endpoint parts by exact member key; `members()` projects
-the selected identities without reading a source. The selected Entity domain
-binds its parent domain and selector definition, so a later observation names
-the actual selected domain. A comparison requires the same immediate member
-input node for both observations; sharing only an older ancestor is insufficient.
-Difference and its selected relation support current-row sum/count/mean, but
-neither inherits the original Metric's state rollup. The selected relation has
-no second numeric `where` field handle in P2.
-
-For J2, one source-only graph evaluates July and August under strict complete
-key pairing, selects negative changes, observes September for those Logical
-members, and computes mean over the selected customer rows. The source stage
-realizes the compare member node once in that invocation. The J2 fixture uses
-explicit zero-valued orders for the zero Cells; a truly empty Revenue sum still
-returns Null and cannot enter strict compare.
-
-The existing Store and exchange codec retain the selected Difference's exact
-endpoint parts and selector-bound domain. A fixed pair requires two ordered
-Artifacts with one shared member realization; pandas can then filter the
-Difference, project members, or summarize its current rows after receipt checks.
-A fixed selected member Artifact cannot be used for a new live read or observe.
-These are private qualifications, not public DSL methods or a two-endpoint
-capture API.
+`session.artifact(ref)` validates the exact v7 descriptor, continuation snapshot,
+method version, completed-check evidence, primary receipt and all required parts.
+It restores the existing public result class. Its repr, show and contract inspect
+verified state; fixed continuations use the checked Parquet/Arrow/pandas route
+without current Semantic loading or a source/DuckDB connection. Corrupt, missing
+or rebound metadata/parts cannot provide dynamic continuation K or an exact hit.
+No legacy source definition-only cache remains on an executable source path.
+The private generic v6 Dataset harness remains isolated for later-family tests;
+it is not selected or recovered by any public Session entry.
 
 ## S4 P1 public admission
 
@@ -694,8 +627,7 @@ closed two-root `routes(route(...), route(...))` value, and optional declared
 contribution coordinates. Domain and relation methods return concrete logical
 variants. `execute()` exists only on logical values; `show()` and
 `to_pandas()` exist only on materialized values. Both expose `contract()`.
-`session.artifact(reference)` returns an exact materialized variant, with
-the existing non-DSL materialized families retained in its closed union.
+`session.artifact(reference)` returns an exact materialized variant, with its existing public return annotation retained; unqualified families are not recovered through v6.
 Date-only and naive fixed TimeScope bounds follow the Session's persisted report
 timezone before lowering to the admitted UTC event axis. Aware bounds retain
 their absolute instant; normalized bounds join the logical definition identity.
@@ -717,8 +649,7 @@ reject before a Run or either input is read.
 
 The canonical entry for a migrated first-round shape is the domain/relation
 chain. Existing Session population/observation and Dataset family methods
-continue to serve shapes outside this admitted slice; they are not aliases for
-the new chain. The public cutover must keep live Help, API docstrings, export
+retain their signatures but reject execution until their Store 7 qualification. The public cutover must keep live Help, API docstrings, export
 snapshots, user examples and the packaged analysis workflow synchronized.
 Previous private J1 Artifacts have no public continuation snapshot and are
 not upgraded. A newly public Artifact must retain its admitted node shape,
@@ -730,8 +661,8 @@ recovery can preserve the same K without loading current semantics.
 | `session.members(entity)` | `LogicalAnalysisDomain` | `MaterializedAnalysisDomain` | Entity identity and exact member root |
 | `members.read(dimension)`, then `where(read.value.eq(category))` | `LogicalCategoryRelation`, `LogicalSelectedCategoryRelation` | matching category variant; selected `members()` projects identity | declared single-valued Dimension and selected member keys |
 | `members.group_by(dimension).observe(metric, during=window, via=relationship)` | `GroupedNumericRelation` | `MaterializedGroupedNumericRelation` | group binding and sum/count state |
-| `members.observe(metric, during=window, via=relationship)` | `LogicalNumericRelation` | `MaterializedNumericRelation`; `group_by` returns `GroupedNumericRelation`, `rollup` returns `LogicalRolledNumericRelation` / `MaterializedRolledNumericRelation` | sum, non-null count, row count and optional coordinate state |
-| `members.observe(metric, during=window, via=mv.routes(...), coordinates=(...))` | `LogicalRatioRelation` | `MaterializedRatioRelation`; `group_by` returns `GroupedRatioRelation`, `rollup` returns `LogicalRolledRatioRelation` / `MaterializedRolledRatioRelation` | numerator sum/count/row count and denominator count/row count |
+| `members.observe(metric, during=window, via=relationship)` | `LogicalNumericRelation` | `MaterializedNumericRelation`; `group_by` returns `GroupedNumericRelation`, `rollup` returns `LogicalRolledNumericRelation` / `MaterializedRolledNumericRelation` | original sum/non-null-count, coverage and optional coordinate state |
+| `members.observe(metric, during=window, via=mv.routes(...), coordinates=(...))` | `LogicalRatioRelation` | `MaterializedRatioRelation`; `group_by` returns `GroupedRatioRelation`, `rollup` returns `LogicalRolledRatioRelation` / `MaterializedRolledRatioRelation` | original numerator sum/non-null-count, denominator count, coverage and optional coordinate state |
 | `observed.compare(baseline)`, then `where(diff.value.lt(threshold))` | `LogicalDifferenceRelation`, `LogicalSelectedDifferenceRelation` | matching Difference variants; selected `members()` projects identity | exact ordered current and baseline endpoints |
 | `relation.summarize(mv.sum/count/mean())` | `LogicalStatisticRelation` | terminal `MaterializedStatisticRelation` | current-row method and Cell checks; no original-state rollup |
 | `observed.correlate(other, method="spearman")` | `LogicalAssociationResult` | `MaterializedAssociationResult`, then fixed `MaterializedCoefficientRelation` | paired observation state, pair counts and exact member binding |

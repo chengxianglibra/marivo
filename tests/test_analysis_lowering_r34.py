@@ -1192,7 +1192,7 @@ def test_r43_unqualified_decimal_and_time_shapes_reject_before_business_read(sou
                     "duckdb",
                     source_case[1],
                     "native" if source_case[1] == "table" else "parquet",
-                    TimeShape("instant", "us", "UTC"),
+                    TimeShape("instant", "ms", "UTC"),
                 ),
             ),
         ),

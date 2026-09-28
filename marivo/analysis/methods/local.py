@@ -11,6 +11,7 @@ from marivo.analysis.compiler.graph_plan import LocalMethodStage
 from marivo.analysis.core.model import Cell, Defined, Null, Undefined, Unknown, reject
 from marivo.analysis.core.rules import AssociationScore, RowState
 from marivo.analysis.methods.builtin import admit
+from marivo.analysis.methods.physical import ScalarType
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,7 +23,7 @@ class CountResult:
 @dataclass(frozen=True, slots=True)
 class ArithmeticResult:
     cell: Defined | Undefined
-    current_sum: int
+    current_sum: int | float
     current_count: int
 
 
@@ -184,40 +185,78 @@ def arithmetic(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> ArithmeticRe
             "Use the exact registered fixed method and validated Cells.",
             "analysis.local",
         )
-    values: list[int] = []
+    input_type = stage.implementation.key.input_types[0]
+    floating = input_type == ScalarType("float64")
+    integer_values: list[int] = []
+    float_values: list[float] = []
     for cell in cells:
-        if not isinstance(cell, Defined) or type(cell.value) is not int:
+        if not isinstance(cell, Defined):
             reject(
-                "finite Defined int64 input Cells",
+                "finite Defined numeric input Cells",
                 type(cell).__name__,
-                "Select a complete int64 relation or use a qualified Cell policy.",
+                "Select complete numeric Cells.",
                 "analysis.local",
             )
-        if not -(2**63) <= cell.value < 2**63:
-            reject("int64 input", str(cell.value), "Correct the selected value.", "analysis.local")
-        if stage.node.parameters.method == "mean" and abs(cell.value) > 2**53:
+        value = cell.value
+        if floating:
+            if type(value) is not float or not math.isfinite(value):
+                reject(
+                    "finite float64 input",
+                    repr(value),
+                    "Correct the retained value.",
+                    "analysis.local",
+                )
+            float_values.append(value)
+        else:
+            if type(value) is not int or not -(2**63) <= value < 2**63:
+                reject(
+                    "finite Defined int64 input Cells",
+                    repr(value),
+                    "Correct the retained value.",
+                    "analysis.local",
+                )
+            if stage.node.parameters.method == "mean" and abs(value) > 2**53:
+                reject(
+                    "int64 mean operands within exact float64 integer range",
+                    str(value),
+                    "Use a separately qualified high-precision mean method.",
+                    "analysis.local",
+                )
+            integer_values.append(value)
+    total: int | float
+    if floating:
+        try:
+            total = math.fsum(float_values)
+        except OverflowError:
             reject(
-                "int64 mean operands within exact float64 integer range",
-                str(cell.value),
-                "Use a separately qualified high-precision mean method.",
+                "finite float64 current sum",
+                "overflow",
+                "Use a qualified wider method.",
                 "analysis.local",
             )
-        values.append(cell.value)
-    total = sum(values)
-    if not -(2**63) <= total < 2**63:
-        reject(
-            "checked int64 current sum",
-            str(total),
-            "Use a qualified wider method.",
-            "analysis.local",
-        )
+        if not math.isfinite(total):
+            reject(
+                "finite float64 current sum",
+                repr(total),
+                "Use a qualified wider method.",
+                "analysis.local",
+            )
+    else:
+        total = sum(integer_values)
+        if not -(2**63) <= total < 2**63:
+            reject(
+                "checked int64 current sum",
+                str(total),
+                "Use a qualified wider method.",
+                "analysis.local",
+            )
     if stage.node.parameters.method == "mean":
         cell_result: Defined | Undefined = (
-            Defined(float(total) / len(values)) if values else Undefined("empty_mean")
+            Defined(float(total) / len(cells)) if cells else Undefined("empty_mean")
         )
     else:
         cell_result = Defined(total)
-    return ArithmeticResult(cell_result, total, len(values))
+    return ArithmeticResult(cell_result, total, len(cells))
 
 
 def count(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> CountResult:
@@ -239,7 +278,19 @@ def count(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> CountResult:
         type(cells) is not tuple
         or any(type(c) not in (Defined, Null, Undefined, Unknown) for c in cells)
         or any(
-            isinstance(c, Defined) and (type(c.value) is not int or not -(2**63) <= c.value < 2**63)
+            isinstance(c, Defined)
+            and not (
+                (
+                    stage.implementation.key.input_types[0] == ScalarType("int64")
+                    and type(c.value) is int
+                    and -(2**63) <= c.value < 2**63
+                )
+                or (
+                    stage.implementation.key.input_types[0] == ScalarType("float64")
+                    and type(c.value) is float
+                    and math.isfinite(c.value)
+                )
+            )
             for c in cells
         )
         or limit is None

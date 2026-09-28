@@ -83,3 +83,5 @@ Before accepting the conclusion or asking for a deeper investigation, confirm th
 - [Analysis Workflow](/docs/latest/concepts/analysis-workflow/) explains how Marivo structures analysis.
 - [Readiness](/docs/latest/concepts/readiness/) explains how semantic changes receive explicit technical certification.
 - [Evidence](/docs/latest/concepts/evidence/) explains what supports the final recap.
+
+Public J1–J4 execution and recovery use Store 7. Construction may perform schema-only preflight; business reads follow admission. R5–R9 Dataset execution is not yet qualified for Store 7, and old-generation projects are neither migrated nor read through a fallback.

@@ -92,6 +92,25 @@ class DslCase:
     session: Session
 
 
+def export_dsl_parquet_models(case: DslCase, project: Path) -> None:
+    """Export fixture facts and bind authored Entities to local Parquet sources."""
+    import pyarrow.parquet as pq
+
+    source_files = project / "source_files"
+    source_files.mkdir(exist_ok=True)
+    backend = ibis.duckdb.connect(case.database_path)
+    try:
+        for name in (case.names.customer, case.names.order, case.names.order_line):
+            path = source_files / f"{name}.parquet"
+            pq.write_table(backend.table(name).to_pyarrow(), path)
+            for model in (project / "models").rglob("*.py"):
+                model.write_text(
+                    model.read_text().replace(f"md.table({name!r})", f"md.parquet({str(path)!r})")
+                )
+    finally:
+        backend.disconnect()
+
+
 class DslCaseFactory(Protocol):
     def __call__(
         self,

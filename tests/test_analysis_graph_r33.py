@@ -242,7 +242,14 @@ def test_explicit_routes_produce_exact_stages_and_pending_checks(route):
 
 
 def test_production_is_blocked_and_does_not_borrow_test_qualifications():
-    root = _mean(replace(_source(), value_type=ScalarType("float64")))
+    leaf = _source()
+    leaf = replace(
+        leaf,
+        definition=replace(
+            leaf.definition, shape=replace(leaf.definition.shape, backend="postgres")
+        ),
+    )
+    root = _mean(replace(leaf, value_type=ScalarType("float64")))
     with pytest.raises(MethodRegistrationError, match="blocked"):
         plan(root, routes=(RouteChoice(root.identity, "ibis"),))
 

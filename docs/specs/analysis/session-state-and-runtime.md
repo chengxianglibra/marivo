@@ -11,17 +11,13 @@ opening a different Session never grants access to another Session's inputs.
 
 ## Source boundary
 
-Session owns `observe`, `population`, `events.match`, `lifecycle.replay` and
-`source_bindings`. Dataset methods own downstream operations. Constructors load
-needed semantic definitions and certified project snapshots without querying
-sources. They capture immutable source binding values, period authority and
-persisted report timezone. Credentials and live engine timezone are resolved only
-for admitted source execution.
-
-An Entity key is stable identity; version coordinates are separate. Membership
-selection and observation windows are independent. Definitions retain exact
-semantic dependencies, roles and field identities. RuntimeMetric expressions
-normalize into the same governed graph and retain each carried output's identity.
+The qualified public entry is `session.members`. It constructs a typed graph,
+using schema-only R1 preflight when the Entity identity or selected value type is
+unknown. This may connect to the source but submits no business rows and allocates
+no Run. Graphs capture semantic dependencies, routes, coordinate order and report
+timezone; execution verifies the same schema before business work. Other Session
+Dataset constructors retain their signatures but R5–R9 execution is not qualified
+for Store 7.
 
 ## Fixed execution and storage
 
@@ -33,50 +29,19 @@ executor or storage target.
 Output always uses project-local Parquet. Project manifests have no analysis
 result storage setting.
 
-Database result storage is absent. Registered native methods may scan immutable
-Parquet using transient DuckDB execution resources. Every primary and private
+Database result storage is absent. Fixed J1–J4 continuations read verified
+Parquet through Arrow and pandas, without DuckDB. Every primary and private
 part uses local storage authority, with independent schemas,
 cardinalities, hashes and integrity checks. Cleanup covers interrupted and failed
 publication without deleting another Run's resources.
 
-## Accepted S0 input and execution protocol (inactive)
+## Public J1–J4 input and execution protocol
 
-S4 P1 admits the finite public J1–J4 domain/relation chain on the same Session,
-Run, Store v6 and J1 execution protocol. Source adapters are opened from the
-loaded project's datasource declarations only inside an admitted evaluation;
-the public API has no source-factory argument. Public J1–J4 publication records
-a versioned continuation snapshot with its exact definition, method, domain,
-input and receipt binding. `session.artifact(reference)` validates that snapshot
-and recovers its concrete materialized shape and permitted local K without
-loading the current Semantic catalog or reconnecting to the source. An older
-private J1 Artifact without this snapshot remains outside the public recovery
-contract and is not migrated. Non-DSL Artifact recovery is unchanged.
-S4 P2 disclosure reads this validated snapshot and the Artifact descriptor for
-kind, quantity, declared retained parts and admissible calls. It does not
-reconnect to a source; missing or mismatched backing still rejects through the
-exact Artifact repair path. A contract card is not full storage revalidation.
-
-This is the accepted protocol for the
-[first-round Analysis DSL slice](python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive).
-W4 connects this protocol only through the private
-`DatasetRuntime.execute_j1(...)` route for admitted J1 shapes. The public
-Analysis DSL and ordinary `Dataset.execute()` routing are not activated by
-this slice. The current exact-binding and registered retained-Parquet routes
-above remain authoritative for methods not migrated to this protocol.
-S2 P1 extends that private route with an ordered pair of exact observed
-Artifact inputs for compare. Its descriptor records one member realization
-binding and separate endpoint receipts; the fixed key includes both ordered
-inputs and the binding. The two endpoint bindings are checked before Run
-admission or Artifact row reads. A source-only compare realizes its shared
-explicit member node once per invocation and receives a fresh Run identity
-on every top-level call.
-S2 P2 admits a source-only compare nested below strict numeric selection,
-member projection, new observation and current-row statistic in one top-level
-Run. The selected member definition remains a live dependency of that Run;
-the compare member node has one realization within it. Fixed compare and
-selected Difference continuations bind exact ordered endpoint or predecessor
-receipts and execute in pandas. A fixed selected member followed by a live
-read/observe remains mixed and rejects before Run admission or data I/O.
+R4.5 replaces the former S1–S4 scenario path with the typed graph Runtime and
+Store 7. Public construction, execution, history and exact Artifact recovery
+share that owner. The old J1 codec and scenario executor are removed. Exact
+recovery validates the frozen definition, completed checks and every required
+receipt before exposing the original public type or its continuations.
 
 Classification follows only the current root's transitive data dependencies.
 An explicit Materialized leaf is a fixed boundary: its historic source lineage
@@ -120,27 +85,12 @@ references recover their own producing Run, never the latest result for a
 definition. A failed second source evaluation cannot replace the first
 successful Artifact. Cancellation or uncertain publication is reconciled
 against its original Run/key/receipts; it never grants an automatic new
-identity or source replay. Existing Store v6 atomicity and writer ownership
-remain the authority.
+identity or source replay. Store 7 atomicity and writer ownership remain the authority.
 
-## Atomic Store v6 (current, before R4 cutover)
+## R4.1 frozen Runtime and Store target
 
-A new Store publishes only a complete initialized generation 6 database. The
-active Store path accepts only v6 schema; incompatible files there fail read-only
-preflight. No migration, dual reader or in-place generation upgrade is provided.
-Older generation files and resource obligations remain untouched.
-
-A successful publication commits the Run terminal, Artifact descriptor, storage
-receipts, Evidence and Findings together. A failed Run has no successful output;
-an interrupted Run is incomplete until its explicit lifecycle operation. Store
-writer ownership and caller-owned transactions govern all related records.
-
-## R4.1 frozen Runtime and Store target (inactive)
-
-This section fixes the R4 cutover contract; the S4/J1 route and v6 protocol
-above describe the current pre-cutover product, not a second R4 target.
-R4.2–R4.5 must switch one existing Session/Runtime/Store owner
-as a unit. The first new Store has SQLite `user_version=7`. It retains the v6
+This section owns the R4 protocol, activated publicly by R4.5. The new Store has
+SQLite `user_version=7`. It reuses the existing
 relations, foreign keys, `(session_ref, execution_key_digest)` uniqueness,
 ordered Run inputs, resource journal, writer guard and atomic publication
 transaction. Version 7 does not grant any old execution route permission to
@@ -219,11 +169,21 @@ current Semantic definitions are consulted. The existing `LocalReceipt`
 Parquet physical contract remains at version 1 inside the new receipt; this
 does not make an old Artifact readable. Missing, corrupt or version-mismatched
 primary, part, snapshot or method state prevents a cache hit and cold recovery.
+For a checked v7 Artifact, fixed graph construction consumes the signature
+with its completed obligations removed only after validating the descriptor
+and completed evidence. It cannot substitute a caller-authored signature for
+the committed one. Independent fixed endpoints may differ in Artifact ref when
+their frozen Session, member binding and complete coordinates agree; their
+ordered receipts remain separate execution-key inputs.
 
 Admission uses only the reachable graph. A fixed leaf stops source-lineage
 traversal. Mixed inputs, cross-Session inputs, incompatible ordered bindings and
-known unavailable implementations fail before source open, Artifact row read
-or Run allocation. After pure admission, the Session writer guard reconciles
+known unavailable backend/source forms fail before any source open, Artifact row
+read or Run allocation. Source-only execution may then perform R1 schema-only
+preflight to resolve physical Entity keys and fields absent from Semantic
+metadata. It cannot submit or iterate business rows, and the execution binding
+must match the selected schema before its first business read. Unqualified
+physical types reject before Run allocation. After admission, the Session writer guard reconciles
 the original unfinished Run. A fixed-only invocation checks its exact key and
 all required receipts/snapshot before returning the original Artifact without
 a new Run. A source-only invocation never looks up a historical definition hit:
@@ -255,12 +215,12 @@ publication. The descriptor stores completed evidence and binds it to the
 producing Run. Historical declarations and a previous Run's evidence cannot
 discharge it.
 
-### R4.4 private v7 publication
+### R4.4 v7 publication and R4.5 public selection
 
-The v7 target is now available only through `SessionStore._graph_store` and
-`DatasetRuntime._execute_graph`. Each Store instance selects exactly one
-generation. The public constructor and J1–J4 chain remain v6 until R4.5;
-neither chain can write into the other generation. Opening v7 in a project
+Public Session entrypoints select v7 through `SessionStore._graph_store`; all
+J1–J4 execution uses `DatasetRuntime._execute_graph`. Each Store instance selects exactly one
+generation. Public constructors select Store 7; the isolated private v6
+R5 test harness cannot write into that generation. Opening v7 in a project
 containing an old generation fails before initialization or business reads.
 Use a fresh project root, preserving all old state. There is one Store schema,
 transaction owner, writer guard and resource journal; no schema migration or
@@ -308,9 +268,20 @@ source factory. An unavailable or contradictory read-back raises
 An unfinished Run is never promoted from staged files. Independent-process tests
 cover pre-commit exit, post-commit exit, lock release and a competing writer.
 
-This is private publication and protocol recovery, not the public R4.5
-`session.artifact` or dynamic-K cutover. Old public codecs remain solely for
-v6 consumers and are deleted with those consumers in R4.5.
+Original sum, sum-zero, count and ratio have distinct v1 state contracts.
+The observed component's declared empty policy selects its state contract;
+Metric-level nullable metadata cannot substitute for that declaration.
+An optional `coordinate_state` part stores a sorted, unique partition of one or two ordered string coordinates
+ per complete primary key, with the exact original component types.
+Every read validates that partition against the original state: int64 sums
+are exact; finite float64 sums use the qualified 1e-12 relative/absolute
+partition tolerance. Empty contributions retain an empty coordinate list.
+Parquet writing preserves nested Arrow field names so schema receipts remain
+byte-exact after a cold read. A coordinate rollup consumes these saved components;
+it does not reopen sources or average already-finished ratio values.
+
+R4.5 uses these same verified descriptors for public `session.artifact` and
+dynamic continuation contracts. The replaced scenario codecs have been removed.
 
 ## Recovery and bounded reads
 
@@ -449,3 +420,23 @@ those components without reconnecting to the original source. Primary output
 and part reads remain separate observations, without a shared
 snapshot or automatic retry. Source-to-local Forecast, Kendall and time discovery
 transfer the complete admitted aggregate input and execute synchronously.
+
+### R4.5 public read and continuation boundary
+
+Public create/resume/current/recent/inspect, Run pages and Session graphs use the
+same Store 7 authority. Run results preserve ordered source or fixed input
+variants from the closed v7 envelope. Artifact summaries derive from the checked
+descriptor and its unique succeeded producer; no v6 descriptor fallback exists.
+
+Schema-only R1 preflight before admission is authorized for unknown Entity key and
+value types. It cannot read business rows or allocate a Run. Execution rechecks
+that schema. Public R5–R9 Dataset methods remain structured refusals before I/O
+and Run allocation. Fixed recovery and continuation do not consult current
+Semantic definitions, datasource connections or DuckDB.
+
+Coordinate state records one or two ordered string coordinates, with exact complete
+key equality across primary and parts. A coordinate-refined ratio has one primary
+row for each member and complete coordinate tuple in the union of its independent
+component roots. Its nested state has exactly that row's component partition.
+Integer components are exact; floating partitions use the specified finite tolerance.
+A coordinate rollup selects one retained dimension and merges original components.

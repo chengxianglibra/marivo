@@ -260,7 +260,7 @@ class SessionStore:
         root = Path(project_root).resolve()
         generations = root / ".marivo" / "analysis" / "generations"
         if generations.exists() and any(p.name != "v7" for p in generations.iterdir()):
-            raise invalid("v7 requires a fresh project without old Store generations")
+            raise _generation_error("old generation directory", expected=7)
         result.layout = MaterializationLayout(root, generation=7)
         result._initialize(existing_only=existing_only)
         return result
@@ -334,10 +334,10 @@ class SessionStore:
                         "action_resource_journal",
                     }
                     if {row[0] for row in tables} != expected:
-                        raise invalid("incomplete v6 schema")
+                        raise invalid(f"incomplete v{self.layout.generation} schema")
                     strict = read.execute("PRAGMA table_list").fetchall()
                     if any(row[5] != 1 for row in strict if row[1] in expected):
-                        raise invalid("non-STRICT v6 relation")
+                        raise invalid(f"non-STRICT v{self.layout.generation} relation")
                     if immutable:
                         # Immutable SQLite reports its local journal mode as delete.
                         # The durable header remains the authority for a clean WAL Store.
@@ -354,7 +354,7 @@ class SessionStore:
             if version == self.layout.generation:
                 return
         if existing_only:
-            raise invalid("selected v6 Store is absent")
+            raise invalid(f"selected v{self.layout.generation} Store is absent")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         # Publish only a complete, closed generation file. Competing creators never see
         # an empty generation-zero database or perform a migration in place.

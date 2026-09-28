@@ -46,6 +46,8 @@ class GraphRun:
     dataset_input: RunInput
     input_artifact_refs: tuple[str, ...]
     lifecycle: Literal["incomplete", "succeeded", "failed"]
+    admitted_at: str
+    terminal_at: str | None
     output_artifact_ref: str | None = None
     failure: RunFailure | None = None
 
@@ -103,7 +105,16 @@ def run(store: SessionStore, conn: sqlite3.Connection, ref: str) -> GraphRun | N
         else:
             raise invalid("contradictory Run terminal")
     return GraphRun(
-        ref, session, _text(row, "execution_key_digest"), selected, refs, outcome, output, failure
+        ref,
+        session,
+        _text(row, "execution_key_digest"),
+        selected,
+        refs,
+        outcome,
+        _text(row, "admitted_at"),
+        None if terminal is None else _text(terminal, "terminal_at"),
+        output,
+        failure,
     )
 
 

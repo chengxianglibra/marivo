@@ -27,9 +27,7 @@ def recover_dataset(
     """Decode only committed metadata; a retained owner has no catalog or origin."""
     descriptor = record.descriptor
     ids = make_ids(())
-    registry = make_family_registry(
-        ids, include_j1=descriptor.row_contract.shape_id.family_id == "dsl_j1"
-    )
+    registry = make_family_registry(ids)
     owner = ObservationRuntimeOwner(
         session_id=session_ref,
         store_id=store_id,

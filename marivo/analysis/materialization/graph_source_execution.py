@@ -17,6 +17,7 @@ from marivo.analysis.compiler.graph_lowering import (
 )
 from marivo.analysis.compiler.graph_plan import CheckRequirement
 from marivo.analysis.core.graph import MethodNode
+from marivo.analysis.core.rules import PartsTransport
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     CheckedStream,
@@ -118,6 +119,24 @@ def _check(
     return None
 
 
+def _ordered_checks(
+    completed: list[CompletedCheck], pending: tuple[CheckRequirement, ...]
+) -> tuple[CompletedCheck, ...]:
+    """Freeze all origin-group checks in the plan's order, independent of deadline order."""
+    if any(proof.requirement not in pending for proof in completed):
+        raise _invalid("completed source check has no admitted origin")
+    ordered: list[CompletedCheck] = []
+    for requirement in pending:
+        proofs = tuple(proof for proof in completed if proof.requirement == requirement)
+        if not proofs:
+            raise _invalid("source check has no completed evidence")
+        combined = hashlib.sha256(
+            "".join(proof.result_digest for proof in proofs).encode()
+        ).hexdigest()
+        ordered.append(CompletedCheck(requirement, combined))
+    return tuple(ordered)
+
+
 def _result(
     stage: LoweredRelation,
     table: pa.Table,
@@ -150,6 +169,15 @@ def _result(
         parts.append(ExchangePart(role, selected))
     source_ids = ",".join(stage.source_ids)
     state_kind = {
+        "cell.difference": "difference",
+        "metric.observe": "original_sum",
+        "metric.ratio": "original_ratio",
+        "state_rollup.ratio": "original_ratio",
+        "metric.sum_zero": "original_sum_zero",
+        "state_rollup.sum_zero": "original_sum_zero",
+        "metric.count": "original_count",
+        "state_rollup.count": "original_count",
+        "state_rollup": "original_sum",
         "row.count": "row_count",
         "row.count_defined": "row_count_defined",
         "row.sum": "row_sum",
@@ -176,6 +204,9 @@ def _result(
         state_kind,
         None if state is None else state.schema,
         pending,
+        isinstance(stage.node.parameters, PartsTransport)
+        and stage.node.parameters.mode == "where"
+        and not key_names,
     )
     return from_arrow(
         primary,
@@ -252,7 +283,7 @@ def execute_source_graph(
                     right,
                     keys,
                     ",".join(predecessor.source_ids),
-                    tuple(completed),
+                    _ordered_checks(completed, lowered.admitted.checks),
                     lowered.admitted.checks,
                 )
             if not isinstance(stage, LoweredRelation):
@@ -287,6 +318,11 @@ def execute_source_graph(
                     if proof is not None:
                         completed.append(proof)
         assert primary is not None
-        return _result(primary, tables[primary.output], tuple(completed), lowered.admitted.checks)
+        return _result(
+            primary,
+            tables[primary.output],
+            _ordered_checks(completed, lowered.admitted.checks),
+            lowered.admitted.checks,
+        )
     finally:
         source.release_staged(owned)
