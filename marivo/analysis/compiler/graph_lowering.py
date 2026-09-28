@@ -8,6 +8,7 @@ from operator import and_, or_
 from typing import NoReturn, TypeAlias
 
 import ibis
+import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 
 from marivo.analysis.compiler.graph_plan import (
@@ -20,9 +21,10 @@ from marivo.analysis.compiler.graph_plan import (
     SourceMethodStage,
     plan,
 )
-from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf
+from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import (
     Coordinate,
+    CoordinateStatePart,
     FactInput,
     Obligation,
     ObservedQuantity,
@@ -38,7 +40,13 @@ from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
     AssociationScore,
     BindProject,
+    CellDerive,
+    GroupObservationTarget,
     MapCorrespond,
+    ObserveCount,
+    ObserveMetric,
+    OriginalRatio,
+    OriginalReduce,
     PartsTransport,
     RowState,
 )
@@ -86,6 +94,8 @@ class PartColumns:
 def components(part: Part) -> tuple[str, ...]:
     if isinstance(part, (OriginalStatePart, RowStatePart)):
         return part.components
+    if isinstance(part, CoordinateStatePart):
+        return ("groups",)
     if isinstance(part, SubjectPart):
         return tuple(f"key_{i}" for i in range(len(part.subject_key)))
     role = part_role(part)
@@ -227,6 +237,23 @@ def canonical_layout(signature: Signature, *, has_value: bool) -> RelationLayout
     )
 
 
+def coordinate_state_type(part: CoordinateStatePart) -> dt.Array:
+    return dt.Array(
+        dt.Struct.from_tuples(
+            [
+                *((name, dt.string) for name in part.columns),
+                *(
+                    (
+                        name,
+                        dt.dtype(part.value_type) if name in ("sum", "numerator_sum") else dt.int64,
+                    )
+                    for name in part.components
+                ),
+            ]
+        )
+    )
+
+
 def _validate_layout(
     table: ir.Table, layout: RelationLayout, signature: Signature, value_type: str
 ) -> None:
@@ -234,21 +261,52 @@ def _validate_layout(
         _fail("the complete ordered coordinate key", repr(layout.keys))
     if tuple(p.part for p in layout.parts) != signature.parts:
         _fail("each exact retained part and binding", repr(layout.parts))
-    if len(set(layout.columns)) != len(layout.columns) or not set(layout.columns) <= set(
-        table.columns
-    ):
-        _fail("distinct existing physical columns", repr(layout.columns))
+    if not set(layout.columns) <= set(table.columns):
+        _fail("existing physical columns", repr(layout.columns))
+    base_columns = (
+        *(key.column for key in layout.keys),
+        *layout.extras,
+        *(() if layout.cell is None else (layout.cell.value, layout.cell.tag, layout.cell.reason)),
+    )
+    if len(set(base_columns)) != len(base_columns):
+        _fail("distinct physical keys, extras and Cell fields", repr(base_columns))
+    used = set(base_columns)
+    for part in layout.parts:
+        for index, component in enumerate(part.columns):
+            if component.column in used and not (
+                isinstance(part.part, SubjectPart)
+                and index < len(part.part.subject_key)
+                and any(
+                    key.coordinate == part.part.subject_key[index]
+                    and key.column == component.column
+                    for key in layout.keys
+                )
+            ):
+                _fail("distinct physical part fields or exact Subject key reuse", component.column)
+            used.add(component.column)
     for key in layout.keys:
-        if str(table[key.column].type()) != "int64":
-            _fail("qualified int64 identity columns", str(table[key.column].type()))
+        if str(table[key.column].type()) not in ("int64", "string"):
+            _fail("qualified int64 or string identity columns", str(table[key.column].type()))
     for part in layout.parts:
         if tuple(c.component for c in part.columns) != components(part.part):
             _fail("complete ordered part components", repr(part.columns))
         for component in part.columns:
             role = part_role(part.part)
+            if isinstance(part.part, CoordinateStatePart):
+                if table[component.column].type() != coordinate_state_type(part.part):
+                    _fail("the exact nested contribution coordinate state", component.column)
+                continue
+            if role == "subject":
+                actual = str(table[component.column].type())
+                if actual not in ("int64", "string"):
+                    _fail("qualified int64 or string Subject identity", actual)
+                continue
             dtype = (
                 "boolean"
                 if role == "coverage"
+                else "string"
+                if role in ("current_endpoint", "baseline_endpoint")
+                and component.component in ("cell_tag", "cell_reason")
                 else "string"
                 if role == "pair_counts" and component.component in ("metric_key_a", "metric_key_b")
                 else "float64"
@@ -275,11 +333,13 @@ def _renamed(table: ir.Table, source: RelationLayout, target: RelationLayout) ->
     )
 
 
-def _key_violations(table: ir.Table, layout: RelationLayout) -> ir.Table:
+def _key_violations(
+    table: ir.Table, layout: RelationLayout, *, allow_empty: bool = False
+) -> ir.Table:
     keys = tuple(k.column for k in layout.keys)
     if not keys:
         counts = table.aggregate(n=table.count())
-        return counts.filter(counts.n != 1)
+        return counts.filter(counts.n > 1 if allow_empty else counts.n != 1)
     nulls = reduce(or_, (table[key].isnull() for key in keys))
     groups = table.group_by(*keys).aggregate(n=table.count())
     duplicates = groups.filter(groups.n > 1).select(*keys)
@@ -321,6 +381,67 @@ def _pair_violations(left: LoweredRelation, right: LoweredRelation) -> ir.Table:
     return a.anti_join(b, keys).union(b.anti_join(a, keys), distinct=False)
 
 
+def _difference(
+    stage: SourceMethodStage,
+    inputs: tuple[LoweredRelation, LoweredRelation],
+    checks: list[LoweredCheck],
+) -> tuple[ir.Table, RelationLayout]:
+    left, right = inputs
+    a, b = left.layout.cell, right.layout.cell
+    keys = tuple(item.column for item in left.layout.keys)
+    if a is None or b is None or keys != tuple(item.column for item in right.layout.keys):
+        _fail("two Cell-valued endpoints with the same complete keys", repr(keys))
+    checks.append(
+        IntegrityCheck(
+            stage.output,
+            "equal complete endpoint key sets",
+            _pair_violations(left, right),
+            _source_ids(left.source_ids, right.source_ids),
+        )
+    )
+    lhs, rhs = left.expression.view(), right.expression.view()
+    current = lhs.select(
+        *keys,
+        current_value=lhs[a.value],
+        current_tag=lhs[a.tag],
+        current_reason=lhs[a.reason],
+    )
+    baseline = rhs.select(
+        *keys,
+        baseline_value=rhs[b.value],
+        baseline_tag=rhs[b.tag],
+        baseline_reason=rhs[b.reason],
+    )
+    paired = current.join(baseline, keys).select(
+        *(current[key] for key in keys),
+        current.current_value,
+        current.current_tag,
+        current.current_reason,
+        baseline.baseline_value,
+        baseline.baseline_tag,
+        baseline.baseline_reason,
+    )
+    target = canonical_layout(stage.node.signature, has_value=True)
+    output = paired.select(
+        *(paired[key] for key in keys),
+        value=paired.current_value - paired.baseline_value,
+        cell_tag=ibis.literal("defined"),
+        cell_reason=ibis.null().cast("string"),
+        current_endpoint__value=paired.current_value,
+        current_endpoint__cell_tag=paired.current_tag,
+        current_endpoint__cell_reason=paired.current_reason,
+        baseline_endpoint__value=paired.baseline_value,
+        baseline_endpoint__cell_tag=paired.baseline_tag,
+        baseline_endpoint__cell_reason=paired.baseline_reason,
+        **(
+            {f"subject__key_{i}": paired[key] for i, key in enumerate(keys)}
+            if any(isinstance(p, SubjectPart) for p in stage.node.signature.parts)
+            else {}
+        ),
+    )
+    return output.select(*target.columns), target
+
+
 def _transport(
     stage: SourceMethodStage, source: LoweredRelation, checks: list[LoweredCheck]
 ) -> tuple[ir.Table, RelationLayout]:
@@ -353,11 +474,48 @@ def _transport(
     return _renamed(table, old, target), target
 
 
+def _source_fields(admitted: GraphPlan, binding: SourceBinding) -> tuple[str, ...]:
+    fields = {key.column for key in binding.layout.keys}
+    for node in topology(admitted.root):
+        if not isinstance(node, MethodNode) or binding.leaf not in node.sources:
+            continue
+        params = node.parameters
+        if isinstance(params, BindProject) and params.field_contract is not None:
+            fields.add(params.field_contract.source_column)
+        elif isinstance(params, (ObserveMetric, ObserveCount)):
+            for coordinate in params.coordinates:
+                if coordinate.entity_ref.path == binding.leaf.definition.ref.path:
+                    fields.add(coordinate.source_column)
+            if params.event.entity_ref.path == binding.leaf.definition.ref.path:
+                fields.add(params.event.source_column)
+            for relationship in params.path:
+                if relationship.from_entity_ref.path == binding.leaf.definition.ref.path:
+                    fields.add(relationship.keys[0][0])
+            if (
+                isinstance(params, ObserveMetric)
+                and params.contribution == binding.leaf.definition.ref
+            ):
+                fields.add(params.amount_column)
+    return tuple(column for column in binding.source.relation.columns if column in fields)
+
+
+def _staged_source(binding: SourceBinding, relations: tuple[LoweredRelation, ...]) -> ir.Table:
+    relation = next(item for item in relations if item.node is binding.leaf)
+    fields = binding.source.relation.columns
+    return relation.expression.select(
+        *(
+            relation.expression[column].name(fields[int(column.removeprefix("source__"))])
+            for column in relation.layout.extras
+        )
+    )
+
+
 def _bind(
     stage: SourceMethodStage,
     source: LoweredRelation,
     bindings: tuple[SourceBinding, ...],
     checks: list[LoweredCheck],
+    relations: tuple[LoweredRelation, ...],
 ) -> tuple[ir.Table, RelationLayout]:
     params = stage.node.parameters
     assert isinstance(params, BindProject) and params.field_contract is not None
@@ -365,9 +523,9 @@ def _bind(
     if owner.leaf.signature.domain != source.node.signature.domain:
         _fail("direct projection on the exact owner domain", owner.leaf.identity)
     field = params.field_contract.source_column
-    raw = owner.source.relation
-    if field not in raw.columns or str(raw[field].type()) != "int64":
-        _fail("the normalized int64 field column", field)
+    raw = _staged_source(owner, relations)
+    if field not in raw.columns or str(raw[field].type()) != params.field_contract.logical_type:
+        _fail(f"the exact {params.field_contract.logical_type} field column", field)
     keys = tuple(k.column for k in source.layout.keys)
     projected = raw.select(
         *(raw[k.column].name(f"key_{i}") for i, k in enumerate(owner.layout.keys)),
@@ -404,7 +562,32 @@ def _map(
     params = stage.node.parameters
     assert isinstance(params, MapCorrespond)
     source = inputs[0]
-    target = canonical_layout(stage.node.signature, has_value=False)
+    target = canonical_layout(stage.node.signature, has_value=params.mode == "group")
+    if params.mode == "group":
+        cell = source.layout.cell
+        if (
+            cell is None
+            or len(target.keys) != 1
+            or str(source.expression[cell.value].type()) != "string"
+        ):
+            _fail("one string-valued Group coordinate", repr(source.layout))
+        checks.append(
+            IntegrityCheck(
+                stage.output,
+                "Defined non-null Group values",
+                source.expression.filter(source.expression[cell.tag] != "defined").select(
+                    *(item.column for item in source.layout.keys)
+                ),
+                source.source_ids,
+            )
+        )
+        grouped = source.expression.select(
+            key_0=source.expression[cell.value],
+            value=source.expression[cell.value],
+            cell_tag=source.expression[cell.tag],
+            cell_reason=source.expression[cell.reason],
+        ).distinct()
+        return grouped.select(*target.columns), target
     if params.mode == "subjects":
         subject = next(p for p in source.layout.parts if isinstance(p.part, SubjectPart))
         assert isinstance(subject.part, SubjectPart)
@@ -612,6 +795,379 @@ def _spearman(
     return output.select(*target.columns), target
 
 
+def _ratio_finish(table: ir.Table, layout: RelationLayout) -> ir.Table:
+    numerator = table.original_state__numerator_sum.cast("int64")
+    denominator = table.original_state__denominator_count.cast("int64")
+    defined = denominator > 0
+    return table.mutate(
+        value=ibis.ifelse(
+            defined, numerator.cast("float64") / denominator, ibis.null().cast("float64")
+        ),
+        cell_tag=ibis.ifelse(defined, "defined", "undefined"),
+        cell_reason=ibis.ifelse(defined, ibis.null().cast("string"), "zero_denominator"),
+        original_state__numerator_sum=numerator,
+        original_state__numerator_non_null_count=table.original_state__numerator_non_null_count.cast(
+            "int64"
+        ),
+        original_state__denominator_count=denominator,
+        coverage__complete=ibis.literal(True),
+    ).select(*layout.columns)
+
+
+def _original_ratio(
+    stage: SourceMethodStage,
+    inputs: tuple[LoweredRelation, LoweredRelation],
+    checks: list[LoweredCheck],
+    admitted: GraphPlan,
+) -> tuple[ir.Table, RelationLayout]:
+    left, right = inputs
+    a, b = left.expression.view(), right.expression.view()
+    keys = tuple(k.column for k in left.layout.keys)
+    checks.append(
+        IntegrityCheck(
+            stage.output,
+            "equal original component keys",
+            _pair_violations(left, right),
+            _source_ids(left.source_ids, right.source_ids),
+        )
+    )
+    joined = a.inner_join(b, keys)
+    layout = canonical_layout(stage.node.signature, has_value=True)
+    fields = {key: a[key] for key in keys}
+    fields.update(
+        {
+            "original_state__numerator_sum": a.original_state__sum,
+            "original_state__numerator_non_null_count": a.original_state__non_null_count,
+            "original_state__denominator_count": b.original_state__count,
+        }
+    )
+    if any(isinstance(part, SubjectPart) for part in stage.node.signature.parts):
+        fields.update({f"subject__key_{i}": a[key] for i, key in enumerate(keys)})
+    base = joined.select(**fields)
+    coordinate = next(
+        (p for p in stage.node.signature.parts if isinstance(p, CoordinateStatePart)), None
+    )
+    if coordinate is not None:
+        first = a.select(*keys, group=a.coordinate_state__groups.unnest())
+        first = first.select(
+            *keys,
+            **{name: first.group[name] for name in coordinate.columns},
+            numerator_sum=first.group["sum"],
+            numerator_non_null_count=first.group["non_null_count"],
+        )
+        second = b.select(*keys, group=b.coordinate_state__groups.unnest())
+        second = second.select(
+            *keys,
+            **{name: second.group[name] for name in coordinate.columns},
+            denominator_count=second.group["count"],
+        )
+        paired = first.outer_join(second, (*keys, *coordinate.columns))
+        merged = paired.select(
+            **{key: first[key].coalesce(second[key]) for key in keys},
+            **{name: first[name].coalesce(second[name]) for name in coordinate.columns},
+            numerator_sum=first.numerator_sum.fill_null(0),
+            numerator_non_null_count=first.numerator_non_null_count.fill_null(0),
+            denominator_count=second.denominator_count.fill_null(0),
+        )
+        cells = ibis.struct(
+            {
+                **{name: merged[name] for name in coordinate.columns},
+                **{name: merged[name] for name in coordinate.components},
+            }
+        )
+        base = merged.select(
+            *keys,
+            **{f"key_{len(keys) + i}": merged[name] for i, name in enumerate(coordinate.columns)},
+            **{f"original_state__{name}": merged[name] for name in coordinate.components},
+            **{f"subject__key_{i}": merged[key] for i, key in enumerate(keys)}
+            if any(isinstance(part, SubjectPart) for part in stage.node.signature.parts)
+            else {},
+            coordinate_state__groups=ibis.array([cells]),
+        )
+    table = _ratio_finish(base, layout)
+    for requirement in admitted.checks:
+        if requirement.node_id == stage.node.identity and requirement.obligation.check_id in (
+            "source.contribution_partition@v1",
+            "source.complete_coverage@v1",
+        ):
+            checks.append(
+                SemanticCheck(
+                    requirement,
+                    table.filter(~table.coverage__complete),
+                    _source_ids(left.source_ids, right.source_ids),
+                )
+            )
+    return table, layout
+
+
+def _original_sum(
+    stage: SourceMethodStage, source: LoweredRelation
+) -> tuple[ir.Table, RelationLayout]:
+    table = source.expression
+    params = stage.node.parameters
+    assert isinstance(params, OriginalReduce)
+    if params.coordinate is not None:
+        coordinate = next(
+            p for p in source.node.signature.parts if isinstance(p, CoordinateStatePart)
+        )
+        exploded = table.select(group=table.coordinate_state__groups.unnest())
+        table = exploded.select(
+            key_0=exploded.group[coordinate.column_for(params.coordinate)],
+            **{f"original_state__{name}": exploded.group[name] for name in coordinate.components},
+            coverage__complete=ibis.literal(True),
+        )
+    grouped = table.group_by("key_0") if params.coordinate is not None else table
+    if stage.node.method.name == "state_rollup.ratio":
+        reduced = grouped.aggregate(
+            **{
+                name: table[name].sum().fill_null(0)
+                for name in (
+                    "original_state__numerator_sum",
+                    "original_state__numerator_non_null_count",
+                    "original_state__denominator_count",
+                )
+            }
+        )
+        target = canonical_layout(stage.node.signature, has_value=True)
+        return _ratio_finish(reduced, target), target
+    if stage.node.method.name == "state_rollup.count":
+        reduced_count = grouped.aggregate(
+            original_state__count=table.original_state__count.sum().fill_null(0),
+            coverage__complete=table.coverage__complete.all().fill_null(True),
+        )
+        target_count = canonical_layout(stage.node.signature, has_value=True)
+        return reduced_count.mutate(
+            value=reduced_count.original_state__count.cast("int64"),
+            cell_tag=ibis.literal("defined"),
+            cell_reason=ibis.null().cast("string"),
+        ).select(*target_count.columns), target_count
+    reduced = grouped.aggregate(
+        original_state__sum=table.original_state__sum.sum().fill_null(0),
+        original_state__non_null_count=table.original_state__non_null_count.sum().fill_null(0),
+        coverage__complete=table.coverage__complete.all().fill_null(True),
+    )
+    support = reduced.original_state__non_null_count
+    defined = support > 0 if stage.node.method.name == "state_rollup" else ibis.literal(True)
+    value_type = stage.node.value_type
+    assert isinstance(value_type, ScalarType)
+    target = canonical_layout(stage.node.signature, has_value=True)
+    result = reduced.mutate(
+        original_state__sum=reduced.original_state__sum.cast(value_type.name),
+        value=ibis.ifelse(
+            defined,
+            reduced.original_state__sum.cast(value_type.name),
+            ibis.null().cast(value_type.name),
+        ),
+        cell_tag=ibis.ifelse(defined, "defined", "null"),
+        cell_reason=ibis.ifelse(defined, ibis.null().cast("string"), "empty_contribution"),
+    )
+    return result.select(*target.columns), target
+
+
+def _contribution_rows(
+    stage: SourceMethodStage,
+    params: ObserveMetric | ObserveCount,
+    bindings: tuple[SourceBinding, ...],
+    relations: tuple[LoweredRelation, ...],
+    checks: list[LoweredCheck],
+) -> tuple[ir.Table, tuple[str, ...]]:
+    by_entity = {binding.leaf.definition.ref.path: binding for binding in bindings}
+    root_binding = by_entity[params.contribution.path]
+    root = _staged_source(root_binding, relations).view()
+    if (
+        isinstance(params, ObserveMetric)
+        and str(root[params.amount_column].type()) != params.amount_type
+    ):
+        _fail("the exact contribution amount type", str(root[params.amount_column].type()))
+    fields: dict[str, ir.Value] = {
+        "amount": root[params.amount_column]
+        if isinstance(params, ObserveMetric)
+        else ibis.literal(1, type="int64"),
+        "next_key": root[params.path[0].keys[0][0]],
+    }
+    if params.event.entity_ref.path == params.contribution.path:
+        fields["event_time"] = root[params.event.source_column]
+    for index, coordinate in enumerate(params.coordinates):
+        if coordinate.entity_ref.path == params.contribution.path:
+            fields["coordinate" if index == 0 else f"coordinate_{index}"] = root[
+                coordinate.source_column
+            ]
+    rows = root.select(**fields)
+    source_ids: tuple[str, ...] = (root_binding.leaf.identity,)
+    for index, relationship in enumerate(params.path):
+        binding = by_entity[relationship.to_entity_ref.path]
+        destination = _staged_source(binding, relations).view()
+        key = relationship.keys[0][1]
+        joined = rows.left_join(destination, rows.next_key == destination[key])
+        source_ids = _source_ids(source_ids, (binding.leaf.identity,))
+        checks.append(
+            IntegrityCheck(
+                stage.output,
+                "complete contribution relationship mapping",
+                joined.filter(destination[key].isnull()),
+                source_ids,
+            )
+        )
+        selected = {name: rows[name] for name in rows.columns if name != "next_key"}
+        if relationship.to_entity_ref.path == params.event.entity_ref.path:
+            selected["event_time"] = destination[params.event.source_column]
+        for coordinate_index, coordinate in enumerate(params.coordinates):
+            if coordinate.entity_ref.path == relationship.to_entity_ref.path:
+                selected[
+                    "coordinate" if coordinate_index == 0 else f"coordinate_{coordinate_index}"
+                ] = destination[coordinate.source_column]
+        if index + 1 < len(params.path):
+            selected["next_key"] = destination[params.path[index + 1].keys[0][0]]
+        else:
+            selected["member"] = destination[key]
+        rows = joined.select(**selected)
+    return rows, source_ids
+
+
+def _observe(
+    stage: SourceMethodStage,
+    members: LoweredRelation,
+    bindings: tuple[SourceBinding, ...],
+    checks: list[LoweredCheck],
+    admitted: GraphPlan,
+    relations: tuple[LoweredRelation, ...],
+) -> tuple[ir.Table, RelationLayout, tuple[str, ...]]:
+    from datetime import datetime
+
+    params = stage.node.parameters
+    assert isinstance(params, (ObserveMetric, ObserveCount))
+    source, contribution_ids = _contribution_rows(stage, params, bindings, relations, checks)
+    event_type = source.event_time.type()
+    if (
+        len(members.layout.keys) != 1
+        or members.layout.keys[0].coordinate.field != params.path[-1].keys[0][1]
+        or not isinstance(event_type, dt.Timestamp)
+        or event_type.timezone not in (None, "UTC", "Etc/UTC")
+        or event_type.scale not in (None, 6)
+    ):
+        _fail("exact observation key and UTC microsecond timestamp schema", "schema drift")
+    start = ibis.literal(datetime.fromisoformat(params.start), type=event_type)
+    end = ibis.literal(datetime.fromisoformat(params.end), type=event_type)
+    source = source.filter((source.event_time >= start) & (source.event_time < end))
+    from_column = "member"
+    mapping = members.expression
+    key = members.layout.keys[0].column
+    source_ids = _source_ids(members.source_ids, contribution_ids)
+    coordinate = mapping[key]
+    if isinstance(params.target, GroupObservationTarget):
+        cell = members.layout.cell
+        if cell is None or str(mapping[cell.value].type()) != "string":
+            _fail("the exact Group field value", "missing Group projection")
+        checks.append(
+            IntegrityCheck(
+                stage.output,
+                "defined member Group coordinates",
+                mapping.filter(mapping[cell.tag] != "defined"),
+                members.source_ids,
+            )
+        )
+        coordinate = mapping[cell.value]
+    targets = mapping.select(key_0=coordinate).distinct()
+    joined = source.inner_join(mapping, source[from_column] == mapping[key])
+    values = joined.select(
+        key_0=coordinate,
+        amount=source.amount,
+        **{
+            ("coordinate" if i == 0 else f"coordinate_{i}"): source[
+                "coordinate" if i == 0 else f"coordinate_{i}"
+            ]
+            for i in range(len(params.coordinates))
+        },
+    )
+    if isinstance(params, ObserveMetric) and params.amount_type == "float64":
+        checks.append(
+            IntegrityCheck(
+                stage.output,
+                "finite contribution amounts",
+                values.filter(values.amount.isnan() | values.amount.isinf()),
+                source_ids,
+            )
+        )
+    summed = values.group_by("key_0").aggregate(
+        state_sum=values.amount.sum(),
+        support=values.amount.count(),
+    )
+    dense = targets.left_join(summed, targets[key] == summed.key_0)
+    amount_type = params.amount_type if isinstance(params, ObserveMetric) else "int64"
+    total = summed.state_sum.fill_null(0).cast(amount_type)
+    support = summed.support.fill_null(0).cast("int64")
+    target = canonical_layout(stage.node.signature, has_value=True)
+    defined = (
+        support > 0
+        if isinstance(params, ObserveMetric) and params.metric.empty_rule == "null"
+        else ibis.literal(True)
+    )
+    table = dense.select(
+        key_0=targets[key],
+        value=ibis.ifelse(defined, total, ibis.null().cast(amount_type)),
+        cell_tag=ibis.ifelse(defined, "defined", "null"),
+        cell_reason=ibis.ifelse(defined, ibis.null().cast("string"), "empty_contribution"),
+        original_state__count=support,
+        subject__key_0=targets[key],
+        original_state__sum=total,
+        original_state__non_null_count=support,
+        coverage__complete=ibis.literal(True),
+    )
+    if params.coordinates:
+        part = next(p for p in stage.node.signature.parts if isinstance(p, CoordinateStatePart))
+        checks.append(
+            IntegrityCheck(
+                stage.output,
+                "complete string contribution coordinates",
+                values.filter(reduce(or_, (values[name].isnull() for name in part.columns))),
+                source_ids,
+            )
+        )
+        grouped = values.group_by("key_0", *part.columns).aggregate(
+            sum=values.amount.sum().fill_null(0).cast(amount_type),
+            non_null_count=values.amount.count().cast("int64"),
+            count=values.count().cast("int64"),
+        )
+        cells = ibis.struct(
+            {
+                **{name: grouped[name] for name in part.columns},
+                **{name: grouped[name] for name in part.components},
+            }
+        )
+        nested = grouped.group_by("key_0").aggregate(
+            coordinate_state__groups=cells.collect(
+                order_by=[grouped[name] for name in part.columns]
+            )
+        )
+        combined = table.left_join(nested, table.key_0 == nested.key_0)
+        table = combined.select(
+            *[table[name] for name in table.columns],
+            coordinate_state__groups=nested.coordinate_state__groups.fill_null(
+                ibis.literal([], type=coordinate_state_type(part))
+            ),
+        )
+    table = table.select(*target.columns)
+    actual = joined.aggregate(actual=joined.count())
+    selected = source.filter(source[from_column].isin(mapping[key]))
+    expected = selected.aggregate(expected=selected.count())
+    partition = actual.cross_join(expected)
+    actual_coverage = table.aggregate(actual=table.count())
+    expected_coverage = targets.aggregate(expected=targets.count())
+    coverage = actual_coverage.cross_join(expected_coverage)
+    for requirement in admitted.checks:
+        if requirement.node_id != stage.node.identity:
+            continue
+        check_id = requirement.obligation.check_id
+        if check_id == "source.contribution_partition@v1":
+            violations = partition.filter(partition.actual != partition.expected)
+        elif check_id == "source.complete_coverage@v1":
+            violations = coverage.filter(coverage.actual != coverage.expected)
+        else:
+            continue
+        checks.append(SemanticCheck(requirement, violations, source_ids))
+    return table, target, source_ids
+
+
 def _fact_relations(
     node: Node, obligation: Obligation, relations: tuple[LoweredRelation, ...]
 ) -> tuple[tuple[LoweredRelation, ...], ...]:
@@ -679,9 +1235,19 @@ def lower(
             admit(stage.implementation, stage.node.parameters)
             if len(stage.inputs) not in (1, 2):
                 _fail("one row input or two Association inputs", repr(stage.inputs))
-            if len(stage.inputs) == 2 and not isinstance(stage.node.parameters, AssociationScore):
-                _fail("a registered two-input local Association", repr(stage.inputs))
-            output_layout = canonical_layout(stage.node.signature, has_value=True)
+            if len(stage.inputs) == 2 and not (
+                isinstance(stage.node.parameters, AssociationScore)
+                or (
+                    isinstance(stage.node.parameters, CellDerive)
+                    and stage.node.parameters.method == "difference"
+                )
+            ):
+                _fail("a registered two-input local method", repr(stage.inputs))
+            output_layout = canonical_layout(
+                stage.node.signature,
+                has_value=not isinstance(stage.node.parameters, PartsTransport)
+                or stage.node.parameters.keep_quantity,
+            )
             if isinstance(stage.node.parameters, AssociationScore):
                 output_layout = replace(output_layout, extras=("status",))
             stages.append(
@@ -710,7 +1276,25 @@ def lower(
                 stage.leaf.value_type.name,
             )
             layout = canonical_layout(stage.leaf.signature, has_value=bound.layout.cell is not None)
-            table = _renamed(bound.source.relation, bound.layout, layout).view()
+            raw = bound.source.relation
+            raw_fields = _source_fields(admitted, bound)
+            extras = tuple(f"source__{raw.columns.index(column)}" for column in raw_fields)
+            selected_columns = tuple(
+                raw[old].name(new)
+                for old, new in zip(bound.layout.columns, layout.columns, strict=True)
+            )
+            layout = replace(layout, extras=extras)
+            table = (
+                raw.select(
+                    *selected_columns,
+                    *(
+                        raw[column].name(alias)
+                        for column, alias in zip(raw_fields, extras, strict=True)
+                    ),
+                )
+                .select(*layout.columns)
+                .view()
+            )
             node: Node = stage.leaf
             source_ids: tuple[str, ...] = (stage.leaf.identity,)
             cell_reasons = bound.cell_reasons
@@ -724,8 +1308,13 @@ def lower(
             if isinstance(params, PartsTransport):
                 table, layout = _transport(stage, inputs[0], checks)
                 cell_reasons = inputs[0].cell_reasons
+            elif isinstance(params, (ObserveMetric, ObserveCount)):
+                table, layout, source_ids = _observe(
+                    stage, inputs[0], bindings, checks, admitted, tuple(results.values())
+                )
+                cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, BindProject):
-                table, layout = _bind(stage, inputs[0], bindings, checks)
+                table, layout = _bind(stage, inputs[0], bindings, checks, tuple(results.values()))
                 source_ids = _source_ids(source_ids, (stage.node.sources[0].identity,))
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, MapCorrespond):
@@ -733,11 +1322,26 @@ def lower(
                 cell_reasons = ()
                 if params.mode == "union_keys":
                     source_ids = _source_ids(*(input.source_ids for input in inputs))
+            elif isinstance(params, OriginalRatio) and len(inputs) == 2:
+                table, layout = _original_ratio(stage, (inputs[0], inputs[1]), checks, admitted)
+                source_ids = _source_ids(*(item.source_ids for item in inputs))
+                cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
+            elif isinstance(params, OriginalReduce):
+                table, layout = _original_sum(stage, inputs[0])
+                cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, RowState):
                 table, layout = _count(stage, inputs[0])
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, AssociationScore) and len(inputs) == 2:
                 table, layout = _spearman(stage, (inputs[0], inputs[1]), checks)
+                source_ids = _source_ids(*(item.source_ids for item in inputs))
+                cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
+            elif (
+                isinstance(params, CellDerive)
+                and params.method == "difference"
+                and len(inputs) == 2
+            ):
+                table, layout = _difference(stage, (inputs[0], inputs[1]), checks)
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             else:
@@ -751,7 +1355,14 @@ def lower(
             IntegrityCheck(
                 stage.output,
                 "unique non-null complete identity",
-                _key_violations(table, layout),
+                _key_violations(
+                    table,
+                    layout,
+                    allow_empty=isinstance(node, MethodNode)
+                    and isinstance(node.parameters, PartsTransport)
+                    and node.parameters.mode == "where"
+                    and not layout.keys,
+                ),
                 source_ids,
             )
         )
@@ -765,6 +1376,22 @@ def lower(
                 )
             )
     for requirement in admitted.checks:
+        existing = next(
+            (
+                check
+                for check in checks
+                if isinstance(check, SemanticCheck)
+                and requirement.obligation.check_id
+                in ("source.contribution_partition@v1", "source.complete_coverage@v1")
+                and check.requirement.obligation.fact == requirement.obligation.fact
+                and check.requirement.obligation.check_id == requirement.obligation.check_id
+            ),
+            None,
+        )
+        if existing is not None:
+            if existing.requirement != requirement:
+                checks.append(replace(existing, requirement=requirement))
+            continue
         if admitted.classification.kind == "artifact":
             checks.append(requirement)
             continue
@@ -783,11 +1410,19 @@ def lower(
             elif check_id == "source.cell_policy@v1" and inputs[0].layout.cell is not None:
                 violations = _cell_violations(inputs[0].expression, inputs[0].layout.cell)
                 source_ids = inputs[0].source_ids
+            elif check_id == "source.group_mapping@v1" and inputs[0].layout.cell is not None:
+                group_cell = inputs[0].layout.cell
+                violations = (
+                    inputs[0]
+                    .expression.filter(inputs[0].expression[group_cell.tag] != "defined")
+                    .select(*(item.column for item in inputs[0].layout.keys))
+                )
+                source_ids = inputs[0].source_ids
             elif check_id == "source.finite_numeric@v1" and inputs[0].layout.cell is not None:
                 numeric_inputs = (
                     inputs
                     if isinstance(owner, MethodNode)
-                    and isinstance(owner.parameters, AssociationScore)
+                    and isinstance(owner.parameters, (AssociationScore, CellDerive))
                     else inputs[:1]
                 )
                 violations = None
@@ -820,6 +1455,7 @@ def lower(
                         isinstance(owner, MethodNode)
                         and isinstance(owner.parameters, RowState)
                         and owner.parameters.method == "mean"
+                        and str(value.type()) == "int64"
                     ):
                         invalid = invalid | (value.abs() > 2**53).fill_null(False)
                     selected = current.expression.filter(invalid.fill_null(True)).select(

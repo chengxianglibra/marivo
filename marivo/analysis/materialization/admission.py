@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
 import pandas as pd
+import pyarrow as pa
 
 from marivo._temporal import PeriodCalendarSnapshotV1
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
@@ -88,13 +89,10 @@ from marivo.semantic.validator import Registry
 if TYPE_CHECKING:
     from marivo.analysis.compiler.graph_plan import RouteChoice
     from marivo.analysis.core.graph import Node
-    from marivo.analysis.materialization.dsl_j1_artifact import J1Node
-    from marivo.analysis.materialization.dsl_j1_runtime import J1SourceFactory
     from marivo.analysis.materialization.execution_key import SourceKeyBinding
     from marivo.analysis.materialization.graph_execution import PreparedGraph
     from marivo.analysis.materialization.graph_publication import SourceFactory
     from marivo.analysis.materialization.graph_store import GraphArtifact
-    from marivo.analysis.observation.dsl_j1_dataset import MaterializedJ1Dataset
 
 _PREVIEW_MAX_OUTPUT_BYTES = 8192
 _READ_POLICY = ReadPolicy()
@@ -105,8 +103,6 @@ _LOCAL_STORAGE_POLICY = StoragePolicy()
 class ExecutionStatistics:
     """Ephemeral per-action diagnostics, never a publication authority."""
 
-    j1_source_evaluations: int = 0
-    j1_fixed_cache_hits: int = 0
     primary_queries: int = 0
     validation_queries: int = 0
     source_fences: int = 0
@@ -154,6 +150,7 @@ class DatasetRuntime:
         report_timezone: str | None = None,
         event: Callable[[str], None] | None = None,
         event_coverage_provider: EventCoverageProvider | None = None,
+        _generation: Literal[6, 7] = 6,
     ) -> DatasetRuntime:
         from marivo.analysis.timezone import resolve_system_timezone, zoneinfo_from_name
 
@@ -174,7 +171,11 @@ class DatasetRuntime:
                 zoneinfo_from_name(report_timezone)
                 raise
             timezone_resolution = "fixed_offset" if isinstance(resolved_zone, timezone) else "iana"
-        store = SessionStore(project_root)
+        store = (
+            SessionStore._graph_store(project_root)
+            if _generation == 7
+            else SessionStore(project_root)
+        )
         record = store.session_by_name(name)
         if record is None:
             candidate_ref = "session_" + uuid4().hex
@@ -235,11 +236,16 @@ class DatasetRuntime:
         *,
         event: Callable[[str], None] | None = None,
         event_coverage_provider: EventCoverageProvider | None = None,
+        _generation: Literal[6, 7] = 6,
     ) -> DatasetRuntime:
-        if not MaterializationLayout(project_root).store_db.is_file():
+        if not MaterializationLayout(project_root, generation=_generation).store_db.is_file():
             raise _error("authority_resolution")
         return cls(
-            SessionStore.open_existing(project_root),
+            (
+                SessionStore._graph_store(project_root, existing_only=True)
+                if _generation == 7
+                else SessionStore.open_existing(project_root)
+            ),
             session_ref,
             event=event,
             event_coverage_provider=event_coverage_provider,
@@ -362,12 +368,18 @@ class DatasetRuntime:
         *,
         source_bindings: tuple[SourceKeyBinding, ...] = (),
         source_factory: SourceFactory | None = None,
+        source_schemas: tuple[pa.Schema, ...] = (),
     ) -> GraphArtifact:
         """Execute the private v7 graph through this existing Runtime owner."""
         from marivo.analysis.materialization.graph_publication import execute
 
         return execute(
-            self, root, routes, source_bindings=source_bindings, source_factory=source_factory
+            self,
+            root,
+            routes,
+            source_bindings=source_bindings,
+            source_factory=source_factory,
+            source_schemas=source_schemas,
         )
 
     def _prepare_graph(self, root: Node, routes: tuple[RouteChoice, ...]) -> PreparedGraph:
@@ -375,50 +387,6 @@ class DatasetRuntime:
         from marivo.analysis.materialization.graph_execution import prepare_graph
 
         return prepare_graph(root, session_ref=self.session_ref, routes=routes)
-
-    def execute_j1(
-        self,
-        node: J1Node,
-        *,
-        source: J1SourceFactory | None = None,
-        input_node: J1Node | None = None,
-        input_artifact_ref: str | None = None,
-        input_nodes: tuple[J1Node, J1Node] | None = None,
-        input_artifact_refs: tuple[str, str] | None = None,
-        source_route: Literal["automatic", "python", "source_numeric"] = "automatic",
-        public_snapshot: str | None = None,
-    ) -> MaterializedJ1Dataset:
-        """Execute a private J1 node through this Session Runtime.
-
-        Args:
-            node: The same constructed J1 node may be evaluated again.
-            source: Factory opening one admitted DuckDB/Ibis source context.
-            input_node: Exact predecessor definition for local continuation.
-            input_artifact_ref: Saved predecessor Artifact selected for local work.
-            input_nodes: Ordered current and baseline definitions for private comparison.
-            input_artifact_refs: Exact ordered Artifacts for private comparison.
-            source_route: Private J4 source implementation choice for validation.
-        Returns:
-            The exact committed J1 Artifact as a Materialized Dataset.
-        Example:
-            ``result = runtime.execute_j1(observed, source=open_source)``.
-        Constraints:
-            This internal entry is not a public Analysis DSL method. Supply
-            either a source factory or both fixed-input arguments.
-        """
-        from marivo.analysis.materialization.dsl_j1_runtime import execute_j1
-
-        return execute_j1(
-            self,
-            node,
-            source=source,
-            input_node=input_node,
-            input_artifact_ref=input_artifact_ref,
-            input_nodes=input_nodes,
-            input_artifact_refs=input_artifact_refs,
-            source_route=source_route,
-            public_snapshot=public_snapshot,
-        )
 
     def show(self, dataset: MaterializedDataset, *, max_output_bytes: int | None = None) -> None:
         from marivo.analysis.materialization import dataset_presentation
@@ -532,4 +500,14 @@ class DatasetRuntime:
     def _execute(self, dataset: LogicalDataset) -> MaterializedDataset:
         from marivo.analysis.materialization import dataset_execution
 
+        if self.store.layout.generation == 7:
+            from marivo.analysis.datasets.errors import DatasetConstructionError
+
+            raise DatasetConstructionError(
+                expected="a qualified Store 7 typed relation",
+                received="an unqualified Dataset family execution",
+                repair="Use session.members(...); R5–R9 Dataset execution has no Store 7 qualification.",
+                location="analysis.execution_admission",
+                help_target="session.members",
+            )
         return dataset_execution.execute(self, dataset)

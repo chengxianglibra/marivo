@@ -244,6 +244,8 @@ def plan(
                     obligation,
                 )
                 for obligation in node.derivation.obligations
+                if classification.kind != "artifact"
+                or not any(prior.obligation == obligation for prior in checks)
             )
         outputs[node.identity] = output
     return GraphPlan(

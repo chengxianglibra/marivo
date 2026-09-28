@@ -887,3 +887,105 @@ v6 J1 的 `make runtime-test` **13 passed**；变更模块 typing **3 文件通�
 [修复日志](evidence/r44/review-fixes-check-agent.log)。原 19 项 skip 和旧并发
 基线失败仍按上一节归属，不计本轮通过。故障注入覆盖事务前可观测的文件
 变化与额外资源登记；不宣称抵御任意外部进程在最终校验后篡改文件。
+
+## R4.5 实施中：来源 schema 资格与成员部件（2026-09-28）
+
+本轮按已确认的选择，在 Run 前通过 R1 只绑定来源 schema，以取得 Semantic 声明中
+仍为 `unknown` 的 Entity 主键及分类字段的精确物理类型。预检不编译、提交或迭代
+业务行；已选 schema 与执行绑定不一致时拒绝。DuckDB table/Parquet 的 string 成员视图、
+分类字段读取、筛选与 Subject 映射已通过真实 R1 来源测试；v7 的 string 成员主表和独立
+`subject` part 已发布，并在删除来源后的新进程按确切 receipt 读取成功。
+
+定向证据：`make runtime-test TESTS='tests/test_analysis_graph_publication_r44.py tests/test_analysis_graph_preflight_r45.py'`
+**14 passed**；`make test TESTS='tests/test_analysis_lowering_r34.py tests/test_analysis_graph_r33.py'`
+**123 passed**；变更源码 typing **7 文件通过**，针对性 lint **8 文件通过**，
+`git diff --check` 通过。`make check-agent` 的格式/lint/导入、**408** 个源码文件
+typing、默认测试 **5454 passed / 19 skipped** 和 API 文档均通过；新增的 7 项
+Runtime 用例只在上述定向 Runtime 命令中计数。以上为私有图链与预检的局部证据。
+
+**R4.5 公共验收未完成**：`session.members(...)` 与公共 `execute()` 仍使用 v6
+场景链，尚无完整 J1–J4 的窗口/分组/比较/ratio/rollup 方法、所有固定多节点
+组合、公共 v7 恢复与动态 K。Help、CLI、公共类型及英中 latest 示例
+仍待公共切换后同步。本节不提升 V01–V12 的公共格，不代替 R4.6 wheel 验收。
+
+同日后续私有增量：注册并实测 string Group、带双端点 part 的 int64 绝对
+Difference、共同冻结成员绑定下两个独立固定 Artifact 的 Spearman、固定筛选、
+Spearman coefficient 筛选及筛选后 count 的单 Run 多节点执行。已验证 descriptor 完成证据后，固定输入才把
+已完成的义务从瞬时签名移除；原 descriptor 和完成证据保持不变。此增量仍不改变
+公共 v6 路线或 V10/V11 结论。定向默认测试 **150 passed**，定向 Runtime
+**20 passed**，本轮变更源码 typing 与 lint 定向通过。上述前一段的旧计数
+是此前检查时点，不能与本段相加作为独立验收。
+coefficient 筛选为假时另以 `optional_singleton` 持久行集合契约验证空主表及空 part，
+确切恢复按同一约束拒绝不匹配行数；该用例仍属于私有 v7 证据。
+后续 `make check-agent` 通过：格式、lint、导入合同、**408** 个源码文件类型检查、
+默认测试 **5453 passed / 19 skipped** 与 API 文档构建均通过。被迁移的
+“独立固定端点一律拒绝”旧断言已由共同冻结成员绑定的正例取代；少一项默认测试
+来自该断言移除，未以 skip 掩盖。
+
+同日再补一个以实际 J1 authored project 为输入的私有 v7 构造器：
+`construct_members` 在 R1 schema 预检后生成带精确 string 身份与 Subject part 的图，
+直接分类 Dimension 在 `unknown` 声明下按物理 schema 选型，再由同一图 Runtime
+完成读取、筛选与 string Group。每次发布使用 Store 7 单独 Run；此构造器尚未由
+`session.members(...)` 调用。交换层将 keyless `optional_singleton` 的 0/1 行限制
+放在流耗尽后的实际校验路径，并增加 2 行反例。`make test
+TESTS='tests/test_analysis_graph_publication_r44.py tests/test_analysis_lowering_r34.py
+tests/test_analysis_graph_r33.py tests/test_analysis_methods_r32.py'` 为 **208 passed**；
+`make runtime-test TESTS='tests/test_analysis_graph_publication_r44.py
+tests/test_analysis_graph_preflight_r45.py'` 为 **21 passed**；分析包类型检查 **263
+个源码文件通过**，变更文件 lint 与 `git diff --check` 通过。随后 `make check-agent`
+通过：格式、lint、导入合同、**409** 个源码文件类型检查、默认测试 **5454 passed /
+19 skipped** 与 API 文档构建。仍未运行公共类型正反例、Help 预算/漂移、站点构建与
+J1–J4 公共验收；它们需在公共消费者及文档切换后执行，当前不得计为通过。
+另运行既有 v6 公共 Runtime 文件 `tests/test_analysis_dsl_public.py` 与
+`tests/test_analysis_dsl_j1_runtime.py`：**22 passed、2 failed**。两个失败均在
+`test_public_j1_scope_uses_persisted_report_timezone` 的第二段
+`session.observe(...).aggregate().execute()`，实际由 R1.1 的
+`dataset.source_admission` 拒绝未迁入的 `metric.aggregate` 文本来源路线，
+属于原台账 R5 交接；同一用例前半段 J1 成员观察已运行。该结果不记为 R4.5
+图链失败，也不把整项测试记为通过；R5 迁入后须重跑。
+同日另为 int64 Difference 补齐固定 Python 资格：两个独立且已验 receipt 的
+Artifact 按完整 key 和有序 current/baseline 端点配对，验证 Defined Cell、
+int64 溢出与双端点 part，再在一个 v7 Run 中发布。反向端点产生相反结果与不同
+执行 key；删除来源后的新进程用原固定输入另建定义并实际续算，确认产生新 Run。
+`make test TESTS='tests/test_analysis_graph_publication_r44.py
+tests/test_analysis_methods_r32.py tests/test_analysis_lowering_r34.py'` 为 **181 passed**；
+含上述冷续算的单项 Runtime 为 **1 passed**；合并的图发布与 R1 预检 Runtime
+回归为 **22 passed**，分析包类型检查 **263 个源码文件通过**，变更文件 lint
+与 `git diff --check` 通过。本项仍是私有方法资格，公共 J2
+接入与 `session.artifact` 恢复未完成。
+固定 Difference 增量后的 `make check-agent` 再次通过：格式、lint、导入合同、
+**409** 个源码文件类型检查、默认测试 **5454 passed / 19 skipped** 及 API 文档构建。
+
+
+### 2026-09-28 R4.5 公共图链切换完成
+
+本条替代前文“公共消费者尚未接入”的阶段状态，不将早期私有通过追认为公共验收。
+公共 `session.members`、relation `execute`、Session 创建/恢复/历史读取及
+`session.artifact` 已统一到 typed graph Runtime / Store 7；保留原公共签名与结果族。
+有类型成员读取/筛选/分组、窗口观察、int64 Difference、原组件 ratio/rollup、行统计、
+Spearman 与固定 coefficient 已按 DuckDB 和本地 Parquet 路线分别重验。schema-only
+预检采用用户已确认的例外，业务行与 Run 仍受精确资格约束。
+
+独立 oracle 覆盖空贡献、筛选后观察、端点顺序、独立冻结成员拒绝、两坐标完整元组、
+原组件比例与当前行均值的区别及平均秩配对。新进程删除来源和模型后，在禁止来源、
+DuckDB 与 Semantic 加载的条件下恢复确切 Artifact 并续算；receipt、part、snapshot、
+状态版本和绑定损坏均一致拒绝。旧代际不迁移、不删除。场景执行/codec 已移除，
+公共 Session 无 v6 回退；R5 私有 harness 与未资格公共 Dataset 执行保持明确隔离。
+
+最终工作区门禁：
+
+| 门禁 | 结果 |
+| --- | --- |
+| 公共/图 Runtime 定向组合 | **87 passed** |
+| make check-agent | 格式、lint、导入合同、400 文件 typing、**5362 passed / 19 skipped**、API 文档通过 |
+| 公共类型负例、Help 可达性/预算/漂移、导出、CLI | **98 passed** |
+| 最后披露说明调整回归 | **58 passed** |
+| site npm run build | **321 页**；Astro 0 errors / 0 warnings；英中安装脚本输出通过 |
+| 同一候选 wheel 隔离安装 | **未运行，R4.6 owner** |
+| R5 旧并发套件 | **本包未重跑**；保留前文 16 passed / 8 failed 的独立交接 |
+
+默认测试数量变化来自旧 v6 场景测试合并迁移；未用新 skip 掩盖失败，19 项既有 skip
+仍不算通过。迁移映射、命令、精确输入/源码 digest 与日志 hash 见
+[evidence/r45](evidence/r45/README.md)及 [manifest.json](evidence/r45/manifest.json)。
+R4.5 已完成；整个 R4 仍需 R4.6，真实 Agent、其他后端与 R5–R9 能力未据此扩张。
+packaged skills 未修改；本包未提交、推送或发布。

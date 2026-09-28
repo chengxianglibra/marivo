@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from marivo.analysis.compiler import required_entities
 from marivo.analysis.compiler.normalize import (
     artifact_inputs,
+    classify_inputs,
     logical_roots,
     required_source_dependencies,
 )
@@ -120,6 +121,7 @@ def _admit_miss(
     dataset: LogicalDataset,
     key: str,
     roots: tuple[LogicalRootHandle, ...],
+    run_ref: str | None = None,
 ) -> ExecutionPlan:
     retained_inputs = artifact_inputs(dataset)
     records = {value.state.artifact_ref.ref: self._selected(value) for value in retained_inputs}
@@ -259,6 +261,7 @@ def _admit_miss(
             )[:64],
         ),
         input_artifact_refs=tuple(value.state.artifact_ref.ref for value in retained_inputs),
+        run_ref=run_ref,
     )
     self.last_run_ref = run.run_ref
     return ExecutionPlan(
@@ -331,7 +334,15 @@ def execute(self: DatasetRuntime, dataset: LogicalDataset) -> MaterializedDatase
     for root in roots:
         if root.contract_versions != producer_contract(root.operator_id).versions:
             raise _error("implementation_registration")
-    key = execution_key(dataset.definition_fingerprint)
+    from marivo.analysis.materialization.store import _new_run_ref
+
+    source_invocation = bool(classify_inputs(root_handle).source_nodes)
+    run_ref = _new_run_ref() if source_invocation else None
+    key = (
+        codec.digest((dataset.definition_fingerprint, run_ref))
+        if source_invocation
+        else execution_key(dataset.definition_fingerprint)
+    )
     with session_writer_guard(
         self.store.layout.lock_path(self.session_ref), session_ref=self.session_ref
     ):
@@ -342,11 +353,11 @@ def execute(self: DatasetRuntime, dataset: LogicalDataset) -> MaterializedDatase
             self.session_ref,
             event=self._event,
         )
-        hit = self.store.lookup(self.session_ref, key)
+        hit = None if source_invocation else self.store.lookup(self.session_ref, key)
         if hit is not None:
             self.last_run_ref = hit.producing_run_ref
             return self._recover(hit)
-        plan = _admit_miss(self, dataset, key, roots)
+        plan = _admit_miss(self, dataset, key, roots, run_ref)
         records = plan.records
         physical = plan.physical
         source_steps = plan.source_steps

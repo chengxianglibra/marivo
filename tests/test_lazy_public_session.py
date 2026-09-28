@@ -9,19 +9,17 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import ArtifactNotFoundError, SessionNotFoundError
-from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
-from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
-def test_new_public_session_starts_with_empty_v6_store(
+def test_new_public_session_starts_with_empty_v7_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("fresh-generation", report_timezone="UTC")
     assert session.runs().items == ()
-    assert session._runtime.store.db_path == MaterializationLayout(tmp_path).store_db
+    assert session._runtime.store.db_path == MaterializationLayout(tmp_path, generation=7).store_db
     with pytest.raises(ArtifactNotFoundError):
         session.artifact("old-artifact")
     with pytest.raises(SessionNotFoundError):
@@ -82,65 +80,30 @@ def test_public_session_rejects_existing_store_without_modifying_it(
     assert tuple(path.parent.iterdir()) == files
 
 
-@pytest.mark.runtime
-def test_public_default_local_execute_and_source_offline_cold_resume(
-    authoring_evidence_project: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("runtime_metric", [False, True])
+def test_unqualified_dataset_family_rejects_before_business_io_and_run(
+    authoring_evidence_project: Path, monkeypatch: pytest.MonkeyPatch, runtime_metric: bool
 ) -> None:
-    monkeypatch.chdir(authoring_evidence_project)
-    first = mv.session.get_or_create("cold", report_timezone="UTC")
-    result = first.observe(ms.ref.metric("sales.revenue")).aggregate().execute()
-    record = first._runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None
-    assert isinstance(record.descriptor.storage_receipt, LocalReceipt)
-    original = result.to_pandas()
-    assert 751.5 in original.iloc[0].tolist()
-    artifact = result.state.artifact_ref
-    (authoring_evidence_project / "warehouse.duckdb").rename(
-        authoring_evidence_project / "warehouse.offline"
-    )
-    recovered = mv.session.resume(first.id, by="id")
-    loaded = recovered.artifact(artifact)
-    assert loaded.to_pandas().equals(original)
-    assert len(recovered.runs().items) == 1
-    assert not recovered._runtime.statistics.statements
-    assert not tuple((authoring_evidence_project / ".marivo").rglob("*.duckdb"))
+    from marivo.datasource.runtime import DatasourceConnectionService
 
-
-@pytest.mark.runtime
-def test_public_runtime_metric_executes_and_projects_after_cold_resume(
-    authoring_evidence_project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
     monkeypatch.chdir(authoring_evidence_project)
-    first = mv.session.get_or_create("runtime-metric", report_timezone="UTC")
-    measure = first.catalog.require(ms.ref.measure("sales.orders.amount")).ref
-    expression = mv.runtime_metric.aggregate(measure, agg="sum", label="runtime_total")
-    logical = first.observe(expression).aggregate()
-    assert isinstance(logical, mv.LogicalMetricDataset)
-    assert first.runs().items == ()
-    assert not first._runtime.statistics.statements
-    output = logical.execute()
-    assert output.to_pandas()["runtime_total"].tolist() == [751.5]
-    (authoring_evidence_project / "warehouse.duckdb").rename(
-        authoring_evidence_project / "warehouse.offline"
+    session = mv.session.get_or_create("unqualified", report_timezone="UTC")
+    metric = (
+        mv.runtime_metric.aggregate(
+            ms.ref.measure("sales.orders.amount"), agg="sum", label="runtime_total"
+        )
+        if runtime_metric
+        else ms.ref.metric("sales.revenue")
     )
-    cold = mv.session.resume(first.id, by="id")
-    loaded = cold.artifact(output.state.artifact_ref)
-    assert isinstance(loaded, mv.MaterializedMetricDataset)
+    logical = session.observe(metric).aggregate()
 
     def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("cold projection attempted source execution")
+        raise AssertionError("unqualified Dataset execution opened a source")
 
-    for name in (
-        "_build_backend_from_effective",
-        "_effective_kwargs",
-        "require_profile_for_backend_type",
-        "compile_dataset",
-    ):
-        monkeypatch.setattr(runtime_patch_owner(name), name, forbidden)
-    selected = loaded.metric(loaded.fields.get("runtime_total"))
-    assert selected.execute().to_pandas()["runtime_total"].tolist() == [751.5]
-    assert cold._runtime.statistics.source_fences == 0
-    assert not tuple((authoring_evidence_project / ".marivo").rglob("*.duckdb"))
+    monkeypatch.setattr(DatasourceConnectionService, "use_backend", forbidden)
+    with pytest.raises(DatasetConstructionError, match="R5–R9"):
+        logical.execute()
+    assert session.runs().items == ()
 
 
 def test_public_calendar_snapshot_is_captured_before_pure_construction(

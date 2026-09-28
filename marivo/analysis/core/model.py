@@ -7,7 +7,7 @@ from typing import Literal, NoReturn, TypeAlias
 
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.refs import EntityKind, MetricKind, Ref, SemanticKind
+from marivo.refs import DimensionKind, EntityKind, MetricKind, Ref, SemanticKind
 from marivo.semantic.ir import TargetSnapshotSelection, TargetValiditySelection
 
 
@@ -406,6 +406,32 @@ class OriginalStatePart:
 
 
 @dataclass(frozen=True, slots=True)
+class CoordinateStatePart:
+    binding: Binding
+    quantity_id: str
+    dimension: Ref[DimensionKind]
+    owner: Ref[EntityKind]
+    components: tuple[str, ...]
+    value_type: Literal["int64", "float64"]
+    version: Literal["v1"]
+
+    extra_coordinates: tuple[Coordinate, ...] = ()
+
+    @property
+    def coordinates(self) -> tuple[Coordinate, ...]:
+        return (Coordinate(self.owner, self.dimension.path, "group"), *self.extra_coordinates)
+
+    @property
+    def columns(self) -> tuple[str, ...]:
+        return tuple(
+            "coordinate" if i == 0 else f"coordinate_{i}" for i in range(len(self.coordinates))
+        )
+
+    def column_for(self, dimension: Ref[DimensionKind]) -> str:
+        return self.columns[tuple(c.field for c in self.coordinates).index(dimension.path)]
+
+
+@dataclass(frozen=True, slots=True)
 class RowStatePart:
     binding: Binding
     quantity_id: str
@@ -451,6 +477,7 @@ Part: TypeAlias = (
     SubjectPart
     | EndpointPart
     | OriginalStatePart
+    | CoordinateStatePart
     | RowStatePart
     | CoveragePart
     | FixedReferencePart
@@ -462,6 +489,7 @@ PartRole: TypeAlias = Literal[
     "current_endpoint",
     "baseline_endpoint",
     "original_state",
+    "coordinate_state",
     "row_state",
     "coverage",
     "fixed_reference",
@@ -477,6 +505,8 @@ def part_role(part: Part) -> PartRole:
         return "current_endpoint" if part.side == "current" else "baseline_endpoint"
     if isinstance(part, OriginalStatePart):
         return "original_state"
+    if isinstance(part, CoordinateStatePart):
+        return "coordinate_state"
     if isinstance(part, RowStatePart):
         return "row_state"
     if isinstance(part, CoveragePart):
@@ -518,6 +548,30 @@ def validate_part(part: Part) -> None:
                 "core.part.endpoint",
             )
         _nonempty(part.quantity_id, "core.part.endpoint.quantity")
+    elif isinstance(part, CoordinateStatePart):
+        _nonempty(part.quantity_id, "core.part.coordinate.quantity")
+        _unique(part.components, "core.part.coordinate.components")
+        if (
+            len(part.extra_coordinates) > 1
+            or len(set(part.coordinates)) != len(part.coordinates)
+            or any(c.role != "group" for c in part.extra_coordinates)
+            or part.dimension.kind is not SemanticKind.DIMENSION
+            or part.owner.kind is not SemanticKind.ENTITY
+            or part.components
+            not in (
+                ("sum", "non_null_count"),
+                ("count",),
+                ("numerator_sum", "numerator_non_null_count", "denominator_count"),
+            )
+            or part.value_type not in ("int64", "float64")
+            or part.version != "v1"
+        ):
+            reject(
+                "a bound coordinate component contract",
+                repr(part),
+                "Retain the original contribution coordinate.",
+                "core.part.coordinate",
+            )
     elif isinstance(part, (OriginalStatePart, RowStatePart)):
         _nonempty(part.quantity_id, "core.part.state.quantity")
         _nonempty(part.method_version, "core.part.state.method")
@@ -740,7 +794,9 @@ class Signature:
                     "Bind the complete source and Subject identities.",
                     "core.signature.subject",
                 )
-            if isinstance(part, (OriginalStatePart, RowStatePart, CoveragePart)) and (
+            if isinstance(
+                part, (OriginalStatePart, RowStatePart, CoveragePart, CoordinateStatePart)
+            ) and (
                 part.binding != self.domain.binding
                 or self.quantity is None
                 or part.quantity_id != self.quantity.definition_id

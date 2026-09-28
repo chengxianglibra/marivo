@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import subprocess
+import sys
 from contextlib import contextmanager
 from dataclasses import replace
 
@@ -18,7 +20,7 @@ from marivo.analysis.compiler.graph_lowering import (
     SourceBinding,
 )
 from marivo.analysis.compiler.graph_plan import RouteChoice
-from marivo.analysis.core.graph import Edge, SourceDefinition, SourceLeaf, method_node
+from marivo.analysis.core.graph import Edge, FixedLeaf, SourceDefinition, SourceLeaf, method_node
 from marivo.analysis.core.model import (
     Binding,
     Coordinate,
@@ -27,11 +29,16 @@ from marivo.analysis.core.model import (
     Signature,
 )
 from marivo.analysis.core.predicates import ValuePredicate
-from marivo.analysis.core.rules import PartsTransport, RowState
+from marivo.analysis.core.rules import AssociationScore, CellDerive, PartsTransport, RowState
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import canonical_json
-from marivo.analysis.materialization.errors import IntegrityError, RecoveryPendingError
+from marivo.analysis.materialization.errors import (
+    IntegrityError,
+    MaterializationError,
+    RecoveryPendingError,
+)
 from marivo.analysis.materialization.execution_key import SourceKeyBinding
+from marivo.analysis.materialization.graph_exchange import ExchangeContract, from_arrow
 from marivo.analysis.materialization.graph_protocol import (
     DESCRIPTOR,
     NODE,
@@ -39,11 +46,14 @@ from marivo.analysis.materialization.graph_protocol import (
     decode,
     digest,
     encode,
+    fixed_signature,
     thaw_graph,
 )
 from marivo.analysis.materialization.graph_storage import read_result
 from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.methods.physical import NoTime, ScalarType, SourceShape
+from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType, SourceShape
+from marivo.analysis.methods.semantics import MethodKey
+from marivo.analysis.refs import ArtifactRef
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation, TableSourceIR
 from marivo.refs import ref
@@ -85,6 +95,30 @@ def _count(leaf):
         RowState("count", domain, "current-count", "count_all"),
         value_type=ScalarType("int64"),
     )
+
+
+def test_optional_singleton_exchange_rejects_multiple_rows() -> None:
+    leaf, _ = _root("test-session")
+    quantity = leaf.signature.quantity
+    assert quantity is not None
+    singleton = DomainSignature(leaf.signature.domain.binding, "singleton", (), (), "selected")
+    table = pa.table(
+        {
+            "value": pa.array([1, 2], type=pa.int64()),
+            "cell_tag": ["defined", "defined"],
+            "cell_reason": pa.array([None, None], type=pa.string()),
+        }
+    )
+    contract = ExchangeContract(
+        Signature(singleton, quantity),
+        MethodKey("parts_transport"),
+        "exact-binding",
+        table.schema,
+        (),
+        allow_empty_singleton=True,
+    )
+    with pytest.raises(MaterializationError, match="singleton result has an invalid row count"):
+        from_arrow(table, contract)
 
 
 @pytest.fixture
@@ -174,6 +208,101 @@ def _counts(store):
         )
 
 
+@pytest.mark.runtime
+def test_fixed_difference_uses_ordered_exact_endpoints_without_source(case):
+    first = _capture(case)
+    case[5].create_table(
+        "facts",
+        pa.table(
+            {
+                "id": [9007199254740993, 2, 3],
+                "amount": [1, 3, 8],
+                "tag": ["defined"] * 3,
+                "reason": pa.array([None] * 3, type=pa.string()),
+            }
+        ),
+        overwrite=True,
+    )
+    second = _capture(case)
+    a = _fixed(first).inputs[0].node
+    b = _fixed(second).inputs[0].node
+    assert a.signature.quantity is not None
+
+    def difference(current, baseline):
+        return method_node(
+            (Edge("current", current), Edge("baseline", baseline)),
+            CellDerive(
+                "difference",
+                "fixed-stock-difference",
+                "strict",
+                a.signature.quantity.unit,
+                a.signature.quantity.time_scope,
+                "source.exact_pairing@v1",
+                "source.finite_numeric@v1",
+            ),
+            value_type=ScalarType("int64"),
+        )
+
+    before_opens = len(case[4])
+    forward = difference(a, b)
+    saved = case[0]._execute_graph(forward, (RouteChoice(forward.identity, "artifact_python"),))
+    actual = read_result(case[0].store.project_root, saved.descriptor)
+    assert actual.primary["value"].to_pylist() == [3, 4, 1]
+    assert actual.parts[0].table["current_endpoint__value"].to_pylist() == [4, 7, 9]
+    assert actual.parts[1].table["baseline_endpoint__value"].to_pylist() == [1, 3, 8]
+    reverse = difference(b, a)
+    reversed_saved = case[0]._execute_graph(
+        reverse, (RouteChoice(reverse.identity, "artifact_python"),)
+    )
+    assert read_result(case[0].store.project_root, reversed_saved.descriptor).primary[
+        "value"
+    ].to_pylist() == [-3, -4, -1]
+    assert saved.execution_key_digest != reversed_saved.execution_key_digest
+    assert len(case[4]) == before_opens
+    source_path = case[0].store.project_root / "source.duckdb"
+    offline_path = source_path.with_suffix(".offline")
+    source_path.rename(offline_path)
+    try:
+        process = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                """\
+import sys
+from dataclasses import replace
+from marivo.analysis.compiler.graph_plan import RouteChoice
+from marivo.analysis.core.graph import method_node
+from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.graph_protocol import thaw_graph
+from marivo.analysis.materialization.graph_storage import read_result
+from marivo.analysis.materialization.store import SessionStore
+
+store = SessionStore._graph_store(sys.argv[1], existing_only=True)
+runtime = DatasetRuntime(store, sys.argv[2])
+prior = thaw_graph(sys.argv[3])
+root = method_node(
+    prior.inputs,
+    replace(prior.parameters, definition_id="cold-fixed-difference"),
+    value_type=prior.value_type,
+)
+saved = runtime._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
+assert read_result(store.project_root, saved.descriptor).primary["value"].to_pylist() == [3, 4, 1]
+assert saved.producing_run_ref != sys.argv[4]
+""",
+                str(case[0].store.project_root),
+                case[0].session_ref,
+                encode(forward, NODE),
+                saved.producing_run_ref,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        offline_path.rename(source_path)
+    assert process.returncode == 0, process.stderr
+
+
 def test_source_roundtrip_new_identity_and_fixed_exact_hit(case):
     first = _execute(case)
     runtime, root, _, _, opens, backend = case
@@ -210,6 +339,387 @@ def test_source_roundtrip_new_identity_and_fixed_exact_hit(case):
     )
     assert _counts(runtime.store) == before == (4, 4, 4, 0)
     assert opens == ["open", "open", "open"]
+
+
+@pytest.mark.runtime
+def test_fixed_spearman_accepts_independent_captures_of_one_frozen_membership(case):
+    first, second = _capture(case), _capture(case)
+    assert first.artifact_ref != second.artifact_ref
+    left, right = (
+        FixedLeaf(
+            ArtifactRef(saved.artifact_ref),
+            saved.descriptor.definition_fingerprint,
+            saved.descriptor.signature,
+            ScalarType("int64"),
+            FixedShape(NoTime()),
+        )
+        for saved in (first, second)
+    )
+    binding = left.signature.domain.binding
+    root = method_node(
+        (Edge("quantity", left), Edge("quantity", right)),
+        AssociationScore(
+            DomainSignature(binding, "singleton", (), (), "all-products"),
+            "captured-association",
+            "source.exact_pairing@v1",
+            "source.finite_numeric@v1",
+        ),
+        value_type=ScalarType("float64"),
+    )
+    before = _counts(case[0].store)
+    saved = case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
+    actual = read_result(case[0].store.project_root, saved.descriptor)
+    assert actual.primary["value"].to_pylist() == [1.0]
+    assert _counts(case[0].store)[0] == before[0] + 1
+    assert case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),)) == saved
+
+
+@pytest.mark.runtime
+def test_fixed_transport_filters_exact_saved_rows_without_source_open(case):
+    captured = _capture(case)
+    leaf = _fixed(captured).inputs[0].node
+    assert isinstance(leaf, FixedLeaf)
+    root = method_node(
+        (Edge("quantity", leaf),),
+        PartsTransport(
+            "where",
+            leaf.signature.domain,
+            (),
+            True,
+            (ValuePredicate(leaf.signature.domain.binding, "gt", 5, "drop"),),
+        ),
+        value_type=ScalarType("int64"),
+    )
+    before_opens = len(case[4])
+    saved = case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
+    actual = read_result(case[0].store.project_root, saved.descriptor)
+    assert actual.primary["value"].to_pylist() == [7, 9]
+    assert len(case[4]) == before_opens
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize(
+    ("method", "value_type", "expected"),
+    [
+        ("count", "int64", 2),
+        ("count_defined", "int64", 2),
+        ("sum", "int64", 16),
+        ("mean", "float64", 8.0),
+    ],
+)
+def test_fixed_filter_then_row_method_uses_one_graph_run(case, method, value_type, expected):
+    captured = _capture(case)
+    leaf = _fixed(captured).inputs[0].node
+    assert isinstance(leaf, FixedLeaf)
+    filtered = method_node(
+        (Edge("quantity", leaf),),
+        PartsTransport(
+            "where",
+            leaf.signature.domain,
+            (),
+            True,
+            (ValuePredicate(leaf.signature.domain.binding, "gt", 5, "drop"),),
+        ),
+        value_type=ScalarType("int64"),
+    )
+    count_domain = DomainSignature(
+        leaf.signature.domain.binding, "singleton", (), (), "selected-stock"
+    )
+    root = method_node(
+        (Edge("quantity", filtered),),
+        RowState(
+            method,
+            count_domain,
+            "selected-stock-" + method,
+            {"count": "count_all", "count_defined": "defined_only"}.get(method, "strict"),
+            numeric_check_id=(
+                "source.cell_policy@v1" if method == "count_defined" else "source.finite_numeric@v1"
+            ),
+        ),
+        value_type=ScalarType(value_type),
+    )
+    before_runs = _counts(case[0].store)[0]
+    before_opens = len(case[4])
+    saved = case[0]._execute_graph(
+        root,
+        (
+            RouteChoice(filtered.identity, "artifact_python"),
+            RouteChoice(root.identity, "artifact_python"),
+        ),
+    )
+    assert read_result(case[0].store.project_root, saved.descriptor).primary[
+        "value"
+    ].to_pylist() == [expected]
+    assert _counts(case[0].store)[0] == before_runs + 1
+    assert len(case[4]) == before_opens
+
+
+@pytest.mark.runtime
+def test_fixed_shared_difference_filter_sum_is_one_atomic_run(case, monkeypatch):
+    from marivo.analysis.materialization import graph_local_execution
+
+    captured = _capture(case)
+    leaf = _fixed(captured).inputs[0].node
+    assert isinstance(leaf, FixedLeaf)
+    difference = method_node(
+        (Edge("current", leaf), Edge("baseline", leaf)),
+        CellDerive(
+            "difference",
+            "self-difference",
+            "strict",
+            "units",
+            "all",
+            "source.exact_pairing@v1",
+            "source.finite_numeric@v1",
+        ),
+        value_type=ScalarType("int64"),
+    )
+    filtered = method_node(
+        (Edge("quantity", difference),),
+        PartsTransport(
+            "where",
+            difference.signature.domain,
+            ("current_endpoint", "baseline_endpoint"),
+            True,
+            (ValuePredicate(difference.signature.domain.binding, "eq", 0, "reject"),),
+        ),
+        value_type=ScalarType("int64"),
+    )
+    root = method_node(
+        (Edge("quantity", filtered),),
+        RowState(
+            "sum",
+            DomainSignature(leaf.signature.domain.binding, "singleton", (), (), "all"),
+            "selected-total",
+            "strict",
+            numeric_check_id="source.finite_numeric@v1",
+        ),
+        value_type=ScalarType("int64"),
+    )
+    calls = []
+    original = graph_local_execution._difference_stage
+
+    def tracked(*args, **kwargs):
+        calls.append("difference")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(graph_local_execution, "_difference_stage", tracked)
+    before = _counts(case[0].store)
+    before_opens = len(case[4])
+    routes = tuple(
+        RouteChoice(node.identity, "artifact_python") for node in (difference, filtered, root)
+    )
+    saved = case[0]._execute_graph(root, routes)
+    actual = read_result(case[0].store.project_root, saved.descriptor)
+    assert actual.primary["value"].to_pylist() == [0]
+    assert calls == ["difference"]
+    assert _counts(case[0].store) == (before[0] + 1, before[1] + 1, before[2] + 1, 0)
+    assert len(case[4]) == before_opens
+    assert case[0]._execute_graph(root, routes) == saved
+    assert calls == ["difference"]
+
+
+@pytest.mark.runtime
+def test_fixed_spearman_coefficient_selection_keeps_verified_pair_counts(case):
+    captured = _capture(case)
+    association_root = _fixed_pair(captured, captured)
+    association = case[0]._execute_graph(
+        association_root, (RouteChoice(association_root.identity, "artifact_python"),)
+    )
+    fixed = FixedLeaf(
+        ArtifactRef(association.artifact_ref),
+        association.descriptor.definition_fingerprint,
+        fixed_signature(association.descriptor),
+        ScalarType("float64"),
+        FixedShape(NoTime()),
+    )
+    selected_root = method_node(
+        (Edge("quantity", fixed),),
+        PartsTransport(
+            "where",
+            fixed.signature.domain,
+            ("pair_counts",),
+            True,
+            (ValuePredicate(fixed.signature.domain.binding, "gt", 0, "drop"),),
+        ),
+        value_type=ScalarType("float64"),
+    )
+    selected = case[0]._execute_graph(
+        selected_root, (RouteChoice(selected_root.identity, "artifact_python"),)
+    )
+    result = read_result(case[0].store.project_root, selected.descriptor)
+    assert result.primary["value"].to_pylist() == [1.0]
+    assert tuple(part.role for part in result.parts) == ("pair_counts",)
+    rejected_root = method_node(
+        (Edge("quantity", fixed),),
+        PartsTransport(
+            "where",
+            fixed.signature.domain,
+            ("pair_counts",),
+            True,
+            (ValuePredicate(fixed.signature.domain.binding, "lt", 0, "drop"),),
+        ),
+        value_type=ScalarType("float64"),
+    )
+    rejected = case[0]._execute_graph(
+        rejected_root, (RouteChoice(rejected_root.identity, "artifact_python"),)
+    )
+    empty = read_result(case[0].store.project_root, rejected.descriptor)
+    assert empty.primary.num_rows == 0
+    assert empty.parts[0].table.num_rows == 0
+    assert rejected.descriptor.row_set_contract.kind == "optional_singleton"
+    source_path = case[0].store.project_root / "source.duckdb"
+    offline_path = source_path.with_suffix(".offline")
+    source_path.rename(offline_path)
+    try:
+        process = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                """\
+import sys
+from marivo.analysis.materialization import graph_store
+from marivo.analysis.materialization.graph_storage import read_result
+from marivo.analysis.materialization.store import SessionStore
+
+store = SessionStore._graph_store(sys.argv[1], existing_only=True)
+with store._read() as conn:
+    saved = graph_store.artifact(store, conn, sys.argv[2])
+assert saved is not None
+result = read_result(store.project_root, saved.descriptor)
+assert result.primary.num_rows == 0
+assert result.parts[0].table.num_rows == 0
+""",
+                str(case[0].store.project_root),
+                rejected.artifact_ref,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        offline_path.rename(source_path)
+    assert process.returncode == 0, process.stderr
+
+
+@pytest.mark.runtime
+def test_source_difference_retains_both_ordered_endpoint_parts(case):
+    runtime, _, binding, _, _, backend = case
+    leaf = binding.leaf
+    assert leaf.signature.quantity is not None
+    baseline_ref = ref.metric("inventory.baseline")
+    baseline = SourceLeaf(
+        SourceDefinition(
+            baseline_ref,
+            "baseline-v1",
+            leaf.definition.datasource,
+            leaf.definition.shape,
+        ),
+        Signature(
+            leaf.signature.domain,
+            replace(
+                leaf.signature.quantity,
+                definition_id="baseline-stock",
+                metric_ref=baseline_ref,
+                graph_fingerprint="baseline-v1",
+            ),
+        ),
+        ScalarType("int64"),
+    )
+    backend.create_table(
+        "baseline",
+        pa.table(
+            {
+                "id": [9007199254740993, 2, 3],
+                "amount": [1, 3, 8],
+                "tag": ["defined"] * 3,
+                "reason": pa.array([None] * 3, type=pa.string()),
+            }
+        ),
+    )
+    datasource = DatasourceIR(
+        "db", "db", "duckdb", {}, {}, AiContextIR(), "db", DatasourceSourceLocation("source.py", 1)
+    )
+
+    @contextmanager
+    def source():
+        with SourceSession(
+            provider_for("duckdb"),
+            datasource,
+            ibis.duckdb.connect(runtime.store.project_root / "source.duckdb"),
+        ) as selected:
+            first = selected.bind(TableSourceIR("facts"), source_identity=leaf.identity)
+            second = selected.bind(TableSourceIR("baseline"), source_identity=baseline.identity)
+            layout = RelationLayout(
+                (CoordinateColumn(leaf.signature.domain.instance_key[0], "id"),),
+                CellColumns("amount", "tag", "reason"),
+            )
+            yield (
+                selected,
+                (
+                    SourceBinding(leaf, first, layout),
+                    SourceBinding(baseline, second, layout),
+                ),
+            )
+
+    baseline_key = SourceKeyBinding(
+        baseline,
+        baseline.definition.shape,
+        baseline.definition.fingerprint,
+        digest(canonical_json(TableSourceIR("baseline").to_dict())),
+    )
+    root = method_node(
+        (Edge("current", leaf), Edge("baseline", baseline)),
+        CellDerive(
+            "difference",
+            "same-stock-difference",
+            "strict",
+            leaf.signature.quantity.unit,
+            leaf.signature.quantity.time_scope,
+            "source.exact_pairing@v1",
+            "source.finite_numeric@v1",
+        ),
+        value_type=ScalarType("int64"),
+    )
+    saved = runtime._execute_graph(
+        root,
+        (RouteChoice(root.identity, "ibis"),),
+        source_bindings=(binding, baseline_key),
+        source_factory=source,
+    )
+    actual = read_result(runtime.store.project_root, saved.descriptor)
+    assert actual.primary["value"].to_pylist() == [3, 4, 1]
+    assert tuple(part.role for part in actual.parts) == (
+        "current_endpoint",
+        "baseline_endpoint",
+    )
+    assert actual.parts[0].table["current_endpoint__value"].to_pylist() == [4, 7, 9]
+    assert actual.parts[1].table["baseline_endpoint__value"].to_pylist() == [1, 3, 8]
+    fixed = FixedLeaf(
+        ArtifactRef(saved.artifact_ref),
+        saved.descriptor.definition_fingerprint,
+        fixed_signature(saved.descriptor),
+        ScalarType("int64"),
+        FixedShape(NoTime()),
+    )
+    continuation = method_node(
+        (Edge("quantity", fixed),),
+        PartsTransport(
+            "where",
+            fixed.signature.domain,
+            ("current_endpoint", "baseline_endpoint"),
+            True,
+            (ValuePredicate(fixed.signature.domain.binding, "gt", 2, "drop"),),
+        ),
+        value_type=ScalarType("int64"),
+    )
+    continued = runtime._execute_graph(
+        continuation, (RouteChoice(continuation.identity, "artifact_python"),)
+    )
+    retained = read_result(runtime.store.project_root, continued.descriptor)
+    assert retained.primary["value"].to_pylist() == [3, 4]
+    assert retained.parts[0].table["current_endpoint__value"].to_pylist() == [4, 7]
+    assert retained.parts[1].table["baseline_endpoint__value"].to_pylist() == [1, 3]
 
 
 @pytest.mark.parametrize(
@@ -672,14 +1182,13 @@ def test_run_input_canonical_golden_vector():
 
 
 def test_v7_never_calls_old_descriptor_or_scenario_codecs(case, monkeypatch):
-    from marivo.analysis.materialization import contracts, dsl_public_snapshot
+    from marivo.analysis.materialization import contracts
 
     def forbidden(*args, **kwargs):
         raise AssertionError("legacy codec forbidden")
 
     monkeypatch.setattr(contracts, "encode_descriptor", forbidden)
     monkeypatch.setattr(contracts, "decode_descriptor", forbidden)
-    monkeypatch.setattr(dsl_public_snapshot, "decode_public_node", forbidden)
     record = _capture(case)
     root = _fixed(record)
     result = case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
@@ -738,21 +1247,6 @@ def _fixed_pair(first, second):
         ),
         value_type=ScalarType("float64"),
     )
-
-
-def test_independent_captures_reject_before_artifact_read_or_run(case, monkeypatch):
-    import marivo.analysis.materialization.graph_publication as publication
-
-    first, second = _capture(case), _capture(case)
-    root = _fixed_pair(first, second)
-    monkeypatch.setattr(
-        publication,
-        "_read_artifact",
-        lambda *args: (_ for _ in ()).throw(AssertionError("Artifact read forbidden")),
-    )
-    with pytest.raises(IntegrityError, match="independent captures"):
-        case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
-    assert _counts(case[0].store) == (2, 2, 2, 0)
 
 
 def test_shared_fixed_spearman_preserves_ordered_slots_and_reads_once(case, monkeypatch):

@@ -1,13 +1,12 @@
 """Single registration and exact selection for connected algebra methods.
 
-Legacy J1/operator/Dataset registries are deliberately not consulted. Selection
+Legacy operator/Dataset registries are deliberately not consulted. Selection
 does not execute, open data, or retry an alternative route.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 from marivo.analysis.core.model import (
     CoveragePart,
@@ -35,10 +34,6 @@ from marivo.analysis.methods.semantics import (
     MethodSemantics,
     key_for_parameters,
 )
-
-if TYPE_CHECKING:
-    from marivo.analysis.methods.execution import ExecutionConsumer
-    from marivo.analysis.operators.registry import MethodRegistration as ExecutionRegistration
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +85,11 @@ class MethodRegistration:
                     "Declare the rule's exact input arity.",
                 )
             if rule in ("cell_derive@v1", "row_state@v1", "original_reduce@v1"):
-                arity = 2 if rule == "cell_derive@v1" else 1
+                arity = (
+                    2
+                    if rule == "cell_derive@v1" or self.semantics.key.name == "metric.ratio"
+                    else 1
+                )
                 if input_count != arity:
                     reject(
                         f"{arity} ordered single-quantity inputs",
@@ -113,7 +112,7 @@ class MethodRegistration:
                 elif any(
                     item.name == "float64" for item in input_types if isinstance(item, ScalarType)
                 ) or (
-                    method in ("row.mean", "row.weighted_mean", "cell.ratio")
+                    method in ("row.mean", "row.weighted_mean", "cell.ratio", "metric.ratio")
                     and not any(isinstance(item, DecimalType) for item in input_types)
                 ):
                     precision = "finite_float64"
@@ -250,12 +249,6 @@ class MethodRegistry:
             gap.recovery,
         )
 
-    def execution(self, key: MethodKey, consumer: ExecutionConsumer) -> ExecutionRegistration:
-        """Resolve an existing consumer through the same sole semantic registration."""
-        from marivo.analysis.methods.execution import registration
-
-        return registration(self.lookup(key).semantics, consumer)
-
     def continuations(self, output: Signature) -> tuple[ContinuationRequirement, ...]:
         """Return conditional private construction K; successor derivation is mandatory."""
         candidates = [ContinuationRequirement(MethodKey("parts_transport"), ())]
@@ -276,25 +269,31 @@ class MethodRegistry:
                 (item for item in output.parts if isinstance(item, OriginalStatePart)), None
             )
             coverage = next((item for item in output.parts if isinstance(item, CoveragePart)), None)
-            original = registered.get(MethodKey("state_rollup"))
-            if (
-                isinstance(output.quantity, (ObservedQuantity, RolledQuantity))
-                and original is not None
-                and state is not None
-                and state.method_version
-                == output.quantity.method_version
-                == original.original_state_method
-                and state.contribution_id == output.quantity.contribution_id
-                and state.components == original.state_components
-                and state.version == "v1"
-                and coverage is not None
-                and coverage.scope_id == output.domain.binding.scope_id
+            for name in (
+                "state_rollup",
+                "state_rollup.count",
+                "state_rollup.sum_zero",
+                "state_rollup.ratio",
             ):
-                candidates.append(
-                    ContinuationRequirement(
-                        MethodKey("state_rollup"), ("original_state", "coverage")
-                    )
-                )
+                key = MethodKey(name)
+                original = registered.get(key)
+                if (
+                    isinstance(output.quantity, (ObservedQuantity, RolledQuantity))
+                    and original is not None
+                    and state is not None
+                    and state.method_version
+                    == output.quantity.method_version
+                    == original.original_state_method
+                    and state.quantity_id == output.quantity.definition_id
+                    and state.contribution_id == output.quantity.contribution_id
+                    and state.components == original.state_components
+                    and state.version == "v1"
+                    and coverage is not None
+                    and coverage.quantity_id == output.quantity.definition_id
+                    and coverage.binding == output.domain.binding
+                    and coverage.scope_id == output.domain.binding.scope_id
+                ):
+                    candidates.append(ContinuationRequirement(key, ("original_state", "coverage")))
         return tuple(item for item in candidates if item.method in registered)
 
 

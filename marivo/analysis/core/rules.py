@@ -11,6 +11,7 @@ from marivo.analysis.core.model import (
     Cell,
     CheckId,
     Coordinate,
+    CoordinateStatePart,
     Correspondence,
     CoveragePart,
     Defined,
@@ -51,6 +52,9 @@ from marivo.refs import (
     SemanticKind,
     TimeDimensionKind,
 )
+from marivo.refs import (
+    ref as semantic_ref,
+)
 from marivo.semantic.ir import (
     TargetDimensionContract,
     TargetEntityContract,
@@ -59,8 +63,13 @@ from marivo.semantic.ir import (
     TargetSnapshotVersion,
     TargetValiditySelection,
     TargetValidityVersion,
+    TimestampParse,
 )
-from marivo.semantic.metric_graph import CatalogMetricIdentity, TargetMetricContract
+from marivo.semantic.metric_graph import (
+    CatalogMetricIdentity,
+    MetricExpressionGraphV1,
+    TargetMetricContract,
+)
 
 RuleId: TypeAlias = Literal[
     "bind_project@v1",
@@ -82,6 +91,68 @@ class BindProject:
     path: tuple[Ref[RelationshipKind], ...]
     path_contracts: tuple[TargetRelationshipContract, ...]
     quantity: ObservedQuantity | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DirectMetricDefinition:
+    """Persistable computation facts without live authoring constructor tokens."""
+
+    metric_ref: Ref[MetricKind]
+    graph: MetricExpressionGraphV1
+    component_node_id: str
+    bound_graph_fingerprint: str
+    dependency_fingerprint: str
+    contribution: Ref[EntityKind]
+    event_ref: Ref[TimeDimensionKind]
+    unit: str | None
+    empty_rule: Literal["null", "zero"]
+    event_path: tuple[Ref[RelationshipKind], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class EntityObservationTarget:
+    domain: DomainSignature
+
+
+@dataclass(frozen=True, slots=True)
+class GroupObservationTarget:
+    domain: DomainSignature
+    field: TargetDimensionContract
+
+
+ObservationTarget: TypeAlias = EntityObservationTarget | GroupObservationTarget
+
+
+@dataclass(frozen=True, slots=True)
+class ObserveMetric:
+    """A frozen direct aggregate, contribution route and half-open UTC window."""
+
+    metric: DirectMetricDefinition
+    target: ObservationTarget
+    quantity: ObservedQuantity
+    contribution: Ref[EntityKind]
+    path: tuple[TargetRelationshipContract, ...]
+    event: TargetDimensionContract
+    start: str
+    end: str
+    amount_column: str
+    amount_type: Literal["int64", "float64"]
+    coordinates: tuple[TargetDimensionContract, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ObserveCount:
+    """A frozen Entity count over the same governed contribution window."""
+
+    metric: DirectMetricDefinition
+    target: ObservationTarget
+    quantity: ObservedQuantity
+    contribution: Ref[EntityKind]
+    path: tuple[TargetRelationshipContract, ...]
+    event: TargetDimensionContract
+    start: str
+    end: str
+    coordinates: tuple[TargetDimensionContract, ...] = ()
 
 
 MapMode: TypeAlias = Literal["exact_keys", "one_to_one", "union_keys", "group", "subjects"]
@@ -119,10 +190,21 @@ class RowState:
 
 
 @dataclass(frozen=True, slots=True)
+class OriginalRatio:
+    """Compose the original sum-zero and Entity-count states in endpoint order."""
+
+    quantity: ObservedQuantity
+    numerator: Ref[MetricKind]
+    denominator: Ref[MetricKind]
+
+
+@dataclass(frozen=True, slots=True)
 class OriginalReduce:
     output_domain: DomainSignature
     partition_check_id: CheckId | None = None
     coverage_check_id: CheckId | None = None
+    method: Literal["sum", "sum_zero", "count", "ratio"] = "sum"
+    coordinate: Ref[DimensionKind] | None = None
 
 
 TransportMode: TypeAlias = Literal["where", "projection", "compare", "view", "materialize"]
@@ -147,10 +229,13 @@ class AssociationScore:
 
 RuleParameters: TypeAlias = (
     BindProject
+    | ObserveMetric
+    | ObserveCount
     | MapCorrespond
     | CellDerive
     | RowState
     | OriginalReduce
+    | OriginalRatio
     | PartsTransport
     | AssociationScore
 )
@@ -484,6 +569,228 @@ def _bind_project(inputs: tuple[Signature, ...], params: BindProject) -> RuleDer
     )
 
 
+def _observe_metric(
+    inputs: tuple[Signature, ...], params: ObserveMetric | ObserveCount
+) -> RuleDerivation:
+    from datetime import datetime, timedelta
+
+    from marivo.semantic.metric_graph import AggregateNodeV1, component_node
+
+    if len(inputs) != 1 or inputs[0].domain.kind != "entity":
+        reject("one Entity member domain", repr(inputs), "Bind Entity members.", "core.observe")
+    source = inputs[0]
+    binding = _binding(inputs, "core.observe")
+    subject = require_part(source, "subject")
+    metric, quantity = params.metric, params.quantity
+    aggregate_method = "sum" if isinstance(params, ObserveMetric) else "count"
+    state_method = (
+        "sum_zero"
+        if aggregate_method == "sum" and metric.empty_rule == "zero"
+        else aggregate_method
+    )
+    if (
+        not isinstance(subject, SubjectPart)
+        or not subject.total
+        or not subject.injective
+        or metric.metric_ref != quantity.metric_ref
+        or quantity.graph_fingerprint != metric.bound_graph_fingerprint
+        or quantity.unit != metric.unit
+        or quantity.method_version != f"{state_method}@v1"
+        or metric.contribution != params.contribution
+        or metric.event_ref.path != params.event.ref.path
+        or not params.event.is_time_dimension
+        or params.event.timezone != "UTC"
+        or (params.event.parse is not None and params.event.parse != TimestampParse(timezone="UTC"))
+        or (isinstance(params, ObserveMetric) and not params.amount_column)
+    ):
+        reject(
+            "an exact single-root sum with UTC event time and original Subject map",
+            repr(quantity),
+            "Bind the qualified Metric, route and time axis.",
+            "core.observe",
+        )
+    aggregate = component_node(metric.graph, metric.component_node_id)
+    if (
+        not isinstance(aggregate, AggregateNodeV1)
+        or aggregate.agg != aggregate_method
+        or aggregate.filter
+        or (
+            isinstance(params, ObserveCount)
+            and (
+                aggregate.target_ref.kind != "entity"
+                or aggregate.target_ref.path != params.contribution.path
+            )
+        )
+    ):
+        reject(
+            "one unsliced sum or Entity-count component",
+            repr(aggregate),
+            "Use a qualified sum Metric.",
+            "core.observe",
+        )
+    current = params.contribution.path
+    for relationship in params.path:
+        if (
+            relationship.from_entity_ref.path != current
+            or relationship.cardinality not in ("one_to_one", "many_to_one")
+            or relationship.from_version_resolution_required
+            or relationship.to_version_resolution_required
+            or len(relationship.keys) != 1
+        ):
+            reject(
+                "a directed unversioned to-one contribution path",
+                repr(relationship),
+                "Bind the exact contribution-to-member route.",
+                "core.observe",
+            )
+        current = relationship.to_entity_ref.path
+    event_owner = params.contribution.path
+    if len(metric.event_path) > len(params.path):
+        reject(
+            "event time on a prefix of the contribution route",
+            repr(metric.event_path),
+            "Bind the declared time route.",
+            "core.observe.time",
+        )
+    for event_ref, relationship in zip(
+        metric.event_path, params.path[: len(metric.event_path)], strict=True
+    ):
+        if event_ref.path != relationship.ref.path:
+            reject(
+                "the exact declared event path",
+                repr(event_ref),
+                "Bind the declared time route.",
+                "core.observe.time",
+            )
+        event_owner = relationship.to_entity_ref.path
+    if params.event.entity_ref.path != event_owner:
+        reject(
+            "event time owned by the selected path endpoint",
+            params.event.entity_ref.path,
+            "Bind the exact event axis and path.",
+            "core.observe.time",
+        )
+    if current != subject.entity_ref.path or not params.path:
+        reject(
+            "a contribution route ending at the member Entity",
+            current,
+            "Bind the declared member relationship.",
+            "core.observe",
+        )
+    try:
+        start, end = datetime.fromisoformat(params.start), datetime.fromisoformat(params.end)
+        valid = (
+            start.utcoffset() == timedelta(0) and end.utcoffset() == timedelta(0) and start < end
+        )
+    except (ValueError, TypeError):
+        valid = False
+    if not valid:
+        reject(
+            "an increasing half-open UTC instant window",
+            repr((params.start, params.end)),
+            "Resolve the Session report timezone before binding the window.",
+            "core.observe",
+        )
+    output_domain = params.target.domain
+    _output_domain(binding, output_domain, "core.observe.target")
+    if isinstance(params.target, EntityObservationTarget):
+        if output_domain != source.domain:
+            reject(
+                "the exact input Entity domain",
+                repr(output_domain),
+                "Preserve the member domain.",
+                "core.observe.target",
+            )
+        retained: tuple[Part, ...] = (subject,)
+    else:
+        field = params.target.field
+        expected_key = (Coordinate(subject.entity_ref, field.ref.path, "group"),)
+        if (
+            output_domain.kind != "group"
+            or output_domain.binding != source.domain.binding
+            or output_domain.instance_key != expected_key
+            or output_domain.target_key != expected_key
+            or field.entity_ref.path != subject.entity_ref.path
+            or field.logical_type != "string"
+            or _fact("field_ownership", binding, field.ref.path) not in available_facts(source)
+        ):
+            reject(
+                "the bound string member Group projection",
+                repr(output_domain),
+                "Group by the exact member Dimension.",
+                "core.observe.target",
+            )
+        retained = ()
+    original = OriginalStatePart(
+        binding,
+        quantity.definition_id,
+        f"{state_method}@v1",
+        quantity.contribution_id,
+        ("sum", "non_null_count") if aggregate_method == "sum" else ("count",),
+        "v1",
+    )
+    if len(params.coordinates) > 2:
+        reject(
+            "at most two qualified contribution coordinates",
+            repr(params.coordinates),
+            "Retain the ordered string coordinate tuple.",
+            "core.observe.coordinates",
+        )
+    coordinate_parts: tuple[Part, ...] = ()
+    for index, coordinate in enumerate(params.coordinates):
+        if (
+            coordinate.logical_type != "string"
+            or coordinate.parse is not None
+            or coordinate.is_time_dimension
+            or coordinate.entity_ref.path
+            not in {
+                params.contribution.path,
+                *(relationship.to_entity_ref.path for relationship in params.path),
+            }
+        ):
+            reject(
+                "a direct string coordinate on the contribution route",
+                repr(coordinate),
+                "Use a qualified contribution Dimension.",
+                "core.observe.coordinates",
+            )
+        if index == 0:
+            coordinate_parts = (
+                CoordinateStatePart(
+                    binding,
+                    quantity.definition_id,
+                    semantic_ref.dimension(coordinate.ref.path),
+                    semantic_ref.entity(coordinate.entity_ref.path),
+                    original.components,
+                    params.amount_type if isinstance(params, ObserveMetric) else "int64",
+                    "v1",
+                    tuple(
+                        Coordinate(semantic_ref.entity(c.entity_ref.path), c.ref.path, "group")
+                        for c in params.coordinates[1:]
+                    ),
+                ),
+            )
+    coverage = CoveragePart(binding, quantity.definition_id, binding.scope_id, "v1")
+    partition = _fact("contribution_partition", binding, quantity.contribution_id)
+    complete = _fact("complete_coverage", binding, quantity.definition_id)
+    return _result(
+        "bind_project@v1",
+        inputs,
+        output_domain,
+        quantity,
+        (*retained, original, coverage, *coordinate_parts),
+        pre=(partition, complete),
+        required=("subject",),
+        created=("original_state", "coverage", *(part_role(p) for p in coordinate_parts)),
+        post=(_fact("state_binding", binding, quantity.definition_id),),
+        obligations=(
+            Obligation(partition, "source.contribution_partition@v1", "publish"),
+            Obligation(complete, "source.complete_coverage@v1", "publish"),
+        ),
+        eval_id=f"metric.observe.{aggregate_method}@v1",
+    )
+
+
 def _map_correspond(inputs: tuple[Signature, ...], params: MapCorrespond) -> RuleDerivation:
     if not inputs or len(inputs) > 2:
         reject("one or two domain inputs", str(len(inputs)), "Bind the mapped domains.", "core.map")
@@ -681,7 +988,15 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
         params.time_scope,
         params.value_policy,
     )
+    subjects = tuple(
+        p
+        for p in left.parts
+        if isinstance(p, SubjectPart)
+        and p in right.parts
+        and p.binding == left.domain.binding == right.domain.binding
+    )
     parts: tuple[Part, ...] = (
+        *subjects,
         EndpointPart(binding, "current", left.quantity.definition_id, "v1"),
         EndpointPart(right.domain.binding, "baseline", right.quantity.definition_id, "v1"),
     )
@@ -866,11 +1181,150 @@ def _row_state(inputs: tuple[Signature, ...], params: RowState) -> RuleDerivatio
     )
 
 
+def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> RuleDerivation:
+    binding = _binding(inputs, "core.original_ratio")
+    if len(inputs) != 2:
+        reject(
+            "two ordered original components",
+            repr(inputs),
+            "Bind numerator and denominator.",
+            "core.original_ratio",
+        )
+    left, right = inputs
+    quantity = params.quantity
+    if (
+        left.domain != right.domain
+        or quantity.method_version != "ratio@v1"
+        or not isinstance(left.quantity, ObservedQuantity)
+        or not isinstance(right.quantity, ObservedQuantity)
+        or left.quantity.metric_ref != params.numerator
+        or right.quantity.metric_ref != params.denominator
+        or left.quantity.time_scope != right.quantity.time_scope
+        or quantity.time_scope != left.quantity.time_scope
+    ):
+        reject(
+            "same-domain original numerator and denominator in one window",
+            repr(inputs),
+            "Observe both original components over the same members.",
+            "core.original_ratio",
+        )
+    pre: list[Fact] = []
+    obligations: list[Obligation] = []
+    for source, method, components in (
+        (left, "sum_zero@v1", ("sum", "non_null_count")),
+        (right, "count@v1", ("count",)),
+    ):
+        state = require_part(source, "original_state")
+        coverage = require_part(source, "coverage")
+        source_quantity = source.quantity
+        assert isinstance(source_quantity, ObservedQuantity)
+        if (
+            not isinstance(state, OriginalStatePart)
+            or state.method_version != method
+            or state.components != components
+            or state.quantity_id != source_quantity.definition_id
+            or state.contribution_id != source_quantity.contribution_id
+            or not isinstance(coverage, CoveragePart)
+            or coverage.quantity_id != source_quantity.definition_id
+            or coverage.binding != binding
+        ):
+            reject(
+                "exact original sum-zero/count components and coverage",
+                repr(state),
+                "Retain the registered original states.",
+                "core.original_ratio.state",
+            )
+        premises: tuple[tuple[Fact, CheckId], ...] = (
+            (
+                _fact("contribution_partition", binding, source_quantity.contribution_id),
+                "source.contribution_partition@v1",
+            ),
+            (
+                _fact("complete_coverage", binding, source_quantity.definition_id),
+                "source.complete_coverage@v1",
+            ),
+        )
+        for fact, check in premises:
+            pre.append(fact)
+            obligations.extend(_premise(inputs, fact, check_id=check, before="consume"))
+    pair = _fact("key_set_equal", binding, quantity.definition_id, inputs)
+    pre.append(pair)
+    obligations.extend(_premise(inputs, pair, check_id="source.exact_pairing@v1", before="consume"))
+    partition = _fact("contribution_partition", binding, quantity.contribution_id)
+    complete = _fact("complete_coverage", binding, quantity.definition_id)
+    obligations.extend(
+        (
+            Obligation(partition, "source.contribution_partition@v1", "publish"),
+            Obligation(complete, "source.complete_coverage@v1", "publish"),
+        )
+    )
+    state = OriginalStatePart(
+        binding,
+        quantity.definition_id,
+        "ratio@v1",
+        quantity.contribution_id,
+        ("numerator_sum", "numerator_non_null_count", "denominator_count"),
+        "v1",
+    )
+    first_coordinate = next((p for p in left.parts if isinstance(p, CoordinateStatePart)), None)
+    second_coordinate = next((p for p in right.parts if isinstance(p, CoordinateStatePart)), None)
+    coordinate_parts: tuple[Part, ...] = ()
+    domain = left.domain
+    if first_coordinate is not None or second_coordinate is not None:
+        if (
+            first_coordinate is None
+            or second_coordinate is None
+            or first_coordinate.dimension != second_coordinate.dimension
+            or first_coordinate.coordinates != second_coordinate.coordinates
+            or first_coordinate.value_type != "int64"
+            or second_coordinate.value_type != "int64"
+        ):
+            reject(
+                "matching exact coordinate states for both original roots",
+                repr((first_coordinate, second_coordinate)),
+                "Retain the same qualified coordinate on both roots.",
+                "core.original_ratio.coordinate",
+            )
+        coordinate_parts = (
+            replace(
+                first_coordinate, quantity_id=quantity.definition_id, components=state.components
+            ),
+        )
+        domain = replace(
+            domain,
+            instance_key=(*domain.instance_key, *first_coordinate.coordinates),
+            definition_id=quantity.definition_id,
+        )
+    parts: tuple[Part, ...] = (
+        *tuple(
+            replace(p, source_key=domain.instance_key)
+            for p in left.parts
+            if isinstance(p, SubjectPart)
+        ),
+        state,
+        CoveragePart(binding, quantity.definition_id, binding.scope_id, "v1"),
+        *coordinate_parts,
+    )
+    return _result(
+        "original_reduce@v1",
+        inputs,
+        domain,
+        quantity,
+        parts,
+        pre=tuple(pre),
+        required=("original_state", "coverage"),
+        created=("original_state", "coverage"),
+        post=(partition, complete),
+        obligations=tuple(obligations),
+        eval_id="original_ratio.finish@v1",
+    )
+
+
 def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> RuleDerivation:
     from marivo.analysis.methods.registry import REGISTRY
-    from marivo.analysis.methods.semantics import MethodKey
+    from marivo.analysis.methods.semantics import key_for_parameters
 
-    method_semantics = REGISTRY.lookup(MethodKey("state_rollup")).semantics
+    method_semantics = REGISTRY.lookup(key_for_parameters(params)).semantics
     if len(inputs) != 1 or inputs[0].quantity is None:
         reject(
             "one observed relation",
@@ -881,7 +1335,32 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
     source = inputs[0]
     binding = _binding(inputs, "core.original_reduce")
     _output_domain(binding, params.output_domain, "core.original_reduce")
-    _reduction_domain(source.domain, params.output_domain)
+    if params.coordinate is None:
+        _reduction_domain(source.domain, params.output_domain)
+    else:
+        coordinate = require_part(source, "coordinate_state")
+        if not isinstance(coordinate, CoordinateStatePart):
+            reject(
+                "retained contribution coordinates",
+                repr(coordinate),
+                "Observe with the exact coordinate first.",
+                "core.original_reduce.coordinate",
+            )
+        expected = tuple(c for c in coordinate.coordinates if c.field == params.coordinate.path)
+        if (
+            not expected
+            or params.output_domain.kind != "group"
+            or params.output_domain.instance_key != expected
+            or params.output_domain.target_key != expected
+            or params.output_domain.binding != source.domain.binding
+            or params.output_domain.correspondence is not None
+        ):
+            reject(
+                "the exact retained contribution Group domain",
+                repr(params.output_domain),
+                "Group by the retained coordinate.",
+                "core.original_reduce.coordinate",
+            )
     quantity = source.quantity
     assert quantity is not None
     if not isinstance(quantity, (ObservedQuantity, RolledQuantity)):
@@ -905,7 +1384,8 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
         reject(
             "complete state bound to this original quantity",
             repr(state),
-            "Retain sum@v1 state (sum, non_null_count), version v1; other states are not admitted.",
+            f"Retain {method_semantics.original_state_method} state "
+            f"{method_semantics.state_components}, version v1.",
             "core.original_reduce.state",
         )
     if (
@@ -948,7 +1428,11 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
         rolled,
         (new_state, new_coverage),
         pre=(partition, complete),
-        required=("original_state", "coverage"),
+        required=(
+            "original_state",
+            "coverage",
+            *(("coordinate_state",) if params.coordinate is not None else ()),
+        ),
         created=(),
         post=(_fact("state_binding", params.output_domain.binding, rolled.definition_id),),
         obligations=obligations,

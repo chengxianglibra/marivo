@@ -57,12 +57,14 @@ receipt、snapshot 与方法状态格式冻结具体版本和闭合字段；未�
 ### 3.1 输入、身份和共享
 
 仅遍历执行根的实际依赖。Materialized 为固定叶子，其历史 lineage 不展开为来源依赖。
-跨 Session 输入、独立捕获且不满足共同成员绑定的比较、已知不支持的实现和 mixed 输入，
-必须在 source open、Artifact 行读取和 Run 分配前失败。
+跨 Session 输入、独立捕获且不满足共同成员绑定的比较、已知不支持的后端/来源形式和 mixed 输入，
+必须在 source open、Artifact 行读取和 Run 分配前失败。R4.5 对 Semantic 中类型为 unknown 的
+Entity 主键与字段允许在 Run 前进行 R1 仅 schema 预检，不提交业务行读取；据此选择精确物理资格，
+执行时重新核对已选 schema，变化即拒绝。未获资格的物理类型仍在业务读取及 Run 前拒绝。
 
 | 类别 | 身份及执行顺序 | 必需反例 |
 | --- | --- | --- |
-| source-only | 纯准入 → writer guard/协调 → 分配 Run 与新求值身份 → 固定实现 → 执行和发布；稳定 definition 不能命中旧来源产物 | 同一 Lazy 连续执行，期间改源，返回不同 Run/Artifact 与新数据 |
+| source-only | 纯准入 → 必要时 R1 仅 schema 预检及精确资格 → writer guard/协调 → 分配 Run 与新求值身份 → 核对执行绑定 → 执行和发布；稳定 definition 不能命中旧来源产物 | 同一 Lazy 连续执行，期间改源，返回不同 Run/Artifact 与新数据；预检不读业务行 |
 | fixed-only | 校验精确输入绑定和 receipt，计算 key；验证成功的精确命中返回原 Artifact，无新 Run；未命中才进入受保护执行和发布 | 相同数字但不同输入引用、端点顺序、方法/状态版本、绑定或部件不得误命中 |
 | mixed | 静态分类后立即结构化拒绝，不读取任一输入 | 两种叶子顺序都拒绝，I/O 与 Run 计数均为零 |
 
@@ -223,8 +225,8 @@ Null/不足对/常量及 coefficient 固定续算。复用原始事实和 Fracti
 测试实施遵守 `marivo-test-fixtures` skill，复用共享 fixtures。先按变更范围运行：
 
 ```sh
-make test TESTS='tests/test_analysis_dsl_execution_identity.py tests/test_analysis_dsl_exchange.py tests/test_analysis_dsl_contracts.py'
-make runtime-test TESTS='tests/test_analysis_dsl_j1_runtime.py tests/test_lazy_runtime_concurrency.py tests/test_lazy_reconciliation_snapshot.py'
+make test TESTS='tests/test_analysis_graph_r33.py tests/test_analysis_dsl_exchange.py tests/test_analysis_dsl_contracts.py tests/test_analysis_dsl_r45_migration.py'
+make runtime-test TESTS='tests/test_analysis_dsl_public.py tests/test_analysis_dsl_r45_migration.py tests/test_analysis_graph_preflight_r45.py tests/test_analysis_graph_publication_r44.py tests/test_analysis_lowering_r34.py'
 make typecheck TYPECHECK_TARGETS='marivo/analysis'
 make lint-agent LINT_TARGETS='marivo/analysis tests'
 make check-agent
@@ -257,3 +259,27 @@ packaged semantic/analysis skills 如需修改，按仓库规则在实际编辑�
 R4 仅在 V01–V12 的必需单元通过、四旅程在同一新包重新成立、所有承诺 K 断源恢复可执行、
 场景执行链及旧协议兼容删除后收口。环境不足保留具体阻塞及重跑条件，不以降级实现、历史
 附件或改写验收状态代替证据。
+
+
+## 2026-09-28 R4.5 完成记录
+
+R4.5 已完成公共切换：Session 选择 Store 7，公共 receiver 持有有类型图，所有已取得
+资格的执行使用同一 `DatasetRuntime._execute_graph`，精确 Artifact 从冻结 snapshot、
+主表和必要 parts 恢复原公共类型。已获授权的 R1 schema-only 预检先于 Run；业务行读取
+仍在精确资格与 Run 准入之后。来源每次重新求值，固定输入保留顺序与精确 key；mixed、
+跨 Session、不同冻结成员根和无资格类型在业务读取/Run 前拒绝。
+
+已删除被替换的场景构造、编译、执行和 codec；公共调用不选择 v6。私有 R5 通用测试
+harness 仍隔离保留，不能作为公共回退。成员筛选后观测、窗口比较、两坐标完整元组
+ratio、原组件 rollup、当前行统计及 Spearman/固定 coefficient 均有公共独立 oracle。
+Help、CLI、公共类型/导出、动态 K、owning specs 和 latest 英中示例已同步；packaged
+analysis skill 与 AGENTS.md 未修改。
+
+验收：定向 Runtime **87 passed**；`make check-agent` 的默认测试 **5362 passed /
+19 skipped**、400 个文件类型检查、格式/lint/导入合同和 API 文档通过；公共披露/
+类型负例/CLI 定向 **98 passed**，最后披露调整回归 **58 passed**；站点 **321 页**，
+Astro 检查 0 errors / 0 warnings。代码、输入与日志哈希及旧测试迁移映射见
+[工作区证据](evidence/r45/README.md)与 [manifest](evidence/r45/manifest.json)。
+此前私有通过记录不替代以上公共取证；19 项既有 skip 不计通过。既有 R5 并发失败保持
+独立交接，本包未重跑该套件。R4.6 的同一候选 wheel 隔离安装和 V12 安装包验收仍未运行，
+因此不宣布整个 R4 或 R5–R9 完成。本包未提交、推送或发布。

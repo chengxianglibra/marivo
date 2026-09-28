@@ -14,7 +14,7 @@ Use ``show()`` for bounded current state and ``contract()`` for mechanical input
 requirements. ``to_pandas()`` is the terminal boundary for custom analysis.
 
 Execution retains results as project-local Parquet. There is no analysis result
-storage setting or database result storage. Session recovery reads Store v6;
+storage setting or database result storage. Session recovery reads Store 7;
 older generation files are not migrated or rewritten.
 
 Start discovery with ``marivo.help("analysis")``. Focused Help owns signatures,
@@ -342,3 +342,13 @@ constructors are documented inline to support case-insensitive filesystems.
 
 .. automodule:: marivo.analysis.session
    :members:
+
+R4.5 qualification boundary
+----------------------------------------
+
+Public J1–J4 relations share the typed graph Runtime and Store 7. R1 schema-only
+preflight may precede Run allocation; business rows are read only after admission.
+Exact Artifact recovery verifies its snapshot, primary receipt and required parts
+without current Semantic or datasource access. R5–R9 Dataset families retain
+their signatures but reject execution before business reads and Run allocation.
+Old-generation projects are preserved and are not migrated or read through a fallback.

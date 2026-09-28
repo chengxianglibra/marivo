@@ -661,8 +661,6 @@ def write_local_dataset(
     from marivo.analysis.materialization.private_parquet import independent_contracts
 
     independent_specs = independent_contracts(row_contract)
-    if row_contract.shape_id.family_id == "dsl_j1" and not independent_parts:
-        independent_specs = {}
     if tuple(part.role for part in independent_parts) != tuple(independent_specs):
         _fail("all exact owner-declared independent roles", "invalid independent retained parts")
     if set(independent_specs) & {part.role for part in parts}:

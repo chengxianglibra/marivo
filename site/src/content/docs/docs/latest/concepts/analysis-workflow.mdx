@@ -13,35 +13,26 @@ execution boundaries, inspect the Dataset contract, and follow the concrete
 structured repair for unsupported shapes. Remote sources require read-only
 accounts; uploading retained results to bypass admission is unsupported.
 
-During the current R1 transition, qualified one-table, unscoped Population
-scan/filter and sum/count Metric aggregate use an internal `SourceSession`.
-DuckDB and SQLite have local basic-read evidence; MySQL has tested single-key
-Population table/view and sum/count table evidence. PostgreSQL, Trino and
-ClickHouse have tested adapter reads, but that does not qualify every Dataset
-method or physical shape. The basic Metric route supports grouping by a direct
-dimension. Other older
-source-backed `Dataset.execute()` routes stop with a structured
-`source_admission` error before a Run or source read. The error names the
-R5–R8 migration stage that must qualify the method.
+Public Sessions now use Store 7. J1–J4 member reads, selection, grouping, windowed
+observation, comparison, original-component ratio/rollup, row statistics and
+Spearman use one graph Runtime. Qualified routes cover DuckDB tables, local
+Parquet sources and verified fixed Arrow/Parquet-to-pandas continuations.
+R5–R9 Dataset methods retain their signatures but reject before business reads
+or Run allocation until they gain Store 7 qualification. Old-generation projects
+remain unchanged; create a Session in a fresh project.
 
-The target source execution checks only the columns required by the complete computation,
-including hidden Metrics, identity fields, joins and version coordinates. It
-trusts Entity identity and time declarations without source-data preflight. An unused
-complex column does not block a supported scalar calculation. For example, the
-existing revenue example still works when its table also declares an unused JSON
-payload; referencing that payload does not gain a new supported method or type.
-Optional column comments may be unavailable through datasource inspection,
-including for columns unused by the current Dataset. A required missing
-physical fact blocks the affected source shape.
+Construction may use R1 schema-only preflight to determine exact identity and
+value types, without reading business rows. Member identity is one string/int64
+column and the event axis is a UTC microsecond timestamp; each method still
+requires its exact physical qualification.
 
 ## Construct and execute
 
 Analysis uses a question-scoped Session. Source constructors and Dataset methods
-describe work without querying sources. Explicit execution returns a retained,
+describe work without business-row reads; schema-only preflight is allowed. Explicit execution returns a retained,
 immutable result for inspection and later continuation.
 
-The example below shows the intended source workflow. Its `execute()` call is
-blocked during R1.1 until that method is migrated and qualified.
+The example below uses the qualified Entity member route.
 
 ```python
 import marivo
@@ -49,13 +40,15 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 
 session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
+customers = session.members(ms.ref.entity("sales.customer"))
 revenue = ms.ref.metric("sales.revenue")
-current = session.observe(
-    revenue, time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01")
-).aggregate()
-baseline = session.observe(
-    revenue, time_scope=mv.time_scope(start="2026-06-01", end="2026-07-01")
-).aggregate()
+buyer = ms.ref.relationship("sales.order_buyer")
+current = customers.observe(
+    revenue, during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=buyer
+)
+baseline = customers.observe(
+    revenue, during=mv.time_scope(start="2026-07-01", end="2026-08-01"), via=buyer
+)
 change = current.compare(baseline).execute()
 change.show()
 ```
@@ -63,17 +56,13 @@ change.show()
 The example requires an authored, typed `sales.revenue` Metric and an admitted
 reference time axis. Windows are half-open: the end is excluded.
 Date-only bounds use the Session's persisted report timezone, so set
-`report_timezone` explicitly for the intended calendar. `aggregate()` explicitly
-removes Entity identity; a time series also declares a time axis and
-grain. Population membership and observation windows are independent.
-Narrow Entity membership with `population.where(...)`; Analysis does not provide Entity sampling.
+`report_timezone` explicitly for the intended calendar. Member selection and observation windows are independent. Read a member Dimension and select its values before calling `.members().observe(...)`.
 
 For the admitted J1–J4 Entity domain on a configured DuckDB source, start with
 `session.members(Entity Ref)`. The member domain owns `read`, `group_by`, and
 `observe`; its returned relations own selection, comparison, rollup, row
 statistics, and association. `marivo.help("analysis.entry")` directs
-Entity-member questions here; the `session.observe` example above serves
-existing Dataset shapes. This first member source route requires a UTC
+Entity-member questions here. The member source route requires a UTC
 event Time Dimension; a different or unresolved axis timezone is rejected.
 For example:
 
@@ -96,12 +85,11 @@ and admitted in the project. Logical source execution evaluates the source on
 each call. Exact fixed continuations can reuse a committed execution key;
 `session.artifact(ref)` restores a public J1–J4 result from its validated
 snapshot and retained parts without reading the current source or Semantic
-catalog. Other Analysis capabilities continue through their existing entries.
+catalog. Other Dataset execution remains unavailable until qualified for Store 7.
 The bounded result card includes the available unit, method, Cell fields and
 current-row weighting, and masks Entity member values. Each `AnalysisAction`
 contains one mechanically admitted receiver call and its exact
-`marivo.help("analysis.<target>")` route. A contract reports declared retained
-parts; explicit Artifact revalidation checks their backing integrity.
+`marivo.help("analysis.<target>")` route. A materialized contract verifies the exact retained parts before disclosing continuations.
 
 The same configured project can continue through the other admitted J1–J4
 shapes when it also declares `sales.order_count`, `sales.aov_from_lines`,
@@ -124,10 +112,13 @@ ratio_routes = mv.routes(
     ),
     mv.route(ms.ref.entity("sales.order"), through=(buyer,)),
 )
+channel = ms.ref.dimension("sales.order.channel")
 aov = customers.observe(
-    ms.ref.metric("sales.aov_from_lines"), during=august, via=ratio_routes
+    ms.ref.metric("sales.aov_from_lines"), during=august, via=ratio_routes,
+    coordinates=(channel,),
 )
 overall_aov = aov.rollup().execute()
+channel_aov = aov.group_by(channel).rollup().execute()
 current_row_mean = aov.summarize(mv.mean()).execute()
 
 order_count = customers.observe(

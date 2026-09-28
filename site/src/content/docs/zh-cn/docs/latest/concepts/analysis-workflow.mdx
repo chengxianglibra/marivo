@@ -12,26 +12,20 @@ retained 结果绕过准入限制。
 `md.register()` 只保存数据源声明，不加载分析执行代码。执行准入只加载所选后端；若该后端依赖缺失，
 会在连接数据源前给出结构化修复建议。
 
-当前 R1 过渡期，合格的单表、无时间范围 Population 扫描/过滤及 sum/count Metric
-聚合通过内部 `SourceSession` 执行。DuckDB 和 SQLite 有本地基础读取证据；MySQL
-有单列身份的 Population 表/视图及 sum/count 表格证据。PostgreSQL、Trino 和
-ClickHouse 的 adapter 基础读取证据不转授所有 Dataset 方法或物理形态。基础 Metric
-路线还支持按直接维度分组。
-其他旧来源型 `Dataset.execute()` 路线会在创建 Run、读取来源之前以
-结构化 `source_admission` 错误拒绝；错误指出需要完成的 R5–R8 方法迁移阶段。
+当前公共 Session 使用 Store 7。J1–J4 的成员读取、筛选、分组、带窗口观测、比较、
+原组件 ratio/rollup、行统计和 Spearman 通过同一图 Runtime 执行。
+已取证路线是 DuckDB 表及本地 Parquet 来源，以及验证后的固定 Arrow/Parquet→pandas 续算。
+R5–R9 Dataset 方法保留调用签名，但尚无 Store 7 资格，会在业务读取及 Run 分配前结构化拒绝。
+旧代际项目保持原样；请在新项目中创建 Session。
 
-目标源执行只检查完整计算所需的列，包括隐藏 Metric、身份字段、关系键和版本坐标。
-Analysis 信任 Entity 的身份和时间声明，不对源数据进行自动预检。
-未使用的复杂列不会阻止已支持的标量计算。例如，下文收入计算的表即使还声明了
-未使用的 JSON payload，也可以执行；这不代表引用 payload 获得了新的类型或方法支持。
-可选列注释在数据源检视中可能标为 unavailable，包括当前 Dataset 未使用的列。
-准入必需的物理事实缺失时，对应来源形态保持阻断。
+构造可通过 R1 做仅 schema 预检，以确定精确身份和值类型，不读取业务行。
+当前成员身份限单列 string/int64，事件轴须为 UTC 微秒时间戳；具体方法仍按精确物理资格准入。
 
 ## 构造与执行
 
-一次调查使用一个 Session。源构造器和 Dataset 方法只描述工作，不查询数据源；显式执行后返回可检查、可继续使用的不可变结果。
+一次调查使用一个 Session。构造器描述工作，可进行仅 schema 预检，不读取业务行；显式执行后返回可检查、可继续使用的不可变结果。
 
-下例展示目标来源工作流；其中的 `execute()` 在 R1.1 期间会被阻断，须等方法迁移并取得资格。
+下例使用已取得资格的 Entity 成员路线。
 
 ```python
 import marivo
@@ -39,25 +33,26 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 
 session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
+customers = session.members(ms.ref.entity("sales.customer"))
 revenue = ms.ref.metric("sales.revenue")
-current = session.observe(
-    revenue, time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01")
-).aggregate()
-baseline = session.observe(
-    revenue, time_scope=mv.time_scope(start="2026-06-01", end="2026-07-01")
-).aggregate()
+buyer = ms.ref.relationship("sales.order_buyer")
+current = customers.observe(
+    revenue, during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=buyer
+)
+baseline = customers.observe(
+    revenue, during=mv.time_scope(start="2026-07-01", end="2026-08-01"), via=buyer
+)
 change = current.compare(baseline).execute()
 change.show()
 ```
 
-示例要求项目已定义具有明确源类型和参考时间轴的 `sales.revenue` 指标。窗口为左闭右开，结束边界不包含在内。仅含日期的边界按 Session 持久化的报告时区解释；应为所需日历显式设置 `report_timezone`。`aggregate()` 显式移除 Entity 身份轴；时间序列还需声明时间轴和粒度。Population 成员选择与指标观测窗口相互独立。
-可用 `population.where(...)` 缩小 Entity 成员范围；Analysis 不提供 Entity 抽样。
+示例要求项目已定义具有明确源类型和参考时间轴的 `sales.revenue` 指标。窗口为左闭右开，结束边界不包含在内。仅含日期的边界按 Session 持久化的报告时区解释；应为所需日历显式设置 `report_timezone`。成员筛选与观测窗口相互独立。先读取成员维度、按值筛选，再调用 `.members().observe(...)`。
 
 对于已配置 DuckDB 来源且通过准入的 J1–J4 Entity 域，从
 `session.members(Entity Ref)` 开始。成员域提供 `read`、`group_by` 和
 `observe`；返回的关系提供筛选、比较、rollup、行统计与关联。
 `marivo.help("analysis.entry")` 会将 Entity 成员问题指向此入口；
-上面的 `session.observe` 示例仍用于既有 Dataset 形状。当前成员来源路径要求事件时间维度的时区为 UTC；其他时区或无法确定时区的时间轴会被拒绝。例如：
+当前成员来源路径要求事件时间维度的时区为 UTC；其他时区或无法确定时区的时间轴会被拒绝。例如：
 
 ```python
 customers = session.members(ms.ref.entity("sales.customer"))
@@ -76,11 +71,10 @@ for action in restored.contract().actions:
 此形状要求项目已经编写并准入相应 Entity、Metric 与 Relationship。
 每次执行逻辑来源分支都会重新读取来源；固定续算可命中已提交的精确执行键。
 `session.artifact(ref)` 依据校验过的快照与保留部件恢复公开 J1–J4 结果，
-不读取当前来源或 Semantic 目录。其他 Analysis 能力继续使用原有入口。
+不读取当前来源或 Semantic 目录。其他 Dataset 执行须等 Store 7 资格。
 有界结果卡会展示已有的单位、方法、Cell 字段和当前行权重，并遮蔽 Entity 成员键。
 每个 `AnalysisAction` 给出当前结果可执行的调用形式和对应的精确
-`marivo.help("analysis.<target>")` 路由。contract 反映声明的保留部件；
-如需验证底层文件完整性，应显式执行 Artifact revalidation。
+`marivo.help("analysis.<target>")` 路由。物化结果的 contract 会验证确切保留部件，再披露可续算动作。
 
 同一项目若还声明 `sales.order_count`、`sales.aov_from_lines`、
 `sales.order`、`sales.order_line` 和 `sales.line_order`，可继续运行其余
@@ -103,10 +97,13 @@ ratio_routes = mv.routes(
     ),
     mv.route(ms.ref.entity("sales.order"), through=(buyer,)),
 )
+channel = ms.ref.dimension("sales.order.channel")
 aov = customers.observe(
-    ms.ref.metric("sales.aov_from_lines"), during=august, via=ratio_routes
+    ms.ref.metric("sales.aov_from_lines"), during=august, via=ratio_routes,
+    coordinates=(channel,),
 )
 overall_aov = aov.rollup().execute()
+channel_aov = aov.group_by(channel).rollup().execute()
 current_row_mean = aov.summarize(mv.mean()).execute()
 
 order_count = customers.observe(

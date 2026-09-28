@@ -77,7 +77,7 @@ class ProjectedBatchStream:
                     raise MaterializationError(
                         expected="complete unique explicit keys",
                         received="missing or duplicate key",
-                        repair="Correct the selected J1 source key declaration or rows.",
+                        repair="Correct the selected source key declaration or rows.",
                         stage="source_validation",
                     )
             try:

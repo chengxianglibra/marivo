@@ -19,6 +19,10 @@ if TYPE_CHECKING:
 
 MethodName: TypeAlias = Literal[
     "bind_project",
+    "metric.observe",
+    "metric.sum_zero",
+    "metric.count",
+    "metric.ratio",
     "map_correspond",
     "cell.difference",
     "cell.ratio",
@@ -28,13 +32,26 @@ MethodName: TypeAlias = Literal[
     "row.count_defined",
     "row.weighted_mean",
     "state_rollup",
+    "state_rollup.sum_zero",
+    "state_rollup.count",
+    "state_rollup.ratio",
     "parts_transport",
     "association.spearman",
 ]
 
 
 PersistentStateKind: TypeAlias = Literal[
-    "none", "row_sum", "row_count", "row_count_defined", "row_mean", "spearman"
+    "none",
+    "original_sum",
+    "original_sum_zero",
+    "original_count",
+    "original_ratio",
+    "difference",
+    "row_sum",
+    "row_count",
+    "row_count_defined",
+    "row_mean",
+    "spearman",
 ]
 
 
@@ -61,6 +78,14 @@ class MethodKey:
 
 def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     """Map closed parameter variants to exactly one concrete method identity."""
+    if type(params) is rules.OriginalRatio:
+        return MethodKey("metric.ratio")
+    if type(params) is rules.ObserveCount:
+        return MethodKey("metric.count")
+    if type(params) is rules.ObserveMetric:
+        return MethodKey(
+            "metric.sum_zero" if params.metric.empty_rule == "zero" else "metric.observe"
+        )
     if type(params) is rules.BindProject:
         return MethodKey("bind_project")
     if type(params) is rules.MapCorrespond:
@@ -75,7 +100,15 @@ def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
             if name == f"row.{params.method}":
                 return MethodKey(name)
     if type(params) is rules.OriginalReduce:
-        return MethodKey("state_rollup")
+        return MethodKey(
+            "state_rollup.ratio"
+            if params.method == "ratio"
+            else "state_rollup.count"
+            if params.method == "count"
+            else "state_rollup.sum_zero"
+            if params.method == "sum_zero"
+            else "state_rollup"
+        )
     if type(params) is rules.PartsTransport:
         return MethodKey("parts_transport")
     if type(params) is rules.AssociationScore:
@@ -110,8 +143,17 @@ class MethodSemantics:
         """Return the connected durable state kind; absence grants no publication."""
         kinds: dict[MethodName, PersistentStateKind] = {
             "bind_project": "none",
+            "metric.observe": "original_sum",
+            "metric.sum_zero": "original_sum_zero",
+            "state_rollup.sum_zero": "original_sum_zero",
+            "metric.ratio": "original_ratio",
+            "state_rollup.ratio": "original_ratio",
+            "metric.count": "original_count",
+            "state_rollup.count": "original_count",
+            "state_rollup": "original_sum",
             "parts_transport": "none",
             "map_correspond": "none",
+            "cell.difference": "difference",
             "row.sum": "row_sum",
             "row.count": "row_count",
             "row.count_defined": "row_count_defined",
@@ -127,6 +169,19 @@ class MethodSemantics:
         from marivo.analysis.methods.physical import DecimalType, ScalarType
 
         name = self.key.name
+        if name == "metric.count":
+            if output != ScalarType("int64"):
+                reject("int64 Entity count", repr(output), "Preserve the count result type.")
+            return
+        if name in ("metric.observe", "metric.sum_zero"):
+            assert isinstance(params, rules.ObserveMetric)
+            if output != ScalarType(params.amount_type):
+                reject(
+                    "the bound contribution amount type",
+                    repr(output),
+                    "Preserve the exact source schema type.",
+                )
+            return
         if name == "bind_project":
             assert isinstance(params, rules.BindProject)
             contract = (
@@ -166,7 +221,7 @@ class MethodSemantics:
                     "Retain the exact input value type.",
                 )
             return
-        if name == "association.spearman":
+        if name in ("association.spearman", "metric.ratio", "state_rollup.ratio"):
             expected: ValueType = ScalarType("float64")
         elif name in ("row.count", "row.count_defined"):
             expected = ScalarType("int64")
@@ -195,7 +250,12 @@ class MethodSemantics:
             return ("L1",)
         if self.key.name == "map_correspond":
             return ("L7",)
-        if self.key.name == "state_rollup":
+        if self.key.name in (
+            "state_rollup",
+            "state_rollup.count",
+            "state_rollup.sum_zero",
+            "state_rollup.ratio",
+        ):
             return ("L8", "L9")
         return ()
 
@@ -206,11 +266,18 @@ class MethodSemantics:
             return "cell_derive@v1"
         if name in ("row.sum", "row.mean", "row.count", "row.count_defined", "row.weighted_mean"):
             return "row_state@v1"
-        if name == "state_rollup":
+        if name == "metric.ratio":
+            return "original_reduce@v1"
+        if name in (
+            "state_rollup",
+            "state_rollup.count",
+            "state_rollup.sum_zero",
+            "state_rollup.ratio",
+        ):
             return "original_reduce@v1"
         if name == "association.spearman":
             return "association_score@v1"
-        if name == "bind_project":
+        if name in ("bind_project", "metric.observe", "metric.count", "metric.sum_zero"):
             return "bind_project@v1"
         if name == "map_correspond":
             return "map_correspond@v1"
@@ -258,13 +325,23 @@ class MethodSemantics:
             return (
                 ("undefined", ("insufficient_pairs", "constant_a", "constant_b", "constant_both")),
             )
-        if self.key.name == "state_rollup":
+        if self.key.name in ("metric.ratio", "state_rollup.ratio"):
+            return (("undefined", ("zero_denominator",)),)
+        if self.key.name in ("state_rollup", "metric.observe"):
             return (("null", ("empty_contribution",)),)
         return ()
 
     @property
     def required_parts(self) -> tuple[PartRole, ...]:
-        if self.key.name == "state_rollup":
+        if self.key.name in ("metric.observe", "metric.count", "metric.sum_zero"):
+            return ("subject",)
+        if self.key.name in (
+            "metric.ratio",
+            "state_rollup",
+            "state_rollup.count",
+            "state_rollup.sum_zero",
+            "state_rollup.ratio",
+        ):
             return ("original_state", "coverage")
         if self.key.name == "row.weighted_mean":
             return ("statistical_weight",)
@@ -279,7 +356,16 @@ class MethodSemantics:
             return ("source.cell_policy@v1",)
         if self.rule == "row_state@v1" and self.key.name != "row.count":
             return ("source.finite_numeric@v1",)
-        if self.key.name == "state_rollup":
+        if self.key.name in (
+            "state_rollup",
+            "state_rollup.count",
+            "state_rollup.sum_zero",
+            "state_rollup.ratio",
+            "metric.ratio",
+            "metric.sum_zero",
+            "metric.observe",
+            "metric.count",
+        ):
             return ("source.contribution_partition@v1", "source.complete_coverage@v1")
         if self.key.name == "association.spearman":
             return ("source.exact_pairing@v1", "source.finite_numeric@v1")
@@ -291,7 +377,16 @@ class MethodSemantics:
             return ("current_endpoint", "baseline_endpoint")
         if self.rule == "row_state@v1":
             return ("row_state",)
-        if self.key.name == "state_rollup":
+        if self.key.name in (
+            "state_rollup",
+            "state_rollup.count",
+            "state_rollup.sum_zero",
+            "state_rollup.ratio",
+            "metric.ratio",
+            "metric.sum_zero",
+            "metric.observe",
+            "metric.count",
+        ):
             return ("original_state", "coverage")
         if self.key.name == "association.spearman":
             return ("pair_counts",)
@@ -300,16 +395,38 @@ class MethodSemantics:
     @property
     def original_state_method(self) -> str:
         """The only connected original-state contract, independent of row sum."""
-        if self.key.name != "state_rollup":
+        if self.key.name not in (
+            "state_rollup",
+            "state_rollup.count",
+            "state_rollup.sum_zero",
+            "state_rollup.ratio",
+        ):
             reject(
                 "an original-state method", str(self.key), "Use state_rollup for original state."
             )
-        return "sum@v1"
+        return (
+            "ratio@v1"
+            if self.key.name == "state_rollup.ratio"
+            else "count@v1"
+            if self.key.name == "state_rollup.count"
+            else "sum_zero@v1"
+            if self.key.name == "state_rollup.sum_zero"
+            else "sum@v1"
+        )
 
     @property
     def state_components(self) -> tuple[str, ...]:
-        if self.key.name == "state_rollup":
-            return ("sum", "non_null_count")
+        if self.key.name in ("metric.ratio", "state_rollup.ratio"):
+            return ("numerator_sum", "numerator_non_null_count", "denominator_count")
+        if self.key.name in (
+            "state_rollup",
+            "state_rollup.count",
+            "state_rollup.sum_zero",
+            "state_rollup.ratio",
+        ):
+            return (
+                ("count",) if self.key.name == "state_rollup.count" else ("sum", "non_null_count")
+            )
         if self.key.name == "row.mean":
             return ("sum", "count")
         if self.key.name == "row.weighted_mean":
@@ -342,6 +459,9 @@ class MethodSemantics:
                 params.value_policy,
                 "Preserve the registered method's Cell policy; adapters cannot redefine it.",
             )
+        if type(params) in (rules.ObserveMetric, rules.ObserveCount):
+            assert isinstance(params, (rules.ObserveMetric, rules.ObserveCount))
+            return rules._observe_metric(inputs, params)
         if type(params) is rules.BindProject:
             return rules._bind_project(inputs, params)
         if type(params) is rules.MapCorrespond:
@@ -361,6 +481,8 @@ class MethodSemantics:
                             "Bind the named weights to this invocation's domain.",
                         )
             return rules._row_state(inputs, params)
+        if type(params) is rules.OriginalRatio:
+            return rules._original_ratio(inputs, params)
         if type(params) is rules.OriginalReduce:
             return rules._original_reduce(inputs, params)
         if type(params) is rules.PartsTransport:
@@ -371,6 +493,13 @@ class MethodSemantics:
 
 
 CONNECTED_METHODS = (
+    MethodSemantics(MethodKey("metric.sum_zero"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("metric.ratio"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("state_rollup.ratio"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("state_rollup.sum_zero"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("metric.count"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("state_rollup.count"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("metric.observe"), "analysis.core.rules"),
     MethodSemantics(MethodKey("bind_project"), "analysis.core.rules"),
     MethodSemantics(MethodKey("map_correspond"), "analysis.core.rules"),
     MethodSemantics(MethodKey("cell.difference"), "analysis.core.rules"),

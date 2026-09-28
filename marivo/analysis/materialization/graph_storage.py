@@ -41,7 +41,8 @@ def write_table(root: Path, staging: Path, final: Path, table: pa.Table) -> Loca
         _checked_path(root, final)
         staging.mkdir(parents=True, exist_ok=False)
         data = staging / "data.parquet"
-        pq.write_table(table, data, write_page_checksum=True)
+        # Preserve nested Arrow field names covered by the exact schema receipt.
+        pq.write_table(table, data, write_page_checksum=True, use_compliant_nested_type=False)
         with data.open("rb") as stream:
             os.fsync(stream.fileno())
         entry = FileEntry("data.parquet", data.stat().st_size, _hash_file(data))
@@ -121,5 +122,7 @@ def read_result(root: Path, descriptor: Descriptor) -> ExchangeResult:
         descriptor.row_contract.cell_reasons,
         state.kind,
         None if statuses is None else statuses.schema,
+        (),
+        descriptor.row_set_contract.kind == "optional_singleton",
     )
     return from_arrow(primary, contract, parts=parts, method_state=statuses)

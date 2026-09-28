@@ -125,7 +125,7 @@ def _pair_coefficient(method: str, xs: list[int | float], ys: list[int | float])
 def reduce_entity_spearman(
     left: pa.Table, right: pa.Table, metric_keys: tuple[str, str]
 ) -> EntitySpearmanResult:
-    """Pair complete J1 Entity Cells before the existing Association rank policy."""
+    """Pair complete Entity Cells before the existing Association rank policy."""
     expected = (
         "member",
         "value",

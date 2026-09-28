@@ -13,7 +13,8 @@ import pyarrow as pa
 
 from marivo.analysis.compiler.graph_lowering import SourceBinding, lower
 from marivo.analysis.compiler.graph_plan import RouteChoice
-from marivo.analysis.core.graph import FixedLeaf, MethodNode, Node, SourceLeaf, topology
+from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
+from marivo.analysis.core.rules import PartsTransport
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization import graph_store
 from marivo.analysis.materialization.contracts import RunFailure, RunFailurePhase, canonical_json
@@ -31,7 +32,10 @@ from marivo.analysis.materialization.graph_exchange import (
     from_arrow,
 )
 from marivo.analysis.materialization.graph_execution import prepare_graph
-from marivo.analysis.materialization.graph_local_execution import execute_verified_fixed
+from marivo.analysis.materialization.graph_local_execution import (
+    execute_verified_fixed,
+    validate_fixed_schedule,
+)
 from marivo.analysis.materialization.graph_protocol import (
     DESCRIPTOR,
     NODE,
@@ -52,6 +56,7 @@ from marivo.analysis.materialization.graph_protocol import (
     digest,
     encode,
     evidence_identity,
+    fixed_signature,
     invalid,
     plan_digest,
     receipt_digest,
@@ -164,6 +169,7 @@ def execute(
     *,
     source_bindings: tuple[SourceKeyBinding, ...] = (),
     source_factory: SourceFactory | None = None,
+    source_schemas: tuple[pa.Schema, ...] = (),
 ) -> graph_store.GraphArtifact:
     store, session, event = runtime.store, runtime.session_ref, runtime._event
     store._require_generation(7)
@@ -179,23 +185,14 @@ def execute(
     if source_only:
         if source_factory is None:
             raise invalid("source invocation requires its selected R1 source factory")
+        if source_schemas and len(source_schemas) != len(source_bindings):
+            raise invalid("preflight schemas differ from ordered source bindings")
         graph_source_execution_key(plan, source_bindings, "run_preflight")
-    elif source_factory is not None or source_bindings:
+    elif source_factory is not None or source_bindings or source_schemas:
         raise invalid("fixed invocation cannot carry source resources")
-    if not source_only and (
-        any(not isinstance(e.node, FixedLeaf) for e in root.inputs)
-        or len(tuple(n for n in topology(root) if isinstance(n, MethodNode))) != 1
-    ):
-        raise invalid("only one qualified fixed method is publishable")
-    if state_kind == "none" and root.signature.parts:
-        raise invalid("this method has no qualified persistent state for its parts")
-    if (
-        not source_only
-        and len(root.inputs) > 1
-        and len({leaf.artifact.ref for leaf in _fixed_input_occurrences(root)}) != 1
-    ):
-        raise invalid("independent captures lack a verified common member binding")
     fixed_lowered = None if source_only else lower(plan, bindings=())
+    if fixed_lowered is not None:
+        validate_fixed_schedule(fixed_lowered)
     with session_writer_guard(store.layout.lock_path(session), session_ref=session):
         reconcile_session(store, session, event=event)
         fixed: dict[str, VerifiedFixedInput] = {}
@@ -206,7 +203,7 @@ def execute(
                 descriptor = record.descriptor
                 if (
                     record.session_ref != session
-                    or descriptor.signature != leaf.signature
+                    or fixed_signature(descriptor) != leaf.signature
                     or descriptor.definition_fingerprint != leaf.definition_fingerprint
                     or not isinstance(leaf.value_type, ScalarType)
                 ):
@@ -221,7 +218,12 @@ def execute(
                 if leaf.identity not in fixed:
                     result = read_result(store.project_root, descriptor)
                     result = replace(
-                        result, contract=replace(result.contract, input_binding=record.artifact_ref)
+                        result,
+                        contract=replace(
+                            result.contract,
+                            signature=leaf.signature,
+                            input_binding=record.artifact_ref,
+                        ),
                     )
                     fixed[leaf.identity] = VerifiedFixedInput(
                         record.artifact_ref, descriptor.primary_receipt.local, result
@@ -317,11 +319,16 @@ def execute(
                         raise invalid(
                             "opened physical source differs from admitted source metadata"
                         )
+                    if source_schemas and any(
+                        not schema.equals(bound.source.facts.schema, check_metadata=True)
+                        for schema, bound in zip(source_schemas, bindings, strict=True)
+                    ):
+                        raise invalid("opened physical schema differs from selected preflight")
                     lowered = lower(plan, bindings=bindings)
                     result = execute_source_graph(prepared, lowered, source)
             else:
                 assert fixed_lowered is not None
-                values = tuple(fixed[edge.node.identity] for edge in root.inputs)
+                values = tuple(fixed[leaf.identity] for leaf in _fixed_input_occurrences(root))
                 result = execute_verified_fixed(prepared, fixed_lowered, values)
             result = from_arrow(
                 result.primary,
@@ -421,7 +428,15 @@ def execute(
                 key,
                 root.signature,
                 RowContract(result.contract.key_fields, result.contract.cell_reasons),
-                RowSetContract("keyed" if keys else "singleton", "unordered"),
+                RowSetContract(
+                    "keyed"
+                    if keys
+                    else "optional_singleton"
+                    if isinstance(root.parameters, PartsTransport)
+                    and root.parameters.mode == "where"
+                    else "singleton",
+                    "unordered",
+                ),
                 schema_text(result.primary.schema),
                 digest(canonical_json(snapshot.semantic_versions)),
                 methods,
