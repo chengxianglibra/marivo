@@ -434,7 +434,8 @@ def _count(stage: SourceMethodStage, source: LoweredRelation) -> tuple[ir.Table,
 
 def _fact_relations(
     node: Node, obligation: Obligation, relations: tuple[LoweredRelation, ...]
-) -> tuple[LoweredRelation, ...]:
+) -> tuple[tuple[LoweredRelation, ...], ...]:
+    """Keep each originating check's ordered inputs separate across shared paths."""
     by_identity = {r.node.identity: r for r in relations}
     fact = obligation.fact
     if isinstance(node, MethodNode):
@@ -449,17 +450,19 @@ def _fact_relations(
                 and immediate[0].signature.quantity.definition_id == fact.subject_id
             )
         ):
-            return tuple(by_identity[n.identity] for n in immediate)
+            return (tuple(by_identity[n.identity] for n in immediate),)
         inherited = tuple(
-            r
-            for n in immediate
-            if obligation in n.signature.obligations
-            for r in _fact_relations(n, obligation, relations)
+            dict.fromkeys(
+                group
+                for n in immediate
+                if obligation in n.signature.obligations
+                for group in _fact_relations(n, obligation, relations)
+            )
         )
         if inherited:
             return inherited
     elif isinstance(node, SourceLeaf) and obligation in node.signature.obligations:
-        return (by_identity[node.identity],)
+        return ((by_identity[node.identity],),)
     _fail("an obligation bound to its originating graph inputs", fact.subject_id)
 
 
@@ -561,23 +564,23 @@ def lower(
             )
     for requirement in admitted.checks:
         owner = next(r.node for r in results.values() if r.node.identity == requirement.node_id)
-        inputs = _fact_relations(owner, requirement.obligation, tuple(results.values()))
-        check_id = requirement.obligation.check_id
-        source_ids = _source_ids(*(input.source_ids for input in inputs))
-        if check_id == "source.unique_key@v1":
-            violations = _key_violations(inputs[0].expression, inputs[0].layout)
-            for other in inputs[1:]:
-                violations = violations.union(
-                    _key_violations(other.expression, other.layout), distinct=False
-                )
-        elif check_id == "source.exact_pairing@v1" and len(inputs) == 2:
-            violations = _pair_violations(*inputs)
-        elif check_id == "source.cell_policy@v1" and inputs[0].layout.cell is not None:
-            violations = _cell_violations(inputs[0].expression, inputs[0].layout.cell)
-            source_ids = inputs[0].source_ids
-        else:
-            _fail("an implemented checker for this bound obligation", check_id)
-        checks.append(SemanticCheck(requirement, violations, source_ids))
+        for inputs in _fact_relations(owner, requirement.obligation, tuple(results.values())):
+            check_id = requirement.obligation.check_id
+            source_ids = _source_ids(*(input.source_ids for input in inputs))
+            if check_id == "source.unique_key@v1":
+                violations = _key_violations(inputs[0].expression, inputs[0].layout)
+                for other in inputs[1:]:
+                    violations = violations.union(
+                        _key_violations(other.expression, other.layout), distinct=False
+                    )
+            elif check_id == "source.exact_pairing@v1" and len(inputs) == 2:
+                violations = _pair_violations(*inputs)
+            elif check_id == "source.cell_policy@v1" and inputs[0].layout.cell is not None:
+                violations = _cell_violations(inputs[0].expression, inputs[0].layout.cell)
+                source_ids = inputs[0].source_ids
+            else:
+                _fail("an implemented checker for this bound obligation", check_id)
+            checks.append(SemanticCheck(requirement, violations, source_ids))
     return LoweredPlan(
         admitted,
         tuple(stages),

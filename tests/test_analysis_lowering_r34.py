@@ -814,3 +814,65 @@ def test_repeated_reference_deduplicates_only_the_same_leaf(source_case):
     for check in lowered.checks:
         assert check.source_ids == (source.identity,)
         assert lowered.sources_for(check.violations) == (binding,)
+
+
+@pytest.mark.parametrize("shared", [True, False])
+def test_inherited_pairing_keeps_origin_groups_across_union(source_case, shared):
+    leaves = tuple(_leaf(source_case[1], quantity=False) for _ in range(2 if shared else 4))
+    bindings = tuple(_bind(source_case, leaf) for leaf in leaves)
+
+    def pair(left, right):
+        return method_node(
+            (Edge("subject", left), Edge("subject", right)),
+            MapCorrespond(
+                "exact_keys",
+                replace(left.signature.domain, definition_id="paired"),
+                "source.exact_pairing@v1",
+            ),
+            value_type=left.value_type,
+        )
+
+    first = pair(*leaves[:2])
+    second = first if shared else pair(*leaves[2:])
+    root = method_node(
+        (Edge("subject", first), Edge("subject", second)),
+        MapCorrespond("union_keys", replace(leaves[0].signature.domain, definition_id="union")),
+        value_type=leaves[0].value_type,
+    )
+    lowered = lower(_plan(root), bindings=bindings)
+    inherited = [
+        check
+        for check in lowered.checks
+        if isinstance(check, SemanticCheck) and check.requirement.node_id == root.identity
+    ]
+    assert [check.source_ids for check in inherited] == [
+        tuple(leaf.identity for leaf in leaves[index : index + 2])
+        for index in range(0, len(leaves), 2)
+    ]
+    assert all(_read(source_case[0], lowered, bindings, c.violations) == [] for c in lowered.checks)
+    assert {
+        (row["key_0"], row["key_1"])
+        for row in _read(source_case[0], lowered, bindings, _primary(lowered).expression)
+    } == {(1, 9007199254740993), (1, 2), (2, 1), (2, 2), (3, 1)}
+    if not shared:
+        last = bindings[-1]
+        bindings = (
+            *bindings[:-1],
+            replace(
+                last,
+                source=replace(
+                    last.source,
+                    relation=last.source.relation.filter(last.source.relation.tenant == 1),
+                ),
+            ),
+        )
+        lowered = lower(_plan(root), bindings=bindings)
+        inherited = [
+            check
+            for check in lowered.checks
+            if isinstance(check, SemanticCheck) and check.requirement.node_id == root.identity
+        ]
+        assert [len(_read(source_case[0], lowered, bindings, c.violations)) for c in inherited] == [
+            0,
+            3,
+        ]

@@ -11,8 +11,10 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.datasets.handles import _RunNodeBindings
+from marivo.analysis.methods.registry import REGISTRY
+from marivo.analysis.methods.semantics import MethodKey
 from marivo.analysis.observation.dsl_j1 import J1Context
-from marivo.analysis.operators.dsl_j1_contracts import J1_OBSERVE_SUM, J1_ROLLUP_SUM
+from marivo.analysis.operators.dsl_j1_contracts import J1_OBSERVE_SUM
 from marivo.semantic.metric_graph_lowering import _dependency_fingerprint
 from marivo.semantic.validator import assembly_validate
 from tests.shared_fixtures import DslCaseFactory
@@ -42,7 +44,9 @@ def test_j1_real_builder_declarations_construct_without_source_reads(
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
     customers = context.members(customer)
     assert J1_OBSERVE_SUM.require_route("source", "duckdb", "entity", "int64")
-    assert J1_ROLLUP_SUM.require_route("local", "pandas", "entity", "int64")
+    assert REGISTRY.execution(MethodKey("state_rollup"), "j1.rollup").require_route(
+        "local", "pandas", "entity", "int64"
+    )
     assert customers.domain.kind == "entity"
     assert customers.root.operator_id == "dsl.j1.members"
 
@@ -209,3 +213,41 @@ def test_cross_owner_time_and_additivity_are_rejected_at_assembly(
     )
     errors, _ = assembly_validate(bad_coordinate, sidecar=context.sidecar)
     assert any("non-native additivity coordinate" in error.message for error in errors)
+
+
+def test_existing_consumers_cannot_bypass_the_canonical_method_owner(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.analysis.methods import registry
+    from marivo.analysis.methods.errors import MethodRegistrationError
+    from marivo.analysis.methods.j1 import j1_numeric_method
+
+    context, domain = _context(analysis_dsl_case_factory)
+    members = context.members(ms.ref.entity(f"{domain}.customer"))
+    observed = members.observe(
+        ms.ref.metric(f"{domain}.revenue"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship(f"{domain}.order_buyer"),
+        coordinates=(ms.ref.dimension(f"{domain}.order.channel"),),
+    )
+    baseline = members.observe(
+        ms.ref.metric(f"{domain}.revenue"),
+        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+        via=ms.ref.relationship(f"{domain}.order_buyer"),
+        coordinates=(ms.ref.dimension(f"{domain}.order.channel"),),
+    )
+    nodes = (
+        observed.summarize("sum"),
+        observed.summarize("count"),
+        observed.summarize("mean"),
+        observed.rollup(),
+        observed.group_by(ms.ref.dimension(f"{domain}.order.channel")).rollup(),
+        observed.compare(baseline),
+    )
+    for node in nodes:
+        assert j1_numeric_method(node.root) is not None
+    monkeypatch.setattr(registry, "REGISTRY", registry.MethodRegistry(()))
+    for node in nodes:
+        with pytest.raises(MethodRegistrationError, match="registered method version"):
+            j1_numeric_method(node.root)

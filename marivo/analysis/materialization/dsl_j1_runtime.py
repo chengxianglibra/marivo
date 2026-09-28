@@ -28,6 +28,7 @@ from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.source_stage import J1IbisBackend
 from marivo.analysis.materialization.store import _new_run_ref
 from marivo.analysis.materialization.writer_guard import session_writer_guard
+from marivo.analysis.methods.j1 import j1_numeric_method
 from marivo.analysis.observation.contracts import (
     ObservationRuntimeOwner,
     make_family_registry,
@@ -41,7 +42,6 @@ from marivo.analysis.observation.dsl_j1 import (
     j1_row_contracts,
 )
 from marivo.analysis.observation.dsl_j1_dataset import J1SourcePayload, MaterializedJ1Dataset
-from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.admission import DatasetRuntime

@@ -23,13 +23,13 @@ from marivo.analysis.materialization.local_stage import run_j1_compare_local
 from marivo.analysis.materialization.source_stage import run_j1_source
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
+from marivo.analysis.methods.j1 import difference_method
 from marivo.analysis.observation.dsl_j1 import (
     J1Context,
     J1Difference,
     J1Members,
     j1_row_contracts,
 )
-from marivo.analysis.operators.dsl_j1_contracts import J1_COMPARE_DIFFERENCE
 from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult
 from tests.shared_fixtures import DslCase, DslCaseFactory
 
@@ -367,7 +367,7 @@ def test_p1_compare_publication_requires_registered_checks(
     _, change = _comparison(case, store)
     with _source(case) as (backend, tables):
         result = run_j1_source(change.context, change.root, backend, tables)
-    missing = J1_COMPARE_DIFFERENCE.contract.required_checks[0]
+    missing = difference_method().contract.required_checks[0]
     incomplete = J1ExecutionResult(
         change.root,
         result.primary,

@@ -2,7 +2,7 @@
 
 Date: 2026-09-26
 
-Status: R0.1–R0.4 与 R0.6 的静态产物已登记，R0.5 替代可行性仍阻塞；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验，R1.5 公共连接切换与逐格复核见下；R2.1–R2.4 及后续静态交接有有界证据；R3.1 私有纯构造与 R3.2 私有注册有有界测试证据，R3.2 跨执行单一 owner 未通过；R3.3 私有图与纯计划有有界测试证据；R3.4 私有 lowering、固定输入局部规律及 DuckDB 基础格有有界证据，完整阶段与公共执行仍未验收。R0、R1、R2 和 R3 整体均未验收。
+Status: R0.1–R0.4 与 R0.6 的静态产物已登记，R0.5 替代可行性仍阻塞；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验，R1.5 公共连接切换与逐格复核见下；R2.1–R2.4 及后续静态交接有有界证据；R3.1 私有纯构造与 R3.2 私有注册有有界测试证据，R3.2 已接入 J1/core 重叠方法的语义 owner 修正见末节；R3.3 私有图与纯计划有有界测试证据；R3.4 私有 lowering、固定输入局部规律及 DuckDB 基础格有有界证据，完整阶段与公共执行仍未验收。R0、R1、R2 和 R3 整体均未验收。
 
 本文件按[主计划](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)和[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)续记实际证据。历史验收不自动转成新 DSL 的技术、后端、安装包或真实 Agent 资格。
 
@@ -522,3 +522,61 @@ two-sided checks continue to retain both identities.
 This correction does not qualify R4 scheduling/publication, public J1/Dataset
 migration, additional backends or whole-stage R3 acceptance. The historical skip
 assertions, owners and recovery conditions are unchanged.
+
+
+## R3 acceptance corrections (2026-09-28)
+
+Baseline: `899eac66b555f66ff9ecc52ceedb617c0ef89dd0`. This section supersedes the
+historical connected-J1 owner gap above; it does not rewrite prior test evidence
+or qualify unconnected methods. Changes remain an uncommitted working-tree
+candidate until separately committed.
+
+- **Shared graph obligations:** lowering retains separate ordered input groups
+  per originating check. `union_keys(paired, paired)` no longer flattens the same
+  two-input pairing into four inputs. Equal symbolic obligations from independent
+  pairs remain separately checked. DuckDB native-table and Parquet regressions
+  independently expect the five complete keys
+  `{(1,9007199254740993),(1,2),(2,1),(2,2),(3,1)}`; restricting only the second
+  independent pair produces violation counts `[0,3]`, not a dropped check.
+- **Connected semantic owner:** existing J1 current-row sum/count/mean, original
+  sum rollup/group and difference consumers resolve through `methods.REGISTRY`.
+  Their six old registrations are deleted. Consumer layouts derive Cell policy,
+  units, components, checks and empty reasons from the registered semantics.
+  Missing canonical methods reject; no old registration or route is a fallback.
+  Existing part/check encodings, method IDs and physical qualifications compare
+  equal to baseline, except the count policy disclosure is corrected from
+  `strict` to `count_all`, matching unchanged count behavior. J1-specific layout
+  qualifications do not qualify any additional `GraphPlan` key.
+- **SQLite fetch-timeout test:** the old 10ms timer versus 50ms UDF sleep could
+  lose its scheduling race under xdist. The regression now invokes the actual
+  SQLite interrupt from the second row's UDF, observes that the timeout remains
+  armed during fetch, and checks cancellation afterward. No product timeout
+  behavior or timeout duration was changed.
+
+Validation of this candidate:
+
+- Targeted registration, construction, real source/local, exchange, lowering and
+  SQLite checks: **153 passed** via `make test` on
+  `test_analysis_methods_r32.py`, `test_analysis_dsl_j1_construction.py`,
+  `test_analysis_dsl_j1_source.py`, `test_analysis_dsl_s2_p1.py`,
+  `test_analysis_dsl_exchange.py`, `test_analysis_dsl_contracts.py`,
+  `test_analysis_lowering_r34.py`, and `test_datasource_sqlite.py` (all under
+  `tests/`). The Runtime file supplied to that default invocation is excluded by
+  its marker and is accounted for separately below.
+- `make runtime-test TESTS='tests/test_analysis_dsl_j1_runtime.py'`:
+  **6 passed**, including fixed/source execution, receipt identity, reuse,
+  publication failure and mixed-input rejection.
+- Final `make check-agent`: **passed**; format/lint/import boundaries, typing for
+  **396 source files**, **5280 passed / 64 skipped**, and Sphinx API build.
+- `git diff --check`: passed. No site source or public API changed, so a new
+  site build was not required; no package/release/full-Runtime gate was run.
+
+Changed source/test candidate digest: `ed82e5d98755242483b2464a1b7845c92276e17075474e0432a48932875b624d`.
+Reproduce by sorting the union of `git diff --name-only HEAD -- marivo tests` and
+`git ls-files --others --exclude-standard -- marivo tests`, then hashing each
+`path UTF-8 + NUL + file bytes + NUL` in order. Documentation is excluded.
+
+Historical 64 skips retain their assertions, owners and recovery conditions. R4 Run/Store,
+new graph public execution, six-backend full qualification, installed-package and
+real-Agent acceptance remain outside these corrections. R0/R1/R2 and whole-R3
+acceptance are not promoted by this entry.

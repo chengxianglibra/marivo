@@ -10,8 +10,8 @@ import pyarrow as pa
 
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.methods.j1 import difference_method
 from marivo.analysis.observation.dsl_j1 import J3_RATIO_COLUMNS, numeric_threshold_is_lossless
-from marivo.analysis.operators.dsl_j1_contracts import J1_COMPARE_DIFFERENCE
 
 _MIN_I64 = -(2**63)
 _MAX_I64 = 2**63 - 1
@@ -419,10 +419,7 @@ class J1ExecutionResult:
         if len({role for role, _ in self.parts}) != len(self.parts):
             raise _fail("unique retained J1 parts", "duplicate role")
         if operation == "dsl.j1.compare" or numeric_where:
-            if (
-                tuple(role for role, _ in self.parts)
-                != J1_COMPARE_DIFFERENCE.contract.required_parts
-            ):
+            if tuple(role for role, _ in self.parts) != difference_method().contract.required_parts:
                 raise _fail("both exact comparison endpoint parts", "missing endpoint")
             primary = {row["member"]: row for row in self.primary.to_pylist()}
             sides: list[dict[object, dict[str, object]]] = []

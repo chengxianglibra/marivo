@@ -16,6 +16,7 @@ from marivo.analysis.datasets.handles import LogicalRootHandle, _RunNodeBindings
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.ibis_batches import IbisBatchStream
 from marivo.analysis.materialization.source_stage import J1IbisBackend, run_j1_source
+from marivo.analysis.methods.j1 import j1_numeric_method
 from marivo.analysis.observation.dsl_j1 import (
     J4Association,
     J4CoefficientSelection,
@@ -26,7 +27,7 @@ from marivo.analysis.operators.association_values import (
     finish_entity_spearman_summary,
     reduce_entity_spearman,
 )
-from marivo.analysis.operators.dsl_j1_contracts import J4_SPEARMAN, j1_numeric_method
+from marivo.analysis.operators.dsl_j1_contracts import J4_SPEARMAN
 from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult, admit_numeric_threshold
 from marivo.analysis.operators.registry import MethodRegistration
 
