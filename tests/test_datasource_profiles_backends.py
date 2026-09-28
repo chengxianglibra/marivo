@@ -192,6 +192,13 @@ def test_duckdb_http_auth_installs_scoped_secret_on_connect(
             "SELECT count(*) FROM duckdb_secrets() WHERE name = 'marivo_http_auth'"
         ).fetchone()[0]
         assert secrets_count == 1
+        from marivo.datasource.capabilities import provider_statement_log
+
+        log = provider_statement_log(built.backend)
+        assert len(log) == 1
+        assert log[0].state == "succeeded"
+        assert log[0].statement_id.startswith("duckdb.http_secret_")
+        assert "sensitive-token" not in repr(log)
         assert auth.headers_for("https://api.example/v2/orders") == {}
         assert auth.headers_for("https://evil.example/v1/orders") == {}
     finally:

@@ -569,11 +569,13 @@ def _inspect_trino(
                 )
             )
 
-    is_view = False
+    is_view: bool | None = None
     view_definition: str | None = None
     try:
         type_rows = _trino_rows(backend, "trino.tables.type", values=predicates)
-        if type_rows and str(type_rows[0].get("table_type") or "").upper() == "VIEW":
+        if type_rows:
+            is_view = str(type_rows[0].get("table_type") or "").upper() == "VIEW"
+        if is_view:
             is_view = True
             def_rows = _trino_rows(backend, "trino.views.definition", values=predicates)
             if def_rows:

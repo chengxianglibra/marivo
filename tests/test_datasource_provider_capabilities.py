@@ -95,7 +95,7 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
         (
             "duckdb",
             "duckdb.constraints",
-        ): "aed05b4e5cde9aad979d79838f6473690bf7b2291e3ae6e8f385a5c2d7f7b372",
+        ): "b3c719890b8aedcf09a746953e758fc288df2c0446d1364fadc0afd88452a36c",
         (
             "duckdb",
             "duckdb.http_secret_bearer",
@@ -111,15 +111,15 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
         (
             "duckdb",
             "duckdb.tables.columns",
-        ): "1100b01df364d116844953075a4929f8be3821e2e5957cacac33fe40166695be",
+        ): "514968e568aa525319ce845f27fefffc10e058ee75d1952afeba7d9821fb2556",
         (
             "duckdb",
             "duckdb.tables.comment",
-        ): "2feee340737744c45a8b9654e0b5c7773e554adb01867507bc8bceb9ecac2553",
+        ): "79b7013cbb781b43ee9ee3575d0403edb53afdb5a6f720297ad787649695ab10",
         (
             "duckdb",
             "duckdb.tables.comment_size",
-        ): "58ee012b4e4b04cd950bc4260a81e54cafaddb8ec8616b4edfb0154247eda6f3",
+        ): "6ace28909262bc84b6d3506cd785579386c90bce78da7bdf0021fc21bfef6801",
         (
             "duckdb",
             "duckdb.views.database_qualified",
@@ -183,7 +183,7 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
         (
             "postgres",
             "postgres.constraints",
-        ): "fd618b2ee8605d17dfc0823b03cfab94a44f8bb97808ceb7f80b69af13f3afdc",
+        ): "5716da4614b72abcf0907079598b70865c8726d6a079df631bf02a1f929044ca",
         (
             "postgres",
             "postgres.partition.key",
@@ -203,7 +203,7 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
         (
             "sqlite",
             "sqlite.pragma.index_list",
-        ): "10dec4aefa9f8f9cd08da9ef3a371bcc9cec203cbfee5aa1cfd22af6a963c916",
+        ): "d3039ed95522bc4c649226792c8aff4deceab6039ef7d03cade6560f60e0eb4d",
         (
             "sqlite",
             "sqlite.pragma.table_info",

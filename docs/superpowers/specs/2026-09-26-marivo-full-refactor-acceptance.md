@@ -798,3 +798,22 @@ SHA 与命令保留为历史证据；以下补充替代其涉及两个反例的�
 - `npm --prefix site run build`：0 errors / 0 warnings；`git diff --check` 通过。
 
 未变化：DS11（MySQL/ClickHouse timeout）与 DS13（时区事实）保持阻塞；远端服务器端终止证明未取得；R5–R9 方法资格、wheel 与真实 Agent 未验证。本轮不改变 R0–R3 的阶段状态；R1 的 C01.a 丰富 metadata 与 C01.c 认证 HTTP 两个原阻塞格在本轮实测范围内**闭合**，C01.a 的远端丰富 metadata、C01.b 的远端终止矩阵仍按上表边界记录。本节为 R1.6 工作包记录，不整体提升 R1 阶段状态。
+
+
+### R1.6 对抗性审查修复（2026-09-28）
+
+修复 GET 重定向凭据越界、模板槽位二次解释、DuckDB 跨 namespace
+metadata 混合、PostgreSQL 复合唯一约束拆分、SQLite 部分/表达式索引
+误报唯一性、未知视图类型误报 False，以及 secret 安装绕过提交审计。
+认证 GET 与全部 POST 拒绝自动重定向；secret 成功与失败均记录固定模板和
+状态，参数值及可能回显参数的驱动错误文本不进入审计。
+
+独立回归覆盖本地 HTTP/DuckDB/SQLite 实际执行，以及 PostgreSQL catalog
+返回行分组和失败注入。远端服务矩阵未在本次修复中重跑，不将本地测试提升
+为远端验收证据。此前 R1.6 完成记录须连同本节修复与验证边界阅读。
+
+本次验证：六个定向测试文件 **121 passed / 1 skipped**（保留 SQLite
+通道失败传播的既有 skip）；`make check-agent` **5407 passed / 19 skipped**，
+403 个源码文件 typing、lint、导入契约和 API 文档通过；
+`npm --prefix site run build` **0 errors / 0 warnings**，321 页面构建及
+中英文安装脚本验证通过。新增反例位于 `tests/test_datasource_r16_regressions.py`。

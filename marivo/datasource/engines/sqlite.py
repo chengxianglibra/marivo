@@ -53,7 +53,7 @@ register_provider_statements(
         "pragma.index_list": ProviderStatement(
             statement_id="sqlite.pragma.index_list",
             template=(
-                "SELECT name, [unique] AS is_unique, origin "
+                "SELECT name, [unique] AS is_unique, origin, partial "
                 "FROM {schema}.pragma_index_list({table}) "
                 "ORDER BY seq"
             ),
@@ -248,7 +248,7 @@ def _inspect_sqlite(request: MetadataInspectRequest) -> TableMetadata:
 
     unique_constraints: list[UniqueConstraintMetadata] = []
     for row in index_rows:
-        if not bool(row.get("is_unique")) or row.get("origin") == "pk":
+        if not bool(row.get("is_unique")) or row.get("origin") == "pk" or row.get("partial"):
             continue
         index_name = str(row.get("name"))
         index_columns = _sqlite_rows(
@@ -257,7 +257,9 @@ def _inspect_sqlite(request: MetadataInspectRequest) -> TableMetadata:
             values={"index": index_name},
             identifiers={"schema": namespace},
         )
-        columns = tuple(str(item.get("name")) for item in index_columns if item.get("name"))
+        if any(not item.get("name") for item in index_columns):
+            continue
+        columns = tuple(str(item["name"]) for item in index_columns)
         if columns:
             unique_constraints.append(
                 UniqueConstraintMetadata(name=index_name, columns=columns, kind="unique")

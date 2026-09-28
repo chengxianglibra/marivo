@@ -87,14 +87,14 @@ register_provider_statements(
         "constraints": ProviderStatement(
             statement_id="postgres.constraints",
             template=(
-                "SELECT c.contype AS constraint_kind, c.conkey AS key_attnums, "
+                "SELECT c.oid AS constraint_id, c.contype AS constraint_kind, c.conkey AS key_attnums, "
                 "a.attname AS column_name "
                 "FROM pg_catalog.pg_constraint c "
                 "JOIN pg_catalog.pg_attribute a ON a.attrelid = c.conrelid "
                 "AND a.attnum = ANY(c.conkey) "
                 "WHERE c.conrelid = pg_catalog.to_regclass({qualified}) "
                 "AND c.contype IN ('p', 'u') "
-                "ORDER BY c.oid, c.contype, a.attnum"
+                "ORDER BY c.oid, array_position(c.conkey, a.attnum)"
             ),
             literal_slots=frozenset({"qualified"}),
         ),
@@ -262,7 +262,7 @@ def _inspect_postgres(
     try:
         constraint_rows = _postgres_rows(backend, "postgres.constraints", {"qualified": qualified})
         pk_names: list[str] = []
-        unique_by_position: dict[tuple[str, int], list[str]] = {}
+        unique_by_position: dict[str, list[str]] = {}
         for row in constraint_rows:
             kind = str(row.get("constraint_kind") or "")
             column_name = row.get("column_name")
@@ -271,9 +271,7 @@ def _inspect_postgres(
             if kind == "p":
                 pk_names.append(column_name)
             elif kind == "u":
-                unique_by_position.setdefault(("u", len(unique_by_position)), []).append(
-                    column_name
-                )
+                unique_by_position.setdefault(str(row["constraint_id"]), []).append(column_name)
         primary_keys = tuple(pk_names)
         unique_constraints = [
             UniqueConstraintMetadata(name=None, columns=tuple(names), kind="unique")
@@ -289,7 +287,7 @@ def _inspect_postgres(
             )
         )
 
-    is_view = False
+    is_view: bool | None = None
     view_definition: str | None = None
     try:
         kind_rows = _postgres_rows(
