@@ -2,9 +2,9 @@
 
 Date: 2026-09-26
 
-Status: R0.5 静态目标与调用链保留，R1.5 当前状态覆盖见下节。`md.raw_sql` 是唯一公共终端 SQL 通道；内部方法 SQL 例外 **空**。六后端基础来源已有分格证据，完整资格和资源终止仍未验证。
+Status: R0.5 静态目标与调用链保留，R1.5/R1.6 当前状态覆盖见下节。`md.raw_sql` 是唯一公共终端 SQL 通道；内部 SQL 例外除用户 2026-09-28 明确批准的 provider 固定语句通道（六后端 metadata 事实与 DuckDB scoped HTTP 凭据，范围见 R1.6 覆盖节）外仍为空。六后端基础来源已有分格证据，完整资格和资源终止仍未验证。
 
-依据：[主计划 §2、§5、§9](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)、[R0 实施文档 R0.5](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)、[能力台账 §6](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#6-r04-六类元算子规则冻结)。本文记录当前生产构造/提交的迁移责任，**不**批准将手写 SQL 搬进 Analysis adapter。`I`=由 typed Ibis 表达式构造及原样编译提交，`D`=经驱动公开配置/metadata API，`P`=执行前准入的 Ibis 准备→Python，`T`=唯一公共终端 `md.raw_sql`，`X`=删除，`S`=仅 Store SQLite 事务。每行状态均为“当前定位；目标路线未实证”；表中“证明”是以后阶段必须取得的真实证据，不是本轮通过。
+依据：[主计划 §2、§5、§9](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)、[R0 实施文档 R0.5](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)、[能力台账 §6](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#6-r04-六类元算子规则冻结)。本文记录当前生产构造/提交的迁移责任，**不**批准将手写 SQL 搬进 Analysis adapter。`I`=由 typed Ibis 表达式构造及原样编译提交，`D`=经驱动公开配置/metadata API，`P`=执行前准入的 Ibis 准备→Python，`T`=唯一公共终端 `md.raw_sql`，`X`=删除，`S`=仅 Store SQLite 事务，`V`=经用户 2026-09-28 明确批准的 provider 固定语句通道（datasource.capabilities 注册表 + 快照测试钉住文本，见 R1.6 覆盖节）。每行状态均为“当前定位；目标路线未实证”；表中“证明”是以后阶段必须取得的真实证据，不是本轮通过。
 
 ## R1.5 当前状态覆盖（2026-09-27）
 
@@ -16,6 +16,17 @@ Status: R0.5 静态目标与调用链保留，R1.5 当前状态覆盖见下节�
 | DS03–DS07、DS09 | 六后端 schema-only Ibis metadata 有实测 unavailable 披露；45 个丰富 metadata 断言仍跳过，不能记作其原目标通过 |
 | DS11、DS13、DS15 | MySQL/ClickHouse 可执行 timeout、时区事实和带认证 DuckDB HTTP 仍有精确阻塞；无内部 SQL 替代 |
 | DS17、DS21；AN33 | 基础来源读取/样本及新 `SourceSession` 提交有有界证据；完整来源形态和远端终止未齐，旧具体文本执行类待 R4–R9 清除 |
+
+## R1.6 当前状态覆盖（2026-09-28）
+
+用户于 2026-09-28 明确批准"将这些接口必要的部分使用统一的数据源的接口抽象，每种源提供自己的实现，允许使用非 Ibis 的其他手段实现具体能力"。据此建立的例外范围：**操作**=六后端 metadata 事实读取（注释/可空性/主键/唯一约束/分区拓扑/视图/物理 profile/projectable columns）与 DuckDB scoped HTTP 凭据安装；**后端**=六后端 metadata、仅 DuckDB 凭据；**用途**=datasource metadata 检查与带作用域的认证 HTTP JSON 读取。凭据值经参数化提交，绝不进入 SQL 文本或提交记录。精确实测格见[阶段验收 R1.6](2026-09-26-marivo-full-refactor-acceptance.md#r16-provider-能力通道与丰富-metadata-恢复2026-09-28)。
+
+| 台账 ID | 当前处置与未闭合格 |
+| --- | --- |
+| DS03–DS07、DS09 | **V**：六后端 metadata 事实经 `datasource.capabilities` 注册固定语句提交，列基线仍为绑定 Ibis schema；逐事实失败披露该事实 unavailable。45 个丰富 metadata 断言已恢复，六后端真实服务正反例见 R1.6 验收记录 |
+| DS15 | **V**：连接期以参数化 `CREATE OR REPLACE SECRET` 安装限定范围临时 DuckDB secret；scope 外不发送凭据；值不入 SQL 文本/提交记录/项目状态，`md.test` 往返与脱敏有实测 |
+| DS11、DS13 | 保持阻塞：MySQL/ClickHouse 无可执行 timeout/时区事实，不变 |
+| 通道治理 | `register_provider_statements` 注册表关闭未注册 SQL；快照测试钉死全部模板文本；每次提交记录在 `backend._marivo_provider_submissions`；超出批准范围的新内部 SQL 仍须用户逐项批准 |
 
 ## 1. 源端与 Semantic SQL 入口
 
@@ -44,6 +55,7 @@ Status: R0.5 静态目标与调用链保留，R1.5 当前状态覆盖见下节�
 | DS19 | `semantic.parity.parity_check` → `backend.sql(qualified_sql)`；R0 基线执行 provenance SQL oracle | X：删除 `ms.parity_check`、结果/状态和公开入口；本阶段不建替代 API；semantic/R1；历史 SQL 不进入 executor |
 | DS20 | `datasource.ir.qualify_provenance_sql` → `sqlglot.parse_one/.sql`；R0 基线 provenance 文本转换 | X：删除执行改写函数和 `ms.from_sql` 字段/入口；历史说明可放 `ai_context`，无执行权限；semantic/R1 |
 | DS21 | `semantic.catalog` preview、`datasource.snapshot/inspection` → bound Ibis `.execute()`/reader；有界抽样/物理检查，六后端 | I 经统一 adapter，保留范围、身份、资源；datasource adapters/R1；真实样本/空 schema/提前关闭 |
+| DS22 | `datasource.capabilities.execute_provider_statement` → `backend.raw_sql(渲染后固定语句)`；六后端 metadata 事实与 DuckDB scoped HTTP 凭据，2026-09-28 新增 | V 通道（用户批准例外）；datasource/R1.6；注册表快照钉死文本 + 本地/远端逐后端实测；超出范围的新内部 SQL 须再批准 |
 
 ## 2. Analysis SQL 构造与提交链
 

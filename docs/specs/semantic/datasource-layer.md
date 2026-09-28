@@ -592,14 +592,22 @@ prove one compiled literal round trip, and explicit source-health checks report
 only their requested business scope. Optional metadata failures may yield
 schema-only or unavailable observations; a fact required for admission cannot
 be inferred from a sample or silently supplied. Six backend metadata profiles
-now read the bound Ibis relation schema. Optional comments, partition topology,
-view kind/definitions, column nullability, primary keys, and physical estimates
-that cannot be obtained through that route are explicitly marked unavailable.
-Unknown view kind is `None`, not `False`. A consumer requiring one
+read the bound Ibis relation schema as the authoritative column baseline and
+obtain optional catalog facts — comments, column nullability and ordinals,
+view kind and definitions, primary keys and unique constraints where the
+provider exposes them, partition topology, physical estimates, and ClickHouse
+projectable columns — through the provider statement channel: a closed
+registry of provider-owned fixed statements (`datasource.capabilities`, the
+2026-09-28 user-approved internal-SQL exception recorded in the R0 SQL ledger
+R1.6 overlay; statement text is pinned by a snapshot test and every submission
+is audited on the backend). Each fact query that fails yields that fact's
+unavailable warning while inspection still succeeds; a total failure yields
+schema-only. Unknown view kind is `None`, not `False`. A consumer requiring one
 of those facts rejects the affected cell. Trino `$partitions` and ClickHouse
-`system.tables` / `system.parts` partition reads continue through bound Ibis
-expressions. Authenticated DuckDB HTTP sources reject before secret resolution
-or connection until a qualified credential API is available.
+`system.tables` / `system.parts` partition-value reads continue through bound
+Ibis expressions. Authenticated DuckDB HTTP sources install a scoped temporary
+secret at connection time and send credentials only inside the declared
+`http_scope`; see the credential section above for the declaration contract.
 
 `md.raw_sql(datasource: Ref[DatasourceKind], sql: str, *, reason: str,
 limit: int = 100, timeout_seconds: int = 30, include_types: bool = True,

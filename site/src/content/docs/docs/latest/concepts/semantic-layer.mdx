@@ -1297,11 +1297,14 @@ For a ClickHouse `Distributed` source, local `system.parts` observations are
 shown only as `scope=local_node_only` notes; source-wide rows and bytes remain
 `unknown`, and Marivo does not issue a cluster-wide fanout query.
 
-Table inspection returns the bound Ibis schema. Optional catalog facts such as
-comments, view kind, column nullability, partitions, primary keys, physical estimates, and ClickHouse
-`projectable_columns` are marked unavailable when the driver does not expose
-them through the admitted path. If analysis requires one of these facts, that
-source shape stays blocked until independent evidence is available.
+Table inspection returns the bound schema plus the provider's available
+catalog facts: comments, view kind and definitions, column nullability,
+partitions, primary keys where the provider exposes them, physical estimates,
+and ClickHouse `projectable_columns`. These facts come from a closed registry
+of provider-owned fixed statements; any fact the provider cannot obtain for the
+current account or source shape stays marked unavailable, and a fact required
+for admission keeps that source shape blocked until independent evidence
+exists.
 
 Choose evidence according to the question: inspection, optional explicitly
 scoped sampling, or terminal `md.raw_sql(...)` for a separate diagnostic.
