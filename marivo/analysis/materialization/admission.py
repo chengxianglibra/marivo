@@ -86,8 +86,11 @@ from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.validator import Registry
 
 if TYPE_CHECKING:
+    from marivo.analysis.compiler.graph_plan import RouteChoice
+    from marivo.analysis.core.graph import Node
     from marivo.analysis.materialization.dsl_j1_artifact import J1Node
     from marivo.analysis.materialization.dsl_j1_runtime import J1SourceFactory
+    from marivo.analysis.materialization.graph_execution import PreparedGraph
     from marivo.analysis.observation.dsl_j1_dataset import MaterializedJ1Dataset
 
 _PREVIEW_MAX_OUTPUT_BYTES = 8192
@@ -348,6 +351,12 @@ class DatasetRuntime:
         from marivo.analysis.materialization import dataset_presentation
 
         return dataset_presentation.selected(self, dataset)
+
+    def _prepare_graph(self, root: Node, routes: tuple[RouteChoice, ...]) -> PreparedGraph:
+        """Prepare the private graph schedule under this Session's identity."""
+        from marivo.analysis.materialization.graph_execution import prepare_graph
+
+        return prepare_graph(root, session_ref=self.session_ref, routes=routes)
 
     def execute_j1(
         self,

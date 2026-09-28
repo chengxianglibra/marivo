@@ -608,3 +608,26 @@ R3 corrections 已在 `3d0ef2a332` 提交，不再是上一节所述的未提交
 未运行 `make test`、Runtime、typecheck、站点构建或发布门禁。
 历史 **64 skipped** 的断言、owner 与恢复条件保持原状，R0–R3 整体资格和
 R4 V01–V12 不因本节提升。
+
+## R4.2 私有图协调增量（2026-09-28）
+
+本包按 [R4 实施计划](2026-09-28-marivo-full-algebra-dsl-r4-implementation-plan.md)
+修订后的私有边界实施；检查时 `panda` HEAD 为 `795edc44d6b7`。
+同期存在 R1 整体验收复核的独立文档改动，本节只记录 R4.2 新增内容，
+不将 R1 的测试、后端资格或结论归因于 R4.2。
+
+| 单元 | 本轮状态 | 证据与剩余条件 |
+| --- | --- | --- |
+| 图准入与唯一协调 | **私有定向通过，公共未切换** | `DatasetRuntime._prepare_graph` 在现有 Session owner 下调用 R3 `GraphPlan`；mixed、跨 Session 与未取得精确资格的方法在私有阶段消费者、业务 I/O、Artifact 行读取和 Run 分配前拒绝。显式共享节点单次调度一次，独立同定义节点分别调度；每次调用重新消费阶段。实际来源读取、Run、Store 和 Artifact 发布未接入。 |
+| 检查与失败边界 | **私有定向通过，执行证据未取得** | 检查保留原始 requirement 的节点、作用域和有序输入，在 consume/publish 期限按阶段调度；检查或已选阶段失败后不执行后续阶段或换路。合成消费者不产生 `completed` 检查证据，真实流耗尽、取消及资源关闭仍归 R4.3/R4.4。 |
+| 新 execution key | **纯构造通过，命中未验证** | `Implementation.contract_version` 初始为 1；`marivo.analysis.execution_key/v1` source/fixed 两类使用 typed-tuple SHA-256。固定 golden digest、等价独立节点、Run ref 新求值、精确输入引用/顺序、primary/part receipt、绑定、状态和 snapshot 扰动均有定向断言。对抗性复核后补测同一固定叶子占据两个输入槽位：读取阶段仍为一个，key 必须接收两条有序记录，少一条即拒绝，交换槽位绑定会改变 key。构造器不读取 Store，不验证文件内容，也不授权缓存命中；真实 v7 Run/receipt/Store 闭环归 R4.4/R4.5。 |
+| 产品切换与 V01–V12 | **未验证** | `execute_j1`、旧 Dataset 路线和 v6 公共产品链暂保留，未写新 Artifact。V01–V03 只有私有子断言，产品级 I/O、Run、命中、共享与检查计数不能据此判为通过；V04–V12、四旅程、断源冷恢复、wheel 和真实 Agent 均未执行。公共切换与旧入口删除须在 R4.3/R4.4 同代际闭环后于 R4.5 完成。 |
+
+定向 `make test TESTS='tests/test_analysis_graph_runtime_r42.py tests/test_analysis_graph_r33.py tests/test_analysis_lowering_r34.py'`
+为 **87 passed**（R4.2 新增 **8** 项）；旧公共路径
+`make runtime-test TESTS='tests/test_analysis_dsl_j1_runtime.py'` 为 **6 passed**。
+受影响源码的 `make typecheck TYPECHECK_TARGETS='marivo/analysis/materialization/graph_execution.py marivo/analysis/materialization/execution_key.py marivo/analysis/materialization/admission.py marivo/analysis/methods/physical.py'`
+和对应 `make lint-agent LINT_TARGETS='...'` 通过。最终 `make check-agent`
+的格式/lint/import、**397** 个源码文件 typing、默认测试 **5288 passed / 64 skipped**
+和 API 文档全部通过；`git diff --check` 通过。64 项历史 skip 的归属与恢复条件不变，
+不计本包验收或整个 R4 通过。

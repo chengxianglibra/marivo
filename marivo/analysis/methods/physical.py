@@ -200,6 +200,7 @@ class Implementation:
     precision: Literal["exact", "checked_int64", "finite_float64"]
     resources: ResourceRequirements
     qualification: Qualified | Unavailable
+    contract_version: int = 1
 
     def __post_init__(self) -> None:
         if (
@@ -213,6 +214,8 @@ class Implementation:
             or self.precision not in ("exact", "checked_int64", "finite_float64")
             or type(self.resources) is not ResourceRequirements
             or type(self.qualification) not in (Qualified, Unavailable)
+            or type(self.contract_version) is not int
+            or self.contract_version < 1
         ):
             reject(
                 "complete immutable implementation obligations and qualification",
