@@ -54,10 +54,11 @@ Physical type/time/shape facts and resource limits must be verified and enforced
 by the subsequent compiler/execution consumers; this private registry does not
 observe them itself.
 
-The production registry has **no qualified physical implementations** yet. Each
-connected method carries an explicit blocked reason and recovery condition for
-R3.3/R3.4 and the owning R4-R8 consumer. Synthetic qualification declarations in
-unit tests prove matching and rejection only. They do not qualify a backend.
+R3.2 introduced registration without qualified physical implementations. R3.4
+now connects the narrowly qualified consumers listed below; all other exact keys
+retain an explicit blocked reason and recovery condition for the owning R4-R8
+consumer. Synthetic qualification declarations in unit tests prove matching and
+rejection only. They do not qualify a backend.
 J1 `current_row_{sum,count,mean}`, rollup, and difference still have separate
 executable contracts and consumers. Their overlap with these private method
 semantics means the R3.2 single-owner deliverable across execution paths remains
@@ -120,12 +121,102 @@ bindings. Pending Post never becomes established evidence through planning.
 Static implementation qualification does not satisfy invocation checks.
 
 These APIs are private and do not expand public Help, exports, or continuation
-capabilities. No production physical implementation is qualified by this change.
-Synthetic registrations test stage selection only. Existing J1/Dataset execution
+capabilities. R3.3 itself qualified no production physical implementation;
+synthetic registrations test stage selection only. Existing J1/Dataset execution
 and the Store-backed Session history graph remain owned by their current
 consumers pending R4-R8 migration; the private planner never calls them as a
-fallback. R3.4 lowering, Run allocation, execution, publication and recovery
-remain outside this increment.
+fallback. The R3.4 handoff below adds lowering. Run allocation, execution,
+publication and recovery remain outside this increment.
+
+### R3.4 admitted lowering and local laws
+
+`analysis/compiler/graph_lowering.py` consumes an unchanged GraphPlan and exact
+R1 BoundSources associated with its reachable SourceLeaf identities. It
+revalidates admission before lowering; missing, duplicate, foreign-owner or
+additional bindings fail. CoordinateColumn, CellColumns and PartColumns describe
+the complete typed physical layout. The lowerer validates declared column types
+and complete component sets and creates a canonical layout without reading data.
+A field projection consumes the normalized direct field owner and source column;
+it retains the actual subject restriction instead of scanning the owner as the
+result. ValuePredicate is a closed, scope-bound int64 comparison with an explicit
+`reject` or `drop` policy for non-Defined Cells. Predicates participate in graph
+fingerprints. A where stage without a predicate cannot select a production route.
+
+The builtin consumer declarations qualify only int64-valued Entity inputs with
+int64 complete identity components and NoTime on DuckDB native tables or Parquet:
+
+- Direct int64 field binding without a relationship path or parsing.
+- Projection, view and explicit value filtering, with complete retained parts.
+- Exact-key pairing, one-to-one pairing, complete-tuple union and Subject image.
+  Every incoming key is checked before union or non-injective Subject deduplication;
+  a declared injective Subject map is checked and never repaired with distinct.
+- Whole-input `row.count` and `row.count_defined`, retaining their RowStatePart.
+  Count includes all four Cell tags; defined-count includes only Defined Cells.
+  Empty input yields a Defined zero on the singleton.
+- Fixed Artifact `row.count` has a caller-owned local consumer with a 100,000-row
+  limit. The handoff includes ArtifactReadStage, exact input/output layouts and
+  the registered LocalMethodStage. The local function consumes validated Cells;
+  it performs no Artifact read or publication.
+
+Retained physical parts are Subject, original state, row state and coverage.
+Their coordinate/state components are int64 and coverage columns are boolean.
+Other parts, numeric types, temporal shapes, preparation routes and methods remain
+unqualified. Original Metric observation, source sum/mean/rollup, grouped domain
+execution and public methods are not implemented by these declarations. R4/R5
+must verify that a supplied Metric leaf layout really belongs to its captured
+canonical Metric definition; supplying a layout is not observation evidence.
+
+LoweredPlan carries dependency-ordered relations or local stages, the original
+physical requirements, and mandatory checks. IntegrityCheck describes invalid
+identity, Cell or predicate rows; SemanticCheck retains the exact original
+CheckRequirement, including input scope and consume/publish deadline. Check
+resolution follows graph edges to the originating realization rather than
+matching equal definition fingerprints. A checker returning no rows is the
+success condition, not an already-established fact in the lowered graph.
+Every input integrity check must succeed before its dependent stage is consumed;
+publication also requires all inherited publication checks. R4 owns evaluating
+checks, rendering concrete failures, and recording their evidence in one Run.
+
+Each LoweredRelation, IntegrityCheck and SemanticCheck carries explicit ordered
+SourceLeaf `source_ids`, recorded while lowering its actual operands. Repeated
+references to one leaf are deduplicated; independent leaves remain separate even
+when they bind the same physical table. An exact-key correspondence's primary
+expression carries only its left operand's sources; its pairing checks carry
+both operands. Projection and other unary operations preserve their operand's
+recorded sources, and union/field-owner joins combine their actual operands.
+`LoweredPlan.sources_for(expression)` resolves this metadata only for the exact
+emitted expression object. It never compares Ibis relations to infer provenance;
+untracked copies and derived expressions are rejected with a request to use the
+emitted expression unchanged or re-lower the graph. R1 still validates physical
+relation ancestry independently when compiling the selected bindings.
+The handoff declares scan/filter/project/group/count/join/union requirements; R1
+admits join/union only for DuckDB in this increment. The consumer qualifies those
+bindings and passes the unmodified Ibis expression
+and expected schema to SourceSession.compile/batches. The compiler never opens a
+connection, compiles/submits SQL, reads an Artifact, allocates a Run, or writes a
+Store. R1/R4 must still enforce actual backend/time/shape, receipt, source scope
+and resource requirements. Static qualification does not discharge any of them.
+Failures do not trigger route reselection. No public execute path is connected.
+
+Local laws are explicitly registered by their semantic method owner:
+
+- L1 returns a fresh graph node for adjacent closed int64 selections with matching
+  unknown policy, input scope and parts. Signature, transported evidence,
+  obligations, part transforms and conditional private K must agree exactly.
+- L7 composes complete fixed coordinate mappings while retaining the role chain
+  and input binding. Its result asserts a coordinate function only; repeated
+  targets remain non-injective and grant no contribution or rollup permission.
+- L8/L9 operate on complete fixed original `sum@v1` state, coverage and disjoint
+  contribution identities. An absolute-sum bound excludes intermediate int64
+  overflow. L8 preserves full components through intermediate empty groups; L9
+  preserves explicit selected empty targets. Their StateEquation comparison is
+  **state only**. Neither rewrites the semantic graph, expands K, reads a source,
+  changes an observation scope, nor authorizes source pushdown. RowStatistic
+  input, missing components, overlapping contributions and scope changes fail.
+
+These private outputs are R4/R5 handoffs, not public terminal result families.
+There are no new exports, Help targets, CLI commands or packaged-skill promises.
+R3.2 cross-execution single ownership and whole-stage R3 acceptance remain open.
 
 ### Relative Anchor observation and retention (C18)
 

@@ -461,3 +461,13 @@ def test_session_rejects_backend_from_another_provider(tmp_path: Path) -> None:
             SourceSession(provider_for("postgres"), _datasource("postgres"), backend)
     finally:
         backend.disconnect()
+
+
+def test_join_union_require_explicit_duckdb_qualification(session: SourceSession) -> None:
+    bound = session.bind(TableSourceIR("facts"), source_identity="r34-operations")
+    requirement = PhysicalRequirement("r34.correspondence", 1, frozenset({"scan", "join", "union"}))
+    if session.provider.name == "duckdb":
+        assert session.qualify(bound, requirement).requirement == requirement
+    else:
+        with pytest.raises(DatasourceSourceCapabilityError, match="basic physical requirement"):
+            session.qualify(bound, requirement)

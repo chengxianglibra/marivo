@@ -104,7 +104,7 @@ class PhysicalRequirement:
 
     method_id: str
     version: int
-    operations: frozenset[Literal["scan", "filter", "project", "group", "count"]]
+    operations: frozenset[Literal["scan", "filter", "project", "group", "count", "join", "union"]]
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -588,6 +588,8 @@ class SourceSession:
                 f"{self.provider.name} backend is not a live Ibis backend",
             )
         supported = frozenset({"scan", "filter", "project", "group", "count"})
+        if self.provider.name == "duckdb":
+            supported |= {"join", "union"}
         if (
             not need.method_id
             or need.version < 1

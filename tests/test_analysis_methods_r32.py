@@ -126,10 +126,14 @@ def test_connected_methods_have_one_owner_and_six_rules() -> None:
         str(item.semantics.key): item.semantics.rule for item in REGISTRY.registrations
     } == expected
     assert all(item.semantics.owner == "analysis.core.rules" for item in REGISTRY.registrations)
-    assert all(
-        not item.implementations and item.missing.status == "blocked"
-        for item in REGISTRY.registrations
-    )
+    assert {item.semantics.key.name for item in REGISTRY.registrations if item.implementations} == {
+        "bind_project",
+        "parts_transport",
+        "map_correspond",
+        "row.count",
+        "row.count_defined",
+    }
+    assert all(item.missing.status == "blocked" for item in REGISTRY.registrations)
     with pytest.raises(FrozenInstanceError):
         REGISTRY.registrations = ()
 
