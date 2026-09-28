@@ -123,15 +123,19 @@ Semantic 文件补齐定义，不按“最新产物”替代，不重算缺失�
 | 工作包 | 主要改动及责任 | 出口 |
 | --- | --- | --- |
 | R4.1 协议与交接冻结 | 核对 R3 core/methods/compiler 输出；盘点 `materialization`、`session`、公共 DSL、旧 Dataset 分派；冻结 identity/key、版本、检查证据、故障状态和删除矩阵 | 每个入口/codec/旧 key 路线有去向；所有协议字段有 owner；资格缺口有明确拒绝及恢复条件 |
-| R4.2 通用节点与唯一执行协调 | 将 `observation/dsl_j1.py`、`public_dsl.py` 等消费者接入统一图；替换 `dsl_j1_runtime.py`/`execute_j1` 和 definition-only source cache；复用既有 Session/Runtime owner | source/fixed/mixed、跨 Session、节点共享与检查执行计数通过；无场景分派和执行后回退 |
+| R4.2 私有图协调增量 | 在既有 `DatasetRuntime` 下接入 R3 图的纯准入、阶段/检查调度和新 execution key 构造；以私有消费者验证共享、拒绝与失败边界，不写新产物 | 私有 source/fixed/mixed、跨 Session、节点共享和检查计数有定向证据；公共切换与真实 Run/Store 验收保持开放 |
 | R4.3 统一交换与方法执行 | 接入 `source_stage.py`、`local_stage.py` 与 adapter；拆解 `dsl_j4_source.py`，已注册方法消费同一语义；统一 source/Parquet/pandas 生产者 | schema/Cell/键/状态向量一致，资源关闭及未耗尽拒绝通过；fixed-only 禁用 DuckDB 通过 |
-| R4.4 统一产物与原子发布 | 将 `dsl_j1_artifact.py`、`dsl_j1_receipt.py`、`dsl_public_snapshot.py` 职责迁入通用 descriptor/receipt/snapshot 与方法 codec；更新现有 Store、publication、writer guard、reconciliation | 单一新格式，旧格式读前拒绝；各发布故障点不出现成功半成品，提交不明不重放 |
-| R4.5 精确恢复和披露 | 接入恢复、`session.artifact`、retained reads 和当前结果 `repr/show/contract`；更新静态类型、Help/CLI、英中 latest 示例 | 断源新进程恢复同一 K，当前定义变更不修补固定结果；缺部件/receipt 的拒绝与建议一致 |
+| R4.4 统一产物与原子发布 | 将 `dsl_j1_artifact.py`、`dsl_j1_receipt.py`、`dsl_public_snapshot.py` 职责迁入通用 descriptor/receipt/snapshot 与方法 codec；在现有 Store owner 中准备 v7 publication、writer guard、reconciliation，v6 公共产品链留到 R4.5 切换 | v7 单一新格式且旧格式读前拒绝；各发布故障点不出现成功半成品，提交不明不重放 |
+| R4.5 公共切换、精确恢复和披露 | 在 R4.3/R4.4 已闭合的同代际协议上迁入 J1–J4 公共节点和唯一执行入口，删除被替换的 `execute_j1` 与 definition-only source cache；接入恢复、`session.artifact`、retained reads、`repr/show/contract`、静态类型、Help/CLI 和英中 latest 示例 | 公共 source/fixed/mixed 与动态 K 使用新协议；断源新进程恢复同一 K，缺部件/receipt 拒绝一致；无场景分派和执行后回退 |
 | R4.6 J1–J4 与安装包收口 | 同一候选 wheel 重建四条旅程，执行独立 oracle、身份、共享、故障与冷恢复；扫描产品、包与协议残留 | 验收矩阵逐格记录，旧链/alias/双读删除，后续阶段交接明确 |
 
 以上路径是现有定位入口，不要求按名称机械创建对应新模块。实施时反查 import、调用、
 注册、存储字段和 Help 消费者，补齐漏项；迁出文件删除后不得保留转发 shim。
 跨文件 key/Run/receipt/Store 切换必须形成可执行的完整协议闭环，不能让中间版本写出混合格式。
+R4.2 按已确认的私有增量实施：现有公共 J1–J4 与旧 Dataset 执行暂由 v6
+产品链承担；私有图调度与新 key 构造不能查询旧缓存或发布 Artifact。
+R4.3/R4.4 取得交换、Run、receipt、Store 的同代际闭环后，R4.5 同时切换公共消费者、
+删除其旧执行入口和旧 key 路线。R4.2 定向测试不提升 V01–V03 的产品格。
 
 ### 4.1 R4.1 协议冻结与删除矩阵（仅契约，未切换产品）
 
@@ -145,11 +149,11 @@ Semantic 文件补齐定义，不按“最新产物”替代，不重算缺失�
 
 | 现有入口或协议 | 当前消费者与问题 | 唯一去向及删除工作包 |
 | --- | --- | --- |
-| `observation/dsl_j1.py` 的 `J1Context`/J1–J4 节点、`dsl_j1_dataset.py` | `public_dsl.py`、`session/core.py` 仍构造场景节点；旧类型承担图身份 | R4.2 迁为 `core.graph` 节点和一个方法注册消费者；R4.5 迁公共 receiver/Session 绑定后删除场景构造链和转发入口。 |
-| `public_dsl.py` 的 `J1Node` 分支与 `execute_j1` 调用 | 公共 `execute()` 和动态动作按场景类分派 | R4.2 接唯一图执行；R4.5 由验证后的新状态派生 `repr/show/contract` 与 K；删除场景分派。 |
-| `materialization/admission.py`、`dsl_j1_runtime.py`、`dataset_execution.py` | 两套 Runtime 分派；后者使用 definition-only `execution_key()` | R4.2 保留一个顶层 Session/Runtime owner，按 source/fixed/mixed 调度；删除 `execute_j1`、旧 key 命中与内部各自 Run 路线。 |
-| `materialization/execution_key.py` 的 v1/v2 key | `dataset_execution.py` 与 J1 Runtime 分别构造旧身份 | R4.2 引入唯一 `marivo.analysis.execution_key/v1` 规范构造；R4.4 让 Run、descriptor、Store 使用同一 key，删除旧构造器。 |
-| `compiler/{placement,dsl_j1_source,dsl_j3_ratio}.py`、`materialization/{dsl_public_source,dsl_j4_source}.py` | J1–J4 另有放置、来源绑定/编译、配对和方法路线 | R4.2/R4.3 迁至 GraphPlan/lowering、注册方法与 R1 `SourceSession`；删除被迁入路线的场景编译和 J4 特例。 |
+| `observation/dsl_j1.py` 的 `J1Context`/J1–J4 节点、`dsl_j1_dataset.py` | `public_dsl.py`、`session/core.py` 仍构造场景节点；旧类型承担图身份 | R4.2 准备私有 `core.graph` 消费；R4.5 在新协议闭环后迁公共 receiver/Session 绑定并删除场景构造链和转发入口。 |
+| `public_dsl.py` 的 `J1Node` 分支与 `execute_j1` 调用 | 公共 `execute()` 和动态动作按场景类分派 | R4.5 接唯一图执行并由验证后的新状态派生 `repr/show/contract` 与 K；同时删除场景分派。 |
+| `materialization/admission.py`、`dsl_j1_runtime.py`、`dataset_execution.py` | 两套 Runtime 分派；后者使用 definition-only `execution_key()` | R4.2 在现有 Runtime owner 下准备私有调度；R4.5 公共切换时删除 `execute_j1`、旧 key 命中与内部各自 Run 路线。 |
+| `materialization/execution_key.py` 的 v1/v2 key | `dataset_execution.py` 与 J1 Runtime 分别构造旧身份 | R4.2 引入未用于发布的 `marivo.analysis.execution_key/v1` 规范构造；R4.4/R4.5 让 Run、descriptor、Store 使用同一 key 并删除旧构造器。 |
+| `compiler/{placement,dsl_j1_source,dsl_j3_ratio}.py`、`materialization/{dsl_public_source,dsl_j4_source}.py` | J1–J4 另有放置、来源绑定/编译、配对和方法路线 | R4.2 私有协调消费 GraphPlan；R4.3 接通 lowering、注册方法与 R1 `SourceSession`；R4.5 删除被迁入路线的场景编译和 J4 特例。 |
 | `materialization/{source_stage,local_stage,parquet_scan}.py` 的场景分支及旧 Dataset 阶段 | source、fixed、pandas 各自形成输出/状态，旧固定路线可借 DuckDB 读 Parquet | R4.3 让注册实现消费同一 `BatchStream`/方法状态，fixed 只用 receipt-checked Arrow/Parquet→pandas；删除被替换的场景执行分支与固定 DuckDB 路线。 |
 | `materialization/dsl_j1_artifact.py`、`dsl_j1_receipt.py`、`dsl_public_snapshot.py`，以及 `contracts.py` 的 v1/v2 descriptor、J1 exchange v1–v3 | 发布、固定读取和冷恢复绑定旧场景 codec；旧 public snapshot v1 依赖 J1 类 | R4.4 迁为封闭 descriptor/receipt/exchange/method-state/continuation codec 并删除旧 writer/reader；R4.5 迁精确恢复，不保留双读。 |
 | `materialization/{dataset_publication,publication}.py` | 旧 Dataset 通用发布仍写 v1/v2 descriptor | R4.4 阻断旧 writer/reader，R5 数值能力重新接入新协议前早拒绝。 |
