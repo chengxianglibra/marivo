@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-import threading
-import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -162,11 +160,37 @@ def test_sqlite_raw_sql_timeout_remains_armed_during_cursor_fetch(
     datasource_ir = store.load_one("app", project_root=tmp_path)
     assert datasource_ir is not None
     backend = backends.build_backend(datasource_ir)
-    backend.con.create_function(
-        "pause",
-        1,
-        lambda seconds: (time.sleep(float(seconds)), seconds)[1],
-    )
+
+    class FetchTimer:
+        def __init__(self, seconds: int, interrupt: Callable[[], None]) -> None:
+            assert seconds == 1
+            self.interrupt = interrupt
+            self.armed = False
+
+        def start(self) -> None:
+            self.armed = True
+
+        def cancel(self) -> None:
+            self.armed = False
+
+    timers: list[FetchTimer] = []
+    fetch_armed: list[bool] = []
+
+    def timer(seconds: int, interrupt: Callable[[], None]) -> FetchTimer:
+        result = FetchTimer(seconds, interrupt)
+        timers.append(result)
+        return result
+
+    def pause(seconds: float) -> float:
+        # SQLite evaluates the second row during fetch, after execute returns.
+        if seconds:
+            armed = len(timers) == 1 and timers[0].armed
+            fetch_armed.append(armed)
+            if armed:
+                timers[0].interrupt()
+        return seconds
+
+    backend.con.create_function("pause", 1, pause)
     backend.raw_sql("CREATE TABLE delays (seconds REAL)")
     backend.raw_sql("INSERT INTO delays VALUES (0), (0.05)")
 
@@ -178,11 +202,7 @@ def test_sqlite_raw_sql_timeout_remains_armed_during_cursor_fetch(
             assert read_only is True
             yield backend
 
-    real_timer = threading.Timer
-    monkeypatch.setattr(
-        "marivo.datasource.engines.sqlite.Timer",
-        lambda _seconds, interrupt: real_timer(0.01, interrupt),
-    )
+    monkeypatch.setattr("marivo.datasource.engines.sqlite.Timer", timer)
     monkeypatch.setattr(
         "marivo.datasource.manage.DatasourceConnectionService",
         lambda _root: _Service(),
@@ -197,6 +217,8 @@ def test_sqlite_raw_sql_timeout_remains_armed_during_cursor_fetch(
                 timeout_seconds=1,
                 project_root=tmp_path,
             )
+        assert fetch_armed == [True]
+        assert len(timers) == 1 and not timers[0].armed
     finally:
         backend.disconnect()
 

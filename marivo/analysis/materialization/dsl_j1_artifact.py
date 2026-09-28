@@ -42,6 +42,7 @@ from marivo.analysis.materialization.storage import (
     write_local_dataset,
 )
 from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.methods.j1 import j1_numeric_method
 from marivo.analysis.observation.contracts import producer_contract
 from marivo.analysis.observation.dsl_j1 import (
     J1Context,
@@ -59,7 +60,6 @@ from marivo.analysis.observation.dsl_j1 import (
     J4CoefficientStatistic,
     j1_row_contracts,
 )
-from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
 from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult
 from marivo.semantic.validator import normalize_target_entity
 

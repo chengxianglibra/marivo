@@ -101,7 +101,7 @@ def run_j1_compare_local(
 ) -> J1ExecutionResult:
     """Compute one exact-key private difference over two fixed pandas inputs."""
     from marivo.analysis.compiler.placement import place_j1_local
-    from marivo.analysis.operators.dsl_j1_contracts import J1_COMPARE_DIFFERENCE
+    from marivo.analysis.methods.j1 import difference_method
     from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult, _number
 
     place_j1_local(root, current.root, baseline_root=baseline.root)
@@ -120,7 +120,7 @@ def run_j1_compare_local(
             stage="local_admission",
         )
     value_type = str(current.primary.schema.field("value").type)
-    J1_COMPARE_DIFFERENCE.require_route("local", "pandas", "entity", value_type)
+    difference_method().require_route("local", "pandas", "entity", value_type)
     left = current.primary.to_pandas(types_mapper=pd.ArrowDtype).copy(deep=True)
     right = baseline.primary.to_pandas(types_mapper=pd.ArrowDtype).copy(deep=True)
     if left["member"].duplicated().any() or right["member"].duplicated().any():
@@ -171,19 +171,19 @@ def run_j1_compare_local(
         _j1_local_table(rows, schema),
         parts=tuple(
             zip(
-                J1_COMPARE_DIFFERENCE.contract.required_parts,
+                difference_method().contract.required_parts,
                 (current.primary.select(names), baseline.primary.select(names)),
                 strict=True,
             )
         ),
-        completed_checks=J1_COMPARE_DIFFERENCE.contract.required_checks,
+        completed_checks=difference_method().contract.required_checks,
     )
 
 
 def run_j1_local(root: LogicalRootHandle, retained: J1ExecutionResult) -> J1ExecutionResult:
     """Evaluate one J1 successor over fixed, fully validated Arrow input in pandas."""
     from marivo.analysis.compiler.placement import place_j1_local
-    from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
+    from marivo.analysis.methods.j1 import j1_numeric_method
     from marivo.analysis.operators.dsl_j1_values import (
         J1ExecutionResult,
         admit_numeric_threshold,

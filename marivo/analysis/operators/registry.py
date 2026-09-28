@@ -177,7 +177,7 @@ _CAPABILITIES = frozenset(
 _BACKENDS = frozenset({"duckdb", "postgres", "mysql", "sqlite", "trino", "clickhouse", "pandas"})
 _DOMAINS = frozenset({"entity", "group", "singleton"})
 _UNIT_POLICIES = frozenset({"preserve", "count", "ratio", "mean", "difference", "coefficient"})
-_CELL_POLICIES = frozenset({"strict", "total_is_defined", "spearman_pairs"})
+_CELL_POLICIES = frozenset({"strict", "count_all", "total_is_defined", "spearman_pairs"})
 _NUMERIC_POLICIES = frozenset(
     {"none", "int64_checked", "float64_finite", "int64_or_float64", "pair_ranks"}
 )
@@ -204,7 +204,7 @@ class MethodContract:
     output_kind: MethodKind
     domain_policy: Literal["same", "mapped", "new"]
     unit_policy: Literal["preserve", "count", "ratio", "mean", "difference", "coefficient"]
-    cell_policy: Literal["strict", "total_is_defined", "spearman_pairs"]
+    cell_policy: Literal["strict", "count_all", "total_is_defined", "spearman_pairs"]
     numeric_policy: Literal[
         "none", "int64_checked", "float64_finite", "int64_or_float64", "pair_ranks"
     ]

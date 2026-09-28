@@ -59,14 +59,23 @@ now connects the narrowly qualified consumers listed below; all other exact keys
 retain an explicit blocked reason and recovery condition for the owning R4-R8
 consumer. Synthetic qualification declarations in unit tests prove matching and
 rejection only. They do not qualify a backend.
-J1 `current_row_{sum,count,mean}`, rollup, and difference still have separate
-executable contracts and consumers. Their overlap with these private method
-semantics means the R3.2 single-owner deliverable across execution paths remains
-open until the R5/R6 consumer migration. These old contracts are neither
-imported nor consulted by the new registry and cannot serve as fallback
-implementations. Other unmigrated operator/Dataset methods retain their phase
-boundaries. `md.raw_sql` remains a datasource terminal and cannot be registered
-here.
+Existing J1 current-row sum/count/mean, original sum rollup/group, and difference
+consumers now obtain their contracts through `MethodRegistry.execution`. The
+registered MethodSemantics owns Cell policy, units, state components, checks and
+empty-result reasons. `methods/execution.py` maps these facts to the existing
+consumer's exact part/check encoding and route qualifications; the old overlapping
+registrations and resolver are removed from `operators/dsl_j1_contracts.py`.
+`methods/j1.py` routes the existing consumers to this owner. Missing canonical
+registration rejects without a legacy fallback. Count discloses `count_all`,
+matching both the canonical rule and the existing executable behavior.
+
+Execution layouts keep existing receipt method IDs and qualified routes; they do
+not grant graph implementations, new backends or new public continuations. Core
+construction and graph selection do not consult J1 execution layouts. Unconnected
+observation, ratio, selection and Spearman contracts remain with their current
+owners until their owning migration; the J1 consumer resolver names those methods
+explicitly, never as fallback for a connected method. `md.raw_sql` remains a
+datasource terminal and cannot be registered here.
 
 ### R3.3 private definition graph and pure planning
 
@@ -171,7 +180,10 @@ physical requirements, and mandatory checks. IntegrityCheck describes invalid
 identity, Cell or predicate rows; SemanticCheck retains the exact original
 CheckRequirement, including input scope and consume/publish deadline. Check
 resolution follows graph edges to the originating realization rather than
-matching equal definition fingerprints. A checker returning no rows is the
+matching equal definition fingerprints. Each originating check retains its ordered
+input tuple. Shared paths deduplicate that tuple, while independent realizations
+with equal symbolic obligations remain separate checks; a repeated input within
+one pairing still occupies both ordered positions. A checker returning no rows is the
 success condition, not an already-established fact in the lowered graph.
 Every input integrity check must succeed before its dependent stage is consumed;
 publication also requires all inherited publication checks. R4 owns evaluating
@@ -216,7 +228,9 @@ Local laws are explicitly registered by their semantic method owner:
 
 These private outputs are R4/R5 handoffs, not public terminal result families.
 There are no new exports, Help targets, CLI commands or packaged-skill promises.
-R3.2 cross-execution single ownership and whole-stage R3 acceptance remain open.
+The connected J1/core semantic-owner overlap is resolved. Whole-stage R3
+acceptance is separate from these bounded corrections; public graph migration,
+Runtime/Store and broader method/backend qualification retain their phase owners.
 
 ### Relative Anchor observation and retention (C18)
 

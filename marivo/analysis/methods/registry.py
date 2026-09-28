@@ -7,6 +7,7 @@ does not execute, open data, or retry an alternative route.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from marivo.analysis.core.model import (
     CoveragePart,
@@ -34,6 +35,10 @@ from marivo.analysis.methods.semantics import (
     MethodSemantics,
     key_for_parameters,
 )
+
+if TYPE_CHECKING:
+    from marivo.analysis.methods.execution import ExecutionConsumer
+    from marivo.analysis.operators.registry import MethodRegistration as ExecutionRegistration
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,6 +235,12 @@ class MethodRegistry:
             f"{gap.status}: {key!r}; {gap.reason}",
             gap.recovery,
         )
+
+    def execution(self, key: MethodKey, consumer: ExecutionConsumer) -> ExecutionRegistration:
+        """Resolve an existing consumer through the same sole semantic registration."""
+        from marivo.analysis.methods.execution import registration
+
+        return registration(self.lookup(key).semantics, consumer)
 
     def continuations(self, output: Signature) -> tuple[ContinuationRequirement, ...]:
         """Return conditional private construction K; successor derivation is mandatory."""

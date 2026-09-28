@@ -200,6 +200,28 @@ class MethodSemantics:
         return "input_owned"
 
     @property
+    def unit_policy(self) -> Literal["preserve", "count", "mean", "difference", "ratio"]:
+        if self.key.name in ("row.count", "row.count_defined"):
+            return "count"
+        if self.key.name in ("row.mean", "row.weighted_mean"):
+            return "mean"
+        if self.key.name == "cell.difference":
+            return "difference"
+        if self.key.name == "cell.ratio":
+            return "ratio"
+        return "preserve"
+
+    @property
+    def empty_cell_reasons(
+        self,
+    ) -> tuple[tuple[Literal["null", "undefined", "unknown"], tuple[str, ...]], ...]:
+        if self.key.name == "row.mean":
+            return (("undefined", ("empty_mean",)),)
+        if self.key.name == "state_rollup":
+            return (("null", ("empty_contribution",)),)
+        return ()
+
+    @property
     def required_parts(self) -> tuple[PartRole, ...]:
         if self.key.name == "state_rollup":
             return ("original_state", "coverage")

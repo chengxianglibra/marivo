@@ -25,9 +25,9 @@ from marivo.analysis.materialization.contracts import ArtifactRecord, RunDataset
 from marivo.analysis.materialization.dsl_j1_artifact import load_j1_artifact
 from marivo.analysis.materialization.errors import MaterializationError, SessionBusyError
 from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.methods.j1 import j1_numeric_method
 from marivo.analysis.observation.dsl_j1 import J1Context, J1Observed
 from marivo.analysis.observation.dsl_j1_dataset import MaterializedJ1Dataset
-from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
 from tests.shared_fixtures import DslCase, DslCaseFactory
 
 

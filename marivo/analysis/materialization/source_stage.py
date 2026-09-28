@@ -77,8 +77,8 @@ def run_j1_source(
         IbisBatchStream,
         ProjectedBatchStream,
     )
+    from marivo.analysis.methods.j1 import j1_numeric_method
     from marivo.analysis.observation.dsl_j1 import j1_row_contracts
-    from marivo.analysis.operators.dsl_j1_contracts import j1_numeric_method
     from marivo.analysis.operators.dsl_j1_values import J1ExecutionResult
     from marivo.analysis.operators.registry import MethodDomain
 

@@ -476,7 +476,8 @@ def test_registry_and_core_consumer_use_no_io_or_legacy_registry(
     from marivo.analysis.datasets.registry import DatasetFamilyRegistration
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.store import SessionStore
-    from marivo.analysis.operators import dsl_j1_contracts, registry
+    from marivo.analysis.methods import j1
+    from marivo.analysis.operators import registry
     from marivo.datasource.adapters import SourceSession
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -493,7 +494,7 @@ def test_registry_and_core_consumer_use_no_io_or_legacy_registry(
         (DatasetRuntime, "__init__"),
         (DatasetFamilyRegistration, "__post_init__"),
         (registry, "implementation"),
-        (dsl_j1_contracts, "j1_numeric_method"),
+        (j1, "j1_numeric_method"),
     ):
         monkeypatch.setattr(owner, name, forbidden)
     source = _input()
@@ -508,3 +509,65 @@ def test_registry_and_core_consumer_use_no_io_or_legacy_registry(
     monkeypatch.setattr(method_registry, "REGISTRY", MethodRegistry(()))
     with pytest.raises(MethodRegistrationError, match="registered method version"):
         derive((source,), _params(source))
+
+
+@pytest.mark.parametrize(
+    "name,consumer,policy,parts,checks",
+    [
+        ("row.sum", "j1.rows", "strict", ("sum",), ("strict_current_row_cell",)),
+        ("row.count", "j1.rows", "count_all", ("count",), ()),
+        ("row.mean", "j1.rows", "strict", ("sum", "count"), ("strict_current_row_cell",)),
+        (
+            "state_rollup",
+            "j1.rollup",
+            "strict",
+            ("value.sum", "value.non_null_count", "value.row_count"),
+            ("complete_coverage", "contribution_partition"),
+        ),
+        (
+            "state_rollup",
+            "j1.group",
+            "strict",
+            ("value.sum", "value.non_null_count", "value.row_count"),
+            ("complete_coverage", "contribution_partition"),
+        ),
+        (
+            "cell.difference",
+            "j1.difference",
+            "strict",
+            ("current_endpoint", "baseline_endpoint"),
+            ("complete_pairing", "strict_numeric_cell"),
+        ),
+    ],
+)
+def test_connected_execution_contracts_have_one_registered_owner(
+    name, consumer, policy, parts, checks
+):
+    key = MethodKey(name)
+    registration = REGISTRY.execution(key, consumer)
+    assert registration.contract.cell_policy == policy
+    assert registration.contract.required_parts == parts
+    assert registration.contract.required_checks == checks
+    assert registration.require_route("source", "duckdb", "entity", "int64")
+    assert registration.require_route("local", "pandas", "entity", "float64")
+    with pytest.raises(MethodRegistrationError, match="registered method version"):
+        MethodRegistry(()).execution(key, consumer)
+    with pytest.raises(MethodRegistrationError, match="method/consumer pair"):
+        REGISTRY.execution(MethodKey("row.count_defined"), consumer)
+
+
+def test_old_j1_owner_has_no_overlapping_registration():
+    from marivo.analysis.operators import dsl_j1_contracts
+
+    assert not any(
+        hasattr(dsl_j1_contracts, name)
+        for name in (
+            "J1_ROW_SUM",
+            "J1_ROW_COUNT",
+            "J1_ROW_MEAN",
+            "J1_ROLLUP_SUM",
+            "J1_GROUP_SUM",
+            "J1_COMPARE_DIFFERENCE",
+            "j1_numeric_method",
+        )
+    )
