@@ -580,3 +580,31 @@ Historical 64 skips retain their assertions, owners and recovery conditions. R4 
 new graph public execution, six-backend full qualification, installed-package and
 real-Agent acceptance remain outside these corrections. R0/R1/R2 and whole-R3
 acceptance are not promoted by this entry.
+
+## R4.1 统一协议与交接冻结（2026-09-28）
+
+实施起点为干净的 `panda` / `53e388d62007c2c2eb5f162ee72b10c19951b59d`；
+R3 corrections 已在 `3d0ef2a332` 提交，不再是上一节所述的未提交候选。
+本包只修改 Analysis 三份 owning specs 与 R4 实施计划。检查期间出现与本包无关的
+`tests/test_r13_control_boundaries.py` 工作区改动；未纳入本包、未清理或归因于 R4.1。
+
+| R4.1 单元 | 本轮状态 | 契约证据及后续恢复条件 |
+| --- | --- | --- |
+| 新代际和唯一身份 | **契约冻结；产品未实施** | Store 7 与七个新 `marivo.analysis.* /v1` 协议、source/fixed 规范 key 字段及唯一 owner 已写入 [Session/Runtime](../../specs/analysis/session-state-and-runtime.md#r41-frozen-runtime-and-store-target-inactive)和 [Analysis 设计](../../specs/analysis/python-analysis-design.md#r41-frozen-graph-to-runtime-handoff-inactive)。R4.2/R4.4 必须实现同代际 Run、key、Store 与旧代际读前拒绝。 |
+| 交换、状态、检查与故障 | **契约冻结；执行未验证** | [方法/状态](../../specs/analysis/operators-and-frames.md#r41-frozen-method-state-and-evidence-target-inactive)列出封闭变体、主表/parts receipt 和本次检查证据；Session spec 固定准入、失败、提交不明和进程退出的可观察状态。R4.3/R4.4 须以真实流、注入故障及协调证明。 |
+| 旧入口/codec 删除交接 | **静态盘点通过；删除未实施** | [R4 计划 §4.1](2026-09-28-marivo-full-algebra-dsl-r4-implementation-plan.md#41-r41-协议冻结与删除矩阵仅契约未切换产品)逐包映射公共 DSL、旧 Dataset/J1/J4、key、descriptor/receipt/snapshot、Store/恢复以及未迁的家族 publication/codec。新链缺方法/形状/后端资格按 owner 早拒绝，恢复条件逐行登记。R4.2–R4.6 执行删除并反查安装包。 |
+| R4 V01–V12、四旅程及旧代际拒读 | **未验证** | 本轮无 Runtime/Store/公共产品改动、无新 wheel、断源冷恢复、故障或 Agent 执行证据；不能把契约冻结计作任何运行格通过。 |
+
+静态反查命令
+`rg -l 'J1Context|J1Node|execute_j1|J3Observed|marivo\.dataset_execution_key/v[12]|marivo\.j1_artifact_exchange/v[123]|marivo\.analysis\.public_continuation/v1|dataset_artifact_descriptor/v[12]' marivo/analysis`
+得到 **15** 个仍含旧路线的产品文件；
+`rg --files marivo/analysis/materialization | rg '(codec|publication)\.py$'`
+得到 **22** 个 codec/publication 文件，均在删除矩阵按具体家族或通用发布归属。
+本包四份契约文档的本地链接和新 R4.1 anchor 检查 **41 项、0 错误**；
+`git diff --check` 通过。四份契约文档（不含本验收记录）的
+`git diff --binary HEAD --` SHA-256 为
+`b93c564d6e0da12386be87ac182aaa8d1bfe4ca56ddf2953c8deea91bd21827f`；
+限定输入避免在验收记录中存放自身 diff 的循环 hash。R4.1 未改产品或测试代码，
+未运行 `make test`、Runtime、typecheck、站点构建或发布门禁。
+历史 **64 skipped** 的断言、owner 与恢复条件保持原状，R0–R3 整体资格和
+R4 V01–V12 不因本节提升。
