@@ -1,0 +1,67 @@
+........................................................................ [ 77%]
+..............FFFFF
+=================================== FAILURES ===================================
+___________________ test_cold_source_free_read_and_fixed_hit ___________________
+tests/test_analysis_graph_publication_r44.py:1047: in test_cold_source_free_read_and_fixed_hit
+    first = json.loads(_finish(_worker(case[0].store, saved.artifact_ref, "execute")))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_analysis_graph_publication_r44.py:1038: in _finish
+    assert process.returncode == expected, error
+E   AssertionError: /private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-636/test_installed_graph_journeys_0/installed-check/.venv/bin/python: No module named tests.graph_publication_runtime_worker
+E
+E   assert 1 == 0
+E    +  where 1 = <Popen: returncode: 1 args: ['/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x...>.returncode
+_ test_process_exit_coordinates_original_run_without_replay[graph_primary_written] _
+tests/test_analysis_graph_publication_r44.py:1068: in test_process_exit_coordinates_original_run_without_replay
+    _finish(_worker(store, saved.artifact_ref, "crash", point), expected=77)
+tests/test_analysis_graph_publication_r44.py:1038: in _finish
+    assert process.returncode == expected, error
+E   AssertionError: /private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-636/test_installed_graph_journeys_0/installed-check/.venv/bin/python: No module named tests.graph_publication_runtime_worker
+E
+E   assert 1 == 77
+E    +  where 1 = <Popen: returncode: 1 args: ['/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x...>.returncode
+_ test_process_exit_coordinates_original_run_without_replay[graph_part_written] _
+tests/test_analysis_graph_publication_r44.py:1068: in test_process_exit_coordinates_original_run_without_replay
+    _finish(_worker(store, saved.artifact_ref, "crash", point), expected=77)
+tests/test_analysis_graph_publication_r44.py:1038: in _finish
+    assert process.returncode == expected, error
+E   AssertionError: /private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-636/test_installed_graph_journeys_0/installed-check/.venv/bin/python: No module named tests.graph_publication_runtime_worker
+E
+E   assert 1 == 77
+E    +  where 1 = <Popen: returncode: 1 args: ['/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x...>.returncode
+_ test_process_exit_coordinates_original_run_without_replay[graph_files_published] _
+tests/test_analysis_graph_publication_r44.py:1068: in test_process_exit_coordinates_original_run_without_replay
+    _finish(_worker(store, saved.artifact_ref, "crash", point), expected=77)
+tests/test_analysis_graph_publication_r44.py:1038: in _finish
+    assert process.returncode == expected, error
+E   AssertionError: /private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-636/test_installed_graph_journeys_0/installed-check/.venv/bin/python: No module named tests.graph_publication_runtime_worker
+E
+E   assert 1 == 77
+E    +  where 1 = <Popen: returncode: 1 args: ['/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x...>.returncode
+___ test_process_exit_coordinates_original_run_without_replay[before_commit] ___
+tests/test_analysis_graph_publication_r44.py:1068: in test_process_exit_coordinates_original_run_without_replay
+    _finish(_worker(store, saved.artifact_ref, "crash", point), expected=77)
+tests/test_analysis_graph_publication_r44.py:1038: in _finish
+    assert process.returncode == expected, error
+E   AssertionError: /private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-636/test_installed_graph_journeys_0/installed-check/.venv/bin/python: No module named tests.graph_publication_runtime_worker
+E
+E   assert 1 == 77
+E    +  where 1 = <Popen: returncode: 1 args: ['/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x...>.returncode
+=============================== warnings summary ===============================
+tests/test_cutover_documentation_examples.py: 115 warnings
+tests/test_analysis_dsl_public.py: 274 warnings
+tests/test_analysis_dsl_r45_migration.py: 499 warnings
+tests/test_analysis_graph_preflight_r45.py: 796 warnings
+tests/test_analysis_graph_publication_r44.py: 70 warnings
+  /private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-636/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/ibis/backends/duckdb/__init__.py:332: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.
+    meta = result.fetch_arrow_table()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_analysis_graph_publication_r44.py::test_cold_source_free_read_and_fixed_hit
+FAILED tests/test_analysis_graph_publication_r44.py::test_process_exit_coordinates_original_run_without_replay[graph_primary_written]
+FAILED tests/test_analysis_graph_publication_r44.py::test_process_exit_coordinates_original_run_without_replay[graph_part_written]
+FAILED tests/test_analysis_graph_publication_r44.py::test_process_exit_coordinates_original_run_without_replay[graph_files_published]
+FAILED tests/test_analysis_graph_publication_r44.py::test_process_exit_coordinates_original_run_without_replay[before_commit]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 5 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+5 failed, 86 passed, 443 deselected, 1754 warnings in 130.47s (0:02:10)

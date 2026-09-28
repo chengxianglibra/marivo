@@ -226,6 +226,13 @@ Use a fresh project root, preserving all old state. There is one Store schema,
 transaction owner, writer guard and resource journal; no schema migration or
 format-probing fallback is installed.
 
+R4.6 installed-package evidence is recorded in the
+[acceptance ledger](../../superpowers/specs/2026-09-26-marivo-full-refactor-acceptance.md).
+It rechecks this existing boundary with one candidate wheel and source-free
+processes; it grants no additional backend or method qualification. Public
+Dataset Help must disclose the Store 7 rejection even when a private generic
+Dataset harness has historical backend qualification.
+
 After pure graph and persistence admission, the private Runtime acquires the
 Session guard and reconciles only incomplete or still-obligated original Runs.
 Source metadata is frozen before admission; the R1 factory opens after the Run

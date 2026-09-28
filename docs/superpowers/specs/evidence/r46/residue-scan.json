@@ -1,0 +1,143 @@
+{
+  "archives": [
+    {
+      "retired_matches": [],
+      "sha256": "24c3caa6d09c21f97f20662f300c04d77d64cb35615dc2063e5a812b9db14ae3",
+      "wheel": "marivo-0.5.3.dev0-py3-none-any.whl"
+    }
+  ],
+  "deferred_inventory": [
+    {
+      "line": 14,
+      "path": "marivo/analysis/compiler/source_admission.py",
+      "text": "legacy_source_migration_stage,"
+    },
+    {
+      "line": 117,
+      "path": "marivo/analysis/compiler/source_admission.py",
+      "text": "f\"blocked_r1.1 backend={binding.adapter}: legacy Dataset source route awaits \""
+    },
+    {
+      "line": 118,
+      "path": "marivo/analysis/compiler/source_admission.py",
+      "text": "f\"R{legacy_source_migration_stage(registration.operator_id)} migration\","
+    },
+    {
+      "line": 279,
+      "path": "marivo/analysis/materialization/admission.py",
+      "text": "\"\"\"Read existing v6 Session history without creating or activating a Session.\"\"\""
+    },
+    {
+      "line": 289,
+      "path": "marivo/analysis/materialization/admission.py",
+      "text": "\"\"\"Read a named existing v6 Session and one bounded Run page.\"\"\""
+    },
+    {
+      "line": 519,
+      "path": "marivo/analysis/materialization/contracts.py",
+      "text": "\"schema\": \"marivo.analysis_exchange/v1\","
+    },
+    {
+      "line": 551,
+      "path": "marivo/analysis/materialization/contracts.py",
+      "text": "if obj[\"schema\"] != \"marivo.analysis_exchange/v1\":"
+    },
+    {
+      "line": 1581,
+      "path": "marivo/analysis/materialization/contracts.py",
+      "text": "def encode_descriptor(value: ArtifactDescriptor) -> str:"
+    },
+    {
+      "line": 1585,
+      "path": "marivo/analysis/materialization/contracts.py",
+      "text": "def decode_descriptor(text: str) -> ArtifactDescriptor:"
+    },
+    {
+      "line": 89,
+      "path": "marivo/analysis/materialization/dataset_execution.py",
+      "text": "from marivo.analysis.operators.registry import legacy_source_migration_stage"
+    },
+    {
+      "line": 209,
+      "path": "marivo/analysis/materialization/dataset_execution.py",
+      "text": "legacy_source_migration_stage(operator_id)"
+    },
+    {
+      "line": 214,
+      "path": "marivo/analysis/materialization/dataset_execution.py",
+      "text": "received=f\"legacy text-backed source steps: {', '.join(operator_ids[:4])}\","
+    },
+    {
+      "line": 1,
+      "path": "marivo/analysis/materialization/execution_key.py",
+      "text": "\"\"\"Versioned private execution keys for legacy and staged graph routes.\"\"\""
+    },
+    {
+      "line": 266,
+      "path": "marivo/analysis/materialization/execution_key.py",
+      "text": "def execution_key(definition_fingerprint: str) -> str:"
+    },
+    {
+      "line": 519,
+      "path": "marivo/analysis/materialization/graph_exchange.py",
+      "text": "\"\"\"Verify a physical part without borrowing a legacy method codec.\"\"\""
+    },
+    {
+      "line": 1,
+      "path": "marivo/analysis/materialization/graph_protocol.py",
+      "text": "\"\"\"Closed, canonical v7 metadata; no legacy Artifact or journey codecs.\"\"\""
+    },
+    {
+      "line": 99,
+      "path": "marivo/analysis/materialization/lifecycle_publication.py",
+      "text": "raise invalid(\"legacy source Lifecycle summary is unavailable before R7 migration\")"
+    },
+    {
+      "line": 189,
+      "path": "marivo/analysis/materialization/store.py",
+      "text": "raise invalid(\"v6 Store requires WAL durability\")"
+    },
+    {
+      "line": 240,
+      "path": "marivo/analysis/materialization/store.py",
+      "text": "raise invalid(\"v6 cannot open a v7 project; preserve the existing generation\")"
+    },
+    {
+      "line": 245,
+      "path": "marivo/analysis/materialization/store.py",
+      "text": "\"\"\"Open only an existing complete v6 authority without initializing state.\"\"\""
+    },
+    {
+      "line": 254,
+      "path": "marivo/analysis/materialization/store.py",
+      "text": "raise invalid(\"selected v6 Store is unavailable\")"
+    },
+    {
+      "line": 347,
+      "path": "marivo/analysis/materialization/store.py",
+      "text": "raise invalid(\"v6 Store requires WAL durability\")"
+    },
+    {
+      "line": 351,
+      "path": "marivo/analysis/materialization/store.py",
+      "text": "raise invalid(\"v6 Store requires WAL durability\")"
+    },
+    {
+      "line": 72,
+      "path": "marivo/analysis/methods/semantics.py",
+      "text": "\"Use a connected method; datasource terminals and legacy journey IDs are not methods.\","
+    },
+    {
+      "line": 57,
+      "path": "marivo/analysis/operators/registry.py",
+      "text": "def legacy_source_migration_stage(operator_id: str) -> int:"
+    },
+    {
+      "line": 58,
+      "path": "marivo/analysis/operators/registry.py",
+      "text": "\"\"\"Return the planned method migration stage for a blocked legacy source route.\"\"\""
+    }
+  ],
+  "passed": true,
+  "retired": []
+}

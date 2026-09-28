@@ -1,0 +1,22 @@
+materialized observe
+domain=entity; quantity=observed
+required_parts=original_state,coverage; retained_parts=subject,original_state,coverage
+unit=kWh
+method=sum
+statistical_unit=one Entity member
+metric=operations.energy_total
+rows=4
+source=exact retained Artifact; no source reconnect
+cell_state_fields=cell_tag,cell_reason
+call=relation.rollup(); help=analysis.dsl.MaterializedNumericRelation.rollup
+call=relation.summarize(method); help=analysis.dsl.MaterializedNumericRelation.summarize
+call=relation.compare(baseline); help=analysis.dsl.MaterializedNumericRelation.compare
+call=relation.correlate(other); help=analysis.dsl.MaterializedNumericRelation.correlate
+Artifact artifact_1f18a0c9a75d46339402171a2e388c59 rows=4
+    member  value cell_tag        cell_reason
+<identity>  450.0  defined               None
+<identity>  150.0  defined               None
+<identity>  400.0  defined               None
+<identity>    NaN     null empty_contribution
+
+<frozen runpy>:128: RuntimeWarning: 'tests.installed_wheel_probe' found in sys.modules after import of package 'tests', but prior to execution of 'tests.installed_wheel_probe'; this may result in unpredictable behaviour

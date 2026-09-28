@@ -1,23 +1,18 @@
-"""Installed-origin assertions and a public three-process Dataset journey."""
+"""Installed-origin assertions and public graph journey process entrypoint."""
 
 from __future__ import annotations
 
+import atexit
+import hashlib
 import importlib.metadata
 import inspect
 import json
 import os
 import sys
 import sysconfig
-from dataclasses import asdict
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
-
-from tests.lazy_runtime_patch_targets import runtime_patch_owner
-
-if TYPE_CHECKING:
-    from marivo.analysis import LogicalDeltaDataset, Session
 
 
 def assert_installed_origin() -> dict[str, object]:
@@ -56,6 +51,31 @@ def assert_installed_origin() -> dict[str, object]:
     }
 
 
+def watch_installed_origin() -> None:
+    """Record package authority at process start and after normal completion."""
+    directory = Path(os.environ["MARIVO_INSTALLED_ORIGIN_DIR"])
+    directory.mkdir(parents=True, exist_ok=True)
+
+    def capture(phase: str) -> None:
+        path = directory / f"{os.getpid()}-{phase}.json"
+        try:
+            origin = assert_installed_origin()
+            modules = origin.pop("modules")
+            origin["modules_sha256"] = hashlib.sha256(
+                json.dumps(modules, sort_keys=True).encode()
+            ).hexdigest()
+        except BaseException as error:
+            path.write_text(json.dumps({"error": str(error), "pid": os.getpid()}))
+            raise
+        path.write_text(
+            json.dumps({"pid": os.getpid(), "phase": phase, "origin": origin}, sort_keys=True)
+            + "\n"
+        )
+
+    capture("start")
+    atexit.register(capture, "exit")
+
+
 def pytest_sessionstart(session: pytest.Session) -> None:
     assert_installed_origin()
 
@@ -78,7 +98,9 @@ def surface_snapshot() -> list[dict[str, object]]:
     assert isinstance(public_names, list)
     names = tuple(str(name) for name in public_names)
     assert list(names) == public_names
-    assert len(names) == len(exports) == 98
+    from tests.test_public_surface import ANALYSIS_PUBLIC
+
+    assert set(names) == set(exports) == ANALYSIS_PUBLIC
     for family in (
         "Population",
         "Metric",
@@ -119,164 +141,27 @@ def surface_snapshot() -> list[dict[str, object]]:
     return result
 
 
-def _definition(session: Session) -> LogicalDeltaDataset:
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
-    metric = ms.ref.metric("sales.revenue")
-    region = ms.ref.dimension("sales.orders.region")
-    current = (
-        session.observe(metric, time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"))
-        .with_dimensions(region)
-        .aggregate()
-    )
-    baseline = (
-        session.observe(metric, time_scope=mv.time_scope(start="2026-06-01", end="2026-07-01"))
-        .with_dimensions(region)
-        .aggregate()
-    )
-    return current.compare(baseline)
-
-
-def journey(phase: str, project: Path) -> dict[str, object]:
-    import duckdb
-
-    import marivo.analysis as mv
-    from marivo.render import AgentResult
-
-    os.chdir(project)
-    database = project / "warehouse.duckdb"
-    saved_path = project / "installed-result.json"
-    if phase == "produce":
-        with duckdb.connect(str(database), config={"threads": 1}) as connection:
-            connection.execute("UPDATE orders SET region='all'")
-            identifiers = connection.execute(
-                "SELECT query_id FROM orders ORDER BY query_id"
-            ).fetchall()
-            assert len(identifiers) == 4
-            for identifier, day, amount in zip(
-                identifiers,
-                ("20260701", "20260702", "20260601", "20260602"),
-                (10, 20, 5, 7),
-                strict=True,
-            ):
-                connection.execute(
-                    "UPDATE orders SET log_date=?, amount=? WHERE query_id=?",
-                    [day, amount, identifier[0]],
-                )
-        session = mv.session.get_or_create("installed", report_timezone="UTC")
-        logical = _definition(session)
-        assert isinstance(logical, mv.LogicalDeltaDataset)
-        assert session.runs().items == () and not session._runtime.statistics.statements
-        assert not any(hasattr(logical, name) for name in ("show", "to_pandas", "render"))
-        assert not isinstance(logical, AgentResult)
-        assert isinstance(logical.contract(), AgentResult)
-        materialized = logical.execute()
-        saved_path.write_text(
-            json.dumps({"session": session.id, "artifact": str(materialized.state.artifact_ref)})
-        )
-        assert len(session.runs().items) == 1
-    else:
-        assert not database.exists()
-
-        def forbidden(*args: object, **kwargs: object) -> None:
-            raise AssertionError("retained execution attempted origin datasource access")
-
-        patch = pytest.MonkeyPatch()
-        for name in (
-            "_build_backend_from_effective",
-            "_effective_kwargs",
-            "require_profile_for_backend_type",
-        ):
-            patch.setattr(runtime_patch_owner(name), name, forbidden)
-        saved = json.loads(saved_path.read_text())
-        session = mv.session.resume(saved["session"], by="id")
-        count = len(session.runs().items)
-        if phase == "recover":
-            materialized = _definition(session).execute()
-            assert str(materialized.state.artifact_ref) == saved["artifact"]
-            assert len(session.runs().items) == count == 2
-            assert not session._runtime.statistics.statements
-        else:
-            assert phase == "continue"
-            loaded = session.artifact(saved["artifact"])
-            assert isinstance(loaded, mv.MaterializedDeltaDataset)
-            materialized = loaded
-            assert count == 1
-            downstream = materialized.rank(materialized.fields.get("delta")).limit(1)
-            assert isinstance(downstream, mv.LogicalDeltaDataset)
-            continued = downstream.execute()
-            assert continued.to_pandas()["delta"].tolist() == [18.0]
-            assert len(session.runs().items) == 2
-        assert session._runtime.statistics.source_fences == 0
-    assert isinstance(materialized, mv.MaterializedDeltaDataset)
-    assert not isinstance(materialized, AgentResult) and not hasattr(materialized, "render")
-    assert materialized.to_pandas()[["current_value", "baseline_value", "delta"]].to_dict(
-        "records"
-    ) == [{"current_value": 30.0, "baseline_value": 12.0, "delta": 18.0}]
-    findings = materialized.findings()
-    assert findings.items
-    assert materialized.evidence_digest.finding_count == len(findings.items)
-    finding = materialized.finding(findings.items[0].finding_id)
-    assert finding == findings.items[0]
-    artifact_ref = materialized.state.artifact_ref
-    run = next(
-        item
-        for item in session.runs().items
-        if isinstance(item, mv.SucceededRun) and item.output_artifact_ref == artifact_ref
-    )
-    assert session.get_run(run.run_id) == run
-    assert session.artifact(artifact_ref).evidence_digest == materialized.evidence_digest
-    graph = session.graph(artifact_ref=artifact_ref)
-    assert isinstance(graph, mv.SessionGraph)
-    if phase == "produce":
-        assert graph.head_artifact_refs == (artifact_ref,)
-        assert session.graph().head_artifact_refs == (artifact_ref,)
-    else:
-        assert graph.head_artifact_refs == ()
-        heads = session.graph().head_artifact_refs
-        assert len(heads) == 1 and artifact_ref not in heads
-    graph.render()
-    audit = session.revalidate(artifact_ref)
-    assert (audit.artifact_integrity, audit.storage_authority, audit.evidence_integrity) == (
-        "valid",
-        "readable",
-        "valid",
-    )
-    materialized.contract().render()
-    materialized.show()
-    assert not tuple((project / ".marivo").rglob("*.duckdb"))
-    if phase == "produce":
-        database.rename(database.with_suffix(".offline"))
-    else:
-        assert not database.exists()
-        patch.undo()
-    return {
-        "phase": phase,
-        "pid": os.getpid(),
-        "session": session.id,
-        "artifact": str(artifact_ref),
-        "run": run.run_id,
-        "run_count": len(session.runs().items),
-        "evidence": materialized.evidence_digest.evidence_digest,
-        "revalidation": {
-            "artifact_integrity": audit.artifact_integrity,
-            "storage_authority": audit.storage_authority,
-            "evidence_integrity": audit.evidence_integrity,
-        },
-        "finding_ids": [item.finding_id for item in findings.items],
-        "graph": graph.render(),
-        "execution_statements": session._runtime.statistics.statements,
-        "statistics": asdict(session._runtime.statistics),
-        "origin": assert_installed_origin(),
-    }
-
-
 if __name__ == "__main__":
     assert_installed_origin()
     mode = sys.argv[1]
     if mode == "surface":
         report: object = surface_snapshot()
+    elif mode == "guard":
+        report = assert_installed_origin()
+    elif mode == "install-hook":
+        hook = Path(sysconfig.get_path("purelib")) / "marivo_installed_origin.pth"
+        assert not hook.exists()
+        bootstrap = (
+            "if os.environ.get('MARIVO_INSTALLED_ORIGIN_DIR'):\n"
+            f"    sys.path.insert(0, {str(Path.cwd())!r})\n"
+            "    from tests.installed_wheel_probe import watch_installed_origin\n"
+            "    watch_installed_origin()\n"
+        )
+        hook.write_text(f"import os, sys; exec({bootstrap!r})\n")
+        report = {"hook": str(hook)}
     else:
-        report = assert_installed_origin() if mode == "guard" else journey(mode, Path(sys.argv[2]))
+        from tests.installed_graph_journeys import journey
+
+        report = journey(mode, Path(sys.argv[2]), sys.argv[3], sys.argv[4])
+        report["origin"] = assert_installed_origin()
     Path(sys.argv[-1]).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")

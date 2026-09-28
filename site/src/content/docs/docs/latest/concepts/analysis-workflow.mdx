@@ -175,7 +175,7 @@ Duration columns in the preview are explicitly labeled in microseconds;
 Results always use project-local Parquet; no result storage setting exists.
 Execution never chooses database result storage or changes target/executor after
 failure. Retained results preserve exact storage and temporal authority across
-cold recovery. Store generation 6 does not migrate or rewrite older files.
+cold recovery. Store generation 7 does not migrate or rewrite older files.
 
 ## Keep decisions explicit
 
@@ -220,8 +220,7 @@ Primary rows and required parts may observe different source states within one e
 
 For the Entity-domain J1–J4 slice, repeated logical source execution reads the
 source again. Fixed continuations can hit the same exact committed Artifact;
-recover it explicitly with `session.artifact(ref)`. Other Dataset paths retain
-their owning execution-key behavior.
+recover it explicitly with `session.artifact(ref)`. Other Dataset paths reject before execution until their R5–R9 migration.
 Recovery integrity checks cover Artifact, storage authority and Evidence, not
 current semantic authority or datasource freshness.
 
@@ -234,7 +233,7 @@ row, byte, memory, spill, method complexity, storage or deadline budgets. Databa
 driver, OS and external runner limits still apply.
 
 `show()` keeps its display bounds. Complete-input validation, ownership and atomic
-publication remain mandatory. Store generation 6 leaves older files untouched;
+publication remain mandatory. Store generation 7 leaves older files untouched;
 old Sessions are not migrated or resumed.
 
 Supported execution does not require engine, driver or Ibis version certification.

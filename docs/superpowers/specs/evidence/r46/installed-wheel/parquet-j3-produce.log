@@ -1,0 +1,22 @@
+materialized ratio_observe
+domain=entity; quantity=observed
+required_parts=original_state,coverage,coordinate_state; retained_parts=subject,original_state,coverage,coordinate_state
+weighting=original numerator and denominator components
+unit=not declared
+method=ratio
+statistical_unit=one Entity member
+metric=operations.energy_per_reading
+weighting=original numerator and denominator components
+rows=3
+source=exact retained Artifact; no source reconnect
+cell_state_fields=cell_tag,cell_reason
+call=relation.group_by(dimension); help=analysis.dsl.MaterializedRatioRelation.group_by
+call=relation.rollup(); help=analysis.dsl.MaterializedRatioRelation.rollup
+call=relation.summarize(method); help=analysis.dsl.MaterializedRatioRelation.summarize
+Artifact artifact_8430a725eb40430e9add53ec9d317a29 rows=3
+    member coord_0  value cell_tag cell_reason
+<identity>  mobile    0.0  defined        None
+<identity>     web  100.0  defined        None
+<identity>     web   30.0  defined        None
+
+<frozen runpy>:128: RuntimeWarning: 'tests.installed_wheel_probe' found in sys.modules after import of package 'tests', but prior to execution of 'tests.installed_wheel_probe'; this may result in unpredictable behaviour

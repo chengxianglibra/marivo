@@ -1,0 +1,56 @@
+[
+  {
+    "log": "targeted-default.log",
+    "command": "make test TESTS='tests/test_analysis_graph_r33.py tests/test_analysis_graph_runtime_r42.py tests/test_analysis_dsl_exchange.py tests/test_analysis_dsl_contracts.py tests/test_analysis_dsl_r45_migration.py tests/test_analysis_graph_publication_r44.py'",
+    "exit_code": 0,
+    "scope": "intermediate source check; final installed suite also covers these nodes"
+  },
+  {
+    "log": "targeted-runtime.log",
+    "command": "make runtime-test TESTS='tests/test_analysis_dsl_public.py tests/test_analysis_dsl_r45_migration.py tests/test_analysis_graph_preflight_r45.py tests/test_analysis_graph_publication_r44.py tests/test_analysis_lowering_r34.py tests/test_cutover_documentation_examples.py'",
+    "exit_code": 0,
+    "scope": "intermediate source check; final installed suite covers the same 93 nodes"
+  },
+  {
+    "log": "check-agent.log",
+    "command": "make check-agent",
+    "exit_code": 0,
+    "scope": "final product tree; subsequent edits affect only installed-origin test hook and evidence tools"
+  },
+  {
+    "log": "build.log",
+    "command": "make pypi-build pypi-check",
+    "exit_code": 0,
+    "scope": "final candidate; marivo package bytes unchanged afterward"
+  },
+  {
+    "log": "site.log",
+    "command": "npm run build (cwd=site)",
+    "exit_code": 0,
+    "scope": "final bilingual latest pages"
+  },
+  {
+    "log": "typing-probes.log",
+    "command": ".venv/bin/mypy --explicit-package-bases --follow-imports=silent tests/installed_graph_journeys.py tests/installed_wheel_probe.py tests/test_analysis_runtime_wheel.py tests/test_cutover_documentation_examples.py",
+    "exit_code": 0,
+    "scope": "final typed probes"
+  },
+  {
+    "log": "final-lint.log",
+    "command": "make lint-agent LINT_TARGETS='marivo/analysis/datasets/_disclosure.py marivo/analysis/materialization/contracts.py tests/installed_wheel_probe.py tests/installed_graph_journeys.py tests/test_analysis_runtime_wheel.py tests/test_cutover_documentation_examples.py tests/test_lazy_public_session.py devtools/analysis_r46'",
+    "exit_code": 0,
+    "scope": "final touched Python files"
+  },
+  {
+    "command": "PIP_INDEX_URL=https://pypi.org/simple MARIVO_R46_EVIDENCE_DIR=<evidence/r46> .venv/bin/pytest -n 0 -m release tests/test_analysis_runtime_wheel.py -q --tb=short",
+    "log": "wheel-final-verified.log",
+    "exit_code": 0,
+    "scope": "final candidate and final origin hook"
+  },
+  {
+    "command": ".venv/bin/mypy --explicit-package-bases --follow-imports=silent devtools/analysis_r46",
+    "log": "typing-evidence-tools.log",
+    "exit_code": 0,
+    "scope": "final evidence scripts"
+  }
+]

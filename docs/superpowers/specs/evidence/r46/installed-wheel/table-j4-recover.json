@@ -1,0 +1,1157 @@
+{
+  "artifact": "artifact_fe3180708f2a4621927dac628341150e",
+  "continuations": {
+    "mean": {
+      "artifact": "artifact_f3c211bc97ac4dc7ad823e1329e221f5",
+      "rows": {
+        "data": [
+          {
+            "cell_reason": null,
+            "cell_tag": "defined",
+            "value": -0.4
+          }
+        ],
+        "schema": {
+          "fields": [
+            {
+              "name": "value",
+              "type": "number"
+            },
+            {
+              "name": "cell_tag",
+              "type": "string"
+            },
+            {
+              "name": "cell_reason",
+              "type": "string"
+            }
+          ],
+          "pandas_version": "1.4.0"
+        }
+      },
+      "run": "run_a689caa9de71489e02e2457d"
+    },
+    "selected_mean": {
+      "artifact": "artifact_925008d687984cccb3bb6d6dc457b0c2",
+      "rows": {
+        "data": [
+          {
+            "cell_reason": null,
+            "cell_tag": "defined",
+            "value": -0.4
+          }
+        ],
+        "schema": {
+          "fields": [
+            {
+              "name": "value",
+              "type": "number"
+            },
+            {
+              "name": "cell_tag",
+              "type": "string"
+            },
+            {
+              "name": "cell_reason",
+              "type": "string"
+            }
+          ],
+          "pandas_version": "1.4.0"
+        }
+      },
+      "run": "run_2a61882e12db7e33e405a5a2"
+    },
+    "where": {
+      "artifact": "artifact_2d884cef3ce849aaad4de29d30e5c736",
+      "rows": {
+        "data": [
+          {
+            "cell_reason": null,
+            "cell_tag": "defined",
+            "coefficient": -0.4,
+            "complete_pair_count": 4,
+            "input_observation_count": 4,
+            "matched_observation_count": 4,
+            "metric_key_a": "metric:operations.energy_total",
+            "metric_key_b": "metric:operations.reading_count",
+            "null_pair_count": 0
+          }
+        ],
+        "schema": {
+          "fields": [
+            {
+              "name": "coefficient",
+              "type": "number"
+            },
+            {
+              "name": "cell_tag",
+              "type": "string"
+            },
+            {
+              "name": "cell_reason",
+              "type": "string"
+            },
+            {
+              "name": "metric_key_a",
+              "type": "string"
+            },
+            {
+              "name": "metric_key_b",
+              "type": "string"
+            },
+            {
+              "name": "input_observation_count",
+              "type": "integer"
+            },
+            {
+              "name": "matched_observation_count",
+              "type": "integer"
+            },
+            {
+              "name": "null_pair_count",
+              "type": "integer"
+            },
+            {
+              "name": "complete_pair_count",
+              "type": "integer"
+            }
+          ],
+          "pandas_version": "1.4.0"
+        }
+      },
+      "run": "run_9a9a56869f04f8e3bc460f4e"
+    }
+  },
+  "contract": {
+    "_facts": [
+      [
+        "unit",
+        "1"
+      ],
+      [
+        "method",
+        "association.spearman"
+      ],
+      [
+        "statistical_unit",
+        "one selected domain"
+      ],
+      [
+        "rows",
+        "1"
+      ],
+      [
+        "source",
+        "exact retained Artifact; no source reconnect"
+      ],
+      [
+        "cell_state_fields",
+        "cell_tag,cell_reason"
+      ]
+    ],
+    "actions": [
+      {
+        "call": "relation.coefficient",
+        "help_target": "analysis.MaterializedCoefficientRelation"
+      }
+    ],
+    "domain": "singleton",
+    "kind": "correlate",
+    "phase": "materialized",
+    "quantity": "derived",
+    "required_parts": [
+      "pair_counts"
+    ],
+    "retained_parts": [
+      "pair_counts"
+    ]
+  },
+  "descriptor": {
+    "completed_checks": [
+      {
+        "check_id": "source.unique_key@v1",
+        "deadline": "consume",
+        "ordered_input_occurrences": [],
+        "origin_node": "ac051823024344bfb8283d40628afbb0",
+        "producing_run_ref": "run_e852d5bf354263f5ac71ca96",
+        "result_digest": "9a38e2de48b671637d51b86cb50cba1e5ed811531ecf71d064773ea63aaa663d",
+        "scope": "all",
+        "status": "completed"
+      },
+      {
+        "check_id": "source.unique_key@v1",
+        "deadline": "consume",
+        "ordered_input_occurrences": [],
+        "origin_node": "90dcda6c005e4c4c99cb92590cb0c08e",
+        "producing_run_ref": "run_e852d5bf354263f5ac71ca96",
+        "result_digest": "9a38e2de48b671637d51b86cb50cba1e5ed811531ecf71d064773ea63aaa663d",
+        "scope": "all",
+        "status": "completed"
+      },
+      {
+        "check_id": "source.contribution_partition@v1",
+        "deadline": "publish",
+        "ordered_input_occurrences": [],
+        "origin_node": "90dcda6c005e4c4c99cb92590cb0c08e",
+        "producing_run_ref": "run_e852d5bf354263f5ac71ca96",
+        "result_digest": "24b0e6e8725c0c05446732336d966d28746344af13888f04ea807be205795508",
+        "scope": "all",
+        "status": "completed"
+      },
+      {
+        "check_id": "source.complete_coverage@v1",
+        "deadline": "publish",
+        "ordered_input_occurrences": [],
+        "origin_node": "90dcda6c005e4c4c99cb92590cb0c08e",
+        "producing_run_ref": "run_e852d5bf354263f5ac71ca96",
+        "result_digest": "24b0e6e8725c0c05446732336d966d28746344af13888f04ea807be205795508",
+        "scope": "all",
+        "status": "completed"
+      },
+      {
+        "check_id": "source.unique_key@v1",
+        "deadline": "consume",
+        "ordered_input_occurrences": [],
+        "origin_node": "f6093c898e00471ca57d3e6220898ddb",
+        "producing_run_ref": "run_e852d5bf354263f5ac71ca96",
+        "result_digest": "9a38e2de48b671637d51b86cb50cba1e5ed811531ecf71d064773ea63aaa663d",
+        "scope": "all",
+        "status": "completed"
+      },
+      {
+        "check_id": "source.contribution_partition@v1",
+        "deadline": "publish",
+        "ordered_input_occurrences": [],
+        "origin_node": "f6093c898e00471ca57d3e6220898ddb",
+        "producing_run_ref": "run_e852d5bf354263f5ac71ca96",
+        "result_digest": "d7ce613c568ca5e24a1e19ad11deb314be7f9a6f8021fea290c3a74e31e9892f",
+        "scope": "all",
+        "status": "completed"
+      },
+      {
+        "check_id": "source.complete_coverage@v1",
+        "deadline": "publish",
+        "ordered_input_occurrences": [],
+        "origin_node": "f6093c898e00471ca57d3e6220898ddb",
+        "producing_run_ref": "run_e852d5bf354263f5ac71ca96",
+        "result_digest": "24b0e6e8725c0c05446732336d966d28746344af13888f04ea807be205795508",
+        "scope": "all",
+        "status": "completed"
+      },
+      {
+        "check_id": "source.unique_key@v1",
+        "deadline": "consume",
+        "ordered_input_occurrences": [],
+        "origin_node": "c8a7162a8e204901aa23b5dbc0dcb444",
+        "producing_run_ref": "run_e852d5bf354263f5ac71ca96",
+        "result_digest": "9a38e2de48b671637d51b86cb50cba1e5ed811531ecf71d064773ea63aaa663d",
+        "scope": "all",
+        "status": "completed"
+      },
+      {
+        "check_id": "source.contribution_partition@v1",
+        "deadline": "publish",
+        "ordered_input_occurrences": [],
+        "origin_node": "c8a7162a8e204901aa23b5dbc0dcb444",
+        "producing_run_ref": "run_e852d5bf354263f5ac71ca96",
+        "result_digest": "24b0e6e8725c0c05446732336d966d28746344af13888f04ea807be205795508",
+        "scope": "all",
+        "status": "completed"
+      },
+      {
+        "check_id": "source.complete_coverage@v1",
+        "deadline": "publish",
+        "ordered_input_occurrences": [],
+        "origin_node": "c8a7162a8e204901aa23b5dbc0dcb444",
+        "producing_run_ref": "run_e852d5bf354263f5ac71ca96",
+        "result_digest": "24b0e6e8725c0c05446732336d966d28746344af13888f04ea807be205795508",
+        "scope": "all",
+        "status": "completed"
+      },
+      {
+        "check_id": "source.complete_coverage@v1",
+        "deadline": "publish",
+        "ordered_input_occurrences": [],
+        "origin_node": "c8a7162a8e204901aa23b5dbc0dcb444",
+        "producing_run_ref": "run_e852d5bf354263f5ac71ca96",
+        "result_digest": "24b0e6e8725c0c05446732336d966d28746344af13888f04ea807be205795508",
+        "scope": "all",
+        "status": "completed"
+      },
+      {
+        "check_id": "source.exact_pairing@v1",
+        "deadline": "consume",
+        "ordered_input_occurrences": [
+          "240a39291b0599682f2c96f8415011ea3addee52888d851a03063174c505a2e2",
+          "6dc87f9c463ffe06dc81128d49769b69dddf5018acb9171fd748c09ce9365f38"
+        ],
+        "origin_node": "c8a7162a8e204901aa23b5dbc0dcb444",
+        "producing_run_ref": "run_e852d5bf354263f5ac71ca96",
+        "result_digest": "9a38e2de48b671637d51b86cb50cba1e5ed811531ecf71d064773ea63aaa663d",
+        "scope": "all",
+        "status": "completed"
+      },
+      {
+        "check_id": "source.finite_numeric@v1",
+        "deadline": "consume",
+        "ordered_input_occurrences": [
+          "240a39291b0599682f2c96f8415011ea3addee52888d851a03063174c505a2e2",
+          "6dc87f9c463ffe06dc81128d49769b69dddf5018acb9171fd748c09ce9365f38"
+        ],
+        "origin_node": "c8a7162a8e204901aa23b5dbc0dcb444",
+        "producing_run_ref": "run_e852d5bf354263f5ac71ca96",
+        "result_digest": "9a38e2de48b671637d51b86cb50cba1e5ed811531ecf71d064773ea63aaa663d",
+        "scope": "all",
+        "status": "completed"
+      }
+    ],
+    "continuation_snapshot": "{\"dimension_facts\":[\"device_id\",\"reading_id\"],\"entity_facts\":[\"operations.device\",\"operations.reading\"],\"input_binding\":\"3662e664f28e4c8593aaf701a896bb0b,2195bd020ca2a0f5bf54e357e9c1dfc0fd5936f44f74cc14482ab978fbae5000\",\"method_state_digest\":\"a18e756d835805be7cddc1c24f44b9ff91a436d1e14779a02a4355d1555e34f2\",\"method_versions\":[{\"name\":\"parts_transport\",\"version\":1},{\"name\":\"metric.observe\",\"version\":1},{\"name\":\"metric.count\",\"version\":1},{\"name\":\"association.spearman\",\"version\":1}],\"part_receipt_digests\":[\"ec5583be60a2ee7b81e7c8d53fc80b963dd83ce224dc1e4e3fbf7032dafdfd35\"],\"primary_receipt_digest\":\"9ee36a849e459c5bc57bcd4f9a6b6a8e3469aff526d50d968bce8bff4033ebc7\",\"root\":\"{\\\"derivation\\\":{\\\"eval_id\\\":\\\"association.spearman@v1\\\",\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"publish\\\",\\\"check_id\\\":\\\"source.contribution_partition@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"contribution_partition\\\",\\\"subject_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"publish\\\",\\\"check_id\\\":\\\"source.complete_coverage@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"complete_coverage\\\",\\\"subject_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"publish\\\",\\\"check_id\\\":\\\"source.complete_coverage@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"complete_coverage\\\",\\\"subject_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.exact_pairing@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"graph_fingerprint\\\":\\\"788f27054c3f8a894c6d5fa699c2d8cd986e1544942212343e37fa637c2b5db6\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"sum@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.energy_total\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":\\\"kWh\\\",\\\"value_policy\\\":\\\"ignore_null_inputs\\\"}},{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"graph_fingerprint\\\":\\\"8f46194e9beb818596d047690acef62abed2e5d46a3be4c595c0527588b3f919\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"count@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.reading_count\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":null,\\\"value_policy\\\":\\\"ignore_null_inputs\\\"}}],\\\"kind\\\":\\\"key_set_equal\\\",\\\"subject_id\\\":\\\"d3deda9d3532f0bfe76632915a31ac6a054938bc7f1f719f431165380080b2ce\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.finite_numeric@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"graph_fingerprint\\\":\\\"788f27054c3f8a894c6d5fa699c2d8cd986e1544942212343e37fa637c2b5db6\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"sum@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.energy_total\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":\\\"kWh\\\",\\\"value_policy\\\":\\\"ignore_null_inputs\\\"}},{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"graph_fingerprint\\\":\\\"8f46194e9beb818596d047690acef62abed2e5d46a3be4c595c0527588b3f919\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"count@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.reading_count\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":null,\\\"value_policy\\\":\\\"ignore_null_inputs\\\"}}],\\\"kind\\\":\\\"finite_numeric\\\",\\\"subject_id\\\":\\\"d3deda9d3532f0bfe76632915a31ac6a054938bc7f1f719f431165380080b2ce\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"output\\\":{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"d3deda9d3532f0bfe76632915a31ac6a054938bc7f1f719f431165380080b2ce\\\",\\\"instance_key\\\":[],\\\"kind\\\":\\\"singleton\\\",\\\"target_key\\\":[],\\\"version_selection\\\":null},\\\"evidence\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"},{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"}],\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"publish\\\",\\\"check_id\\\":\\\"source.contribution_partition@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"contribution_partition\\\",\\\"subject_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"publish\\\",\\\"check_id\\\":\\\"source.complete_coverage@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"complete_coverage\\\",\\\"subject_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"publish\\\",\\\"check_id\\\":\\\"source.complete_coverage@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"complete_coverage\\\",\\\"subject_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.exact_pairing@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"graph_fingerprint\\\":\\\"788f27054c3f8a894c6d5fa699c2d8cd986e1544942212343e37fa637c2b5db6\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"sum@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.energy_total\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":\\\"kWh\\\",\\\"value_policy\\\":\\\"ignore_null_inputs\\\"}},{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"graph_fingerprint\\\":\\\"8f46194e9beb818596d047690acef62abed2e5d46a3be4c595c0527588b3f919\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"count@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.reading_count\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":null,\\\"value_policy\\\":\\\"ignore_null_inputs\\\"}}],\\\"kind\\\":\\\"key_set_equal\\\",\\\"subject_id\\\":\\\"d3deda9d3532f0bfe76632915a31ac6a054938bc7f1f719f431165380080b2ce\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.finite_numeric@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"graph_fingerprint\\\":\\\"788f27054c3f8a894c6d5fa699c2d8cd986e1544942212343e37fa637c2b5db6\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"sum@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.energy_total\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":\\\"kWh\\\",\\\"value_policy\\\":\\\"ignore_null_inputs\\\"}},{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"graph_fingerprint\\\":\\\"8f46194e9beb818596d047690acef62abed2e5d46a3be4c595c0527588b3f919\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"count@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.reading_count\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":null,\\\"value_policy\\\":\\\"ignore_null_inputs\\\"}}],\\\"kind\\\":\\\"finite_numeric\\\",\\\"subject_id\\\":\\\"d3deda9d3532f0bfe76632915a31ac6a054938bc7f1f719f431165380080b2ce\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"parts\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"left_quantity_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"right_quantity_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"version\\\":\\\"v1\\\"}],\\\"quantity\\\":{\\\"definition_id\\\":\\\"d3deda9d3532f0bfe76632915a31ac6a054938bc7f1f719f431165380080b2ce\\\",\\\"input_ids\\\":[\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\"],\\\"kind\\\":\\\"derived\\\",\\\"method_version\\\":\\\"association.spearman@v1\\\",\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":\\\"1\\\",\\\"value_policy\\\":\\\"strict\\\"}},\\\"part_transform\\\":{\\\"created\\\":[\\\"pair_counts\\\"],\\\"removed\\\":[\\\"subject\\\",\\\"original_state\\\",\\\"coverage\\\",\\\"subject\\\",\\\"original_state\\\",\\\"coverage\\\"],\\\"retained\\\":[]},\\\"post\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"state_binding\\\",\\\"subject_id\\\":\\\"d3deda9d3532f0bfe76632915a31ac6a054938bc7f1f719f431165380080b2ce\\\",\\\"version\\\":\\\"v1\\\"}],\\\"pre\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"graph_fingerprint\\\":\\\"788f27054c3f8a894c6d5fa699c2d8cd986e1544942212343e37fa637c2b5db6\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"sum@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.energy_total\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":\\\"kWh\\\",\\\"value_policy\\\":\\\"ignore_null_inputs\\\"}},{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"graph_fingerprint\\\":\\\"8f46194e9beb818596d047690acef62abed2e5d46a3be4c595c0527588b3f919\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"count@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.reading_count\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":null,\\\"value_policy\\\":\\\"ignore_null_inputs\\\"}}],\\\"kind\\\":\\\"key_set_equal\\\",\\\"subject_id\\\":\\\"d3deda9d3532f0bfe76632915a31ac6a054938bc7f1f719f431165380080b2ce\\\",\\\"version\\\":\\\"v1\\\"},{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"graph_fingerprint\\\":\\\"788f27054c3f8a894c6d5fa699c2d8cd986e1544942212343e37fa637c2b5db6\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"sum@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.energy_total\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":\\\"kWh\\\",\\\"value_policy\\\":\\\"ignore_null_inputs\\\"}},{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"graph_fingerprint\\\":\\\"8f46194e9beb818596d047690acef62abed2e5d46a3be4c595c0527588b3f919\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"count@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.reading_count\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":null,\\\"value_policy\\\":\\\"ignore_null_inputs\\\"}}],\\\"kind\\\":\\\"finite_numeric\\\",\\\"subject_id\\\":\\\"d3deda9d3532f0bfe76632915a31ac6a054938bc7f1f719f431165380080b2ce\\\",\\\"version\\\":\\\"v1\\\"}],\\\"required_parts\\\":[],\\\"rule\\\":\\\"association_score@v1\\\",\\\"transport\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"},{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"}]},\\\"identity\\\":\\\"c8a7162a8e204901aa23b5dbc0dcb444\\\",\\\"inputs\\\":[{\\\"node\\\":{\\\"derivation\\\":{\\\"eval_id\\\":\\\"metric.observe.sum@v1\\\",\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"publish\\\",\\\"check_id\\\":\\\"source.contribution_partition@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"contribution_partition\\\",\\\"subject_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"publish\\\",\\\"check_id\\\":\\\"source.complete_coverage@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"complete_coverage\\\",\\\"subject_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"output\\\":{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"evidence\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"}],\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"publish\\\",\\\"check_id\\\":\\\"source.contribution_partition@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"contribution_partition\\\",\\\"subject_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"publish\\\",\\\"check_id\\\":\\\"source.complete_coverage@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"complete_coverage\\\",\\\"subject_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"parts\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"injective\\\":true,\\\"source_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"subject_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"total\\\":true,\\\"version\\\":\\\"v1\\\"},{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"components\\\":[\\\"sum\\\",\\\"non_null_count\\\"],\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"method_version\\\":\\\"sum@v1\\\",\\\"quantity_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"version\\\":\\\"v1\\\"},{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"quantity_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"scope_id\\\":\\\"all\\\",\\\"version\\\":\\\"v1\\\"}],\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"graph_fingerprint\\\":\\\"788f27054c3f8a894c6d5fa699c2d8cd986e1544942212343e37fa637c2b5db6\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"sum@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.energy_total\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":\\\"kWh\\\",\\\"value_policy\\\":\\\"ignore_null_inputs\\\"}},\\\"part_transform\\\":{\\\"created\\\":[\\\"original_state\\\",\\\"coverage\\\"],\\\"removed\\\":[],\\\"retained\\\":[\\\"subject\\\"]},\\\"post\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"state_binding\\\",\\\"subject_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"version\\\":\\\"v1\\\"}],\\\"pre\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"contribution_partition\\\",\\\"subject_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"version\\\":\\\"v1\\\"},{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"complete_coverage\\\",\\\"subject_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"version\\\":\\\"v1\\\"}],\\\"required_parts\\\":[\\\"subject\\\"],\\\"rule\\\":\\\"bind_project@v1\\\",\\\"transport\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"}]},\\\"identity\\\":\\\"90dcda6c005e4c4c99cb92590cb0c08e\\\",\\\"inputs\\\":[{\\\"node\\\":{\\\"derivation\\\":{\\\"eval_id\\\":\\\"parts_transport.view@v1\\\",\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"output\\\":{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"evidence\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"}],\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"parts\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"injective\\\":true,\\\"source_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"subject_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"total\\\":true,\\\"version\\\":\\\"v1\\\"}],\\\"quantity\\\":null},\\\"part_transform\\\":{\\\"created\\\":[],\\\"removed\\\":[],\\\"retained\\\":[\\\"subject\\\"]},\\\"post\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"output_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}],\\\"pre\\\":[],\\\"required_parts\\\":[\\\"subject\\\"],\\\"rule\\\":\\\"parts_transport@v1\\\",\\\"transport\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"}]},\\\"identity\\\":\\\"ac051823024344bfb8283d40628afbb0\\\",\\\"inputs\\\":[{\\\"node\\\":{\\\"definition\\\":{\\\"datasource\\\":{\\\"kind\\\":\\\"datasource\\\",\\\"path\\\":\\\"warehouse\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"fingerprint\\\":\\\"8085910c7b406dde1f8c9eb8cecb8906814b4084d9d427eeed2148fa953dbc4f\\\",\\\"ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"shape\\\":{\\\"backend\\\":\\\"duckdb\\\",\\\"form\\\":\\\"table\\\",\\\"table_kind\\\":\\\"native\\\",\\\"time\\\":{\\\"kind\\\":\\\"instant\\\",\\\"timezone\\\":\\\"UTC\\\",\\\"unit\\\":\\\"us\\\"}}},\\\"identity\\\":\\\"3662e664f28e4c8593aaf701a896bb0b\\\",\\\"signature\\\":{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"evidence\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"}],\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"parts\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"injective\\\":true,\\\"source_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"subject_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"total\\\":true,\\\"version\\\":\\\"v1\\\"}],\\\"quantity\\\":null},\\\"value_type\\\":{\\\"name\\\":\\\"string\\\"}},\\\"role\\\":\\\"subject\\\"}],\\\"method\\\":{\\\"name\\\":\\\"parts_transport\\\",\\\"version\\\":1},\\\"parameters\\\":{\\\"keep_quantity\\\":false,\\\"mode\\\":\\\"view\\\",\\\"output_domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"predicates\\\":[],\\\"retained_roles\\\":[\\\"subject\\\"]},\\\"sources\\\":[],\\\"value_type\\\":{\\\"name\\\":\\\"string\\\"}},\\\"role\\\":\\\"subject\\\"}],\\\"method\\\":{\\\"name\\\":\\\"metric.observe\\\",\\\"version\\\":1},\\\"parameters\\\":{\\\"amount_column\\\":\\\"energy\\\",\\\"amount_type\\\":\\\"float64\\\",\\\"contribution\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"coordinates\\\":[],\\\"end\\\":\\\"2026-09-01T00:00:00+00:00\\\",\\\"event\\\":{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"granularity\\\":\\\"second\\\",\\\"is_default\\\":false,\\\"is_time_dimension\\\":true,\\\"logical_type\\\":\\\"timestamp\\\",\\\"nullable\\\":true,\\\"parse\\\":{\\\"kind\\\":\\\"timestamp\\\",\\\"sample_interval\\\":null,\\\"timezone\\\":\\\"UTC\\\"},\\\"ref\\\":{\\\"kind\\\":\\\"time_dimension\\\",\\\"path\\\":\\\"operations.reading.recorded_at\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"source_column\\\":\\\"recorded_at\\\",\\\"timezone\\\":\\\"UTC\\\"},\\\"metric\\\":{\\\"bound_graph_fingerprint\\\":\\\"788f27054c3f8a894c6d5fa699c2d8cd986e1544942212343e37fa637c2b5db6\\\",\\\"component_node_id\\\":\\\"1b2262f68dafae23222405db7b0c523d1b7389f8742d0eb594e502296b93ab51\\\",\\\"contribution\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"dependency_fingerprint\\\":\\\"sha256:8219cc68169cb6d8f72d1d28543ed0c264b0af47a2ed08630a775dd926a24b5d\\\",\\\"empty_rule\\\":\\\"null\\\",\\\"event_path\\\":[],\\\"event_ref\\\":{\\\"kind\\\":\\\"time_dimension\\\",\\\"path\\\":\\\"operations.reading.recorded_at\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"graph\\\":{\\\"nodes\\\":[{\\\"node\\\":{\\\"agg\\\":\\\"sum\\\",\\\"dependency_fingerprint\\\":\\\"61f2e7b29e0142b9e8e37aeb1db6e6888d776c6ccfa219c03104f94602c101d3\\\",\\\"filter\\\":[],\\\"fold\\\":null,\\\"kind\\\":\\\"aggregate\\\",\\\"target_ref\\\":{\\\"kind\\\":\\\"measure\\\",\\\"path\\\":\\\"operations.reading.energy\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"unit_override\\\":null},\\\"node_id\\\":\\\"1b2262f68dafae23222405db7b0c523d1b7389f8742d0eb594e502296b93ab51\\\"}],\\\"occurrences\\\":[{\\\"child_paths\\\":[],\\\"node_id\\\":\\\"1b2262f68dafae23222405db7b0c523d1b7389f8742d0eb594e502296b93ab51\\\",\\\"path\\\":\\\"root[0]\\\"}],\\\"roots\\\":[\\\"1b2262f68dafae23222405db7b0c523d1b7389f8742d0eb594e502296b93ab51\\\"],\\\"schema\\\":\\\"metric-expression/v1\\\"},\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.energy_total\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"unit\\\":\\\"kWh\\\"},\\\"path\\\":[{\\\"cardinality\\\":\\\"many_to_one\\\",\\\"from_entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"from_version_resolution_required\\\":false,\\\"keys\\\":[[\\\"device_id\\\",\\\"device_id\\\"]],\\\"ref\\\":{\\\"kind\\\":\\\"relationship\\\",\\\"path\\\":\\\"operations.reading_device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"role\\\":\\\"reading_device\\\",\\\"to_entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"to_version_resolution_required\\\":false}],\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d\\\",\\\"graph_fingerprint\\\":\\\"788f27054c3f8a894c6d5fa699c2d8cd986e1544942212343e37fa637c2b5db6\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"sum@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.energy_total\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":\\\"kWh\\\",\\\"value_policy\\\":\\\"ignore_null_inputs\\\"},\\\"start\\\":\\\"2026-08-01T00:00:00+00:00\\\",\\\"target\\\":{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null}}},\\\"sources\\\":[{\\\"definition\\\":{\\\"datasource\\\":{\\\"kind\\\":\\\"datasource\\\",\\\"path\\\":\\\"warehouse\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"fingerprint\\\":\\\"8085910c7b406dde1f8c9eb8cecb8906814b4084d9d427eeed2148fa953dbc4f\\\",\\\"ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"shape\\\":{\\\"backend\\\":\\\"duckdb\\\",\\\"form\\\":\\\"table\\\",\\\"table_kind\\\":\\\"native\\\",\\\"time\\\":{\\\"kind\\\":\\\"instant\\\",\\\"timezone\\\":\\\"UTC\\\",\\\"unit\\\":\\\"us\\\"}}},\\\"identity\\\":\\\"3662e664f28e4c8593aaf701a896bb0b\\\",\\\"signature\\\":{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"evidence\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"}],\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"parts\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"injective\\\":true,\\\"source_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"subject_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"total\\\":true,\\\"version\\\":\\\"v1\\\"}],\\\"quantity\\\":null},\\\"value_type\\\":{\\\"name\\\":\\\"string\\\"}},{\\\"definition\\\":{\\\"datasource\\\":{\\\"kind\\\":\\\"datasource\\\",\\\"path\\\":\\\"warehouse\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"fingerprint\\\":\\\"2d2f7d8025c652ebb2f6a84d5a6aac0f9854133c1e09c265c81a77b7be5f116a\\\",\\\"ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"shape\\\":{\\\"backend\\\":\\\"duckdb\\\",\\\"form\\\":\\\"table\\\",\\\"table_kind\\\":\\\"native\\\",\\\"time\\\":{\\\"kind\\\":\\\"instant\\\",\\\"timezone\\\":\\\"UTC\\\",\\\"unit\\\":\\\"us\\\"}}},\\\"identity\\\":\\\"2195bd020ca2a0f5bf54e357e9c1dfc0fd5936f44f74cc14482ab978fbae5000\\\",\\\"signature\\\":{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.reading\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"reading_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"reading_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"evidence\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.reading\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"b1db418cbde6a0ba6efe49cd2a9f3ccabae3a3bb1ab0502ea49f1379fcf88492\\\"}],\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.reading\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"parts\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"injective\\\":true,\\\"source_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"reading_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"subject_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"reading_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"total\\\":true,\\\"version\\\":\\\"v1\\\"}],\\\"quantity\\\":null},\\\"value_type\\\":{\\\"name\\\":\\\"string\\\"}}],\\\"value_type\\\":{\\\"name\\\":\\\"float64\\\"}},\\\"role\\\":\\\"quantity\\\"},{\\\"node\\\":{\\\"derivation\\\":{\\\"eval_id\\\":\\\"metric.observe.count@v1\\\",\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"publish\\\",\\\"check_id\\\":\\\"source.contribution_partition@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"contribution_partition\\\",\\\"subject_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"publish\\\",\\\"check_id\\\":\\\"source.complete_coverage@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"complete_coverage\\\",\\\"subject_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"output\\\":{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"evidence\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"}],\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"publish\\\",\\\"check_id\\\":\\\"source.contribution_partition@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"contribution_partition\\\",\\\"subject_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"version\\\":\\\"v1\\\"}},{\\\"before\\\":\\\"publish\\\",\\\"check_id\\\":\\\"source.complete_coverage@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"complete_coverage\\\",\\\"subject_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"parts\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"injective\\\":true,\\\"source_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"subject_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"total\\\":true,\\\"version\\\":\\\"v1\\\"},{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"components\\\":[\\\"count\\\"],\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"method_version\\\":\\\"count@v1\\\",\\\"quantity_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"version\\\":\\\"v1\\\"},{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"quantity_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"scope_id\\\":\\\"all\\\",\\\"version\\\":\\\"v1\\\"}],\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"graph_fingerprint\\\":\\\"8f46194e9beb818596d047690acef62abed2e5d46a3be4c595c0527588b3f919\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"count@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.reading_count\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":null,\\\"value_policy\\\":\\\"ignore_null_inputs\\\"}},\\\"part_transform\\\":{\\\"created\\\":[\\\"original_state\\\",\\\"coverage\\\"],\\\"removed\\\":[],\\\"retained\\\":[\\\"subject\\\"]},\\\"post\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"state_binding\\\",\\\"subject_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"version\\\":\\\"v1\\\"}],\\\"pre\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"contribution_partition\\\",\\\"subject_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"version\\\":\\\"v1\\\"},{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"complete_coverage\\\",\\\"subject_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"version\\\":\\\"v1\\\"}],\\\"required_parts\\\":[\\\"subject\\\"],\\\"rule\\\":\\\"bind_project@v1\\\",\\\"transport\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"}]},\\\"identity\\\":\\\"f6093c898e00471ca57d3e6220898ddb\\\",\\\"inputs\\\":[{\\\"node\\\":{\\\"derivation\\\":{\\\"eval_id\\\":\\\"parts_transport.view@v1\\\",\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"output\\\":{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"evidence\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"}],\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"parts\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"injective\\\":true,\\\"source_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"subject_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"total\\\":true,\\\"version\\\":\\\"v1\\\"}],\\\"quantity\\\":null},\\\"part_transform\\\":{\\\"created\\\":[],\\\"removed\\\":[],\\\"retained\\\":[\\\"subject\\\"]},\\\"post\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"output_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}],\\\"pre\\\":[],\\\"required_parts\\\":[\\\"subject\\\"],\\\"rule\\\":\\\"parts_transport@v1\\\",\\\"transport\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"}]},\\\"identity\\\":\\\"ac051823024344bfb8283d40628afbb0\\\",\\\"inputs\\\":[{\\\"node\\\":{\\\"definition\\\":{\\\"datasource\\\":{\\\"kind\\\":\\\"datasource\\\",\\\"path\\\":\\\"warehouse\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"fingerprint\\\":\\\"8085910c7b406dde1f8c9eb8cecb8906814b4084d9d427eeed2148fa953dbc4f\\\",\\\"ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"shape\\\":{\\\"backend\\\":\\\"duckdb\\\",\\\"form\\\":\\\"table\\\",\\\"table_kind\\\":\\\"native\\\",\\\"time\\\":{\\\"kind\\\":\\\"instant\\\",\\\"timezone\\\":\\\"UTC\\\",\\\"unit\\\":\\\"us\\\"}}},\\\"identity\\\":\\\"3662e664f28e4c8593aaf701a896bb0b\\\",\\\"signature\\\":{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"evidence\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"}],\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"parts\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"injective\\\":true,\\\"source_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"subject_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"total\\\":true,\\\"version\\\":\\\"v1\\\"}],\\\"quantity\\\":null},\\\"value_type\\\":{\\\"name\\\":\\\"string\\\"}},\\\"role\\\":\\\"subject\\\"}],\\\"method\\\":{\\\"name\\\":\\\"parts_transport\\\",\\\"version\\\":1},\\\"parameters\\\":{\\\"keep_quantity\\\":false,\\\"mode\\\":\\\"view\\\",\\\"output_domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"predicates\\\":[],\\\"retained_roles\\\":[\\\"subject\\\"]},\\\"sources\\\":[],\\\"value_type\\\":{\\\"name\\\":\\\"string\\\"}},\\\"role\\\":\\\"subject\\\"}],\\\"method\\\":{\\\"name\\\":\\\"metric.count\\\",\\\"version\\\":1},\\\"parameters\\\":{\\\"contribution\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"coordinates\\\":[],\\\"end\\\":\\\"2026-09-01T00:00:00+00:00\\\",\\\"event\\\":{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"granularity\\\":\\\"second\\\",\\\"is_default\\\":false,\\\"is_time_dimension\\\":true,\\\"logical_type\\\":\\\"timestamp\\\",\\\"nullable\\\":true,\\\"parse\\\":{\\\"kind\\\":\\\"timestamp\\\",\\\"sample_interval\\\":null,\\\"timezone\\\":\\\"UTC\\\"},\\\"ref\\\":{\\\"kind\\\":\\\"time_dimension\\\",\\\"path\\\":\\\"operations.reading.recorded_at\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"source_column\\\":\\\"recorded_at\\\",\\\"timezone\\\":\\\"UTC\\\"},\\\"metric\\\":{\\\"bound_graph_fingerprint\\\":\\\"8f46194e9beb818596d047690acef62abed2e5d46a3be4c595c0527588b3f919\\\",\\\"component_node_id\\\":\\\"3a18f8db949962837162b0e86f07c55eb97be603f895d04de6b89deb8b3551ac\\\",\\\"contribution\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"dependency_fingerprint\\\":\\\"sha256:05cc4ec9331b927db98227250859cd7e3843d140e4c03ad83afb931a42069ba9\\\",\\\"empty_rule\\\":\\\"zero\\\",\\\"event_path\\\":[],\\\"event_ref\\\":{\\\"kind\\\":\\\"time_dimension\\\",\\\"path\\\":\\\"operations.reading.recorded_at\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"graph\\\":{\\\"nodes\\\":[{\\\"node\\\":{\\\"agg\\\":\\\"count\\\",\\\"dependency_fingerprint\\\":\\\"b1db418cbde6a0ba6efe49cd2a9f3ccabae3a3bb1ab0502ea49f1379fcf88492\\\",\\\"filter\\\":[],\\\"fold\\\":null,\\\"kind\\\":\\\"aggregate\\\",\\\"target_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"unit_override\\\":null},\\\"node_id\\\":\\\"3a18f8db949962837162b0e86f07c55eb97be603f895d04de6b89deb8b3551ac\\\"}],\\\"occurrences\\\":[{\\\"child_paths\\\":[],\\\"node_id\\\":\\\"3a18f8db949962837162b0e86f07c55eb97be603f895d04de6b89deb8b3551ac\\\",\\\"path\\\":\\\"root[0]\\\"}],\\\"roots\\\":[\\\"3a18f8db949962837162b0e86f07c55eb97be603f895d04de6b89deb8b3551ac\\\"],\\\"schema\\\":\\\"metric-expression/v1\\\"},\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.reading_count\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"unit\\\":null},\\\"path\\\":[{\\\"cardinality\\\":\\\"many_to_one\\\",\\\"from_entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"from_version_resolution_required\\\":false,\\\"keys\\\":[[\\\"device_id\\\",\\\"device_id\\\"]],\\\"ref\\\":{\\\"kind\\\":\\\"relationship\\\",\\\"path\\\":\\\"operations.reading_device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"role\\\":\\\"reading_device\\\",\\\"to_entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"to_version_resolution_required\\\":false}],\\\"quantity\\\":{\\\"contribution_id\\\":\\\"55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72\\\",\\\"definition_id\\\":\\\"f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f\\\",\\\"graph_fingerprint\\\":\\\"8f46194e9beb818596d047690acef62abed2e5d46a3be4c595c0527588b3f919\\\",\\\"kind\\\":\\\"observed\\\",\\\"method_version\\\":\\\"count@v1\\\",\\\"metric_ref\\\":{\\\"kind\\\":\\\"metric\\\",\\\"path\\\":\\\"operations.reading_count\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"time_scope\\\":\\\"{\\\\\\\"end\\\\\\\":\\\\\\\"2026-09-01T00:00:00+00:00\\\\\\\",\\\\\\\"start\\\\\\\":\\\\\\\"2026-08-01T00:00:00+00:00\\\\\\\"}\\\",\\\"unit\\\":null,\\\"value_policy\\\":\\\"ignore_null_inputs\\\"},\\\"start\\\":\\\"2026-08-01T00:00:00+00:00\\\",\\\"target\\\":{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null}}},\\\"sources\\\":[{\\\"definition\\\":{\\\"datasource\\\":{\\\"kind\\\":\\\"datasource\\\",\\\"path\\\":\\\"warehouse\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"fingerprint\\\":\\\"8085910c7b406dde1f8c9eb8cecb8906814b4084d9d427eeed2148fa953dbc4f\\\",\\\"ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"shape\\\":{\\\"backend\\\":\\\"duckdb\\\",\\\"form\\\":\\\"table\\\",\\\"table_kind\\\":\\\"native\\\",\\\"time\\\":{\\\"kind\\\":\\\"instant\\\",\\\"timezone\\\":\\\"UTC\\\",\\\"unit\\\":\\\"us\\\"}}},\\\"identity\\\":\\\"3662e664f28e4c8593aaf701a896bb0b\\\",\\\"signature\\\":{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.device\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"evidence\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c\\\"}],\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.device\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"parts\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"injective\\\":true,\\\"source_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"subject_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.device\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"device_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"total\\\":true,\\\"version\\\":\\\"v1\\\"}],\\\"quantity\\\":null},\\\"value_type\\\":{\\\"name\\\":\\\"string\\\"}},{\\\"definition\\\":{\\\"datasource\\\":{\\\"kind\\\":\\\"datasource\\\",\\\"path\\\":\\\"warehouse\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"fingerprint\\\":\\\"2d2f7d8025c652ebb2f6a84d5a6aac0f9854133c1e09c265c81a77b7be5f116a\\\",\\\"ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"shape\\\":{\\\"backend\\\":\\\"duckdb\\\",\\\"form\\\":\\\"table\\\",\\\"table_kind\\\":\\\"native\\\",\\\"time\\\":{\\\"kind\\\":\\\"instant\\\",\\\"timezone\\\":\\\"UTC\\\",\\\"unit\\\":\\\"us\\\"}}},\\\"identity\\\":\\\"2195bd020ca2a0f5bf54e357e9c1dfc0fd5936f44f74cc14482ab978fbae5000\\\",\\\"signature\\\":{\\\"domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"entity:operations.reading\\\",\\\"instance_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"reading_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"kind\\\":\\\"entity\\\",\\\"target_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"reading_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"version_selection\\\":null},\\\"evidence\\\":[{\\\"basis\\\":\\\"declaration\\\",\\\"dependencies\\\":[],\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"declared_key\\\",\\\"subject_id\\\":\\\"entity:operations.reading\\\",\\\"version\\\":\\\"v1\\\"},\\\"source_id\\\":\\\"b1db418cbde6a0ba6efe49cd2a9f3ccabae3a3bb1ab0502ea49f1379fcf88492\\\"}],\\\"obligations\\\":[{\\\"before\\\":\\\"consume\\\",\\\"check_id\\\":\\\"source.unique_key@v1\\\",\\\"fact\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"inputs\\\":[],\\\"kind\\\":\\\"unique_key\\\",\\\"subject_id\\\":\\\"entity:operations.reading\\\",\\\"version\\\":\\\"v1\\\"}}],\\\"parts\\\":[{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"injective\\\":true,\\\"source_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"reading_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"subject_key\\\":[{\\\"entity_ref\\\":{\\\"kind\\\":\\\"entity\\\",\\\"path\\\":\\\"operations.reading\\\",\\\"schema\\\":\\\"marivo.semantic_ref/v1\\\"},\\\"field\\\":\\\"reading_id\\\",\\\"role\\\":\\\"identity\\\"}],\\\"total\\\":true,\\\"version\\\":\\\"v1\\\"}],\\\"quantity\\\":null},\\\"value_type\\\":{\\\"name\\\":\\\"string\\\"}}],\\\"value_type\\\":{\\\"name\\\":\\\"int64\\\"}},\\\"role\\\":\\\"quantity\\\"}],\\\"method\\\":{\\\"name\\\":\\\"association.spearman\\\",\\\"version\\\":1},\\\"parameters\\\":{\\\"definition_id\\\":\\\"d3deda9d3532f0bfe76632915a31ac6a054938bc7f1f719f431165380080b2ce\\\",\\\"numeric_check_id\\\":\\\"source.finite_numeric@v1\\\",\\\"output_domain\\\":{\\\"binding\\\":{\\\"input_id\\\":\\\"531ccb198569435a8c54b85af5929479\\\",\\\"owner_id\\\":\\\"store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9\\\",\\\"scope_id\\\":\\\"all\\\",\\\"session_id\\\":\\\"session_35c4d33f55cc46e5a9099c1a0e13ae83\\\"},\\\"correspondence\\\":null,\\\"definition_id\\\":\\\"d3deda9d3532f0bfe76632915a31ac6a054938bc7f1f719f431165380080b2ce\\\",\\\"instance_key\\\":[],\\\"kind\\\":\\\"singleton\\\",\\\"target_key\\\":[],\\\"version_selection\\\":null},\\\"pairing_check_id\\\":\\\"source.exact_pairing@v1\\\"},\\\"sources\\\":[],\\\"value_type\\\":{\\\"name\\\":\\\"float64\\\"}}\",\"schema\":\"marivo.analysis.continuation/v1\",\"semantic_versions\":[[\"operations.device\",\"8085910c7b406dde1f8c9eb8cecb8906814b4084d9d427eeed2148fa953dbc4f\"],[\"operations.reading\",\"2d2f7d8025c652ebb2f6a84d5a6aac0f9854133c1e09c265c81a77b7be5f116a\"]]}",
+    "continuation_snapshot_digest": "45f1a0b61cafa0d6670ced907838f7f58551afc7c675e97991cde2a5c8372c47",
+    "definition_fingerprint": "1a64d4ea5c09677e41a1caf1673812b27d86659438edf0889d0afa18033f6bbd",
+    "execution_key_digest": "9f7a651a98a0fa9332772e073c7955288e0164d78832a9681ca10ca857eb09e1",
+    "method_bindings": [
+      {
+        "implementation_id": "r45.ibis.parts_transport@v1.string@v1",
+        "implementation_version": 1,
+        "method": {
+          "name": "parts_transport",
+          "version": 1
+        }
+      },
+      {
+        "implementation_id": "r45.metric.observe@v1.table.string@v1",
+        "implementation_version": 1,
+        "method": {
+          "name": "metric.observe",
+          "version": 1
+        }
+      },
+      {
+        "implementation_id": "r45.metric.count@v1.table.string@v1",
+        "implementation_version": 1,
+        "method": {
+          "name": "metric.count",
+          "version": 1
+        }
+      },
+      {
+        "implementation_id": "r43.spearman.ibis.float64.int64@v1",
+        "implementation_version": 1,
+        "method": {
+          "name": "association.spearman",
+          "version": 1
+        }
+      }
+    ],
+    "method_state": {
+      "contract_id": "marivo.analysis.state.spearman",
+      "contract_version": 1,
+      "input_binding": "3662e664f28e4c8593aaf701a896bb0b,2195bd020ca2a0f5bf54e357e9c1dfc0fd5936f44f74cc14482ab978fbae5000",
+      "kind": "spearman",
+      "method_name": "association.spearman",
+      "method_version": 1,
+      "ordered_part_roles": [
+        "pair_counts"
+      ],
+      "schema": "marivo.analysis.method_state/v1"
+    },
+    "parts": [
+      {
+        "contract_id": "marivo.analysis.part.spearman.pair_counts",
+        "contract_version": 1,
+        "input_binding": "3662e664f28e4c8593aaf701a896bb0b,2195bd020ca2a0f5bf54e357e9c1dfc0fd5936f44f74cc14482ab978fbae5000",
+        "key_fields": [],
+        "kind": "part",
+        "local": {
+          "bytes_hash": "bb530ed3bf797ab724b49599ac9a252fc35137cb9e49251df0189e47e9d83b9f",
+          "file_manifest": [
+            {
+              "relative_path": "data.parquet",
+              "sha256": "bb530ed3bf797ab724b49599ac9a252fc35137cb9e49251df0189e47e9d83b9f",
+              "size_bytes": 2680
+            }
+          ],
+          "format": "parquet",
+          "kind": "local",
+          "manifest_hash": "9e610f211d758c2b01b3adc2ad3f383fc910efc390c51afa83b16cbdb4f48f0f",
+          "parquet_contract_version": 1,
+          "project_relative_path": ".marivo/analysis/generations/v7/sessions/session_35c4d33f55cc46e5a9099c1a0e13ae83/artifacts/artifact_fe3180708f2a4621927dac628341150e/pair_counts",
+          "realized_byte_count": {
+            "byte_count": 2808,
+            "kind": "exact"
+          },
+          "realized_row_count": 1,
+          "schema_fingerprint": "414301516f371c13a7c4bb62550946af198f791a97d7686bec797f8823d1dfca"
+        },
+        "method_state_version": 1,
+        "role": "pair_counts",
+        "schema": "marivo.analysis.receipt/v1"
+      }
+    ],
+    "primary_receipt": {
+      "input_binding": "3662e664f28e4c8593aaf701a896bb0b,2195bd020ca2a0f5bf54e357e9c1dfc0fd5936f44f74cc14482ab978fbae5000",
+      "key_fields": [],
+      "kind": "primary",
+      "local": {
+        "bytes_hash": "aa280cf7a79eac5863faefe1e7a8c3b90292548047e19f19b2a1008573e6d2c9",
+        "file_manifest": [
+          {
+            "relative_path": "data.parquet",
+            "sha256": "aa280cf7a79eac5863faefe1e7a8c3b90292548047e19f19b2a1008573e6d2c9",
+            "size_bytes": 1244
+          }
+        ],
+        "format": "parquet",
+        "kind": "local",
+        "manifest_hash": "bba997fd5b89d9896fb452daffeae6c01b79259d853498d49f523ce84771676e",
+        "parquet_contract_version": 1,
+        "project_relative_path": ".marivo/analysis/generations/v7/sessions/session_35c4d33f55cc46e5a9099c1a0e13ae83/artifacts/artifact_fe3180708f2a4621927dac628341150e/primary",
+        "realized_byte_count": {
+          "byte_count": 1372,
+          "kind": "exact"
+        },
+        "realized_row_count": 1,
+        "schema_fingerprint": "cbf74d97f5ddfa0bee802223ae7614f074d4b488b62afd8fad4afbcf4602c44f"
+      },
+      "schema": "marivo.analysis.receipt/v1"
+    },
+    "producing_run_ref": "run_e852d5bf354263f5ac71ca96",
+    "realized_schema": "/////wgBAAAQAAAAAAAKAAwABgAFAAgACgAAAAABBAAMAAAACAAIAAAABAAIAAAABAAAAAQAAACoAAAAZAAAADQAAAAEAAAAeP///wAAAQUQAAAAHAAAAAQAAAAAAAAACwAAAGNlbGxfcmVhc29uAGz///+k////AAABBRAAAAAcAAAABAAAAAAAAAAIAAAAY2VsbF90YWcAAAAAmP///9D///8AAAEDEAAAABwAAAAEAAAAAAAAAAUAAAB2YWx1ZQAGAAgABgAGAAAAAAACABAAFAAIAAYABwAMAAAAEAAQAAAAAAABBRAAAAAcAAAABAAAAAAAAAAGAAAAc3RhdHVzAAAEAAQABAAAAAAAAAA=",
+    "row_contract": {
+      "cell_reasons": [
+        [
+          "undefined",
+          [
+            "insufficient_pairs",
+            "constant_a",
+            "constant_b",
+            "constant_both"
+          ]
+        ]
+      ],
+      "key_fields": []
+    },
+    "row_set_contract": {
+      "kind": "singleton",
+      "ordering": "unordered"
+    },
+    "schema": "marivo.analysis.artifact_descriptor/v1",
+    "semantic_dependency_digest": "d91870c049ea92e3005c9188feca551e93344a449b1b7e162eeb2f2b68becf69",
+    "signature": {
+      "domain": {
+        "binding": {
+          "input_id": "531ccb198569435a8c54b85af5929479",
+          "owner_id": "store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9",
+          "scope_id": "all",
+          "session_id": "session_35c4d33f55cc46e5a9099c1a0e13ae83"
+        },
+        "correspondence": null,
+        "definition_id": "d3deda9d3532f0bfe76632915a31ac6a054938bc7f1f719f431165380080b2ce",
+        "instance_key": [],
+        "kind": "singleton",
+        "target_key": [],
+        "version_selection": null
+      },
+      "evidence": [
+        {
+          "basis": "declaration",
+          "dependencies": [],
+          "fact": {
+            "binding": {
+              "input_id": "531ccb198569435a8c54b85af5929479",
+              "owner_id": "store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9",
+              "scope_id": "all",
+              "session_id": "session_35c4d33f55cc46e5a9099c1a0e13ae83"
+            },
+            "inputs": [],
+            "kind": "declared_key",
+            "subject_id": "entity:operations.device",
+            "version": "v1"
+          },
+          "source_id": "4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c"
+        },
+        {
+          "basis": "declaration",
+          "dependencies": [],
+          "fact": {
+            "binding": {
+              "input_id": "531ccb198569435a8c54b85af5929479",
+              "owner_id": "store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9",
+              "scope_id": "all",
+              "session_id": "session_35c4d33f55cc46e5a9099c1a0e13ae83"
+            },
+            "inputs": [],
+            "kind": "declared_key",
+            "subject_id": "entity:operations.device",
+            "version": "v1"
+          },
+          "source_id": "4a9d3d270eeb688e1d02b44af8409cdb7b72a1d662d4a661fa2f8fcd7749804c"
+        }
+      ],
+      "obligations": [
+        {
+          "before": "consume",
+          "check_id": "source.unique_key@v1",
+          "fact": {
+            "binding": {
+              "input_id": "531ccb198569435a8c54b85af5929479",
+              "owner_id": "store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9",
+              "scope_id": "all",
+              "session_id": "session_35c4d33f55cc46e5a9099c1a0e13ae83"
+            },
+            "inputs": [],
+            "kind": "unique_key",
+            "subject_id": "entity:operations.device",
+            "version": "v1"
+          }
+        },
+        {
+          "before": "publish",
+          "check_id": "source.contribution_partition@v1",
+          "fact": {
+            "binding": {
+              "input_id": "531ccb198569435a8c54b85af5929479",
+              "owner_id": "store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9",
+              "scope_id": "all",
+              "session_id": "session_35c4d33f55cc46e5a9099c1a0e13ae83"
+            },
+            "inputs": [],
+            "kind": "contribution_partition",
+            "subject_id": "55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72",
+            "version": "v1"
+          }
+        },
+        {
+          "before": "publish",
+          "check_id": "source.complete_coverage@v1",
+          "fact": {
+            "binding": {
+              "input_id": "531ccb198569435a8c54b85af5929479",
+              "owner_id": "store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9",
+              "scope_id": "all",
+              "session_id": "session_35c4d33f55cc46e5a9099c1a0e13ae83"
+            },
+            "inputs": [],
+            "kind": "complete_coverage",
+            "subject_id": "339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d",
+            "version": "v1"
+          }
+        },
+        {
+          "before": "publish",
+          "check_id": "source.complete_coverage@v1",
+          "fact": {
+            "binding": {
+              "input_id": "531ccb198569435a8c54b85af5929479",
+              "owner_id": "store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9",
+              "scope_id": "all",
+              "session_id": "session_35c4d33f55cc46e5a9099c1a0e13ae83"
+            },
+            "inputs": [],
+            "kind": "complete_coverage",
+            "subject_id": "f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f",
+            "version": "v1"
+          }
+        },
+        {
+          "before": "consume",
+          "check_id": "source.exact_pairing@v1",
+          "fact": {
+            "binding": {
+              "input_id": "531ccb198569435a8c54b85af5929479",
+              "owner_id": "store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9",
+              "scope_id": "all",
+              "session_id": "session_35c4d33f55cc46e5a9099c1a0e13ae83"
+            },
+            "inputs": [
+              {
+                "domain": {
+                  "binding": {
+                    "input_id": "531ccb198569435a8c54b85af5929479",
+                    "owner_id": "store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9",
+                    "scope_id": "all",
+                    "session_id": "session_35c4d33f55cc46e5a9099c1a0e13ae83"
+                  },
+                  "correspondence": null,
+                  "definition_id": "entity:operations.device",
+                  "instance_key": [
+                    {
+                      "entity_ref": {
+                        "kind": "entity",
+                        "path": "operations.device",
+                        "schema": "marivo.semantic_ref/v1"
+                      },
+                      "field": "device_id",
+                      "role": "identity"
+                    }
+                  ],
+                  "kind": "entity",
+                  "target_key": [
+                    {
+                      "entity_ref": {
+                        "kind": "entity",
+                        "path": "operations.device",
+                        "schema": "marivo.semantic_ref/v1"
+                      },
+                      "field": "device_id",
+                      "role": "identity"
+                    }
+                  ],
+                  "version_selection": null
+                },
+                "quantity": {
+                  "contribution_id": "55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72",
+                  "definition_id": "339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d",
+                  "graph_fingerprint": "788f27054c3f8a894c6d5fa699c2d8cd986e1544942212343e37fa637c2b5db6",
+                  "kind": "observed",
+                  "method_version": "sum@v1",
+                  "metric_ref": {
+                    "kind": "metric",
+                    "path": "operations.energy_total",
+                    "schema": "marivo.semantic_ref/v1"
+                  },
+                  "time_scope": "{\"end\":\"2026-09-01T00:00:00+00:00\",\"start\":\"2026-08-01T00:00:00+00:00\"}",
+                  "unit": "kWh",
+                  "value_policy": "ignore_null_inputs"
+                }
+              },
+              {
+                "domain": {
+                  "binding": {
+                    "input_id": "531ccb198569435a8c54b85af5929479",
+                    "owner_id": "store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9",
+                    "scope_id": "all",
+                    "session_id": "session_35c4d33f55cc46e5a9099c1a0e13ae83"
+                  },
+                  "correspondence": null,
+                  "definition_id": "entity:operations.device",
+                  "instance_key": [
+                    {
+                      "entity_ref": {
+                        "kind": "entity",
+                        "path": "operations.device",
+                        "schema": "marivo.semantic_ref/v1"
+                      },
+                      "field": "device_id",
+                      "role": "identity"
+                    }
+                  ],
+                  "kind": "entity",
+                  "target_key": [
+                    {
+                      "entity_ref": {
+                        "kind": "entity",
+                        "path": "operations.device",
+                        "schema": "marivo.semantic_ref/v1"
+                      },
+                      "field": "device_id",
+                      "role": "identity"
+                    }
+                  ],
+                  "version_selection": null
+                },
+                "quantity": {
+                  "contribution_id": "55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72",
+                  "definition_id": "f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f",
+                  "graph_fingerprint": "8f46194e9beb818596d047690acef62abed2e5d46a3be4c595c0527588b3f919",
+                  "kind": "observed",
+                  "method_version": "count@v1",
+                  "metric_ref": {
+                    "kind": "metric",
+                    "path": "operations.reading_count",
+                    "schema": "marivo.semantic_ref/v1"
+                  },
+                  "time_scope": "{\"end\":\"2026-09-01T00:00:00+00:00\",\"start\":\"2026-08-01T00:00:00+00:00\"}",
+                  "unit": null,
+                  "value_policy": "ignore_null_inputs"
+                }
+              }
+            ],
+            "kind": "key_set_equal",
+            "subject_id": "d3deda9d3532f0bfe76632915a31ac6a054938bc7f1f719f431165380080b2ce",
+            "version": "v1"
+          }
+        },
+        {
+          "before": "consume",
+          "check_id": "source.finite_numeric@v1",
+          "fact": {
+            "binding": {
+              "input_id": "531ccb198569435a8c54b85af5929479",
+              "owner_id": "store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9",
+              "scope_id": "all",
+              "session_id": "session_35c4d33f55cc46e5a9099c1a0e13ae83"
+            },
+            "inputs": [
+              {
+                "domain": {
+                  "binding": {
+                    "input_id": "531ccb198569435a8c54b85af5929479",
+                    "owner_id": "store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9",
+                    "scope_id": "all",
+                    "session_id": "session_35c4d33f55cc46e5a9099c1a0e13ae83"
+                  },
+                  "correspondence": null,
+                  "definition_id": "entity:operations.device",
+                  "instance_key": [
+                    {
+                      "entity_ref": {
+                        "kind": "entity",
+                        "path": "operations.device",
+                        "schema": "marivo.semantic_ref/v1"
+                      },
+                      "field": "device_id",
+                      "role": "identity"
+                    }
+                  ],
+                  "kind": "entity",
+                  "target_key": [
+                    {
+                      "entity_ref": {
+                        "kind": "entity",
+                        "path": "operations.device",
+                        "schema": "marivo.semantic_ref/v1"
+                      },
+                      "field": "device_id",
+                      "role": "identity"
+                    }
+                  ],
+                  "version_selection": null
+                },
+                "quantity": {
+                  "contribution_id": "55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72",
+                  "definition_id": "339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d",
+                  "graph_fingerprint": "788f27054c3f8a894c6d5fa699c2d8cd986e1544942212343e37fa637c2b5db6",
+                  "kind": "observed",
+                  "method_version": "sum@v1",
+                  "metric_ref": {
+                    "kind": "metric",
+                    "path": "operations.energy_total",
+                    "schema": "marivo.semantic_ref/v1"
+                  },
+                  "time_scope": "{\"end\":\"2026-09-01T00:00:00+00:00\",\"start\":\"2026-08-01T00:00:00+00:00\"}",
+                  "unit": "kWh",
+                  "value_policy": "ignore_null_inputs"
+                }
+              },
+              {
+                "domain": {
+                  "binding": {
+                    "input_id": "531ccb198569435a8c54b85af5929479",
+                    "owner_id": "store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9",
+                    "scope_id": "all",
+                    "session_id": "session_35c4d33f55cc46e5a9099c1a0e13ae83"
+                  },
+                  "correspondence": null,
+                  "definition_id": "entity:operations.device",
+                  "instance_key": [
+                    {
+                      "entity_ref": {
+                        "kind": "entity",
+                        "path": "operations.device",
+                        "schema": "marivo.semantic_ref/v1"
+                      },
+                      "field": "device_id",
+                      "role": "identity"
+                    }
+                  ],
+                  "kind": "entity",
+                  "target_key": [
+                    {
+                      "entity_ref": {
+                        "kind": "entity",
+                        "path": "operations.device",
+                        "schema": "marivo.semantic_ref/v1"
+                      },
+                      "field": "device_id",
+                      "role": "identity"
+                    }
+                  ],
+                  "version_selection": null
+                },
+                "quantity": {
+                  "contribution_id": "55bd54775ec4860e521fdd17c306cf8dc7911e92ae1210e20b2cfbb7566b6a72",
+                  "definition_id": "f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f",
+                  "graph_fingerprint": "8f46194e9beb818596d047690acef62abed2e5d46a3be4c595c0527588b3f919",
+                  "kind": "observed",
+                  "method_version": "count@v1",
+                  "metric_ref": {
+                    "kind": "metric",
+                    "path": "operations.reading_count",
+                    "schema": "marivo.semantic_ref/v1"
+                  },
+                  "time_scope": "{\"end\":\"2026-09-01T00:00:00+00:00\",\"start\":\"2026-08-01T00:00:00+00:00\"}",
+                  "unit": null,
+                  "value_policy": "ignore_null_inputs"
+                }
+              }
+            ],
+            "kind": "finite_numeric",
+            "subject_id": "d3deda9d3532f0bfe76632915a31ac6a054938bc7f1f719f431165380080b2ce",
+            "version": "v1"
+          }
+        }
+      ],
+      "parts": [
+        {
+          "binding": {
+            "input_id": "531ccb198569435a8c54b85af5929479",
+            "owner_id": "store_778ea21739a7b3606299ddf5d82503053418d4cf50d8bc3dfdb5cd3cc90628e9",
+            "scope_id": "all",
+            "session_id": "session_35c4d33f55cc46e5a9099c1a0e13ae83"
+          },
+          "left_quantity_id": "339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d",
+          "right_quantity_id": "f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f",
+          "version": "v1"
+        }
+      ],
+      "quantity": {
+        "definition_id": "d3deda9d3532f0bfe76632915a31ac6a054938bc7f1f719f431165380080b2ce",
+        "input_ids": [
+          "339062cef4ab22dbd6e4b4d15509ef67084b6dc6025302bc773b792e74cee38d",
+          "f2ea53e3ef67b3bd43162a85099bd897bba5f73bc8e1ebc6abf792e7ec1bfe5f"
+        ],
+        "kind": "derived",
+        "method_version": "association.spearman@v1",
+        "time_scope": "{\"end\":\"2026-09-01T00:00:00+00:00\",\"start\":\"2026-08-01T00:00:00+00:00\"}",
+        "unit": "1",
+        "value_policy": "strict"
+      }
+    }
+  },
+  "facts_sha256": "ca2c6f8fad0abf356332cba5f2a566e66cc16cf3c1efe9fcf4cd3af8e76231d6",
+  "oracle": {
+    "coefficient": -0.4,
+    "pairs": 4
+  },
+  "origin": {
+    "direct_url": {
+      "archive_info": {
+        "hash": "sha256=24c3caa6d09c21f97f20662f300c04d77d64cb35615dc2063e5a812b9db14ae3",
+        "hashes": {
+          "sha256": "24c3caa6d09c21f97f20662f300c04d77d64cb35615dc2063e5a812b9db14ae3"
+        }
+      },
+      "url": "file:///Users/lichengxiang/source/oss/marivo/dist/pypi/marivo-0.5.3.dev0-py3-none-any.whl"
+    },
+    "modules": {
+      "marivo": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/__init__.py",
+      "marivo._authoring": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/_authoring/__init__.py",
+      "marivo._authoring.errors": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/_authoring/errors.py",
+      "marivo._authoring.model": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/_authoring/model.py",
+      "marivo._compat": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/_compat.py",
+      "marivo._temporal": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/_temporal.py",
+      "marivo.analysis": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/__init__.py",
+      "marivo.analysis._capabilities": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/_capabilities/__init__.py",
+      "marivo.analysis._capabilities.catalog_inputs": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/_capabilities/catalog_inputs.py",
+      "marivo.analysis._capabilities.dataset_model": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/_capabilities/dataset_model.py",
+      "marivo.analysis._capabilities.dataset_navigation": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/_capabilities/dataset_navigation.py",
+      "marivo.analysis._capabilities.dataset_registry": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/_capabilities/dataset_registry.py",
+      "marivo.analysis._capabilities.model": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/_capabilities/model.py",
+      "marivo.analysis._capabilities.registry": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/_capabilities/registry.py",
+      "marivo.analysis._pages": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/_pages.py",
+      "marivo.analysis._public": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/_public.py",
+      "marivo.analysis.compiler": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/__init__.py",
+      "marivo.analysis.compiler.attribution": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/attribution.py",
+      "marivo.analysis.compiler.comparison": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/comparison.py",
+      "marivo.analysis.compiler.distinct": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/distinct.py",
+      "marivo.analysis.compiler.distinct_fold": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/distinct_fold.py",
+      "marivo.analysis.compiler.distribution": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/distribution.py",
+      "marivo.analysis.compiler.errors": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/errors.py",
+      "marivo.analysis.compiler.event": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/event.py",
+      "marivo.analysis.compiler.event_continuation": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/event_continuation.py",
+      "marivo.analysis.compiler.event_reducers": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/event_reducers.py",
+      "marivo.analysis.compiler.graph_lowering": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/graph_lowering.py",
+      "marivo.analysis.compiler.graph_plan": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/graph_plan.py",
+      "marivo.analysis.compiler.lowering": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/lowering.py",
+      "marivo.analysis.compiler.nodes": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/nodes.py",
+      "marivo.analysis.compiler.normalize": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/normalize.py",
+      "marivo.analysis.compiler.placement": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/placement.py",
+      "marivo.analysis.compiler.predicates": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/predicates.py",
+      "marivo.analysis.compiler.private_parts": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/private_parts.py",
+      "marivo.analysis.compiler.source_admission": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/source_admission.py",
+      "marivo.analysis.compiler.source_dependencies": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/source_dependencies.py",
+      "marivo.analysis.compiler.source_time": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/source_time.py",
+      "marivo.analysis.compiler.temporal": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/compiler/temporal.py",
+      "marivo.analysis.core": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/core/__init__.py",
+      "marivo.analysis.core.graph": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/core/graph.py",
+      "marivo.analysis.core.model": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/core/model.py",
+      "marivo.analysis.core.predicates": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/core/predicates.py",
+      "marivo.analysis.core.rules": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/core/rules.py",
+      "marivo.analysis.datasets": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/datasets/__init__.py",
+      "marivo.analysis.datasets._disclosure": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/datasets/_disclosure.py",
+      "marivo.analysis.datasets.actions": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/datasets/actions.py",
+      "marivo.analysis.datasets.base": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/datasets/base.py",
+      "marivo.analysis.datasets.contract": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/datasets/contract.py",
+      "marivo.analysis.datasets.descriptors": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/datasets/descriptors.py",
+      "marivo.analysis.datasets.errors": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/datasets/errors.py",
+      "marivo.analysis.datasets.fields": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/datasets/fields.py",
+      "marivo.analysis.datasets.handles": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/datasets/handles.py",
+      "marivo.analysis.datasets.registry": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/datasets/registry.py",
+      "marivo.analysis.datasets.state": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/datasets/state.py",
+      "marivo.analysis.domains": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/domains/__init__.py",
+      "marivo.analysis.domains._disclosure": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/domains/_disclosure.py",
+      "marivo.analysis.domains.completeness": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/domains/completeness.py",
+      "marivo.analysis.domains.contracts": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/domains/contracts.py",
+      "marivo.analysis.domains.errors": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/domains/errors.py",
+      "marivo.analysis.domains.event": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/domains/event.py",
+      "marivo.analysis.domains.event_attribution": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/domains/event_attribution.py",
+      "marivo.analysis.domains.event_comparison": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/domains/event_comparison.py",
+      "marivo.analysis.domains.event_reducers": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/domains/event_reducers.py",
+      "marivo.analysis.domains.lifecycle": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/domains/lifecycle.py",
+      "marivo.analysis.domains.lifecycle_reducers": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/domains/lifecycle_reducers.py",
+      "marivo.analysis.domains.subject": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/domains/subject.py",
+      "marivo.analysis.errors": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/errors.py",
+      "marivo.analysis.event": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/event.py",
+      "marivo.analysis.evidence": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/evidence/__init__.py",
+      "marivo.analysis.evidence._dataset_types": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/evidence/_dataset_types.py",
+      "marivo.analysis.funnel": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/funnel.py",
+      "marivo.analysis.lifecycle": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/lifecycle.py",
+      "marivo.analysis.materialization": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/__init__.py",
+      "marivo.analysis.materialization.admission": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/admission.py",
+      "marivo.analysis.materialization.contracts": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/contracts.py",
+      "marivo.analysis.materialization.errors": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/errors.py",
+      "marivo.analysis.materialization.execution": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/execution.py",
+      "marivo.analysis.materialization.execution_key": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/execution_key.py",
+      "marivo.analysis.materialization.graph_composition": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_composition.py",
+      "marivo.analysis.materialization.graph_dataset": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_dataset.py",
+      "marivo.analysis.materialization.graph_exchange": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_exchange.py",
+      "marivo.analysis.materialization.graph_execution": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_execution.py",
+      "marivo.analysis.materialization.graph_fields": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_fields.py",
+      "marivo.analysis.materialization.graph_local_execution": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_local_execution.py",
+      "marivo.analysis.materialization.graph_members": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_members.py",
+      "marivo.analysis.materialization.graph_observation": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_observation.py",
+      "marivo.analysis.materialization.graph_preflight": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_preflight.py",
+      "marivo.analysis.materialization.graph_protocol": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_protocol.py",
+      "marivo.analysis.materialization.graph_publication": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_publication.py",
+      "marivo.analysis.materialization.graph_relation": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_relation.py",
+      "marivo.analysis.materialization.graph_source_execution": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_source_execution.py",
+      "marivo.analysis.materialization.graph_spearman_execution": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_spearman_execution.py",
+      "marivo.analysis.materialization.graph_storage": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_storage.py",
+      "marivo.analysis.materialization.graph_store": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/graph_store.py",
+      "marivo.analysis.materialization.layout": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/layout.py",
+      "marivo.analysis.materialization.ownership": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/ownership.py",
+      "marivo.analysis.materialization.reads": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/reads.py",
+      "marivo.analysis.materialization.reconciliation": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/reconciliation.py",
+      "marivo.analysis.materialization.resources": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/resources.py",
+      "marivo.analysis.materialization.storage": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/storage.py",
+      "marivo.analysis.materialization.store": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/store.py",
+      "marivo.analysis.materialization.submissions": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/submissions.py",
+      "marivo.analysis.materialization.writer_guard": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/materialization/writer_guard.py",
+      "marivo.analysis.methods": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/methods/__init__.py",
+      "marivo.analysis.methods.builtin": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/methods/builtin.py",
+      "marivo.analysis.methods.errors": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/methods/errors.py",
+      "marivo.analysis.methods.local": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/methods/local.py",
+      "marivo.analysis.methods.physical": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/methods/physical.py",
+      "marivo.analysis.methods.registry": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/methods/registry.py",
+      "marivo.analysis.methods.semantics": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/methods/semantics.py",
+      "marivo.analysis.methods.state_validation": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/methods/state_validation.py",
+      "marivo.analysis.observation": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/__init__.py",
+      "marivo.analysis.observation._disclosure": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/_disclosure.py",
+      "marivo.analysis.observation.aggregation": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/aggregation.py",
+      "marivo.analysis.observation.contracts": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/contracts.py",
+      "marivo.analysis.observation.coordinates": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/coordinates.py",
+      "marivo.analysis.observation.distinct_contracts": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/distinct_contracts.py",
+      "marivo.analysis.observation.distribution_contracts": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/distribution_contracts.py",
+      "marivo.analysis.observation.errors": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/errors.py",
+      "marivo.analysis.observation.fold_contracts": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/fold_contracts.py",
+      "marivo.analysis.observation.metric": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/metric.py",
+      "marivo.analysis.observation.population": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/population.py",
+      "marivo.analysis.observation.predicates": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/predicates.py",
+      "marivo.analysis.observation.private_parts": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/private_parts.py",
+      "marivo.analysis.observation.rollup": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/rollup.py",
+      "marivo.analysis.observation.source_bindings": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/source_bindings.py",
+      "marivo.analysis.observation.temporal": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/observation/temporal.py",
+      "marivo.analysis.operators": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/__init__.py",
+      "marivo.analysis.operators._disclosure": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/_disclosure.py",
+      "marivo.analysis.operators.association": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/association.py",
+      "marivo.analysis.operators.association_contracts": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/association_contracts.py",
+      "marivo.analysis.operators.attribute": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/attribute.py",
+      "marivo.analysis.operators.attribution": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/attribution.py",
+      "marivo.analysis.operators.attribution_contracts": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/attribution_contracts.py",
+      "marivo.analysis.operators.candidate_contracts": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/candidate_contracts.py",
+      "marivo.analysis.operators.candidate_dataset": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/candidate_dataset.py",
+      "marivo.analysis.operators.clickhouse_support": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/clickhouse_support.py",
+      "marivo.analysis.operators.compare": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/compare.py",
+      "marivo.analysis.operators.contracts": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/contracts.py",
+      "marivo.analysis.operators.correlate": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/correlate.py",
+      "marivo.analysis.operators.delta": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/delta.py",
+      "marivo.analysis.operators.discovery": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/discovery.py",
+      "marivo.analysis.operators.driver_contracts": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/driver_contracts.py",
+      "marivo.analysis.operators.errors": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/errors.py",
+      "marivo.analysis.operators.forecast": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/forecast.py",
+      "marivo.analysis.operators.forecast_contracts": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/forecast_contracts.py",
+      "marivo.analysis.operators.forecast_dataset": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/forecast_dataset.py",
+      "marivo.analysis.operators.mysql_support": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/mysql_support.py",
+      "marivo.analysis.operators.postgres_support": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/postgres_support.py",
+      "marivo.analysis.operators.registry": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/registry.py",
+      "marivo.analysis.operators.row_values": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/row_values.py",
+      "marivo.analysis.operators.scalar_support": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/scalar_support.py",
+      "marivo.analysis.operators.sqlite_support": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/sqlite_support.py",
+      "marivo.analysis.operators.trino_support": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/operators/trino_support.py",
+      "marivo.analysis.public_dsl": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/public_dsl.py",
+      "marivo.analysis.refs": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/refs.py",
+      "marivo.analysis.runtime_metric": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/runtime_metric.py",
+      "marivo.analysis.session": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/session/__init__.py",
+      "marivo.analysis.session._disclosure": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/session/_disclosure.py",
+      "marivo.analysis.session._lazy_graph": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/session/_lazy_graph.py",
+      "marivo.analysis.session._lazy_history": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/session/_lazy_history.py",
+      "marivo.analysis.session._lazy_read_model": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/session/_lazy_read_model.py",
+      "marivo.analysis.session._lazy_runtime_reads": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/session/_lazy_runtime_reads.py",
+      "marivo.analysis.session._lazy_sources": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/session/_lazy_sources.py",
+      "marivo.analysis.session._public_disclosure": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/session/_public_disclosure.py",
+      "marivo.analysis.session.core": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/session/core.py",
+      "marivo.analysis.subject": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/subject.py",
+      "marivo.analysis.timezone": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/analysis/timezone.py",
+      "marivo.config": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/config.py",
+      "marivo.datasource": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/__init__.py",
+      "marivo.datasource._capabilities": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/_capabilities/__init__.py",
+      "marivo.datasource._capabilities.contracts": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/_capabilities/contracts.py",
+      "marivo.datasource._capabilities.model": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/_capabilities/model.py",
+      "marivo.datasource._capabilities.registry": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/_capabilities/registry.py",
+      "marivo.datasource.adapters": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/adapters.py",
+      "marivo.datasource.authoring": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/authoring.py",
+      "marivo.datasource.backends": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/backends.py",
+      "marivo.datasource.catalog": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/catalog.py",
+      "marivo.datasource.engines": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/engines/__init__.py",
+      "marivo.datasource.engines.base": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/engines/base.py",
+      "marivo.datasource.errors": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/errors.py",
+      "marivo.datasource.inspection": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/inspection.py",
+      "marivo.datasource.ir": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/ir.py",
+      "marivo.datasource.json_source": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/json_source.py",
+      "marivo.datasource.loader": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/loader.py",
+      "marivo.datasource.manage": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/manage.py",
+      "marivo.datasource.metadata": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/metadata.py",
+      "marivo.datasource.runtime": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/runtime.py",
+      "marivo.datasource.secrets": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/secrets.py",
+      "marivo.datasource.snapshot": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/snapshot.py",
+      "marivo.datasource.source": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/source.py",
+      "marivo.datasource.store": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/store.py",
+      "marivo.datasource.table_source": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/table_source.py",
+      "marivo.datasource.timezone": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/timezone.py",
+      "marivo.datasource.typing": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/datasource/typing.py",
+      "marivo.introspection": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/introspection/__init__.py",
+      "marivo.introspection._fuzzy": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/introspection/_fuzzy.py",
+      "marivo.introspection.constraints": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/introspection/constraints.py",
+      "marivo.introspection.live": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/introspection/live/__init__.py",
+      "marivo.introspection.live.errors": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/introspection/live/errors.py",
+      "marivo.introspection.live.model": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/introspection/live/model.py",
+      "marivo.introspection.live.reflect": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/introspection/live/reflect.py",
+      "marivo.introspection.live.resolve": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/introspection/live/resolve.py",
+      "marivo.preview": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/preview.py",
+      "marivo.project": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/project.py",
+      "marivo.refs": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/refs.py",
+      "marivo.render": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/render.py",
+      "marivo.semantic": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/__init__.py",
+      "marivo.semantic._authoring_context": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_authoring_context.py",
+      "marivo.semantic._authoring_declarations": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_authoring_declarations.py",
+      "marivo.semantic._authoring_decorators": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_authoring_decorators.py",
+      "marivo.semantic._authoring_metrics": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_authoring_metrics.py",
+      "marivo.semantic._authoring_temporal": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_authoring_temporal.py",
+      "marivo.semantic._authoring_validation": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_authoring_validation.py",
+      "marivo.semantic._authoring_values": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_authoring_values.py",
+      "marivo.semantic._capabilities": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_capabilities/__init__.py",
+      "marivo.semantic._capabilities.catalog_members": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_capabilities/catalog_members.py",
+      "marivo.semantic._capabilities.model": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_capabilities/model.py",
+      "marivo.semantic._capabilities.registry": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_capabilities/registry.py",
+      "marivo.semantic._compiled_state": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_compiled_state.py",
+      "marivo.semantic._definition_identity": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_definition_identity.py",
+      "marivo.semantic._dsl_authoring": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_dsl_authoring.py",
+      "marivo.semantic._expression_binding": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_expression_binding.py",
+      "marivo.semantic._metric_resolution": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_metric_resolution.py",
+      "marivo.semantic._quantile": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/_quantile.py",
+      "marivo.semantic.authoring": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/authoring.py",
+      "marivo.semantic.business_order": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/business_order.py",
+      "marivo.semantic.catalog": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/catalog.py",
+      "marivo.semantic.constraints": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/constraints.py",
+      "marivo.semantic.decimal_precision": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/decimal_precision.py",
+      "marivo.semantic.dtos": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/dtos.py",
+      "marivo.semantic.errors": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/errors.py",
+      "marivo.semantic.event": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/event.py",
+      "marivo.semantic.ir": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/ir.py",
+      "marivo.semantic.loader": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/loader.py",
+      "marivo.semantic.metric_graph": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/metric_graph.py",
+      "marivo.semantic.metric_graph_canonical": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/metric_graph_canonical.py",
+      "marivo.semantic.metric_graph_lowering": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/metric_graph_lowering.py",
+      "marivo.semantic.preview_scope": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/preview_scope.py",
+      "marivo.semantic.readiness": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/readiness.py",
+      "marivo.semantic.richness": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/richness.py",
+      "marivo.semantic.runtime_metric": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/runtime_metric.py",
+      "marivo.semantic.source_health": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/source_health.py",
+      "marivo.semantic.state_model": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/state_model.py",
+      "marivo.semantic.time_format": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/time_format.py",
+      "marivo.semantic.typing": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/typing.py",
+      "marivo.semantic.unit_algebra": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/unit_algebra.py",
+      "marivo.semantic.validator": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/semantic/validator.py",
+      "marivo.telemetry": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo/telemetry/__init__.py"
+    },
+    "package": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/lib/python3.12/site-packages/marivo",
+    "python": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python"
+  },
+  "phase": "recover",
+  "pid": 15499,
+  "rows": {
+    "data": [
+      {
+        "cell_reason": null,
+        "cell_tag": "defined",
+        "coefficient": -0.4,
+        "complete_pair_count": 4,
+        "input_observation_count": 4,
+        "matched_observation_count": 4,
+        "metric_key_a": "metric:operations.energy_total",
+        "metric_key_b": "metric:operations.reading_count",
+        "null_pair_count": 0,
+        "status": "valid"
+      }
+    ],
+    "schema": {
+      "fields": [
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "coefficient",
+          "type": "number"
+        },
+        {
+          "name": "cell_tag",
+          "type": "string"
+        },
+        {
+          "name": "cell_reason",
+          "type": "string"
+        },
+        {
+          "name": "metric_key_a",
+          "type": "string"
+        },
+        {
+          "name": "metric_key_b",
+          "type": "string"
+        },
+        {
+          "name": "input_observation_count",
+          "type": "integer"
+        },
+        {
+          "name": "matched_observation_count",
+          "type": "integer"
+        },
+        {
+          "name": "null_pair_count",
+          "type": "integer"
+        },
+        {
+          "name": "complete_pair_count",
+          "type": "integer"
+        }
+      ],
+      "pandas_version": "1.4.0"
+    }
+  },
+  "run": "run_e852d5bf354263f5ac71ca96",
+  "run_count": 4,
+  "session": "session_35c4d33f55cc46e5a9099c1a0e13ae83"
+}

@@ -77,22 +77,33 @@ def test_first_round_workflow_examples_execute(
 
 
 @pytest.mark.runtime
-def test_workflow_mean_rollup_example(tmp_path: Path) -> None:
-    from tests.lazy_local_fixtures import setup_local
+def test_deferred_workflow_mean_rollup_rejects_before_run(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    from dataclasses import replace
 
-    _, sources, _ = setup_local(tmp_path)
-    namespace: dict[str, object] = {"session": sources, "ms": ms}
+    from tests.shared_fixtures import DSL_NAMES
+
+    case = analysis_dsl_case_factory("j1", names=replace(DSL_NAMES, order="orders"))
+    model = case.root / "models/semantic/sales/models.py"
+    model.write_text(
+        model.read_text()
+        + "\nmean_amount = ms.aggregate(name='mean_amount', measure=amount, agg='mean', time=ordered_at)\n"
+    )
+    ms.load(workspace_dir=case.root)
+    namespace: dict[str, object] = {"session": case.session, "ms": ms}
     code = next(
         block for block in _blocks("en", "analysis-workflow") if block.startswith("mean_amount =")
     )
-    exec(compile(code, "mean-rollup-example", "exec"), namespace)
-    overall = namespace["overall"]
-    assert isinstance(overall, mv.MaterializedMetricDataset)
-    assert overall.to_pandas().mean_amount.tolist() == pytest.approx([147.0 / 5.0])
+    from marivo.analysis.errors import AnalysisError
+
+    with pytest.raises(AnalysisError, match="R5"):
+        exec(compile(code, "mean-rollup-example", "exec"), namespace)
+    assert case.session.runs().items == ()
 
 
 @pytest.mark.runtime
-def test_semantic_tutorial_monthly_observation_executes(
+def test_deferred_semantic_monthly_observation_rejects_before_run(
     authoring_evidence_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(authoring_evidence_project)
@@ -132,50 +143,39 @@ def test_semantic_tutorial_monthly_observation_executes(
     assert isinstance(logical, mv.LogicalMetricDataset)
     assert session.runs().items == ()
     assert not session._runtime.statistics.statements
-    rows = logical.execute().to_pandas()
-    assert sorted(rows["revenue"].tolist()) == [10.0, 20.0, 30.0]
-    assert len(session.runs().items) == 1
+    from marivo.analysis.errors import AnalysisError
+
+    with pytest.raises(AnalysisError, match="R5"):
+        logical.execute()
+    assert session.runs().items == ()
 
 
 @pytest.mark.runtime
 def test_workflow_evidence_and_cold_recovery_examples(
-    authoring_evidence_project: Path, monkeypatch: pytest.MonkeyPatch
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    monkeypatch.chdir(authoring_evidence_project)
-    database = authoring_evidence_project / "warehouse.duckdb"
-    with duckdb.connect(str(database)) as connection:
-        identifiers = connection.execute("SELECT query_id FROM orders ORDER BY query_id").fetchall()
-        assert len(identifiers) == 4
-        for identifier, day, amount in zip(
-            identifiers,
-            ("20260701", "20260702", "20260601", "20260602"),
-            (10, 20, 5, 7),
-            strict=True,
-        ):
-            connection.execute(
-                "UPDATE orders SET log_date=?, amount=? WHERE query_id=?",
-                [day, amount, identifier[0]],
-            )
+    case = analysis_dsl_case_factory("j2")
     namespace: dict[str, object] = {}
     exec(compile(_blocks("en", "analysis-workflow")[0], "workflow-example", "exec"), namespace)
     change = namespace["change"]
-    assert isinstance(change, mv.MaterializedDeltaDataset)
-    rows = change.to_pandas()
-    assert rows[["current_value", "baseline_value", "delta"]].to_dict("records") == [
-        {"current_value": 30.0, "baseline_value": 12.0, "delta": 18.0}
-    ]
+    assert isinstance(change, mv.MaterializedDifferenceRelation)
+    expected = {"A": -40, "B": 20, "C": -50, "D": 0}
+    assert change.to_pandas().set_index("member")["value"].to_dict() == expected
     session = namespace["session"]
     assert isinstance(session, mv.Session)
     assert len(session.runs().items) == 1
     exec(compile(_blocks("en", "evidence")[0], "evidence-example", "exec"), namespace)
-    # Reusing the identical definition must not invent another successful Run.
-    assert len(session.runs().items) == 1
-    database.rename(database.with_suffix(".offline"))
-    resumed = mv.session.resume(session.id)
-    namespace["session"] = resumed
-    namespace["run_id"] = session.runs().items[0].run_id
+    # Repeated source definitions must create a new evaluation and immutable Artifact.
+    assert len(session.runs().items) == 2
+    second = namespace["artifact"]
+    assert isinstance(second, mv.MaterializedDifferenceRelation)
+    assert second.state.artifact_ref != change.state.artifact_ref
+    case.database_path.unlink()
+    namespace["session"] = mv.session.resume(session.id, by="id")
+    namespace["run_id"] = change.state.producing_run_ref
     exec(compile(_blocks("en", "evidence")[1], "recovery-example", "exec"), namespace)
     recovered = namespace["artifact"]
-    assert isinstance(recovered, mv.MaterializedDeltaDataset)
-    assert recovered.to_pandas()["delta"].tolist() == [18.0]
-    assert not resumed._runtime.statistics.statements
+    assert isinstance(recovered, mv.MaterializedDifferenceRelation)
+    assert recovered.state.artifact_ref == change.state.artifact_ref
+    assert recovered.to_pandas().set_index("member")["value"].to_dict() == expected
+    assert len(session.runs().items) == 2

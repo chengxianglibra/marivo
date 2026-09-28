@@ -1,4 +1,4 @@
-"""Release gate for the installed Dataset algebra, disclosure and cold reads."""
+"""Release gate for same-wheel graph journeys, disclosure and cold recovery."""
 
 from __future__ import annotations
 
@@ -33,6 +33,16 @@ CONTRACT_TESTS = (
     "test_lazy_disclosure",
     "test_lazy_public_session",
     "test_cutover_documentation_examples",
+    "test_analysis_dsl_public",
+    "test_analysis_dsl_r45_migration",
+    "test_analysis_graph_preflight_r45",
+    "test_analysis_graph_publication_r44",
+    "test_analysis_graph_runtime_r42",
+    "test_analysis_graph_r33",
+    "test_analysis_lowering_r34",
+    "test_analysis_dsl_exchange",
+    "test_analysis_dsl_contracts",
+    "test_analysis_dsl_p2_disclosure",
     "test_cli",
 )
 
@@ -40,7 +50,9 @@ CONTRACT_TESTS = (
 def _stage_tests(destination: Path) -> None:
     """Copy only selected tests and their statically imported test helpers."""
     pending = {f"tests.{name}" for name in CONTRACT_TESTS}
-    pending.update(("tests.conftest", "tests.installed_wheel_probe"))
+    pending.update(
+        ("tests.conftest", "tests.installed_wheel_probe", "tests.graph_publication_runtime_worker")
+    )
     copied: set[str] = set()
     while pending:
         name = pending.pop()
@@ -78,6 +90,7 @@ def _stage_tests(destination: Path) -> None:
         "[pytest]\npython_classes =\nmarkers =\n"
         "    runtime: installed real Runtime checks\n"
         "    release: installed packaging checks\n"
+        "filterwarnings =\n    ignore::DeprecationWarning:ibis.*\n"
     )
 
 
@@ -114,9 +127,7 @@ def _check_archives(wheel: Path, sdist: Path) -> dict[str, object]:
     }
 
 
-def test_installed_dataset_surface_and_three_process_recovery(
-    tmp_path: Path, authoring_evidence_project: Path
-) -> None:
+def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> None:
     wheels = tuple((ROOT / "dist/pypi").glob("marivo-*.whl"))
     sdists = tuple((ROOT / "dist/pypi").glob("marivo-*.tar.gz"))
     assert len(wheels) == len(sdists) == 1, "Run make pypi-build pypi-check first"
@@ -133,6 +144,19 @@ def test_installed_dataset_surface_and_three_process_recovery(
     expected_surface = surface_snapshot()
     (reports / "source-surface.json").write_text(json.dumps(expected_surface, indent=2) + "\n")
     _stage_tests(work)
+    (reports / "inputs.json").write_text(
+        json.dumps(
+            {
+                str(path.relative_to(work)): hashlib.sha256(path.read_bytes()).hexdigest()
+                for base in (work / "tests", work / "site")
+                for path in sorted(base.rglob("*"))
+                if path.is_file()
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
     environment = {
         key: value
         for key, value in os.environ.items()
@@ -219,6 +243,10 @@ def test_installed_dataset_surface_and_three_process_recovery(
             env=poisoned,
         )
         assert "foreign Marivo import" in rejection
+        run("origin-hook", [*probe, "install-hook", str(reports / "origin-hook.json")])
+        environment["MARIVO_INSTALLED_ORIGIN_DIR"] = str(reports / "process-origins")
+        run("origin-hook-check", [*probe, "guard", str(reports / "hook-guard.json")])
+        assert tuple((reports / "process-origins").glob("*-start.json")), "origin hook did not run"
         selected = [f"tests/{name}.py" for name in CONTRACT_TESTS]
         for marker in ("not runtime", "runtime"):
             name = "runtime" if marker == "runtime" else "contracts"
@@ -239,6 +267,7 @@ def test_installed_dataset_surface_and_three_process_recovery(
                     "-q",
                     "--tb=short",
                     "--maxfail=5",
+                    f"--junitxml={reports / (name + '.xml')}",
                     "-m",
                     marker,
                     *selected,
@@ -248,23 +277,45 @@ def test_installed_dataset_surface_and_three_process_recovery(
         module_help = run("module-help", [str(interpreter), "-m", "marivo", "help"])
         console_help = run("console-help", [str(console), "help"])
         assert console_help == module_help
-        phases = []
-        for phase in ("produce", "continue", "recover"):
-            report = reports / f"{phase}.json"
-            run(phase, [*probe, phase, str(authoring_evidence_project), str(report)])
-            phases.append(json.loads(report.read_text()))
-        assert len({item["pid"] for item in phases}) == 3
-        for key in ("session", "artifact", "run", "evidence", "finding_ids"):
-            assert all(item[key] == phases[0][key] for item in phases)
-        assert [item["run_count"] for item in phases] == [1, 2, 2]
-        assert phases[2]["execution_statements"] == []
+        for source in ("table", "parquet"):
+            for scenario in ("j1", "j2", "j3", "j4"):
+                project = work / f"{source}-{scenario}"
+                phases = []
+                for phase in ("produce", "continue", "recover"):
+                    report = reports / f"{source}-{scenario}-{phase}.json"
+                    run(
+                        f"{source}-{scenario}-{phase}",
+                        [*probe, phase, str(project), scenario, source, str(report)],
+                    )
+                    phases.append(json.loads(report.read_text()))
+                assert len({item["pid"] for item in phases}) == 3
+                for key in (
+                    "session",
+                    "artifact",
+                    "run",
+                    "rows",
+                    "contract",
+                    "descriptor",
+                    "facts_sha256",
+                ):
+                    assert all(item[key] == phases[0][key] for item in phases)
+                assert phases[1]["continuations"] == phases[2]["continuations"]
+                assert phases[1]["run_count"] > phases[0]["run_count"]
+                assert phases[1]["run_count"] == phases[2]["run_count"]
+        origins = tuple((reports / "process-origins").glob("*.json"))
+        assert origins
+        for path in origins:
+            assert "origin" in json.loads(path.read_text()), path.read_text()
     finally:
         (reports / "commands.json").write_text(
             json.dumps(receipts, indent=2, sort_keys=True) + "\n"
         )
-        retained = os.environ.get("MARIVO_SLICE8C_EVIDENCE_DIR")
+        retained = os.environ.get("MARIVO_R46_EVIDENCE_DIR")
         if retained:
             destination = Path(retained) / "installed-wheel"
             destination.mkdir(parents=True, exist_ok=True)
             for path in reports.iterdir():
-                shutil.copy2(path, destination / path.name)
+                if path.is_dir():
+                    shutil.copytree(path, destination / path.name, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(path, destination / path.name)

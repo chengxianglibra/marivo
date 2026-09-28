@@ -1,0 +1,616 @@
+[
+  {
+    "command": [
+      "/Users/lichengxiang/source/oss/marivo/.venv/bin/python3",
+      "-m",
+      "venv",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 1.671,
+    "exit_code": 0,
+    "name": "create-venv"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "pip",
+      "install",
+      "--disable-pip-version-check",
+      "--constraint",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/constraints.txt",
+      "/Users/lichengxiang/source/oss/marivo/dist/pypi/marivo-0.5.3.dev0-py3-none-any.whl[duckdb]",
+      "pytest",
+      "pytest-xdist"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 65.831,
+    "exit_code": 0,
+    "name": "install"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "pip",
+      "list",
+      "--format=json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 0.21,
+    "exit_code": 0,
+    "name": "dependencies"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "pip",
+      "check"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 0.206,
+    "exit_code": 0,
+    "name": "dependency-check"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "guard",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/origin.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 0.155,
+    "exit_code": 0,
+    "name": "origin"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "surface",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/installed-surface.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 11.274,
+    "exit_code": 0,
+    "name": "surface"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "guard",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/invalid.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 0.125,
+    "exit_code": 1,
+    "name": "foreign-import-rejected"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "install-hook",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/origin-hook.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 0.125,
+    "exit_code": 0,
+    "name": "origin-hook"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "guard",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/hook-guard.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 0.176,
+    "exit_code": 0,
+    "name": "origin-hook-check"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "pytest",
+      "-p",
+      "tests.installed_wheel_probe",
+      "-c",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/pytest.ini",
+      "--import-mode=importlib",
+      "-n",
+      "0",
+      "-q",
+      "--tb=short",
+      "--maxfail=5",
+      "--junitxml=/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/contracts.xml",
+      "-m",
+      "not runtime",
+      "tests/test_public_surface.py",
+      "tests/test_agent_result_protocol.py",
+      "tests/test_lazy_dataset_values.py",
+      "tests/test_lazy_dataset_contract.py",
+      "tests/test_analysis_help_resolution.py",
+      "tests/test_unified_help.py",
+      "tests/test_lazy_disclosure.py",
+      "tests/test_lazy_public_session.py",
+      "tests/test_cutover_documentation_examples.py",
+      "tests/test_analysis_dsl_public.py",
+      "tests/test_analysis_dsl_r45_migration.py",
+      "tests/test_analysis_graph_preflight_r45.py",
+      "tests/test_analysis_graph_publication_r44.py",
+      "tests/test_analysis_graph_runtime_r42.py",
+      "tests/test_analysis_graph_r33.py",
+      "tests/test_analysis_lowering_r34.py",
+      "tests/test_analysis_dsl_exchange.py",
+      "tests/test_analysis_dsl_contracts.py",
+      "tests/test_analysis_dsl_p2_disclosure.py",
+      "tests/test_cli.py"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 21.387,
+    "exit_code": 0,
+    "name": "contracts"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "pytest",
+      "-p",
+      "tests.installed_wheel_probe",
+      "-c",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/pytest.ini",
+      "--import-mode=importlib",
+      "-n",
+      "0",
+      "-q",
+      "--tb=short",
+      "--maxfail=5",
+      "--junitxml=/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/runtime.xml",
+      "-m",
+      "runtime",
+      "tests/test_public_surface.py",
+      "tests/test_agent_result_protocol.py",
+      "tests/test_lazy_dataset_values.py",
+      "tests/test_lazy_dataset_contract.py",
+      "tests/test_analysis_help_resolution.py",
+      "tests/test_unified_help.py",
+      "tests/test_lazy_disclosure.py",
+      "tests/test_lazy_public_session.py",
+      "tests/test_cutover_documentation_examples.py",
+      "tests/test_analysis_dsl_public.py",
+      "tests/test_analysis_dsl_r45_migration.py",
+      "tests/test_analysis_graph_preflight_r45.py",
+      "tests/test_analysis_graph_publication_r44.py",
+      "tests/test_analysis_graph_runtime_r42.py",
+      "tests/test_analysis_graph_r33.py",
+      "tests/test_analysis_lowering_r34.py",
+      "tests/test_analysis_dsl_exchange.py",
+      "tests/test_analysis_dsl_contracts.py",
+      "tests/test_analysis_dsl_p2_disclosure.py",
+      "tests/test_cli.py"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 134.903,
+    "exit_code": 0,
+    "name": "runtime"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "marivo",
+      "help"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 0.243,
+    "exit_code": 0,
+    "name": "module-help"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/marivo",
+      "help"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 3.488,
+    "exit_code": 0,
+    "name": "console-help"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "produce",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/table-j1",
+      "j1",
+      "table",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/table-j1-produce.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 2.693,
+    "exit_code": 0,
+    "name": "table-j1-produce"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "continue",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/table-j1",
+      "j1",
+      "table",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/table-j1-continue.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 2.588,
+    "exit_code": 0,
+    "name": "table-j1-continue"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "recover",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/table-j1",
+      "j1",
+      "table",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/table-j1-recover.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 2.328,
+    "exit_code": 0,
+    "name": "table-j1-recover"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "produce",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/table-j2",
+      "j2",
+      "table",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/table-j2-produce.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 3.498,
+    "exit_code": 0,
+    "name": "table-j2-produce"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "continue",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/table-j2",
+      "j2",
+      "table",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/table-j2-continue.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 3.646,
+    "exit_code": 0,
+    "name": "table-j2-continue"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "recover",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/table-j2",
+      "j2",
+      "table",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/table-j2-recover.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 4.019,
+    "exit_code": 0,
+    "name": "table-j2-recover"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "produce",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/table-j3",
+      "j3",
+      "table",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/table-j3-produce.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 2.931,
+    "exit_code": 0,
+    "name": "table-j3-produce"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "continue",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/table-j3",
+      "j3",
+      "table",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/table-j3-continue.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 3.017,
+    "exit_code": 0,
+    "name": "table-j3-continue"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "recover",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/table-j3",
+      "j3",
+      "table",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/table-j3-recover.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 2.755,
+    "exit_code": 0,
+    "name": "table-j3-recover"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "produce",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/table-j4",
+      "j4",
+      "table",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/table-j4-produce.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 2.595,
+    "exit_code": 0,
+    "name": "table-j4-produce"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "continue",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/table-j4",
+      "j4",
+      "table",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/table-j4-continue.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 2.668,
+    "exit_code": 0,
+    "name": "table-j4-continue"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "recover",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/table-j4",
+      "j4",
+      "table",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/table-j4-recover.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 2.522,
+    "exit_code": 0,
+    "name": "table-j4-recover"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "produce",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/parquet-j1",
+      "j1",
+      "parquet",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/parquet-j1-produce.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 2.398,
+    "exit_code": 0,
+    "name": "parquet-j1-produce"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "continue",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/parquet-j1",
+      "j1",
+      "parquet",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/parquet-j1-continue.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 2.263,
+    "exit_code": 0,
+    "name": "parquet-j1-continue"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "recover",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/parquet-j1",
+      "j1",
+      "parquet",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/parquet-j1-recover.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 2.431,
+    "exit_code": 0,
+    "name": "parquet-j1-recover"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "produce",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/parquet-j2",
+      "j2",
+      "parquet",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/parquet-j2-produce.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 3.561,
+    "exit_code": 0,
+    "name": "parquet-j2-produce"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "continue",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/parquet-j2",
+      "j2",
+      "parquet",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/parquet-j2-continue.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 3.372,
+    "exit_code": 0,
+    "name": "parquet-j2-continue"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "recover",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/parquet-j2",
+      "j2",
+      "parquet",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/parquet-j2-recover.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 3.169,
+    "exit_code": 0,
+    "name": "parquet-j2-recover"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "produce",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/parquet-j3",
+      "j3",
+      "parquet",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/parquet-j3-produce.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 3.153,
+    "exit_code": 0,
+    "name": "parquet-j3-produce"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "continue",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/parquet-j3",
+      "j3",
+      "parquet",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/parquet-j3-continue.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 3.963,
+    "exit_code": 0,
+    "name": "parquet-j3-continue"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "recover",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/parquet-j3",
+      "j3",
+      "parquet",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/parquet-j3-recover.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 2.77,
+    "exit_code": 0,
+    "name": "parquet-j3-recover"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "produce",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/parquet-j4",
+      "j4",
+      "parquet",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/parquet-j4-produce.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 2.603,
+    "exit_code": 0,
+    "name": "parquet-j4-produce"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "continue",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/parquet-j4",
+      "j4",
+      "parquet",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/parquet-j4-continue.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 2.691,
+    "exit_code": 0,
+    "name": "parquet-j4-continue"
+  },
+  {
+    "command": [
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/.venv/bin/python",
+      "-m",
+      "tests.installed_wheel_probe",
+      "recover",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/parquet-j4",
+      "j4",
+      "parquet",
+      "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/reports/parquet-j4-recover.json"
+    ],
+    "cwd": "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check",
+    "duration_seconds": 2.609,
+    "exit_code": 0,
+    "name": "parquet-j4-recover"
+  }
+]

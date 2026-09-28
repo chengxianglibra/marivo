@@ -283,3 +283,34 @@ Astro 检查 0 errors / 0 warnings。代码、输入与日志哈希及旧测试�
 此前私有通过记录不替代以上公共取证；19 项既有 skip 不计通过。既有 R5 并发失败保持
 独立交接，本包未重跑该套件。R4.6 的同一候选 wheel 隔离安装和 V12 安装包验收仍未运行，
 因此不宣布整个 R4 或 R5–R9 完成。本包未提交、推送或发布。
+
+
+## 2026-09-28 R4.6 完成记录
+
+R4.6 已以同一候选 wheel 完成四旅程和安装包收口，wheel SHA-256 为
+`24c3caa6d09c21f97f20662f300c04d77d64cb35615dc2063e5a812b9db14ae3`。
+安装在仓库外的独立环境，包来源、direct_url、依赖与 wheel/sdist 源码逐文件核对；
+源码路径污染反例拒绝，受测子进程有启动及正常退出来源记录。
+
+同包默认 **444 passed**、Runtime **93 passed**；DuckDB table/Parquet × J1–J4
+各以 produce/continue/recover 三进程运行，共 **24** 个阶段。删除来源和 Semantic 模型后
+阻断来源、DuckDB 与当前定义加载，仍以精确引用恢复同一主表、parts、descriptor、
+contract，并执行满足既有 Cell/绑定前提的 K；再次执行固定续算命中原 Artifact，
+不增加 Run。独立原始事实/Fraction/平均秩 oracle 与非电商字段和单位映射通过。
+
+源码 `make check-agent` **5363 passed / 19 skipped**、400 个源码文件 typing、
+格式/lint/导入合同/API 文档通过；定向默认 **117 passed**、Runtime **93 passed**；
+额外 4 个安装探针/示例模块与 2 个证据工具 typing 通过；站点 **321 页**，
+0 errors / 0 warnings。外层隔离安装门禁 **1 passed**。
+
+已移除无人调用的旧 public snapshot helper；Dataset Help 的旧 R1 公共执行暗示、
+英中 Evidence 的旧 Findings 调用与工作流 Store 6 文案已修正。旧场景符号不在产品或
+wheel 中；私有通用 v6 Dataset/codec/key 消费者仍按既定 R5–R9 owner 隔离保留，
+不作为 Store 7 回退或双读。未新增 API、Help 入口或协议版本。
+
+V01–V12 的具体断言、原始日志、脚本/数据 hash、Run/Artifact 引用、删除与剩余消费者、
+中间失败修复及重跑命令见 [R4.6 证据](evidence/r46/README.md)、
+[矩阵](evidence/r46/matrix.json)与 [manifest](evidence/r46/manifest.json)。
+本阶段在既定 J1–J4 本机资格内收口；历史 skip、R5 私有并发失败继续单独交接，
+不授予 R5–R10 完整能力、六后端或真实 Agent 资格。未修改 AGENTS.md/packaged skills，
+未运行完整 release-check、启动 MinIO、提交、推送或发布。
