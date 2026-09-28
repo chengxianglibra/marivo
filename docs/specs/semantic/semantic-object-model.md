@@ -9,12 +9,15 @@ Declaration identity and effective dependency fingerprint enter the bound
 definition and Artifact receipt. An author-declared business fact is a trusted
 premise, not a measured source fact.
 
-### Named statistical-weight role (deferred)
+### Named statistical-weight role (withdrawn from implementation scope)
 
-The R0.3 statistical-weight role remains a target contract. R2.2 does not
-export a declaration, Ref, catalog entry, or Help target for it. A later phase
-must separately authorize the declaration and its source-value checks.
-`ms.weighted_mean` retains its existing governed Metric-component meaning.
+The user withdrew `ms.statistical_weight` during R2.2. The earlier R0.3
+proposal is historical background, not an implementation obligation. R5 must
+not reactivate its declaration, Ref, catalog entry, Help target, or the dependent
+`mv.statistical_weight` and current-row weighted-mean surface. Absence of that
+surface is not an R5 blocker. Reconsidering it requires a separate scope decision;
+it is not automatically assigned to R6. `ms.weighted_mean` and
+`mv.runtime_metric.weighted_mean` retain their governed Metric-component meaning.
 
 ### Business order and simultaneous events (R2.3 declaration implemented)
 
@@ -947,6 +950,10 @@ its result cannot enter Semantic or typed Analysis.
 
 ### Explicit percentile method contract
 
+This paragraph describes the legacy wrapper/consumer contract. The R5.1 target
+below replaces public physical method selection with accuracy at R5.6 cutover;
+it does not qualify the old session.observe consumer for the public graph path.
+
 `ms.quantile_metric(...)` selects an explicit quantile method for governed
 root median/percentile Metrics. The original declaration owns q; method selection
 is either exact linear interpolation or DuckDB T-Digest, never inferred from
@@ -955,3 +962,75 @@ T-Digest discloses semantic approximation and unknown error bounds. Its input
 vector is source-sorted and evaluated with the pinned backend method.
 Use `marivo.help("semantic.quantile_metric")` for the public constructor and
 pass the selected input to `session.observe(...)`.
+
+## R5.1 frozen Semantic handoff
+
+Status: target contract frozen; new R5 execution variants remain unverified.
+This section refines the R5 handoff without adding declarations or exports.
+The [Analysis contract](../analysis/python-analysis-design.md#r51-frozen-public-target)
+owns consuming signatures; [methods](../analysis/operators-and-frames.md#r51-method-and-state-contracts)
+own execution state, numeric qualifications, and continuation.
+
+### Identity, fields and version facts
+
+The ordered complete Entity primary key is stable identity K. Snapshot and
+validity coordinates select representations and never silently extend or shorten
+K. Root membership trusts declared uniqueness and projects all of K without
+`distinct` or a new whole-source uniqueness probe. A consumer that observes
+duplicate identities or overlapping matching versions rejects before publishing;
+it cannot retain the first row or repair a violation with deduplication.
+
+Snapshot selection is the exact declared grain/timezone period. A missing exact
+snapshot yields an empty represented membership, never a last-known snapshot;
+it does not prove that a business population or contribution window is complete.
+Validity selection follows the declared interval and open-end values. For
+closed-open intervals, instant selection is `from <= at < to`, and left-limit
+selection is `from < end <= to`. Missing matches preserve absence; required read
+coverage and method-specific empty-result rules decide whether consumption is
+legal. No-version Entities reject historical selection rather than manufacturing
+history. These R5 consumer rules supersede the historical permission above for
+duplicate matching versions to affect an output without rejection.
+
+Measure, categorical Dimension, TimeDimension, and boolean-valued Dimension
+retain their distinct value kinds through read. A boolean Dimension is not
+inferred from an integer 0/1 column; its resolved logical type must be boolean.
+Attribute version facts, full correspondence keys, relationship role and
+definition fingerprint accompany the field dependency. A many-valued mapping
+does not become a scalar read through an implicit aggregate. Selecting attributes
+at a different explicit anchor preserves that independent binding; the chosen
+membership anchor alone does not certify attribute or contribution coverage.
+
+### Metric occurrences and policies
+
+The canonical graph binds each component occurrence independently: its root,
+base Measure/Entity Ref, branch filter, relationship roles, version/time facts,
+contribution unit, value unit, declared Cell policy, and actual source binding.
+Shared graph definitions do not merge distinct occurrences with different filters.
+Ratio, linear, weighted mean and cumulative consumers resolve that graph rather
+than reconstructing it from function bodies, aliases, output names or equal values.
+Opaque Metrics expose only explicitly declared policies and actually retained
+state. Missing declarations remain missing and block the dependent operation.
+
+Metric mean retains sum, non-null count and row count; Metric weighted mean
+retains weighted numerator and weight sum over the same non-null pairs, plus
+the pair/row facts needed by its declared empty policy. Null pairs are excluded
+together, unlike strict current-row statistics. Existing Metric empty/Null and
+zero-weight policies remain authored facts; the withdrawn statistical-weight
+proposal does not change them. Runtime ratio `zero_division="null"` maps to the
+canonical undefined-zero-denominator policy, while `"error"` rejects; neither
+means a Defined zero or a Null Cell. Named original components survive finish.
+
+Exact distinct counts its declared value identity (an Entity identity uses all
+of K), excludes Null according to the existing count-distinct policy, and yields
+zero on admitted empty input. Exact median/percentile excludes Null pairs of
+value and contribution identity, rejects nonfinite numeric inputs, and uses
+linear interpolation at `h=(n-1)*q`; median fixes `q=0.5`. Empty non-null support
+yields Null under the existing Metric policy. Percentile q is finite with
+`0 < q < 1`; bool is rejected. Direct observation defaults to exact.
+`ms.quantile_metric(metric: Ref[MetricKind] | RuntimeMetricExpr, *,
+accuracy: Literal["exact", "approximate"] = "exact") -> QuantileMetricInput`
+is the target wrapper; `method=` is removed at R5.6 cutover without an alias.
+Approximate permits a qualified approximate or exact implementation; plan and
+receipt disclose the actual algorithm, parameters and guarantee. No automatic
+exact-to-approximate fallback, invented error bound, retained distribution/sketch,
+original rollup or attribution is authorized by this first direct-observation slice.

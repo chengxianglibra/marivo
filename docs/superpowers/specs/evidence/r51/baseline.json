@@ -1,0 +1,11 @@
+{
+  "head": "dd42c7cca070fba60d6a2761331d86dbaca135ce",
+  "branch": "panda",
+  "status": "?? docs/superpowers/specs/2026-09-28-marivo-full-algebra-dsl-r5-implementation-plan.md\n",
+  "staged_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "unstaged_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "untracked_files": {
+    "docs/superpowers/specs/2026-09-28-marivo-full-algebra-dsl-r5-implementation-plan.md": "2cc08572168411157faea4aac27c8ce09eae5363701a742177de67ecec3df469"
+  },
+  "scope": "R5.1 documentation only; no product or test changes"
+}

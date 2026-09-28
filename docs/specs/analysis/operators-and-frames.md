@@ -1,5 +1,9 @@
 # Dataset Methods and States
 
+For R5 migration, the final R5.1 section below owns frozen target methods and
+states. Earlier Dataset-family routes describe legacy consumers and do not
+authorize parallel public R5 APIs or transfer their physical qualifications.
+
 Execution follows the [unified operator and backend ownership contract](python-analysis-design.md#unified-operator-and-execution-ownership). Backend-specific preparation does not change operator semantics.
 
 
@@ -419,3 +423,125 @@ cast, generic transform namespace or legacy public class is retained.
 Execution placement uses registered method support and exact binding ownership,
 without engine/driver/Ibis version certification. Diagnostic version differences
 do not merge distinct datasource or retained-input authorities.
+
+## R5.1 method and state contracts
+
+Status: frozen target, new R5 execution qualifications unverified. For migrated
+R5 operations this section supersedes historical `aggregate`, `with_dimensions`,
+`with_time_axis` and generic rollup/drop-axis guidance above. The only public
+shapes are owned by [Analysis](python-analysis-design.md#r51-frozen-public-target).
+`analysis.methods` owns semantic rules and exact physical keys. A legacy
+registration, private synthetic qualification, successful compilation or equal
+number does not confer public execution or continuation K.
+
+### State and Cell matrix
+
+Each row below is a distinct semantic method family at method version 1, state
+version v1 unless an already published layout would change meaning. Existing
+R4 encodings/IDs are preserved when identical. A changed layout receives the next
+method/state version, never reinterpretation of v1 or a new Store generation.
+These are semantic component names, not a second codec schema: their physical
+columns and bound part roles are registered by the common graph protocol.
+
+All state carries exact quantity/contribution identity, input binding, full output
+keys, coverage, Cell policy, type and method/state versions. Component state and
+primary output agree under finish. A missing state is never a valid empty state.
+A semantic allowance below still requires a qualified physical implementation.
+
+| Method family | Input Cell / empty policy | Sufficient state and required parts | Permitted original-state K |
+| --- | --- | --- | --- |
+| Metric sum | Declared Null/empty policy; ignore Null only when declared; admitted empty zero or Null is explicit | sum, non-null count, row count; original contribution/coverage and component part | Merge sum/counts across proven disjoint contributions, then finish under same policy |
+| Metric Entity/Measure count | Entity count counts represented identities; Measure count follows declared non-null policy; empty 0 | checked int64 count, row count and exact counted unit | Merge counts only over disjoint original contributions |
+| Metric min/max | Declared non-null support; empty/all-null follows Metric Null policy | typed extremum plus non-null and row counts | Same extremum method over admitted contributions; temporal restrictions still apply |
+| Metric mean | Declared non-null support; empty/all-null follows Metric Null policy | sum, non-null count, row count | Merge sum/counts, never means |
+| Metric weighted mean | Same non-null value/weight pairs; existing Metric zero/missing-weight-sum policy | weighted sum, paired weight sum, paired and row counts, original value/weight refs and units | Merge original paired components; no substitution of current-row weights |
+| Metric ratio | Named numerator/denominator policies; zero denominator Undefined or error as declared | Every named original component with its own state, binding and coverage | Merge components independently then finish; no sum/mean of finished ratios |
+| Metric linear | Ordered signed components, compatible units and explicit component policies | Every ordered occurrence's state and sign | Merge components independently then finish; retain branch distinctions |
+| Current-row count | Every current instance, including Null/Undefined/Unknown; empty 0 | checked int64 count, current instance unit/domain | RowStatistic count-state merge on disjoint retained row contributions |
+| Current-row count_defined | Inspect Cell tag; only Defined counts; empty 0 | checked int64 count, current instance unit/domain and original tag policy | Merge this statistic's counts, never recast as count_all |
+| Current-row sum | All consumed values Defined and finite; admitted empty 0 | sum and row count, new RowStatistic identity | Same statistic's sum-state merge, disjoint current-row contributions |
+| Current-row min/max | All consumed values Defined and finite; empty Undefined(empty_min/empty_max) | optional extremum and row count | Same statistic's extrema merge; empty state is neutral |
+| Current-row mean | All consumed values Defined and finite; empty Undefined(empty_mean) | sum and row count, including valid (0,0) | Same statistic's sum/count merge; Undefined empty Cell is not a zero input to summarize |
+| Direct count_distinct | Declared value identity; Null excluded; empty 0 | Final value and input/method evidence only; no retained set/sketch promise | No original rollup or attribution |
+| Direct median/percentile | Finite non-null values; Metric empty policy; exact linear interpolation | Final value, q, requested accuracy and actual algorithm evidence; no distribution/sketch promise | No original rollup or attribution |
+| Semi-additive time fold | Per declared spatial-before-time order, sample/time policy and coverage | Exact ordered evaluation keys plus pre-fold components sufficient to restore that order; method identity includes first/last/min/max/mean/percentile | Only qualified fold/reduction with retained state and order/disjointness proof; finished values alone insufficient |
+| Cumulative | Each endpoint consumes [anchor(e), e), independent of display start | Endpoint, anchor, base components, interval coverage and ordering | Spatial merge with matching endpoints/base policy; no summing overlapping cumulative endpoints |
+
+Subject/member maps, classification maps, full coordinate tuples and temporal
+parts are required whenever the successor consumes them; scalar components alone
+cannot reconstruct them. Original contribution overlap or non-commuting folds
+reject absent a registered proof/restoration method. A RowStatistic is a new
+quantity and cannot acquire the original Metric's units of contribution or K.
+Current-row weighted mean and its named StatisticalWeight surface are withdrawn
+from R5 requirements; existing private rules do not activate them.
+
+### Numeric target matrix
+
+Required R5 value families are signed int64, finite float64, Decimal(p,s) with
+1 <= p <= 38 and 0 <= s <= p, and fixed-duration values in s/ms/us/ns. Boolean
+is not numeric. Every qualification records the exact input/output/state type,
+not merely the family name. Invalid values and overflow reject before publication;
+there is no saturation, wrapping, silent float coercion or route retry.
+
+| Method | int64 | float64 | Decimal | Duration / date / timestamp |
+| --- | --- | --- | --- | --- |
+| count/count_defined/count_distinct | checked int64 result/count state; count_distinct retains full declared identity | Same count result; nonfinite distinct input rejected | Exact decimal equality for distinct, checked count | Duration distinct preserves unit and exact ticks; date/instant distinct preserves typed identity; count methods may count these relations without numeric coercion |
+| sum / linear | checked int64 output/state | finite float64 output/state | Decimal(38,s), exact sum; equal scales required within an occurrence | Duration sum/linear preserve tick unit with checked int64 ticks; date/timestamp numeric sum rejected |
+| min/max/first/last | preserve input type | preserve finite input type | preserve (p,s) | Duration preserves unit; time-valued read/selection preserves physical type, no timestamp-to-float numerical aggregation |
+| mean | exact integer sum/count state; finish to float64 once | float64 sum, checked count, finite float64 finish | sum Decimal(38,s), count int64; finish Decimal(38,max(s,6)) | Duration mean uses exact tick sum/count, rounds once to nearest tick, ties to even; date/timestamp mean rejected |
+| Metric weighted mean | checked int64 product/sum/weight state, float64 finish | float64 products and sums, finite finish | matched Decimal value/weight types; numerator scale s_value+s_weight <= 38, denominator scale s_weight; Decimal(38,max(s_value,6)) finish | Duration values with int64 nonnegative weights: exact checked tick products, nearest-even tick finish; timestamp weights/values rejected |
+| ratio | checked component states, float64 finish | float64 components/result | Decimal components; output Decimal(38,max(s_num,s_den,6)) | Same-unit Duration ratio uses exact tick components and float64 finish; mixed calendar/elapsed units or timestamp division rejected |
+| exact median/percentile | exact ordered integers and rational interpolation, one float64 finish | sorted finite values, float64 interpolation | exact interpolation, Decimal(38,max(s,6)) finish | Duration/date/timestamp quantile rejected in this R5 direct-observation slice; no implicit float route |
+| semi-additive / cumulative | Base method's matrix plus exact time keys | Base method's matrix plus exact time keys | Base method's matrix plus exact time keys | Temporal keys retain physical precision; cumulative Duration sum follows sum, calendar months cannot become fixed seconds |
+
+The table is a minimum acceptance obligation, not an assertion that current
+physical ScalarType already includes Duration. R5.6 must add its closed type and
+exchange/receipt qualification for the accepted Duration cells. Decimal state
+uses exact intermediate arithmetic; each stored sum/product is checked against
+its declared precision and scale. The admitted input scale is retained, not
+rounded on ingest. Decimal finish rounds once using ROUND_HALF_EVEN at the stated
+result scale and rejects integer-part overflow. Excess product scale, unsupported
+cross-family pairs, and differing Duration tick units reject explicitly; the
+first slice does not add automatic rescaling. Integer accumulation is exact
+before the checked final state, so batch order cannot cause wrapping. A declared
+integer state that cannot represent the mathematical sum rejects even when a
+later ratio could be finite. Count overflow also rejects.
+
+For int64/rational-to-float finish, use nearest representable float64 once;
+large input integers must not first become floats. Decimal and Duration compare
+exactly after their stated single rounding. Selection/extrema/counts are exact.
+Float64 sum/mean/weighted/ratio/linear and interpolated quantiles use finite
+outputs. Let r be the independent exact result and R(r)=1e-12*(1+abs(r)).
+The absolute-error bound for a sum is E=sum(abs(contributions))*1e-12+1e-12;
+for a mean it is E/count+R(r). For ratio with component bounds E_N/E_D it is
+(E_N+abs(r)*E_D)/(abs(D)-E_D)+R(r); a denominator interval spanning zero rejects
+that physical qualification. Weighted mean uses the same ratio rule over exact
+paired products and weights. Linear propagates component bounds plus R(r).
+Interpolation uses 1e-12+1e-12*max(abs(adjacent ordered values)). Integer/Decimal
+components have zero input error before their stated finish. Tests vary row order,
+batching and reduction tree against Fraction/Decimal raw-fact oracles, not another
+product path. An implementation unable to meet its bound remains unqualified;
+approximate quantile uses its actual algorithm guarantee rather than this
+exact-interpolation bound.
+
+### Physical qualification obligations
+
+For every required row, register exact method/version, ordered input types and
+units, domain kinds, source form/table kind, time shape, route, checks, output
+parts and implementation evidence. Native DuckDB table and DuckDB Parquet are
+separate required source cells. The fixed counterpart uses artifact_python,
+controlled Arrow/Parquet-to-pandas and no backend connection. SQLite table is
+required for the existing authoring/window/calendar and first/last/mean/min/max
+fold debt; at minimum qualify int64/float64 and the temporal kinds used by those
+fixtures. Other SQLite numeric shapes and PostgreSQL/MySQL/Trino/ClickHouse R5
+methods remain explicitly unverified under R9, not inherited from legacy SQL.
+
+Source routes may use Ibis or Ibis preparation followed by a pre-registered Python
+algorithm, selected before execution. DuckDB exact distinct/quantile are required;
+approximate permission must qualify an explicit selected implementation, with an
+exact implementation allowed and disclosed as exact. It is not mandatory to ship
+a sketch algorithm. Nonfinite, overflow, missing coverage/state, ambiguous time,
+wrong roles, bad versions, mixed source/fixed, and cross-Session are required
+rejection cells. No matrix cell may be closed merely by adding a rejection for a
+required accepted type. Fixed direct results permit current-row statistics but
+not original distinct/quantile rollup; this is a supported boundary, not a missing K.

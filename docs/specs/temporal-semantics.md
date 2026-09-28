@@ -803,3 +803,28 @@ Analysis does not submit source-side range, gap/fold, or engine/runtime rule
 agreement checks before the requested query. SQLite keeps its connection-local
 Python temporal functions. Backend conversion errors propagate from query
 execution; source values that violate the declaration can affect results.
+
+## R5.1 certified time dependency handoff
+
+Status: frozen target; new R5 execution qualification remains unverified.
+The [Analysis temporal owner](analysis/timezone-and-calendar-design.md#r51-frozen-temporal-binding)
+owns grid, endpoint and consumer signatures. This document continues to own
+certification and normalized calendar/set snapshots; R5 creates no second
+calendar store or public period/occurrence factory.
+
+Catalog `period`, `period_on` and `occurrence` continue to produce TimeScope
+values carrying exact Ref, period/occurrence key, boundaries, timezone and
+certification digest. A CatalogEntry is a lookup interface, not an Analysis
+semantic leaf. A grid consumes a selected Grain and TimeScope with compatible
+certified range and hierarchy. Definition equality of textual keys does not
+substitute for snapshot identity. Scope/coordinate coverage checks are recorded
+for every bound occurrence that needs them; reused validation labels cannot
+silently discard an occurrence's obligation.
+
+A period calendar's partition certificate and a TemporalSet occurrence's coverage
+are different facts. Overlapping occurrences may each be observed, but cannot
+be summed as a nonoverlapping partition. Edge clipping retains partial-period
+facts; methods requiring full periods reject. Receipt recovery retains snapshot
+identity and exact boundaries and must not re-certify against today's calendar.
+Certification or schema readiness alone does not complete an invocation's
+source-dependent coverage or time-rule checks.

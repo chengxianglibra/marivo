@@ -1,0 +1,22 @@
+{
+  "head": "dd42c7cca070fba60d6a2761331d86dbaca135ce",
+  "scope": "R5.1 documentation and static evidence only",
+  "files": {
+    "docs/specs/analysis/operators-and-frames.md": "b32db9c3ca37b76d7b5aa719f7799f7a62385cdc39508ca02986f75b88e0b43f",
+    "docs/specs/analysis/python-analysis-design.md": "a5992e1fa0fd3b826b7167dd0a2bb0ae0e39a419f5a84be69488c2874712266f",
+    "docs/specs/analysis/session-state-and-runtime.md": "aa5058e29cd3ad8216921242986bae22a41bc6b337c6ec580430a360de7afc29",
+    "docs/specs/analysis/timezone-and-calendar-design.md": "66189c40d89facb9030d6f8b16d9fcf986d94ab07c3e393c20ff46a5728e6066",
+    "docs/specs/semantic/loading-validation-introspection.md": "3375a0aca0b83c2b87f70a7495f630201d6251bf87391103f4972d421d4cb3d9",
+    "docs/specs/semantic/semantic-object-model.md": "1ff958921c8b02139cae486a9a5897b9377e82a69413fd685bc4a0829c0378ca",
+    "docs/specs/temporal-semantics.md": "6e21d84485efbca4bc79d9338b40823e07fb8a324fd3bd23f70d6ad435cd11d2",
+    "docs/superpowers/specs/2026-09-26-marivo-full-refactor-acceptance.md": "e251076c5a2209d3098acfe32da40bffef5e0f9af64a34d6029274e10f680706",
+    "docs/superpowers/specs/2026-09-28-marivo-full-algebra-dsl-r5-implementation-plan.md": "9d0989326f054e04490a8f8fffdf7753709dfac751445caa4773f8936195db50",
+    "docs/superpowers/specs/2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md": "1d9b820bfc7d8fd5b5f4af817cf3b79137bfb39e4c9bda46b2e34396521d8f08",
+    "docs/superpowers/specs/evidence/r51/README.md": "28ecf4aa6c037ec8253d2d7f48998f1fbcdbc2d13b57bcf1d2e946a116b5cdd7",
+    "docs/superpowers/specs/evidence/r51/baseline.json": "2052a796fe8f4ef35d755787367eb2568b9735e936c8ae7880184921096c3bde",
+    "docs/superpowers/specs/evidence/r51/consumer-snapshot.json": "37f01502d5351fa523e92b1b2818a5ea0b6782a37f1d791ba3697d98b298d4fc",
+    "docs/superpowers/specs/evidence/r51/debt-collection.log": "40d3edad60d084f416c9f5b698f05e88aa42f5017f4c59d9cd610337845c355f",
+    "docs/superpowers/specs/evidence/r51/debt-mapping.json": "077364ff361bd435143b7022ee7ace9f752f8fa632d035631b9b77251adc9bb9",
+    "docs/superpowers/specs/evidence/r51/static-checks.json": "9c1ed4c801c7073a46aea6f11b3a30d716e34de1973513ca89f4287e9c598eb9"
+  }
+}
