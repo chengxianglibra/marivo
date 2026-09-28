@@ -255,6 +255,63 @@ publication. The descriptor stores completed evidence and binds it to the
 producing Run. Historical declarations and a previous Run's evidence cannot
 discharge it.
 
+### R4.4 private v7 publication
+
+The v7 target is now available only through `SessionStore._graph_store` and
+`DatasetRuntime._execute_graph`. Each Store instance selects exactly one
+generation. The public constructor and J1–J4 chain remain v6 until R4.5;
+neither chain can write into the other generation. Opening v7 in a project
+containing an old generation fails before initialization or business reads.
+Use a fresh project root, preserving all old state. There is one Store schema,
+transaction owner, writer guard and resource journal; no schema migration or
+format-probing fallback is installed.
+
+After pure graph and persistence admission, the private Runtime acquires the
+Session guard and reconciles only incomplete or still-obligated original Runs.
+Source metadata is frozen before admission; the R1 factory opens after the Run
+is allocated, and its exact physical source declaration must match the admitted
+binding digest. The separately frozen semantic dependency digest is not the
+source definition fingerprint; the opened R1 binding verifies the selected
+physical source, not that semantic value. A new source invocation always obtains
+a new evaluation key.
+Fixed invocation keys retain every ordered input occurrence, even when a shared
+leaf is read only once. Full primary/part verification precedes a cache hit.
+A fixed miss allocates one Run; a verified hit returns the original Artifact.
+
+The new canonical codecs do not call the legacy descriptor, exchange or public
+snapshot codecs. The existing local Parquet v1 physical receipt remains the
+inner `local` value. The fixed Run envelope records each occurrence's Session,
+Artifact and producer references, primary/part receipt digests, binding, method
+state version and snapshot digest; its ordered references must also match the
+Store input rows. Reads recompute the execution key from this frozen admission,
+without following source lineage or consulting current Semantic definitions.
+The snapshot stores a closed frozen graph and verifies explicit shared-node
+identity, entity/coordinate facts and semantic/method versions. Its UTF-8 budget
+remains 256 KiB. Core dataclass changes therefore require deliberate protocol
+review; decoding rejects missing, extra or noncanonical fields.
+
+Primary and each required part have independent manifests, schemas, cardinality
+and hashes under the same Run-owned output reservation. All are verified before
+the Store transaction commits Artifact, Evidence, terminal and ownership transfer.
+The transaction rechecks every receipt after the final pre-commit fault boundary
+and refuses success while any resource obligation remains for the producing Run.
+There are no registered Findings in this slice; the Evidence row binds the
+complete descriptor and an exact empty Finding set. Numerical and check failures
+cannot produce a successful terminal. An execution failure records
+`execution_failed`; a new-process reconciliation of an abandoned Run records
+`process_lost`. Cleanup is restricted to exact journaled paths.
+
+If commit acknowledgement is lost, the private Runtime reads back the original
+Run, Artifact, key, snapshot and all receipts. It never retries the algorithm or
+source factory. An unavailable or contradictory read-back raises
+`RecoveryPendingError` at `graph_commit_unknown` and preserves the recorded state.
+An unfinished Run is never promoted from staged files. Independent-process tests
+cover pre-commit exit, post-commit exit, lock release and a competing writer.
+
+This is private publication and protocol recovery, not the public R4.5
+`session.artifact` or dynamic-K cutover. Old public codecs remain solely for
+v6 consumers and are deleted with those consumers in R4.5.
+
 ## Recovery and bounded reads
 
 Use `session.runs(limit=..., cursor=...)`, `session.get_run(run_id)`,

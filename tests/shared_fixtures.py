@@ -15,6 +15,8 @@ import duckdb
 import ibis
 
 if TYPE_CHECKING:
+    from marivo.analysis.core.graph import MethodNode
+    from marivo.analysis.materialization.graph_store import GraphArtifact
     from marivo.analysis.session.core import Session
     from marivo.semantic.catalog import SemanticCatalog
 
@@ -1036,4 +1038,27 @@ def pattern_step_for_tests(key: str) -> Any:
     return mv.step(
         participant=ms.participant_role(event=ms.ref.event(event_path), name=role),
         key=key,
+    )
+
+
+def graph_count_continuation(record: GraphArtifact) -> MethodNode:
+    """Build a current-row count from an exact private v7 Artifact."""
+    from marivo.analysis.core.graph import Edge, FixedLeaf, method_node
+    from marivo.analysis.core.model import DomainSignature
+    from marivo.analysis.core.rules import RowState
+    from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType
+    from marivo.analysis.refs import ArtifactRef
+
+    leaf = FixedLeaf(
+        ArtifactRef(record.artifact_ref),
+        record.descriptor.definition_fingerprint,
+        record.descriptor.signature,
+        ScalarType("int64"),
+        FixedShape(NoTime()),
+    )
+    domain = DomainSignature(leaf.signature.domain.binding, "singleton", (), (), "all-products")
+    return method_node(
+        (Edge("quantity", leaf),),
+        RowState("count", domain, "current-count", "count_all"),
+        value_type=ScalarType("int64"),
     )

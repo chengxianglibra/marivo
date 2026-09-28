@@ -4,18 +4,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Literal
 
 
 @dataclass(frozen=True, slots=True)
 class MaterializationLayout:
     project_root: Path
+    generation: Literal[6, 7] = 6
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "project_root", self.project_root.resolve())
 
     @property
     def generation_dir(self) -> Path:
-        return self.project_root / ".marivo" / "analysis" / "generations" / "v6"
+        return self.project_root / ".marivo" / "analysis" / "generations" / f"v{self.generation}"
 
     @property
     def store_db(self) -> Path:

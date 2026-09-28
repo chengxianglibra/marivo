@@ -178,6 +178,22 @@ R4.2–R4.5 任一包若尚未形成 key、Run、receipt、Store、恢复的同�
 上述拒绝是目标切换契约；R4.1 不改变当前产品调用结果，也不将旧测试通过或
 R3.4 的静态/私有证据写成统一 Runtime、Store 或四旅程验收。
 
+### 4.2 R4.4 私有发布分包边界（2026-09-28）
+
+本包在既有 `SessionStore` 内显式准备 v7，公共构造器和 J1–J4 仍走 v6。
+每个实例固定一个代际；v7 拒绝旧项目，不迁移、不探测回退、不在同一 Store 双读。
+本节细化并覆盖 §4.1 中将旧公共 writer/reader 删除标为 R4.4 的时间安排：
+
+| 交接对象 | R4.4 行为 | R4.5 删除责任 |
+| --- | --- | --- |
+| `dsl_j1_artifact.py`、`dsl_j1_receipt.py`、`dsl_public_snapshot.py` 和旧 contracts codec | 新链使用独立封闭协议，禁止调用这些旧 codec；仍有 v6 公共消费者的文件保留 | 公共消费者整体切换时删除旧文件与旧格式入口，无 shim 或双读 |
+| Dataset、comparison/attribution、Event/Lifecycle、candidate/forecast/association 家族 writer/codec | 旧 writer 被 Store 代际门禁禁止写入 v7；不改变现有 v6 公共调用 | 切换时阻断未迁能力并删除被替换路线，后续资格仍归 R5–R8 |
+| Store、layout、writer guard、资源清理与 reconciliation | 复用现有 owner/事务/日志；新增私有 v7 初始化、准入、发布与原 Run 协调 | 删除 v6 产品选择入口，保持旧代际读前拒绝 |
+| 公共 `execute_j1`、definition-only key、Session/Help/CLI/latest 示例 | 本包不切换，也不将旧链结果算作 v7 产品验收 | R4.5 同时迁入并删除旧执行/缓存路线 |
+
+私有入口接通真实 source/fixed Run 与 receipts；新进程证据只验证持久协议和已资格化
+fixed 方法，不代表公共 `session.artifact`、动态 K、完整 J1–J4 或 wheel 验收。
+
 ## 5. 验收矩阵与独立预期
 
 以下是待执行门禁，起草时均为未验证；历史绿色测试不预填本表。

@@ -1,0 +1,103 @@
+{
+  "baseline_sha": "2da1b6963bae501aff340097f7bb3df177a7d881",
+  "previous_candidate_code_sha256": "b1f5c0e6a7d11ddf8b4bee9c87e9fc615341d0ec662cd2c59d37069001748c56",
+  "candidate_code_sha256": "ddc4f63385c1f366e0fc46a604d4d0ebf024324ef2ce59af814e05165bcad432",
+  "candidate_digest_encoding": "UTF-8 sorted path + NUL + file SHA-256 + newline; product and test files only",
+  "checks": [
+    {
+      "command": ".venv/bin/pytest -q tests/test_analysis_graph_publication_r44.py -k 'changed_output_after_validation or publication_requires_all_run_resources_discharge or independent_semantic_dependency_digest_is_preserved or parquet_close_failure_preserves_primary_read_error' -n 0",
+      "passed": 5
+    },
+    {
+      "command": "make test TESTS='tests/test_analysis_graph_publication_r44.py'",
+      "passed": 47
+    },
+    {
+      "command": "make test TESTS='tests/test_analysis_dsl_exchange.py tests/test_analysis_graph_runtime_r42.py tests/test_analysis_lowering_r34.py tests/test_lazy_materialization_store.py tests/test_lazy_reconciliation_snapshot.py tests/test_analysis_dsl_execution_identity.py tests/test_analysis_dsl_contracts.py'",
+      "passed": 187
+    },
+    {
+      "command": "make runtime-test TESTS='tests/test_analysis_graph_publication_r44.py tests/test_analysis_dsl_j1_runtime.py'",
+      "passed": 13
+    },
+    {
+      "command": "make check-agent",
+      "passed": 5454,
+      "skipped": 19,
+      "typed_source_files": 407,
+      "log": "review-fixes-check-agent.log"
+    },
+    {
+      "command": "git diff --check",
+      "result": "passed"
+    }
+  ],
+  "files": [
+    {
+      "path": "marivo/analysis/materialization/admission.py",
+      "sha256": "cf7af4e16d8bc9856303bfc30f4cf61b18037fd385fb59f50cfa331f83f25129"
+    },
+    {
+      "path": "marivo/analysis/materialization/execution_key.py",
+      "sha256": "e93071baef127d3866c4f3c5ab7972d86fe0c47dc259ad556568233006df2f5b"
+    },
+    {
+      "path": "marivo/analysis/materialization/graph_exchange.py",
+      "sha256": "3d8c8c2a12e000e463bfd6f40e58699331afaf881d171dde1f22aee83c79f792"
+    },
+    {
+      "path": "marivo/analysis/materialization/graph_local_execution.py",
+      "sha256": "f9ff1936ba49cfe41419bcb8cba4ce2e3ce349f707360754c7021108bb853702"
+    },
+    {
+      "path": "marivo/analysis/materialization/graph_protocol.py",
+      "sha256": "81b28bbac46c5c1a6f0f14639fea0b697d14f6ea3776de7f6bd827eb83a47e69"
+    },
+    {
+      "path": "marivo/analysis/materialization/graph_publication.py",
+      "sha256": "331708a8ff8bcb3581a5a66586622cb92e3c2fc5b549fa5888a4e35b9d0fea01"
+    },
+    {
+      "path": "marivo/analysis/materialization/graph_storage.py",
+      "sha256": "2afbfbe9da32b5812529e7501e17898a6634af15da0c6e1e90094c67aa0c12ec"
+    },
+    {
+      "path": "marivo/analysis/materialization/graph_store.py",
+      "sha256": "278edbb0c1e31de9ddaa29e84b95bf0a3fc0a274f5ad415b2912ced0fbc3324f"
+    },
+    {
+      "path": "marivo/analysis/materialization/layout.py",
+      "sha256": "fcfe83f761339f39793da3b377f01c9d7215af2858f9f4d165792b254c66c278"
+    },
+    {
+      "path": "marivo/analysis/materialization/reconciliation.py",
+      "sha256": "1701d001a98cbd81c9dcb8f5aa0989b5840ace5e1890f45b788165a93b712c55"
+    },
+    {
+      "path": "marivo/analysis/materialization/resources.py",
+      "sha256": "be70e81c81d8d8e582314588aee26e75fbbf96065fe740afd0419b3137017565"
+    },
+    {
+      "path": "marivo/analysis/materialization/store.py",
+      "sha256": "b640839d1c0f5488d3e676920600b7e782868c4f000a00107ce91442b38fa1e6"
+    },
+    {
+      "path": "marivo/analysis/methods/semantics.py",
+      "sha256": "b87fb584ea784e091121ddf161779b03c6a2a79df9751ccf0f5f43c5fb5fdb1e"
+    },
+    {
+      "path": "tests/graph_publication_runtime_worker.py",
+      "sha256": "b0ffb9f5a31318b46cf972b193ce14c7d859f9d341f49ac0a2e86fcccc8f6ae0"
+    },
+    {
+      "path": "tests/shared_fixtures.py",
+      "sha256": "47344bc7c9cc20dfc8dd5dc8d8abf3ad3468c1ae0a21b311060ef6321633c8fb"
+    },
+    {
+      "path": "tests/test_analysis_graph_publication_r44.py",
+      "sha256": "1b2ae942d2235d228507b2fbab94c46a472cecfba91a6948f60409dc09b53938"
+    }
+  ],
+  "check_agent_log_sha256": "e96bab3fa7ab4db7ce4ff483eafdda063462ff4de19762d5e427e7f56b9b4a6f",
+  "scope": "Private R4.4 review repairs; no release-check, MinIO, public R4.5 cutover or backend expansion."
+}

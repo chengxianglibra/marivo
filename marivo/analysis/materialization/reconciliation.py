@@ -24,6 +24,11 @@ def reconcile_session(
     The caller owns the Session writer guard. Selection never bypasses publication
     ownership or admits a successful publication.
     """
+    if store.layout.generation == 7:
+        from marivo.analysis.materialization.graph_publication import _reconcile_graph
+
+        _reconcile_graph(store, session_ref, event, run_ref=run_ref)
+        return
     event("reconciliation")
     entries = store.recovery_snapshot(session_ref)
     if run_ref is not None:

@@ -19,6 +19,7 @@ from marivo.analysis.materialization.graph_exchange import (
     ExchangeResult,
     FixedInput,
     PartContract,
+    VerifiedFixedInput,
     from_pandas,
     from_receipts,
 )
@@ -60,7 +61,7 @@ def _cells(input_value: ExchangeResult) -> tuple[Cell, ...]:
 def execute_fixed_row(
     prepared: PreparedGraph,
     lowered: LoweredPlan,
-    selected: FixedInput,
+    selected: FixedInput | VerifiedFixedInput,
     input_contract: ExchangeContract,
 ) -> ExchangeResult:
     """Run a qualified fixed current-row method without source or DuckDB access."""
@@ -87,7 +88,11 @@ def execute_fixed_row(
         or input_contract.schema.field("value").type != pa.type_for_alias(read.leaf.value_type.name)
     ):
         raise _invalid("fixed Artifact, signature, ordered binding or value type differs")
-    verified = from_receipts(selected, input_contract)
+    verified = (
+        selected.result
+        if isinstance(selected, VerifiedFixedInput)
+        else from_receipts(selected, input_contract)
+    )
     cells = _cells(verified)
     name = method.stage.node.method.name
     if name == "row.count":
@@ -180,7 +185,7 @@ def execute_fixed_row(
 def execute_fixed_count(
     prepared: PreparedGraph,
     lowered: LoweredPlan,
-    selected: FixedInput,
+    selected: FixedInput | VerifiedFixedInput,
     input_contract: ExchangeContract,
 ) -> ExchangeResult:
     """Retain the R3.4 fixed-count handoff during private method expansion."""
@@ -195,7 +200,7 @@ def execute_fixed_count(
 def execute_fixed_spearman(
     prepared: PreparedGraph,
     lowered: LoweredPlan,
-    selected: tuple[FixedInput, FixedInput],
+    selected: tuple[FixedInput | VerifiedFixedInput, FixedInput | VerifiedFixedInput],
     input_contracts: tuple[ExchangeContract, ExchangeContract],
 ) -> ExchangeResult:
     """Score two independently verified fixed observations by complete key."""
@@ -237,7 +242,11 @@ def execute_fixed_spearman(
             if item != selected[0] or contract != input_contracts[0]:
                 raise _invalid("shared fixed input occurrence changed its selected receipt")
         else:
-            verified[output] = from_receipts(item, contract)
+            verified[output] = (
+                item.result
+                if isinstance(item, VerifiedFixedInput)
+                else from_receipts(item, contract)
+            )
         values.append(verified[output])
     left, right = values
     completed: list[CompletedCheck] = []
@@ -266,3 +275,21 @@ def execute_fixed_spearman(
         tuple(completed),
         lowered.admitted.checks,
     )
+
+
+def execute_verified_fixed(
+    prepared: PreparedGraph,
+    lowered: LoweredPlan,
+    inputs: tuple[VerifiedFixedInput, ...],
+) -> ExchangeResult:
+    """Route already verified v7 inputs through the qualified local consumer."""
+    if len(inputs) == 2:
+        return execute_fixed_spearman(
+            prepared,
+            lowered,
+            (inputs[0], inputs[1]),
+            (inputs[0].result.contract, inputs[1].result.contract),
+        )
+    if len(inputs) == 1:
+        return execute_fixed_row(prepared, lowered, inputs[0], inputs[0].result.contract)
+    raise _invalid("unqualified fixed method arity")

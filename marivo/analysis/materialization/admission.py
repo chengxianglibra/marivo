@@ -90,7 +90,10 @@ if TYPE_CHECKING:
     from marivo.analysis.core.graph import Node
     from marivo.analysis.materialization.dsl_j1_artifact import J1Node
     from marivo.analysis.materialization.dsl_j1_runtime import J1SourceFactory
+    from marivo.analysis.materialization.execution_key import SourceKeyBinding
     from marivo.analysis.materialization.graph_execution import PreparedGraph
+    from marivo.analysis.materialization.graph_publication import SourceFactory
+    from marivo.analysis.materialization.graph_store import GraphArtifact
     from marivo.analysis.observation.dsl_j1_dataset import MaterializedJ1Dataset
 
 _PREVIEW_MAX_OUTPUT_BYTES = 8192
@@ -351,6 +354,21 @@ class DatasetRuntime:
         from marivo.analysis.materialization import dataset_presentation
 
         return dataset_presentation.selected(self, dataset)
+
+    def _execute_graph(
+        self,
+        root: Node,
+        routes: tuple[RouteChoice, ...],
+        *,
+        source_bindings: tuple[SourceKeyBinding, ...] = (),
+        source_factory: SourceFactory | None = None,
+    ) -> GraphArtifact:
+        """Execute the private v7 graph through this existing Runtime owner."""
+        from marivo.analysis.materialization.graph_publication import execute
+
+        return execute(
+            self, root, routes, source_bindings=source_bindings, source_factory=source_factory
+        )
 
     def _prepare_graph(self, root: Node, routes: tuple[RouteChoice, ...]) -> PreparedGraph:
         """Prepare the private graph schedule under this Session's identity."""

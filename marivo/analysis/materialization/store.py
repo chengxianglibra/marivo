@@ -1,4 +1,4 @@
-"""One normalized v6 SQLite authority with short atomic metadata transactions."""
+"""One generation-bound SQLite authority with atomic metadata transactions."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from marivo._compat import UTC
 from marivo.analysis.evidence._dataset_types import Finding
@@ -43,6 +43,10 @@ from marivo.analysis.materialization.ownership import (
     owns_resource,
     validate_receipt_owner,
 )
+
+if TYPE_CHECKING:
+    from marivo.analysis.materialization.graph_store import GraphRun
+
 
 _SCHEMA = """
 CREATE TABLE sessions (
@@ -124,9 +128,9 @@ CREATE INDEX artifact_recency ON dataset_artifacts(session_ref,committed_at,arti
 """
 
 
-def _generation_error(version: object) -> IntegrityError:
+def _generation_error(version: object, expected: int = 6) -> IntegrityError:
     return IntegrityError(
-        expected="an existing complete Session Store with user_version=6",
+        expected=f"an existing complete Session Store with user_version={expected}",
         received=f"Session Store user_version={version}",
         repair="Preserve the old Store unchanged and create a new named Session in a fresh project; old Stores cannot be resumed or migrated.",
         stage="store_generation",
@@ -232,6 +236,8 @@ class SessionStore:
 
     def __init__(self, project_root: str | Path) -> None:
         self.layout = MaterializationLayout(Path(project_root))
+        if (self.layout.generation_dir.parent / "v7").exists():
+            raise invalid("v6 cannot open a v7 project; preserve the existing generation")
         self._initialize()
 
     @classmethod
@@ -247,6 +253,21 @@ class SessionStore:
         if unavailable:
             raise invalid("selected v6 Store is unavailable")
         return result
+
+    @classmethod
+    def _graph_store(cls, project_root: str | Path, *, existing_only: bool = False) -> SessionStore:
+        result = cls.__new__(cls)
+        root = Path(project_root).resolve()
+        generations = root / ".marivo" / "analysis" / "generations"
+        if generations.exists() and any(p.name != "v7" for p in generations.iterdir()):
+            raise invalid("v7 requires a fresh project without old Store generations")
+        result.layout = MaterializationLayout(root, generation=7)
+        result._initialize(existing_only=existing_only)
+        return result
+
+    def _require_generation(self, generation: int) -> None:
+        if self.layout.generation != generation:
+            raise invalid("operation belongs to a different Store generation")
 
     @property
     def project_root(self) -> Path:
@@ -282,7 +303,7 @@ class SessionStore:
         if not readonly:
             conn.execute("PRAGMA synchronous=FULL")
         version: object = conn.execute("PRAGMA user_version").fetchone()[0]
-        if version != 6:
+        if version != self.layout.generation:
             conn.close()
             raise invalid("unsupported Store generation")
         return conn
@@ -298,9 +319,9 @@ class SessionStore:
                 tables = read.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
                 ).fetchall()
-                if version != 6:
-                    raise _generation_error(version)
-                if version == 6:
+                if version != self.layout.generation:
+                    raise _generation_error(version, self.layout.generation)
+                if version == self.layout.generation:
                     expected = {
                         "sessions",
                         "runtime_state",
@@ -330,12 +351,12 @@ class SessionStore:
                             raise invalid("v6 Store requires WAL durability")
             finally:
                 read.close()
-            if version == 6:
+            if version == self.layout.generation:
                 return
         if existing_only:
             raise invalid("selected v6 Store is absent")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        # Publish only a complete, closed v6 file. Competing creators never see
+        # Publish only a complete, closed generation file. Competing creators never see
         # an empty generation-zero database or perform a migration in place.
         with TemporaryDirectory(prefix="store-init-", dir=self.db_path.parent) as directory:
             staged = Path(directory) / "session_store.db"
@@ -348,7 +369,7 @@ class SessionStore:
                 for statement in _SCHEMA.split(";"):
                     if statement.strip():
                         conn.execute(statement)
-                conn.execute("PRAGMA user_version=6")
+                conn.execute(f"PRAGMA user_version={self.layout.generation}")
                 conn.commit()
             finally:
                 conn.close()
@@ -480,6 +501,7 @@ class SessionStore:
             return None if row is None else self._session(row)
 
     def _run(self, conn: sqlite3.Connection, run_ref: str) -> RunRecord | None:
+        self._require_generation(6)
         row = _one(conn, "SELECT * FROM analysis_action_runs WHERE run_ref=?", (run_ref,))
         if row is None:
             return None
@@ -571,6 +593,7 @@ class SessionStore:
         input_artifact_refs: tuple[str, ...] = (),
         run_ref: str | None = None,
     ) -> RunRecord:
+        self._require_generation(6)
         payload = canonical_json(run_input_payload(dataset_input))
         decode_run_input(payload)
         ref = run_ref or _new_run_ref()
@@ -610,9 +633,23 @@ class SessionStore:
                 raise invalid("admitted Run is absent")
         return result
 
+    def _graph_run(self, run_ref: str) -> GraphRun | None:
+        from marivo.analysis.materialization.graph_store import run
+
+        with self._read() as conn:
+            return run(self, conn, run_ref)
+
+    def _resource_run(self, run_ref: str) -> GraphRun | RunRecord | None:
+        return self._graph_run(run_ref) if self.layout.generation == 7 else self.run(run_ref)
+
     def reserve(self, resource: ResourceRecord) -> None:
         with self._write() as conn:
-            run = self._run(conn, resource.run_ref)
+            if self.layout.generation == 7:
+                from marivo.analysis.materialization.graph_store import run as graph_run
+
+                run: GraphRun | RunRecord | None = graph_run(self, conn, resource.run_ref)
+            else:
+                run = self._run(conn, resource.run_ref)
             if run is None or run.lifecycle != "incomplete":
                 raise invalid("resource reservation requires incomplete admission")
             conn.execute(
@@ -789,7 +826,12 @@ class SessionStore:
         payload = canonical_json(failure_payload(failure))
         decode_failure(payload)
         with self._write() as conn:
-            run = self._run(conn, run_ref)
+            if self.layout.generation == 7:
+                from marivo.analysis.materialization.graph_store import run as graph_run
+
+                run: GraphRun | RunRecord | None = graph_run(self, conn, run_ref)
+            else:
+                run = self._run(conn, run_ref)
             if run is None or run.lifecycle != "incomplete":
                 raise invalid("terminal history cannot be rewritten")
             conn.execute(
@@ -909,6 +951,7 @@ class SessionStore:
         event: Callable[[str], None] | None = None,
         findings: tuple[Finding, ...] = (),
     ) -> ArtifactRecord:
+        self._require_generation(6)
         payload = encode_descriptor(descriptor)
         checked = decode_descriptor(payload)
         evidence = evidence_for(checked)
