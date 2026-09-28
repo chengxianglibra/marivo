@@ -123,7 +123,7 @@ against its original Run/key/receipts; it never grants an automatic new
 identity or source replay. Existing Store v6 atomicity and writer ownership
 remain the authority.
 
-## Atomic Store v6
+## Atomic Store v6 (current, before R4 cutover)
 
 A new Store publishes only a complete initialized generation 6 database. The
 active Store path accepts only v6 schema; incompatible files there fail read-only
@@ -134,6 +134,103 @@ A successful publication commits the Run terminal, Artifact descriptor, storage
 receipts, Evidence and Findings together. A failed Run has no successful output;
 an interrupted Run is incomplete until its explicit lifecycle operation. Store
 writer ownership and caller-owned transactions govern all related records.
+
+## R4.1 frozen Runtime and Store target (inactive)
+
+This section fixes the R4 cutover contract; the S4/J1 route and v6 protocol
+above describe the current pre-cutover product, not a second R4 target.
+R4.2–R4.5 must switch one existing Session/Runtime/Store owner
+as a unit. The first new Store has SQLite `user_version=7`. It retains the v6
+relations, foreign keys, `(session_ref, execution_key_digest)` uniqueness,
+ordered Run inputs, resource journal, writer guard and atomic publication
+transaction. Version 7 does not grant any old execution route permission to
+write its descriptor. The generation check precedes Session or Artifact reads:
+v6 and earlier Stores fail without mutation. There is no schema migration,
+dual reader, automatic rebuild, or deletion of the old `.marivo` directory.
+The repair is to preserve that project state and use a separate fresh project
+root for the new generation, not a new Session name inside the old Store.
+
+| Owner and new schema tag | Closed authority in v7 |
+| --- | --- |
+| Store `user_version=7` | Session, Run, Artifact and resource ownership; one successful Artifact per `(Session, execution key)`; committed Evidence and Findings. |
+| `marivo.analysis.run_input/v1` | Root definition fingerprint, input class (`source` or `fixed`), selected plan and method-version digest, and ordered source-binding or Artifact-reference occurrences. The Store row owns Run ref and execution key; the input envelope cannot replace them. |
+| `marivo.analysis.artifact_descriptor/v1` | Output domain, quantity, row and row-set contracts, realized schema, frozen semantic dependencies, selected method/implementation versions, completed check evidence, primary/part receipts, method-state payload and frozen continuation snapshot with its digest. |
+| `marivo.analysis.receipt/v1` | A closed primary or part variant binding input, complete ordered keys, physical schema fingerprint, cardinality, exact local file manifest/hash/bytes and Parquet contract v1. A part additionally binds its role, contract ID/version and method-state version. Primary and parts have independent receipts. |
+| `marivo.analysis.exchange/v1` | Schema-carrying `BatchStream` binding, four Cell tags/reasons, ordered keys, required part schemas, method and input binding, and check obligations. This is a transient exchange contract, not a second Store. |
+| `marivo.analysis.method_state/v1` | The versioned, kind-dispatched state envelope and exact required part roles defined in [Dataset Methods and States](operators-and-frames.md#r41-frozen-method-state-and-evidence-target-inactive). Method-specific contract versions remain separate from this envelope version. |
+| `marivo.analysis.continuation/v1` | Frozen graph, entity/dimension facts, semantic and method versions, exact input binding, and receipt/state premises from which the current valid K is derived. It is not a list of unverified advertised actions. |
+
+The exact top-level field sets are fixed as follows. Each `kind` selects its
+own required fields; no field is silently optional. `local` is the existing
+closed `LocalReceipt` payload, including path, manifest entries and hash,
+bytes hash/count, physical schema fingerprint, row count and Parquet version 1.
+
+| Envelope | Required fields |
+| --- | --- |
+| Run input, common | `schema`, `kind`, `definition_fingerprint`, `plan_digest` |
+| Run input, `source` | Common fields plus `ordered_source_bindings` |
+| Run input, `fixed` | Common fields plus `ordered_artifact_inputs` |
+| Artifact descriptor | `schema`, `definition_fingerprint`, `producing_run_ref`, `execution_key_digest`, `signature`, `row_contract`, `row_set_contract`, `realized_schema`, `semantic_dependency_digest`, `method_bindings`, `completed_checks`, `primary_receipt`, `parts`, `method_state`, `continuation_snapshot`, `continuation_snapshot_digest` |
+| Receipt, `primary` | `schema`, `kind`, `input_binding`, `key_fields`, `local` |
+| Receipt, `part` | Primary fields plus `role`, `contract_id`, `contract_version`, `method_state_version` |
+| Exchange | `schema`, `signature`, `method_binding`, `input_binding`, `primary_schema`, `cell_contract`, `parts`, `check_requirements` |
+| Continuation snapshot | `schema`, `root`, `entity_facts`, `dimension_facts`, `semantic_versions`, `method_versions`, `input_binding`, `primary_receipt_digest`, `part_receipt_digests`, `method_state_digest` |
+
+`key_fields` is the complete ordered physical key with field names and types;
+`parts` is the ordered, closed tuple of role, state contract and independent
+receipt. The exchange `cell_contract` names the value/tag/reason fields and
+their exact four-tag policy. The descriptor's `completed_checks` is a tuple
+of the closed check-evidence variants below, not a list of claimed check IDs.
+The descriptor embeds the bounded canonical snapshot text and its SHA-256
+digest in the existing payload column; v7 adds no second snapshot table. The
+snapshot's root and frozen facts determine possible continuations; only
+validated method state, parts and completed checks grant actual K. Both the
+descriptor and snapshot bind receipt digests without a cyclic descriptor
+reference. Metadata uses canonical JSON with exact keys and stable ordering;
+execution-key hashing alone uses the existing typed tuple encoding.
+
+Old `marivo.dataset_artifact_descriptor/v1` and `/v2`, all
+`marivo.j1_artifact_exchange/v1`–`/v3`, and
+`marivo.analysis.public_continuation/v1` are rejected before retained rows or
+current Semantic definitions are consulted. The existing `LocalReceipt`
+Parquet physical contract remains at version 1 inside the new receipt; this
+does not make an old Artifact readable. Missing, corrupt or version-mismatched
+primary, part, snapshot or method state prevents a cache hit and cold recovery.
+
+Admission uses only the reachable graph. A fixed leaf stops source-lineage
+traversal. Mixed inputs, cross-Session inputs, incompatible ordered bindings and
+known unavailable implementations fail before source open, Artifact row read
+or Run allocation. After pure admission, the Session writer guard reconciles
+the original unfinished Run. A fixed-only invocation checks its exact key and
+all required receipts/snapshot before returning the original Artifact without
+a new Run. A source-only invocation never looks up a historical definition hit:
+it allocates a new Run/evaluation ref under the guard, binds that ref to the key,
+and evaluates current sources. A fixed miss allocates one Run. All internal
+stages share that Run and cannot publish independently. The same explicit graph
+node is realized once per invocation; a new top-level invocation never shares
+source realization. Chosen implementations do not change after a failure.
+
+The following observable states are mandatory at each failure boundary. A
+local file can exist before Store commit only as a journaled resource of its
+own Run; its existence is never a successful Artifact.
+
+| Boundary | Observable state and coordination |
+| --- | --- |
+| Before guarded admission, including busy writer | No new Run, source read or Artifact row read. Preserve the other writer's state. |
+| Run admitted; check, execution, cancellation or output staging fails | One incomplete or failed Run and only its journaled resources; no successful Artifact. Cleanup is limited to that Run. |
+| Primary/part write, receipt verification or pre-commit transaction fails | No successful Artifact or terminal. Roll back Store changes; reconcile the original Run and its owned resources without deleting another Run's files. |
+| Transaction commits but acknowledgement is lost | Read back the original Run, output reference, key, descriptor and all receipts. Return success only after exact validation; never allocate another identity or replay source/algorithm work. |
+| Commit cannot be established by read-back | Preserve the unresolved Run, journal and diagnostic evidence. Report unknown commit state and require explicit inspection/reconciliation; do not report success or retry execution. |
+| Process exits with an unfinished Run | The existing guarded reconciliation resolves only its recorded resources and terminal state. A committed success remains immutable; no staging is promoted into success. |
+
+R4's check record is kind-dispatched. All variants carry `origin_node`,
+`check_id`, `scope`, `ordered_input_occurrences`, `deadline` and `status`.
+`static` and `pending` carry no execution result. `completed` alone adds
+`producing_run_ref` and `result_digest`, after the check has been exhausted
+and passed in that Run. A pending or failed check cannot authorize
+publication. The descriptor stores completed evidence and binds it to the
+producing Run. Historical declarations and a previous Run's evidence cannot
+discharge it.
 
 ## Recovery and bounded reads
 

@@ -15,7 +15,9 @@ Status: implementation plan；本次仅编写 R4 实施文档，不代表产品�
 [验收主记录](2026-09-26-marivo-full-refactor-acceptance.md)。
 
 用户确认 R0/R1/R2/R3 任务完成，以此启动 R4 规划。起草 checkout 的 HEAD 为
-`899eac66b5`，存在 R3 acceptance corrections 对应的未提交代码、测试和文档；本次不修改它们。
+`899eac66b5`，当时存在 R3 acceptance corrections 对应的未提交代码、测试和文档。
+R4.1 实施基线为干净的 `panda` / `53e388d62007c2c2eb5f162ee72b10c19951b59d`；
+上述修正已在 `3d0ef2a332` 提交，本包不重做它们。
 验收主记录仍保留历史未通过、64 项 skip 及后续阶段归属，最新 corrections 明确不提升
 整个阶段资格。进入实施时记录准确 SHA、未提交 diff/新增文件 digest 和前置交接，逐项核对
 实际需要的接口与资格；不重做已交付工作，也不把进度确认替换成未取得的运行证据。
@@ -130,6 +132,47 @@ Semantic 文件补齐定义，不按“最新产物”替代，不重算缺失�
 以上路径是现有定位入口，不要求按名称机械创建对应新模块。实施时反查 import、调用、
 注册、存储字段和 Help 消费者，补齐漏项；迁出文件删除后不得保留转发 shim。
 跨文件 key/Run/receipt/Store 切换必须形成可执行的完整协议闭环，不能让中间版本写出混合格式。
+
+### 4.1 R4.1 协议冻结与删除矩阵（仅契约，未切换产品）
+
+目标代际已在 [Session 与 Runtime 契约](../../specs/analysis/session-state-and-runtime.md#r41-frozen-runtime-and-store-target-inactive)
+冻结为 Store 7，以及 `marivo.analysis.{execution_key,run_input,artifact_descriptor,receipt,exchange,continuation,method_state}/v1`；
+[Python Analysis 设计](../../specs/analysis/python-analysis-design.md#r41-frozen-graph-to-runtime-handoff-inactive)
+固定 source/fixed key 的规范字段与身份 owner；
+[方法与状态契约](../../specs/analysis/operators-and-frames.md#r41-frozen-method-state-and-evidence-target-inactive)
+固定封闭状态、部件与检查证据。旧 Parquet 物理格式仍为 v1，但旧 Store/Artifact
+不因物理文件可读而进入新恢复。下表是消费/删除交接，不代表对应改动已实施。
+
+| 现有入口或协议 | 当前消费者与问题 | 唯一去向及删除工作包 |
+| --- | --- | --- |
+| `observation/dsl_j1.py` 的 `J1Context`/J1–J4 节点、`dsl_j1_dataset.py` | `public_dsl.py`、`session/core.py` 仍构造场景节点；旧类型承担图身份 | R4.2 迁为 `core.graph` 节点和一个方法注册消费者；R4.5 迁公共 receiver/Session 绑定后删除场景构造链和转发入口。 |
+| `public_dsl.py` 的 `J1Node` 分支与 `execute_j1` 调用 | 公共 `execute()` 和动态动作按场景类分派 | R4.2 接唯一图执行；R4.5 由验证后的新状态派生 `repr/show/contract` 与 K；删除场景分派。 |
+| `materialization/admission.py`、`dsl_j1_runtime.py`、`dataset_execution.py` | 两套 Runtime 分派；后者使用 definition-only `execution_key()` | R4.2 保留一个顶层 Session/Runtime owner，按 source/fixed/mixed 调度；删除 `execute_j1`、旧 key 命中与内部各自 Run 路线。 |
+| `materialization/execution_key.py` 的 v1/v2 key | `dataset_execution.py` 与 J1 Runtime 分别构造旧身份 | R4.2 引入唯一 `marivo.analysis.execution_key/v1` 规范构造；R4.4 让 Run、descriptor、Store 使用同一 key，删除旧构造器。 |
+| `compiler/{placement,dsl_j1_source,dsl_j3_ratio}.py`、`materialization/{dsl_public_source,dsl_j4_source}.py` | J1–J4 另有放置、来源绑定/编译、配对和方法路线 | R4.2/R4.3 迁至 GraphPlan/lowering、注册方法与 R1 `SourceSession`；删除被迁入路线的场景编译和 J4 特例。 |
+| `materialization/{source_stage,local_stage,parquet_scan}.py` 的场景分支及旧 Dataset 阶段 | source、fixed、pandas 各自形成输出/状态，旧固定路线可借 DuckDB 读 Parquet | R4.3 让注册实现消费同一 `BatchStream`/方法状态，fixed 只用 receipt-checked Arrow/Parquet→pandas；删除被替换的场景执行分支与固定 DuckDB 路线。 |
+| `materialization/dsl_j1_artifact.py`、`dsl_j1_receipt.py`、`dsl_public_snapshot.py`，以及 `contracts.py` 的 v1/v2 descriptor、J1 exchange v1–v3 | 发布、固定读取和冷恢复绑定旧场景 codec；旧 public snapshot v1 依赖 J1 类 | R4.4 迁为封闭 descriptor/receipt/exchange/method-state/continuation codec 并删除旧 writer/reader；R4.5 迁精确恢复，不保留双读。 |
+| `materialization/{dataset_publication,publication}.py` | 旧 Dataset 通用发布仍写 v1/v2 descriptor | R4.4 阻断旧 writer/reader，R5 数值能力重新接入新协议前早拒绝。 |
+| `materialization/{comparison,attribution}_{codec,publication}.py` | 旧比较、归因状态和发布使用家族 codec | R4.4 阻断旧格式；R6 重新注册方法、状态和恢复前早拒绝。R4 的 J2 绝对比较状态单独随 J1–J4 迁入。 |
+| `materialization/{event,event_comparison,event_reducer,lifecycle,lifecycle_reducer}_{codec,publication}.py` | 旧 Event/Lifecycle 家族状态和发布 | R4.4 阻断旧格式；R7 以新的领域方法状态、来源准备和恢复接入前早拒绝。 |
+| `materialization/{candidate,forecast,association}_{codec,publication}.py` | 旧 discovery/forecast/Association 家族状态和发布 | R4.4 阻断旧格式；R8 扩展接入前早拒绝。J4 Spearman 的首批 `pair_counts` 随 R4.3/R4.4 迁入，不借旧 Association codec。 |
+| `materialization/store.py`、`storage.py`、`resources.py`、`writer_guard.py`、`reconciliation.py` | 当前 v6 Store、Parquet 发布与原 Run 协调 | R4.4 复用唯一 Store、物理 Parquet v1、writer guard 和 reconcile，切到 generation 7 与新 metadata；旧 generation 读前拒绝。 |
+| `session/core.py`、`session/_lazy_runtime_reads.py`、`materialization/{recovery,retained,reads,inspection,dataset_presentation}.py` | session.artifact、历史/保留读取及展示消费旧 descriptor | R4.5 只从精确新 Artifact、snapshot、主表及必要 parts 恢复；R4.6 反查 Help、CLI、英中 site、类型与安装包中旧引用。 |
+
+R4.2–R4.5 任一包若尚未形成 key、Run、receipt、Store、恢复的同代际闭环，禁止写出
+半新半旧 Artifact。已迁入消费者必须删掉旧入口；未迁能力在构造或物理准入处结构化拒绝，
+不得绕过新协议继续写旧产物。
+
+| 资格缺口 | 新链拒绝位置与 owner | 可恢复条件 |
+| --- | --- | --- |
+| R3.4 仅有 DuckDB native table/Parquet、NoTime、完整 int64 身份和值的私有 lowering；固定 `row.count` 尚未读取真实 Artifact | R4.2/R4.3 在物理准入及 fixed receipt 读取前拒绝其他形态 | 同一注册键的真实 schema、资源、检查、source/Parquet/pandas 执行证据及完整 receipt 验证。 |
+| J1–J3 旧 source/local 数值、分组、ratio、比较资格尚未接入 R3 单一注册 | R4.2 方法选择及 R4.3 类型/形状准入，业务读取前拒绝缺项 | 方法语义、状态/part codec、source 与 fixed 实现按精确后端/类型/形状重新取得资格；四旅程在新链重验。 |
+| J4 Spearman 旧 route 与 `pair_counts` 已有私有证据，但 R3 `MethodKey` 尚无 Association 注册 | R4.2 方法查找即拒绝；R4.3 才连接并验证 | 注册唯一 Association owner，复核配对/平均秩/状态/部件、两条来源实现及固定续算，断源恢复实际 K。 |
+| R5–R8 的完整成员/时间/多根、比较/参照/归因和领域方法 | 对应方法构造或能力/物理准入，Run/业务 I/O 前拒绝 | 各阶段接受 owning spec、注册实现、状态与恢复证据后逐项开放；不借旧 Dataset 分支。 |
+| R9 的其他后端、物理类型和完整实源形态 | 精确 `QualificationKey` 选择与 R1 来源准入 | 按后端、类型、表/时间形态取得本机失败/无发布、凭据/控制和生命周期证据。 |
+
+上述拒绝是目标切换契约；R4.1 不改变当前产品调用结果，也不将旧测试通过或
+R3.4 的静态/私有证据写成统一 Runtime、Store 或四旅程验收。
 
 ## 5. 验收矩阵与独立预期
 

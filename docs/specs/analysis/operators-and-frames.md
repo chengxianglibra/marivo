@@ -276,6 +276,60 @@ private route choice supports comparative validation; ordinary placement uses
 the registered source route when available and never retries a failed source
 execution in Python.
 
+## R4.1 frozen method state and evidence target (inactive)
+
+R4.1 freezes the new Artifact method-state contract before R4 changes writers.
+The current J1–J4 `dsl.j1.*` part IDs and `dsl.j4.pair_counts` are migration
+inputs, not aliases in the new protocol. A
+`marivo.analysis.method_state/v1` envelope has exactly `schema`, `kind`,
+`contract_id`, `contract_version`, `method_name`, `method_version`,
+`input_binding` and `ordered_part_roles`. The kind is one of the closed rows
+below; `contract_id` is `marivo.analysis.state.<kind>` and every kind starts
+at contract version 1. Each required part has contract ID
+`marivo.analysis.part.<kind>.<role>` and version 1. `method_name`/version must
+resolve through the one semantic registry, including the Association method
+that R4.3 must connect. Equal physical columns cannot transfer authority
+between kinds. An unsupported kind or version rejects before part rows are
+read. There is no arbitrary dictionary payload or absent-field mega-class.
+
+| State kind | Required keyed part roles and state components | Continuation premise |
+| --- | --- | --- |
+| `none` | No state part; only the complete primary relation and its receipt. | Only methods derivable from its actual relation signature. |
+| `original_sum` | Separate `original_state` (`state_sum`, `non_null_count`, `row_count`) and `coverage` parts, keyed to the original member/coordinate identity. | Original `sum@v1` rollup requires completed coverage and contribution-partition checks. |
+| `row_sum` | `row_state` with `current_sum`. | Current-row sum only; no original contribution authority. |
+| `row_count` | `row_state` with `current_count`, including non-Defined rows where count-all applies. | Current-row count only. |
+| `row_count_defined` | `row_state` with `current_count` of Defined Cells only. | Defined-row count only; equal columns do not confer count-all semantics. |
+| `row_mean` | `row_state` with `current_sum` and `current_count`; empty support has its explicit reason. | Current-row mean only; does not inherit original-state rollup. |
+| `ratio` | Distinct `numerator_state` (`numerator_sum`, `numerator_non_null_count`, `numerator_row_count`), `denominator_state` (`denominator_count`, `denominator_row_count`) and `coverage` parts. | Merge each original component before ratio finish; missing component is not zero. |
+| `difference` | Ordered `current_endpoint` and `baseline_endpoint` parts with the same verified member binding and complete keys. | Difference selection and current-row statistics only; no Metric rollup. |
+| `spearman` | `pair_counts` with ordered Metric keys and input, matched, Null and complete-pair counts, independently matched to the primary coefficient/status. | Coefficient selection/current-row statistics only; no recomputation of ranks or member recovery. |
+
+Every primary and part uses its own
+[`receipt/v1`](session-state-and-runtime.md#r41-frozen-runtime-and-store-target-inactive)
+with complete ordered keys, physical schema, cardinality and file hash.
+`none` has an empty ordered part-role tuple; all other variants require exactly
+the listed roles in the listed order. A method that creates only a subset must
+publish a distinct truthful state kind and a correspondingly smaller K, or
+reject; it cannot fill missing roles with nulls or reconstruct them from
+displayed values. R4.3 qualifies the physical component types and validates
+batch splits and reordered rows by full key, not row position. The first-round
+numeric algorithms remain limited to their individually qualified int64 or
+float64 shapes; Decimal transport does not qualify Decimal arithmetic.
+
+The check-evidence record is also closed. Its common fields are
+`(origin_node, check_id, scope, ordered_input_occurrences, deadline, status)`;
+only the `completed` variant adds `(producing_run_ref, result_digest)`.
+`status` is `static`, `pending` or `completed`. A static
+declaration does not satisfy a source-row check, and an unexhausted stream
+cannot provide completion. Shared explicit nodes retain one realization and
+one corresponding check input group; independent equal-looking nodes retain
+separate groups. The descriptor commits only evidence actually completed in
+its Run. Dynamic K is derived after the state variant, every required part,
+its binding and applicable completed checks validate; the frozen continuation
+snapshot supplies facts, not additional authority. R4.2/R4.3 must reject any
+J1–J4 route lacking this registered method and its exact physical
+qualification before business I/O.
+
 ## Runtime boundaries
 
 Every input belongs to the same Session. Definition identity differs from exact

@@ -232,6 +232,82 @@ The connected J1/core semantic-owner overlap is resolved. Whole-stage R3
 acceptance is separate from these bounded corrections; public graph migration,
 Runtime/Store and broader method/backend qualification retain their phase owners.
 
+### R4.1 frozen graph-to-Runtime handoff (inactive)
+
+R4.1 fixes the target contract for one R4 consumer of `GraphPlan` and
+`LoweredPlan`; it does not connect the current public execute path. The root's
+normalized definition fingerprint remains stable across top-level executions.
+Explicit node identities determine sharing **within** one invocation and are
+never used as random cache salt. The graph owner supplies the ordered reachable
+dependencies and method derivations; the method registry supplies the selected
+`MethodKey`, route, full `QualificationKey` and existing
+`Qualified.implementation_id`. R4.2 must add an integer implementation
+contract version (initially 1) before constructing a new key; the current R3
+`Implementation` has the ID but no version. Store alone allocates the `run_`
+and `artifact_` references. Receipt
+storage alone certifies file content. No owner infers one identity from another
+by matching equal displayed values.
+
+`marivo.analysis.execution_key/v1` has two closed canonical tuple variants.
+`H` is the existing typed tuple canonicalization in
+`datasets.descriptors._canonical_digest` (SHA-256 of its UTF-8 encoding), not
+`repr`, unordered dictionary iteration or a Python class name. Every tuple
+below is in the stated order; the ordered plan contains, for each reachable
+method in dependency order, its method name/version, route, exact qualification
+key, selected implementation ID/version and output signature. It excludes
+ephemeral node IDs while retaining graph structure through the definition
+fingerprint and ordered bindings.
+
+```text
+source key = H(("marivo.analysis.execution_key/v1", "source",
+                definition_fingerprint, ordered_plan,
+                ordered_source_bindings, run_ref))
+fixed key  = H(("marivo.analysis.execution_key/v1", "fixed",
+                definition_fingerprint, ordered_plan,
+                ordered_fixed_inputs))
+```
+
+Each source binding occurrence is `(source definition fingerprint, datasource
+Ref, physical source shape, semantic dependency digest, exact selected source
+binding fingerprint)`. It is captured before opening the source; the Run ref
+is the fresh evaluation identity, so the same Lazy value cannot hit an earlier
+source result. Each fixed input occurrence is `(session_ref, artifact_ref,
+producing_run_ref, primary_receipt_digest, ordered_parts, input_binding,
+method_state_contract_id, method_state_version, snapshot_digest)`, where every
+ordered part is `(role, contract_id, contract_version, receipt_digest)`.
+Occurrences remain separate and retain operand order, including equal
+Artifact references in distinct input slots. A fixed key is constructed only
+after exact references, ownership and receipt metadata are verified; a hit
+also validates all required files, parts, state and snapshot before returning
+the original Artifact without a Run. A miss admits exactly one new Run under
+the writer guard. The existing Store uniqueness on `(Session, execution key)`
+remains the publication arbiter.
+
+Pure classification and capability checks precede the writer guard, source
+open, Artifact row read and Run allocation. Mixed live/fixed roots, foreign
+Session inputs, unmatched ordered comparison/member bindings and unavailable
+physical implementations reject there. The guard then reconciles the exact
+unfinished Run. Source-only allocates a Run and new key before first source
+read; fixed-only validates a hit before allocating a Run. R4 consumes the
+unchanged emitted Ibis expression with its recorded `source_ids`, fulfills
+each bound check before its consume/publish deadline, and records completed
+evidence from this invocation. No failed check, type mismatch, cancellation
+or implementation error changes the selected route or starts a new identity.
+R4.3 owns the common source/Parquet/pandas Arrow exchange; R4.4 owns the v7
+Store/descriptor/receipt switch; R4.5 owns exact source-free recovery. Their
+frozen metadata and failure boundaries are in
+[Session State and Runtime](session-state-and-runtime.md#r41-frozen-runtime-and-store-target-inactive).
+
+Only the R3.4 private DuckDB native-table/Parquet, `NoTime`, complete int64
+identity/value prefix has selected lowering and local count behavior. Even
+there, R4 has not executed checks, read a fixed Artifact or published a new
+protocol result. Existing J1–J4 numerical behavior and Spearman's old route
+are migration inputs, not qualifications for the new registry. R4.2/R4.3 must
+register and qualify their exact method, shape and backend combinations or
+reject them before business I/O; R5–R9 retain their separately assigned
+extensions. The new protocol does not authorize other types, time shapes,
+backends or methods by implication.
+
 ### Relative Anchor observation and retention (C18)
 
 The single public entry shape is
