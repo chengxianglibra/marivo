@@ -711,3 +711,51 @@ The coordinated cutover must verify these seams without duplicating owners:
    retained-state validation, and cold recovery derive the same facts. Until
    those implementation and public-disclosure checks pass, this amendment must
    not be presented as live lazy behavior.
+
+## R5.1 frozen resolution handoff
+
+Status: target frozen; new R5 runtime variants remain unverified. Resolution
+consumes the [Semantic handoff](semantic-object-model.md#r51-frozen-semantic-handoff)
+and [Analysis input variants](../analysis/python-analysis-design.md#r51-frozen-public-target).
+It does not add a second catalog, readiness object, or named statistical-weight
+role. `ms.statistical_weight` was withdrawn; neither it nor the dependent
+`mv.statistical_weight` is reactivated by this handoff.
+
+Resolve the closed observation input (Metric Ref, RuntimeMetricExpr or
+QuantileMetricInput) into the existing canonical graph with effective dependency
+fingerprints. Runtime expressions do not register persistent business definitions.
+The five factories share the same resolver as governed Metrics; they cannot
+accept CatalogEntry, SQL, callback or name-string substitutes for Ref. Resolve
+quantile accuracy separately from q and from physical algorithm selection.
+Every recursive occurrence retains its own root, filters, role/path, version,
+time requirement, contribution unit and component policy. Same-table or same-Ref
+occurrences with different bindings remain independent. Graph sharing does not
+supply a common database snapshot or whole-history coverage.
+
+Read resolution preserves Measure/Dimension/TimeDimension and the resolved
+boolean kind; only single-valued, type-compatible mappings can become scalar
+reads. Member identity is all ordered primary-key fields, distinct from snapshot
+or validity coordinates. Version/field/path resolution produces static premises,
+not proof that the requested snapshot exists or a source mapping is complete.
+A unique direct/definition-bound route may be omitted; additional, duplicate,
+missing or incompatible explicit roots reject. A same-root role conflict names
+its exact component occurrences rather than choosing a path.
+
+Readiness continues to return directly requested refs/expressions whose static
+dependency closure has no blocker. It cannot mark duplicate-key, classification,
+coverage, nonfinite, overflow, time-rule or state-completeness checks completed.
+The graph registers each data-dependent obligation against its actual consumed
+domain and before-consume/before-publish deadline. Source rows used by these
+checks pass through the same admitted Ibis source boundary. No whole-source
+uniqueness scan is inserted merely because an Entity has a declared key.
+
+Construction rejects wrong Ref kind, cross-Session identity, conflicting temporal
+arguments, unavailable required declaration and mixed source/fixed dependencies
+before a Run or business-data read. Schema-only R1 preflight retains its existing
+boundary. Source-only new observations and verified fixed continuations do not
+share fallback resolution: fixed recovery uses committed definitions and parts,
+never loads current Semantic state to repair missing facts. Errors name expected
+and received facts, bound occurrence/Ref/field, and a concrete repair based on the
+actual catalog or retained parts. R5.2-R5.6 must align the native Help, errors and
+typed surfaces in the package that activates each variant; a frozen signature
+here does not make it callable.

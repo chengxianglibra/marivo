@@ -1040,3 +1040,25 @@ PyPI 解决，不修改数值算法或放宽准入。只有最终 wheel 记录�
 完整成员/时间/多根归 R5，比较/归因归 R6，领域方法归 R7/R8，六后端扩张归 R9，
 真实 Agent 能力簇归 R10。本轮没有真实 Agent、远端或发布验收，没有执行完整
 release-check、启动 MinIO、提交、推送或发布。
+
+### 2026-09-28 R5.1 契约与迁移清单冻结
+
+基线为 `panda` / `dd42c7cca070fba60d6a2761331d86dbaca135ce`，R4.6 已提交；
+初始 staged/unstaged diff 为空，仅 R5 实施计划未跟踪。精确状态和摘要见
+[R5.1 静态证据](evidence/r51/README.md)，逐项 owner、消费者与参数格见
+[R5 迁移清单](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md)。
+本包只修改文档和静态证据，不修改产品、测试、AGENTS.md 或 packaged skills。
+
+| 单元 | 本包状态与边界 |
+| --- | --- |
+| F01–F11 契约 | **目标冻结**：成员完整身份/版本及四类 read、观察闭合输入与五工厂、组件出现位置、完整坐标/显式组、原状态与当前行统计、时间/数值矩阵、Store 7 部件/版本与恢复；具体事实维护于各自 owning spec。**实现与新增物理资格未验证**。 |
+| F12 统计权重范围 | **撤回、排除**：用户本轮指出先前撤回决策；已核对 R2.2 的原始要求“移除 ms.`statistical_weight` 接口，暂不需要支持”及本记录。R5 不激活该命名角色、`mv.statistical_weight` 或依赖它的当前行 weighted_mean，不作为 R5 阻塞，也不自动转授 R6。Metric/runtime_metric weighted_mean 仍在范围内。 |
+| M01–M17 消费者 | **静态盘点**：真实 import/call/registration/SQL 候选与模块字符串及源文件摘要入档；明确 `graph_observation -> observation.temporal.civil_bound` 等共享依赖。动态可达性与旧链删除仍由后续实施及 R5.7 验证；本包没有删除链路。 |
+| D01–D14 | **仍 skipped；本包只收集**：14 个参数格逐项保留业务 oracle、目标调用及 R5.3–R5.5 owner，不删除数值断言或改为拒绝测试。 |
+| D15–D22 | **历史失败保留；未重跑**：八项旧 Runtime 并发失败逐格映射图链钩子和不重放/不误发布义务。旧 source 重复命中断言按现行契约拆成 source 新求值与 fixed 精确命中，未当作已恢复。 |
+| V01–V12 | **目标场景已映射；新增资格未验证**：区分现有测试种子、未来新增测试、独立 oracle、source/fixed/冷恢复和拒绝格。未继承 R4.6 的通过状态。 |
+| 静态检查 | 相关六个测试文件 collection-only **103 nodes，exit 0**，覆盖全部 D01–D22；新增文档链接/anchor、F/M/V/D 覆盖、源摘要、改动范围与 whitespace 核查见 static-checks.json。收集不是测试通过。 |
+
+**R5.1 文档冻结完成；R5.2–R5.7 尚未实施/验收。** 本包未运行产品测试、Runtime、
+site/API build、check-agent 或 wheel；无后端资格、冷恢复执行或真实 Agent 证据。
+没有提交、推送、发布，也未启动 MinIO 或运行 release-check。

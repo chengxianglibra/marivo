@@ -447,3 +447,57 @@ row for each member and complete coordinate tuple in the union of its independen
 component roots. Its nested state has exactly that row's component partition.
 Integer components are exact; floating partitions use the specified finite tolerance.
 A coordinate rollup selects one retained dimension and merges original components.
+
+## R5.1 state extension and recovery contract
+
+Status: target frozen; R5 method, temporal and numeric qualifications remain
+unverified. The R4 public graph/Store 7 contract remains the execution owner.
+R5 extends core/rules, analysis.methods, GraphPlan/LoweredPlan and common exchange;
+there is no observation-specific executor, alternate Store generation or v6
+public recovery path.
+
+A source execute receives a new evaluation identity. One explicitly shared node
+is realized once within that execution; equal independently constructed nodes
+remain separate. Static invalid/mixed/cross-Session graphs reject before business
+I/O or Run allocation. Each selected physical route is immutable for that
+invocation; check failure, cancellation or numeric failure never retries another
+backend/local algorithm. Data-dependent obligations are completed only from the
+actual bound consumer's evidence, after exhaustion and successful close, before
+their consume/publication deadline.
+
+For the [R5 state matrix](operators-and-frames.md#r51-method-and-state-contracts),
+the existing descriptor/receipt transport carries primary Cells and full keys,
+ordered component occurrence states, Subject/member/classification mappings,
+coordinate images, coverage, version/temporal boundaries and certified snapshot
+identity whenever required. Each part has an exact schema, binding, semantic
+role, method/state version and receipt. Empty input still has schema and valid
+empty state; absent state, an absent part and an empty part remain distinct.
+Part order cannot substitute for role/key matching. Output value, components,
+row-set contract and completed checks are verified together before publication.
+
+Compatible additions use existing method/state version slots. A changed state
+meaning/layout gets a distinct version and rejects mismatched old state; it is
+not decoded permissively or rebuilt from source. Store 7 remains unchanged as a
+generation. If a later implementation cannot represent a required shape in the
+current protocol, that package must first amend this owner with an explicit
+breaking rule; no implicit dual-read, migration or automatic state reconstruction
+is authorized by R5.1.
+
+A fixed key includes exact ordered Artifact inputs and receipts, definition and
+method/state versions, parameters, required parts and time/coverage facts.
+Integrity validation precedes cache-hit/consumer admission. Fixed-only execution
+uses controlled Arrow/Parquet-to-pandas, cannot open DuckDB/remote connections,
+and cannot load current Semantic models. Retained K is the qualified successor
+set of the verified signature and parts, not a promise inferred from result
+values. Missing/corrupt/version-mismatched components revoke affected K and reject
+attempted execution. Distinct/quantile results have no original-rollup K;
+permitted current-row statistics remain separate quantities.
+
+Each method qualification requires source produce, fixed continue, and a separate
+cold-recovery process for its promised K. Recovery tests remove/disable the source
+and model loading, block backend connections, execute the continuation and compare
+value, semantics and K independently. Main/part corruption, reordered parts,
+empty batches, incomplete streams, close errors, cancellation and publication
+failures must preserve atomic visibility. Existing `graph_primary_written`,
+`graph_receipts_verified` and Store commit events provide graph-owned fault
+boundaries; old quality-hook waits are not reused without a reachable consumer.

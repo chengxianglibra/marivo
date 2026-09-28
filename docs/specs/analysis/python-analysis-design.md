@@ -443,20 +443,16 @@ dropping unknown rows.
 
 ### Statistical and reference weights (C08)
 
-`mv.statistical_weight(values: NumericRelation, *, role:
-Ref[StatisticalWeightKind]) -> StatisticalWeight` binds an independently
-observed relation to the exact authored role from the Semantic object model.
-`mv.weighted_mean(weight=StatisticalWeight)` constructs a current-row
-statistic; the receiver and weight require the same exact instance domain or an
-explicit, checked one-to-one correspondence and the declared statistical unit.
-Finite nonnegative weights, a positive total weight for a Defined mean, and
-Defined values for positively weighted rows are required. Zero total weight
-produces `Undefined(zero_weight)` with retained `(weighted_sum, weight_sum)`;
-unknown weight or missing correspondence is not silently zero. The result
-retains the role/version, binding, units and components, but this direct
-statistic has no original-Metric `rollup()`. Order count, allocation and
-sampling weights do not gain statistical authority from numerical similarity.
+The named-role `mv.statistical_weight` and dependent current-row weighted mean
+are withdrawn proposals, not R5 implementation requirements. The user withdrew
+their Semantic declaration in R2.2 and reaffirmed that boundary during R5.1.
+A private `StatisticalWeightPart` or `row.weighted_mean` registration does not
+authorize a public surface. Reconsideration needs a separate scope decision;
+there is no automatic R6 reactivation. Metric-component weighted mean is
+unaffected. The withdrawn constructor signature is not retained as an active
+or deferred implementation contract here.
 
+The independent reference-weight/standardization target remains owned by R6:
 `mv.reference_weights(values: NumericRelation, *, strata:
 tuple[CategoryRelation, ...], unit: Ref[EntityKind]) -> ReferenceWeights`
 binds an independent Logical or Materialized weight relation. The complete
@@ -1395,3 +1391,170 @@ Cold protocol reads validate the frozen graph, method implementations, completed
 check identities, exact Run/key binding and every required receipt. This does
 not expose public construction or K. R4.5 owns public receiver migration,
 `session.artifact`, disclosure and deletion of the still-used v6 scenario chain.
+
+## R5.1 frozen public target
+
+Status: target contract frozen, implementation and new physical qualifications
+unverified. This section owns C03-C06/C10 consuming signatures and supersedes
+conflicting historical Population/Metric Dataset shapes for the R5 cutover.
+It does not change currently importable APIs or R4's measured qualifications.
+The [R5 migration ledger](../../superpowers/specs/2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md)
+owns migration work and evidence, not another API registry.
+
+### R5 public variants and input types
+
+The names below denote concrete target variants, with Logical/Materialized
+pairs and existing family protocols. Documentation unions are closed type
+aliases, not top-level exports or Help entries. NumericRelation includes the
+numeric, ratio and row-statistic families; CategoryRelation, TemporalRelation
+and BooleanRelation remain separate families. Materialized input operations
+construct Logical fixed continuations; they never execute eagerly.
+
+| Receiver and exact target call | Result and binding |
+| --- | --- |
+| `Session.members(entity: Ref[EntityKind], *, at: datetime \| BeforeEndBoundary \| None = None)` | `LogicalAnalysisDomain`; no-version requires None, versioned requires one explicit anchor |
+| `AnalysisDomain.read(field: Ref[MeasureKind], *, at: datetime \| BeforeEndBoundary \| None = None, via: Ref[RelationshipKind] \| RootRoutes \| None = None)` | `LogicalNumericRelation` |
+| `AnalysisDomain.read(field: Ref[DimensionKind], *, at: datetime \| BeforeEndBoundary \| None = None, via: Ref[RelationshipKind] \| RootRoutes \| None = None)` | `LogicalCategoryRelation \| LogicalBooleanRelation`, dispatched by resolved categorical/boolean kind |
+| `AnalysisDomain.read(field: Ref[TimeDimensionKind], *, at: datetime \| BeforeEndBoundary \| None = None, via: Ref[RelationshipKind] \| RootRoutes \| None = None)` | `LogicalTemporalRelation`, preserving civil date versus instant and physical precision |
+| `AnalysisDomain.each(grid: TimeGrid)` | `LogicalTimeAnalysisDomain`, the bounded member/time product |
+| `AnalysisDomain.group_by(*keys: Ref[DimensionKind] \| CategoryRelation, groups: AnalysisDomain \| GroupedAnalysisDomain \| None = None)` | `GroupedAnalysisDomain`; a no-key group denotes Singleton |
+| `NumericRelation.group_by(*keys: Ref[EntityKind] \| Ref[DimensionKind] \| CategoryRelation \| TimeGrid \| Grain, groups: AnalysisDomain \| GroupedAnalysisDomain \| TimeAnalysisDomain \| None = None)` | `GroupedNumericRelation` or `GroupedRatioRelation`, according to quantity; no eager rows |
+| `NumericRelation.rollup()` or the corresponding grouped call | Logical relation preserving the original quantity family, only with admitted original state |
+| `NumericRelation.summarize(method: RowMethod)` or the corresponding grouped call | `LogicalStatisticRelation`; a new current-row quantity |
+| `CategoryRelation/TemporalRelation/BooleanRelation.summarize(method: CountMethod)` | `LogicalStatisticRelation`; CountMethod is the closed count/count_defined subset, without numeric conversion |
+| `Relation.where(predicate: ValuePredicate)` | The selected variant of that relation; a typed predicate and its explicit relation dependencies, no string/callback |
+| `Relation.members()` | `LogicalAnalysisDomain` for source dependencies or `LogicalFixedAnalysisDomain` for fixed dependencies; requires an existing Subject mapping |
+
+A Temporal/Boolean read is a new member of the existing Relation protocol, not
+an alternative authoring kind or general expression API. A Dimension Ref alone
+cannot statically distinguish its resolved boolean kind, so read has an explicit
+closed return union; neither typing nor runtime may pretend it always returns
+CategoryRelation. Wrong Session, incompatible phase, ambiguous kind/path or a
+multivalued read rejects at the earliest known boundary. Scalar read requires
+one value per complete target identity, including checked coverage of that
+consumer's domain. Historical read requires explicit `at`; no implicit latest.
+The shorthand member-domain `group_by(OwnDimension)` may inherit the uniquely
+bound member version as its explicit property dependency. It cannot search for
+cross-Entity attributes or inherit an observation window.
+
+The observe input alias is exactly
+`Ref[MetricKind] | RuntimeMetricExpr | QuantileMetricInput`. Each member,
+time-member and grouped-domain receiver offers these mutually exclusive forms:
+
+- `observe(metric: ObservationInput, *, during: TimeScope | GridWindow | None = None,
+  via: Ref[RelationshipKind] | RootRoutes | None = None,
+  coordinates: tuple[Ref[DimensionKind], ...] = (),
+  time_dimension: Ref[TimeDimensionKind] | None = None)`.
+- `observe(metric: ObservationInput, *, at: datetime | BeforeEndBoundary | GridEndpoint,
+  via: Ref[RelationshipKind] | RootRoutes | None = None,
+  coordinates: tuple[Ref[DimensionKind], ...] = (),
+  time_dimension: Ref[TimeDimensionKind] | None = None)`.
+
+There is no overload accepting both at and during. Result dispatch follows the
+resolved quantity, not the Python type of via: ratio returns LogicalRatioRelation;
+other numeric quantities return LogicalNumericRelation; pre-grouped receivers
+return the matching Grouped relation. A grouped observe binds its member mapping
+but defers reduction to rollup. Omitted during means no added time restriction,
+not all-history completeness. Endpoint/status/cumulative methods reject a missing
+required time argument. A fixed member list does not fix external Metric or
+attribute sources; such mixed dependency construction rejects before business I/O
+or Run creation. A new source observation starts from a Logical source member
+binding; fixed continuation only consumes already retained values and parts.
+
+`mv.route(root: Ref[EntityKind], *, through: tuple[Ref[RelationshipKind], ...])
+-> RootRoute` and `mv.routes(*items: RootRoute) -> RootRoutes` remain the only
+explicit route shape. Identity or a unique definition-bound route permits None;
+reachability/shortest-path guesses do not. Every actual root has exactly one
+route; extra, duplicate and missing roots reject. Each occurrence receives its
+own bound route and filter. Same-root occurrences requiring incompatible roles
+reject with their occurrence identities: R5 does not add an occurrence-browser
+API. Coordinate paths must be uniquely authorized by that bound graph; no fanout
+switch or generic join is introduced.
+
+### Runtime expression signatures
+
+The five existing factories remain under `mv.runtime_metric`; the semantic
+module remains their implementation owner. The following aliases are local
+notation only: `MetricExpr = Ref[MetricKind] | RuntimeMetricExpr` and
+`MetricTerms = list[MetricExpr] | tuple[MetricExpr, ...]`.
+
+```python
+aggregate(measure: Ref[MeasureKind], *, agg: AggKind, label: str,
+          fold: AggregateFoldInput = None,
+          slice_by: Mapping[Ref[FieldKind], SliceValue] | None = None) -> RuntimeAggregateExpr
+weighted_mean(value: Ref[MeasureKind], weight: Ref[MeasureKind], *, label: str,
+              slice_by: Mapping[Ref[FieldKind], SliceValue] | None = None) -> RuntimeWeightedMeanExpr
+slice(metric: MetricExpr, *, by: Mapping[Ref[FieldKind], SliceValue],
+      label: str) -> RuntimeSliceExpr
+ratio(numerator: MetricExpr, denominator: MetricExpr, *, label: str,
+      zero_division: Literal["null", "error"] = "null") -> RuntimeRatioExpr
+linear(*, add: MetricTerms, subtract: MetricTerms = (), label: str) -> RuntimeLinearExpr
+```
+
+AggKind stays `sum/count/count_distinct/min/max/mean/median` or
+`("percentile", q)`; AggregateFoldInput stays None, `mean/min/max/first/last`
+or `("percentile", q)`. Percentile q is finite, strictly between zero and one,
+and not bool. Fold requires the Measure's declared status-time semantics.
+Linear retains ordered +1 and -1 occurrences, at least two in total; it is not a
+period Difference. Labels are presentation, never business identity.
+
+SliceScalar remains `str | int | float | bool | None`; SliceValue remains a
+scalar, list/tuple/set of those scalars, or the existing `{op, value}` predicate.
+Replace the current predicate Any with closed, op-dispatched TypedDict variants:
+`==/!=` accepts one scalar; ordered comparisons accept one non-null str/int/float;
+`in` accepts a scalar collection; `between` accepts an ordered two-element tuple
+of non-null str/int/float endpoints, inclusive at both ends. Ordered numeric
+operands exclude bool and nonfinite float; resolved field type validates scalar
+compatibility (no string-to-number conversion). None means an explicit null
+match only for equality/inequality or membership. An empty membership set is
+false. Collections freeze as immutable values with deterministic set ordering;
+list/tuple order remains part of authored input. No new predicate factory, SQL,
+callback or bare business-name string is introduced. Slice limits the selected
+contribution branch; where limits output rows and cannot replace it.
+
+### Complete domains, groups and continuation
+
+Each occurrence computes its complete coordinate image within its own branch
+filter, path and time range. The result domain is the union of complete typed
+tuples, including the target Subject key and bound time coordinate. It is never
+a product of separate projections, an intersection, the numerator alone, or a
+filter on nonzero results. Missing components receive empty state only with
+sufficient bound coverage; unknown mapping/coverage or failed execution is not
+zero. Adding contribution coordinates revokes an automatic complete Entity x Time
+claim; restoring that target uses group_by with explicit groups and empty-state
+admission. Multiple independent one-to-many paths do not authorize a product.
+
+A predicate from another explicitly supplied relation adds that relation as a
+value dependency. Its complete instance domain must correspond exactly to the
+receiver, or by an already retained checked containment map; it cannot use row
+position or retrieve a missing fine domain. Thus fixed `mean.where(revenue.value.gt(10))`
+on corresponding retained member relations filters by revenue, not by mean.
+Predicate source/fixed and Session checks apply to the whole dependency graph.
+
+Category inputs align by full keys or a retained checked containment map, never
+row position. Every consumed classification Cell must be Defined and in its
+value domain. Null/Undefined/Unknown keys reject; checks apply after the actual
+branch/member selection, not unrelated source rows. Ref keys on relations refer
+only to uniquely retained coordinates; new property reads require an explicit
+member binding. A Grain coarsens the unique retained time axis; each input cell
+must fit wholly within one target cell. A crossing week cannot split across
+months. Duplicate keys, multiple time axes and ambiguous Ref bindings reject.
+Explicit groups retain empty groups but cannot repair missing member mappings.
+
+Root members project K without distinct. Selection of an Entity relation preserves
+its injective Subject mapping; extracting Subjects from multi-instance rows
+uses the full-key set image, with Ibis distinct on source or equivalent fixed
+Python semantics. That operation cannot repair malformed input keys/versions.
+
+Current-row methods are the closed descriptors from `mv.sum()`, `mv.min()`,
+`mv.max()`, `mv.mean()`, `mv.count()` and `mv.count_defined()`, each returning its
+specific RowMethod variant. Named statistical-weight binding and dependent
+current-row weighted mean are withdrawn from R5 scope; Metric weighted mean is
+still required. Original reduction and RowStatistic continuation are separately
+registered under the [method/state contract](operators-and-frames.md#r51-method-and-state-contracts).
+A missing part removes K and rejects an attempted continuation; unchanged numeric
+values alone never establish state or semantic equivalence.
+
+No target here becomes a public export, live Help target or dynamic action until
+its implementation package aligns native signatures, export snapshots, independent
+Help reachability/budgets, structured repairs, CLI, and both latest site editions.

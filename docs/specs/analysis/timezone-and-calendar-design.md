@@ -87,3 +87,57 @@ keeps its connection-local Python temporal functions. This does not transfer sou
 rows or install remote UDFs. Each range/rule query is an attempted physical
 engine_check validation submission. Separate validation and primary queries retain
 the existing source-concurrency limitation; this is not a snapshot guarantee.
+
+## R5.1 frozen temporal binding
+
+Status: target frozen; new R5 temporal routes remain unverified. R5 retains the
+three authorities above independently: persisted Session report timezone,
+resolved source/parser timezone, and certified calendar boundary timezone.
+Membership version anchor, attribute read anchor, Metric contribution scope and
+output grid are four distinct bindings. None supplies an omitted value for the
+others except the explicit member group_by property shorthand owned by Analysis.
+
+`mv.time_grid(*, during: TimeScope, grain: Grain, timezone: str | None = None)
+-> TimeGrid` constructs a finite coordinate domain. With no explicit timezone,
+built-in grain uses the consuming Session's persisted report timezone; a calendar
+grain uses its certified snapshot timezone. The unresolved built-in default is
+bound once when a Session consumes the grid, enters its identity, and cannot be
+reused with a conflicting authority. It never resolves host timezone itself.
+An explicit calendar timezone must agree with the snapshot or reject.
+
+`TimeScope.before_end -> BeforeEndBoundary` is a typed left-limit view;
+TimeGrid exposes `window -> GridWindow`, `start/end -> GridEndpoint`, and
+`before_end -> GridEndpoint` with a closed before-end interpretation. Grid
+handles are bound to the exact grid identity and usable only on its product
+receiver. Fixed `during=TimeScope` remains one fixed window, even on each(grid);
+`during=grid.window` alone selects the row window. Ordinary datetime endpoints
+must be timezone-aware instants; naive source timestamps use the separate
+resolved source authority. Existing date/string TimeScope construction retains
+its governed normalization and civil-date semantics.
+
+Each grid row retains stable identity, original and clipped half-open boundaries,
+partial-cell status, physical time precision, timezone authorities and any
+calendar certification digest. A clipped week is not a full week. Empty cells
+remain in the bounded time target; only an admitted contribution-coordinate
+image may restrict that product. Built-in week uses the existing Grain rule.
+A Grain group_by coarsens the unique carried time axis only when each source cell
+maps wholly to one target; a week crossing months rejects, even with fine-grained
+state. Observe a month grid to obtain those month values.
+
+Before-end version selection is symbolic: exact snapshot left-period selection
+or the validity left-limit predicate, never end minus epsilon or one timestamp
+tick. Date remains a civil date; aware timestamp remains an instant. Naive
+source DST gap/fold or engine/ZoneInfo disagreement rejects before publication;
+all validation/range reads must be admitted Ibis expressions. An unqualified
+submicrosecond conversion rejects explicitly without truncation. Fixed execution
+uses retained instants, parser facts and boundaries without new source probes.
+
+Cumulative endpoint e consumes [anchor(e), e); the display start cannot truncate
+all-history or trailing input. Grain-to-date uses the owning reset boundary;
+trailing day/week retains fixed 86,400/604,800-second semantics, distinct from
+23/25-hour civil days. Removing time needs the declared temporal reduction and
+sufficient nonoverlapping state, never a sum of overlapping cumulative values.
+Semi-additive evaluation first applies the declared spatial aggregation at each
+sample, then its time fold. A later spatial merge requires a commutation proof
+or aligned pre-fold state. In particular, summing per-channel finished peaks is
+not automatically the peak of the spatial total.
