@@ -108,7 +108,7 @@ def _registry(*implementations: Implementation) -> MethodRegistry:
     )
 
 
-def test_connected_methods_have_one_owner_and_six_rules() -> None:
+def test_connected_methods_have_one_owner_per_rule() -> None:
     expected = {
         "bind_project@v1": "bind_project@v1",
         "map_correspond@v1": "map_correspond@v1",
@@ -121,6 +121,7 @@ def test_connected_methods_have_one_owner_and_six_rules() -> None:
         "row.weighted_mean@v1": "row_state@v1",
         "state_rollup@v1": "original_reduce@v1",
         "parts_transport@v1": "parts_transport@v1",
+        "association.spearman@v1": "association_score@v1",
     }
     assert {
         str(item.semantics.key): item.semantics.rule for item in REGISTRY.registrations
@@ -132,6 +133,9 @@ def test_connected_methods_have_one_owner_and_six_rules() -> None:
         "map_correspond",
         "row.count",
         "row.count_defined",
+        "row.sum",
+        "row.mean",
+        "association.spearman",
     }
     assert all(item.missing.status == "blocked" for item in REGISTRY.registrations)
     with pytest.raises(FrozenInstanceError):
@@ -501,8 +505,9 @@ def test_registry_and_core_consumer_use_no_io_or_legacy_registry(
     candidate = _implementation()
     chosen = _registry(candidate).select(candidate.key, (source,), _params(source))
     assert chosen.derivation == derive((source,), _params(source))
-    with pytest.raises(MethodRegistrationError, match="blocked"):
-        REGISTRY.select(candidate.key, (source,), _params(source))
+    assert (
+        REGISTRY.select(candidate.key, (source,), _params(source)).derivation == chosen.derivation
+    )
     # Prove the existing core consumer consults the new owner, with no local fallback.
     import marivo.analysis.methods.registry as method_registry
 

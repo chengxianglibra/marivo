@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator, Mapping, Sequence
-from contextlib import closing
+from contextlib import closing, suppress
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -16,6 +16,7 @@ from importlib import import_module
 from itertools import islice
 from math import isfinite
 from typing import Literal, Protocol, cast, runtime_checkable
+from uuid import uuid4
 
 import ibis
 import ibis.expr.operations as ops
@@ -104,7 +105,9 @@ class PhysicalRequirement:
 
     method_id: str
     version: int
-    operations: frozenset[Literal["scan", "filter", "project", "group", "count", "join", "union"]]
+    operations: frozenset[
+        Literal["scan", "filter", "project", "group", "count", "join", "union", "window", "sort"]
+    ]
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -490,6 +493,7 @@ class SourceSession:
         self._issued: dict[int, tuple[CompiledRead, _IssuedRead]] = {}
         self._bindings_by_identity: dict[str, tuple[SourceIR, dict[str, object]]] = {}
         self._bound_sources: dict[str, BoundSource] = {}
+        self._staged_relations: dict[ops.Relation, tuple[frozenset[str], str]] = {}
         self._streams: set[SourceBatchStream] = set()
         self._closed = False
         self.submissions: list[SourceSubmission] = []
@@ -589,7 +593,7 @@ class SourceSession:
             )
         supported = frozenset({"scan", "filter", "project", "group", "count"})
         if self.provider.name == "duckdb":
-            supported |= {"join", "union"}
+            supported |= {"join", "union", "window", "sort"}
         if (
             not need.method_id
             or need.version < 1
@@ -622,10 +626,24 @@ class SourceSession:
             raise _invalid("an Ibis expression", type(expression).__name__)
         relation_nodes = tuple(item.binding.relation.op() for item in sources)
         expression_relations = tuple(expression.op().find(ops.Relation))
-        if not all(
-            any(node == relation_node for node in expression_relations)
-            for relation_node in relation_nodes
-        ):
+        selected_ids = {item.binding.facts.source_identity for item in sources}
+        present_ids = {
+            item.binding.facts.source_identity
+            for item in sources
+            if any(node == item.binding.relation.op() for node in expression_relations)
+        }
+        present_staged = tuple(
+            (relation, origins)
+            for relation, (origins, _name) in self._staged_relations.items()
+            if any(node == relation for node in expression_relations)
+        )
+        for _relation, origins in present_staged:
+            if not origins <= selected_ids:
+                raise _invalid(
+                    "only staged results of the selected sources", "foreign staged source"
+                )
+            present_ids.update(origins)
+        if present_ids != selected_ids:
             raise _invalid("an expression derived from the bound relation", "unbound expression")
         physical_leaves = (
             ops.DatabaseTable,
@@ -636,6 +654,9 @@ class SourceSession:
         allowed_leaves = {
             node for relation_node in relation_nodes for node in relation_node.find(physical_leaves)
         }
+        allowed_leaves.update(
+            leaf for relation, _origins in present_staged for leaf in relation.find(physical_leaves)
+        )
         observed_leaves = set(expression.op().find(physical_leaves))
         if not observed_leaves or not observed_leaves <= allowed_leaves:
             raise _invalid(
@@ -670,6 +691,54 @@ class SourceSession:
             ),
         )
         return issued
+
+    def stage_derived(self, read: CompiledRead) -> tuple[ir.Table, pa.Table]:
+        """Capture one exact DuckDB read into an owned temporary Ibis relation."""
+        self._ensure_open()
+        stored = self._issued.get(id(read))
+        if (
+            self.provider.name != "duckdb"
+            or stored is None
+            or stored[0] is not read
+            or read._owner is not self._token
+        ):
+            raise _invalid("an exact DuckDB read issued by this session", "unowned stage")
+        with closing(self.batches(read, chunk_size=1024)) as stream:
+            table = pa.Table.from_batches(stream, schema=stored[1].schema)
+        name = "mv_graph_" + uuid4().hex
+        try:
+            relation = self._backend.create_table(name, table, temp=True)
+            if not isinstance(relation, ir.Table):
+                raise _invalid("one temporary Ibis relation", type(relation).__name__)
+        except BaseException:
+            self._backend.drop_table(name, force=True)
+            raise
+        self._staged_relations[relation.op()] = (
+            frozenset(stored[1].source_identity.split("|")),
+            name,
+        )
+        return relation, table
+
+    def release_staged(self, relations: Sequence[ir.Table]) -> None:
+        """Drop only the temporary relations owned by this invocation."""
+        self._ensure_open()
+        failure: BaseException | None = None
+        for relation in reversed(tuple(relations)):
+            owned = self._staged_relations.get(relation.op())
+            if owned is None:
+                if failure is None:
+                    failure = _invalid(
+                        "an owned staged relation", "foreign or already released stage"
+                    )
+                continue
+            try:
+                self._backend.drop_table(owned[1], force=True)
+                del self._staged_relations[relation.op()]
+            except BaseException as error:
+                if failure is None:
+                    failure = error
+        if failure is not None:
+            raise failure
 
     def batches(self, read: CompiledRead, *, chunk_size: int) -> SourceBatchStream:
         """Submit only the exact artifact issued by this open session."""
@@ -771,6 +840,10 @@ class SourceSession:
             for stream in tuple(self._streams):
                 stream.close()
         finally:
+            for _relation, (_origins, name) in tuple(self._staged_relations.items()):
+                with suppress(Exception):
+                    self._backend.drop_table(name, force=True)
+            self._staged_relations.clear()
             self._issued.clear()
             self._bindings_by_identity.clear()
             self._bound_sources.clear()

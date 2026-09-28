@@ -29,6 +29,7 @@ MethodName: TypeAlias = Literal[
     "row.weighted_mean",
     "state_rollup",
     "parts_transport",
+    "association.spearman",
 ]
 
 
@@ -72,6 +73,8 @@ def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
         return MethodKey("state_rollup")
     if type(params) is rules.PartsTransport:
         return MethodKey("parts_transport")
+    if type(params) is rules.AssociationScore:
+        return MethodKey("association.spearman")
     reject("closed method parameters", repr(params), "Use an exact registered parameter variant.")
 
 
@@ -143,8 +146,10 @@ class MethodSemantics:
                     "Retain the exact input value type.",
                 )
             return
-        if name in ("row.count", "row.count_defined"):
-            expected: ValueType = ScalarType("int64")
+        if name == "association.spearman":
+            expected: ValueType = ScalarType("float64")
+        elif name in ("row.count", "row.count_defined"):
+            expected = ScalarType("int64")
         elif any(isinstance(value, DecimalType) for value in inputs):
             if not isinstance(output, DecimalType):
                 reject(
@@ -183,6 +188,8 @@ class MethodSemantics:
             return "row_state@v1"
         if name == "state_rollup":
             return "original_reduce@v1"
+        if name == "association.spearman":
+            return "association_score@v1"
         if name == "bind_project":
             return "bind_project@v1"
         if name == "map_correspond":
@@ -190,7 +197,11 @@ class MethodSemantics:
         return "parts_transport@v1"
 
     @property
-    def cell_policy(self) -> Literal["strict", "count_all", "defined_only", "input_owned"]:
+    def cell_policy(
+        self,
+    ) -> Literal["strict", "count_all", "defined_only", "input_owned", "pair_null"]:
+        if self.key.name == "association.spearman":
+            return "pair_null"
         if self.key.name == "row.count":
             return "count_all"
         if self.key.name == "row.count_defined":
@@ -200,7 +211,9 @@ class MethodSemantics:
         return "input_owned"
 
     @property
-    def unit_policy(self) -> Literal["preserve", "count", "mean", "difference", "ratio"]:
+    def unit_policy(
+        self,
+    ) -> Literal["preserve", "count", "mean", "difference", "ratio", "coefficient"]:
         if self.key.name in ("row.count", "row.count_defined"):
             return "count"
         if self.key.name in ("row.mean", "row.weighted_mean"):
@@ -209,6 +222,8 @@ class MethodSemantics:
             return "difference"
         if self.key.name == "cell.ratio":
             return "ratio"
+        if self.key.name == "association.spearman":
+            return "coefficient"
         return "preserve"
 
     @property
@@ -217,6 +232,12 @@ class MethodSemantics:
     ) -> tuple[tuple[Literal["null", "undefined", "unknown"], tuple[str, ...]], ...]:
         if self.key.name == "row.mean":
             return (("undefined", ("empty_mean",)),)
+        if self.key.name == "bind_project":
+            return (("null", ("source_null",)),)
+        if self.key.name == "association.spearman":
+            return (
+                ("undefined", ("insufficient_pairs", "constant_a", "constant_b", "constant_both")),
+            )
         if self.key.name == "state_rollup":
             return (("null", ("empty_contribution",)),)
         return ()
@@ -240,6 +261,8 @@ class MethodSemantics:
             return ("source.finite_numeric@v1",)
         if self.key.name == "state_rollup":
             return ("source.contribution_partition@v1", "source.complete_coverage@v1")
+        if self.key.name == "association.spearman":
+            return ("source.exact_pairing@v1", "source.finite_numeric@v1")
         return ()
 
     @property
@@ -250,6 +273,8 @@ class MethodSemantics:
             return ("row_state",)
         if self.key.name == "state_rollup":
             return ("original_state", "coverage")
+        if self.key.name == "association.spearman":
+            return ("pair_counts",)
         return ()
 
     @property
@@ -269,6 +294,13 @@ class MethodSemantics:
             return ("sum", "count")
         if self.key.name == "row.weighted_mean":
             return ("weighted_sum", "weight_sum")
+        if self.key.name == "association.spearman":
+            return (
+                "input_observation_count",
+                "matched_observation_count",
+                "null_pair_count",
+                "complete_pair_count",
+            )
         if self.key.name.startswith("row."):
             return (self.key.name.removeprefix("row."),)
         return ()
@@ -313,6 +345,8 @@ class MethodSemantics:
             return rules._original_reduce(inputs, params)
         if type(params) is rules.PartsTransport:
             return rules._parts_transport(inputs, params)
+        if type(params) is rules.AssociationScore:
+            return rules._association_score(inputs, params)
         reject("closed method parameters", repr(params), "Use a registered parameter variant.")
 
 
@@ -328,4 +362,5 @@ CONNECTED_METHODS = (
     MethodSemantics(MethodKey("row.weighted_mean"), "analysis.core.rules"),
     MethodSemantics(MethodKey("state_rollup"), "analysis.core.rules"),
     MethodSemantics(MethodKey("parts_transport"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("association.spearman"), "analysis.core.rules"),
 )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import reduce
 from operator import and_, or_
 from typing import NoReturn, TypeAlias
@@ -25,6 +25,7 @@ from marivo.analysis.core.model import (
     Coordinate,
     FactInput,
     Obligation,
+    ObservedQuantity,
     OriginalStatePart,
     Part,
     RowStatePart,
@@ -34,8 +35,15 @@ from marivo.analysis.core.model import (
     reject,
 )
 from marivo.analysis.core.predicates import ValuePredicate
-from marivo.analysis.core.rules import BindProject, MapCorrespond, PartsTransport, RowState
+from marivo.analysis.core.rules import (
+    AssociationScore,
+    BindProject,
+    MapCorrespond,
+    PartsTransport,
+    RowState,
+)
 from marivo.analysis.methods.builtin import admit
+from marivo.analysis.methods.physical import ScalarType
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 from marivo.datasource.adapters import BoundSource, PhysicalRequirement
 from marivo.datasource.ir import ParquetSourceIR, TableSourceIR
@@ -87,6 +95,15 @@ def components(part: Part) -> tuple[str, ...]:
         return ("complete",)
     if role == "statistical_weight":
         return ("weight",)
+    if role == "pair_counts":
+        return (
+            "metric_key_a",
+            "metric_key_b",
+            "input_observation_count",
+            "matched_observation_count",
+            "null_pair_count",
+            "complete_pair_count",
+        )
     return ("reference",)
 
 
@@ -95,12 +112,14 @@ class RelationLayout:
     keys: tuple[CoordinateColumn, ...]
     cell: CellColumns | None
     parts: tuple[PartColumns, ...] = ()
+    extras: tuple[str, ...] = ()
 
     @property
     def columns(self) -> tuple[str, ...]:
         values = () if self.cell is None else (self.cell.value, self.cell.tag, self.cell.reason)
         return (
             *tuple(k.column for k in self.keys),
+            *self.extras,
             *values,
             *(c.column for p in self.parts for c in p.columns),
         )
@@ -113,6 +132,7 @@ class SourceBinding:
     leaf: SourceLeaf
     source: BoundSource
     layout: RelationLayout
+    cell_reasons: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -122,12 +142,13 @@ class LoweredRelation:
     expression: ir.Table
     layout: RelationLayout
     source_ids: tuple[str, ...]
+    cell_reasons: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class LoweredLocal:
     stage: LocalMethodStage
-    input_layout: RelationLayout
+    input_layouts: tuple[RelationLayout, ...]
     output_layout: RelationLayout
 
 
@@ -149,7 +170,7 @@ class SemanticCheck:
 
 
 LoweredStage: TypeAlias = LoweredRelation | LoweredLocal | ArtifactReadStage
-LoweredCheck: TypeAlias = IntegrityCheck | SemanticCheck
+LoweredCheck: TypeAlias = IntegrityCheck | SemanticCheck | CheckRequirement
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,7 +227,9 @@ def canonical_layout(signature: Signature, *, has_value: bool) -> RelationLayout
     )
 
 
-def _validate_layout(table: ir.Table, layout: RelationLayout, signature: Signature) -> None:
+def _validate_layout(
+    table: ir.Table, layout: RelationLayout, signature: Signature, value_type: str
+) -> None:
     if tuple(k.coordinate for k in layout.keys) != signature.domain.instance_key:
         _fail("the complete ordered coordinate key", repr(layout.keys))
     if tuple(p.part for p in layout.parts) != signature.parts:
@@ -222,14 +245,23 @@ def _validate_layout(table: ir.Table, layout: RelationLayout, signature: Signatu
         if tuple(c.component for c in part.columns) != components(part.part):
             _fail("complete ordered part components", repr(part.columns))
         for component in part.columns:
-            dtype = "boolean" if part_role(part.part) == "coverage" else "int64"
+            role = part_role(part.part)
+            dtype = (
+                "boolean"
+                if role == "coverage"
+                else "string"
+                if role == "pair_counts" and component.component in ("metric_key_a", "metric_key_b")
+                else "float64"
+                if value_type == "float64" and component.component in ("sum", "weighted_sum")
+                else "int64"
+            )
             if str(table[component.column].type()) != dtype:
                 _fail(f"qualified {dtype} part component", component.column)
     if signature.quantity is not None and layout.cell is None:
         _fail("Cell columns for a quantity", "missing Cell")
     if layout.cell is not None:
         for column, dtype in (
-            (layout.cell.value, "int64"),
+            (layout.cell.value, value_type),
             (layout.cell.tag, "string"),
             (layout.cell.reason, "string"),
         ):
@@ -417,6 +449,39 @@ def _count(stage: SourceMethodStage, source: LoweredRelation) -> tuple[ir.Table,
     params = stage.node.parameters
     assert isinstance(params, RowState)
     table = source.expression
+    if params.method in ("sum", "mean"):
+        cell = source.layout.cell
+        if cell is None:
+            _fail("Cell values for registered current-row arithmetic", "missing Cell")
+        aggregate = table.aggregate(
+            state_sum=table[cell.value].sum().fill_null(0),
+            state_count=table.count(),
+        )
+        if params.method == "sum":
+            result = aggregate.select(
+                value=aggregate.state_sum,
+                cell_tag=ibis.literal("defined"),
+                cell_reason=ibis.null().cast("string"),
+                row_state__sum=aggregate.state_sum,
+            )
+        else:
+            result = aggregate.select(
+                value=ibis.ifelse(
+                    aggregate.state_count == 0,
+                    ibis.null().cast("float64"),
+                    aggregate.state_sum.cast("float64") / aggregate.state_count,
+                ),
+                cell_tag=ibis.ifelse(aggregate.state_count == 0, "undefined", "defined"),
+                cell_reason=ibis.ifelse(
+                    aggregate.state_count == 0,
+                    "empty_mean",
+                    ibis.null().cast("string"),
+                ),
+                row_state__sum=aggregate.state_sum,
+                row_state__count=aggregate.state_count,
+            )
+        target = canonical_layout(stage.node.signature, has_value=True)
+        return result.select(*target.columns), target
     if params.method == "count_defined":
         cell = source.layout.cell
         if cell is None:
@@ -430,6 +495,121 @@ def _count(stage: SourceMethodStage, source: LoweredRelation) -> tuple[ir.Table,
         **{f"row_state__{params.method}": result.value},
     )
     return result.select(*target.columns), target
+
+
+def _spearman(
+    stage: SourceMethodStage,
+    inputs: tuple[LoweredRelation, LoweredRelation],
+    checks: list[LoweredCheck],
+) -> tuple[ir.Table, RelationLayout]:
+    """Lower same-Entity average-rank Spearman and independent pair counts."""
+    left, right = inputs
+    left_cell, right_cell = left.layout.cell, right.layout.cell
+    if left_cell is None or right_cell is None:
+        _fail("two Cell-valued Association endpoints", "missing Cell")
+    keys = tuple(item.column for item in left.layout.keys)
+    if keys != tuple(item.column for item in right.layout.keys):
+        _fail("the same complete endpoint key", repr(right.layout.keys))
+    lhs = left.expression.view()
+    rhs = right.expression.view()
+    a = lhs.select(
+        *keys,
+        va=lhs[left_cell.value],
+        taga=lhs[left_cell.tag],
+        reasona=lhs[left_cell.reason],
+    )
+    b = rhs.select(
+        *keys,
+        vb=rhs[right_cell.value],
+        tagb=rhs[right_cell.tag],
+        reasonb=rhs[right_cell.reason],
+    )
+    paired = a.join(b, keys).select(
+        *(a[key] for key in keys), a.va, a.taga, a.reasona, b.vb, b.tagb, b.reasonb
+    )
+    if stage.operation == "prepare":
+        layout = RelationLayout(
+            left.layout.keys, None, extras=("va", "taga", "reasona", "vb", "tagb", "reasonb")
+        )
+        return paired.select(*layout.columns), layout
+    complete = paired.filter((paired.taga == "defined") & (paired.tagb == "defined"))
+    first_a = ibis.rank().over(ibis.window(order_by=complete.va)) + 1
+    first_b = ibis.rank().over(ibis.window(order_by=complete.vb)) + 1
+    ties_a = complete.count().over(ibis.window(group_by=complete.va))
+    ties_b = complete.count().over(ibis.window(group_by=complete.vb))
+    ranked = complete.mutate(
+        ra=(first_a + (ties_a - 1) / 2).cast("float64"),
+        rb=(first_b + (ties_b - 1) / 2).cast("float64"),
+    )
+    counts = paired.aggregate(
+        input_observation_count=paired.count(),
+        matched_observation_count=paired.count(),
+        null_pair_count=(
+            ((paired.taga == "null") | (paired.tagb == "null")).cast("int64").sum().fill_null(0)
+        ),
+    )
+    numbers = ranked.aggregate(
+        complete_pair_count=ranked.count(),
+        unique_a=ranked.va.nunique(),
+        unique_b=ranked.vb.nunique(),
+        coefficient=ranked.ra.corr(ranked.rb, how="pop"),
+    )
+    result = counts.cross_join(numbers)
+    status = ibis.ifelse(
+        result.complete_pair_count < 2,
+        "insufficient_pairs",
+        ibis.ifelse(
+            (result.unique_a == 1) & (result.unique_b == 1),
+            "constant_both",
+            ibis.ifelse(
+                result.unique_a == 1,
+                "constant_a",
+                ibis.ifelse(result.unique_b == 1, "constant_b", "valid"),
+            ),
+        ),
+    )
+    left_quantity = left.node.signature.quantity
+    right_quantity = right.node.signature.quantity
+    assert isinstance(left_quantity, ObservedQuantity)
+    assert isinstance(right_quantity, ObservedQuantity)
+    target = replace(canonical_layout(stage.node.signature, has_value=True), extras=("status",))
+    output = result.select(
+        status=status,
+        value=ibis.ifelse(
+            status == "valid",
+            ibis.ifelse(
+                result.coefficient.abs() >= 1 - 1e-12,
+                ibis.ifelse(result.coefficient >= 0, 1.0, -1.0),
+                result.coefficient,
+            ),
+            ibis.null().cast("float64"),
+        ),
+        cell_tag=ibis.ifelse(status == "valid", "defined", "undefined"),
+        cell_reason=ibis.ifelse(status == "valid", ibis.null().cast("string"), status),
+        pair_counts__metric_key_a=ibis.literal(str(left_quantity.metric_ref)),
+        pair_counts__metric_key_b=ibis.literal(str(right_quantity.metric_ref)),
+        pair_counts__input_observation_count=result.input_observation_count,
+        pair_counts__matched_observation_count=result.matched_observation_count,
+        pair_counts__null_pair_count=result.null_pair_count,
+        pair_counts__complete_pair_count=result.complete_pair_count,
+    )
+    checks.append(
+        IntegrityCheck(
+            stage.output,
+            "finite valid Spearman coefficient in [-1, 1]",
+            output.filter(
+                (output.status == "valid")
+                & (
+                    output.value.isnull()
+                    | output.value.isnan().fill_null(False)
+                    | output.value.isinf().fill_null(False)
+                    | (output.value.abs() > 1 + 1e-12)
+                )
+            ),
+            _source_ids(left.source_ids, right.source_ids),
+        )
+    )
+    return output.select(*target.columns), target
 
 
 def _fact_relations(
@@ -497,10 +677,16 @@ def lower(
             continue
         if isinstance(stage, LocalMethodStage):
             admit(stage.implementation, stage.node.parameters)
-            if len(stage.inputs) != 1:
-                _fail("one local count input", repr(stage.inputs))
+            if len(stage.inputs) not in (1, 2):
+                _fail("one row input or two Association inputs", repr(stage.inputs))
+            if len(stage.inputs) == 2 and not isinstance(stage.node.parameters, AssociationScore):
+                _fail("a registered two-input local Association", repr(stage.inputs))
             output_layout = canonical_layout(stage.node.signature, has_value=True)
-            stages.append(LoweredLocal(stage, layouts[stage.inputs[0]], output_layout))
+            if isinstance(stage.node.parameters, AssociationScore):
+                output_layout = replace(output_layout, extras=("status",))
+            stages.append(
+                LoweredLocal(stage, tuple(layouts[item] for item in stage.inputs), output_layout)
+            )
             layouts[stage.output] = output_layout
             continue
         if isinstance(stage, SourceInputStage):
@@ -515,33 +701,49 @@ def lower(
                 _fail("the declared physical source form", type(bound.source.source).__name__)
             if not bound.source.relation.schema().to_pyarrow().equals(bound.source.facts.schema):
                 _fail("unchanged R1 physical schema", "schema mismatch")
-            _validate_layout(bound.source.relation, bound.layout, stage.leaf.signature)
+            if not isinstance(stage.leaf.value_type, ScalarType):
+                _fail("qualified scalar source value", repr(stage.leaf.value_type))
+            _validate_layout(
+                bound.source.relation,
+                bound.layout,
+                stage.leaf.signature,
+                stage.leaf.value_type.name,
+            )
             layout = canonical_layout(stage.leaf.signature, has_value=bound.layout.cell is not None)
-            table = _renamed(bound.source.relation, bound.layout, layout)
+            table = _renamed(bound.source.relation, bound.layout, layout).view()
             node: Node = stage.leaf
             source_ids: tuple[str, ...] = (stage.leaf.identity,)
+            cell_reasons = bound.cell_reasons
         else:
             admit(stage.implementation, stage.node.parameters)
-            if stage.operation != "ibis":
+            if stage.operation not in ("ibis", "prepare"):
                 _fail("a qualified preparation consumer", stage.operation)
             inputs = tuple(results[i] for i in stage.inputs[: len(stage.node.inputs)])
             params = stage.node.parameters
             source_ids = inputs[0].source_ids
             if isinstance(params, PartsTransport):
                 table, layout = _transport(stage, inputs[0], checks)
+                cell_reasons = inputs[0].cell_reasons
             elif isinstance(params, BindProject):
                 table, layout = _bind(stage, inputs[0], bindings, checks)
                 source_ids = _source_ids(source_ids, (stage.node.sources[0].identity,))
+                cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, MapCorrespond):
                 table, layout = _map(stage, inputs, checks)
+                cell_reasons = ()
                 if params.mode == "union_keys":
                     source_ids = _source_ids(*(input.source_ids for input in inputs))
             elif isinstance(params, RowState):
                 table, layout = _count(stage, inputs[0])
+                cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
+            elif isinstance(params, AssociationScore) and len(inputs) == 2:
+                table, layout = _spearman(stage, (inputs[0], inputs[1]), checks)
+                source_ids = _source_ids(*(item.source_ids for item in inputs))
+                cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             else:
                 _fail("a registered source lowerer", str(stage.node.method))
             node = stage.node
-        relation = LoweredRelation(stage.output, node, table, layout, source_ids)
+        relation = LoweredRelation(stage.output, node, table, layout, source_ids, cell_reasons)
         results[stage.output] = relation
         layouts[stage.output] = layout
         stages.append(relation)
@@ -563,6 +765,9 @@ def lower(
                 )
             )
     for requirement in admitted.checks:
+        if admitted.classification.kind == "artifact":
+            checks.append(requirement)
+            continue
         owner = next(r.node for r in results.values() if r.node.identity == requirement.node_id)
         for inputs in _fact_relations(owner, requirement.obligation, tuple(results.values())):
             check_id = requirement.obligation.check_id
@@ -578,6 +783,55 @@ def lower(
             elif check_id == "source.cell_policy@v1" and inputs[0].layout.cell is not None:
                 violations = _cell_violations(inputs[0].expression, inputs[0].layout.cell)
                 source_ids = inputs[0].source_ids
+            elif check_id == "source.finite_numeric@v1" and inputs[0].layout.cell is not None:
+                numeric_inputs = (
+                    inputs
+                    if isinstance(owner, MethodNode)
+                    and isinstance(owner.parameters, AssociationScore)
+                    else inputs[:1]
+                )
+                violations = None
+                for current in numeric_inputs:
+                    cell = current.layout.cell
+                    assert cell is not None
+                    value = current.expression[cell.value]
+                    tag = current.expression[cell.tag]
+                    if isinstance(owner, MethodNode) and isinstance(
+                        owner.parameters, AssociationScore
+                    ):
+                        invalid = ~(
+                            (tag == "defined")
+                            | (
+                                (tag == "null")
+                                & current.expression[cell.reason].isin(
+                                    ("source_null", "empty_contribution")
+                                )
+                            )
+                        )
+                    else:
+                        invalid = tag != "defined"
+                    if str(value.type()) == "float64":
+                        invalid = (
+                            invalid
+                            | value.isnan().fill_null(False)
+                            | value.isinf().fill_null(False)
+                        )
+                    if (
+                        isinstance(owner, MethodNode)
+                        and isinstance(owner.parameters, RowState)
+                        and owner.parameters.method == "mean"
+                    ):
+                        invalid = invalid | (value.abs() > 2**53).fill_null(False)
+                    selected = current.expression.filter(invalid.fill_null(True)).select(
+                        *tuple(k.column for k in current.layout.keys)
+                    )
+                    violations = (
+                        selected
+                        if violations is None
+                        else violations.union(selected, distinct=False)
+                    )
+                assert violations is not None
+                source_ids = _source_ids(*(item.source_ids for item in numeric_inputs))
             else:
                 _fail("an implemented checker for this bound obligation", check_id)
             checks.append(SemanticCheck(requirement, violations, source_ids))
@@ -588,7 +842,16 @@ def lower(
         PhysicalRequirement(
             "analysis.r34",
             1,
-            frozenset({"scan", "filter", "project", "group", "count", "join", "union"}),
+            frozenset(
+                {"scan", "filter", "project", "group", "count", "join", "union", "window", "sort"}
+            )
+            if any(
+                isinstance(stage, SourceMethodStage)
+                and isinstance(stage.node.parameters, AssociationScore)
+                and stage.operation == "ibis"
+                for stage in admitted.stages
+            )
+            else frozenset({"scan", "filter", "project", "group", "count", "join", "union"}),
         ),
         bindings,
     )

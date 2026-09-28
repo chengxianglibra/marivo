@@ -298,15 +298,42 @@ Store/descriptor/receipt switch; R4.5 owns exact source-free recovery. Their
 frozen metadata and failure boundaries are in
 [Session State and Runtime](session-state-and-runtime.md#r41-frozen-runtime-and-store-target-inactive).
 
-Only the R3.4 private DuckDB native-table/Parquet, `NoTime`, complete int64
-identity/value prefix has selected lowering and local count behavior. Even
-there, R4 has not executed checks, read a fixed Artifact or published a new
-protocol result. Existing J1–J4 numerical behavior and Spearman's old route
-are migration inputs, not qualifications for the new registry. R4.2/R4.3 must
-register and qualify their exact method, shape and backend combinations or
-reject them before business I/O; R5–R9 retain their separately assigned
-extensions. The new protocol does not authorize other types, time shapes,
-backends or methods by implication.
+### R4.3 private exchange and method execution
+
+The private graph consumer executes an admitted and lowered plan through R1
+`SourceSession` and the selected method implementation. Every submitted Ibis
+expression uses the exact `LoweredPlan.sources_for()` bindings. Source, verified
+local Parquet, and pandas-to-Arrow output enter one schema-first exchange with
+complete ordered keys, four-state Cells, exact input binding, independent part
+schemas, and pending checks. A check becomes completed only after its selected
+stream is exhausted and closed successfully. Shared explicit nodes retain one
+execution-local result; an equal independently constructed node remains a
+separate realization.
+Source bindings declare allowed non-Defined Cell reasons. Transport retains
+that exact policy; producers of new Cells use their registered method policy.
+An undeclared reason rejects the transient result instead of being inferred
+from encountered rows.
+
+The fixed route verifies its selected primary and required part receipts before
+the pandas method reads rows. It cannot attach an Artifact to DuckDB or a
+remote backend. A private result is transient and grants no Run, Store,
+publication, cache-hit or recovery authority. R4.4 owns its durable encoding;
+R4.5 owns the public cutover.
+
+The verified private source prefix is DuckDB native table or Parquet, `NoTime`,
+complete int64 identity, and exact registered `bind_project`,
+`parts_transport`, `map_correspond`, `row.count`, `row.count_defined`,
+`row.sum`, and `row.mean` variants. The source Spearman owner additionally
+qualifies ordered int64/float64 Endpoint pairs through both numerical Ibis and
+Ibis preparation followed by Python. Fixed receipt execution qualifies
+`row.count`, `row.count_defined`, int64 `row.sum`/`row.mean`, and ordered int64/float64 Spearman
+pairs. Only fixed `row.count` retains the R3.4 100,000-row limit; other
+complete-input algorithms have no implicit row cap or sample. Mean requires
+exactly representable int64 operands. Unregistered J1–J3 reductions,
+comparison/ratio variants, Decimal, temporal shapes and other backends remain
+unavailable before business reads; legacy execution results do not qualify
+them. Private results do not publish a new protocol Artifact or authorize
+product continuation K.
 
 ### Relative Anchor observation and retention (C18)
 

@@ -439,6 +439,14 @@ class StatisticalWeightPart:
     version: str
 
 
+@dataclass(frozen=True, slots=True)
+class PairCountsPart:
+    binding: Binding
+    left_quantity_id: str
+    right_quantity_id: str
+    version: str
+
+
 Part: TypeAlias = (
     SubjectPart
     | EndpointPart
@@ -447,6 +455,7 @@ Part: TypeAlias = (
     | CoveragePart
     | FixedReferencePart
     | StatisticalWeightPart
+    | PairCountsPart
 )
 PartRole: TypeAlias = Literal[
     "subject",
@@ -457,6 +466,7 @@ PartRole: TypeAlias = Literal[
     "coverage",
     "fixed_reference",
     "statistical_weight",
+    "pair_counts",
 ]
 
 
@@ -473,6 +483,8 @@ def part_role(part: Part) -> PartRole:
         return "coverage"
     if isinstance(part, FixedReferencePart):
         return "fixed_reference"
+    if isinstance(part, PairCountsPart):
+        return "pair_counts"
     return "statistical_weight"
 
 
@@ -530,6 +542,9 @@ def validate_part(part: Part) -> None:
     elif isinstance(part, StatisticalWeightPart):
         _nonempty(part.role_id, "core.part.weight.role")
         _nonempty(part.unit, "core.part.weight.unit")
+    elif isinstance(part, PairCountsPart):
+        _nonempty(part.left_quantity_id, "core.part.pairs.left")
+        _nonempty(part.right_quantity_id, "core.part.pairs.right")
     else:
         reject(
             "a closed retained part", type(part).__name__, "Use a core part variant.", "core.part"
