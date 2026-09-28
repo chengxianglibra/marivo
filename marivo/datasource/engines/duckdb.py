@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from threading import Timer
 
 from ibis.backends import BaseBackend
 
+from marivo.datasource.capabilities import (
+    ProviderStatement,
+    register_provider_statements,
+    url_is_in_http_scope,
+)
 from marivo.datasource.engines.base import (
     AuthoringCapabilities,
     EngineMetadataIntrospection,
@@ -17,6 +23,112 @@ from marivo.datasource.engines.base import (
     identity_str,
     schema_only_metadata_inspect,
 )
+from marivo.datasource.errors import DatasourceFieldInvalidError, repair
+
+register_provider_statements(
+    "duckdb",
+    {
+        "http_secret_bearer": ProviderStatement(
+            statement_id="duckdb.http_secret_bearer",
+            template=(
+                "CREATE OR REPLACE SECRET marivo_http_auth (TYPE HTTP, BEARER_TOKEN ?, SCOPE ?)"
+            ),
+            parameterized=True,
+        ),
+        "http_secret_headers": ProviderStatement(
+            statement_id="duckdb.http_secret_headers",
+            template=(
+                "CREATE OR REPLACE SECRET marivo_http_auth "
+                "(TYPE HTTP, EXTRA_HTTP_HEADERS ?, SCOPE ?)"
+            ),
+            parameterized=True,
+        ),
+    },
+)
+
+
+@dataclass(frozen=True)
+class DuckDbHttpCredentials:
+    """Scoped HTTP credentials installed on one DuckDB connection."""
+
+    scope: str
+    headers: tuple[tuple[str, str], ...]
+
+    def headers_for(self, url: str) -> dict[str, str]:
+        if not url_is_in_http_scope(url, self.scope):
+            return {}
+        return dict(self.headers)
+
+
+def http_credentials(
+    backend: BaseBackend,
+    *,
+    scope: object,
+    bearer_token: object,
+    headers: object,
+) -> DuckDbHttpCredentials | None:
+    """Install the declared scoped HTTP secret and return in-memory headers.
+
+    The secret values are passed as statement parameters, so they never appear
+    in rendered SQL text or the capability submission log.
+    """
+    if bearer_token is None and not headers:
+        return None
+    raw_sql = getattr(backend, "raw_sql", None)
+    if not callable(raw_sql):
+        raise DatasourceFieldInvalidError(
+            message="DuckDB HTTP auth requires a backend with raw_sql support",
+            expected="a DuckDB backend",
+            received=type(backend).__name__,
+            location="DuckDB HTTP auth",
+            repair=repair(
+                kind="reconnect",
+                canonical_id="test",
+                action="Reconnect using the declared DuckDB datasource.",
+            ),
+        )
+    if not isinstance(scope, str):
+        raise DatasourceFieldInvalidError(
+            message="DuckDB HTTP auth scope was not resolved",
+            expected="an HTTP(S) scope string",
+            received=repr(scope),
+            location="DuckDB HTTP auth",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="duckdb",
+                action="Declare an explicit HTTP(S) scope on the DuckDB datasource.",
+            ),
+        )
+    if isinstance(bearer_token, str):
+        raw_sql(
+            "CREATE OR REPLACE SECRET marivo_http_auth (TYPE HTTP, BEARER_TOKEN ?, SCOPE ?)",
+            parameters=[bearer_token, scope],
+        )
+        return DuckDbHttpCredentials(
+            scope=scope,
+            headers=(("Authorization", f"Bearer {bearer_token}"),),
+        )
+    if (
+        isinstance(headers, Mapping)
+        and headers
+        and all(isinstance(name, str) and isinstance(value, str) for name, value in headers.items())
+    ):
+        raw_sql(
+            "CREATE OR REPLACE SECRET marivo_http_auth (TYPE HTTP, EXTRA_HTTP_HEADERS ?, SCOPE ?)",
+            parameters=[dict(headers), scope],
+        )
+        return DuckDbHttpCredentials(scope=scope, headers=tuple(headers.items()))
+    raise DatasourceFieldInvalidError(
+        message="DuckDB custom HTTP authentication was not fully resolved",
+        expected="environment-sourced custom HTTP headers",
+        received="incomplete HTTP authentication fields",
+        location="DuckDB HTTP auth",
+        repair=repair(
+            kind="reauthor",
+            canonical_id="duckdb",
+            action="Declare one complete environment-backed HTTP auth mode.",
+        ),
+    )
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
@@ -77,4 +189,5 @@ PROFILE = EngineProfile(
     quantile=QuantileCapability(mode="exact", method="linear_interpolation"),
     percentile_uses_approx_quantile=False,
     authoring_timeout=authoring_timeout,
+    http_credentials=http_credentials,
 )

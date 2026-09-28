@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import marivo.datasource as md
+from marivo.datasource import adapters as datasource_adapters
 from marivo.datasource import backends as datasource_backends
 from marivo.datasource import secrets as datasource_secrets
 from marivo.datasource import store as datasource_store
@@ -79,6 +80,13 @@ def test_duckdb_extra_kwargs_pass_through(
     class _FakeIbis:
         duckdb = _FakeDuckdb()
 
+    import marivo.semantic  # noqa: F401  (its module tree imports ibis.expr)
+    from marivo.datasource.engines import ENGINE_PROFILES
+
+    # Force every lazy engine profile to import the real ibis now: the
+    # generated datasource file reloads profiles, which must not happen
+    # under the fake ibis installed below.
+    assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     datasource = datasource_store.save_one(
         _spec(
@@ -105,7 +113,7 @@ def test_duckdb_extra_kwargs_pass_through(
         ({"http_headers_env": {"X-API-Key": "HAWKEYE_KEY"}}, "HAWKEYE_KEY"),
     ],
 )
-def test_authenticated_http_source_is_blocked_before_connect_or_secret_resolution(
+def test_non_duckdb_http_auth_env_refs_reject_before_connect_or_secret_resolution(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
     auth_kwargs: dict[str, object],
@@ -114,6 +122,8 @@ def test_authenticated_http_source_is_blocked_before_connect_or_secret_resolutio
     connected = False
 
     class Profile:
+        http_credentials = None
+
         def connect(self, _name: str, _kwargs: dict[str, object]) -> None:
             nonlocal connected
             connected = True
@@ -130,12 +140,85 @@ def test_authenticated_http_source_is_blocked_before_connect_or_secret_resolutio
         )
     )
 
-    with pytest.raises(DatasourceFieldInvalidError, match="Authenticated HTTP sources") as error:
+    with pytest.raises(
+        DatasourceFieldInvalidError, match="require a provider that owns scoped HTTP credentials"
+    ) as error:
         datasource_backends.build_backend(datasource)
 
     assert connected is False
     assert "sensitive-token" not in str(error.value)
     assert error.value.repair is not None
+
+
+@pytest.mark.parametrize(
+    ("auth_kwargs", "env_name"),
+    [
+        ({"http_bearer_token_env": "HAWKEYE_TOKEN"}, "HAWKEYE_TOKEN"),
+        ({"http_headers_env": {"X-API-Key": "HAWKEYE_KEY"}}, "HAWKEYE_KEY"),
+    ],
+)
+def test_duckdb_http_auth_installs_scoped_secret_on_connect(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    auth_kwargs: dict[str, object],
+    env_name: str,
+) -> None:
+    from marivo.datasource.backends import build_backend_with_secrets
+    from marivo.datasource.engines.duckdb import DuckDbHttpCredentials
+
+    monkeypatch.setenv(env_name, "sensitive-token")
+    datasource = datasource_store.save_one(
+        DuckDBSpec(
+            name="hawkeye",
+            http_scope="https://api.example/v1/",
+            **auth_kwargs,  # type: ignore[arg-type]
+        )
+    )
+
+    built = build_backend_with_secrets(datasource)
+    try:
+        auth = getattr(built.backend, "_marivo_duckdb_http_auth", None)
+        assert isinstance(auth, DuckDbHttpCredentials)
+        assert auth.scope == "https://api.example/v1/"
+        if "http_bearer_token_env" in auth_kwargs:
+            assert auth.headers_for("https://api.example/v1/orders") == {
+                "Authorization": "Bearer sensitive-token"
+            }
+        else:
+            assert auth.headers_for("https://api.example/v1/orders") == {
+                "X-API-Key": "sensitive-token"
+            }
+        secrets_count = built.backend.raw_sql(
+            "SELECT count(*) FROM duckdb_secrets() WHERE name = 'marivo_http_auth'"
+        ).fetchone()[0]
+        assert secrets_count == 1
+        assert auth.headers_for("https://api.example/v2/orders") == {}
+        assert auth.headers_for("https://evil.example/v1/orders") == {}
+    finally:
+        built.backend.disconnect()
+
+
+def test_md_test_round_trips_authenticated_duckdb_datasource(
+    project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HAWKEYE_TOKEN", "sensitive-token")
+    datasource_store.save_one(
+        DuckDBSpec(
+            name="hawkeye",
+            http_scope="https://api.example/v1/",
+            http_bearer_token_env="HAWKEYE_TOKEN",
+        )
+    )
+
+    result = md.test("hawkeye")
+    assert result.ok
+
+    datasource_file = (project_root / "models" / "datasources" / "hawkeye.py").read_text(
+        encoding="utf-8"
+    )
+    assert "http_bearer_token_env" in datasource_file
+    assert "HAWKEYE_TOKEN" in datasource_file
+    assert "sensitive-token" not in datasource_file
 
 
 def test_env_ref_resolution(project_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -151,7 +234,9 @@ def test_env_ref_resolution(project_root: Path, monkeypatch: pytest.MonkeyPatch)
             auth_env="TRINO_AUTH",
         )
     )
-    effective = datasource_backends._effective_kwargs(datasource)
+    effective = datasource_backends._effective_kwargs(
+        datasource, datasource_adapters.provider_for(datasource.backend_type)
+    )
     assert effective.kwargs["user"] == "reader"
     assert effective.kwargs["auth"] == "shhh"
     assert "auth_env" not in effective.kwargs
@@ -189,7 +274,9 @@ def test_env_ref_resolution_uses_cache_when_env_is_unset(
         )
     )
 
-    effective = datasource_backends._effective_kwargs(datasource)
+    effective = datasource_backends._effective_kwargs(
+        datasource, datasource_adapters.provider_for(datasource.backend_type)
+    )
 
     assert effective.kwargs["user"] == "cached-user"
     assert effective.kwargs["auth"] == "cached-secret"
@@ -213,7 +300,9 @@ def test_env_ref_missing_var(project_root: Path, monkeypatch: pytest.MonkeyPatch
         )
     )
     with pytest.raises(DatasourceEnvVarMissingError) as exc_info:
-        datasource_backends._effective_kwargs(datasource)
+        datasource_backends._effective_kwargs(
+            datasource, datasource_adapters.provider_for(datasource.backend_type)
+        )
     assert exc_info.value.received == "TRINO_AUTH"
 
 
@@ -282,6 +371,13 @@ def test_trino_session_properties_pass_through(
             session_properties={"query_max_run_time": "5m"},
         )
     )
+    import marivo.semantic  # noqa: F401  (its module tree imports ibis.expr)
+    from marivo.datasource.engines import ENGINE_PROFILES
+
+    # Force every lazy engine profile to import the real ibis now: the
+    # generated datasource file reloads profiles, which must not happen
+    # under the fake ibis installed below.
+    assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
 
     datasource_backends.build_backend(datasource)
@@ -319,6 +415,13 @@ def test_trino_catalog_maps_to_ibis_database_and_optional_kwargs_pass_through(
             client_tags="agent, semantic-authoring",
         )
     )
+    import marivo.semantic  # noqa: F401  (its module tree imports ibis.expr)
+    from marivo.datasource.engines import ENGINE_PROFILES
+
+    # Force every lazy engine profile to import the real ibis now: the
+    # generated datasource file reloads profiles, which must not happen
+    # under the fake ibis installed below.
+    assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
 
     datasource_backends.build_backend(datasource)
@@ -363,6 +466,13 @@ def test_postgres_user_is_optional(monkeypatch: pytest.MonkeyPatch, project_root
     class _FakeIbis:
         postgres = _FakePostgres()
 
+    import marivo.semantic  # noqa: F401  (its module tree imports ibis.expr)
+    from marivo.datasource.engines import ENGINE_PROFILES
+
+    # Force every lazy engine profile to import the real ibis now: the
+    # generated datasource file reloads profiles, which must not happen
+    # under the fake ibis installed below.
+    assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     datasource = datasource_store.save_one(
         _spec(
@@ -394,6 +504,13 @@ def test_clickhouse_dispatch_with_host(monkeypatch: pytest.MonkeyPatch, project_
     class _FakeIbis:
         clickhouse = _FakeClickhouse()
 
+    import marivo.semantic  # noqa: F401  (its module tree imports ibis.expr)
+    from marivo.datasource.engines import ENGINE_PROFILES
+
+    # Force every lazy engine profile to import the real ibis now: the
+    # generated datasource file reloads profiles, which must not happen
+    # under the fake ibis installed below.
+    assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     datasource = datasource_store.save_one(
         _spec("ch_ds", backend_type="clickhouse", host="ch.example.com")
@@ -424,6 +541,13 @@ def test_clickhouse_allows_explicit_autogenerated_session_override(
     class _FakeIbis:
         clickhouse = _FakeClickhouse()
 
+    import marivo.semantic  # noqa: F401  (its module tree imports ibis.expr)
+    from marivo.datasource.engines import ENGINE_PROFILES
+
+    # Force every lazy engine profile to import the real ibis now: the
+    # generated datasource file reloads profiles, which must not happen
+    # under the fake ibis installed below.
+    assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     datasource = datasource_store.save_one(
         _spec(
@@ -460,6 +584,13 @@ def test_clickhouse_optional_fields_pass_through(
     class _FakeIbis:
         clickhouse = _FakeClickhouse()
 
+    import marivo.semantic  # noqa: F401  (its module tree imports ibis.expr)
+    from marivo.datasource.engines import ENGINE_PROFILES
+
+    # Force every lazy engine profile to import the real ibis now: the
+    # generated datasource file reloads profiles, which must not happen
+    # under the fake ibis installed below.
+    assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     datasource = datasource_store.save_one(
         _spec(
@@ -507,7 +638,9 @@ def test_effective_kwargs_ignores_unreferenced_ambient_secrets(
         )
     )
 
-    effective = datasource_backends._effective_kwargs(datasource)
+    effective = datasource_backends._effective_kwargs(
+        datasource, datasource_adapters.provider_for(datasource.backend_type)
+    )
 
     assert effective.kwargs["user"] == "explicit-user"
     assert "auth" not in effective.kwargs
@@ -529,6 +662,8 @@ def test_effective_kwargs_resolves_only_explicit_env_refs(
             password_env="CUSTOM_PASSWORD_VAR",
         )
     )
-    effective = datasource_backends._effective_kwargs(datasource)
+    effective = datasource_backends._effective_kwargs(
+        datasource, datasource_adapters.provider_for(datasource.backend_type)
+    )
     assert effective.kwargs["password"] == "custom-secret"
     assert [secret.name for secret in effective.env_sourced_secrets] == ["CUSTOM_PASSWORD_VAR"]

@@ -22,26 +22,34 @@ class EffectiveDatasourceKwargs:
     env_sourced_secrets: tuple[secrets.ResolvedSecret, ...]
 
 
-def _reject_unqualified_http_auth(datasource: DatasourceIR) -> None:
-    if datasource.backend_type == "duckdb" and any(
-        stem == "http_bearer_token" or stem.startswith("http_header:")
-        for stem in datasource.env_refs
+def _reject_unqualified_http_auth(datasource: DatasourceIR, profile: Any) -> None:
+    if (
+        any(
+            stem == "http_bearer_token" or stem.startswith("http_header:")
+            for stem in datasource.env_refs
+        )
+        and getattr(profile, "http_credentials", None) is None
     ):
         raise DatasourceFieldInvalidError(
-            message="Authenticated HTTP sources are blocked pending a qualified credential path.",
-            expected="an unauthenticated HTTP source or a qualified public credential API",
-            received="authenticated HTTP datasource",
+            message=(
+                "Authenticated HTTP sources require a provider that owns scoped HTTP credentials."
+            ),
+            expected="an unauthenticated HTTP source or a credentials-owning provider",
+            received=f"authenticated HTTP datasource on backend {datasource.backend_type!r}",
             location=f"datasource {datasource.name!r}",
             repair=repair(
                 kind="reauthor",
                 canonical_id="duckdb",
-                action="Use an unauthenticated source or stage authenticated data upstream before registering it.",
+                action=(
+                    "Use an unauthenticated source, switch to a provider that owns "
+                    "scoped HTTP credentials, or stage authenticated data upstream."
+                ),
             ),
         )
 
 
-def _effective_kwargs(datasource: DatasourceIR) -> EffectiveDatasourceKwargs:
-    _reject_unqualified_http_auth(datasource)
+def _effective_kwargs(datasource: DatasourceIR, profile: Any) -> EffectiveDatasourceKwargs:
+    _reject_unqualified_http_auth(datasource, profile)
     resolved: dict[str, Any] = dict(datasource.fields)
     env_sourced: list[secrets.ResolvedSecret] = []
     for stem, env_var in datasource.env_refs.items():
@@ -83,8 +91,8 @@ def build_backend_with_secrets(
     terminal_timeout_seconds: int | None = None,
 ) -> BuiltDatasourceBackend:
     """Open an ibis backend and return any env-sourced secret provenance."""
-    require_profile_for_backend_type(datasource.backend_type)
-    effective = _effective_kwargs(datasource)
+    profile = require_profile_for_backend_type(datasource.backend_type)
+    effective = _effective_kwargs(datasource, profile)
     return _build_backend_from_effective(
         datasource,
         effective,
@@ -101,11 +109,18 @@ def _build_backend_from_effective(
     terminal_timeout_seconds: int | None = None,
 ) -> BuiltDatasourceBackend:
     """Open from already resolved operation-local credentials without resolving twice."""
-    _reject_unqualified_http_auth(datasource)
     profile = require_profile_for_backend_type(datasource.backend_type)
+    _reject_unqualified_http_auth(datasource, profile)
     kwargs = dict(effective.kwargs)
+    http_scope: object = None
+    http_bearer_token: object = None
+    http_headers: dict[str, object] = {}
     if datasource.backend_type == "duckdb":
-        kwargs.pop("http_scope", None)
+        http_scope = kwargs.pop("http_scope", None)
+        http_bearer_token = kwargs.pop("http_bearer_token", None)
+        for key in tuple(kwargs):
+            if key.startswith("http_header:"):
+                http_headers[key.removeprefix("http_header:")] = kwargs.pop(key)
     if terminal_timeout_seconds is not None:
         if datasource.backend_type == "postgres":
             kwargs["autocommit"] = False
@@ -124,6 +139,17 @@ def _build_backend_from_effective(
         kwargs = profile.apply_read_only_kwargs(kwargs)
     backend = profile.connect(datasource.name, kwargs)
     try:
+        if datasource.backend_type == "duckdb":
+            install_credentials = profile.http_credentials
+            if install_credentials is not None:
+                credentials = install_credentials(
+                    backend,
+                    scope=http_scope,
+                    bearer_token=http_bearer_token,
+                    headers=http_headers or None,
+                )
+                if credentials is not None:
+                    backend._marivo_duckdb_http_auth = credentials
         if terminal_timeout_seconds is not None:
             if datasource.backend_type == "postgres":
                 backend.con.read_only = True
