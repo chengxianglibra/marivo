@@ -1,22 +1,25 @@
 ---
-title: 证据
-description: 读取已提交的 Dataset Finding，分别检查 Artifact、存储权威与 Evidence 完整性。
+title: Evidence
+description: 检查精确图 Artifact、保留契约与生产 Run。
 ---
 
-证据记录已提交 Dataset 的确定性事实。Agent 负责跨结果综合、业务判断和因果解释。
+已提交的图 Artifact 拥有保留行、必要部件与已验证的续算契约，生产 Run 记录执行身份。
+跨结果综合、业务判断与因果解释由 Agent 负责。
 
 ```python
 artifact = current.compare(baseline).execute()
 artifact.show()
-print(artifact.evidence_digest.finding_count)
-page = artifact.findings(limit=20)
-if page.items:
-    artifact.finding(page.items[0].finding_id).show()
+artifact.contract().show()
+run = session.get_run(artifact.state.producing_run_ref)
+run.show()
 ```
 
-示例要求同一 Session 中两个兼容的 Metric Dataset。Logical Dataset 在执行前没有持久化证据读取。v3 ArtifactDigest 保存确切的 Artifact、提取器身份、质量与问题摘要、Evidence 和 Finding 集合摘要及 Finding 数量；它不是生成的叙事。
+示例假设同一 Session 内有两个兼容的数值观察。`show()` 提供有界检查，
+`contract()` 校验精确 Artifact 并披露当前续算操作。必要部件缺失或损坏时明确拒绝；
+Logical relation 在执行前没有保留行。
 
-FindingPage 包含不可变 items、limit、has_more 和不透明 next_cursor。通过所属 Artifact 继续翻页。缺失或损坏的状态会明确失败，空页不能掩盖不可用的 Store。
+旧 Dataset Findings 与 ArtifactDigest 不是 Store 7 relation 的检查协议；
+更完整的方法家族等待 R5–R9 迁移。
 
 ## 冷恢复
 
@@ -27,8 +30,12 @@ if isinstance(run, mv.SucceededRun):
     artifact.show()
 ```
 
-Run 历史和图仅反映已提交事实。恢复不查询当前数据源，也不重放原始计算。`session.revalidate(artifact.state.artifact_ref)` 分别检查 Artifact、存储权威和 Evidence 完整性；它不能证明数据源新鲜度或业务适用性。
+Run 历史与图展示已提交事实。精确恢复验证冻结 snapshot、主表及部件 receipt，
+不查询当前来源、不加载当前 Semantic 定义，也不重放来源构造。
+旧 Store 代际在不迁移的情况下拒绝读取。这些检查不证明来源新鲜度或业务适用性。
+重复执行来源定义会创建新求值；使用 `session.artifact(ref)` 恢复指定的成功结果。
 
-Delta 与 Attribution 是代数结果，Association 是描述性结果，Forecast 是模型输出，Candidate 是经过评估的线索。最终解释需保留它们的范围、选择条件、质量和完整性限制。
+Difference 是代数比较，Spearman association 是描述性关联。解释结果时保留其域、
+单位、Cell 状态与方法限制。终端自定义 DataFrame 或 raw SQL 结果不能重新进入受管分析。
 
-从 `marivo.help("analysis.evidence")` 发现当前入口。终端自定义 DataFrame 或原始 SQL 结果不能重新进入受治理的 Dataset 分析。
+从 `marivo.help("analysis")` 开始，跟随结果 contract 提供的精确 Help 目标执行已准入的下一步。

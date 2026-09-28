@@ -1,0 +1,10 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_installed_graph_journeys_and_three_process_recovery ___________
+tests/test_analysis_runtime_wheel.py:304: in test_installed_graph_journeys_and_three_process_recovery
+    assert phases[1]["run_count"] == phases[2]["run_count"]
+    ^^^^^^^^^^^^^^
+E   assert ()
+=========================== short test summary info ============================
+FAILED tests/test_analysis_runtime_wheel.py::test_installed_graph_journeys_and_three_process_recovery
+1 failed in 303.26s (0:05:03)

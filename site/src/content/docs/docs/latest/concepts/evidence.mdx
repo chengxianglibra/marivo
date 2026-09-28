@@ -1,28 +1,27 @@
 ---
 title: Evidence
-description: Read committed Dataset Findings and inspect separate integrity and authority facts.
+description: Inspect exact graph Artifacts, retained contracts and producing Runs.
 ---
 
-Evidence records deterministic facts about a committed Dataset. The agent owns
-cross-result synthesis, business judgment and causal interpretation.
+A committed graph Artifact owns its retained rows, required parts and verified
+continuation contract. Its producing Run records execution identity. The agent
+owns cross-result synthesis, business judgment and causal interpretation.
 
 ```python
 artifact = current.compare(baseline).execute()
 artifact.show()
-print(artifact.evidence_digest.finding_count)
-page = artifact.findings(limit=20)
-if page.items:
-    artifact.finding(page.items[0].finding_id).show()
+artifact.contract().show()
+run = session.get_run(artifact.state.producing_run_ref)
+run.show()
 ```
 
-This continuation assumes two compatible Metric Datasets in one Session. A Logical
-Dataset has no retained Evidence reads before execution. ArtifactDigest versionv3
-retains exact Artifact/extractor identity and quality, issue, Evidence and
-Finding-set digests plus the Finding count. It is not a generated narrative.
+This example assumes two compatible numeric observations in one Session.
+`show()` provides bounded inspection; `contract()` verifies the exact Artifact
+and exposes its current continuations. Missing or corrupt required parts fail
+explicitly. A Logical relation has no retained rows before execution.
 
-FindingPage has immutable items, limit, has_more and an opaque next_cursor. Follow
-the cursor through the same owning Artifact. Missing/corrupt state fails explicitly;
-an empty page does not hide an unavailable Store.
+Legacy Dataset Findings and ArtifactDigest are not the inspection protocol for
+Store 7 relations. Their broader method families await R5–R9 migration.
 
 ## Cold recovery
 
@@ -33,14 +32,16 @@ if isinstance(run, mv.SucceededRun):
     artifact.show()
 ```
 
-Run history and graphs project committed facts. Recovery does not query current
-sources or replay an origin recipe. `session.revalidate(artifact.state.artifact_ref)`
-reports separate Artifact, storage-authority and Evidence integrity assessments.
-It does not prove datasource freshness or business suitability.
+Run history and graphs project committed facts. Exact recovery verifies the frozen
+snapshot and primary/part receipts; it does not query current sources, load current
+Semantic definitions or replay an origin recipe. Old Store generations are
+rejected without migration. This does not prove datasource freshness or business
+suitability. Repeating a live source definition creates a new evaluation; use
+`session.artifact(ref)` to recover a specific successful result.
 
-Delta and Attribution are algebraic; Association is descriptive; Forecast is a
-model result; Candidate rows are evaluated leads. Preserve their retained scope,
-selection, quality and completeness limitations in the final interpretation.
+Difference is algebraic and Spearman association is descriptive. Preserve the
+retained domain, units, Cell states and method limits in the final interpretation.
+A terminal custom DataFrame or raw SQL result cannot re-enter governed analysis.
 
-Start at `marivo.help("analysis.evidence")` for current focused routes. A terminal
-custom DataFrame or raw SQL result cannot re-enter governed Dataset analysis.
+Start at `marivo.help("analysis")` and follow the exact Help targets supplied by
+the result's contract for its admitted next actions.

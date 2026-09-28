@@ -335,12 +335,6 @@ class ExchangeRecord:
     receipt_identity: str | None
 
 
-def _public_snapshot_text(value: object) -> str:
-    if type(value) is not str or not value or len(value.encode("utf-8")) > 262144:
-        raise invalid("invalid bounded public continuation snapshot")
-    return value
-
-
 @dataclass(frozen=True, slots=True)
 class ExchangeBinding:
     """Run-local view of existing Dataset, method and receipt owners."""

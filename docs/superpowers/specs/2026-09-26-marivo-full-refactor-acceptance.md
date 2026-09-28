@@ -989,3 +989,54 @@ DuckDB 与 Semantic 加载的条件下恢复确切 Artifact 并续算；receipt�
 [evidence/r45](evidence/r45/README.md)及 [manifest.json](evidence/r45/manifest.json)。
 R4.5 已完成；整个 R4 仍需 R4.6，真实 Agent、其他后端与 R5–R9 能力未据此扩张。
 packaged skills 未修改；本包未提交、推送或发布。
+
+### 2026-09-28 R4.6 同包四旅程与安装验收收口
+
+基线为干净 `panda` / `fabd277a8d4510dce3973bd772f35175ea8c42e4`。
+本节以 [R4.6 证据与重跑说明](evidence/r46/README.md)、
+[逐节点矩阵](evidence/r46/matrix.json)和 [manifest](evidence/r46/manifest.json)
+记录该基线上的未提交工作区；历史分包状态不回填为本轮通过。
+
+候选 wheel SHA-256 为
+`24c3caa6d09c21f97f20662f300c04d77d64cb35615dc2063e5a812b9db14ae3`。
+隔离安装使用同一 wheel、固定依赖约束与官方 PyPI；包源码与 sdist 内容逐文件核对。
+138 项公共导出、签名和聚焦 Help 与源码一致。源码路径污染反例必须失败；
+所有受测 Python 子进程由环境内 `.pth` 钩子记录包来源，正常退出再检查已加载模块。
+故障注入的直接退出保留启动记录，不伪造正常退出。
+
+| 格 | 本轮结果 | 可复核证据 |
+| --- | --- | --- |
+| V01 | **通过，限定既有资格** | 包内公共构造/准入及私有图反例：mixed、跨 Session、无资格方法/形态不读业务行、不分配 Run；schema-only 预检保持独立。 |
+| V02 | **通过** | 改源重新求值、显式节点共享、独立节点分离和实际读取/阶段计数；无跨 execute 来源缓存。 |
+| V03 | **通过** | 精确固定命中不分配 Run；有序端点、不同引用、方法/状态/绑定/receipt/parts 扰动不误命中。 |
+| V04 | **通过，交换资格不外推方法资格** | 三生产者、空流/空部件、四态 Cell、完整键、分批与精度向量；Decimal/时间交换结果不授予新公共执行资格。 |
+| V05 | **通过** | 检查作用域、未耗尽/取消、reader/write 失败；不伪造 completed，不换实现、不发布。 |
+| V06 | **通过，本机故障注入** | 写出、receipt、事务、提交确认丢失及进程退出；按原 Run 协调，不重放、不覆盖成功结果、不清理他人文件。 |
+| V07 | **通过，统一图 owner** | 两进程固定 key 竞争、busy、锁释放与同 Artifact 命中；不清除私有 R5 旧并发失败。 |
+| V08 | **通过，已承诺且满足 Cell/绑定前提的 K** | table/Parquet × J1–J4 × produce/continue/recover 共 24 个进程；删除来源与模型后阻断来源/原生 DuckDB/Ibis DuckDB/Semantic 加载。精确 descriptor、主表、parts、contract 和实际续算一致；再次恢复命中原输出且 Run 数不增加。 |
+| V09 | **通过** | 旧代际、文件/receipt/snapshot/状态版本/绑定损坏明确拒绝；不迁移、不补当前定义。 |
+| V10 | **通过** | 同包 J1–J4；原始事实、Fraction 与独立平均秩 oracle，完整域/元组、原组件与当前行统计区别、空/Null/不足对/常量；非电商命名及 kWh 映射。 |
+| V11 | **通过** | 公共导出/Help/CLI/英中示例包内重跑；源码正负 typing、披露回归、API 与站点构建。 |
+| V12 | **通过** | 同一非 editable wheel、site-packages/direct_url/hash/依赖核对；场景符号/旧 snapshot helper 零残留，私有通用旧链逐项登记消费者和 R5–R9 owner。 |
+
+最终检查：源码定向默认 **117 passed**，定向 Runtime **93 passed**；
+`make check-agent` **5363 passed / 19 skipped**，400 个源码文件 typing、
+格式/lint/导入合同/API 文档通过；4 个安装探针/示例模块额外 typing 通过。
+隔离 wheel 内默认 **444 passed**、Runtime **93 passed**，另有 24 个独立旅程阶段；
+外层安装门禁 **1 passed**。站点 **321 页**、0 errors / 0 warnings。
+包内逐节点结果、来源记录、命令退出状态、数据/脚本/日志 hash 见附件。
+
+修复范围：安装门禁退出旧 Dataset/98 项导出假设，补入字符串启动的故障 worker；
+Dataset Help 不再将私有 R1 路线描述为 Store 7 公共资格；英中 Evidence 使用 relation
+`show/contract` 与生产 Run，工作流 Store 改为 7；删除无消费者的旧 snapshot helper。
+未新增公共导出、Help 入口或协议版本，未修改 AGENTS.md 和 packaged skills。
+
+中间失败另列：第一次安装测试漏暂存故障 worker；Homebrew `sitecustomize` 遮蔽
+来源钩子；清华 PyPI 镜像 TLS 失败。最终分别通过显式暂存、`.pth` 启动自检与官方
+PyPI 解决，不修改数值算法或放宽准入。只有最终 wheel 记录计入本表。
+
+**R4.6 完成，R4 在既定 J1–J4 与本机资格边界内收口。** 19 项 skip 保留原 owner/
+恢复条件，不计通过；R5 私有旧来源并发的 8 项基线失败继续由 R5 迁移处理。
+完整成员/时间/多根归 R5，比较/归因归 R6，领域方法归 R7/R8，六后端扩张归 R9，
+真实 Agent 能力簇归 R10。本轮没有真实 Agent、远端或发布验收，没有执行完整
+release-check、启动 MinIO、提交、推送或发布。

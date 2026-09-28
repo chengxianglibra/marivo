@@ -268,12 +268,12 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 "actions.execute",
                 "execute",
                 "logical",
-                summary="Execute or recover the exact same-Session committed snapshot.",
+                summary="Request Dataset execution subject to Store generation and method admission.",
                 parameters=(),
                 output="Paired Materialized Dataset",
                 code="result = metric.execute()",
                 requires=("metric",),
-                effects="During R1.1, qualified one-table Population scan/filter and unscoped sum/count Metric aggregate on DuckDB or SQLite use an internal SourceSession for Ibis reads. Other legacy Dataset source routes reject with a structured source_admission error before Run creation or source reading; the repair names their R5-R8 migration stage. A fixed Artifact continuation retains its separately admitted path. An exact execution-key hit may recover a committed Artifact without reading current source rows. Datasource connectivity alone grants no Analysis method qualification.",
+                effects="Public Sessions use Store 7. Dataset family execution is not qualified and rejects before business reads or Run allocation pending R5–R9 migration. Use session.members(...) for qualified typed relation execution, then session.artifact(ref) for exact recovery. Private Dataset harness qualification and definition-key reuse do not authorize public execution.",
                 runtime=True,
             ),
             common(
@@ -314,7 +314,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 output="DatasetContract",
                 code="result = metric.contract()",
                 requires=("metric",),
-                effects="Pure metadata and consumer-admission read; source-bound Metric and Population contracts disclose the selected backend's R1.1 basic Population or sum/count Metric qualification, legacy source block, or physical rejection. Retained inputs remain unchecked. No query or Run.",
+                effects="Pure metadata and consumer-admission inspection; no query or Run. Dataset static backend checks do not grant Store 7 execution qualification. Public Dataset execution remains blocked pending R5–R9 migration; qualified relation contracts are acquired from session.members(...).",
             ),
         )
     )
