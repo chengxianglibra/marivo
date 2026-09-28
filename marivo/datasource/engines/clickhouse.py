@@ -723,7 +723,7 @@ def _inspect_clickhouse(
         )
     )
 
-    is_view = engine in ("View", "MaterializedView")
+    is_view = engine in ("View", "MaterializedView") if table_metadata_available else None
     view_definition: str | None = None
     if is_view:
         try:

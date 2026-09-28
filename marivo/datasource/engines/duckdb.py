@@ -52,24 +52,26 @@ register_provider_statements(
             statement_id="duckdb.tables.comment_size",
             template=(
                 "SELECT comment, estimated_size FROM duckdb_tables() "
-                "WHERE table_name = {table} LIMIT 1"
+                "WHERE database_name = {database} AND schema_name = {schema} AND table_name = {table} LIMIT 1"
             ),
-            literal_slots=frozenset({"table"}),
+            literal_slots=frozenset({"database", "schema", "table"}),
         ),
         "tables.comment": ProviderStatement(
             statement_id="duckdb.tables.comment",
-            template=("SELECT comment FROM duckdb_tables() WHERE table_name = {table} LIMIT 1"),
-            literal_slots=frozenset({"table"}),
+            template=(
+                "SELECT comment FROM duckdb_tables() WHERE database_name = {database} AND schema_name = {schema} AND table_name = {table} LIMIT 1"
+            ),
+            literal_slots=frozenset({"database", "schema", "table"}),
         ),
         "tables.columns": ProviderStatement(
             statement_id="duckdb.tables.columns",
             template=(
                 "SELECT column_name, data_type, is_nullable, comment "
                 "FROM duckdb_columns() "
-                "WHERE table_name = {table} "
+                "WHERE database_name = {database} AND schema_name = {schema} AND table_name = {table} "
                 "ORDER BY column_index"
             ),
-            literal_slots=frozenset({"table"}),
+            literal_slots=frozenset({"database", "schema", "table"}),
         ),
         "namespace.current": ProviderStatement(
             statement_id="duckdb.namespace.current",
@@ -99,9 +101,9 @@ register_provider_statements(
             template=(
                 "SELECT constraint_type, constraint_column_names "
                 "FROM duckdb_constraints() "
-                "WHERE table_name = {table}"
+                "WHERE database_name = {database} AND schema_name = {schema} AND table_name = {table}"
             ),
-            literal_slots=frozenset({"table"}),
+            literal_slots=frozenset({"database", "schema", "table"}),
         ),
     },
 )
@@ -160,8 +162,11 @@ def http_credentials(
             ),
         )
     if isinstance(bearer_token, str):
-        raw_sql(
-            "CREATE OR REPLACE SECRET marivo_http_auth (TYPE HTTP, BEARER_TOKEN ?, SCOPE ?)",
+        execute_provider_statement(
+            backend,
+            PROFILE,
+            "duckdb.http_secret_bearer",
+            purpose="datasource.http_credentials",
             parameters=[bearer_token, scope],
         )
         return DuckDbHttpCredentials(
@@ -173,8 +178,11 @@ def http_credentials(
         and headers
         and all(isinstance(name, str) and isinstance(value, str) for name, value in headers.items())
     ):
-        raw_sql(
-            "CREATE OR REPLACE SECRET marivo_http_auth (TYPE HTTP, EXTRA_HTTP_HEADERS ?, SCOPE ?)",
+        execute_provider_statement(
+            backend,
+            PROFILE,
+            "duckdb.http_secret_headers",
+            purpose="datasource.http_credentials",
             parameters=[dict(headers), scope],
         )
         return DuckDbHttpCredentials(scope=scope, headers=tuple(headers.items()))
@@ -242,18 +250,42 @@ def _inspect_duckdb(
         _int_or_none,
         _merge_columns,
         _schema_columns,
+        _schema_only,
     )
 
     schema_columns = _schema_columns(table_expr)
     warnings: list[MetadataWarning] = []
     table_comment: str | None = None
     catalog_columns: dict[str, ColumnMetadata] = {}
-    is_view = False
+    is_view: bool | None = None
     view_definition: str | None = None
     physical_profile: TablePhysicalProfile | None = None
 
+    namespace = table_expr.op().namespace
     try:
-        table_rows = _duckdb_rows(backend, "duckdb.tables.comment_size", {"table": table})
+        current = _duckdb_rows(backend, "duckdb.namespace.current")[0]
+        facts = {
+            "database": namespace.catalog or current["database_name"],
+            "schema": namespace.database or current["schema_name"],
+            "table": table,
+        }
+    except Exception as exc:
+        return _schema_only(
+            datasource=datasource,
+            table=table,
+            database=database,
+            backend_type="duckdb",
+            table_expr=table_expr,
+            warnings=(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=f"duckdb namespace metadata unavailable: {_backend_failure_summary(exc).message}",
+                ),
+            ),
+        )
+
+    try:
+        table_rows = _duckdb_rows(backend, "duckdb.tables.comment_size", facts)
         if table_rows:
             row = table_rows[0]
             table_comment = _empty_to_none(row.get("comment"))
@@ -268,7 +300,7 @@ def _inspect_duckdb(
                 )
     except Exception as exc:
         try:
-            table_rows = _duckdb_rows(backend, "duckdb.tables.comment", {"table": table})
+            table_rows = _duckdb_rows(backend, "duckdb.tables.comment", facts)
             if table_rows:
                 table_comment = _empty_to_none(table_rows[0].get("comment"))
             warnings.append(
@@ -292,7 +324,7 @@ def _inspect_duckdb(
             )
 
     try:
-        column_rows = _duckdb_rows(backend, "duckdb.tables.columns", {"table": table})
+        column_rows = _duckdb_rows(backend, "duckdb.tables.columns", facts)
         for index, row in enumerate(column_rows, start=1):
             name = str(row.get("column_name"))
             catalog_columns[name] = ColumnMetadata(
@@ -313,38 +345,8 @@ def _inspect_duckdb(
         )
 
     try:
-        default_database: str | None = None
-        default_schema = "main"
-        if database is None:
-            namespace_rows = _duckdb_rows(backend, "duckdb.namespace.current")
-            if namespace_rows:
-                default_database = _empty_to_none(namespace_rows[0].get("database_name"))
-                default_schema = _empty_to_none(namespace_rows[0].get("schema_name")) or "main"
-        view_rows: tuple[dict[str, object], ...] = ()
-        if isinstance(database, tuple) and len(database) >= 2:
-            view_rows = _duckdb_rows(
-                backend,
-                "duckdb.views.database_qualified",
-                {"table": table, "database": database[0], "schema": database[1]},
-            )
-        elif isinstance(database, tuple) and len(database) == 1:
-            view_rows = _duckdb_rows(
-                backend, "duckdb.views.schema_qualified", {"table": table, "schema": database[0]}
-            )
-        elif database is not None:
-            view_rows = _duckdb_rows(
-                backend, "duckdb.views.schema_qualified", {"table": table, "schema": database}
-            )
-        elif default_database is not None:
-            view_rows = _duckdb_rows(
-                backend,
-                "duckdb.views.database_qualified",
-                {"table": table, "database": default_database, "schema": default_schema},
-            )
-        else:
-            view_rows = _duckdb_rows(
-                backend, "duckdb.views.schema_qualified", {"table": table, "schema": default_schema}
-            )
+        view_rows = _duckdb_rows(backend, "duckdb.views.database_qualified", facts)
+        is_view = bool(view_rows)
         if view_rows:
             is_view = True
             view_definition = _empty_to_none(view_rows[0].get("sql"))
@@ -361,7 +363,7 @@ def _inspect_duckdb(
     primary_keys: tuple[str, ...] = ()
     unique_constraints: tuple[UniqueConstraintMetadata, ...] = ()
     try:
-        constraint_rows = _duckdb_rows(backend, "duckdb.constraints", {"table": table})
+        constraint_rows = _duckdb_rows(backend, "duckdb.constraints", facts)
         pk_columns: list[str] = []
         uq_rows: list[UniqueConstraintMetadata] = []
         for row in constraint_rows:

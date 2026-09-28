@@ -228,7 +228,9 @@ md.duckdb(
 Bearer and custom-header modes are mutually exclusive. At connection time
 Marivo resolves every environment-backed value and installs a temporary DuckDB
 HTTP secret constrained by `http_scope`; the same connection keeps the scoped
-headers in memory for POST execution. Resolved values are never serialized into
+headers in memory for JSON execution. Authenticated GET requests and all POST
+requests reject automatic redirects; author the final in-scope URL explicitly.
+Resolved values are never serialized into
 `md.json(...)` or project metadata.
 
 ## Physical sources
@@ -602,7 +604,10 @@ registry of provider-owned fixed statements (`datasource.capabilities`, the
 R1.6 overlay; statement text is pinned by a snapshot test and every submission
 is audited on the backend). Each fact query that fails yields that fact's
 unavailable warning while inspection still succeeds; a total failure yields
-schema-only. Unknown view kind is `None`, not `False`. A consumer requiring one
+schema-only. Unknown view kind is `None`, not `False`. DuckDB catalog facts
+are qualified by database, schema, and table. Composite unique constraints
+retain their constraint identity and column order; SQLite partial and expression
+indexes do not establish unconditional column uniqueness. A consumer requiring one
 of those facts rejects the affected cell. Trino `$partitions` and ClickHouse
 `system.tables` / `system.parts` partition-value reads continue through bound
 Ibis expressions. Authenticated DuckDB HTTP sources install a scoped temporary

@@ -188,7 +188,11 @@ def _request_payload(
         body = _resolved_json_body(source, supplied).encode("utf-8")
         headers["Content-Type"] = "application/json"
     request = Request(url, data=body, headers=headers, method=source.method)
-    opener = _POST_OPENER if source.method == "POST" else build_opener()
+    opener = (
+        _POST_OPENER
+        if source.method == "POST" or json_http_headers(backend, url)
+        else build_opener()
+    )
     with opener.open(request, timeout=_POST_TIMEOUT_SECONDS) as response:
         encoding = response.headers.get_content_charset() or "utf-8"
         raw = response.read().decode(encoding)

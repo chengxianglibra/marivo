@@ -11,7 +11,8 @@ parameterized statements are the DuckDB scoped HTTP secret installs.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, runtime_checkable
 
@@ -150,6 +151,11 @@ def render_provider_statement(
             f"statement {statement.statement_id!r} slot mismatch: "
             f"missing={missing}, unexpected={extra}"
         )
+    if (
+        supplied_literals != statement.literal_slots
+        or supplied_identifiers != statement.identifier_slots
+    ):
+        raise ValueError("statement slots must use their declared literal or identifier kind")
     rendered: dict[str, str] = {}
     for slot, value in values.items():
         rendered[slot] = _quote_literal(value)
@@ -158,10 +164,7 @@ def render_provider_statement(
         quote = profile.identifier_quote
         escaped = (str(part).replace(quote, quote + quote) for part in parts)
         rendered[slot] = ".".join(f"{quote}{part}{quote}" for part in escaped)
-    sql = statement.template
-    for slot, replacement in rendered.items():
-        sql = sql.replace("{" + slot + "}", replacement)
-    return sql
+    return re.sub(r"\{([^{}]+)\}", lambda match: rendered[match.group(1)], statement.template)
 
 
 def _submissions(backend: BaseBackend) -> list[ProviderStatementSubmission]:
@@ -185,16 +188,20 @@ def execute_provider_statement(
     values: Mapping[str, object] = {},
     identifiers: Mapping[str, str | tuple[str, ...]] = {},
     purpose: StatementPurpose,
+    parameters: Sequence[object] | None = None,
 ) -> tuple[dict[str, object], ...]:
     """Submit one registered statement through the backend's native transport.
 
-    The rendered text goes to ``backend.raw_sql(sql)`` with a single positional
-    argument; per-fact metadata failures are expected to be caught by the caller.
+    Metadata text goes to ``backend.raw_sql(sql)``. Credential installs pass
+    parameters separately and audit only the template and sanitized status.
+    Per-fact metadata failures are expected to be caught by the caller.
     """
     from marivo.datasource.engines.base import decode_cursor_frame
     from marivo.datasource.errors import _backend_failure_summary
 
     statement = provider_statement(profile.name, statement_id)
+    if statement.parameterized != (parameters is not None):
+        raise ValueError("statement parameters must match the registered parameterized mode")
     sql = render_provider_statement(statement, profile, values=values, identifiers=identifiers)
     submission = ProviderStatementSubmission(
         provider=profile.name,
@@ -206,7 +213,11 @@ def execute_provider_statement(
     log = _submissions(backend)
     log.append(submission)
     try:
-        cursor = backend.raw_sql(sql)
+        cursor = (
+            backend.raw_sql(sql, parameters=parameters)
+            if parameters is not None
+            else backend.raw_sql(sql)
+        )
         # DuckDB raw_sql returns a connection-local result handle whose close()
         # would sever the shared connection; never close it here. Other drivers
         # get a best-effort DB-API cursor close.
@@ -220,7 +231,11 @@ def execute_provider_statement(
                     close()
     except Exception as exc:
         submission.state = "failed"
-        submission.failure_summary = _backend_failure_summary(exc).message
+        submission.failure_summary = (
+            "Parameterized provider statement failed"
+            if statement.parameterized
+            else _backend_failure_summary(exc).message
+        )
         raise
     submission.state = "succeeded"
     return frame.rows

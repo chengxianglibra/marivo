@@ -80,6 +80,7 @@ def test_metadata_profiles_degrade_to_schema_when_statement_channel_fails(
     except RuntimeError:
         pytest.skip("owner implementation propagates channel failure to the dispatcher fallback")
     assert tuple(column.name for column in metadata.columns) == ("id", "amount")
+    assert metadata.is_view is None
     warning_kinds = {warning.kind for warning in metadata.warnings}
     assert "metadata_query_failed" in warning_kinds or "schema_only_fallback" in warning_kinds
 

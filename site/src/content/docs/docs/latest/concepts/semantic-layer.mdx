@@ -404,6 +404,7 @@ md.duckdb(
 Bearer and custom-header modes are mutually exclusive. Marivo resolves each
 value when connecting and creates a temporary DuckDB HTTP secret restricted to
 `http_scope`; POST execution reuses those scoped headers from connection memory.
+Authenticated GET requests and all POST requests reject automatic redirects; use the final URL within the declared scope.
 
 ### 2. Declare a domain and entity
 

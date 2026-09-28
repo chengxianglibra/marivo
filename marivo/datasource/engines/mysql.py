@@ -305,7 +305,7 @@ def _inspect_mysql(
                 )
             )
 
-    is_view = False
+    is_view: bool | None = None
     view_definition: str | None = None
     try:
         if schema_name is not None:
@@ -314,7 +314,9 @@ def _inspect_mysql(
             )
         else:
             type_rows = _mysql_rows(backend, "mysql.tables.type", values={"table": table})
-        if type_rows and str(type_rows[0].get("TABLE_TYPE") or "").upper() == "VIEW":
+        if type_rows:
+            is_view = str(type_rows[0].get("TABLE_TYPE") or "").upper() == "VIEW"
+        if is_view:
             is_view = True
             if schema_name is not None:
                 def_rows = _mysql_rows(
