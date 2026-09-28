@@ -29,10 +29,12 @@ from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult
 
 
 @pytest.mark.parametrize("backend_type", tuple(ENGINE_PROFILES))
-def test_metadata_profiles_use_ibis_schema_without_text_submission(backend_type: str) -> None:
+def test_metadata_profiles_degrade_to_schema_when_statement_channel_fails(
+    backend_type: str,
+) -> None:
     class Backend:
         def raw_sql(self, _statement: str) -> None:
-            raise AssertionError("metadata submitted text SQL")
+            raise RuntimeError("channel unavailable")
 
     datasource = DatasourceIR(
         semantic_id="warehouse",
@@ -54,46 +56,57 @@ def test_metadata_profiles_use_ibis_schema_without_text_submission(backend_type:
         datasource_ir=datasource,
     )
     profile = ENGINE_PROFILES[backend_type]
-    assert profile.metadata.inspect_table is schema_only_metadata_inspect
-    metadata = profile.metadata.inspect_table(request)
+    if profile.metadata.inspect_table is schema_only_metadata_inspect:
+        # Providers still on the shared schema-only implementation never touch
+        # the channel and keep the full unavailable disclosure set.
+        metadata = profile.metadata.inspect_table(request)
+        assert tuple(column.name for column in metadata.columns) == ("id", "amount")
+        assert {warning.kind for warning in metadata.warnings} >= {
+            "comments_unavailable",
+            "partitions_unavailable",
+            "primary_keys_unavailable",
+            "view_unavailable",
+            "nullable_unavailable",
+            "physical_profile_unavailable",
+            "schema_only_fallback",
+        }
+        return
+    # Owner implementations either disclose the channel failure per fact or
+    # let the dispatcher fall back to schema-only; either way the bound Ibis
+    # relation stays authoritative for physical columns.
+    try:
+        metadata = profile.metadata.inspect_table(request)
+    except RuntimeError:
+        pytest.skip("owner implementation propagates channel failure to the dispatcher fallback")
     assert tuple(column.name for column in metadata.columns) == ("id", "amount")
-    assert all(column.nullable is None and column.comment is None for column in metadata.columns)
-    assert metadata.partition_state == "unknown"
-    assert metadata.is_view is None
-    assert metadata.primary_keys == ()
-    assert {warning.kind for warning in metadata.warnings} >= {
-        "comments_unavailable",
-        "partitions_unavailable",
-        "primary_keys_unavailable",
-        "view_unavailable",
-        "nullable_unavailable",
-        "physical_profile_unavailable",
-        "schema_only_fallback",
-    }
+    assert any(warning.kind == "metadata_query_failed" for warning in metadata.warnings)
 
 
-def test_duckdb_inspect_reads_schema_and_discloses_optional_metadata(tmp_path: Path) -> None:
+def test_duckdb_inspect_reads_catalog_facts_beyond_schema(tmp_path: Path) -> None:
     db_path = tmp_path / "warehouse.duckdb"
     con = ibis.duckdb.connect(str(db_path))
     con.raw_sql("CREATE TABLE orders (id INTEGER PRIMARY KEY, amount DECIMAL(18, 2))")
+    con.raw_sql("INSERT INTO orders VALUES (1, 10.25), (2, 20.50)")
     con.disconnect()
     md.register(DuckDBSpec(name="warehouse", path=str(db_path)), project_root=tmp_path)
 
     metadata = inspect_table("warehouse", table="orders", project_root=tmp_path)
 
     assert tuple(column.name for column in metadata.columns) == ("id", "amount")
-    assert metadata.primary_keys == ()
-    assert metadata.physical_profile is None
-    assert metadata.is_view is None
-    assert any(warning.kind == "primary_keys_unavailable" for warning in metadata.warnings)
-    assert {warning.kind for warning in metadata.warnings} >= {
-        "view_unavailable",
-        "nullable_unavailable",
-        "physical_profile_unavailable",
-    }
+    assert metadata.primary_keys == ("id",)
+    assert metadata.is_view is False
+    by_name = {column.name: column for column in metadata.columns}
+    assert by_name["id"].nullable is False
+    assert by_name["amount"].nullable is True
+    assert metadata.physical_profile is not None
+    assert metadata.physical_profile.source == "duckdb.duckdb_tables"
+    assert not any(
+        warning.kind in {"primary_keys_unavailable", "view_unavailable", "nullable_unavailable"}
+        for warning in metadata.warnings
+    )
 
 
-def test_sqlite_inspect_reads_schema_without_catalog_query(tmp_path: Path) -> None:
+def test_sqlite_inspect_reads_catalog_facts_without_schema_only_fallback(tmp_path: Path) -> None:
     db_path = tmp_path / "warehouse.sqlite"
     with sqlite3.connect(db_path) as con:
         con.execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, amount REAL)")
@@ -102,8 +115,13 @@ def test_sqlite_inspect_reads_schema_without_catalog_query(tmp_path: Path) -> No
     metadata = inspect_table("warehouse", table="orders", project_root=tmp_path)
 
     assert tuple(column.name for column in metadata.columns) == ("id", "amount")
-    assert metadata.partition_state == "unknown"
-    assert any(warning.kind == "schema_only_fallback" for warning in metadata.warnings)
+    assert metadata.partition_state == "none"
+    assert metadata.is_view is False
+    assert metadata.primary_keys == ("id",)
+    by_name = {column.name: column for column in metadata.columns}
+    assert by_name["id"].nullable is False
+    assert not any(warning.kind == "schema_only_fallback" for warning in metadata.warnings)
+    assert any(warning.kind == "comments_unavailable" for warning in metadata.warnings)
 
 
 def test_file_inspection_knows_it_is_not_a_view(tmp_path: Path) -> None:

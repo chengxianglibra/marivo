@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+import re
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -668,3 +669,164 @@ def _inspect_source(
         if callable(disconnect):
             with suppress(Exception):
                 disconnect()
+
+
+def _quote_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _quote_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def _database_label(database: str | tuple[str, ...] | None) -> str | None:
+    if database is None:
+        return None
+    return ".".join(database) if isinstance(database, tuple) else database
+
+
+def _table_ref(table: str, database: str | tuple[str, ...] | None) -> str:
+    if database is None:
+        return _quote_identifier(table)
+    parts = database if isinstance(database, tuple) else (database,)
+    return ".".join(_quote_identifier(part) for part in (*parts, table))
+
+
+def _merge_columns(
+    schema_columns: Sequence[ColumnMetadata],
+    catalog_columns: Mapping[str, ColumnMetadata],
+) -> tuple[ColumnMetadata, ...]:
+    out: list[ColumnMetadata] = []
+    for column in schema_columns:
+        catalog = catalog_columns.get(column.name)
+        if catalog is None:
+            out.append(column)
+            continue
+        out.append(
+            ColumnMetadata(
+                name=column.name,
+                type=catalog.type or column.type,
+                nullable=catalog.nullable,
+                comment=catalog.comment,
+                ordinal_position=catalog.ordinal_position or column.ordinal_position,
+            )
+        )
+    return tuple(out)
+
+
+def _empty_to_none(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text if text else None
+
+
+def _int_or_none(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def _is_missing_metadata_column(exc: Exception, column: str) -> bool:
+    message = str(exc).lower()
+    lowered = column.lower()
+    return (
+        "column_not_found" in message
+        or "column not found" in message
+        or "cannot be resolved" in message
+        or "missing columns" in message
+    ) and lowered in message
+
+
+def _bool_from_nullable(value: object) -> bool | None:
+    if value is None:
+        return None
+    text = str(value).strip().upper()
+    if text in {"YES", "Y", "TRUE", "1"}:
+        return True
+    if text in {"NO", "N", "FALSE", "0"}:
+        return False
+    return None
+
+
+def _split_top_level_expressions(text: str) -> tuple[str, ...]:
+    expressions: list[str] = []
+    depth = 0
+    quote: str | None = None
+    start = 0
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote is not None:
+            if char == quote:
+                if index + 1 < len(text) and text[index + 1] == quote:
+                    index += 2
+                    continue
+                quote = None
+            index += 1
+            continue
+        if char in {'"', "`"}:
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")" and depth > 0:
+            depth -= 1
+        elif char == "," and depth == 0:
+            expressions.append(text[start:index].strip())
+            start = index + 1
+        index += 1
+    tail = text[start:].strip()
+    if tail:
+        expressions.append(tail)
+    return tuple(expressions)
+
+
+_SIMPLE_PARTITION_COLUMN_RE = re.compile(r'^[`"]?([A-Za-z_][A-Za-z0-9_]*)[`"]?$')
+
+
+def _simple_partition_column(expression: object) -> str | None:
+    text = str(expression or "").strip()
+    if not text:
+        return None
+    match = _SIMPLE_PARTITION_COLUMN_RE.match(text)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _partition_columns_from_expression(expression: object) -> tuple[str, ...]:
+    text = str(expression or "").strip()
+    if not text:
+        return ()
+    simple = _simple_partition_column(text)
+    if simple is not None:
+        return (simple,)
+    for prefix in ("range", "list", "hash"):
+        wrapped = re.match(rf"^{prefix}\s*\((.*)\)$", text, re.IGNORECASE | re.DOTALL)
+        if not wrapped:
+            continue
+        columns: list[str] = []
+        for element in _split_top_level_expressions(wrapped.group(1)):
+            column = _simple_partition_column(element)
+            if column is None:
+                return ()
+            columns.append(column)
+        return tuple(columns)
+    return ()
+
+
+def _partition_column_from_expression(expression: object) -> str | None:
+    columns = _partition_columns_from_expression(expression)
+    return columns[0] if len(columns) == 1 else None

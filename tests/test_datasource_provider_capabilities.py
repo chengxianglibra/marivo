@@ -60,18 +60,45 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
     # Every registered provider statement must appear here verbatim. Add the
     # (provider, statement_id) -> sha256(template) pair when registering one.
     pinned: dict[tuple[str, str], str] = {
-        (
-            "duckdb",
-            "duckdb.http_secret_bearer",
-        ): hashlib.sha256(
-            b"CREATE OR REPLACE SECRET marivo_http_auth (TYPE HTTP, BEARER_TOKEN ?, SCOPE ?)"
-        ).hexdigest(),
-        (
-            "duckdb",
-            "duckdb.http_secret_headers",
-        ): hashlib.sha256(
-            b"CREATE OR REPLACE SECRET marivo_http_auth (TYPE HTTP, EXTRA_HTTP_HEADERS ?, SCOPE ?)"
-        ).hexdigest(),
+        ("duckdb", "duckdb.constraints"): (
+            "aed05b4e5cde9aad979d79838f6473690bf7b2291e3ae6e8f385a5c2d7f7b372"
+        ),
+        ("duckdb", "duckdb.http_secret_bearer"): (
+            "fd508a63cb457ea45d964ff9db5bf9958c70a9ae9639b376616972f5f7447f7d"
+        ),
+        ("duckdb", "duckdb.http_secret_headers"): (
+            "b1f8b0fbc9dcafd9a51b3876bd3409d122c7e78f54b9e3c121c856db281c7f0e"
+        ),
+        ("duckdb", "duckdb.namespace.current"): (
+            "a4c4ac1c8ed42516de7b86109f2dfe3cbf7aadbc008851126b988472d2565952"
+        ),
+        ("duckdb", "duckdb.tables.columns"): (
+            "1100b01df364d116844953075a4929f8be3821e2e5957cacac33fe40166695be"
+        ),
+        ("duckdb", "duckdb.tables.comment"): (
+            "2feee340737744c45a8b9654e0b5c7773e554adb01867507bc8bceb9ecac2553"
+        ),
+        ("duckdb", "duckdb.tables.comment_size"): (
+            "58ee012b4e4b04cd950bc4260a81e54cafaddb8ec8616b4edfb0154247eda6f3"
+        ),
+        ("duckdb", "duckdb.views.database_qualified"): (
+            "32cd1c9a2426b7ce2d7652a0611527958f1e8151e8ba039f4f5091d81a7d9e25"
+        ),
+        ("duckdb", "duckdb.views.schema_qualified"): (
+            "9caeecc09a5e820921a3a5f205cb74323e9d4310a572c8900482f58cf57f7a3a"
+        ),
+        ("sqlite", "sqlite.pragma.index_info"): (
+            "3b25054b5a4a4f89898806b4b020ae56b2c4e56ef04f342a67684dacbc74c05a"
+        ),
+        ("sqlite", "sqlite.pragma.index_list"): (
+            "10dec4aefa9f8f9cd08da9ef3a371bcc9cec203cbfee5aa1cfd22af6a963c916"
+        ),
+        ("sqlite", "sqlite.pragma.table_info"): (
+            "237a2faf8e4bebb8b55c0848614c2245fd2f0f63deb8b5286e95e6004260c688"
+        ),
+        ("sqlite", "sqlite.schema.kind"): (
+            "1ea7edcf28dc690b6068d106c60ec5ef7fed215ee7078b2486114ed7c6bcb337"
+        ),
     }
     observed = {
         (provider, statement_id): hashlib.sha256(statement.template.encode("utf-8")).hexdigest()

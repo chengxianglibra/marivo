@@ -248,9 +248,6 @@ def _create_duckdb_with_default_table_and_same_name_view(path: Path) -> None:
     con.disconnect()
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_duckdb_returns_comments_and_nullable(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_metadata_duckdb(db_path)
@@ -272,9 +269,6 @@ def test_inspect_table_duckdb_returns_comments_and_nullable(project_root: Path) 
     assert any(warning.kind == "partitions_unavailable" for warning in metadata.warnings)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_source_duckdb_detects_view(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_duckdb_with_view(db_path)
@@ -290,9 +284,6 @@ def test_inspect_source_duckdb_detects_view(project_root: Path) -> None:
     assert base_md.view_definition is None
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_source_duckdb_uses_database_for_view_detection(
     project_root: Path,
 ) -> None:
@@ -324,9 +315,6 @@ def test_inspect_source_duckdb_uses_database_for_view_detection(
     assert "BASE_SCHEMA.ORDERS" in view_md.view_definition.upper()
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_duckdb_unqualified_uses_default_schema_for_view_detection(
     project_root: Path,
 ) -> None:
@@ -2449,9 +2437,6 @@ def _create_duckdb_with_constraints(path: Path) -> None:
     con.disconnect()
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_duckdb_populates_primary_keys_and_unique(
     project_root: Path,
 ) -> None:
@@ -2469,9 +2454,6 @@ def test_inspect_table_duckdb_populates_primary_keys_and_unique(
     assert not any(w.kind == "primary_keys_unavailable" for w in metadata.warnings)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_duckdb_populates_physical_profile_from_estimated_size(
     project_root: Path,
 ) -> None:
@@ -2548,9 +2530,6 @@ def test_non_duckdb_backend_emits_primary_keys_unavailable_warning(
     assert _with_primary_key_capability_warning(duck) is duck
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_duckdb_constraint_query_failure_is_warning(project_root: Path) -> None:
     # A table without constraints still inspects cleanly with empty pk/uq.
     db_path = project_root / "warehouse.duckdb"

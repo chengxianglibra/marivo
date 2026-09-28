@@ -6,11 +6,13 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import Timer
+from typing import TYPE_CHECKING, Any
 
 from ibis.backends import BaseBackend
 
 from marivo.datasource.capabilities import (
     ProviderStatement,
+    execute_provider_statement,
     register_provider_statements,
     url_is_in_http_scope,
 )
@@ -18,12 +20,15 @@ from marivo.datasource.engines.base import (
     AuthoringCapabilities,
     EngineMetadataIntrospection,
     EngineProfile,
+    MetadataInspectRequest,
     QuantileCapability,
     default_table_name_parts,
     identity_str,
-    schema_only_metadata_inspect,
 )
 from marivo.datasource.errors import DatasourceFieldInvalidError, repair
+
+if TYPE_CHECKING:
+    from marivo.datasource.metadata import TableMetadata
 
 register_provider_statements(
     "duckdb",
@@ -42,6 +47,61 @@ register_provider_statements(
                 "(TYPE HTTP, EXTRA_HTTP_HEADERS ?, SCOPE ?)"
             ),
             parameterized=True,
+        ),
+        "tables.comment_size": ProviderStatement(
+            statement_id="duckdb.tables.comment_size",
+            template=(
+                "SELECT comment, estimated_size FROM duckdb_tables() "
+                "WHERE table_name = {table} LIMIT 1"
+            ),
+            literal_slots=frozenset({"table"}),
+        ),
+        "tables.comment": ProviderStatement(
+            statement_id="duckdb.tables.comment",
+            template=("SELECT comment FROM duckdb_tables() WHERE table_name = {table} LIMIT 1"),
+            literal_slots=frozenset({"table"}),
+        ),
+        "tables.columns": ProviderStatement(
+            statement_id="duckdb.tables.columns",
+            template=(
+                "SELECT column_name, data_type, is_nullable, comment "
+                "FROM duckdb_columns() "
+                "WHERE table_name = {table} "
+                "ORDER BY column_index"
+            ),
+            literal_slots=frozenset({"table"}),
+        ),
+        "namespace.current": ProviderStatement(
+            statement_id="duckdb.namespace.current",
+            template="SELECT current_database() AS database_name, current_schema() AS schema_name",
+        ),
+        "views.schema_qualified": ProviderStatement(
+            statement_id="duckdb.views.schema_qualified",
+            template=(
+                "SELECT sql FROM duckdb_views() "
+                "WHERE view_name = {table} AND internal = false AND schema_name = {schema} "
+                "LIMIT 1"
+            ),
+            literal_slots=frozenset({"table", "schema"}),
+        ),
+        "views.database_qualified": ProviderStatement(
+            statement_id="duckdb.views.database_qualified",
+            template=(
+                "SELECT sql FROM duckdb_views() "
+                "WHERE view_name = {table} AND internal = false "
+                "AND database_name = {database} AND schema_name = {schema} "
+                "LIMIT 1"
+            ),
+            literal_slots=frozenset({"table", "database", "schema"}),
+        ),
+        "constraints": ProviderStatement(
+            statement_id="duckdb.constraints",
+            template=(
+                "SELECT constraint_type, constraint_column_names "
+                "FROM duckdb_constraints() "
+                "WHERE table_name = {table}"
+            ),
+            literal_slots=frozenset({"table"}),
         ),
     },
 )
@@ -153,6 +213,227 @@ def apply_read_only_kwargs(kwargs: Mapping[str, object]) -> dict[str, object]:
     return out
 
 
+def _duckdb_rows(
+    backend: Any, statement_id: str, values: Mapping[str, object] = {}
+) -> tuple[dict[str, object], ...]:
+    return execute_provider_statement(
+        backend, PROFILE, statement_id, values=values, purpose="datasource.metadata.duckdb"
+    )
+
+
+def _inspect_duckdb(
+    *,
+    datasource: str,
+    backend: Any,
+    table: str,
+    database: str | tuple[str, ...] | None,
+    table_expr: Any,
+    include_partitions: bool,
+) -> TableMetadata:
+    from marivo.datasource.errors import _backend_failure_summary
+    from marivo.datasource.metadata import (
+        ColumnMetadata,
+        MetadataWarning,
+        TableMetadata,
+        TablePhysicalProfile,
+        UniqueConstraintMetadata,
+        _bool_from_nullable,
+        _empty_to_none,
+        _int_or_none,
+        _merge_columns,
+        _schema_columns,
+    )
+
+    schema_columns = _schema_columns(table_expr)
+    warnings: list[MetadataWarning] = []
+    table_comment: str | None = None
+    catalog_columns: dict[str, ColumnMetadata] = {}
+    is_view = False
+    view_definition: str | None = None
+    physical_profile: TablePhysicalProfile | None = None
+
+    try:
+        table_rows = _duckdb_rows(backend, "duckdb.tables.comment_size", {"table": table})
+        if table_rows:
+            row = table_rows[0]
+            table_comment = _empty_to_none(row.get("comment"))
+            row_count = _int_or_none(row.get("estimated_size"))
+            if row_count is not None:
+                physical_profile = TablePhysicalProfile(
+                    row_count=row_count,
+                    row_count_kind="estimate",
+                    size_bytes=None,
+                    size_kind="unknown",
+                    source="duckdb.duckdb_tables",
+                )
+    except Exception as exc:
+        try:
+            table_rows = _duckdb_rows(backend, "duckdb.tables.comment", {"table": table})
+            if table_rows:
+                table_comment = _empty_to_none(table_rows[0].get("comment"))
+            warnings.append(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=(
+                        "duckdb physical profile query failed: "
+                        f"{_backend_failure_summary(exc).message}"
+                    ),
+                )
+            )
+        except Exception as exc2:
+            warnings.append(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=(
+                        "duckdb table metadata query failed: "
+                        f"{_backend_failure_summary(exc2).message}"
+                    ),
+                )
+            )
+
+    try:
+        column_rows = _duckdb_rows(backend, "duckdb.tables.columns", {"table": table})
+        for index, row in enumerate(column_rows, start=1):
+            name = str(row.get("column_name"))
+            catalog_columns[name] = ColumnMetadata(
+                name=name,
+                type=str(row.get("data_type") or ""),
+                nullable=_bool_from_nullable(row.get("is_nullable")),
+                comment=_empty_to_none(row.get("comment")),
+                ordinal_position=index,
+            )
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=(
+                    f"duckdb column metadata query failed: {_backend_failure_summary(exc).message}"
+                ),
+            )
+        )
+
+    try:
+        default_database: str | None = None
+        default_schema = "main"
+        if database is None:
+            namespace_rows = _duckdb_rows(backend, "duckdb.namespace.current")
+            if namespace_rows:
+                default_database = _empty_to_none(namespace_rows[0].get("database_name"))
+                default_schema = _empty_to_none(namespace_rows[0].get("schema_name")) or "main"
+        view_rows: tuple[dict[str, object], ...] = ()
+        if isinstance(database, tuple) and len(database) >= 2:
+            view_rows = _duckdb_rows(
+                backend,
+                "duckdb.views.database_qualified",
+                {"table": table, "database": database[0], "schema": database[1]},
+            )
+        elif isinstance(database, tuple) and len(database) == 1:
+            view_rows = _duckdb_rows(
+                backend, "duckdb.views.schema_qualified", {"table": table, "schema": database[0]}
+            )
+        elif database is not None:
+            view_rows = _duckdb_rows(
+                backend, "duckdb.views.schema_qualified", {"table": table, "schema": database}
+            )
+        elif default_database is not None:
+            view_rows = _duckdb_rows(
+                backend,
+                "duckdb.views.database_qualified",
+                {"table": table, "database": default_database, "schema": default_schema},
+            )
+        else:
+            view_rows = _duckdb_rows(
+                backend, "duckdb.views.schema_qualified", {"table": table, "schema": default_schema}
+            )
+        if view_rows:
+            is_view = True
+            view_definition = _empty_to_none(view_rows[0].get("sql"))
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=(
+                    f"duckdb view metadata query failed: {_backend_failure_summary(exc).message}"
+                ),
+            )
+        )
+
+    primary_keys: tuple[str, ...] = ()
+    unique_constraints: tuple[UniqueConstraintMetadata, ...] = ()
+    try:
+        constraint_rows = _duckdb_rows(backend, "duckdb.constraints", {"table": table})
+        pk_columns: list[str] = []
+        uq_rows: list[UniqueConstraintMetadata] = []
+        for row in constraint_rows:
+            ctype = str(row.get("constraint_type") or "").upper()
+            cols_value = row.get("constraint_column_names")
+            cols = (
+                tuple(str(col) for col in cols_value)
+                if isinstance(cols_value, (list, tuple))
+                else ()
+            )
+            if ctype == "PRIMARY KEY" and cols:
+                pk_columns.extend(cols)
+            elif ctype == "UNIQUE" and cols:
+                uq_rows.append(UniqueConstraintMetadata(name=None, columns=cols, kind="unique"))
+        primary_keys = tuple(pk_columns)
+        unique_constraints = tuple(uq_rows)
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=(
+                    f"duckdb constraint query failed: {_backend_failure_summary(exc).message}"
+                ),
+            )
+        )
+
+    if include_partitions:
+        warnings.append(
+            MetadataWarning(
+                kind="partitions_unavailable",
+                message="duckdb does not expose table partition metadata through this adapter",
+            )
+        )
+
+    columns = _merge_columns(schema_columns, catalog_columns)
+    if not any(column.comment for column in columns) and table_comment is None:
+        warnings.append(
+            MetadataWarning(
+                kind="comments_unavailable",
+                message="duckdb table and column comments are unavailable for this table",
+            )
+        )
+
+    return TableMetadata(
+        datasource=datasource,
+        table=table,
+        database=database,
+        backend_type="duckdb",
+        comment=table_comment,
+        columns=columns,
+        partitions=(),
+        partition_state="unknown",
+        warnings=tuple(warnings),
+        is_view=is_view,
+        view_definition=view_definition,
+        primary_keys=primary_keys,
+        unique_constraints=unique_constraints,
+        physical_profile=physical_profile,
+    )
+
+
+def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
+    return _inspect_duckdb(
+        datasource=request.datasource,
+        backend=request.backend,
+        table=request.table,
+        database=request.database,
+        table_expr=request.table_expr,
+        include_partitions=request.include_partitions,
+    )
+
+
 @contextmanager
 def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
     connection = getattr(backend, "con", None)
@@ -177,7 +458,7 @@ PROFILE = EngineProfile(
     identifier_quote='"',
     table_name_parts=default_table_name_parts,
     inspect_partition_values=None,
-    metadata=EngineMetadataIntrospection(inspect_table=schema_only_metadata_inspect),
+    metadata=EngineMetadataIntrospection(inspect_table=inspect_table),
     authoring_capabilities=AuthoringCapabilities(
         partition_predicate_supported=True,
         transformed_partition_supported=False,
