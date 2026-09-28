@@ -33,6 +33,11 @@ MethodName: TypeAlias = Literal[
 ]
 
 
+PersistentStateKind: TypeAlias = Literal[
+    "none", "row_sum", "row_count", "row_count_defined", "row_mean", "spearman"
+]
+
+
 @dataclass(frozen=True, slots=True)
 class MethodKey:
     name: MethodName
@@ -99,6 +104,21 @@ class MethodSemantics:
     def __post_init__(self) -> None:
         if type(self.key) is not MethodKey or self.owner != "analysis.core.rules":
             reject("a complete connected semantic owner", repr(self), "Use analysis.core.rules.")
+
+    @property
+    def persistent_state_kind(self) -> PersistentStateKind | None:
+        """Return the connected durable state kind; absence grants no publication."""
+        kinds: dict[MethodName, PersistentStateKind] = {
+            "bind_project": "none",
+            "parts_transport": "none",
+            "map_correspond": "none",
+            "row.sum": "row_sum",
+            "row.count": "row_count",
+            "row.count_defined": "row_count_defined",
+            "row.mean": "row_mean",
+            "association.spearman": "spearman",
+        }
+        return kinds.get(self.key.name)
 
     def validate_output_type(
         self, inputs: tuple[ValueType, ...], output: ValueType, params: rules.RuleParameters

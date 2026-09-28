@@ -271,7 +271,9 @@ Each source binding occurrence is `(source definition fingerprint, datasource
 Ref, physical source shape, semantic dependency digest, exact selected source
 binding fingerprint)`. It is captured before opening the source; the Run ref
 is the fresh evaluation identity, so the same Lazy value cannot hit an earlier
-source result. Each fixed input occurrence is `(session_ref, artifact_ref,
+source result. The semantic dependency digest is an independent frozen input,
+not an alias for the source definition fingerprint; the opened R1 source proves
+the selected physical binding. Each fixed input occurrence is `(session_ref, artifact_ref,
 producing_run_ref, primary_receipt_digest, ordered_parts, input_binding,
 method_state_contract_id, method_state_version, snapshot_digest)`, where every
 ordered part is `(role, contract_id, contract_version, receipt_digest)`.
@@ -1435,3 +1437,30 @@ Connection close does not prove remote termination. Unknown remote status does
 not prevent safe local recovery; partial output is never published. No shared
 snapshot, execution budget, upload, temporary object or implicit retry is added.
 Batch size is transport configuration, not a result cap.
+
+
+### R4.4 private graph publication boundary
+
+`DatasetRuntime._execute_graph` consumes the existing private graph and method
+registry in an explicitly selected v7 Store. It performs pure admission before
+writer exclusion, source opening, fixed-row reads or Run allocation. Publication
+uses generic descriptor/receipt/snapshot codecs and the existing Store's atomic
+transaction and resource journal. It never calls `execute_j1` or a family writer.
+
+Persistent qualification is limited to the R4.3 consumers: stateless qualified
+source binding/transport/mapping outputs with no retained parts, registered
+source row statistics and Spearman, and one registered fixed row-statistic or
+Spearman method over exact Entity inputs. A stateless output with parts, a nested
+fixed execution, an unsupported state kind, or an unqualified physical input
+rejects; serialization does not qualify a new numerical method. In particular,
+singleton row-statistic outputs do not acquire Entity-input continuation rights.
+Distinct captured Artifacts have no qualified shared-member witness in this
+slice: fixed Spearman rejects them before Artifact metadata or row reads. A
+shared exact Artifact may occupy both ordered operand slots and is read once.
+The fixed path uses verified Arrow/Parquet data followed by the existing local
+pandas consumer, without DuckDB or sources.
+
+Cold protocol reads validate the frozen graph, method implementations, completed
+check identities, exact Run/key binding and every required receipt. This does
+not expose public construction or K. R4.5 owns public receiver migration,
+`session.artifact`, disclosure and deletion of the still-used v6 scenario chain.

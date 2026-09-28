@@ -817,3 +817,73 @@ metadata 混合、PostgreSQL 复合唯一约束拆分、SQLite 部分/表达式�
 403 个源码文件 typing、lint、导入契约和 API 文档通过；
 `npm --prefix site run build` **0 errors / 0 warnings**，321 页面构建及
 中英文安装脚本验证通过。新增反例位于 `tests/test_datasource_r16_regressions.py`。
+
+## R4.4 私有 v7 产物与原子发布（2026-09-28）
+
+实际起点为干净的 `panda` / `2da1b6963bae501aff340097f7bb3df177a7d881`；
+R1.6 修复已在该基线提交，本包没有改动 datasource 或追认其证据。
+初始 tracked diff 与新增文件集合均为空。当前产品/测试文件候选摘要为
+`b1f5c0e6a7d11ddf8b4bee9c87e9fc615341d0ec662cd2c59d37069001748c56`；
+逐文件 SHA-256、摘要算法、命令、日志与结果见
+[证据 manifest](evidence/r44/manifest.json)。无实现提交、推送或发布。
+
+本包通过既有 `DatasetRuntime`、`SessionStore`、writer guard、资源日志和
+`reconcile_session` 接入私有 v7；公共构造器与 J1–J4 仍为 v6。
+Store 7、七个 `marivo.analysis.* /v1` 协议及独立方法/部件版本保持 R4.1 冻结值，
+Parquet 物理格式仍为 v1。v7 不调用旧 descriptor、场景 exchange 或 public snapshot
+codec。需要继续服务 v6 的旧文件保留到 R4.5 随消费者整体删除，详见
+[R4 计划 §4.2](2026-09-28-marivo-full-algebra-dsl-r4-implementation-plan.md#42-r44-私有发布分包边界2026-09-28)。
+
+| 范围 | 本轮结果与独立反例 | 验收边界 |
+| --- | --- | --- |
+| V01–V03 私有 Run/key | **私有定向通过**：source 改源后新 Run/Artifact 和新计数；fixed 完整验证后精确命中无新 Run；相同数字、不同 Artifact 引用不误命中；跨 Session 与独立捕获比较在新 I/O/Run 前拒绝；同一固定叶子占两个输入槽位只读一次，Run 保留两条有序引用。 | 不提升公共执行/缓存产品格。独立产物没有已资格化的共同成员证明，本包直接拒绝其 fixed Spearman；不借相同数字/坐标伪造共同捕获。 |
+| V04–V05 交换与状态 | **私有定向通过**：source count/sum/mean/count-defined、两条 Spearman 来源路线、fixed count/Spearman、空输入、完整 int64 身份、主表与独立 parts 数值一致性、缺/坏 receipt、错误状态/版本/snapshot、缺 completed evidence 均有反例。 | 新持久化实测来源是 DuckDB native table、NoTime 和 int64 输入；Spearman/mean 的 float64 输出按已有资格验证。R4.3 的 Parquet 来源及其他交换反例仍由其定向回归拥有，不提升远端、Decimal、时间或完整 J1–J4 资格。 |
+| V06 原子性与提交不明 | **私有定向通过**：Run 准入、主表/part 写出、文件发布、receipt 验证及事务 Artifact/Evidence/terminal 插入、提交前故障均无成功半成品，原成功产物保留。提交确认丢失只核验原 Run；可确认成功时返回原产物，不可读回或 terminal/Artifact 矛盾时报告 `graph_commit_unknown` 并保留现场，无来源/算法重放。 | SQLite 事务与本机文件故障注入证据；不声称硬件断电、远端存储或所有操作系统资格。 |
+| V07 竞争与进程退出 | **私有新进程通过**：两进程竞争同一 fixed key，持锁者执行、另一方 busy；释放锁后返回同一成功 Artifact，无额外 Run。主表/part/文件发布/提交前与提交后 `os._exit`，新进程只协调原事务、清理其资源，提交成功不可重写。 | 复用既有 guard 与资源清理，未新增锁或第二个 Store。旧 v6 并发测试的历史失败单独列于下方，不算本格通过证据。 |
+| V08–V09 私有协议读取 | **私有新进程/拒绝通过**：删除来源数据库，且在首次 Store/Artifact 读取前禁用 SourceSession 与 DuckDB 连接，仍完成准确读取、fixed 计算和命中。旧项目拒绝且文件不变；旧/未知 schema、缺字段、多字段、缺部件、坏绑定/状态/snapshot 均拒绝。 | 只验证私有持久协议和已资格化 fixed 方法；公共 `session.artifact`、恢复后动态 K 仍归 R4.5。 |
+| V10–V12、公共同步与安装包 | **未验证/未执行**。 | 公共切换、旧链删除、Help/CLI/latest 英中示例归 R4.5；完整四旅程、wheel 和残留收口归 R4.6。没有真实 Agent、六后端或 release 验收。 |
+
+验证命令与结果：
+
+- 实施中定向回归 `make test TESTS='tests/test_analysis_graph_publication_r44.py tests/test_analysis_dsl_exchange.py tests/test_analysis_graph_runtime_r42.py tests/test_analysis_lowering_r34.py tests/test_lazy_materialization_store.py tests/test_lazy_reconciliation_snapshot.py tests/test_analysis_dsl_execution_identity.py tests/test_analysis_dsl_contracts.py'`：**222 passed**。该中间日志由最终全量门禁覆盖；后续共同捕获与 owner 路由补测包含在最终默认测试中。
+- 最终 `make runtime-test TESTS='tests/test_analysis_graph_publication_r44.py tests/test_analysis_dsl_j1_runtime.py'`：**13 passed**，其中新 v7 独立进程用例 **7** 项、保留 v6 J1 用例 **6** 项。
+- 最终 `make check-agent`：格式/lint/import、**407** 个源码文件 typing、默认测试 **5449 passed / 19 skipped**、API 文档通过；`git diff --check` 通过。新增默认用例 **42** 项；19 个既有 skip 未改动、不计通过。历史 64 → 19 的变化来自此前 R1.6，不能归因本包。
+
+额外执行旧 Runtime 并发选择得到 **16 passed / 8 failed**。8 项均来自
+`tests/test_lazy_runtime_concurrency.py` 的旧 `session.observe` 来源路线：直接
+`source_admission` 拒绝，或因此等不到 quality/query 钩子。对上述基线创建干净的
+受管理 worktree，复验该文件得到同一组 **8 failed / 3 passed**；已保存完整
+[基线日志](evidence/r44/baseline-concurrency.log)和
+[诊断摘要](evidence/r44/runtime-initial-observation.md)，临时 worktree 已归档。
+这些失败保留为 **R5 旧来源迁移阻塞**，没有删除断言、新增 skip 或放宽准入；
+定向 13 项 Runtime 通过不代表扩展 Runtime 选择全绿。
+
+本包未修改公共 API、packaged skills、AGENTS.md 或站点 latest 示例；未启动
+MinIO/远端服务，未执行完整 release-check 或 wheel。固定完整输入算法继续承担
+Arrow、pandas、NumPy 与工作区共存成本，不新增 spill、采样或容量承诺。
+
+### R4.4 对抗性审查修复（2026-09-28，未提交）
+
+基线 HEAD 仍为 `2da1b6963bae501aff340097f7bb3df177a7d881`。
+上一节的候选摘要与门禁结果保留为审查前证据；本节修复后的产品/测试文件
+摘要 `ddc4f63385c1f366e0fc46a604d4d0ebf024324ef2ce59af814e05165bcad432`
+取代其候选结论，逐文件摘要见
+[修复证据 manifest](evidence/r44/review-fixes-manifest.json)。
+
+独立反例曾证明：receipt 验证后篡改主表仍提交成功且随后读取失败；提交前
+为同一 Run 增加资源义务后仍可成功，而下一次协调拒绝该 Session；独立的
+semantic dependency digest 在来源打开和 Run 分配后被误判为物理来源不符；
+Parquet 批次读取和 reader 关闭同时失败时，关闭错误掩盖原始读取错误。
+修复后，Store 在事务完成前再次读取并校验全部 receipt，在同一事务内要求
+该 Run 的资源日志归零；来源物理绑定不再把语义依赖摘要强制等同于图定义
+指纹；读取失败优先于清理失败报告。这些修复不扩大方法或后端资格。
+
+验证：新增 **5** 个定向反例通过，完整 R4.4 默认测试 **47 passed**；
+相邻 Store、exchange、lowering 等回归 **187 passed**；v7 独立进程与保留
+v6 J1 的 `make runtime-test` **13 passed**；变更模块 typing **3 文件通过**、
+针对性 lint **4 文件通过**。`make check-agent` 最终 **5454 passed / 19 skipped**，
+407 个源码文件 typing、格式/lint/导入契约及 API 文档通过；
+`git diff --check` 通过。完整门禁日志见
+[修复日志](evidence/r44/review-fixes-check-agent.log)。原 19 项 skip 和旧并发
+基线失败仍按上一节归属，不计本轮通过。故障注入覆盖事务前可观测的文件
+变化与额外资源登记；不宣称抵御任意外部进程在最终校验后篡改文件。

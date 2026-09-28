@@ -379,6 +379,15 @@ def from_arrow(
 
 
 @dataclass(frozen=True, slots=True)
+class VerifiedFixedInput:
+    """Invocation-owned v7 input, already exhausted by the receipt owner."""
+
+    artifact_ref: str
+    receipt: LocalReceipt
+    result: ExchangeResult
+
+
+@dataclass(frozen=True, slots=True)
 class FixedPartInput:
     role: str
     receipt: LocalReceipt

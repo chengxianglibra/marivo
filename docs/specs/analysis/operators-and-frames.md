@@ -346,6 +346,32 @@ snapshot supplies facts, not additional authority. R4.2/R4.3 must reject any
 J1–J4 route lacking this registered method and its exact physical
 qualification before business I/O.
 
+### R4.4 durable method-state admission
+
+The private v7 writer admits `none`, `row_sum`, `row_count`,
+`row_count_defined`, `row_mean` and `spearman` only for their already registered
+physical consumers. `none` requires no parts. The remaining frozen kinds above
+stay rejected until their producing methods and recovery are qualified; an old
+family codec cannot supply them. Each receipt's part ID is
+`marivo.analysis.part.<kind>.<role>` at version 1, independent of the state
+envelope's version. Source preparation plus local Spearman is one selected
+method implementation, despite its two execution stages.
+
+The persisted row-state statuses are the exact primary Cell tags, while Spearman
+persists its explicit primary `status` column. These are the validated transient
+status vector's durable representation; cold reads bind them by full key to the
+required numerical parts. They never regenerate missing components or recompute
+a numerical state. Contradictory main/part values reject both publication and
+retained reads. State components keep the R4.3 physical column names
+`row_state__sum`, `row_state__count`, `row_state__count_defined`, and
+`pair_counts__*`; these implement the semantic components in the table above.
+
+Only completed checks enter the descriptor, with the producing Run, original
+node, scope, ordered input occurrences, deadline and result digest. Frozen
+method/implementation selections reconstruct the check requirements, so a
+missing, duplicate, foreign or mismatched completion cannot authorize a read.
+Static signatures and transient pending obligations remain distinct.
+
 ## Runtime boundaries
 
 Every input belongs to the same Session. Definition identity differs from exact

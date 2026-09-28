@@ -1,0 +1,194 @@
+{
+  "baseline_branch": "panda",
+  "baseline_sha": "2da1b6963bae501aff340097f7bb3df177a7d881",
+  "candidate_code_sha256": "b1f5c0e6a7d11ddf8b4bee9c87e9fc615341d0ec662cd2c59d37069001748c56",
+  "candidate_digest_encoding": "UTF-8 sorted path + NUL + file SHA-256 + newline; product and test files only",
+  "checks": [
+    {
+      "api_docs": "passed",
+      "command": "make check-agent",
+      "exit_code": 0,
+      "log": "check-agent.log",
+      "passed": 5449,
+      "result": "passed",
+      "skipped": 19,
+      "typed_source_files": 407
+    },
+    {
+      "command": "make runtime-test TESTS='tests/test_analysis_graph_publication_r44.py tests/test_analysis_dsl_j1_runtime.py'",
+      "exit_code": 0,
+      "log": "runtime.log",
+      "new_v7_process_tests": 7,
+      "passed": 13,
+      "result": "passed",
+      "retained_v6_j1_tests": 6
+    },
+    {
+      "command": "make test TESTS='tests/test_analysis_graph_publication_r44.py'",
+      "evidence": "tool output; covered again by the final check-agent log",
+      "exit_code": 0,
+      "passed": 42,
+      "result": "passed"
+    },
+    {
+      "boundary": "Intermediate candidate; superseded by final check-agent after subsequent counterexamples and owner routing.",
+      "command": "make test TESTS='tests/test_analysis_graph_publication_r44.py tests/test_analysis_dsl_exchange.py tests/test_analysis_graph_runtime_r42.py tests/test_analysis_lowering_r34.py tests/test_lazy_materialization_store.py tests/test_lazy_reconciliation_snapshot.py tests/test_analysis_dsl_execution_identity.py tests/test_analysis_dsl_contracts.py'",
+      "exit_code": 0,
+      "log": "targeted.log",
+      "passed": 222,
+      "result": "passed_intermediate"
+    },
+    {
+      "boundary": "Diagnostic selection during implementation; all eight failures reproduced at clean baseline.",
+      "command": "make runtime-test TESTS='tests/test_analysis_graph_publication_r44.py tests/test_analysis_dsl_j1_runtime.py tests/test_lazy_runtime_concurrency.py tests/test_lazy_reconciliation_snapshot.py'",
+      "exit_code": 2,
+      "failed": 8,
+      "passed": 16,
+      "result": "failed",
+      "summary": "runtime-initial-observation.md"
+    },
+    {
+      "command": "PYTHONPATH=/Users/lichengxiang/.codex/worktrees/r44-baseline/marivo /Users/lichengxiang/source/oss/marivo/.venv/bin/pytest -m runtime -n 2 --tb=short -q tests/test_lazy_runtime_concurrency.py",
+      "cwd": "/Users/lichengxiang/.codex/worktrees/r44-baseline/marivo",
+      "exit_code": 1,
+      "failed": 8,
+      "log": "baseline-concurrency.log",
+      "owner": "R5 legacy source migration",
+      "passed": 3,
+      "result": "failed_at_clean_baseline",
+      "worktree": "archived after verification"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "passed"
+    }
+  ],
+  "documents": [
+    {
+      "path": "docs/specs/analysis/operators-and-frames.md",
+      "sha256": "712876359b05cd0233c5f3aed85c210697276770ff22c94868b75d797dff5780"
+    },
+    {
+      "path": "docs/specs/analysis/python-analysis-design.md",
+      "sha256": "c586b0d0875ced535d9c2794d0467d9ba570f8572b22c0e5645725a89f5e0b14"
+    },
+    {
+      "path": "docs/specs/analysis/session-state-and-runtime.md",
+      "sha256": "1879afd0ad5204a5f90ba43b8c8668009896c902e2089f52ad1a5be4c6c0d3ca"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-26-marivo-full-refactor-acceptance.md",
+      "sha256": "7590582c285b219abf11e286263a62d6bc07d75a14c2b8f832742a48eee12580"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-28-marivo-full-algebra-dsl-r4-implementation-plan.md",
+      "sha256": "49f66d1e631abcb11d65011aa80f2c456a313d729419b6454bc38ecbc7047daa"
+    }
+  ],
+  "evidence_scope": "Default checks and selected Runtime only; no release-check, services, wheel, public K or real Agent acceptance.",
+  "files": [
+    {
+      "path": "marivo/analysis/materialization/admission.py",
+      "sha256": "cf7af4e16d8bc9856303bfc30f4cf61b18037fd385fb59f50cfa331f83f25129"
+    },
+    {
+      "path": "marivo/analysis/materialization/execution_key.py",
+      "sha256": "e93071baef127d3866c4f3c5ab7972d86fe0c47dc259ad556568233006df2f5b"
+    },
+    {
+      "path": "marivo/analysis/materialization/graph_exchange.py",
+      "sha256": "3d8c8c2a12e000e463bfd6f40e58699331afaf881d171dde1f22aee83c79f792"
+    },
+    {
+      "path": "marivo/analysis/materialization/graph_local_execution.py",
+      "sha256": "f9ff1936ba49cfe41419bcb8cba4ce2e3ce349f707360754c7021108bb853702"
+    },
+    {
+      "path": "marivo/analysis/materialization/graph_protocol.py",
+      "sha256": "81b28bbac46c5c1a6f0f14639fea0b697d14f6ea3776de7f6bd827eb83a47e69"
+    },
+    {
+      "path": "marivo/analysis/materialization/graph_publication.py",
+      "sha256": "dd097e5b04352f5d6a1a081d81dbe0cf4d747165a5d4754ea8fdd92b245fc2e4"
+    },
+    {
+      "path": "marivo/analysis/materialization/graph_storage.py",
+      "sha256": "4804e611a7222d2f608bb7a57569619a2f4963ffd211c76a1e791d3b83563112"
+    },
+    {
+      "path": "marivo/analysis/materialization/graph_store.py",
+      "sha256": "0919267003572bbeddc8a28b9766d54b6958835050dfa2972691764764943edb"
+    },
+    {
+      "path": "marivo/analysis/materialization/layout.py",
+      "sha256": "fcfe83f761339f39793da3b377f01c9d7215af2858f9f4d165792b254c66c278"
+    },
+    {
+      "path": "marivo/analysis/materialization/reconciliation.py",
+      "sha256": "1701d001a98cbd81c9dcb8f5aa0989b5840ace5e1890f45b788165a93b712c55"
+    },
+    {
+      "path": "marivo/analysis/materialization/resources.py",
+      "sha256": "be70e81c81d8d8e582314588aee26e75fbbf96065fe740afd0419b3137017565"
+    },
+    {
+      "path": "marivo/analysis/materialization/store.py",
+      "sha256": "b640839d1c0f5488d3e676920600b7e782868c4f000a00107ce91442b38fa1e6"
+    },
+    {
+      "path": "marivo/analysis/methods/semantics.py",
+      "sha256": "b87fb584ea784e091121ddf161779b03c6a2a79df9751ccf0f5f43c5fb5fdb1e"
+    },
+    {
+      "path": "tests/graph_publication_runtime_worker.py",
+      "sha256": "b0ffb9f5a31318b46cf972b193ce14c7d859f9d341f49ac0a2e86fcccc8f6ae0"
+    },
+    {
+      "path": "tests/shared_fixtures.py",
+      "sha256": "47344bc7c9cc20dfc8dd5dc8d8abf3ad3468c1ae0a21b311060ef6321633c8fb"
+    },
+    {
+      "path": "tests/test_analysis_graph_publication_r44.py",
+      "sha256": "dd842489757f856950749142c29a3733761214fb6705c30f65fe36a0c47f77c4"
+    }
+  ],
+  "initial_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "initial_worktree": "clean; no untracked files",
+  "logs": [
+    {
+      "path": "baseline-concurrency.log",
+      "sha256": "c389584ebc012623b396a82e8b37de19c13c7ed229ba8caf2c5901c585249849",
+      "normalization": "trailing whitespace removed; diagnostic text preserved"
+    },
+    {
+      "path": "check-agent.log",
+      "sha256": "1165dd7259b72f9a93702fc26dd2d04da0de622d9bf993b12773de84c522fe3c"
+    },
+    {
+      "path": "runtime-initial-observation.md",
+      "sha256": "28e0099e3eb646672d505bf3c7695f3a3f68cc78f64ece973a7084ed671f5519"
+    },
+    {
+      "path": "runtime.log",
+      "sha256": "1c25f1fe78939d6d2062f51eb87ede112bad3c9e24ffd6944b659993bdc5310e"
+    },
+    {
+      "path": "targeted.log",
+      "sha256": "e98b2c8113e46c38283ac7052519fb4259da02dd89c8b627d2bc1231ed0f558d"
+    }
+  ],
+  "protocols": {
+    "artifact_descriptor": 1,
+    "continuation": 1,
+    "exchange": 1,
+    "execution_key": 1,
+    "method_state": 1,
+    "parquet": 1,
+    "receipt": 1,
+    "run_input": 1,
+    "store": 7
+  },
+  "qualification": "Private already-qualified DuckDB native source/NoTime/int64 slice, source Spearman routes, Arrow/Parquet fixed Entity methods; no public or additional backend qualification.",
+  "tracked_code_diff_sha256": "6735f44ba5df5ad7d8db0f383cfced57edd1eb02ce0976abae518ccc36947135"
+}
