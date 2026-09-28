@@ -182,9 +182,12 @@ def test_trino_terminal_session_timeout_and_timezone_are_effective() -> None:
                 timezone.close()
         started = monotonic()
         with pytest.raises(TrinoQueryError) as failure, profile.authoring_timeout(backend, 1):
+            # The 3x cross join cannot finish inside the 1s limit; a lighter
+            # pair has completed within the enforcement window on fast hosts.
             backend.raw_sql(
-                "SELECT SUM(a.x * b.y) FROM UNNEST(sequence(1, 10000)) a(x) "
-                "CROSS JOIN UNNEST(sequence(1, 10000)) b(y)"
+                "SELECT SUM(a.x * b.y * c.z) FROM UNNEST(sequence(1, 10000)) a(x) "
+                "CROSS JOIN UNNEST(sequence(1, 10000)) b(y) "
+                "CROSS JOIN UNNEST(sequence(1, 3000)) c(z)"
             )
         assert failure.value.error_name == "EXCEEDED_TIME_LIMIT"
         assert monotonic() - started < 5
