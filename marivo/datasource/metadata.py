@@ -358,10 +358,13 @@ def _schema_only(
 def _with_primary_key_capability_warning(metadata: TableMetadata) -> TableMetadata:
     """Append ``primary_keys_unavailable`` for backends that do not expose PK metadata.
 
-    DuckDB exposes primary keys via ``duckdb_constraints()`` and is left alone.
-    Other backends get a single capability warning so the absence is never silent.
+    DuckDB (duckdb_constraints), SQLite (pragma_table_info), PostgreSQL
+    (pg_constraint), MySQL (SHOW INDEX) and Trino (information_schema table
+    constraints) populate primary keys through the provider statement channel
+    and are left alone. ClickHouse has no primary-key concept; its absence is
+    disclosed with a single capability warning so it is never silent.
     """
-    if metadata.backend_type in {"duckdb", "sqlite"}:
+    if metadata.backend_type in {"duckdb", "sqlite", "postgres", "mysql", "trino"}:
         return metadata
     if metadata.primary_keys:
         return metadata

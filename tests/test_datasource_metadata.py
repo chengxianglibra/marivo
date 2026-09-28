@@ -417,9 +417,6 @@ class _FakeFileBackend:
         return _FakeTable({"order_id": "int64", "amount": "float64"})
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_mysql_adapter_uses_information_schema(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -466,9 +463,6 @@ def test_inspect_table_mysql_adapter_uses_information_schema(
     assert any("SHOW FULL COLUMNS" in query for query in backend.queries)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_mysql_populates_physical_profile(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -515,9 +509,6 @@ def test_inspect_table_mysql_populates_physical_profile(
     )
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_postgres_populates_physical_profile(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -576,9 +567,6 @@ def test_inspect_table_postgres_populates_physical_profile(
     assert any('to_regclass(\'"analytics"."orders"\')' in query for query in backend.queries)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_mysql_uses_datasource_database_for_view_detection(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -650,9 +638,6 @@ def test_inspect_source_file_derives_table_name_from_path(
     assert backend.reads == [("/data/orders/*.parquet", {"hive_partitioning": True})]
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_trino_adapter_uses_information_schema(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -724,9 +709,6 @@ def test_inspect_table_trino_adapter_uses_information_schema(
     assert any("SHOW COLUMNS FROM" in query for query in backend.queries)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_trino_splits_dotted_database_for_metadata_sql(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -792,9 +774,6 @@ def test_inspect_table_trino_splits_dotted_database_for_metadata_sql(
     assert not any('"hive"."hive.iceberg_inf"' in query for query in backend.queries)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_trino_keeps_two_part_database_tuple_for_metadata_sql(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -851,9 +830,6 @@ def test_inspect_table_trino_keeps_two_part_database_tuple_for_metadata_sql(
     assert not any('"hive"."hive.iceberg_inf"' in query for query in backend.queries)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_trino_populates_physical_profile_from_show_stats(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -909,9 +885,6 @@ def test_inspect_table_trino_populates_physical_profile_from_show_stats(
     assert any("SHOW STATS FOR" in query for query in backend.queries)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_trino_stats_failure_is_warning_only(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -958,9 +931,6 @@ def test_inspect_table_trino_stats_failure_is_warning_only(
     )
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_trino_keeps_column_comments_when_table_comments_unavailable(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1011,9 +981,6 @@ def test_inspect_table_trino_keeps_column_comments_when_table_comments_unavailab
     assert "metadata_query_failed" not in warning_kinds
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_trino_detects_view_definition(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1066,9 +1033,6 @@ def test_inspect_table_trino_detects_view_definition(
     )
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_trino_uses_datasource_schema_when_database_omitted(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1116,9 +1080,6 @@ def test_inspect_table_trino_uses_datasource_schema_when_database_omitted(
     assert any("table_name = 'orders'" in query for query in backend.queries)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_trino_falls_back_when_comment_columns_are_unavailable(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1168,9 +1129,6 @@ def test_inspect_table_trino_falls_back_when_comment_columns_are_unavailable(
     assert not any(warning.kind == "metadata_query_failed" for warning in metadata.warnings)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_trino_hive_partitioned_by_from_show_create(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1226,9 +1184,6 @@ def test_inspect_table_trino_hive_partitioned_by_from_show_create(
     assert not any(warning.kind == "partitions_unavailable" for warning in metadata.warnings)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_trino_iceberg_partitioning_from_show_create(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1284,9 +1239,6 @@ def test_inspect_table_trino_iceberg_partitioning_from_show_create(
     assert not any(warning.kind == "partitions_unavailable" for warning in metadata.warnings)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_trino_without_schema_returns_schema_only(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1315,9 +1267,6 @@ def test_inspect_table_trino_without_schema_returns_schema_only(
     assert any(warning.kind == "schema_only_fallback" for warning in metadata.warnings)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_clickhouse_adapter_uses_system_tables(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1373,9 +1322,6 @@ def test_inspect_table_clickhouse_adapter_uses_system_tables(
     assert metadata.partitions[0].type == "DateTime"
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_clickhouse_populates_physical_profile_from_system_parts(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1417,9 +1363,6 @@ def test_inspect_table_clickhouse_populates_physical_profile_from_system_parts(
     assert any("system.parts" in query and "sum(rows)" in query for query in backend.queries)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_clickhouse_discovers_adapter_only_projectable_columns_from_active_parts(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1479,9 +1422,6 @@ def test_clickhouse_discovers_adapter_only_projectable_columns_from_active_parts
     assert "GROUP BY column, type" in parts_query
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_clickhouse_projectable_column_discovery_accepts_empty_active_parts(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1513,9 +1453,6 @@ def test_clickhouse_projectable_column_discovery_accepts_empty_active_parts(
     assert all(warning.kind != "projectable_columns_unavailable" for warning in metadata.warnings)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_clickhouse_projectable_columns_omit_type_conflicts_and_unparsed_types(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1557,9 +1494,6 @@ def test_clickhouse_projectable_columns_omit_type_conflicts_and_unparsed_types(
     }
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_clickhouse_projectable_column_discovery_uses_distributed_local_table(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1602,9 +1536,6 @@ def test_clickhouse_projectable_column_discovery_uses_distributed_local_table(
     assert "table = 'events_local'" in query
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_clickhouse_projectable_column_discovery_permission_failure_is_warning(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1636,9 +1567,6 @@ def test_clickhouse_projectable_column_discovery_permission_failure_is_warning(
     assert any(warning.kind == "projectable_columns_unavailable" for warning in metadata.warnings)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_clickhouse_projectable_columns_exclude_schema_columns_when_catalog_is_unavailable(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1675,9 +1603,6 @@ def test_clickhouse_projectable_columns_exclude_schema_columns_when_catalog_is_u
     assert tuple(column.name for column in metadata.projectable_columns) == ("hidden*ICDS*",)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 @pytest.mark.parametrize("engine", ["View", "MaterializedView"])
 def test_inspect_table_clickhouse_detects_view_definition(
     project_root: Path,
@@ -1720,9 +1645,6 @@ def test_inspect_table_clickhouse_detects_view_definition(
     assert any("SELECT create_table_query FROM system.tables" in query for query in backend.queries)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_clickhouse_infers_nullable_from_type(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1764,9 +1686,6 @@ def test_inspect_table_clickhouse_infers_nullable_from_type(
     assert by_name["amount"].nullable is True
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_clickhouse_query_result(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1814,9 +1733,6 @@ def test_inspect_table_clickhouse_query_result(
     assert by_name["region"].comment is None
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_clickhouse_no_is_nullable_empty_comments(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1865,9 +1781,6 @@ def test_inspect_table_clickhouse_no_is_nullable_empty_comments(
     assert any(warning.kind == "comments_unavailable" for warning in metadata.warnings)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_clickhouse_partition_key_parsed(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1904,9 +1817,6 @@ def test_inspect_table_clickhouse_partition_key_parsed(
     assert not any(w.kind == "partitions_unavailable" for w in metadata.warnings)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_clickhouse_partition_key_bare_column(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1940,9 +1850,6 @@ def test_inspect_table_clickhouse_partition_key_bare_column(
     )
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_clickhouse_partition_key_composite(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1984,9 +1891,6 @@ def test_inspect_table_clickhouse_partition_key_composite(
     )
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_clickhouse_partition_key_empty_and_tuple(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2020,9 +1924,6 @@ def test_inspect_table_clickhouse_partition_key_empty_and_tuple(
         assert metadata.partitions == (), f"partition_key={pk!r} should yield empty partitions"
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_clickhouse_partition_key_unparseable(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2055,9 +1956,6 @@ def test_inspect_table_clickhouse_partition_key_unparseable(
     assert metadata.partitions[0].type == "Int64"
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_clickhouse_distributed_dereferences_local_table(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2111,9 +2009,6 @@ def test_inspect_table_clickhouse_distributed_dereferences_local_table(
     )
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_clickhouse_distributed_profile_notes_local_metadata(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2175,9 +2070,6 @@ def test_inspect_table_clickhouse_distributed_profile_notes_local_metadata(
     ]
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_clickhouse_distributed_dereference_failure(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2219,9 +2111,6 @@ def test_inspect_table_clickhouse_distributed_dereference_failure(
     )
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_clickhouse_system_tables_fallback(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2255,9 +2144,6 @@ def test_inspect_table_clickhouse_system_tables_fallback(
     assert not any(w.kind == "partitions_unavailable" for w in metadata.warnings)
 
 
-@pytest.mark.skip(
-    reason="R1.3 schema-only metadata: restore this catalog assertion only after a public metadata API and real backend evidence qualify it."
-)
 def test_inspect_table_trino_short_name_is_not_rejected(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

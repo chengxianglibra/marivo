@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import date
 from decimal import Decimal
 from uuid import uuid4
@@ -20,6 +20,7 @@ from marivo.datasource.ir import (
     DatasourceSourceLocation,
     TableSourceIR,
 )
+from marivo.datasource.metadata import TableMetadata
 
 pytestmark = pytest.mark.runtime
 
@@ -47,6 +48,7 @@ def _assert_table_read(
     *,
     identity: str,
     expected: list[dict[str, object]],
+    expected_metadata: Callable[[TableMetadata], None] | None = None,
 ) -> None:
     bound = session.bind(source, source_identity=identity)
     metadata = session.provider.metadata.inspect_table(
@@ -61,16 +63,8 @@ def _assert_table_read(
         )
     )
     assert {"id", "amount"} <= {column.name for column in metadata.columns}
-    assert metadata.partition_state == "unknown"
-    assert metadata.is_view is None
-    assert {warning.kind for warning in metadata.warnings} >= {
-        "comments_unavailable",
-        "partitions_unavailable",
-        "primary_keys_unavailable",
-        "view_unavailable",
-        "nullable_unavailable",
-        "physical_profile_unavailable",
-    }
+    if expected_metadata is not None:
+        expected_metadata(metadata)
     qualified = session.qualify(
         bound,
         PhysicalRequirement("r12.basic", 1, frozenset({"scan", "filter", "project"})),
@@ -105,6 +99,72 @@ def _assert_table_read(
     assert early_submission.state == "closed_early"
     assert early_submission.cursor_state == "closed"
     assert not session._streams
+
+
+def _expect_postgres_table_facts(metadata: TableMetadata) -> None:
+    assert metadata.is_view is False
+    assert metadata.view_definition is None
+    assert metadata.partition_state == "none"
+    by_name = {column.name: column for column in metadata.columns}
+    assert by_name["id"].nullable is True
+    assert metadata.primary_keys == ()
+    assert not any(warning.kind == "nullable_unavailable" for warning in metadata.warnings)
+
+
+def _expect_postgres_view_facts(metadata: TableMetadata) -> None:
+    assert metadata.is_view is True
+    assert metadata.view_definition is not None
+    assert "SELECT" in metadata.view_definition.upper()
+
+
+def _expect_mysql_table_facts(metadata: TableMetadata) -> None:
+    assert metadata.is_view is False
+    assert metadata.view_definition is None
+    assert metadata.partition_state == "none"
+    by_name = {column.name: column for column in metadata.columns}
+    assert by_name["id"].nullable is True
+    assert not any(warning.kind == "nullable_unavailable" for warning in metadata.warnings)
+
+
+def _expect_mysql_view_facts(metadata: TableMetadata) -> None:
+    assert metadata.is_view is True
+    # A SELECT-only account sees the view kind but MySQL requires SHOW VIEW
+    # privilege to disclose VIEW_DEFINITION, which stays unavailable here.
+    assert metadata.view_definition is None
+
+
+def _expect_trino_table_facts(metadata: TableMetadata) -> None:
+    assert metadata.is_view is False
+    assert metadata.view_definition is None
+    by_name = {column.name: column for column in metadata.columns}
+    assert by_name["id"].nullable is True
+    assert not any(warning.kind == "view_unavailable" for warning in metadata.warnings)
+
+
+def _expect_trino_view_facts(metadata: TableMetadata) -> None:
+    assert metadata.is_view is True
+    assert metadata.view_definition is not None
+
+
+def _expect_clickhouse_table_facts(metadata: TableMetadata) -> None:
+    assert metadata.is_view is False
+    assert metadata.view_definition is None
+    assert metadata.partition_state == "none"
+    # The SELECT-only reader account cannot read system.parts, so the physical
+    # profile is disclosed as unavailable rather than fabricated.
+    assert metadata.physical_profile is None
+    assert any(
+        warning.kind == "metadata_query_failed" and "physical profile" in warning.message
+        for warning in metadata.warnings
+    )
+    assert any(warning.kind == "projectable_columns_unavailable" for warning in metadata.warnings)
+    # ClickHouse has no primary-key concept; the absence stays disclosed.
+    assert any(warning.kind == "primary_keys_unavailable" for warning in metadata.warnings)
+
+
+def _expect_clickhouse_view_facts(metadata: TableMetadata) -> None:
+    assert metadata.is_view is True
+    assert metadata.view_definition is not None
 
 
 @pytest.mark.skipif(
@@ -150,12 +210,14 @@ def test_postgres_table_view_namespace_and_exact_decimal(
                     TableSourceIR(name, database="public"),
                     identity=name,
                     expected=expected,
+                    expected_metadata=_expect_postgres_table_facts,
                 )
                 _assert_table_read(
                     session,
                     TableSourceIR(view, database="public"),
                     identity=view,
                     expected=expected,
+                    expected_metadata=_expect_postgres_view_facts,
                 )
                 assert session.interrupt() == "remote_unknown"
                 assert all(item.connection_disconnected for item in session.submissions)
@@ -193,8 +255,20 @@ def test_mysql_table_view_and_exact_decimal(monkeypatch: pytest.MonkeyPatch) -> 
                     {"id": 1, "amount": Decimal("10.25")},
                     {"id": 2, "amount": Decimal("20.50")},
                 ]
-                _assert_table_read(session, TableSourceIR(name), identity=name, expected=expected)
-                _assert_table_read(session, TableSourceIR(view), identity=view, expected=expected)
+                _assert_table_read(
+                    session,
+                    TableSourceIR(name),
+                    identity=name,
+                    expected=expected,
+                    expected_metadata=_expect_mysql_table_facts,
+                )
+                _assert_table_read(
+                    session,
+                    TableSourceIR(view),
+                    identity=view,
+                    expected=expected,
+                    expected_metadata=_expect_mysql_view_facts,
+                )
                 assert session.interrupt() == "remote_unknown"
                 assert all(item.connection_disconnected for item in session.submissions)
         finally:
@@ -304,12 +378,14 @@ def test_trino_iceberg_and_non_iceberg_forms() -> None:
                         TableSourceIR(name, database=(catalog, "analysis")),
                         identity=f"{catalog}.{name}",
                         expected=expected,
+                        expected_metadata=_expect_trino_table_facts,
                     )
                     _assert_table_read(
                         session,
                         TableSourceIR(view, database=(catalog, "analysis")),
                         identity=f"{catalog}.{view}",
                         expected=expected,
+                        expected_metadata=_expect_trino_view_facts,
                     )
                     assert session.interrupt() == "remote_unknown"
                     assert all(item.connection_disconnected for item in session.submissions)
@@ -407,6 +483,7 @@ def test_clickhouse_mergetree_exact_decimal(monkeypatch: pytest.MonkeyPatch) -> 
                         {"id": 1, "amount": Decimal("10.25")},
                         {"id": 2, "amount": Decimal("20.50")},
                     ],
+                    expected_metadata=_expect_clickhouse_table_facts,
                 )
                 _assert_table_read(
                     session,
@@ -416,6 +493,7 @@ def test_clickhouse_mergetree_exact_decimal(monkeypatch: pytest.MonkeyPatch) -> 
                         {"id": 1, "amount": Decimal("10.25")},
                         {"id": 2, "amount": Decimal("20.50")},
                     ],
+                    expected_metadata=_expect_clickhouse_view_facts,
                 )
                 assert session.interrupt() == "remote_unknown"
                 assert all(item.connection_disconnected for item in session.submissions)

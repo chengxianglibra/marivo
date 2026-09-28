@@ -40,7 +40,7 @@ def test_metadata_profiles_degrade_to_schema_when_statement_channel_fails(
         semantic_id="warehouse",
         name="warehouse",
         backend_type=backend_type,
-        fields={},
+        fields={"catalog": "hive"} if backend_type == "trino" else {},
         env_refs={},
         ai_context=AiContextIR(),
         python_symbol="warehouse",
@@ -71,15 +71,17 @@ def test_metadata_profiles_degrade_to_schema_when_statement_channel_fails(
             "schema_only_fallback",
         }
         return
-    # Owner implementations either disclose the channel failure per fact or
-    # let the dispatcher fall back to schema-only; either way the bound Ibis
-    # relation stays authoritative for physical columns.
+    # Owner implementations either disclose the channel failure per fact, take
+    # an early schema-only exit when required namespace facts are missing
+    # (trino without a schema), or let the dispatcher fall back; either way the
+    # bound Ibis relation stays authoritative for physical columns.
     try:
         metadata = profile.metadata.inspect_table(request)
     except RuntimeError:
         pytest.skip("owner implementation propagates channel failure to the dispatcher fallback")
     assert tuple(column.name for column in metadata.columns) == ("id", "amount")
-    assert any(warning.kind == "metadata_query_failed" for warning in metadata.warnings)
+    warning_kinds = {warning.kind for warning in metadata.warnings}
+    assert "metadata_query_failed" in warning_kinds or "schema_only_fallback" in warning_kinds
 
 
 def test_duckdb_inspect_reads_catalog_facts_beyond_schema(tmp_path: Path) -> None:

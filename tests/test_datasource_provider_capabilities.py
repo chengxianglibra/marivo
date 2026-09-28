@@ -60,45 +60,186 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
     # Every registered provider statement must appear here verbatim. Add the
     # (provider, statement_id) -> sha256(template) pair when registering one.
     pinned: dict[tuple[str, str], str] = {
-        ("duckdb", "duckdb.constraints"): (
-            "aed05b4e5cde9aad979d79838f6473690bf7b2291e3ae6e8f385a5c2d7f7b372"
-        ),
-        ("duckdb", "duckdb.http_secret_bearer"): (
-            "fd508a63cb457ea45d964ff9db5bf9958c70a9ae9639b376616972f5f7447f7d"
-        ),
-        ("duckdb", "duckdb.http_secret_headers"): (
-            "b1f8b0fbc9dcafd9a51b3876bd3409d122c7e78f54b9e3c121c856db281c7f0e"
-        ),
-        ("duckdb", "duckdb.namespace.current"): (
-            "a4c4ac1c8ed42516de7b86109f2dfe3cbf7aadbc008851126b988472d2565952"
-        ),
-        ("duckdb", "duckdb.tables.columns"): (
-            "1100b01df364d116844953075a4929f8be3821e2e5957cacac33fe40166695be"
-        ),
-        ("duckdb", "duckdb.tables.comment"): (
-            "2feee340737744c45a8b9654e0b5c7773e554adb01867507bc8bceb9ecac2553"
-        ),
-        ("duckdb", "duckdb.tables.comment_size"): (
-            "58ee012b4e4b04cd950bc4260a81e54cafaddb8ec8616b4edfb0154247eda6f3"
-        ),
-        ("duckdb", "duckdb.views.database_qualified"): (
-            "32cd1c9a2426b7ce2d7652a0611527958f1e8151e8ba039f4f5091d81a7d9e25"
-        ),
-        ("duckdb", "duckdb.views.schema_qualified"): (
-            "9caeecc09a5e820921a3a5f205cb74323e9d4310a572c8900482f58cf57f7a3a"
-        ),
-        ("sqlite", "sqlite.pragma.index_info"): (
-            "3b25054b5a4a4f89898806b4b020ae56b2c4e56ef04f342a67684dacbc74c05a"
-        ),
-        ("sqlite", "sqlite.pragma.index_list"): (
-            "10dec4aefa9f8f9cd08da9ef3a371bcc9cec203cbfee5aa1cfd22af6a963c916"
-        ),
-        ("sqlite", "sqlite.pragma.table_info"): (
-            "237a2faf8e4bebb8b55c0848614c2245fd2f0f63deb8b5286e95e6004260c688"
-        ),
-        ("sqlite", "sqlite.schema.kind"): (
-            "1ea7edcf28dc690b6068d106c60ec5ef7fed215ee7078b2486114ed7c6bcb337"
-        ),
+        (
+            "clickhouse",
+            "clickhouse.columns.fallback",
+        ): "709ba652e01cc50d9b33c7b2fdb18b76d9dc98677da78aa35c26beda0a5af2d2",
+        (
+            "clickhouse",
+            "clickhouse.columns.full",
+        ): "b4e949ba4a69aa4a1f4f2c51055a4c8b61d4b4131acc7d98cc2353fb918111e8",
+        (
+            "clickhouse",
+            "clickhouse.parts.profile",
+        ): "e5aab4e0725f4b78e7eb71fba1fe6c590488382f55035b0e04f81711c796b00d",
+        (
+            "clickhouse",
+            "clickhouse.parts_columns.active",
+        ): "e74cf9b89ff3dd0a70aac498607e43f3f8420cd9989281413aca3261d5217c62",
+        (
+            "clickhouse",
+            "clickhouse.tables.comment",
+        ): "9877df57bc1fbe4e2f8fbfd7fee6c7ccfae0097b52f34e67c13bc1372c19505f",
+        (
+            "clickhouse",
+            "clickhouse.tables.create_query",
+        ): "b78e969a0d64619fa25f9e76b924aa0736cd947db317a9c8a3a409dce5728dd0",
+        (
+            "clickhouse",
+            "clickhouse.tables.full",
+        ): "794067abc2b33a294ccfbd5a6353b708b606532ef21fa4081632866fd8cb7a87",
+        (
+            "clickhouse",
+            "clickhouse.tables.local_partition_key",
+        ): "13bfcb87e33ae3e3b96954dd3dbc846a554a6d5789040bcaf86aca4d0c9eacc1",
+        (
+            "duckdb",
+            "duckdb.constraints",
+        ): "aed05b4e5cde9aad979d79838f6473690bf7b2291e3ae6e8f385a5c2d7f7b372",
+        (
+            "duckdb",
+            "duckdb.http_secret_bearer",
+        ): "fd508a63cb457ea45d964ff9db5bf9958c70a9ae9639b376616972f5f7447f7d",
+        (
+            "duckdb",
+            "duckdb.http_secret_headers",
+        ): "b1f8b0fbc9dcafd9a51b3876bd3409d122c7e78f54b9e3c121c856db281c7f0e",
+        (
+            "duckdb",
+            "duckdb.namespace.current",
+        ): "a4c4ac1c8ed42516de7b86109f2dfe3cbf7aadbc008851126b988472d2565952",
+        (
+            "duckdb",
+            "duckdb.tables.columns",
+        ): "1100b01df364d116844953075a4929f8be3821e2e5957cacac33fe40166695be",
+        (
+            "duckdb",
+            "duckdb.tables.comment",
+        ): "2feee340737744c45a8b9654e0b5c7773e554adb01867507bc8bceb9ecac2553",
+        (
+            "duckdb",
+            "duckdb.tables.comment_size",
+        ): "58ee012b4e4b04cd950bc4260a81e54cafaddb8ec8616b4edfb0154247eda6f3",
+        (
+            "duckdb",
+            "duckdb.views.database_qualified",
+        ): "32cd1c9a2426b7ce2d7652a0611527958f1e8151e8ba039f4f5091d81a7d9e25",
+        (
+            "duckdb",
+            "duckdb.views.schema_qualified",
+        ): "9caeecc09a5e820921a3a5f205cb74323e9d4310a572c8900482f58cf57f7a3a",
+        (
+            "mysql",
+            "mysql.columns.show",
+        ): "3a76e6a0680dff91eeff9d76183b8dbd2dfe69e6110fb2e102aef91a79a63d02",
+        (
+            "mysql",
+            "mysql.indexes.primary",
+        ): "da11ca0ddd4c745bcda25c28d924fad4e29afe64cb95612ced6c55562739940d",
+        (
+            "mysql",
+            "mysql.partitions",
+        ): "31145d6f5be99a01ce1da201c7fede2010fa929e36f4fb9d36298a3aa8b01d88",
+        (
+            "mysql",
+            "mysql.partitions_schema",
+        ): "e4a6809bbad2846ea2fde8526d5ea7f0ba2a7acdddefb96bb74878075d9c87f4",
+        (
+            "mysql",
+            "mysql.tables.comment",
+        ): "427c866e5ddfd460d887502114c64ea9bc195cfd9d677fb162acd56d88a9e614",
+        (
+            "mysql",
+            "mysql.tables.comment_schema",
+        ): "c73404974f6cf66f7c0ecfb28d26227ca11c6a65ffdf1793af7b0a2ec58ccbec",
+        (
+            "mysql",
+            "mysql.tables.type",
+        ): "2be0ddb94cc4ba9bc8b60c48dbfd3b0186a8d744d74ccb98a3f529fc17d8f30c",
+        (
+            "mysql",
+            "mysql.tables.type_schema",
+        ): "cd10d82f99f2d0a8447c1c5a58f1843c7f2ddafff1d28ede812aedb3c6a6af4e",
+        (
+            "mysql",
+            "mysql.views.definition",
+        ): "9a7445e45bcbc934aca0d1d0b8ac9cf82ca8168acab95076ea50038f5b2f2441",
+        (
+            "mysql",
+            "mysql.views.definition_schema",
+        ): "6b75885449628a723cfe4e55ab0aa79b1ed3103ff0bd29723238e45276e62b89",
+        (
+            "postgres",
+            "postgres.columns",
+        ): "b46809c22735331fac831c188a7bfbcaac045d1dca5b990fd0583df78b2cea41",
+        (
+            "postgres",
+            "postgres.comment.columns",
+        ): "01cb342262878bffa099722fbcd42f6f70aad18816639b56932d6be8b303dbba",
+        (
+            "postgres",
+            "postgres.comment.table",
+        ): "0fb55a21ee6179110212e635d7308f08ff81878248c21f678802b20e309e7e9f",
+        (
+            "postgres",
+            "postgres.constraints",
+        ): "fd618b2ee8605d17dfc0823b03cfab94a44f8bb97808ceb7f80b69af13f3afdc",
+        (
+            "postgres",
+            "postgres.partition.key",
+        ): "6165beff79425c6b55acb72dd8ac67437bb5851b8ceca646ba0a6b3abb946f5b",
+        (
+            "postgres",
+            "postgres.profile.physical",
+        ): "73b4d0a8df2e9dda12710b0ac20a528d9580c8ce02e1a95963ffa4929610460e",
+        (
+            "postgres",
+            "postgres.tables.kind",
+        ): "6a5af7a08b1cd022e3bdcbf5c5ea9003856fb3f5c6ba10039f6c9dab7fff6d27",
+        (
+            "sqlite",
+            "sqlite.pragma.index_info",
+        ): "3b25054b5a4a4f89898806b4b020ae56b2c4e56ef04f342a67684dacbc74c05a",
+        (
+            "sqlite",
+            "sqlite.pragma.index_list",
+        ): "10dec4aefa9f8f9cd08da9ef3a371bcc9cec203cbfee5aa1cfd22af6a963c916",
+        (
+            "sqlite",
+            "sqlite.pragma.table_info",
+        ): "237a2faf8e4bebb8b55c0848614c2245fd2f0f63deb8b5286e95e6004260c688",
+        (
+            "sqlite",
+            "sqlite.schema.kind",
+        ): "1ea7edcf28dc690b6068d106c60ec5ef7fed215ee7078b2486114ed7c6bcb337",
+        (
+            "trino",
+            "trino.columns",
+        ): "56b9066cd5eac76477c018228712611fe546ce4e4f87e8c519992f737e088959",
+        (
+            "trino",
+            "trino.constraints",
+        ): "7623737c191544843de582fdc57aeb7898cd44d4d70c0cbe1bcf15e1355703a1",
+        (
+            "trino",
+            "trino.show_columns",
+        ): "937612f4874b9d5e60adfa307d5897032a4f6a108a4398d65b4c6875f645b94e",
+        (
+            "trino",
+            "trino.show_create",
+        ): "1cc53fe114df6a9b665f7f979aa76a6fe51c15ec38a9964b154d40033c2ec993",
+        (
+            "trino",
+            "trino.show_stats",
+        ): "d4e79ef93a3af896fc2ed7f6e0512ec90a4e68a7fbd2638b1c173b5d140561f4",
+        (
+            "trino",
+            "trino.tables.type",
+        ): "6c30c26bcfcaa4e53f0467c8b7e6376167d6a6ca97ac800386d1ec1bdb158d1d",
+        (
+            "trino",
+            "trino.views.definition",
+        ): "35e034663ab1deb5121af91dd3f55eae847d78830513fd2e5756ee8549a25268",
     }
     observed = {
         (provider, statement_id): hashlib.sha256(statement.template.encode("utf-8")).hexdigest()
