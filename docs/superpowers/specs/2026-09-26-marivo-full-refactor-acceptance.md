@@ -631,3 +631,51 @@ R4 V01–V12 不因本节提升。
 的格式/lint/import、**397** 个源码文件 typing、默认测试 **5288 passed / 64 skipped**
 和 API 文档全部通过；`git diff --check` 通过。64 项历史 skip 的归属与恢复条件不变，
 不计本包验收或整个 R4 通过。
+
+## R4.3 统一交换与方法执行私有增量（2026-09-28）
+
+起点为 `panda` HEAD `433ce97c9547c7ec2a9d3648ad01979335ae3b55`；
+[R4 实施计划](2026-09-28-marivo-full-algebra-dsl-r4-implementation-plan.md)
+SHA-256 为 `77b506be0155357fa9e620f40ba0d1f8c8a548bd5a109795695f07a20cee9bf3`。
+本节不提交候选，不能把基线提交 SHA 当作新增代码 SHA。R1 整体验收复核的
+既有未提交文档改动保持原样；本节只增加 R4.3 归属，不转授 R1 后端或控制证据。
+本包 20 个源码、测试和 owning spec 候选按仓库相对路径排序，并依次将
+`path UTF-8 + NUL + file bytes + NUL` 输入 SHA-256，得到候选摘要
+`ce058c09257f6f023181a49b67622a6d760a147f0ad6ef056f8f53e17f1f0867`。
+关键文件内容 SHA-256：`graph_lowering.py` 为
+`6fd126c32452422f50cbeb550b63f87c37ae8e02ae620009fe6aa317a79d34ba`，
+`graph_exchange.py` 为
+`c952e7d72dd566dab75afa31059e629c118f728d147937eda324049dadb5b2a9`，
+`graph_source_execution.py` 为
+`d317f7bf165fa45afec6f1281607fc231fa8356f0d04bc7d59f465497755f9b0`，
+`graph_local_execution.py` 为
+`5468a4d143d01d0efd71c084dd1ace6aa08204f0db6372566e2952f462db5bc7`，
+`graph_spearman_execution.py` 为
+`ff724e058cb5b401206545be43eeda49842a767f7b67504269a0e59d09d264b7`。
+以下每格均以该 20 文件候选摘要为共同代码 SHA；命令与结果只证明本机当次
+所测私有范围，不能扩大方法或后端资格。
+
+| 私有单元及候选 SHA | 实际命令与结果 | 未验证、阻塞及恢复条件 |
+| --- | --- | --- |
+| **精确资格与早拒绝**：`ce058c09…0867`；DuckDB native table/Parquet、`NoTime`、完整 int64 身份，已选来源 `bind_project`、`parts_transport`、`map_correspond`、`row.count`、`row.count_defined`、int64 `row.sum`/`row.mean`；固定 `row.count`/`row.count_defined`/int64 `row.sum`/`row.mean`；Spearman 的 ordered int64/float64 两端点分别走 `ibis`、`ibis_python` 和 fixed Python。 | `make test TESTS='tests/test_analysis_methods_r32.py tests/test_analysis_graph_r33.py tests/test_analysis_graph_runtime_r42.py tests/test_analysis_lowering_r34.py tests/test_analysis_dsl_exchange.py tests/test_datasource_adapter_contract.py'`：**232 passed**。Decimal、时间形状与未登记组合在业务读取前拒绝；已有固定 `row.count` 的 100,000 行限制保持。 | J1–J3 其他旧数值/分组/ratio/比较与原始状态归约尚未取得新 owner 的精确消费证据，保持 **阻塞**；须分别实现检查、状态/parts 和 source/fixed 反例后才能注册。其他后端、表形态和时间/Decimal 数值资格 **未验证**。 |
+| **真实来源、共享与检查**：`ce058c09…0867`；`LoweredPlan.sources_for()` 定位 R1 绑定，原样编译已选表达式；共享结果由同一 `SourceSession` 临时 Arrow 表承载并在退出时清理。 | 同一 232 项定向命令：source 表/Parquet、实际 SQL 来源读取计数、原节点 consume/publish 检查、重复键、非 Defined、迭代异常及取消反例 **通过**；`make runtime-test TESTS='tests/test_analysis_dsl_j1_runtime.py tests/test_r12_source_adapters_runtime.py'`：**6 passed / 8 skipped**。 | 远端后端与服务端取消终止 **未验证**；8 项 opt-in skip 保留原恢复条件，不计通过。R4.2 的合成调度证据不能替代本轮实际 I/O，也不转授产品执行。 |
+| **三生产者交换、receipt 与状态**：`ce058c09…0867`；source、完整 receipt Parquet、pandas→Arrow 共用 schema/四态 Cell/完整键校验，主表、part 和方法状态向量独立按键核对；待执行检查与本次 completed 证据同在 transient contract。 | 同一 232 项定向命令：三生产者空流、四态、大 int64、分批、part 换序、坏 receipt、缺 part、未耗尽及关闭失败、错误状态向量反例 **通过**。固定 `row.count`/Spearman 测试钉死 DuckDB 与来源 Session 构造入口；共享同一固定叶子只读一次。 | v7 codec、持久 receipt、Artifact 发布和断源冷恢复 **未实施**，属 R4.4/R4.5；本轮完整 receipt 仅是现有 `LocalReceipt` 物理校验，不把旧 Artifact 升为新协议。 |
+| **J4 Spearman 单一语义 owner**：`ce058c09…0867`；同键配对、Null、平均秩、常量/不足对状态和 `pair_counts`，两条来源实现及 receipt 校验后的固定续算使用新注册消费者，不调用旧场景派发或 codec。 | 同一 232 项定向命令：table/Parquet × 两来源路由的空流、并列秩、反向完整对、Null、常量、未知 Cell 拒绝，及 fixed 反向/共享叶子测试 **通过**。 | 旧 `dsl_j4_source.py` 仍供 v6 公共调用，须待 R4.5 切换后删除；公开 J4 K、断源恢复和四旅程 **未验证**。 |
+| **局部门禁与产品边界**：`ce058c09…0867`；本包不分配 Run、不写 Store/Artifact，不改变公共 API、Help、CLI、英中 latest 或 packaged skills。 | `make typecheck TYPECHECK_TARGETS='marivo/analysis/compiler/graph_lowering.py marivo/analysis/core/model.py marivo/analysis/core/rules.py marivo/analysis/methods/builtin.py marivo/analysis/methods/local.py marivo/analysis/methods/registry.py marivo/analysis/methods/semantics.py marivo/analysis/materialization/graph_exchange.py marivo/analysis/materialization/graph_local_execution.py marivo/analysis/materialization/graph_source_execution.py marivo/analysis/materialization/graph_spearman_execution.py marivo/datasource/adapters.py'`：**12 个源码文件通过**；对应 `make lint-agent LINT_TARGETS='…'`：**17 文件通过**；`make check-agent`：格式、lint/import、**401** 个源码文件 typing、**5341 passed / 64 skipped** 和 API 文档通过；`git diff --check` 通过。 | R4 V01–V12 产品格、Run/Store 唯一性、新 Artifact、并发、冷恢复、wheel、真实 Agent 均 **未验证**；64 项历史 skip 保持原 owner 与恢复条件，绝不计为通过。本包无提交、推送或发布。 |
+
+本轮判定为**所列精确资格内的 R4.3 私有执行通过**，而非完整 J1–J4 产品
+或整个 R4 通过。J1–J3 仍阻塞的变体、v7 发布和公共切换按上表恢复条件
+继续实施；旧 v6 公共调用的既有结果不作为新链验收。
+
+### R4.3 对抗性审查修复（2026-09-28，未提交）
+
+基线仍为 `433ce97c9547c7ec2a9d3648ad01979335ae3b55`。此前的候选
+SHA 与命令保留为历史证据；以下补充替代其涉及两个反例的验收结论，
+不修改独立 R1 工作或提升 V01–V12 产品格。
+
+| 修复及文件 SHA-256 | 命令与观察结果 | 边界 |
+| --- | --- | --- |
+| P1：方法 owner 按完整键校验主表与数值 part，拒绝 mean `3.5` 与 sum/count `999/4`、错误/负 count 及矛盾 Spearman pair counts。`methods/state_validation.py`: `c6c22b57a86374b5130e719ef57c280832e1026d32f1e4c02780e0364d773c24`；`materialization/graph_exchange.py`: `a8a89f786eaa1de44be277d5394e9f2a1a0e8f2b1f950a82338deecb775e92ca`。 | `make test TESTS='tests/test_analysis_dsl_exchange.py tests/test_analysis_lowering_r34.py tests/test_analysis_graph_runtime_r42.py tests/test_analysis_methods_r32.py'`：**168 passed**，覆盖 Arrow/pandas 矛盾状态拒绝以及已有 source/fixed 正常执行。 | 只验证已资格化 transient 状态；不授予原始状态归约或新 Artifact 权限。 |
+| P2：固定行方法在 receipt 打开前比较 leaf 与 Arrow value 物理类型。`materialization/graph_local_execution.py`: `cd7a047259a28c9417e441efe39a5cd3980729434245728238b570b62e047f8e`；测试 `tests/test_analysis_dsl_exchange.py`: `eb1d55d4229cea0668b3c18b509b2966b36b8aab5b61b8bab8811c5c62f40260`。 | 同一 **168 passed** 命令；Decimal、timestamp、float64 与 int64 资格矛盾时结构化拒绝，测试钉死 receipt 读取入口。 | 未扩大 Decimal、时间或 float64 固定行方法资格；数据是否全 Null 不影响类型早拒绝。 |
+| 修复门禁 | `make typecheck TYPECHECK_TARGETS='marivo/analysis/methods/state_validation.py marivo/analysis/materialization/graph_exchange.py marivo/analysis/materialization/graph_local_execution.py'`：**3 文件通过**；同三文件及 exchange 测试的 `make lint-agent LINT_TARGETS='…'`：**4 文件通过**。`make runtime-test TESTS='tests/test_analysis_dsl_j1_runtime.py tests/test_r12_source_adapters_runtime.py'`：**6 passed / 8 skipped**。 | opt-in Runtime skip 不计通过；远端后端、冷恢复、发布与真实 Agent 仍未验证。 |
+| 广域门禁 | `make check-agent`：格式、lint/import、**402** 个源码文件 typing、**5341 passed / 64 skipped**、API 文档通过；`git diff --check` 通过。 | 历史 skip 保持原恢复条件，不计通过；无提交、推送或发布。 |
