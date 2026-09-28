@@ -6,6 +6,7 @@ from typing import Literal
 
 from marivo.analysis.core.model import CheckId, DomainKind, PartRole
 from marivo.analysis.core.rules import (
+    AssociationScore,
     BindProject,
     MapCorrespond,
     PartsTransport,
@@ -31,15 +32,79 @@ CHECKS: tuple[CheckId, ...] = (
     "source.exact_pairing@v1",
     "source.cell_policy@v1",
 )
+NUMERIC_CHECKS: tuple[CheckId, ...] = (*CHECKS, "source.finite_numeric@v1")
 
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
+    if method.name == "association.spearman":
+        pair_checks: tuple[CheckId, ...] = (*NUMERIC_CHECKS,)
+        pair_parts: tuple[PartRole, ...] = (*PARTS, "pair_counts")
+        pair_declarations: list[Implementation] = []
+        pair_shapes: tuple[tuple[Literal["table", "parquet"], str], ...] = (
+            ("table", "native"),
+            ("parquet", "parquet"),
+        )
+        scalar_names: tuple[Literal["int64", "float64"], ...] = ("int64", "float64")
+        for form, table_kind in pair_shapes:
+            shape = SourceShape("duckdb", form, table_kind, NoTime())
+            for left in scalar_names:
+                for right in scalar_names:
+                    for route in ("ibis", "ibis_python"):
+                        pair_declarations.append(
+                            Implementation(
+                                QualificationKey(
+                                    method,
+                                    (ScalarType(left), ScalarType(right)),
+                                    ("entity", "entity"),
+                                    shape,
+                                    route,
+                                ),
+                                pair_checks,
+                                pair_parts,
+                                "finite_float64",
+                                ResourceRequirements(
+                                    "complete" if route == "ibis_python" else "stream",
+                                    "producer",
+                                    None,
+                                ),
+                                Qualified(
+                                    f"r43.spearman.{route}.{left}.{right}@v1",
+                                    "analysis.compiler.graph_lowering",
+                                    "tests/test_analysis_lowering_r34.py",
+                                ),
+                            )
+                        )
+        for left in scalar_names:
+            for right in scalar_names:
+                pair_declarations.append(
+                    Implementation(
+                        QualificationKey(
+                            method,
+                            (ScalarType(left), ScalarType(right)),
+                            ("entity", "entity"),
+                            FixedShape(NoTime()),
+                            "artifact_python",
+                        ),
+                        ("source.exact_pairing@v1", "source.finite_numeric@v1"),
+                        pair_parts,
+                        "finite_float64",
+                        ResourceRequirements("complete", "caller", None),
+                        Qualified(
+                            f"r43.spearman.fixed.{left}.{right}@v1",
+                            "analysis.methods.local",
+                            "tests/test_analysis_lowering_r34.py",
+                        ),
+                    )
+                )
+        return tuple(pair_declarations)
     if method.name not in (
         "bind_project",
         "parts_transport",
         "map_correspond",
         "row.count",
         "row.count_defined",
+        "row.sum",
+        "row.mean",
     ):
         return ()
     declarations: list[Implementation] = []
@@ -56,9 +121,13 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     QualificationKey(
                         method, (ScalarType("int64"),) * arity, (domain,) * arity, shape, "ibis"
                     ),
-                    CHECKS,
+                    NUMERIC_CHECKS if method.name in ("row.sum", "row.mean") else CHECKS,
                     PARTS,
-                    "checked_int64" if method.name.startswith("row.") else "exact",
+                    "finite_float64"
+                    if method.name == "row.mean"
+                    else "checked_int64"
+                    if method.name.startswith("row.")
+                    else "exact",
                     ResourceRequirements("stream", "producer", None),
                     Qualified(
                         f"r34.ibis.{method}",
@@ -67,7 +136,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     ),
                 )
             )
-    if method.name == "row.count":
+    if method.name in ("row.count", "row.count_defined", "row.sum", "row.mean"):
         declarations.append(
             Implementation(
                 QualificationKey(
@@ -77,12 +146,20 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     FixedShape(NoTime()),
                     "artifact_python",
                 ),
-                (),
+                ("source.cell_policy@v1",)
+                if method.name == "row.count_defined"
+                else NUMERIC_CHECKS
+                if method.name not in ("row.count",)
+                else (),
                 ("row_state",),
-                "checked_int64",
-                ResourceRequirements("complete", "caller", 100_000),
+                "finite_float64" if method.name == "row.mean" else "checked_int64",
+                ResourceRequirements(
+                    "complete", "caller", 100_000 if method.name == "row.count" else None
+                ),
                 Qualified(
-                    "r34.local.row.count@v1",
+                    "r34.local.row.count@v1"
+                    if method.name == "row.count"
+                    else f"r43.local.{method}@v1",
                     "analysis.methods.local",
                     "tests/test_analysis_lowering_r34.py",
                 ),
@@ -128,5 +205,20 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
                 params.mode,
                 "Bind the selection in the definition graph; materialization belongs to R4.",
             )
-    elif not isinstance(params, RowState) or params.method not in ("count", "count_defined"):
-        reject("a connected count state consumer", repr(params), "Use the registered exact method.")
+    elif isinstance(params, AssociationScore):
+        if (
+            params.pairing_check_id != "source.exact_pairing@v1"
+            or params.numeric_check_id != "source.finite_numeric@v1"
+        ):
+            reject(
+                "registered pairing and numeric checks",
+                repr(params),
+                "Use the exact Association checks.",
+            )
+    elif not isinstance(params, RowState) or params.method not in (
+        "count",
+        "count_defined",
+        "sum",
+        "mean",
+    ):
+        reject("a connected row state consumer", repr(params), "Use the registered exact method.")

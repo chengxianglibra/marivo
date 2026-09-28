@@ -53,10 +53,23 @@ from marivo.analysis.core.model import (
     Unknown,
 )
 from marivo.analysis.core.predicates import ValuePredicate
-from marivo.analysis.core.rules import BindProject, MapCorrespond, PartsTransport, RowState
+from marivo.analysis.core.rules import (
+    AssociationScore,
+    BindProject,
+    MapCorrespond,
+    PartsTransport,
+    RowState,
+)
 from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.local import count
-from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType, SourceShape
+from marivo.analysis.methods.physical import (
+    DecimalType,
+    FixedShape,
+    NoTime,
+    ScalarType,
+    SourceShape,
+    TimeShape,
+)
 from marivo.analysis.refs import ArtifactRef
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import (
@@ -199,6 +212,122 @@ def _count(source, method="count"):
         ),
         value_type=ScalarType("int64"),
     )
+
+
+def _spearman(left, right):
+    target = DomainSignature(left.signature.domain.binding, "singleton", (), (), "all")
+    return method_node(
+        (Edge("quantity", left), Edge("quantity", right)),
+        AssociationScore(
+            target,
+            "rank-association",
+            "source.exact_pairing@v1",
+            "source.finite_numeric@v1",
+        ),
+        value_type=ScalarType("float64"),
+    )
+
+
+@pytest.mark.parametrize("route", ["ibis", "ibis_python"])
+@pytest.mark.parametrize(
+    "values_a,values_b,status,expected,complete",
+    [
+        ([1, 2, 3, 4], [4, 3, 2, 1], "valid", -1.0, 4),
+        ([1, 2, 2, 4], [4, 2, 3, 1], "valid", -0.9486832980505138, 4),
+        ([1, 1, 1, 1], [4, 3, 2, 1], "constant_a", None, 4),
+        ([1, 2, 3, 4], [4, 3, None, 1], "valid", -1.0, 3),
+        ([1, 2, 3, 4], [4, 3, None, 1], "invalid", None, 0),
+        ([], [], "insufficient_pairs", None, 0),
+    ],
+)
+def test_r43_source_spearman_exact_pair_state(
+    source_case, route, values_a, values_b, status, expected, complete
+):
+    session, form, path = source_case
+    rows = pa.table(
+        {
+            "tenant": pa.array([1, 1, 2, 2][: len(values_a)], type=pa.int64()),
+            "id": pa.array([9007199254740993, 2, 1, 2][: len(values_a)], type=pa.int64()),
+            "amount": pa.array(values_a, type=pa.int64()),
+            "other": pa.array(values_b, type=pa.int64()),
+            "tag": pa.array(["defined"] * len(values_a), type=pa.string()),
+            "reason": pa.array([None] * len(values_a), type=pa.string()),
+            "tag_b": pa.array(
+                [
+                    ("unknown" if status == "invalid" else "null") if item is None else "defined"
+                    for item in values_b
+                ],
+                type=pa.string(),
+            ),
+            "reason_b": pa.array(
+                [
+                    ("unavailable" if status == "invalid" else "source_null")
+                    if item is None
+                    else None
+                    for item in values_b
+                ],
+                type=pa.string(),
+            ),
+        }
+    )
+    session._backend.create_table("facts", rows, overwrite=True)
+    pq.write_table(rows, path)
+    left = _leaf(form)
+    observed = left.signature.quantity
+    assert isinstance(observed, ObservedQuantity)
+    right_observed = replace(
+        observed,
+        definition_id="other",
+        metric_ref=ms.ref.metric("sales.other"),
+    )
+    right = SourceLeaf(
+        SourceDefinition(
+            right_observed.metric_ref,
+            "metric-v1",
+            ms.ref.datasource("db"),
+            left.definition.shape,
+        ),
+        replace(left.signature, quantity=right_observed),
+        ScalarType("int64"),
+    )
+    first = _bind(source_case, left)
+    second = replace(
+        _bind(source_case, right),
+        layout=replace(
+            _bind(source_case, right).layout, cell=CellColumns("other", "tag_b", "reason_b")
+        ),
+    )
+    root = _spearman(left, right)
+    from marivo.analysis.materialization.graph_execution import prepare_graph
+    from marivo.analysis.materialization.graph_source_execution import execute_source_graph
+
+    prepared = prepare_graph(
+        root,
+        session_ref=left.signature.domain.binding.session_id,
+        routes=(RouteChoice(root.identity, route),),
+    )
+    lowered = lower(prepared.admitted, bindings=(first, second))
+    if status == "invalid":
+        from marivo.analysis.materialization.errors import MaterializationError
+
+        with pytest.raises(MaterializationError, match="violating rows"):
+            execute_source_graph(prepared, lowered, session)
+        assert (
+            len([item for item in session.submissions if item.purpose == "analysis.graph.stage"])
+            == 2
+        )
+        assert not session._staged_relations
+        return
+    result = execute_source_graph(prepared, lowered, session)
+    if expected is None:
+        assert result.primary.column("value").to_pylist() == [None]
+    else:
+        assert result.primary.column("value").to_pylist() == pytest.approx([expected])
+    assert result.primary.column("status").to_pylist() == [status]
+    assert result.parts[0].role == "pair_counts"
+    assert result.parts[0].table.column("pair_counts__complete_pair_count").to_pylist() == [
+        complete
+    ]
 
 
 @pytest.mark.parametrize("method,expected", [("count", 5), ("count_defined", 2)])
@@ -876,3 +1005,231 @@ def test_inherited_pairing_keeps_origin_groups_across_union(source_case, shared)
             0,
             3,
         ]
+
+
+def test_r43_private_source_exchange_executes_lowered_count(source_case):
+    from marivo.analysis.materialization.graph_execution import PreparedGraph
+    from marivo.analysis.materialization.graph_source_execution import execute_source_graph
+
+    leaf = _leaf(source_case[1])
+    binding = _bind(source_case, leaf)
+    admitted = _plan(_count(leaf))
+    lowered = lower(admitted, bindings=(binding,))
+    result = execute_source_graph(PreparedGraph(admitted), lowered, source_case[0])
+    assert result.primary.to_pylist() == [{"value": 5, "cell_tag": "defined", "cell_reason": None}]
+    assert tuple(part.role for part in result.parts) == ("row_state",)
+    assert result.parts[0].table["row_state__count"].to_pylist() == [5]
+    assert all(submission.state == "succeeded" for submission in source_case[0].submissions)
+
+
+def test_r43_transport_carries_exact_source_cell_reason_policy(source_case):
+    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.materialization.graph_execution import PreparedGraph
+    from marivo.analysis.materialization.graph_source_execution import execute_source_graph
+
+    leaf = _leaf(source_case[1])
+    view = method_node(
+        (Edge("quantity", leaf),),
+        PartsTransport("view", leaf.signature.domain, (), True),
+        value_type=ScalarType("int64"),
+    )
+    admitted = _plan(view)
+    binding = _bind(source_case, leaf)
+    with pytest.raises(MaterializationError, match="invalid non-Defined Cell"):
+        execute_source_graph(
+            PreparedGraph(admitted), lower(admitted, bindings=(binding,)), source_case[0]
+        )
+    assert not source_case[0]._staged_relations
+    declared = replace(
+        binding,
+        cell_reasons=(
+            ("null", ("source_null",)),
+            ("undefined", ("zero_denominator",)),
+            ("unknown", ("unavailable",)),
+        ),
+    )
+    result = execute_source_graph(
+        PreparedGraph(admitted), lower(admitted, bindings=(declared,)), source_case[0]
+    )
+    assert result.primary["cell_tag"].to_pylist() == [
+        "defined",
+        "null",
+        "undefined",
+        "unknown",
+        "defined",
+    ]
+    assert result.primary["value"].to_pylist()[0] == 5
+
+
+@pytest.mark.parametrize("form", ["table", "parquet"])
+@pytest.mark.parametrize("method,expected", [("sum", 23), ("mean", 4.6)])
+def test_r43_registered_row_arithmetic_uses_one_semantic_policy(
+    tmp_path: Path, form: str, method: str, expected: int | float
+) -> None:
+    from marivo.analysis.materialization.graph_execution import PreparedGraph
+    from marivo.analysis.materialization.graph_source_execution import execute_source_graph
+
+    data = _rows()
+    data = data.set_column(2, "amount", pa.array([5, 2, 3, 4, 9], type=pa.int64()))
+    data = data.set_column(3, "tag", pa.array(["defined"] * 5))
+    data = data.set_column(4, "reason", pa.array([None] * 5, type=pa.string()))
+    backend = ibis.duckdb.connect()
+    backend.create_table("facts", data)
+    path = tmp_path / "facts.parquet"
+    pq.write_table(data, path)
+    datasource = DatasourceIR(
+        "db", "db", "duckdb", {}, {}, AiContextIR(), "db", DatasourceSourceLocation("source.py", 1)
+    )
+    with SourceSession(provider_for("duckdb"), datasource, backend) as source:
+        leaf = _leaf(form)
+        binding = _bind((source, form, path), leaf)
+        target = DomainSignature(leaf.signature.domain.binding, "singleton", (), (), "all")
+        node = method_node(
+            (Edge("quantity", leaf),),
+            RowState(method, target, method, "strict", numeric_check_id="source.finite_numeric@v1"),
+            value_type=ScalarType("float64" if method == "mean" else "int64"),
+        )
+        admitted = _plan(node)
+        lowered = lower(admitted, bindings=(binding,))
+        result = execute_source_graph(PreparedGraph(admitted), lowered, source)
+        assert result.primary["value"].to_pylist() == [expected]
+        assert result.primary["cell_tag"].to_pylist() == ["defined"]
+        assert len(result.completed_checks) == 1
+        assert result.completed_checks[0].requirement.obligation.check_id == (
+            "source.finite_numeric@v1"
+        )
+        assert result.parts[0].table["row_state__sum"].to_pylist() == [23]
+        if method == "mean":
+            assert result.parts[0].table["row_state__count"].to_pylist() == [5]
+
+
+def test_r43_strict_row_method_rejects_non_defined_input_before_result(source_case):
+    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.materialization.graph_execution import PreparedGraph
+    from marivo.analysis.materialization.graph_source_execution import execute_source_graph
+
+    leaf = _leaf(source_case[1])
+    binding = _bind(source_case, leaf)
+    target = DomainSignature(leaf.signature.domain.binding, "singleton", (), (), "all")
+    node = method_node(
+        (Edge("quantity", leaf),),
+        RowState("sum", target, "sum", "strict", numeric_check_id="source.finite_numeric@v1"),
+        value_type=ScalarType("int64"),
+    )
+    admitted = _plan(node)
+    lowered = lower(admitted, bindings=(binding,))
+    with pytest.raises(MaterializationError, match="violating rows"):
+        execute_source_graph(PreparedGraph(admitted), lowered, source_case[0])
+    assert all(submission.state == "succeeded" for submission in source_case[0].submissions)
+    assert source_case[0]._staged_relations == {}
+
+
+@pytest.mark.parametrize("failure", [ValueError, KeyboardInterrupt])
+def test_r43_source_iteration_failure_releases_prior_temporary_stages(
+    source_case, monkeypatch: pytest.MonkeyPatch, failure
+):
+    from marivo.analysis.materialization.graph_execution import PreparedGraph
+    from marivo.analysis.materialization.graph_source_execution import execute_source_graph
+
+    leaf = _leaf(source_case[1])
+    admitted = _plan(_count(leaf))
+    lowered = lower(admitted, bindings=(_bind(source_case, leaf),))
+    session = source_case[0]
+    original = session.batches
+    stage_reads = 0
+    closed = []
+
+    class FailedStream:
+        def __iter__(self):
+            raise failure("selected stream stopped")
+            yield
+
+        def close(self):
+            closed.append(True)
+
+    def failing_batches(read, *, chunk_size):
+        nonlocal stage_reads
+        if read.purpose == "analysis.graph.stage":
+            stage_reads += 1
+            if stage_reads == 2:
+                return FailedStream()
+        return original(read, chunk_size=chunk_size)
+
+    monkeypatch.setattr(session, "batches", failing_batches)
+    with pytest.raises(failure, match="selected stream stopped"):
+        execute_source_graph(PreparedGraph(admitted), lowered, session)
+    assert closed == [True]
+    assert not session._staged_relations
+
+
+def test_r43_duplicate_source_identity_rejects_and_releases_temporary_stage(source_case):
+    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.materialization.graph_execution import PreparedGraph
+    from marivo.analysis.materialization.graph_source_execution import execute_source_graph
+
+    session, form, path = source_case
+    rows = _rows().set_column(1, "id", pa.array([2, 2, 1, 2, 1], type=pa.int64()))
+    session._backend.create_table("facts", rows, overwrite=True)
+    pq.write_table(rows, path)
+    leaf = _leaf(form)
+    admitted = _plan(_count(leaf))
+    lowered = lower(admitted, bindings=(_bind(source_case, leaf),))
+    with pytest.raises(MaterializationError, match="violating rows"):
+        execute_source_graph(PreparedGraph(admitted), lowered, session)
+    assert not session._staged_relations
+
+
+def test_r43_unqualified_decimal_and_time_shapes_reject_before_business_read(source_case):
+    source = source_case[0]
+    base = _leaf(source_case[1])
+    changed = (
+        replace(base, value_type=DecimalType(18, 2)),
+        replace(
+            base,
+            definition=replace(
+                base.definition,
+                shape=SourceShape(
+                    "duckdb",
+                    source_case[1],
+                    "native" if source_case[1] == "table" else "parquet",
+                    TimeShape("instant", "us", "UTC"),
+                ),
+            ),
+        ),
+    )
+    for leaf in changed:
+        with pytest.raises(MethodRegistrationError, match="qualified exact key"):
+            _plan(_count(leaf))
+    assert source.submissions == []
+
+
+def test_r43_explicit_shared_source_stage_is_physically_reused(source_case):
+    from marivo.analysis.materialization.graph_execution import PreparedGraph
+    from marivo.analysis.materialization.graph_source_execution import execute_source_graph
+
+    left, right = (_leaf(source_case[1], quantity=False) for _ in range(2))
+    bindings = (_bind(source_case, left), _bind(source_case, right))
+    first = method_node(
+        (Edge("subject", left), Edge("subject", right)),
+        MapCorrespond(
+            "exact_keys",
+            replace(left.signature.domain, definition_id="paired"),
+            "source.exact_pairing@v1",
+        ),
+        value_type=ScalarType("int64"),
+    )
+    shared = method_node(
+        (Edge("subject", first), Edge("subject", first)),
+        MapCorrespond("union_keys", first.signature.domain),
+        value_type=ScalarType("int64"),
+    )
+    admitted = _plan(shared)
+    lowered = lower(admitted, bindings=bindings)
+    result = execute_source_graph(PreparedGraph(admitted), lowered, source_case[0])
+    assert result.primary.num_rows == 5
+    assert source_case[0]._staged_relations == {}
+    assert sum(
+        submission.purpose == "analysis.graph.stage" for submission in source_case[0].submissions
+    ) == len(lowered.stages)
+    physical = "facts" if source_case[1] == "table" else "ibis_read_parquet_"
+    assert sum(physical in submission.sql for submission in source_case[0].submissions) == 2

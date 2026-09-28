@@ -292,6 +292,22 @@ that R4.3 must connect. Equal physical columns cannot transfer authority
 between kinds. An unsupported kind or version rejects before part rows are
 read. There is no arbitrary dictionary payload or absent-field mega-class.
 
+R4.3 uses these state kinds as private transient execution results. A producer
+must validate each required part by its own full ordered key, schema and
+binding, including when batches split or rows arrive in a different order.
+An empty verified part is distinct from a missing part. The source and pandas
+implementations of one registered method apply the same Cell, unit and state
+policy; source preparation and source numerical Spearman are two qualified
+physical routes under one Association semantic owner.
+
+The private Spearman owner pairs by the complete Entity key, admits only finite
+Defined or ordinary Null endpoint Cells, computes average ranks over complete
+pairs and retains status separately from its `pair_counts` part. Its fixed
+continuation verifies both selected primary and required part receipts before
+scoring, and can reuse one explicitly shared fixed input without reading its
+receipt twice. `insufficient_pairs` and constant-input states carry Undefined
+coefficient Cells and their own status, not a fabricated zero coefficient.
+
 | State kind | Required keyed part roles and state components | Continuation premise |
 | --- | --- | --- |
 | `none` | No state part; only the complete primary relation and its receipt. | Only methods derivable from its actual relation signature. |

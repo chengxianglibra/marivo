@@ -25,6 +25,7 @@ from marivo.analysis.core.model import (
     Obligation,
     ObservedQuantity,
     OriginalStatePart,
+    PairCountsPart,
     Part,
     PartRole,
     Quantity,
@@ -68,6 +69,7 @@ RuleId: TypeAlias = Literal[
     "row_state@v1",
     "original_reduce@v1",
     "parts_transport@v1",
+    "association_score@v1",
 ]
 
 
@@ -135,8 +137,22 @@ class PartsTransport:
     predicates: tuple[ValuePredicate, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class AssociationScore:
+    output_domain: DomainSignature
+    definition_id: str
+    pairing_check_id: CheckId
+    numeric_check_id: CheckId
+
+
 RuleParameters: TypeAlias = (
-    BindProject | MapCorrespond | CellDerive | RowState | OriginalReduce | PartsTransport
+    BindProject
+    | MapCorrespond
+    | CellDerive
+    | RowState
+    | OriginalReduce
+    | PartsTransport
+    | AssociationScore
 )
 
 
@@ -681,6 +697,72 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
         post=(_fact("cell_policy", binding, output.definition_id),),
         obligations=obligations,
         eval_id=f"cell_derive.{params.method}@v1",
+    )
+
+
+def _association_score(inputs: tuple[Signature, ...], params: AssociationScore) -> RuleDerivation:
+    if len(inputs) != 2 or any(not isinstance(item.quantity, ObservedQuantity) for item in inputs):
+        reject(
+            "two original observed quantities",
+            str(len(inputs)),
+            "Observe two Metrics over the same Entity members.",
+            "core.association",
+        )
+    left, right = inputs
+    assert isinstance(left.quantity, ObservedQuantity)
+    assert isinstance(right.quantity, ObservedQuantity)
+    binding = _binding(inputs, "core.association")
+    _output_domain(binding, params.output_domain, "core.association")
+    _reduction_domain(left.domain, params.output_domain)
+    if (
+        left.domain.kind != "entity"
+        or right.domain.kind != "entity"
+        or left.domain.instance_key != right.domain.instance_key
+        or left.domain.binding != right.domain.binding
+        or left.quantity.time_scope != right.quantity.time_scope
+    ):
+        reject(
+            "two exact same-Entity no-lag observations",
+            repr((left.domain, right.domain)),
+            "Bind both Metrics to one complete member realization.",
+            "core.association.domain",
+        )
+    if (
+        params.pairing_check_id != "source.exact_pairing@v1"
+        or params.numeric_check_id != "source.finite_numeric@v1"
+    ):
+        reject(
+            "registered pairing and numeric check IDs",
+            repr((params.pairing_check_id, params.numeric_check_id)),
+            "Use the Association method's exact checks.",
+            "core.association.check",
+        )
+    pair = _fact("key_set_equal", binding, params.definition_id, inputs)
+    numeric = _fact("finite_numeric", binding, params.definition_id, inputs)
+    quantity = DerivedQuantity(
+        params.definition_id,
+        "association.spearman@v1",
+        (left.quantity.definition_id, right.quantity.definition_id),
+        "1",
+        left.quantity.time_scope,
+        "strict",
+    )
+    state = PairCountsPart(binding, left.quantity.definition_id, right.quantity.definition_id, "v1")
+    return _result(
+        "association_score@v1",
+        inputs,
+        params.output_domain,
+        quantity,
+        (state,),
+        pre=(pair, numeric),
+        required=(),
+        created=("pair_counts",),
+        post=(_fact("state_binding", binding, quantity.definition_id),),
+        obligations=(
+            Obligation(pair, params.pairing_check_id, "consume"),
+            Obligation(numeric, params.numeric_check_id, "consume"),
+        ),
+        eval_id="association.spearman@v1",
     )
 
 

@@ -181,6 +181,29 @@ bytes hash/count, physical schema fingerprint, row count and Parquet version 1.
 receipt. The exchange `cell_contract` names the value/tag/reason fields and
 their exact four-tag policy. The descriptor's `completed_checks` is a tuple
 of the closed check-evidence variants below, not a list of claimed check IDs.
+R4.3 implements only the transient exchange and method execution side of this
+target. Its selected local input must exhaust receipt-checked primary and part
+streams before pandas receives them; a partially consumed or failed stream
+cannot supply completed evidence. The private consumer keeps check origin,
+scope, ordered inputs and deadline while source and local methods run. It
+allocates no Run and writes no descriptor or Store row. The v7 authority and
+atomic publication remain R4.4 work.
+
+The R4.3 transient `ExchangeContract` carries the exact signature, method,
+input binding, primary schema, complete ordered keys, part schemas, Cell reason
+policy, method-state kind/schema and pending check requirements. A produced
+`ExchangeResult` retains independent primary, keyed parts, keyed method-state
+vector and completed check records. The collector requires every required
+numerical state part to agree with its primary Cell after full-key
+association: row counts are nonnegative, row sums and means agree with retained
+components, and Spearman counts reconcile with its status and coefficient.
+Fixed current-row consumers compare the declared leaf value type with the
+exchange Arrow value type before opening any receipt. The collector requires
+every pending requirement to have a completed record and rejects foreign completions;
+completion never follows an early close, failed close, iterator exception or
+cancelled read. Source-derived Arrow staging belongs to its original R1
+`SourceSession` and is released on both success and failure.
+
 The descriptor embeds the bounded canonical snapshot text and its SHA-256
 digest in the existing payload column; v7 adds no second snapshot table. The
 snapshot's root and frozen facts determine possible continuations; only

@@ -197,7 +197,7 @@ def test_mixed_and_foreign_session_reject_before_business_io_or_run(
 
 
 def test_unqualified_method_rejects_before_any_stage_consumer() -> None:
-    root = _mean(_source("session_r42", quantity=True))
+    root = _mean(replace(_source("session_r42", quantity=True), value_type=ScalarType("float64")))
     with pytest.raises(MethodRegistrationError, match="qualified exact key"):
         prepare_graph(root, session_ref="session_r42", routes=_routes(root))
 
