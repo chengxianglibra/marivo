@@ -14,6 +14,7 @@ from marivo.datasource.ir import DatasourceIR, TableSourceIR
 
 if TYPE_CHECKING:
     from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.capabilities import ProviderHttpCredentials
     from marivo.datasource.metadata import MetadataWarning, TableMetadata
 
 BackendDatetimeDecodePolicy: TypeAlias = Literal["local_naive_label", "utc_naive_instant"]
@@ -136,6 +137,7 @@ class EngineProfile:
     quantile: QuantileCapability | None
     percentile_uses_approx_quantile: bool
     authoring_timeout: AuthoringTimeout | None
+    http_credentials: Callable[..., ProviderHttpCredentials | None] | None = None
 
     def __post_init__(self) -> None:
         timeout_enforced = self.authoring_timeout is not None
