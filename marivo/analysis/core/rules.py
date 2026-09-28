@@ -40,6 +40,7 @@ from marivo.analysis.core.model import (
     reject,
     require_part,
 )
+from marivo.analysis.core.predicates import ValuePredicate
 from marivo.refs import (
     DimensionKind,
     EntityKind,
@@ -131,6 +132,7 @@ class PartsTransport:
     output_domain: DomainSignature
     retained_roles: tuple[PartRole, ...]
     keep_quantity: bool
+    predicates: tuple[ValuePredicate, ...] = ()
 
 
 RuleParameters: TypeAlias = (
@@ -884,6 +886,17 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
             str(params.mode),
             "Use a registered transport mode.",
             "core.parts_transport.mode",
+        )
+    if (
+        type(params.predicates) is not tuple
+        or any(type(p) is not ValuePredicate or p.binding != binding for p in params.predicates)
+        or (params.predicates and params.mode != "where")
+    ):
+        reject(
+            "where predicates bound to the exact input scope",
+            repr(params.predicates),
+            "Use closed predicates with the input binding.",
+            "core.parts_transport.predicate",
         )
     if len(set(params.retained_roles)) != len(params.retained_roles):
         reject(

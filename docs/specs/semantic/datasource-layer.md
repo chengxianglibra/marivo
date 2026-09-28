@@ -575,6 +575,14 @@ preserve invalid date text for rejection rather than silently turning it into
 null. A DuckDB result is connection-owned and is released with its connection;
 remote cursor close does not prove server-side query termination.
 
+R3.4's private Analysis handoff explicitly declares join and union in addition
+to scan, filter, project, group and count. The R1 basic physical requirement
+admits join/union only on DuckDB; other providers retain their existing operation
+set. This physical allowance does not grant method semantics or cross-datasource
+federation. Exact method/type/table-form qualification and all bound key, Cell
+and pairing checks remain owned by Analysis. Expressions still pass unchanged
+through the same relation-ancestry, schema and submission checks.
+
 `md.inspect` resolves a table through that owner before provider metadata
 inspection. `SourceInspection.sample`, snapshots, Semantic preview, and
 source-health business checks use bounded source-bound session reads. They

@@ -164,6 +164,17 @@ class MethodSemantics:
             reject(f"result type {expected}", repr(output), "Use the method's exact result type.")
 
     @property
+    def local_laws(self) -> tuple[str, ...]:
+        """Registered comparison levels; state laws do not authorize graph rewrites."""
+        if self.key.name == "parts_transport":
+            return ("L1",)
+        if self.key.name == "map_correspond":
+            return ("L7",)
+        if self.key.name == "state_rollup":
+            return ("L8", "L9")
+        return ()
+
+    @property
     def rule(self) -> rules.RuleId:
         name = self.key.name
         if name in ("cell.difference", "cell.ratio"):

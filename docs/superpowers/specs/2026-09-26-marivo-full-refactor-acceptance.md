@@ -2,7 +2,7 @@
 
 Date: 2026-09-26
 
-Status: R0.1–R0.4 与 R0.6 的静态产物已登记，R0.5 替代可行性仍阻塞；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验，R1.5 公共连接切换与逐格复核见下；R2.1–R2.4 及后续静态交接有有界证据；R3.1 私有纯构造与 R3.2 私有注册有有界测试证据，R3.2 跨执行单一 owner 未通过；R3.3 私有图与纯计划有有界测试证据。R0、R1、R2 和 R3 整体均未验收。
+Status: R0.1–R0.4 与 R0.6 的静态产物已登记，R0.5 替代可行性仍阻塞；R1.1/R1.2 部分实施，R1.3 已提交，R1.4 披露候选已核验，R1.5 公共连接切换与逐格复核见下；R2.1–R2.4 及后续静态交接有有界证据；R3.1 私有纯构造与 R3.2 私有注册有有界测试证据，R3.2 跨执行单一 owner 未通过；R3.3 私有图与纯计划有有界测试证据；R3.4 私有 lowering、固定输入局部规律及 DuckDB 基础格有有界证据，完整阶段与公共执行仍未验收。R0、R1、R2 和 R3 整体均未验收。
 
 本文件按[主计划](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)和[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)续记实际证据。历史验收不自动转成新 DSL 的技术、后端、安装包或真实 Agent 资格。
 
@@ -438,3 +438,87 @@ R4 必须在消费前验证实际 schema、精确 Artifact 绑定及资源条件
 本轮没有六后端实源、全量 Runtime、wheel、冷恢复或真实 Agent 验收；没有修改
 公共导出、Help、CLI、site latest 示例或 packaged skills，不将静态计划证据升级为
 公共执行、后端或 R3 整体通过。
+
+
+## R3.4 私有 lowering、局部规律与阶段披露（2026-09-28）
+
+实施基线为 `panda` / `c8e782901125163d2bba382eb59ee637b1bed85e`，起点工作区干净。
+本节记录未提交候选，不以基线 SHA 冒充新代码提交。候选源码与测试摘要为
+`74397609172da55bff17ed15fc162459ccf9e3449ceafadcbc84186342ae26ea`：对以下
+12 个仓库相对路径排序后，顺次计算 `path UTF-8 + NUL + file bytes + NUL` 的 SHA-256：
+`analysis` 前缀均为 `marivo/analysis/`，清单为 `compiler/graph_lowering.py`、
+`core/{local_laws,predicates,rules}.py`、`methods/{builtin,local,registry,semantics}.py`，
+另含 `marivo/datasource/adapters.py`、`tests/test_analysis_lowering_r34.py`、
+`tests/test_analysis_methods_r32.py`、`tests/test_datasource_adapter_contract.py`。
+文档不包含在该代码摘要中。
+
+本轮以 `analysis/compiler/graph_lowering.py` 消费 R3.3 GraphPlan，以
+`analysis/methods/builtin.py` 将精确物理声明绑定到真实 lowerer 或固定本地 count
+消费者。方法语义仍归既有单一注册；没有借旧 J1/Dataset registry 补路。
+`core/predicates.py` 将有范围绑定的封闭 int64 谓词纳入图定义；
+`core/local_laws.py` 实现明确比较层次的局部变换。
+实际环境为 Ibis **12.0.0**、DuckDB **1.5.3**、PyArrow **25.0.1**。
+
+| R3.4 单元 | 本轮状态 | 输入、独立预期、实测形态与恢复条件 |
+| --- | --- | --- |
+| 准入与 typed lowering | **私有交接通过** | 重验 GraphPlan，不接受篡改阶段/义务、遗漏/重复来源绑定、错 leaf identity、缺完整键/组件。只产出 Ibis 关系、带原 scope/deadline 的 SemanticCheck、输入 IntegrityCheck 或本地阶段；无 SQL 字符串、编译后修补或后端名称分支。 |
+| 基础来源格 | **DuckDB table/native 与 parquet/parquet 的所列格通过** | int64 值、完整 int64 Entity 键、NoTime；直接 int64 字段绑定、projection/view/显式 where、exact_keys/one_to_one/union_keys/Subjects、全输入 count/count_defined。五行输入含 `9007199254740993` 及 Defined/Null/Undefined/Unknown；独立预期 count=5、defined_count=2、阈值 >6 只留 `(3,1,9)`，空来源保留 Defined 0 singleton。完整键并集是五个实际元组，不是各轴笛卡尔积。 |
+| 来源检查与资源交接 | **表达式/真实提交通过；R4 调度与证据履行未验证** | 所有正例经真实 SourceSession 编译/批读，逐次检查提交 SQL 与 issued handle 相等并关闭流。重复身份、伪造 Cell、同定义不同节点的缺侧配对返回非空失败行，不以 distinct 修复；继承义务保持 pending。原候选关于每条表达式精确来源绑定的断言被同表独立叶子反例推翻；修正证据见下方 P2 更正。R1 PhysicalRequirement 显式列出 join/union，仅 DuckDB 接受；SQLite 拒绝新操作，未给其余后端授予资格。恢复需 R4 在消费/发布前调度检查并记录本次证据。 |
+| 部件与主体集合像 | **所测运输通过** | 原 `sum/non_null_count` 与 boolean coverage 按角色和组件运输；改变保留角色顺序不串列，缺组件拒绝，裁剪原状态/coverage 撤销私有 state_rollup 续算条件。非单射主体映射得到 `{1,2,3}`；将同一映射声明为单射时产生两个重复组失败行。没有原量来源 rollup 资格。 |
+| 固定本地 count | **本地方法与阶段交接通过；Artifact 读取未验证** | 固定叶子只产出 ArtifactReadStage 和已注册本地阶段/布局。四种 Cell 的独立预期 count=4、空输入=0；超 100,000 行拒绝。没有真实 receipt/Artifact 读取或历史来源展开，恢复需 R4 受控读、schema/绑定及资源核验。 |
+| L1 | **int64 局部图变换通过** | 连续 >4、>6 与合并谓词得到相同固定行；签名、量定义、部件变化、依据、义务和私有 K 必须一致。不同 Unknown 政策及未资格 float64 变换拒绝；reject 政策将三类非 Defined 输入交为失败行，不悄悄丢弃。返回新节点，不自动合并原节点 identity。 |
+| L7 | **固定坐标函数合成通过；语义/K 升级未授予** | 两个起点重复映射到同一主体再到同一组，独立预期保持两个映射条目和非单射性；角色链保持 participant→region，缺中间像或 scope 变化拒绝。没有重复贡献互斥或 rollup 许可。 |
+| L8/L9 | **固定原状态等式通过；语义图改写/来源下推未授予** | 固定状态 `(5,1,a)、(7,1,b)、(0,0,c)` 的分层与直接结果为 `(12,2,{a,b,c})`，显式空目标仍为单位状态。L9 选空组与非空组时两侧分别保留 `(0,0,{})` 与 `(12,2,{a,b})`；选空域返回空状态函数。缺组件、RowStatistic、重叠贡献、不完整中间映射、改变范围拒绝。只返回 state 层比较，不 finish、不改量定义、不扩 K、不省略空组。 |
+| 零 I/O 与公开披露 | **私有边界及既有披露回归通过** | lowering 对 SourceSession bind/qualify/compile/batches 和连接设置调用即失败哨兵；继承 R3.3 的混合早拒绝、Run/Store/Artifact 零 I/O 测试。只更新 Analysis/Datasource owning spec 和此记录；未改公共导出、Help、CLI、site latest 示例或 packaged skills。 |
+
+核验命令与结果：
+
+- `make test TESTS='tests/test_analysis_lowering_r34.py tests/test_analysis_core_r31.py tests/test_analysis_methods_r32.py tests/test_analysis_graph_r33.py tests/test_datasource_adapter_contract.py'`：**165 passed**，含 R3.4 的 **38** 项及两项 R1 新操作边界用例。
+- 定向 typing、格式/lint 通过；最终 `make check-agent` 的格式/lint、导入边界、**394** 个源码文件 typing、默认测试 **5258 passed / 64 skipped** 和 API 文档构建通过。
+- `npm --prefix site run build`：通过，API 文档、**321 页**站点和英中安装脚本输出校验通过。没有公共 API 变化，未改写 site latest 示例。
+- `git diff --check`：通过。
+
+未验证/阻塞格保持明确：R4 Run/Store、检查实际调度、receipt/Artifact 冷恢复、
+R5–R8 公共方法与原 Metric 来源观察、source sum/mean/rollup、分组域执行、
+Ibis preparation→Python、其余后端/类型/时间/部件形态、安装包和真实 Agent 均未验收。
+恢复需 owning consumer 接入，并按完整资格键补独立结果和真实失败证据；本轮未运行
+完整 Runtime 或 release-check，也未启动远端服务。历史 **64 skipped** 的原断言、
+归属与恢复条件保留。R3.2 跨执行路径单一 owner 仍未通过，公共 J1/Dataset 未迁移；
+**R3 整体未通过，R0/R1/R2 状态不因本轮改变**。
+
+
+### R3.4 review correction: independent leaves on the same table (2026-09-28)
+
+The P2 finding is confirmed. On the preceding candidate, two independent
+SourceLeaf nodes bound to the same DuckDB table have structurally equal Ibis
+relations. The exact_keys primary expression uses only the left operand, but
+sources_for returned both bindings. The preceding green suite did not establish
+its claimed precise source-identity handoff; its recorded results remain historical
+rather than proof that this edge case passed.
+
+The correction records ordered SourceLeaf source_ids on each LoweredRelation,
+IntegrityCheck and SemanticCheck at construction. Unary expressions inherit their
+operand's identities; union and field-owner joins combine their operands;
+exact-key primary expressions retain the left identities while pairing checks
+retain both. Deduplication applies only to repeated references to the same leaf.
+sources_for resolves these records for the emitted expression object, never
+Ibis relation equality. Untracked copies or derived expressions are refused,
+with a repair directing the consumer to use the emitted expression or re-lower.
+R1 physical ancestry validation remains independent and unchanged.
+
+The new regressions cover table and Parquet forms for exact_keys, one_to_one and
+union_keys, single-leaf validation expressions, inherited dependencies through
+projection, reordered supplied bindings, repeated references to one leaf, and
+rejection of structurally equal but untracked expressions. For the same-table
+case, the test asserts structurally equal source relations and independently
+asserts the left-only primary binding and actual R1 CompiledRead.source_identity;
+two-sided checks continue to retain both identities.
+
+- Red reproduction: `.venv/bin/pytest -q -n 0 'tests/test_analysis_lowering_r34.py::test_same_table_leaves_keep_expression_source_identity[table-exact_keys]'` failed on the preceding candidate because the returned tuple contained the right leaf as an extra dependency.
+- Corrected targeted gate: `make test TESTS='tests/test_analysis_lowering_r34.py tests/test_analysis_graph_r33.py tests/test_datasource_adapter_contract.py'`: **112 passed**, including **48** R3.4 cases (**10** new cases).
+- `make typecheck TYPECHECK_TARGETS='marivo/analysis/compiler/graph_lowering.py'`: passed. Final `make check-agent` passed formatting/lint, import contracts, typing for **394** source files, **5268 passed / 64 skipped**, and API documentation. `git diff --check` passed.
+- Corrected uncommitted code/test digest, using the same 12-file manifest and algorithm above: `3c93838a1d41527537a240997366ae217f903b32b273154fbee8b6cab1f163b6`. The base commit remains `c8e782901125163d2bba382eb59ee637b1bed85e`.
+
+This correction does not qualify R4 scheduling/publication, public J1/Dataset
+migration, additional backends or whole-stage R3 acceptance. The historical skip
+assertions, owners and recovery conditions are unchanged.

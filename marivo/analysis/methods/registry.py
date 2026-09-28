@@ -18,6 +18,7 @@ from marivo.analysis.core.model import (
     part_role,
 )
 from marivo.analysis.core.rules import RuleDerivation, RuleParameters
+from marivo.analysis.methods.builtin import admit, implementations
 from marivo.analysis.methods.errors import reject
 from marivo.analysis.methods.physical import (
     DecimalType,
@@ -220,6 +221,8 @@ class MethodRegistry:
                     repr((implementation.checks, implementation.parts)),
                     "Qualify every obligation and part for this exact invocation.",
                 )
+            if status.consumer_id in ("analysis.compiler.graph_lowering", "analysis.methods.local"):
+                admit(implementation, params)
             return SelectedImplementation(implementation, derivation)
         gap = registration.missing
         reject(
@@ -274,10 +277,10 @@ REGISTRY = MethodRegistry(
     tuple(
         MethodRegistration(
             method,
-            (),
+            implementations(method.key),
             Unavailable(
                 "blocked",
-                "No connected graph/lowering/execution consumer is qualified for this core method.",
+                "No connected consumer is qualified for this exact method/type/shape/route key.",
                 "Connect R3.3/R3.4 and the owning R4-R8 consumer, then qualify this exact physical key.",
             ),
         )
