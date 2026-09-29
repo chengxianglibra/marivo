@@ -1,2 +1,0 @@
-pyproject.toml: note: unused section(s): module = ['ibis.*', 'pyarrow.*']
-Success: no issues found in 2 source files

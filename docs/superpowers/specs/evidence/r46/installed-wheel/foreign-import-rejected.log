@@ -1,9 +1,0 @@
-Traceback (most recent call last):
-  File "<frozen runpy>", line 198, in _run_module_as_main
-  File "<frozen runpy>", line 88, in _run_code
-  File "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/tests/installed_wheel_probe.py", line 145, in <module>
-    assert_installed_origin()
-  File "/private/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/pytest-of-lichengxiang/pytest-650/test_installed_graph_journeys_0/installed-check/tests/installed_wheel_probe.py", line 24, in assert_installed_origin
-    assert Path(marivo.__file__).resolve() == package / "__init__.py", "foreign Marivo import"
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: foreign Marivo import

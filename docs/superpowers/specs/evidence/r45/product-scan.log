@@ -1,2 +1,0 @@
-Command: rg -n J[1-4]|j[1-4]_|execute_j1|dsl_public_snapshot|dsl_j1_receipt marivo/analysis --glob *.py
-Exit status: 1 (1 means no matches)
