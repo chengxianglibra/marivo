@@ -52,7 +52,7 @@ change.show()
 `session.members(Entity Ref)` 开始。成员域提供 `read`、`group_by` 和
 `observe`；返回的关系提供筛选、比较、rollup、行统计与关联。
 `marivo.help("analysis.entry")` 会将 Entity 成员问题指向此入口；
-当前成员来源路径要求事件时间维度的时区为 UTC；其他时区或无法确定时区的时间轴会被拒绝。例如：
+当前已获资格的 Metric 观察路径要求事件时间维度的时区为 UTC；其他时区或无法确定时区的时间轴会被拒绝。例如：
 
 ```python
 customers = session.members(ms.ref.entity("sales.customer"))
@@ -414,3 +414,36 @@ MySQL/SQLite 的 preview 和 sample 保留含 NULL 的大整数精度，不先�
 原生 timestamp 转换使用声明的权威时区与运行时 ZoneInfo。Analysis 不再扫描
 源数据检查歧义本地时间、解析失败的单元格或引擎与运行时时区规则的差异。
 查询时发生的后端转换错误仍会返回；Artifact 保留时间来源记录。
+
+
+### 完整成员与有类型的属性
+
+成员身份保留声明主键的全部列，包括复合主键。根成员不会默认去重，也不会寻找最近可用版本。
+对于已声明版本的 customer Entity，分别指定成员版本和属性版本：
+
+```python
+from datetime import datetime, timezone
+
+anchor = datetime(2026, 8, 1, tzinfo=timezone.utc)
+customers = session.members(ms.ref.entity("sales.customer"), at=anchor)
+region = customers.read(ms.ref.dimension("sales.customer.region"), at=anchor)
+# A declared @ms.measure row expression uses the same read entry point:
+score = customers.read(ms.ref.measure("sales.customer.score"), at=anchor)
+assert isinstance(region, mv.LogicalCategoryRelation)
+selected = region.where(region.value.eq("west")).members()
+selected.execute().show()
+```
+
+`at=scope.before_end` 表示精确结束边界之前的左极限，不减去一个时间刻度。
+指定快照缺失时没有该快照所表示的成员，不沿用旧行。无版本 Entity 不传 `at`。
+
+`read` 对 Measure 返回 Numeric，对 Dimension 返回 Category 或 Boolean，对
+TimeDimension 返回 Temporal。整数指示列仍是分类；原生日期保持日期，带时区时间戳保留
+物理精度和时区。本切片支持 DuckDB table/Parquet 的直接列和已绑定行表达式 Measure
+读取；未取得资格的解析和
+无时区时间戳转换会被拒绝。读取另一实体的单值属性时显式指定 `via=relationship`。
+映射缺失或多行匹配会拒绝发布；已表示的空值仍是 Null。按照结构化错误修复，不取首行或补零。
+
+执行后的 `.where(...).members()` 使用保留值与完整 Subject 键，来源离线后仍可固定续算，
+但不能引入新的属性读取。通过 `session.artifact(ref)` 恢复后查看 `.contract()`，确认当前结果
+实际可用的操作。旧冻结定义契约生成的 Artifact 会被拒绝，不自动迁移。

@@ -34,8 +34,8 @@ with the receiver call and exact Help target. The combined result card redacts
 Entity member keys. ``python -m marivo help`` is only the installed-interpreter
 bootstrap; focused contracts remain in ``marivo.help(...)``.
 
-First-round Entity-domain values
---------------------------------
+Entity-domain values
+--------------------
 
 .. autoclass:: AnalysisAction
    :members:
@@ -68,6 +68,52 @@ First-round Entity-domain values
    :members:
 
 .. autoclass:: RowMethod
+   :members:
+
+Member versions and scalar attributes
+-------------------------------------
+
+``Session.members(entity, at=...)`` keeps complete ordered keys. Versioned
+Entities require an aware instant or ``TimeScope.before_end``. Attribute
+``read(field, at=..., via=...)`` binds its version independently and returns
+Numeric, Category, Boolean or Temporal relations. Scalar paths require complete
+single-valued correspondence and coverage. Fixed member projections retain
+Subject parts and cannot introduce a live attribute read.
+Measure reads admit direct columns and qualified bound row expressions. A
+computed Measure evaluates through Ibis on the consumed owner rows, and its
+definition and bound-field fingerprints are retained in the graph.
+
+.. autoclass:: BeforeEndBoundary
+   :members:
+
+.. autoclass:: LogicalBooleanRelation
+   :members:
+
+.. autoclass:: MaterializedBooleanRelation
+   :members:
+
+.. autoclass:: LogicalTemporalRelation
+   :members:
+
+.. autoclass:: MaterializedTemporalRelation
+   :members:
+
+.. autoclass:: LogicalSelectedBooleanRelation
+   :members:
+
+.. autoclass:: MaterializedSelectedBooleanRelation
+   :members:
+
+.. autoclass:: LogicalSelectedTemporalRelation
+   :members:
+
+.. autoclass:: MaterializedSelectedTemporalRelation
+   :members:
+
+.. autoclass:: LogicalSelectedNumericRelation
+   :members:
+
+.. autoclass:: MaterializedSelectedNumericRelation
    :members:
 
 Public exports

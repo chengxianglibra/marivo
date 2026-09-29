@@ -545,3 +545,22 @@ wrong roles, bad versions, mixed source/fixed, and cross-Session are required
 rejection cells. No matrix cell may be closed merely by adding a rejection for a
 required accepted type. Fixed direct results permit current-row statistics but
 not original distinct/quantile rollup; this is a supported boundary, not a missing K.
+
+
+### R5.2 member and field physical consumers
+
+`bind_project`, `parts_transport` and `map_correspond` continue through their
+existing registered rule/method versions. The member/read slice adds native
+boolean/date/aware-timestamp transport, direct int64/float64 Measure reads,
+complete-key correspondence and local fixed Subject images. A root member
+projection trusts declared identity without distinct; repeated consumed keys or
+matching versions are errors. A non-injective Subject map instead produces the
+set of complete subject tuples after input validation. This operation does not
+repair invalid input instance identities.
+
+`source.single_value@v1` for attribute paths is executed on the scoped field
+result; the common exchange retains the resulting evidence. Field-owner absence
+is checked separately from null values. Scalar read creates no original Metric
+state and therefore grants no original `rollup` capability. These stateless
+results keep state kind `none`; the existing row-statistic and observation
+qualifications are not expanded by matching numeric output values.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 
 from marivo import _temporal
-from marivo._temporal import Grain, TimeScope
+from marivo._temporal import BeforeEndBoundary, Grain, TimeScope
 from marivo.analysis import grain, runtime_metric, time_scope
 from marivo.analysis._capabilities.dataset_model import (
     CONSTRUCTION_EFFECT,
@@ -369,13 +369,16 @@ def provider(
         (p.AnalysisPredicate, "AnalysisPredicate", "eq"),
         (Grain, "Grain", "grain"),
         (TimeScope, "TimeScope", "time_scope"),
+        (BeforeEndBoundary, "BeforeEndBoundary", "TimeScope"),
     ):
         descriptors.append(
             value_type(
                 target,
                 type_value,
                 summary=f"Exact {target} input contract.",
-                acquisition=f"Construct with mv.{producer}(...).",
+                acquisition="Read scope.before_end from an existing TimeScope."
+                if type_value is BeforeEndBoundary
+                else f"Construct with mv.{producer}(...).",
                 producers=(producer,),
             )
         )
@@ -461,6 +464,7 @@ def provider(
     for receiver_type, receiver_name, method_names in (
         (Grain, "daily_grain", ("to_token", "width_seconds")),
         (TimeScope, "window", ("contract", "model_dump", "render", "show")),
+        (BeforeEndBoundary, "boundary", ("show",)),
     ):
         for method_name in method_names:
             method_value = inspect.getattr_static(receiver_type, method_name)
@@ -487,7 +491,8 @@ def provider(
                         "ValueError: select a grain or temporal option supported by this value.",
                     ),
                     example=ExampleInput(
-                        f"result = {receiver_name}.{method_name}()",
+                        f"result = {receiver_name}.{method_name}"
+                        + ("" if isinstance(method_value, property) else "()"),
                         (receiver_name,),
                         "result",
                         str(binding.signature.return_annotation),

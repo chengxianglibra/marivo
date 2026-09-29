@@ -501,3 +501,28 @@ empty batches, incomplete streams, close errors, cancellation and publication
 failures must preserve atomic visibility. Existing `graph_primary_written`,
 `graph_receipts_verified` and Store commit events provide graph-owned fault
 boundaries; old quality-hook waits are not reused without a reachable consumer.
+
+
+## R5.2 member/read frozen definitions
+
+Source definitions now freeze declared snapshot/validity facts alongside their
+exact selection. Field bindings retain ordered complete relationship keys,
+resolved version owners and the attribute definition. Selection transports carry
+the closed field kind so cold restoration distinguishes selected Measure values
+from categorical integer values. Date/timestamp predicate literals have a closed
+kind and ISO payload; JSON decoding cannot silently turn them into strings.
+
+The primary and Subject schemas retain complete ordered keys. Source-only member
+projection performs no default distinct or preliminary whole-source uniqueness
+query. Actual consumed identities, scalar multiplicity and read coverage are
+validated before publication. Fixed-only Subject images operate over verified
+Arrow parts locally and never import Artifacts into DuckDB. A missing or corrupt
+Subject receipt invalidates continuation. Temporal precision and timezone are
+retained in the exact realized Arrow schema and checked receipts.
+
+This extends the closed Store 7 continuation definition, without another Store
+generation or dual reader. Pre-R5.2 snapshots missing the newly frozen definition
+fields fail canonical validation; there is no compatibility fill, migration or
+automatic source reconstruction. Start fresh project state or restore state made
+with the same definition contract. This is a deliberate breaking refactor of
+weakly reusable prior analysis, not a claim of cross-version Artifact recovery.

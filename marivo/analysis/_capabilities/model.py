@@ -64,7 +64,7 @@ ANALYSIS_HELP_RENDER_BUDGETS: Mapping[
         "decision_hub": AnalysisHelpRenderBudget(44, 4_500, 10, 0),
         "navigation": AnalysisHelpRenderBudget(64, 6_500, 18, 0),
         "exact_callable": AnalysisHelpRenderBudget(104, 9_000, 10, 1),
-        "public_type": AnalysisHelpRenderBudget(72, 7_000, 10, 0),
+        "public_type": AnalysisHelpRenderBudget(72, 7_000, 12, 0),
         "current_briefing": AnalysisHelpRenderBudget(72, 7_000, 6, 1),
     }
 )

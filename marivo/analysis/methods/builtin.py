@@ -27,6 +27,7 @@ from marivo.analysis.methods.physical import (
     QualificationKey,
     Qualified,
     ResourceRequirements,
+    ScalarName,
     ScalarType,
     SourceShape,
     TimeShape,
@@ -48,7 +49,11 @@ CHECKS: tuple[CheckId, ...] = (
     "source.contribution_partition@v1",
     "source.complete_coverage@v1",
 )
-NUMERIC_CHECKS: tuple[CheckId, ...] = (*CHECKS, "source.finite_numeric@v1")
+NUMERIC_CHECKS: tuple[CheckId, ...] = (
+    *CHECKS,
+    "source.finite_numeric@v1",
+    "source.single_value@v1",
+)
 
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
@@ -248,8 +253,8 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             if method.name == "map_correspond"
             else (1,)
         ):
-            key_types: tuple[Literal["int64", "string"], ...] = (
-                ("int64", "string")
+            key_types: tuple[ScalarName, ...] = (
+                ("int64", "string", "float64", "boolean", "date", "timestamp")
                 if method.name in ("bind_project", "parts_transport", "map_correspond")
                 else ("int64",)
             )
@@ -274,13 +279,17 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         else "exact",
                         ResourceRequirements("stream", "producer", None),
                         Qualified(
-                            f"r45.ibis.{method}.int64@v1"
+                            f"r52.ibis.{method}.{key_type}"
+                            if method.name == "bind_project" or key_type not in ("int64", "string")
+                            else f"r45.ibis.{method}.int64@v1"
                             if method.name == "cell.difference"
                             else f"r34.ibis.{method}"
                             if key_type == "int64"
                             else f"r45.ibis.{method}.{key_type}@v1",
                             "analysis.compiler.graph_lowering",
-                            "tests/test_analysis_graph_preflight_r45.py"
+                            "tests/test_analysis_members_r52.py"
+                            if method.name == "bind_project" or key_type not in ("int64", "string")
+                            else "tests/test_analysis_graph_preflight_r45.py"
                             if method.name == "cell.difference"
                             else "tests/test_analysis_lowering_r34.py"
                             if key_type == "int64"
@@ -334,13 +343,19 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 ),
             )
         )
-    if method.name == "parts_transport":
-        fixed_shapes: tuple[tuple[Literal["int64", "string", "float64"], DomainKind], ...] = (
+    if method.name in ("parts_transport", "map_correspond"):
+        fixed_shapes: tuple[tuple[ScalarName, DomainKind], ...] = (
             ("int64", "entity"),
             ("string", "entity"),
+            ("float64", "entity"),
+            ("boolean", "entity"),
+            ("date", "entity"),
+            ("timestamp", "entity"),
             ("float64", "singleton"),
         )
         for name, domain_kind in fixed_shapes:
+            if method.name == "map_correspond" and domain_kind != "entity":
+                continue
             declarations.append(
                 Implementation(
                     QualificationKey(
@@ -355,9 +370,15 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     "exact",
                     ResourceRequirements("complete", "caller", None),
                     Qualified(
-                        f"r45.local.parts_transport.{name}.{domain_kind}@v1",
+                        f"r52.local.{method}.{name}.{domain_kind}"
+                        if method.name == "map_correspond"
+                        or name in ("boolean", "date", "timestamp")
+                        else f"r45.local.parts_transport.{name}.{domain_kind}@v1",
                         "analysis.materialization.graph_local_execution",
-                        "tests/test_analysis_graph_publication_r44.py",
+                        "tests/test_analysis_members_r52.py"
+                        if method.name == "map_correspond"
+                        or name in ("boolean", "date", "timestamp")
+                        else "tests/test_analysis_graph_publication_r44.py",
                     ),
                 )
             )
@@ -460,11 +481,10 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             )
     elif isinstance(params, BindProject):
         if (
-            params.path
-            or params.metric_contract is not None
+            params.metric_contract is not None
             or params.field_contract is None
-            or params.field_contract.parse is not None
-            or params.field_contract.logical_type not in ("int64", "string")
+            or params.field_contract.logical_type
+            not in ("int64", "string", "float64", "boolean", "date", "timestamp")
         ):
             reject(
                 "direct int64 or string field binding without parsing",

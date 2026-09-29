@@ -2,7 +2,7 @@
 
 Date: 2026-09-28
 
-Status: R5.1 contract freeze completed; R5.2-R5.7 product implementation and qualification unverified.
+Status: R5.1 freeze complete; R5.2 bounded member/read qualification complete; R5.3-R5.7 remain unverified.
 
 R5.1 的具体交付、消费者与逐格债务见[迁移清单](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md)；
 [静态证据](evidence/r51/README.md)不授予执行资格。
@@ -283,3 +283,14 @@ R5 收口要求本阶段必需格无开放阻塞，14/8 债务逐项可核对；
 统一 Store 7 状态运输和冷恢复要求；具体契约仅在 §2 列出的 owning specs 维护。
 消费者迁移、14 个 skip、8 个历史失败及 V01–V12 的逐项映射由迁移清单维护。
 本次只验证文档与静态映射，不解除历史 skip/失败，不改变 R4 资格或宣称 R5 已完成。
+
+## 9. R5.2 实施交接（2026-09-29）
+
+基线 `panda` / `75d573e87c6a48aa337c3be170c87baa87d5a15c`，初始工作区干净。
+完整复合身份、声明版本、四类直接列属性及单值路径、消费域检查、source/fixed
+筛选和完整 Subject 集合像已接入既有图与 Store 7。
+[V01/V02 与本包 V10/V12 证据](evidence/r52/README.md)记录独立预期、执行路线、
+日志与候选指纹。80 项定向 Runtime、5363 项默认测试通过；19 个原有跳过仍保留。
+站点、API、typing、lint 与 whitespace 门禁通过。旧 v7 快照缺少新增冻结字段时明确
+拒绝，无兼容重建。本包不代表完整 R5、安装 wheel 或真实 Agent 验收。
+R5.3–R5.7 及 D01–D22 不改判；未提交、推送或发布。

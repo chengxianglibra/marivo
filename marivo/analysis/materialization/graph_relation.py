@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import datetime
 from typing import Literal, TypeAlias
 
-from marivo._temporal import TimeScope
+from marivo._temporal import BeforeEndBoundary, TimeScope
 from marivo.analysis.compiler.graph_plan import RouteChoice
 from marivo.analysis.core.graph import Edge, FixedLeaf, MethodNode, Node, method_node, topology
 from marivo.analysis.core.model import (
@@ -36,6 +37,7 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_composition import combine_observations
 from marivo.analysis.materialization.graph_dataset import GraphDataset
+from marivo.analysis.materialization.graph_fields import RootRoutesValue
 from marivo.analysis.materialization.graph_members import MemberGraph, construct_members
 from marivo.analysis.materialization.graph_observation import observe_members, observe_ratio_members
 from marivo.analysis.materialization.graph_protocol import (
@@ -45,7 +47,15 @@ from marivo.analysis.materialization.graph_protocol import (
 )
 from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType
 from marivo.analysis.refs import ArtifactRef
-from marivo.refs import DimensionKind, EntityKind, MetricKind, Ref, RelationshipKind
+from marivo.refs import (
+    DimensionKind,
+    EntityKind,
+    MeasureKind,
+    MetricKind,
+    Ref,
+    RelationshipKind,
+    TimeDimensionKind,
+)
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.validator import Registry
 
@@ -88,8 +98,10 @@ class Relation:
         sidecar: CompiledExpressionSidecar,
         report_timezone: str,
         entity: Ref[EntityKind],
+        *,
+        at: datetime | BeforeEndBoundary | None = None,
     ) -> Relation:
-        graph = construct_members(runtime, registry, entity)
+        graph = construct_members(runtime, registry, entity, at=at, report_timezone=report_timezone)
         return cls(runtime, graph.root, LiveBinding(graph, sidecar, report_timezone))
 
     @classmethod
@@ -157,24 +169,55 @@ class Relation:
             )
         return GraphDataset(self.runtime, artifact)
 
-    def read(self, dimension: Ref[DimensionKind]) -> Relation:
+    def read(
+        self,
+        dimension: Ref[DimensionKind] | Ref[MeasureKind] | Ref[TimeDimensionKind],
+        *,
+        at: datetime | BeforeEndBoundary | None = None,
+        via: Ref[RelationshipKind] | RootRoutesValue | None = None,
+    ) -> Relation:
         live = self._live()
-        graph = live.graph.read(dimension)
+        graph = live.graph.read(
+            dimension, at=at, via=via, sidecar=live.sidecar, report_timezone=live.report_timezone
+        )
         return Relation(self.runtime, graph.root, replace(live, graph=graph))
 
     def selected_members(self) -> Relation:
         if not any(isinstance(part, SubjectPart) for part in self.root.signature.parts):
             raise _reject("current result has no verified Subject map")
-        root = method_node(
-            (self._edge(),),
-            PartsTransport("projection", self.root.signature.domain, ("subject",), False),
-            value_type=self.root.value_type,
-        )
+        subject = next(part for part in self.root.signature.parts if isinstance(part, SubjectPart))
+        domain = self.root.signature.domain
+        if subject.injective and subject.subject_key == domain.instance_key:
+            parameters: PartsTransport | MapCorrespond = PartsTransport(
+                "projection", domain, ("subject",), False
+            )
+        else:
+            target = DomainSignature(
+                domain.binding,
+                "entity",
+                subject.subject_key,
+                subject.subject_key,
+                f"entity:{subject.entity_ref.path}",
+            )
+            parameters = MapCorrespond("subjects", target, "source.unique_key@v1")
+        root = method_node((self._edge(),), parameters, value_type=self.root.value_type)
         return self._with(root)
 
     def where(self, predicate: ValuePredicate) -> Relation:
         if predicate.binding != self.root.signature.domain.binding:
             raise _reject("predicate belongs to a different member realization")
+        definition = self.definition.parameters
+        field_kind: Literal["measure", "dimension", "time_dimension"] | None = None
+        if isinstance(definition, BindProject) and definition.field_contract is not None:
+            kind = definition.field_contract.ref.kind
+            if kind == "measure":
+                field_kind = "measure"
+            elif kind == "dimension":
+                field_kind = "dimension"
+            elif kind == "time_dimension":
+                field_kind = "time_dimension"
+        elif isinstance(definition, PartsTransport):
+            field_kind = definition.field_kind
         root = method_node(
             (self._edge(),),
             PartsTransport(
@@ -183,6 +226,7 @@ class Relation:
                 tuple(part_role(part) for part in self.root.signature.parts),
                 True,
                 (predicate,),
+                field_kind,
             ),
             value_type=self.root.value_type,
         )

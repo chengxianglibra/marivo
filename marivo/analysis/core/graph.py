@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from hashlib import sha256
 from typing import Literal, TypeAlias
 from uuid import uuid4
@@ -22,6 +23,7 @@ from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 from marivo.analysis.methods.semantics import MethodKey, key_for_parameters
 from marivo.analysis.refs import ArtifactRef
 from marivo.refs import DatasourceKind, EntityKind, MetricKind, Ref, SemanticKind
+from marivo.semantic.ir import TargetSnapshotVersion, TargetValidityVersion
 
 
 def _fail(expected: str, received: str) -> None:
@@ -46,6 +48,7 @@ class SourceDefinition:
     fingerprint: str
     datasource: Ref[DatasourceKind]
     shape: SourceShape
+    version: TargetSnapshotVersion | TargetValidityVersion | None = None
 
     def __post_init__(self) -> None:
         _identifier(self.fingerprint)
@@ -199,10 +202,13 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
     if isinstance(node.parameters, PartsTransport):
         physical = node.inputs[0].node.value_type
         for predicate in node.parameters.predicates:
-            value = predicate.value
+            value = predicate.literal
             if not isinstance(physical, ScalarType) or not (
                 (physical.name == "string" and type(value) is str and predicate.operator == "eq")
                 or (physical.name == "int64" and type(value) is int)
+                or (physical.name == "boolean" and type(value) is bool)
+                or (physical.name == "date" and type(value) is date)
+                or (physical.name == "timestamp" and type(value) is datetime)
                 or (
                     physical.name == "float64"
                     and (
@@ -210,7 +216,22 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
                     )
                 )
             ):
-                _fail("a lossless predicate literal for the exact physical type", repr(physical))
+                predicate_expected = (
+                    physical.name if isinstance(physical, ScalarType) else "precise scalar"
+                )
+                repair = (
+                    "Use a date literal for this civil-date value."
+                    if predicate_expected == "date"
+                    else "Use an aware datetime literal for this timestamp value."
+                    if predicate_expected == "timestamp"
+                    else f"Use a lossless {predicate_expected} literal for this relation.value predicate."
+                )
+                reject(
+                    f"a lossless {predicate_expected} predicate literal",
+                    f"{predicate.operator} {value!r} ({type(value).__name__})",
+                    repair,
+                    "analysis.graph.predicate",
+                )
     if node.method != key_for_parameters(node.parameters):
         _fail("the parameter variant's exact method version", str(node.method))
     roles = tuple(e.role for e in node.inputs)

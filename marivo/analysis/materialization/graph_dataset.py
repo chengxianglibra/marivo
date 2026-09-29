@@ -23,8 +23,8 @@ if TYPE_CHECKING:
 
 _IDS = d._StableIdRegistry(
     roles=frozenset({"member", "group", "value", "cell", "status", "metric_identity", "count"}),
-    logical_types=frozenset({"string", "int64", "float64", "boolean"}),
-    physical_types=frozenset({"string", "int64", "float64", "boolean"}),
+    logical_types=frozenset({"string", "int64", "float64", "boolean", "date", "timestamp"}),
+    physical_types=frozenset({"string", "int64", "float64", "boolean", "date", "timestamp"}),
     storage_kinds=frozenset({"local_parquet"}),
 )
 
@@ -72,6 +72,10 @@ def _schema(table: pa.Table) -> d.DatasetSchema:
             kind = "float64"
         if kind == "bool":
             kind = "boolean"
+        if pa.types.is_date(column.type):
+            kind = "date"
+        if pa.types.is_timestamp(column.type):
+            kind = "timestamp"
         role = (
             "member"
             if column.name.startswith("member")
