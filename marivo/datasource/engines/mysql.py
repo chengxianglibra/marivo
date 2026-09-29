@@ -422,6 +422,7 @@ PROFILE = EngineProfile(
     ),
     translate_strptime_format=python_to_mysql_strptime,
     datetime_decode_policy="local_naive_label",
+    exact_count_distinct=True,
     quantile=None,
     percentile_uses_approx_quantile=False,
     authoring_timeout=None,

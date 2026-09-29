@@ -1136,3 +1136,53 @@ continuation retains explicit Arrow types. Regressions include repeated-hour
 minute boundaries and source-offline empty grouped/singleton fold continuation.
 The versioned qualification summary includes reproduction commands. Detailed local
 logs and fingerprints remain in ignored `evidence/r55/review-fixes-*`.
+
+
+## R5.6 definition-owned exactness and numerical matrix (2026-09-29)
+
+Status: **complete in the bounded local source-tree scope**. Exact/approximate
+operations and q belong to Metric definitions. Observation has no accuracy or
+algorithm override. Source computations execute as Ibis-compiled SQL; native
+quantile precision loss is disclosed. Unsupported exact functions suggest their
+matching approximate definitions and availability without substituting them.
+
+The int64, finite float64, Decimal and fixed Duration required numeric cells are
+qualified through the unified Graph/method registry/Runtime/Store 7 path, including
+source/fixed coordinate reduction and typed temporal/cumulative state. Native
+DuckDB INTERVAL is admitted only as fixed microseconds after calendar-component
+checks; local Parquet preserves s/ms/us/ns. Decimal finishing is HALF_EVEN once;
+Duration means round once to nearest-even ticks; int64 rational finishing avoids
+conversion of operands to float. Distribution results retain no sketch or original
+rollup rights, while qualified current-row statistics remain available.
+
+Separate producer/offline-continuation/cold-recovery processes verify 64 artifacts
+and actual K; 256 part/receipt/version faults reject. Existing Store 7 implementation
+versions invalidate superseded numerical consumers without migration. The
+[migration ledger](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md#r56-implementation-checkpoint)
+contains the complete bounded matrix and reproduction commands. Local
+`evidence/r56/closure-*` records command exits, resolved intermediate failures,
+oracles and candidate fingerprints.
+
+Validation: 315 related Runtime cases passed in separate batches; `make check-agent`
+passed (5432 passed, 5 skipped, lint/type/import/API documentation stages). Targeted
+typing, site build and whitespace checks passed. No current required numeric cell
+is blocked or failed. R5.7 installed-package/whole-phase acceptance, R9 remote
+Runtime and real Agents remain unverified. No commit, release or installation was
+performed; packaged skills and AGENTS.md remain unchanged.
+
+
+### R5.6 review follow-up (2026-09-30)
+
+Repaired float denominator interval admission, widened Decimal temporal state
+decoding and context-free Decimal range checks. Absolute float contribution/weight
+state survives original/coordinate/fixed reduction; affected Store 7 consumers
+use implementation contract version 3 with no migration or state reconstruction.
+Accepted supplementary review suggestions and rejected stale claims are recorded
+in the R5 migration ledger. The graph remains the single continuation-rights owner.
+
+Repaired-candidate evidence: 217 numeric Runtime cases, 59 focused unit cases,
+`make check-agent` (5451 passed, 5 skipped; lint, typing, import and API-doc stages),
+targeted typing for both new test modules, site build and whitespace checks pass.
+`evidence/r56/review-fixes-*` records logs and candidate fingerprints, separately
+from earlier closure evidence. Whole-R5 V11/R5.7 debt, remote backends and installed
+Agent acceptance remain unverified; no commit, release or installation occurred.

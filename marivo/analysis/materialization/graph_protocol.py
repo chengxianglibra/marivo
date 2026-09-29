@@ -160,6 +160,8 @@ class MethodState:
             else ("original_state", "coverage")
             if self.kind
             in (
+                "original_min",
+                "original_max",
                 "original_mean",
                 "original_fold",
                 "original_sum",

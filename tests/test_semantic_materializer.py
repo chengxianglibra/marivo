@@ -721,7 +721,9 @@ def test_missing_filter_dimension_fails_during_load_with_focused_repair(
     assert error.repair.help_target.canonical_id == "where"
 
 
-def test_trino_quantile_aggregates_use_approx_quantile(semantic_project_factory) -> None:
+def test_trino_explicit_approximate_aggregates_use_approx_quantile(
+    semantic_project_factory,
+) -> None:
     project = semantic_project_factory(
         {
             "datasources/warehouse.py": (
@@ -744,16 +746,18 @@ def test_trino_quantile_aggregates_use_approx_quantile(semantic_project_factory)
                 "    additivity=ms.non_additive(),\n"
                 "    unit='s',\n"
                 ")\n"
+                "exact_median = ms.aggregate(name='exact_median', measure=elapsed_time, agg='median')\n"
+                "exact_p95 = ms.aggregate(name='exact_p95', measure=elapsed_time, agg=('percentile', 0.95))\n"
                 "median_elapsed_time = ms.aggregate(\n"
-                "    name='median_elapsed_time', measure=elapsed_time, agg='median', unit='s'\n"
+                "    name='median_elapsed_time', measure=elapsed_time, agg='approx_median', unit='s'\n"
                 ")\n"
                 "p50_elapsed_time = ms.aggregate(\n"
                 "    name='p50_elapsed_time', measure=elapsed_time,\n"
-                "    agg=('percentile', 0.5), unit='s'\n"
+                "    agg=('approx_percentile', 0.5), unit='s'\n"
                 ")\n"
                 "p95_elapsed_time = ms.aggregate(\n"
                 "    name='p95_elapsed_time', measure=elapsed_time,\n"
-                "    agg=('percentile', 0.95), unit='s'\n"
+                "    agg=('approx_percentile', 0.95), unit='s'\n"
                 ")\n"
             ),
         }
@@ -767,6 +771,16 @@ def test_trino_quantile_aggregates_use_approx_quantile(semantic_project_factory)
 
     sql_by_metric: dict[str, str] = {}
     with _patch_connection_service(project, lambda _: _TrinoCompileBackend()):
+        for name, alternate in (
+            ("exact_median", "agg='approx_median'"),
+            ("exact_p95", "agg=('approx_percentile', 0.95)"),
+        ):
+            with pytest.raises(SemanticRuntimeError) as caught:
+                _materialize_metric(project, f"sales.{name}")
+            assert alternate in str(caught.value)
+            assert caught.value.repair is not None
+            assert caught.value.repair.help_target.canonical_id == "aggregate"
+            assert "Execution never substitutes" in caught.value.repair.action
         for metric_id in (
             "sales.median_elapsed_time",
             "sales.p50_elapsed_time",
@@ -843,7 +857,7 @@ def test_sqlite_percentile_aggregate_fails_before_ibis_compilation(
     try:
         with (
             _patch_connection_service(project, lambda _: backend),
-            pytest.raises(SemanticRuntimeError, match="not supported by the SQLite backend"),
+            pytest.raises(SemanticRuntimeError, match="approx_percentile"),
         ):
             _materialize_metric(project, "sales.p95_amount")
     finally:
@@ -876,7 +890,7 @@ def test_sqlite_median_aggregate_fails_before_ibis_compilation(
     try:
         with (
             _patch_connection_service(project, lambda _: backend),
-            pytest.raises(SemanticRuntimeError, match="uses median"),
+            pytest.raises(SemanticRuntimeError, match="approx_median"),
         ):
             _materialize_metric(project, "sales.median_amount")
     finally:

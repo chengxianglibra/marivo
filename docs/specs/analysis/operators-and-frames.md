@@ -91,11 +91,11 @@ objectives are point anomalies, interesting windows, period shifts, Entity
 outliers and driver axes. Candidate rows carry their evaluated scope and reasons;
 they are evidence for investigation rather than confirmed causes.
 
-Exact median/percentile observations default to linear interpolation. Use
-`ms.quantile_metric(metric, method="duckdb_tdigest@v1")` only for explicitly chosen
-semantic approximation. The governed Metric owns q; fields, projections, retained
-parts and cold recovery preserve the method identity. No backend or cost heuristic
-changes this choice.
+Exact median/percentile definitions use source-native continuous quantiles.
+Define `approx_median` or `("approx_percentile", q)` explicitly for approximation.
+The governed Metric owns the operation and q; source SQL arithmetic limitations
+are disclosed. Unsupported exact operations report their corresponding approximate
+definition without automatic substitution.
 
 ## Accepted S0 method rules (inactive)
 
@@ -464,7 +464,7 @@ A semantic allowance below still requires a qualified physical implementation.
 | Current-row min/max | All consumed values Defined and finite; empty Undefined(empty_min/empty_max) | optional extremum and row count | Same statistic's extrema merge; empty state is neutral |
 | Current-row mean | All consumed values Defined and finite; empty Undefined(empty_mean) | sum and row count, including valid (0,0) | Same statistic's sum/count merge; Undefined empty Cell is not a zero input to summarize |
 | Direct count_distinct | Declared value identity; Null excluded; empty 0 | Final value and input/method evidence only; no retained set/sketch promise | No original rollup or attribution |
-| Direct median/percentile | Finite non-null values; Metric empty policy; exact linear interpolation | Final value, q, requested accuracy and actual algorithm evidence; no distribution/sketch promise | No original rollup or attribution |
+| Direct median/percentile | Finite non-null values; Metric empty policy; exact linear interpolation | Final value, q, defined operation and actual algorithm/precision evidence; no distribution/sketch promise | No original rollup or attribution |
 | Semi-additive time fold | Per declared spatial-before-time order, sample/time policy and coverage | Exact ordered evaluation keys plus pre-fold components sufficient to restore that order; method identity includes first/last/min/max/mean/percentile | Only qualified fold/reduction with retained state and order/disjointness proof; finished values alone insufficient |
 | Cumulative | Each endpoint consumes [anchor(e), e), independent of display start | Endpoint, anchor, base components, interval coverage and ordering | Spatial merge with matching endpoints/base policy; no summing overlapping cumulative endpoints |
 
@@ -492,12 +492,15 @@ there is no saturation, wrapping, silent float coercion or route retry.
 | mean | exact integer sum/count state; finish to float64 once | float64 sum, checked count, finite float64 finish | sum Decimal(38,s), count int64; finish Decimal(38,max(s,6)) | Duration mean uses exact tick sum/count, rounds once to nearest tick, ties to even; date/timestamp mean rejected |
 | Metric weighted mean | checked int64 product/sum/weight state, float64 finish | float64 products and sums, finite finish | matched Decimal value/weight types; numerator scale s_value+s_weight <= 38, denominator scale s_weight; Decimal(38,max(s_value,6)) finish | Duration values with int64 nonnegative weights: exact checked tick products, nearest-even tick finish; timestamp weights/values rejected |
 | ratio | checked component states, float64 finish | float64 components/result | Decimal components; output Decimal(38,max(s_num,s_den,6)) | Same-unit Duration ratio uses exact tick components and float64 finish; mixed calendar/elapsed units or timestamp division rejected |
-| exact median/percentile | exact ordered integers and rational interpolation, one float64 finish | sorted finite values, float64 interpolation | exact interpolation, Decimal(38,max(s,6)) finish | Duration/date/timestamp quantile rejected in this R5 direct-observation slice; no implicit float route |
+| source-native median/percentile | native continuous quantile; float64 output may lose large-integer precision | native continuous quantile, finite float64 output | native continuous quantile with source-owned output precision/scale; precision loss is disclosed | Duration/date/timestamp quantile rejected in this R5 direct-observation slice; no implicit float route |
 | semi-additive / cumulative | Base method's matrix plus exact time keys | Base method's matrix plus exact time keys | Base method's matrix plus exact time keys | Temporal keys retain physical precision; cumulative Duration sum follows sum, calendar months cannot become fixed seconds |
 
-The table is a minimum acceptance obligation, not an assertion that current
-physical ScalarType already includes Duration. R5.6 must add its closed type and
-exchange/receipt qualification for the accepted Duration cells. Decimal state
+Duration is a closed physical type with an explicit s/ms/us/ns tick unit in the
+graph, execution key and receipt. Local Parquet sources preserve Arrow Duration
+metadata and int64 ticks; DuckDB native INTERVAL is admitted as microseconds only
+after a source-native check rejects year/month/day components. Native INTERVAL
+does not invent nanosecond precision. No fixed-duration operation casts ticks to
+float or turns calendar intervals into elapsed time. Decimal state
 uses exact intermediate arithmetic; each stored sum/product is checked against
 its declared precision and scale. The admitted input scale is retained, not
 rounded on ingest. Decimal finish rounds once using ROUND_HALF_EVEN at the stated
@@ -537,11 +540,11 @@ fold debt; at minimum qualify int64/float64 and the temporal kinds used by those
 fixtures. Other SQLite numeric shapes and PostgreSQL/MySQL/Trino/ClickHouse R5
 methods remain explicitly unverified under R9, not inherited from legacy SQL.
 
-Source routes may use Ibis or Ibis preparation followed by a pre-registered Python
-algorithm, selected before execution. DuckDB exact distinct/quantile are required;
-approximate permission must qualify an explicit selected implementation, with an
-exact implementation allowed and disclosed as exact. It is not mandatory to ship
-a sketch algorithm. Nonfinite, overflow, missing coverage/state, ambiguous time,
+R5.6 source aggregation runs through Ibis-compiled SQL on the datasource. It must
+not fetch contribution vectors for local quantile or distinct computation. Native
+DuckDB distinct/quantile and explicit approximate definitions are separate method
+identities. The Metric definition owns the operation; observation has no accuracy
+override. Quantile precision loss from native arithmetic is accepted and disclosed. Nonfinite, overflow, missing coverage/state, ambiguous time,
 wrong roles, bad versions, mixed source/fixed, and cross-Session are required
 rejection cells. No matrix cell may be closed merely by adding a rejection for a
 required accepted type. Fixed direct results permit current-row statistics but
@@ -568,8 +571,7 @@ qualifications are not expanded by matching numeric output values.
 
 ### R5.3 observation and runtime expression consumers
 
-Observation inputs are the closed union of a Metric Ref, a RuntimeMetricExpr and
-a QuantileMetricInput. Each canonical `TargetMetricComponent` becomes its own
+Observation inputs are the closed union of a Metric Ref and a RuntimeMetricExpr. Each canonical `TargetMetricComponent` becomes its own
 occurrence with an independent contribution root, filter, route, time range,
 unit and amount type; a component's own `filter` is no longer a reason to reject
 an observation, and same-root occurrences under different filters stay distinct
@@ -653,3 +655,29 @@ Selection transports the category coordinate in `PartsTransport.classification`
 so fixed selected categories can group without loading Semantic. Numeric field
 predicates carry their relation binding to merge independently rooted source
 schemas into the existing graph executor.
+
+
+### R5.6 numeric execution and state
+
+DuckDB table/local-Parquet original sum, extrema, mean, Metric weighted mean,
+ratio, linear and typed temporal folds use the matrix above. Source arithmetic is
+compiled by Ibis: Decimal finishing uses native integer quotient/remainder with
+one HALF_EVEN rounding; int64 ratios use native integer mantissa rounding before
+binary64 conversion. Duration mean/weighted mean round once to nearest-even ticks.
+These are selected SQL routes, not contribution collection or failure fallback.
+Only verified retained states use Python arithmetic during source-free continuation.
+
+Coordinate components preserve their exact numeric carriers and complete keys.
+Float64 sums retain the sum of absolute contributions; ratio retains the
+denominator absolute sum and weighted mean retains the paired absolute weight
+sum. These additive state fields survive coordinate reduction and source-free
+rollup. A nonzero denominator whose error interval includes zero rejects before
+publication; the existing empty and zero-denominator Cell policies remain.
+Missing or nonfinite absolute state rejects continuation. Decimal temporal sample
+sums decode as Decimal(38,s), and Decimal range checks never round their operands.
+Typed temporal samples preserve integer/Decimal digits. Original sum, fold, mean,
+weighted mean, ratio, linear and changed extrema consumers use implementation
+contract version 3 in Store 7. Earlier implementation versions cannot continue and are
+not migrated or reconstructed. Public result state exposes `decimal:p:s` and
+`duration:unit` physical identifiers. This qualification does not extend the R5.5
+SQLite matrix or remote R9 backend coverage.

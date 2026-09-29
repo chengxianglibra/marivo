@@ -454,18 +454,14 @@ revenue = ms.aggregate(name="revenue", measure=paid_amount, agg="sum", time=orde
 ```
 
 `ms.aggregate(measure=..., agg=...)` supports `sum | min | max | mean | median |
-percentile | count | count_distinct` (`ms.count(...)` is the counting shortcut).
-The Metric declaration owns q (`0.5` for median). Dataset observation uses exact
-`linear_interpolation@v1` by default. Select semantic approximation explicitly
-with `ms.quantile_metric(metric, method="duckdb_tdigest@v1")` before observation;
-`method="linear_interpolation@v1"` selects exact interpolation explicitly. The
-immutable input also accepts a governed RuntimeMetric expression. It does not
-change q or register a new reusable Metric. Observation checks the governed
-root, and retained projection, comparison and attribution preserve the exact
-method identity. No backend-dependent method selection or failure fallback is
-allowed. Both current Dataset implementations are registered for DuckDB; a
-semantic preview on another backend does not establish Dataset eligibility.
-`marivo.help("semantic.quantile_metric")` owns the focused input contract.
+percentile | count | count_distinct | approx_count_distinct | approx_median |
+approx_percentile` (`ms.count(...)` is the counting shortcut). The Metric definition
+owns the operation and q (`0.5` for median); observation cannot override either.
+Execution uses source-native Ibis SQL and discloses numerical precision limits.
+Unsupported exact definitions name the corresponding approximate definition and
+whether it is available on that datasource. No automatic substitution is allowed.
+See [definition-owned exactness](#definition-owned-aggregate-exactness) and
+`marivo.help("semantic.aggregate")`.
 Both `ms.aggregate` and `ms.count` accept an
 optional `filter=ms.where(dimension=value, ...)` to restrict the aggregation to a
 subset of rows (e.g. a failure or error subset) without a hand-written body.
@@ -948,20 +944,25 @@ Ibis reference outside the declaration, and report the scope and result of that
 comparison separately. `md.raw_sql` remains a terminal datasource diagnostic;
 its result cannot enter Semantic or typed Analysis.
 
-### Explicit percentile method contract
+### Definition-owned aggregate exactness
 
-This paragraph describes the legacy wrapper/consumer contract. The R5.1 target
-below replaces public physical method selection with accuracy at R5.6 cutover;
-it does not qualify the old session.observe consumer for the public graph path.
+A Metric definition is the sole owner of aggregation intent. `count_distinct`,
+`median` and `("percentile", q)` select non-approximate operations;
+`approx_count_distinct`, `approx_median` and `("approx_percentile", q)` explicitly
+permit approximate operations. Observation has no `method` or `accuracy` override,
+and `quantile_metric`/`QuantileMetricInput` are removed from the public surface.
+The corresponding Ibis operations express the same distinction in opaque bodies;
+this does not authorize parsing Python bodies into contribution graphs.
 
-`ms.quantile_metric(...)` selects an explicit quantile method for governed
-root median/percentile Metrics. The original declaration owns q; method selection
-is either exact linear interpolation or DuckDB T-Digest, never inferred from
-cost. The Dataset authority binds method, q and its registered replay recipe.
-T-Digest discloses semantic approximation and unknown error bounds. Its input
-vector is source-sorted and evaluated with the pinned backend method.
-Use `marivo.help("semantic.quantile_metric")` for the public constructor and
-pass the selected input to `session.observe(...)`.
+Source aggregation executes as SQL compiled by Ibis. Quantiles use source-native
+arithmetic: large integers can lose floating precision and Decimal interpolation
+can retain the source scale. These numerical limitations are disclosed, not
+repaired by fetching contributions for Python sorting or interpolation. The
+non-approximate operation does not promise arbitrary-precision arithmetic.
+Unsupported exact operations fail with the corresponding approximate declaration,
+preserving q, and say whether that backend supports the alternative. No definition
+is substituted automatically. Backend translation alone never qualifies a new
+Analysis execution route.
 
 ## R5.1 frozen Semantic handoff
 
@@ -1021,16 +1022,12 @@ canonical undefined-zero-denominator policy, while `"error"` rejects; neither
 means a Defined zero or a Null Cell. Named original components survive finish.
 
 Exact distinct counts its declared value identity (an Entity identity uses all
-of K), excludes Null according to the existing count-distinct policy, and yields
-zero on admitted empty input. Exact median/percentile excludes Null pairs of
-value and contribution identity, rejects nonfinite numeric inputs, and uses
-linear interpolation at `h=(n-1)*q`; median fixes `q=0.5`. Empty non-null support
-yields Null under the existing Metric policy. Percentile q is finite with
-`0 < q < 1`; bool is rejected. Direct observation defaults to exact.
-`ms.quantile_metric(metric: Ref[MetricKind] | RuntimeMetricExpr, *,
-accuracy: Literal["exact", "approximate"] = "exact") -> QuantileMetricInput`
-is the target wrapper; `method=` is removed at R5.6 cutover without an alias.
-Approximate permits a qualified approximate or exact implementation; plan and
-receipt disclose the actual algorithm, parameters and guarantee. No automatic
-exact-to-approximate fallback, invented error bound, retained distribution/sketch,
-original rollup or attribution is authorized by this first direct-observation slice.
+of K), excludes Null according to the count-distinct policy, and yields zero on
+admitted empty input. Median/percentile excludes Null values and rejects nonfinite
+numeric contributions. The source-native continuous quantile uses linear
+interpolation at `h=(n-1)*q`; median fixes `q=0.5`. Empty support yields Null.
+Percentile q is finite with `0 < q < 1`; bool is rejected. Numerical precision is
+source-owned as described above. The definition distinguishes exact and approximate
+operations through AggKind, not an observation wrapper. Actual algorithm and
+physical output type remain inspectable; no invented error bound, retained
+distribution/sketch, original rollup or attribution is authorized by this slice.

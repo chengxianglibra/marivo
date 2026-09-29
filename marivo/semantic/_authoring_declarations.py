@@ -152,7 +152,11 @@ def aggregate(
         agg: Aggregation kind: ``"sum"``, ``"count"``, ``"count_distinct"``,
             ``"min"``, ``"max"``, ``"mean"``, ``"median"``, or
             ``("percentile", q)`` for the q-th percentile across rows in each
-            query group.
+            query group. ``"approx_count_distinct"``, ``"approx_median"`` and
+            ``("approx_percentile", q)`` explicitly permit source-native
+            approximation. Observation never overrides this definition.
+            Unsupported exact operations report the corresponding approximate
+            definition and whether the datasource supports it; no automatic substitution.
         time: Business event-time dimension for windowed observation.
         time_via: Ordered to-one relationships from the measure Entity to the time Entity.
         nulls: Declared input-Null policy for admitted Analysis methods.

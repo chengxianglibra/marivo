@@ -184,6 +184,14 @@ def _result(
             "original_state__samples",
             pa.array(canonical_samples, type=pa.string()),
         )
+    from marivo.analysis.methods.physical import DurationType
+
+    if isinstance(stage.node.value_type, DurationType) and "value" in table.column_names:
+        table = table.set_column(
+            table.schema.get_field_index("value"),
+            "value",
+            table["value"].cast(pa.duration(stage.node.value_type.unit), safe=True),
+        )
     key_names = tuple(item.column for item in stage.layout.keys)
     cell_names = (
         ()

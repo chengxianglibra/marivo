@@ -866,5 +866,6 @@ PROFILE = EngineProfile(
     datetime_decode_policy="utc_naive_instant",
     quantile=QuantileCapability(mode="approximate", method="reservoir_sampling"),
     percentile_uses_approx_quantile=False,
+    exact_count_distinct=False,
     authoring_timeout=authoring_timeout,
 )

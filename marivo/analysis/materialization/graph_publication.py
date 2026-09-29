@@ -69,7 +69,13 @@ from marivo.analysis.materialization.resources import discharge_resources, reser
 from marivo.analysis.materialization.storage import _fsync_directory
 from marivo.analysis.materialization.store import SessionStore, _new_run_ref, _rows, _text
 from marivo.analysis.materialization.writer_guard import session_writer_guard
-from marivo.analysis.methods.physical import Qualified, ScalarType, matches_arrow_scalar
+from marivo.analysis.methods.physical import (
+    DecimalType,
+    DurationType,
+    Qualified,
+    ScalarType,
+    matches_arrow_scalar,
+)
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.datasource.adapters import SourceSession
 from marivo.introspection.live.model import LiveHelpTarget
@@ -205,7 +211,7 @@ def execute(
                     record.session_ref != session
                     or fixed_signature(descriptor) != leaf.signature
                     or descriptor.definition_fingerprint != leaf.definition_fingerprint
-                    or not isinstance(leaf.value_type, ScalarType)
+                    or not isinstance(leaf.value_type, (ScalarType, DecimalType, DurationType))
                 ):
                     raise invalid("fixed leaf differs from exact committed signature or definition")
                 from marivo.analysis.materialization.graph_protocol import schema_from

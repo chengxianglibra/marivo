@@ -10,7 +10,7 @@ from marivo.analysis.observation.fold_contracts import FoldAuthorityV1, decode_f
 from marivo.analysis.operators.attribute import attribute_method
 from marivo.analysis.operators.attribution_contracts import AttributionSemantics
 from marivo.analysis.session._lazy_sources import make_lazy_sources
-from marivo.semantic._quantile import quantile_metric
+from marivo.semantic._quantile import distribution_metric_input
 from tests.lazy_distribution_fixtures import CHANNEL, METRIC, make_distribution_registry
 from tests.lazy_observation_fixtures import NoIoActionPort
 
@@ -26,13 +26,13 @@ def test_exact_and_approximate_definitions_are_distinct_and_do_not_mix() -> None
     )
     exact = source.observe(METRIC).with_dimensions(CHANNEL).aggregate()
     approximate = (
-        source.observe(quantile_metric(METRIC, method="duckdb_tdigest@v1"))
+        source.observe(distribution_metric_input(METRIC, method="duckdb_tdigest@v1"))
         .with_dimensions(CHANNEL)
         .aggregate()
     )
     assert exact.definition_fingerprint != approximate.definition_fingerprint
     with pytest.raises(DatasetConstructionError, match="quantile method input at projection"):
-        exact.metric(quantile_metric(METRIC, method="duckdb_tdigest@v1"))
+        exact.metric(distribution_metric_input(METRIC, method="duckdb_tdigest@v1"))
     with pytest.raises(DatasetConstructionError, match="incompatible Metric contracts"):
         exact.compare(approximate)
     for metric, approximation in ((exact, "exact"), (approximate, "semantic_percentile")):
@@ -92,7 +92,9 @@ def test_nonpercentile_explicit_method_rejected_without_execution() -> None:
     from marivo.refs import ref
 
     with pytest.raises(DatasetConstructionError, match="governed root median or percentile"):
-        source.observe(quantile_metric(ref.metric("sales.order_count"), method="duckdb_tdigest@v1"))
+        source.observe(
+            distribution_metric_input(ref.metric("sales.order_count"), method="duckdb_tdigest@v1")
+        )
 
 
 def test_entity_scope_has_no_distribution_local_preparation() -> None:

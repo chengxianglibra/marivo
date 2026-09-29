@@ -8,7 +8,7 @@ from marivo.analysis import time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.operators.attribution_contracts import AttributionSemantics
 from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
-from marivo.semantic._quantile import QuantileMethod, quantile_metric
+from marivo.semantic._quantile import QuantileMethod, distribution_metric_input
 from tests.lazy_distribution_fixtures import (
     CHANNEL,
     METRIC,
@@ -31,7 +31,7 @@ def test_distribution_runtime_preserves_method_authority(
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     current = (
         sources.observe(
-            quantile_metric(METRIC, method=method),
+            distribution_metric_input(METRIC, method=method),
             time_scope=time_scope(start="2026-02-01", end="2026-02-05"),
         )
         .with_dimensions(CHANNEL)
@@ -39,7 +39,7 @@ def test_distribution_runtime_preserves_method_authority(
     )
     baseline = (
         sources.observe(
-            quantile_metric(METRIC, method=method),
+            distribution_metric_input(METRIC, method=method),
             time_scope=time_scope(start="2026-01-01", end="2026-01-05"),
         )
         .with_dimensions(CHANNEL)
@@ -260,7 +260,7 @@ def test_numeric_source_types_replay_the_declared_float64_percentile(
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     current = (
         sources.observe(
-            quantile_metric(METRIC, method=method),
+            distribution_metric_input(METRIC, method=method),
             time_scope=time_scope(start="2026-02-01", end="2026-02-05"),
         )
         .with_dimensions(CHANNEL)
@@ -268,7 +268,7 @@ def test_numeric_source_types_replay_the_declared_float64_percentile(
     )
     baseline = (
         sources.observe(
-            quantile_metric(METRIC, method=method),
+            distribution_metric_input(METRIC, method=method),
             time_scope=time_scope(start="2026-01-01", end="2026-01-05"),
         )
         .with_dimensions(CHANNEL)
@@ -306,7 +306,7 @@ def test_projection_preserves_method_and_preview_preserves_authored_order(
     runtime = DatasetRuntime.create(tmp_path, "preview")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     metric = (
-        sources.observe((METRIC, quantile_metric(second, method="duckdb_tdigest@v1")))
+        sources.observe((METRIC, distribution_metric_input(second, method="duckdb_tdigest@v1")))
         .with_dimensions(CHANNEL)
         .aggregate()
     )

@@ -138,6 +138,8 @@ class EngineProfile:
     percentile_uses_approx_quantile: bool
     authoring_timeout: AuthoringTimeout | None
     http_credentials: Callable[..., ProviderHttpCredentials | None] | None = None
+    exact_count_distinct: bool = False
+    exact_quantile: bool = False
 
     def __post_init__(self) -> None:
         timeout_enforced = self.authoring_timeout is not None

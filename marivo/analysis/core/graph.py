@@ -185,9 +185,9 @@ Node: TypeAlias = SourceLeaf | FixedLeaf | MethodNode
 
 
 def _value_type(value: ValueType) -> None:
-    from marivo.analysis.methods.physical import DecimalType, ScalarType
+    from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
-    if type(value) not in (ScalarType, DecimalType):
+    if type(value) not in (ScalarType, DecimalType, DurationType):
         _fail("a precise physical value type", repr(value))
 
 

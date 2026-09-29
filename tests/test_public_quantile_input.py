@@ -1,101 +1,88 @@
-"""Public quantile selection preserves method identity through Session and cold reads."""
+"""Definition-owned quantile identity survives source-offline Store 7 recovery."""
 
-from dataclasses import FrozenInstanceError
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
 from pathlib import Path
 
+import duckdb
 import pytest
 
-import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.observation.distribution_contracts import distribution_part_authorities
-from marivo.semantic._quantile import QuantileMethod
-from marivo.semantic.errors import SemanticLoadError
-from tests.lazy_runtime_patch_targets import runtime_patch_owner
+from marivo.semantic.ir import AggKind
+from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.parametrize("method", ["linear_interpolation@v1", "duckdb_tdigest@v1"])
-def test_public_quantile_selection_is_pure_frozen_and_showable(
-    monkeypatch, capsys, method: QuantileMethod
-):
-    import marivo.telemetry as telemetry
-
-    reference = ms.ref.metric("sales.p95_amount")
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("quantile selection attempted project I/O")
-
-    with monkeypatch.context() as guarded:
-        guarded.setattr(telemetry, "resolve_project_root", forbidden)
-        selected = ms.quantile_metric(reference, method=method)
-    assert type(selected) is ms.QuantileMetricInput
-    assert selected.metric is reference
-    assert selected.method == method
-    with pytest.raises(FrozenInstanceError):
-        selected.method = method
-    assert len(repr(selected).splitlines()) == 1
-    assert len(repr(selected)) < 256
-    selected.show()
-    assert method in capsys.readouterr().out
-
-
-@pytest.mark.parametrize("method", ["automatic", "duckdb_tdigest", None])
-def test_public_quantile_rejects_unregistered_method_with_resolvable_repair(method):
-    with pytest.raises(SemanticLoadError) as caught:
-        ms.quantile_metric(ms.ref.metric("sales.p95_amount"), method=method)
-    error = caught.value
-    assert error.kind == "invalid_quantile_method"
-    assert error.repair is not None
-    assert error.repair.help_target.surface == "semantic"
-    assert error.repair.help_target.canonical_id == "quantile_metric"
-    from marivo._help.model import NativeHelpRoute
-    from marivo._help.route import route_help_target
-
-    route = route_help_target("semantic.quantile_metric")
-    assert isinstance(route, NativeHelpRoute)
-    assert route.owner == "semantic"
+def test_observation_algorithm_override_is_not_public() -> None:
+    assert not hasattr(ms, "quantile_metric")
+    assert not hasattr(ms, "QuantileMetricInput")
 
 
 @pytest.mark.runtime
-@pytest.mark.parametrize("method", ["linear_interpolation@v1", "duckdb_tdigest@v1"])
-def test_public_quantile_executes_and_cold_projection_keeps_method(
-    authoring_evidence_project: Path, monkeypatch, method: QuantileMethod
-):
-    monkeypatch.chdir(authoring_evidence_project)
-    model = authoring_evidence_project / "models" / "semantic" / "sales" / "models.py"
+@pytest.mark.parametrize(
+    "agg, algorithm", [("median", "QUANTILE_CONT"), ("approx_median", "T-Digest")]
+)
+def test_defined_quantile_survives_source_offline_recovery(
+    analysis_dsl_case_factory: DslCaseFactory, agg: AggKind, algorithm: str
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    with duckdb.connect(str(case.database_path)) as db:
+        db.execute("SET threads=1")
+        db.execute('ALTER TABLE "order" ALTER amount TYPE DOUBLE')
+        db.execute('DELETE FROM "order"')
+        for index, amount in enumerate((125.25, 250.5)):
+            db.execute(
+                'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
+                [str(index), "A", "web", "paid", "2026-08-15", amount],
+            )
+    model = case.root / "models/semantic/sales/models.py"
     model.write_text(
         model.read_text()
-        + "\nmedian_amount = ms.aggregate(name='median_amount', measure=amount, agg='median')\n"
+        + f"\nmedian_amount = ms.aggregate(name='median_amount', measure=amount, agg={agg!r}, time=ordered_at)\n"
     )
-    session = mv.session.get_or_create("quantile")
-    reference = ms.ref.metric("sales.median_amount")
-    logical = session.observe(ms.quantile_metric(reference, method=method)).aggregate()
-    authority = distribution_part_authorities(logical.row_contract)[0][1]
-    assert authority.distribution is not None
-    assert authority.distribution.quantile.method == method
-    assert authority.distribution.quantile.q == 0.5
-    assert session.runs().items == ()
-    output = logical.execute()
-    assert output.to_pandas()["median_amount"].tolist() == [187.875]
-    (authoring_evidence_project / "warehouse.duckdb").rename(
-        authoring_evidence_project / "warehouse.offline"
+    ms.load(workspace_dir=case.root)
+    output = (
+        case.session.members(ms.ref.entity("sales.customer"))
+        .observe(ms.ref.metric("sales.median_amount"), via=ms.ref.relationship("sales.order_buyer"))
+        .execute()
     )
-    cold = mv.session.resume(session.id, by="id")
-    loaded = cold.artifact(output.state.artifact_ref)
-    assert not cold._runtime.statistics.statements
+    assert output.to_pandas().set_index("member").loc["A", "value"] == 187.875
+    assert algorithm in dict(output.contract()._facts)["algorithm"]
+    case.database_path.rename(case.database_path.with_suffix(".offline"))
+    (case.root / "models").rename(case.root / "models.offline")
+    script = """
+import sys
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.analysis.errors import AnalysisError
 
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("cold projection attempted origin access")
+def forbidden(*args, **kwargs):
+    raise AssertionError('retained quantile cannot load Semantic or connect a source')
 
-    monkeypatch.setattr(
-        runtime_patch_owner("_build_backend_from_effective"),
-        "_build_backend_from_effective",
-        forbidden,
+ms.load = forbidden
+DatasourceConnectionService.use_backend = forbidden
+fixed = mv.session.resume(sys.argv[1], by='id').artifact(sys.argv[2])
+assert isinstance(fixed, mv.MaterializedNumericRelation)
+assert fixed.to_pandas().set_index('member').loc['A', 'value'] == 187.875
+assert sys.argv[3] in dict(fixed.contract()._facts)['algorithm']
+assert not any(action.call == 'relation.rollup()' for action in fixed.contract().actions)
+try:
+    fixed.rollup()
+except AnalysisError:
+    pass
+else:
+    raise AssertionError('quantile must not grant original rollup')
+assert fixed.summarize(mv.count()).execute().to_pandas()['value'].tolist() == [4]
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, case.session.id, output.state.artifact_ref.ref, algorithm],
+        cwd=case.root,
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
+        capture_output=True,
+        text=True,
+        check=False,
     )
-    monkeypatch.setattr(runtime_patch_owner("_effective_kwargs"), "_effective_kwargs", forbidden)
-    projected = loaded.metric(loaded.fields.get("median_amount")).execute()
-    assert projected.to_pandas()["median_amount"].tolist() == [187.875]
-    assert (
-        distribution_part_authorities(projected.row_contract)[0][1].distribution
-        == authority.distribution
-    )
-    assert cold._runtime.statistics.source_fences == 0
+    assert result.returncode == 0, result.stderr

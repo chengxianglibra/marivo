@@ -41,7 +41,7 @@ from marivo.analysis.materialization.graph_fields import RootRoutesValue
 from marivo.analysis.materialization.graph_preflight import EntitySchema, preflight_entities
 from marivo.analysis.materialization.graph_protocol import digest, schema_text
 from marivo.analysis.materialization.graph_store import GraphArtifact
-from marivo.analysis.methods.physical import ScalarType
+from marivo.analysis.methods.physical import ScalarType, ValueType
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.refs import (
@@ -226,7 +226,9 @@ class MemberGraph:
             expression_type = str(expression_value.type())
             if expression_type not in ("int64", "float64"):
                 raise reject(f"computed Measure has unqualified {expression_value.type()} value")
-            physical = ScalarType("int64") if expression_type == "int64" else ScalarType("float64")
+            physical: ValueType = (
+                ScalarType("int64") if expression_type == "int64" else ScalarType("float64")
+            )
         else:
             physical = schemas[-1].field_type(field.source_column)
         if field.parse is not None and not isinstance(

@@ -197,14 +197,14 @@ def test_runtime_bounds_governed_leaves_and_temporal_fold_fail_before_execution(
 def test_runtime_private_membership_and_distribution_recover_exactly(
     tmp_path: Path, method: str
 ) -> None:
-    from marivo.semantic._quantile import quantile_metric
+    from marivo.semantic._quantile import distribution_metric_input
 
     fixture = setup_retained(tmp_path)
     distinct = rm.aggregate(AMOUNT, agg="count_distinct", label="distinct")
     median = rm.aggregate(AMOUNT, agg="median", label="median")
     checkpoint = (
         fixture.sources.observe(
-            [distinct, quantile_metric(median, method=method)],
+            [distinct, distribution_metric_input(median, method=method)],
             population=fixture.sources.population(CUSTOMERS),
         )
         .with_dimensions(ref.dimension("sales.orders.channel"))

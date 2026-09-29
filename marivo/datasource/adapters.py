@@ -41,6 +41,8 @@ from marivo.datasource.ir import (
 )
 from marivo.datasource.table_source import table_source_expression
 
+DURATION_UNIT_METADATA_KEY = b"marivo:duration_unit"
+
 SourceIR = TableSourceIR | CsvSourceIR | ParquetSourceIR | JsonSourceIR
 Parameter = str | int | float | bool | bytes | Decimal | date | datetime | None
 Termination = Literal["local_closed", "remote_unknown", "remote_confirmed"]
@@ -565,10 +567,35 @@ class SourceSession:
             raise _invalid("a source qualified for the selected backend", type(source).__name__)
         if not isinstance(relation, ir.Table):
             raise _invalid("an Ibis table relation", type(relation).__name__)
+        physical_schema = relation.schema().to_pyarrow()
+        if isinstance(source, ParquetSourceIR):
+            from pathlib import Path
+
+            import pyarrow.parquet as pq
+
+            # Arrow's fixed Duration logical metadata survives Parquet even though
+            # DuckDB presents its lossless tick carrier as BIGINT.
+            if Path(source.path).is_file():
+                arrow_schema = pq.read_schema(source.path)
+                fields = []
+                for field in physical_schema:
+                    index = arrow_schema.get_field_index(field.name)
+                    original = arrow_schema.field(index).type if index >= 0 else None
+                    if original is not None and pa.types.is_duration(original):
+                        if field.type != pa.int64():
+                            raise _invalid("int64 Parquet duration ticks", str(field.type))
+                        field = field.with_metadata(
+                            {
+                                **(field.metadata or {}),
+                                DURATION_UNIT_METADATA_KEY: original.unit.encode("ascii"),
+                            }
+                        )
+                    fields.append(field)
+                physical_schema = pa.schema(fields, metadata=physical_schema.metadata)
         binding = BoundSource(
             source,
             relation,
-            PhysicalFacts(source_identity, relation.schema().to_pyarrow()),
+            PhysicalFacts(source_identity, physical_schema),
             self._token,
         )
         self._bindings_by_identity[source_identity] = (source, supplied_source_params)

@@ -37,7 +37,7 @@ from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.graph_members import MemberGraph
 from marivo.analysis.materialization.graph_preflight import preflight_entities
 from marivo.analysis.materialization.graph_protocol import digest, schema_text
-from marivo.analysis.methods.physical import ScalarType, TimeShape
+from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType, TimeShape
 from marivo.analysis.observation.temporal import civil_bound
 from marivo.refs import (
     DimensionKind,
@@ -48,7 +48,13 @@ from marivo.refs import (
     ref,
 )
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
-from marivo.semantic.ir import DateParse, DatetimeParse, TargetRelationshipContract, TimestampParse
+from marivo.semantic.ir import (
+    DIRECT_ONLY_AGGREGATES,
+    DateParse,
+    DatetimeParse,
+    TargetRelationshipContract,
+    TimestampParse,
+)
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
     CumulativeNodeV1,
@@ -245,19 +251,33 @@ def observe_members(
         )
         or any(first.to_entity_ref != second.from_entity_ref for first, second in pairwise(path))
         or component.empty_rule not in ("null", "zero")
-        or (component.spatial_merge != "sum" and component.time_fold is None)
-        or (
-            metric.requires_source_recompute
-            and not metric.cumulative
-            and component.time_fold is None
-        )
     ):
         raise _reject("Metric roots or relationship endpoints differ")
     aggregate = component_node(metric.graph, component.node_id)
-    aggregate_kind = (
+    aggregate_spec = (
         "weighted_mean" if isinstance(aggregate, WeightedMeanAggregateNodeV1) else aggregate.agg
     )
-    if aggregate_kind not in ("sum", "mean", "count", "weighted_mean"):
+    quantile = aggregate_spec[1] if isinstance(aggregate_spec, tuple) else None
+    aggregate_kind = aggregate_spec[0] if isinstance(aggregate_spec, tuple) else aggregate_spec
+    direct_only = aggregate_kind in DIRECT_ONLY_AGGREGATES
+    if direct_only and coordinates:
+        raise _reject(
+            "direct distribution observations do not retain contribution-coordinate state"
+        )
+    if aggregate_kind not in (
+        "sum",
+        "mean",
+        "min",
+        "max",
+        "count",
+        "weighted_mean",
+        "count_distinct",
+        "approx_count_distinct",
+        "median",
+        "approx_median",
+        "percentile",
+        "approx_percentile",
+    ):
         raise _reject("Metric is not a sum or Entity count")
     if (
         isinstance(aggregate, AggregateNodeV1)
@@ -282,8 +302,13 @@ def observe_members(
         ),
         None,
     )
-    if aggregate_kind in ("sum", "mean", "weighted_mean") and (
-        body is None or body.source_column is None
+    entity_distinct = (
+        aggregate_kind in ("count_distinct", "approx_count_distinct") and value_ref.kind == "entity"
+    )
+    if (
+        aggregate_kind != "count"
+        and not entity_distinct
+        and (body is None or body.source_column is None)
     ):
         raise _reject("Measure is not a frozen direct column")
     event_path = (
@@ -328,20 +353,55 @@ def observe_members(
     schemas = {schema.contract.ref.path: schema for schema in selected_schemas}
     member_schema = schemas[members.entity_schema.contract.ref.path]
     contribution_schema = schemas[component.computation_root.path]
+    if isinstance(aggregate, AggregateNodeV1):
+        from marivo.semantic._aggregate_accuracy import aggregate_repair
+
+        action = aggregate_repair(aggregate.agg, contribution_schema.shape.backend)
+        if action is not None:
+            raise DatasetConstructionError(
+                expected=f"source-native agg={aggregate.agg!r} with its declared exactness",
+                received=f"backend={contribution_schema.shape.backend}",
+                repair=action,
+                location="analysis.graph_observation",
+                help_target="dsl.LogicalAnalysisDomain.observe",
+            )
     if event.entity_ref.path not in schemas:
         raise _reject("event time is outside the qualified contribution route")
     if member_schema != members.entity_schema:
         raise _reject("member schema changed after construction")
+    distinct_columns = contribution_schema.contract.primary_key if entity_distinct else ()
     amount_type = (
-        contribution_schema.field_type(body.source_column)
-        if aggregate_kind in ("sum", "mean", "weighted_mean")
-        and body is not None
-        and body.source_column is not None
+        contribution_schema.field_type(distinct_columns[0])
+        if entity_distinct
+        else contribution_schema.field_type(body.source_column)
+        if aggregate_kind != "count" and body is not None and body.source_column is not None
         else ScalarType("int64")
     )
-    if aggregate_kind == "mean" and amount_type != ScalarType("int64"):
-        raise _reject("original mean currently requires direct int64 input")
-    if amount_type.name not in ("int64", "float64"):
+    if amount_type.name not in ("int64", "float64") and not (
+        (
+            isinstance(amount_type, DecimalType)
+            and aggregate_kind
+            in (
+                "sum",
+                "mean",
+                "weighted_mean",
+                "min",
+                "max",
+                "median",
+                "percentile",
+                "count_distinct",
+            )
+        )
+        or (
+            aggregate_kind == "count_distinct"
+            and amount_type.name in ("string", "boolean", "date", "timestamp")
+        )
+        or (
+            isinstance(amount_type, DurationType)
+            and aggregate_kind in ("sum", "min", "max", "mean", "weighted_mean", "count_distinct")
+        )
+        or entity_distinct
+    ):
         raise _reject("unqualified amount physical type")
     event_type = schemas[event.entity_ref.path].schema.field(event.source_column).type
     if not (
@@ -565,10 +625,18 @@ def observe_members(
             or body.source_column is None
             or weight_body is None
             or weight_body.source_column is None
-            or amount_type != ScalarType("int64")
-            or contribution_schema.field_type(weight_body.source_column) != ScalarType("int64")
+            or not (
+                amount_type in (ScalarType("int64"), ScalarType("float64"))
+                or isinstance(amount_type, DurationType)
+                or (isinstance(amount_type, DecimalType) and amount_type.scale * 2 <= 38)
+            )
+            or contribution_schema.field_type(weight_body.source_column)
+            != (ScalarType("int64") if isinstance(amount_type, DurationType) else amount_type)
         ):
-            raise _reject("weighted mean requires direct int64 value/weight columns")
+            raise _reject(
+                "weighted mean requires matching int64/float64 or Decimal value/weight columns "
+                "with product scale <= 38, or Duration values with int64 weights"
+            )
         parameters = ObserveWeightedMean(
             definition,
             target,
@@ -579,7 +647,7 @@ def observe_members(
             start,
             end,
             body.source_column,
-            "int64",
+            amount_type.name,
             weight_body.source_column,
             coordinate_fields,
             filters,
@@ -598,7 +666,8 @@ def observe_members(
             filters,
         )
     else:
-        assert body is not None and body.source_column is not None
+        assert entity_distinct or (body is not None and body.source_column is not None)
+        assert aggregate_kind != "weighted_mean"
         parameters = ObserveMetric(
             definition,
             target,
@@ -608,11 +677,17 @@ def observe_members(
             event,
             start,
             end,
-            body.source_column,
-            "int64" if amount_type == ScalarType("int64") else "float64",
+            distinct_columns[0]
+            if entity_distinct
+            else body.source_column
+            if body is not None and body.source_column is not None
+            else "",
+            amount_type.name,
             coordinate_fields,
             filters,
-            "mean" if aggregate_kind == "mean" else "sum",
+            method=aggregate_kind,
+            quantile=quantile,
+            distinct_columns=distinct_columns,
         )
     if component.time_fold is not None:
         if component.time_fold not in ("first", "last", "mean", "min", "max") or not isinstance(
@@ -633,10 +708,30 @@ def observe_members(
         (Edge("subject", member_root),),
         parameters,
         sources=tuple(leaf for _, leaf in source_entries),
-        value_type=ScalarType("float64")
+        value_type=amount_type
+        if isinstance(amount_type, DurationType) and aggregate_kind != "count_distinct"
+        else (
+            DecimalType(38, max(amount_type.scale, 6))
+            if parameters.fold == "mean"
+            else DecimalType(38, amount_type.scale)
+        )
+        if isinstance(parameters, ObserveMetric)
+        and parameters.fold is not None
+        and isinstance(amount_type, DecimalType)
+        else (ScalarType("float64") if parameters.fold == "mean" else amount_type)
+        if isinstance(parameters, ObserveMetric) and parameters.fold is not None
+        else DecimalType(38, max(amount_type.scale, 6))
+        if isinstance(amount_type, DecimalType) and aggregate_kind in ("mean", "weighted_mean")
+        else DecimalType(38, amount_type.scale)
+        if isinstance(amount_type, DecimalType) and aggregate_kind == "sum"
+        else amount_type
+        if isinstance(amount_type, DecimalType) and aggregate_kind in ("median", "percentile")
+        else ScalarType("float64")
         if isinstance(parameters, ObserveWeightedMean)
-        or aggregate_kind == "mean"
+        or aggregate_kind in ("mean", "median", "approx_median", "percentile", "approx_percentile")
         or component.time_fold is not None
+        else ScalarType("int64")
+        if aggregate_kind in ("count_distinct", "approx_count_distinct")
         else amount_type,
     )
 

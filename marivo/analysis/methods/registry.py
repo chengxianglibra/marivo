@@ -18,7 +18,12 @@ from marivo.analysis.core.model import (
     part_role,
 )
 from marivo.analysis.core.rules import RuleDerivation, RuleParameters
-from marivo.analysis.methods.builtin import admit, implementations, specialize_arity
+from marivo.analysis.methods.builtin import (
+    admit,
+    implementations,
+    specialize_arity,
+    specialize_numeric,
+)
 from marivo.analysis.methods.errors import reject
 from marivo.analysis.methods.physical import (
     DecimalType,
@@ -133,7 +138,6 @@ class MethodRegistration:
                         "metric.ratio",
                         "state_rollup.weighted_mean",
                         "state_rollup.mean",
-                        "state_rollup.fold",
                     )
                     and not any(isinstance(item, DecimalType) for item in input_types)
                 ):
@@ -240,7 +244,7 @@ class MethodRegistry:
                 "Request the exact invocation shape.",
             )
         for implementation in registration.implementations:
-            implementation = specialize_arity(implementation, len(inputs))
+            implementation = specialize_numeric(specialize_arity(implementation, len(inputs)), key)
             if implementation.key != key:
                 continue
             status = implementation.qualification
@@ -300,6 +304,8 @@ class MethodRegistry:
             )
             coverage = next((item for item in output.parts if isinstance(item, CoveragePart)), None)
             for name in (
+                "state_rollup.min",
+                "state_rollup.max",
                 "state_rollup",
                 "state_rollup.count",
                 "state_rollup.sum_zero",

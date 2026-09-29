@@ -63,8 +63,6 @@ Aggregation & measure helpers
    linear
    ratio
    weighted_mean
-   quantile_metric
-   QuantileMetricInput
    additive
    additive_all
    non_additive

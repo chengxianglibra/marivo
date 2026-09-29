@@ -2,7 +2,7 @@
 
 Date: 2026-09-28
 
-Status: R5.1 freeze complete; R5.2 bounded member/read qualification complete; R5.3 bounded five-factory graph slice implemented; qualification is recorded in evidence/r53; R5.4 bounded coordinate/group/row-state implementation and source-tree acceptance are complete, recorded in evidence/r54; R5.5 bounded temporal implementation and source-tree acceptance are complete; the versioned qualification summary is in the migration ledger; R5.6-R5.7 remain unverified.
+Status: R5.1-R5.6 bounded source-tree acceptance is recorded in evidence/r51-r56, including R5.5 review follow-up and the complete local R5.6 numeric matrix. R5 as a whole is not complete: remaining V11 historical skips/concurrency debt and installed-candidate closure remain in R5.7 and are unverified.
 
 R5.1 的具体交付、消费者与逐格债务见[迁移清单](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md)；
 [静态证据](evidence/r51/README.md)不授予执行资格。
@@ -80,7 +80,7 @@ R2.2 已按用户要求撤回 `ms.statistical_weight`；R5.1 再次确认该范�
 
 ### 3.2 多根贡献、运行期量和覆盖
 
-观察输入为 Metric Ref、RuntimeMetricExpr 或 QuantileMetricInput 的闭合联合。
+观察输入为 Metric Ref 或 RuntimeMetricExpr 的闭合联合。
 保留 `aggregate/slice/ratio/linear/weighted_mean` 五工厂；收紧 SliceValue 类型，不接收
 SQL、裸字符串业务身份、任意回调或宽泛 `Any`。`linear` 的有序 +1/-1 项不是时期 Difference。
 
@@ -163,7 +163,7 @@ Runtime owner 接受明确破坏性规则，无双读、迁移或自动重建用
 | R5.3 多根与 runtime_metric | 统一 `semantic/runtime_metric*.py` 与 `analysis/runtime_metric.py` 消费规范图；迁入五工厂、独立组件/分支、无窗口和既有有限窗口观察；原组件数值状态随方法接入 | 三根以上、同根不同过滤、不同事实粒度、路径角色/贡献单位及 opaque 正反例；独立 raw-fact oracle 不放大；原组件与行统计分离 |
 | R5.4 坐标、目标组与部分归约 | 扩展完整元组域、组合分组、显式 groups、部分轴消去、成员/坐标状态运输；接入当前行 count/count_defined/sum/min/max/mean 与承诺的 RowStatistic 续算 | 完整并集、零值坐标、空组、严格分类、无笛卡尔放大；L8/L9 在同目标域与真实状态上验证；丢部件撤销 K |
 | R5.5 时间网格与 fold | 在现有 temporal/calendar owner 接入 each/grid/边界句柄、状态时点、认证窗口、三时区/DST、累计与半可加顺序；替换对应旧 temporal SQL | Entity×Time、部分格、时间粗化、重叠和非交换反例；DuckDB/SQLite 所需实源路径与断源 fixed fold 通过；所有检查读取可追溯 Ibis |
-| R5.6 数值资格与直接观察补全 | 扩展 Metric weighted_mean 与剩余数值类型资格，distinct/quantile accuracy 切换；校验 min/max/mean/加权/时间状态与版本 | 精确/近似无静默替换；Decimal/Duration/精度/溢出矩阵明确；所有必需方法已闭合，distinct/quantile 原量上卷拒绝，当前行统计仍可单独成立 |
+| R5.6 数值资格与直接观察补全 | 扩展 Metric weighted_mean 与剩余数值类型资格，distinct/quantile 定义侧精确／近似区分；校验 min/max/mean/加权/时间状态与版本 | 精确/近似无静默替换；Decimal/Duration/精度/溢出矩阵明确；所有必需方法已闭合，distinct/quantile 原量上卷拒绝，当前行统计仍可单独成立 |
 | R5.7 冷恢复、债务与安装收口 | 逐方法核对 graph protocol/receipt/K；迁移遗留正例与并发用例；反查注册/SQL/codec/Help/包内消费者；同一候选 wheel 重跑旅程 | §6 全部必需格取得证据，旧 R5 链退出产品及测试消费者；14 skip 与 8 fail 按 §5 逐项处置；R6/R9 交接明确 |
 
 R5.3/R5.4 先在既有时间形状下形成可执行切片；R5.5 扩展网格与时间消轴；R5.6 完成数值
@@ -179,7 +179,7 @@ R5.1 只冻结契约不冒充实现；任何被保留的目标缺口均阻止相
 | `compiler/temporal.py`、`materialization/temporal_sql.py`、旧数值/分位/折叠路线 | 按实际调用反查逐项替换为 Ibis 或事先注册的本地算法；连同 validation/probe SQL 检查，不改名藏入 adapter |
 | `operators/registry.py`、`compiler/source_admission.py`、`materialization/dataset_execution.py` | 移除完成迁移的 R5 旧分派和阻断分支；R6–R8 残留按真实消费者登记，不提前删共享依赖或扩大默认资格 |
 | 旧 codec/publication/retained 路线与 v6 私有 harness | R5 消费者迁入现有 Store 7；无消费者项删除，跨阶段项明确最终 owner；不能为恢复测试重新开 v6 公共路径 |
-| `semantic/_quantile.py` 与 runtime_metric 消费者 | 精确性要求由 accuracy 表达；旧公开物理 method 参数退出目标路径，无兼容别名；算法身份保留于计划/结果证据 |
+| `semantic/_quantile.py` 与 runtime_metric 消费者 | 精确／近似由 Metric 聚合定义表达；观察侧不接受 accuracy 或 method，无兼容别名；算法身份保留于计划/结果证据；不支持精确定义时提示对应近似定义并核对源端支持 |
 
 上表是定位入口，R5.1 必须补齐实际 import/call/registration 清单；不是按历史文件名重建模块。
 保留独立业务预期和故障语义，旧 API 测试按唯一新入口改写，不能要求旧签名继续可用。
@@ -220,7 +220,7 @@ R5.1 只冻结契约不冒充实现；任何被保留的目标缺口均阻止相
 | V06 时间 | 独立列举边界/期间和 UTC instants，23/25 小时 DST、部分格、认证 digest、完整 Entity×Time | epsilon、date 偏移、时区重开漂移、跨月周拆分、occurrence 重叠求和 |
 | V07 fold/累计 | 原始样本按声明空间→时间顺序计算；直接/合法分层状态及单位核对 | 两设备不同峰时刻、非交换 min/max/percentile、累计重复计数、展示起点截断历史、缺覆盖 |
 | V08 数值/权重 | Decimal/大整数/Duration、非有限/溢出；Metric 同一非 Null 配对及零权重政策；撤回的当前行权重不激活 | float 失真、孤立 Null 配对权重、零权重政策混淆、错组件、统计单位混用 |
-| V09 distinct/quantile | 手列唯一完整身份和排序线性插值；空/Null/q 边界；actual algorithm/accuracy | exact 自动近似、bool q、平均/再求分位冒充总体分位、无状态原量上卷 |
+| V09 distinct/quantile | 手列唯一完整身份和排序线性插值；空/Null/q 边界；actual algorithm / definition-owned exactness | exact 自动近似、bool q、平均/再求分位冒充总体分位、无状态原量上卷 |
 | V10 运行与恢复 | 每类状态 source 新求值、共享计数、fixed 精确命中；断源/删模型新进程执行承诺 K | mixed 提前读取、只比 show 不续算、坏 part/receipt/版本、fixed 打开 DuckDB、失败换路 |
 | V11 债务与删除 | 14 个正例映射、8 个并发失败映射、旧注册/import/SQL/codec 的消费者反查 | 删除独立预期、skip 算通过、测试私有新链但公共入口仍走旧链 |
 | V12 披露与安装 | typing 正负例、导出快照、Help 可达/预算、动态 K/错误、CLI/英中示例、同 wheel 公共旅程 | 新公开符号无 owner、静态帮助夸大资格、包内缺模块、源码污染或不同 wheel 拼证据 |
@@ -380,3 +380,22 @@ minute boundaries and source-offline empty grouped/singleton fold continuation.
 The versioned qualification summary and reproduction commands are in the migration
 ledger. Detailed local logs and fingerprints are in ignored `evidence/r55/review-fixes-*`;
 those local files are not prerequisites for reading or reproducing this record.
+
+## R5.6 accepted contract amendments (2026-09-29)
+
+Metric definitions own exact/approximate aggregation through distinct AggKind
+variants; the public `quantile_metric` wrapper and observation-side `method` /
+`accuracy` selection are removed without aliases. Source aggregation must execute
+as Ibis-compiled SQL. Source-native quantile precision loss is accepted when the
+actual algorithm, output type and limitations are disclosed. Fetching contribution
+vectors for local sorting or rational interpolation is not permitted. Unsupported
+exact definitions name their corresponding approximate declaration and explain
+whether the current backend supports it; execution never substitutes it.
+
+R5.6 source-tree implementation and numeric-matrix verification are complete.
+The [migration ledger](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md#r56-implementation-checkpoint)
+records exact method/type/source/fixed boundaries, independent oracles, cold
+recovery, version/corruption rejection and reproduction commands. Related Runtime
+acceptance totals 315 cases in separate batches; `make check-agent` passes with
+5432 tests and 5 skips. Typing, site build and whitespace checks pass. No wheel,
+release, remote R9 or real Agent qualification is inferred; R5.7 remains open.

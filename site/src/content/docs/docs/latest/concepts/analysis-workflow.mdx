@@ -181,9 +181,9 @@ cold recovery. Store generation 7 does not migrate or rewrite older files.
 
 Confirm changed business meaning when the Metric, membership, comparison or a
 material assumption needs to change. Reusable semantic gaps belong to semantic
-authoring. Exact quantiles use linear interpolation by default; choose
-`ms.quantile_metric(..., method="duckdb_tdigest@v1")` only when approximation is
-part of the intended meaning. Projection and recovery preserve that choice.
+authoring. Define approximation explicitly in the Metric with
+`agg=("approx_percentile", q)`; observation and recovery preserve that definition.
+Result contracts disclose source-native SQL precision limitations.
 
 Attribution is algebraic, association is descriptive, Candidate scores are leads,
 and forecasts retain model assumptions. The agent owns synthesis and conclusions.
@@ -295,30 +295,23 @@ group means. Comparison and attribution use complete non-Entity retained axes.
 Forecast, Kendall and time discovery run locally on complete source-aggregated
 inputs. Cold retained reads and folds do not need the original source.
 
-Linear Metric graphs and computed Measures (row expressions over one Entity's
-declared columns) are enabled on all six backends, and composed Decimal results
-decide per published unit: a decimal linear result is value-exact where the
-backend's scale contract is public, while mean/div over Decimal components stay
-unsupported with a concrete engine reason (the owning design spec carries the
-per-backend matrix). Semantic-calendar buckets and cumulative Metric graphs are
-enabled on all five remote backends over native civil-date axes with a matching
-certified calendar snapshot, and any other source requirement stays rejected.
-Every admitted cumulative anchor shape is admitted on every backend, including
-the fiscal composite `ms.cumulative(anchor=ms.grain_to_date(grain=<certified
-calendar grain>))`; a DuckDB oracle journey executes that composite today, and
-the five remote backends' execution evidence is scheduled with the C7/C8
-calendar work.
-Status-time folds are qualified per backend: PostgreSQL, SQLite, Trino and
-ClickHouse admit first/last/mean/min/max, MySQL admits mean/min/max with
-first/last pending engine argmin/argmax support, and percentile folds stay
-rejected everywhere. Unresolved-Decimal mean/div results remain unsupported.
-Direct-measure and Entity identity exact distinct are available on PostgreSQL,
-MySQL, SQLite, Trino and ClickHouse. SQLite and MySQL deduplicate typed identity
-fields as scalar SQL columns and reconstruct the private Arrow struct. Exact
-linear-interpolation median and percentile are available on all five remote
-backends; remote `duckdb_tdigest@v1` and percentile status-time folds remain
-unqualified. Entity Pearson and Spearman correlation reduce complete private
-pairs on all five remote backends; Kendall uses its existing complete-input local
+The unified graph's DuckDB table and local-Parquet numeric methods support int64,
+finite float64, Decimal and fixed Duration. Decimal sums retain input scale; mean,
+Metric weighted mean and ratio finish once with HALF_EVEN at the declared scale.
+Duration keeps its s/ms/us/ns unit and uses nearest-even ticks for means. Native
+DuckDB INTERVAL contributes microseconds only after calendar components are rejected;
+Parquet preserves all four Arrow Duration units. Original-state rollup and typed
+time folds retain these types through cold recovery. Source computations run as
+Ibis-compiled SQL; fixed continuations use verified retained state.
+
+Exact and approximate distinct/quantile operations are chosen in the Metric
+definition. Native quantile rounding is disclosed. A datasource that cannot execute
+an exact definition reports its corresponding approximate declaration, including q,
+and whether it is supported; it never changes the operation automatically. These
+R5 qualifications do not grant remote-backend execution; that matrix belongs to R9.
+Percentile status-time folds remain unqualified.
+
+Existing correlation consumers retain their separate backend qualifications; Kendall uses its existing complete-input local
 continuation. Hidden-axis expanded additive and component attribution over
 complete non-Entity state is available on PostgreSQL, SQLite, Trino and
 ClickHouse. MySQL remains unqualified after its live composed query exceeded

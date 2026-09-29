@@ -497,7 +497,7 @@ CatalogEntry 是查看已加载定义的结果，不能直接作为 observe/read
 也不让 `Revenue.numerator`、`Revenue(rows)` 或 `Revenue.resolve()` 给 Ref 增加解析行为。
 
 Ref-only 限定对语义对象的引用，不限制 Analysis 表达式只能是 Ref。
-observe 还接收已有 RuntimeMetricExpr 与 QuantileMetricInput；其中引用的语义叶子仍全部用 Ref。
+observe 还接收已有 RuntimeMetricExpr；其中引用的语义叶子仍全部用 Ref。
 二者属于分析期计算/方法绑定，不是另一种 Catalog 对象引用方式；完整接口见第 5.7 节。
 
 本例将 Ref 别名写作 Customer / Revenue / Buyer，分析表达式写作 customers / aug / change。
@@ -830,7 +830,7 @@ all_of/any_of 的操作数必须绑定同一个机会域；不自动挑交集、
 | `time_dimension_column(granularity=...)` | `Literal["year", "quarter", "month", "week", "day", "hour", "minute", "second"]` | 声明的时间类型及实际粒度能力 |
 | `relationship(cardinality=...)` | `Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"]` | 键、版本选择、来源基数和本次映射 |
 | `participant(cardinality=...)` | `Literal["one", "optional_one"]` | exact 参与者身份与实际覆盖 |
-| `quantile_metric(accuracy=...)` | `Literal["exact", "approximate"]` | 执行路线能否履行精确性要求 |
+| `aggregate(agg=...)` | 封闭 AggKind（包含显式近似变体） | 数据源 SQL 能否履行该定义，数值精度限制须披露 |
 | `every_start(completion_assignment=...)` | `Literal["exclusive", "shared"]` | 最终 occurrence 的实际分配与覆盖 |
 
 比较的 `value`、`UnionKeys.missing`、排名的 `order/ties`、归因的 `mode`、相关的 `method`
@@ -853,7 +853,7 @@ Python 不能从 `ms.entity(name="customer")` 为每次调用生成一个新 nom
 生产签名采用不可直接构造的公共协议，以及由工厂产生的封闭 Logical/Materialized 变体。
 NumericRelation 是两种状态共享的计算协议；`.execute()` 只在 Logical 上，读取结果的
 `.show()`/`.to_pandas()` 只在 Materialized 上，`.contract()` 可检查两种状态。
-用户不用填写生命周期泛型。Metric Ref 的 kind，以及 RuntimeMetricExpr/QuantileMetricInput 的
+用户不用填写生命周期泛型。Metric Ref 的 kind，以及 RuntimeMetricExpr 的
 形状静态可知；此 observe 契约只接纳获准的数值计算，解析时仍须核对数值准入。
 Ref 本身不携带数值子类型；具体 int/Decimal/float
 表示、精度和物理 NULL 由声明/执行解析的类型事实确定。
@@ -865,7 +865,7 @@ DurationRelation 的 mean/rollup 保持 Duration，count 返回 NumericRelation�
 ```text
 Session.members(Ref[EntityKind], *, at: Instant | BeforeEnd | None = None)
     -> LogicalAnalysisDomain
-MetricInput = Ref[MetricKind] | RuntimeMetricExpr | QuantileMetricInput
+MetricInput = Ref[MetricKind] | RuntimeMetricExpr
 AnalysisDomain.observe(MetricInput, *, during: TimeScope | PeriodWindow | None = None,
     via: Ref[RelationshipKind] | RootRoutes,
     coordinates: tuple[Ref[DimensionKind], ...] = (),
@@ -1311,7 +1311,7 @@ table 只接受明确、完整同键的 Relation，列名是展示标签。它�
 ### 5.7 分析期指标复用已有工厂
 
 “只通过 Ref 衔接”限定的是**对语义定义的引用方式**，不排除 Analysis 自己构造表达式。
-observe 接受的闭合输入为 `Ref[MetricKind] | RuntimeMetricExpr | QuantileMetricInput`；三者都由
+observe 接受的闭合输入为 `Ref[MetricKind] | RuntimeMetricExpr`；两者都由
 Session 解析绑定，不接受 CatalogEntry、裸字符串、作者函数、SQL 或任意 Python 回调。
 RuntimeMetricExpr 不是新 Catalog 对象，也不改写原 Metric。它定义这次观察要计算的一个量；
 执行、数据身份、状态和源依赖仍属于生成的 AnalysisRelation。
@@ -1370,36 +1370,29 @@ result = defined_rates.where(defined_rates.value.gt(0)).summarize(mv.mean()).exe
 不是“有定义但缺失”的 Null；后者拒绝求值。旧实现的 null 存储不能直接成为新理论中的
 Null 含义。这是一项必要的值语义调整，不在新装饰器参数中复制 `"null"` 这个名称。
 
-目标接口中，`aggregate(..., agg=("percentile", q))` 定义分位数及 q，默认要求精确结果。
-同一个量可以在本次分析中显式允许近似；公开输入只表达精确性要求，不指定 datasource
-函数、T-Digest 或其他物理算法：
+目标接口中，精确／近似由 Metric 定义决定，不接受观察侧 accuracy 或算法覆盖。
+`median`、`count_distinct`、`("percentile", q)` 使用非近似操作；对应的近似定义为
+`approx_median`、`approx_count_distinct`、`("approx_percentile", q)`。
 
 ```python
-p95 = mv.runtime_metric.aggregate(
+exact_p95 = mv.runtime_metric.aggregate(
     Amount, agg=("percentile", 0.95), label="P95 order amount"
 )
-exact_p95 = p95
-approx_p95 = ms.quantile_metric(p95, accuracy="approximate")
-
+approx_p95 = mv.runtime_metric.aggregate(
+    Amount, agg=("approx_percentile", 0.95), label="Estimated P95 order amount"
+)
 exact_by_customer = customers.observe(exact_p95, during=august, via=Buyer)
 approx_by_customer = customers.observe(approx_p95, during=august, via=Buyer)
 ```
 
-q 属于输入 Metric/RuntimeMetricExpr。`accuracy: Literal["exact", "approximate"]`
-是精确性要求；
-直接观察等价于 exact，显式 approximate 表示允许近似，不承诺一定使用近似算法或给出
-未定义的误差上界。精确量的数值定义仍固定为线性插值；Ibis 的某个后端函数只有满足该
-定义才能用于 exact。Marivo 在执行前按来源、类型和精确性要求选择合格的直接观察路线，
-并构造 Ibis `quantile`、`approx_quantile` 或已注册的精确计算表达式；Ibis 把选定表达式编译成
-后端 SQL。Ibis 编译成功本身不证明精确性、误差界或可上卷性；无合格路线时拒绝。
+q 和聚合种类属于定义、指纹、执行键及 receipt。聚合必须通过 Ibis 编译为数据源 SQL；
+不拉取贡献行在 Python 中排序或插值。原生分位数的数值精度损失可以接受，但须披露
+实际算法、输出类型和限制，不编造误差界。Ibis 编译成功不等于精确性资格。
+不支持精确定义时，错误提示对应近似定义及其在该数据源上的支持情况，绝不自动替换。
 
-首次接入不要求数据源提供精确分布或近似 sketch，也不提供分位数原量 `rollup()`、
-distribution_shapley 等依赖完整分布的续算；不能对各客户的 P95 再求 P95 当作总体 P95。
-允许近似时，计划和结果记录实际实现、参数与该实现承诺的精确性类别。不存在 exact→approx 自动降级，
-也不把恰好与精确值相等的近似结果误记为有精确保证。现有公开 API 的
-`method="duckdb_tdigest@v1"` 是当前实现契约，不作为目标 DSL 的参数。上述工厂和 wrapper
-全都惰性，不执行、不注册业务对象。
-语义 authoring 仍只在装饰器函数体中写受限 Ibis 表达式。
+直接 distinct/quantile 观察不保存完整分布或 sketch，不授予原量 rollup 或归因；
+当前结果行上的已获资格统计仍可使用。装饰器函数体保持 opaque 边界：Ibis 操作表达
+计算意图，但不据函数名或函数体推断贡献图、可加性或续算权利。
 
 ## 6. 比较与成员选择
 
@@ -2285,7 +2278,7 @@ source_bindings 中的物理参数不是语义 Ref；它们仍由 datasource 的
 | 可加、组件、去重、分布与漏斗归因 | §7.3、§8.4 注册分配 | §7.2 的 attribute；首次接入的去重与分位数缺少充分状态，拒绝对应归因；不另加 decompose |
 | 异常、窗口变化与驱动维度发现 | §6/§9.3 加有限候选搜索方法 | §8.4 的已有 discover 方法；搜索空间、分数及候选单位明确 |
 | 多量相关、lag 与预测 | §7.3 方法扩展 | §8.4 的已有 correlate/forecast；独立方法义务继续由拥有者承担 |
-| 精确/近似分位数 | §5.3 状态、§6.5 方法、§9.4 数值边界 | runtime_metric 定义 q 且默认要求精确；quantile_metric 只表达是否允许近似；首次接入只支持直接观察，不承诺原量上卷 |
+| 精确/近似分位数 | §5.3 状态、§6.5 方法、§9.4 数值边界 | runtime_metric 定义 q 及精确／近似聚合种类；观察不可覆盖；首次接入只支持直接观察，不承诺原量上卷 |
 | 事件匹配、漏斗、步骤耗时、流失选人 | §7.3 领域构造、§8.1 主体像 | §8.1 的 match/funnel/time_to_event 与 where→members；保留匹配/覆盖规则 |
 | 状态重放、分布、迁移、违规、停留、时点选人 | §7.1 ordered fold、§10 信息变化 | §8.3 的 replay 与领域视图；时点状态关系经 where→members 继续观察 |
 | Lazy、物化、冷恢复与合法续算 | §9.1 显式依赖、L6/T1 | §9 的同一 Runtime/Artifact；不建设第二套存储或 AST |
@@ -2352,7 +2345,7 @@ occurrence 是合法转移、哪一个触发终态违规。因此检查还要覆
 | 当前或前稿入口 | 本文的唯一目标路径 | 是否增加重复入口 |
 | --- | --- | --- |
 | 当前 runtime_metric / discover / correlate / forecast | 保留操作名和已定义方法；调整单量 Relation 必需的输入与输出形状 | 否；不另加 derive、statistics 或 model 工厂 |
-| 当前 quantile_metric | 分位数默认要求精确；按 §5.7 将公开参数改为 `accuracy="exact" | "approximate"`，后端方法只进入计划及结果证据 | 否；不另加 observe 的 method 参数 |
+| 旧 quantile_metric | 删除工厂及输入类型，无兼容别名；精确／近似由 Metric 聚合定义决定 | 否；observe 不接受 accuracy 或 method |
 | 当前 with_dimensions、aggregate、rollup 的轴参数 | observe(coordinates=...) 构造；group_by 指定保留坐标后 rollup | 替换后的同义入口不并存；已有量的当前行统计仍为 summarize |
 | 前稿 window、weeks、order_by | 现有 time_scope、一个 time_grid、现有 rank | 删除同义便利入口；不发布多套时间格或排序工厂 |
 | 当前粒度与范围值 | 新增 time_grid，把两者绑定为带身份与逐格窗口的域 | 只补原值无法表达的有限坐标域，不替代 grain/time_scope |

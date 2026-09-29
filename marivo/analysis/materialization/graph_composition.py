@@ -18,7 +18,7 @@ from marivo.analysis.core.rules import (
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.graph_members import MemberGraph
 from marivo.analysis.materialization.graph_protocol import NODE, digest, encode
-from marivo.analysis.methods.physical import ScalarType
+from marivo.analysis.methods.physical import DecimalType, ScalarType
 
 
 def combine_linear_occurrences(
@@ -184,7 +184,10 @@ def combine_observations(
         root = method_node(
             (Edge("quantity", first), Edge("quantity", second)),
             OriginalRatio(ratio, quantity.metric_ref, second.signature.quantity.metric_ref),
-            value_type=ScalarType("float64"),
+            value_type=DecimalType(38, max(first.value_type.scale, second.value_type.scale, 6))
+            if isinstance(first.value_type, DecimalType)
+            and isinstance(second.value_type, DecimalType)
+            else ScalarType("float64"),
         )
     elif method == "difference":
         root = method_node(

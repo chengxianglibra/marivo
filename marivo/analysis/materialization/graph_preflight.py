@@ -8,8 +8,20 @@ from pathlib import Path
 import pyarrow as pa
 
 from marivo.analysis.datasets.errors import DatasetConstructionError
-from marivo.analysis.methods.physical import NoTime, ScalarType, SourceShape
-from marivo.datasource.adapters import BoundSource, SourceSession, provider_for
+from marivo.analysis.methods.physical import (
+    DecimalType,
+    DurationType,
+    NoTime,
+    ScalarType,
+    SourceShape,
+    ValueType,
+)
+from marivo.datasource.adapters import (
+    DURATION_UNIT_METADATA_KEY,
+    BoundSource,
+    SourceSession,
+    provider_for,
+)
 from marivo.datasource.ir import ParquetSourceIR, TableSourceIR
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.ir import TargetEntityContract, TargetSnapshotVersion, TargetValidityVersion
@@ -39,7 +51,7 @@ class EntitySchema:
         """Scalar carrier for existing single-value method qualification."""
         return self.identity_types[0]
 
-    def field_type(self, column: str) -> ScalarType:
+    def field_type(self, column: str) -> ValueType:
         """Return an exact supported physical scalar for a bound source field."""
         index = self.schema.get_field_index(column)
         if index < 0:
@@ -48,7 +60,26 @@ class EntitySchema:
                 "column absent from the bound source schema",
                 "Correct the Entity source projection or field declaration.",
             )
-        physical = self.schema.field(index).type
+        field = self.schema.field(index)
+        physical = field.type
+        unit = (field.metadata or {}).get(DURATION_UNIT_METADATA_KEY)
+        if unit is not None:
+            if physical != pa.int64() or unit not in (b"s", b"ms", b"us", b"ns"):
+                raise _reject(
+                    "closed fixed Duration unit and ticks",
+                    repr(unit),
+                    "Preserve the Arrow duration schema.",
+                )
+            return {
+                b"s": DurationType("s"),
+                b"ms": DurationType("ms"),
+                b"us": DurationType("us"),
+                b"ns": DurationType("ns"),
+            }[unit]
+        if pa.types.is_decimal(physical):
+            return DecimalType(physical.precision, physical.scale)
+        if pa.types.is_duration(physical):
+            return DurationType(physical.unit)
         if physical == pa.int64():
             return ScalarType("int64")
         if physical == pa.string():

@@ -1186,11 +1186,11 @@ def test_r43_duplicate_source_identity_rejects_and_releases_temporary_stage(sour
     assert not session._staged_relations
 
 
-def test_r43_unqualified_decimal_and_time_shapes_reject_before_business_read(source_case):
+def test_r56_decimal_count_admits_but_unqualified_time_rejects_before_business_read(source_case):
     source = source_case[0]
     base = _leaf(source_case[1])
+    _plan(_count(replace(base, value_type=DecimalType(18, 2))))
     changed = (
-        replace(base, value_type=DecimalType(18, 2)),
         replace(
             base,
             definition=replace(

@@ -26,6 +26,8 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.methods.errors import reject
 from marivo.analysis.methods.physical import (
+    DecimalType,
+    DurationType,
     FixedShape,
     Implementation,
     NoTime,
@@ -63,16 +65,20 @@ NUMERIC_CHECKS: tuple[CheckId, ...] = (
 )
 
 
-def implementations(method: MethodKey) -> tuple[Implementation, ...]:
+def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
     declarations = _implementations(method)
     if method.name not in (
         "parts_transport",
         "bind_project",
         "time.product",
+        "metric.min",
+        "metric.max",
         "metric.observe",
         "metric.fold",
         "metric.sum_zero",
         "metric.count",
+        "state_rollup.min",
+        "state_rollup.max",
         "state_rollup",
         "state_rollup.sum_zero",
         "state_rollup.count",
@@ -242,6 +248,8 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
             for domain in ("entity", "group")
         )
     if method.name in (
+        "state_rollup.min",
+        "state_rollup.max",
         "state_rollup",
         "state_rollup.count",
         "state_rollup.sum_zero",
@@ -249,9 +257,7 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
         "state_rollup.fold",
     ):
         rollup_types: tuple[Literal["int64", "float64"], ...] = (
-            ("float64",)
-            if method.name == "state_rollup.fold"
-            else ("int64",)
+            ("int64",)
             if method.name in ("state_rollup.count", "state_rollup.linear")
             else ("int64", "float64")
         )
@@ -289,6 +295,12 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
             for domain in ("entity", "group", "singleton")
         )
     if method.name in (
+        "metric.distinct",
+        "metric.approx_distinct",
+        "metric.quantile",
+        "metric.approx_quantile",
+        "metric.min",
+        "metric.max",
         "metric.observe",
         "metric.fold",
         "metric.mean",
@@ -314,7 +326,17 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 "exact",
                 ResourceRequirements("stream", "producer", None),
                 Qualified(
-                    f"r45.{method}.{form}.{key_type}@v1",
+                    f"r56.{method}.duckdb_native_sql.{form}.{key_type}@v1"
+                    if method.name
+                    in (
+                        "metric.distinct",
+                        "metric.approx_distinct",
+                        "metric.quantile",
+                        "metric.approx_quantile",
+                        "metric.min",
+                        "metric.max",
+                    )
+                    else f"r45.{method}.{form}.{key_type}@v1",
                     "analysis.compiler.graph_lowering",
                     "tests/test_analysis_graph_preflight_r45.py",
                 ),
@@ -671,6 +693,34 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
     return (*declarations, *temporal)
 
 
+def implementations(method: MethodKey) -> tuple[Implementation, ...]:
+    """Version typed folds and once-rounded numeric consumers in Store 7."""
+    return tuple(
+        replace(item, contract_version=3)
+        if method.name
+        in (
+            "metric.observe",
+            "metric.sum_zero",
+            "state_rollup",
+            "state_rollup.sum_zero",
+            "metric.fold",
+            "state_rollup.fold",
+            "metric.mean",
+            "metric.weighted_mean",
+            "metric.ratio",
+            "metric.linear",
+            "state_rollup.mean",
+            "state_rollup.weighted_mean",
+            "state_rollup.ratio",
+            "state_rollup.linear",
+            "state_rollup.min",
+            "state_rollup.max",
+        )
+        else item
+        for item in _shape_implementations(method)
+    )
+
+
 def specialize_arity(implementation: Implementation, arity: int) -> Implementation:
     """Expand only the homogeneous linear consumer's ordered component arity."""
     if implementation.key.method.name != "metric.linear" or arity < 2:
@@ -691,10 +741,70 @@ def specialize_arity(implementation: Implementation, arity: int) -> Implementati
     )
 
 
+def specialize_numeric(implementation: Implementation, key: QualificationKey) -> Implementation:
+    """Bind homogeneous precise numeric types to explicitly shared consumers."""
+    allowed = (
+        "parts_transport",
+        "state_rollup",
+        "state_rollup.sum_zero",
+        "state_rollup.min",
+        "state_rollup.max",
+        "state_rollup.mean",
+        "state_rollup.weighted_mean",
+        "state_rollup.ratio",
+        "state_rollup.linear",
+        "state_rollup.fold",
+        "metric.ratio",
+        "metric.linear",
+        "row.count",
+        "row.count_defined",
+    )
+    if key.method.name not in allowed or len(key.input_types) != len(
+        implementation.key.input_types
+    ):
+        return implementation
+    decimal_inputs = all(isinstance(value, DecimalType) for value in key.input_types)
+    duration_inputs = (
+        all(isinstance(value, DurationType) for value in key.input_types)
+        and len(set(key.input_types)) == 1
+    )
+    float_inputs = key.method.name in (
+        "metric.ratio",
+        "metric.linear",
+        "state_rollup.linear",
+    ) and key.input_types == (ScalarType("float64"),) * len(key.input_types)
+    if not (decimal_inputs or duration_inputs or float_inputs):
+        return implementation
+    template = (
+        ScalarType("float64")
+        if key.method.name
+        in ("state_rollup.mean", "state_rollup.weighted_mean", "state_rollup.ratio")
+        else ScalarType("int64")
+    )
+    if implementation.key.input_types != (template,) * len(key.input_types):
+        return implementation
+    precision: Literal["checked_int64", "finite_float64", "exact"] = (
+        "checked_int64"
+        if key.method.name in ("row.count", "row.count_defined")
+        else "finite_float64"
+        if key.input_types[0] == ScalarType("float64")
+        else "checked_int64"
+        if isinstance(key.input_types[0], DurationType)
+        else "exact"
+    )
+    return replace(
+        implementation,
+        key=replace(implementation.key, input_types=key.input_types),
+        precision=precision,
+    )
+
+
 def admit(implementation: Implementation, params: RuleParameters) -> None:
     """Resolve a real consumer and reject parameter variants outside its evidence."""
     if implementation not in tuple(
-        specialize_arity(candidate, len(implementation.key.input_types))
+        specialize_numeric(
+            specialize_arity(candidate, len(implementation.key.input_types)), implementation.key
+        )
         for candidate in implementations(implementation.key.method)
     ):
         reject(
@@ -716,9 +826,11 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
     if isinstance(params, (AttachCategory, CompleteGroups, TimeProduct)):
         return
     if isinstance(params, ObserveWeightedMean):
-        if params.amount_type != "int64":
+        if params.amount_type not in ("int64", "float64") and not params.amount_type.startswith(
+            ("decimal(", "interval(")
+        ):
             reject(
-                "int64 paired observation",
+                "qualified homogeneous numeric pairs or Duration/int64 pairs",
                 repr(params),
                 "Use the qualified value/weight types.",
             )
@@ -728,7 +840,22 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
                 "one qualified count route", repr(params.path), "Use a direct member relationship."
             )
     elif isinstance(params, ObserveMetric):
-        if len(params.path) not in (0, 1, 2) or params.amount_type not in ("int64", "float64"):
+        if len(params.path) not in (0, 1, 2) or (
+            params.amount_type not in ("int64", "float64")
+            and not (
+                params.method
+                in ("sum", "mean", "min", "max", "median", "percentile", "count_distinct")
+                and params.amount_type.startswith(("decimal(", "interval("))
+            )
+            and not (
+                params.method == "count_distinct"
+                and params.amount_type in ("string", "boolean", "date", "timestamp")
+            )
+            and not (
+                params.method in ("count_distinct", "approx_count_distinct")
+                and params.distinct_columns
+            )
+        ):
             reject(
                 "one qualified to-one observation route",
                 repr(params.path),

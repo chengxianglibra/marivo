@@ -22,6 +22,12 @@ MethodName: TypeAlias = Literal[
     "group.attach",
     "group.complete",
     "bind_project",
+    "metric.distinct",
+    "metric.approx_distinct",
+    "metric.quantile",
+    "metric.approx_quantile",
+    "metric.min",
+    "metric.max",
     "metric.observe",
     "metric.mean",
     "metric.fold",
@@ -40,6 +46,8 @@ MethodName: TypeAlias = Literal[
     "row.count",
     "row.count_defined",
     "row.weighted_mean",
+    "state_rollup.min",
+    "state_rollup.max",
     "state_rollup",
     "state_rollup.mean",
     "state_rollup.fold",
@@ -55,6 +63,8 @@ MethodName: TypeAlias = Literal[
 
 PersistentStateKind: TypeAlias = Literal[
     "none",
+    "original_min",
+    "original_max",
     "original_sum",
     "original_mean",
     "original_fold",
@@ -112,6 +122,18 @@ def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     if type(params) is rules.ObserveCount:
         return MethodKey("metric.count")
     if type(params) is rules.ObserveMetric:
+        if params.method == "min":
+            return MethodKey("metric.min")
+        if params.method == "max":
+            return MethodKey("metric.max")
+        if params.method == "count_distinct":
+            return MethodKey("metric.distinct")
+        if params.method == "approx_count_distinct":
+            return MethodKey("metric.approx_distinct")
+        if params.method in ("median", "percentile"):
+            return MethodKey("metric.quantile")
+        if params.method in ("approx_median", "approx_percentile"):
+            return MethodKey("metric.approx_quantile")
         if params.fold is not None:
             return MethodKey("metric.fold")
         if params.method == "mean":
@@ -141,6 +163,10 @@ def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
             if name == f"row.{params.method}":
                 return MethodKey(name)
     if type(params) is rules.OriginalReduce:
+        if params.method == "min":
+            return MethodKey("state_rollup.min")
+        if params.method == "max":
+            return MethodKey("state_rollup.max")
         if params.method == "fold":
             return MethodKey("state_rollup.fold")
         if params.method == "mean":
@@ -195,6 +221,14 @@ class MethodSemantics:
             "group.attach": "none",
             "group.complete": "none",
             "bind_project": "none",
+            "metric.distinct": "none",
+            "metric.approx_distinct": "none",
+            "metric.quantile": "none",
+            "metric.approx_quantile": "none",
+            "metric.min": "original_min",
+            "metric.max": "original_max",
+            "state_rollup.min": "original_min",
+            "state_rollup.max": "original_max",
             "metric.observe": "original_sum",
             "metric.mean": "original_mean",
             "metric.fold": "original_fold",
@@ -228,7 +262,7 @@ class MethodSemantics:
         self, inputs: tuple[ValueType, ...], output: ValueType, params: rules.RuleParameters
     ) -> None:
         """Reject known type contradictions; exact physical metadata remains a runtime check."""
-        from marivo.analysis.methods.physical import DecimalType, ScalarType
+        from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
         name = self.key.name
         if name == "time.product":
@@ -243,13 +277,46 @@ class MethodSemantics:
                     "Preserve the classified relation type.",
                 )
             return
-        if name == "metric.count":
+        if (
+            isinstance(params, (rules.ObserveMetric, rules.ObserveWeightedMean))
+            and params.amount_type.startswith("interval(")
+            and name not in ("metric.distinct", "metric.approx_distinct")
+        ):
+            if not isinstance(output, DurationType) or output.name != params.amount_type:
+                reject(
+                    "unchanged fixed Duration unit",
+                    repr(output),
+                    "Preserve the physical tick unit.",
+                )
+            return
+        if any(isinstance(value, DurationType) for value in inputs):
+            expected_duration = (
+                ScalarType("float64")
+                if name in ("metric.ratio", "state_rollup.ratio")
+                else ScalarType("int64")
+                if name in ("row.count", "row.count_defined")
+                else inputs[0]
+            )
+            if any(value != inputs[0] for value in inputs) or output != expected_duration:
+                reject(
+                    "matching fixed Duration units",
+                    repr(output),
+                    "Use exact same-unit numeric operations.",
+                )
+            return
+        if name in ("metric.count", "metric.distinct", "metric.approx_distinct"):
             if output != ScalarType("int64"):
                 reject("int64 Entity count", repr(output), "Preserve the count result type.")
             return
-        if name in ("metric.observe", "metric.sum_zero"):
+        if name in ("metric.observe", "metric.sum_zero", "metric.min", "metric.max"):
             assert isinstance(params, rules.ObserveMetric)
-            if output != ScalarType(params.amount_type):
+            if output.name != params.amount_type and not (
+                name in ("metric.observe", "metric.sum_zero")
+                and isinstance(output, DecimalType)
+                and output.precision == 38
+                and params.amount_type.startswith("decimal(")
+                and params.amount_type.endswith(f",{output.scale})")
+            ):
                 reject(
                     "the bound contribution amount type",
                     repr(output),
@@ -300,8 +367,67 @@ class MethodSemantics:
                     "Retain the exact input value type.",
                 )
             return
+        if (
+            name == "metric.quantile"
+            and isinstance(params, rules.ObserveMetric)
+            and params.amount_type.startswith("decimal(")
+        ):
+            if not isinstance(output, DecimalType):
+                reject(
+                    "Decimal quantile result", repr(output), "Preserve the declared decimal scale."
+                )
+            return
+        if (
+            name in ("metric.mean", "metric.weighted_mean")
+            and isinstance(params, (rules.ObserveMetric, rules.ObserveWeightedMean))
+            and params.amount_type.startswith("decimal(")
+        ):
+            scale = int(params.amount_type.removesuffix(")").split(",")[1])
+            if output != DecimalType(38, max(scale, 6)):
+                reject(
+                    "Decimal mean finish scale",
+                    repr(output),
+                    "Preserve the declared single-round finish type.",
+                )
+            return
+        if name in (
+            "metric.ratio",
+            "state_rollup.ratio",
+            "state_rollup.mean",
+            "state_rollup.weighted_mean",
+        ) and all(isinstance(value, DecimalType) for value in inputs):
+            if output != DecimalType(
+                38, max(6, *(value.scale for value in inputs if isinstance(value, DecimalType)))
+            ):
+                reject(
+                    "Decimal ratio finish scale",
+                    repr(output),
+                    "Preserve the exact component scales.",
+                )
+            return
+        if name == "metric.fold" and isinstance(params, rules.ObserveMetric):
+            if isinstance(output, DurationType) and params.amount_type == output.name:
+                expected_fold: ValueType = output
+            elif params.amount_type.startswith("decimal("):
+                scale = int(params.amount_type.removesuffix(")").split(",")[1])
+                expected_fold = DecimalType(38, max(scale, 6) if params.fold == "mean" else scale)
+            else:
+                expected_fold = ScalarType(
+                    "float64"
+                    if params.fold == "mean" or params.amount_type == "float64"
+                    else "int64"
+                )
+            if output != expected_fold:
+                reject("typed fold output", repr(output), "Preserve sample type and mean rounding.")
+            return
+        if name == "state_rollup.fold":
+            if inputs != (output,):
+                reject("unchanged fold result type", repr(output), "Preserve the bound fold type.")
+            return
         if name in (
             "association.spearman",
+            "metric.quantile",
+            "metric.approx_quantile",
             "metric.ratio",
             "state_rollup.ratio",
             "metric.weighted_mean",
@@ -340,6 +466,8 @@ class MethodSemantics:
         if self.key.name == "map_correspond":
             return ("L7",)
         if self.key.name in (
+            "state_rollup.min",
+            "state_rollup.max",
             "state_rollup",
             "state_rollup.count",
             "state_rollup.sum_zero",
@@ -372,6 +500,8 @@ class MethodSemantics:
         if name == "metric.linear":
             return "occurrence_combine@v1"
         if name in (
+            "state_rollup.min",
+            "state_rollup.max",
             "state_rollup",
             "state_rollup.count",
             "state_rollup.sum_zero",
@@ -386,6 +516,12 @@ class MethodSemantics:
             return "association_score@v1"
         if name in (
             "bind_project",
+            "metric.distinct",
+            "metric.approx_distinct",
+            "metric.quantile",
+            "metric.approx_quantile",
+            "metric.min",
+            "metric.max",
             "metric.observe",
             "metric.count",
             "metric.sum_zero",
@@ -452,7 +588,13 @@ class MethodSemantics:
         if self.key.name in ("metric.linear", "state_rollup.linear"):
             return (("null", ("empty_contribution",)),)
         if self.key.name in (
+            "metric.quantile",
+            "metric.approx_quantile",
+            "state_rollup.min",
+            "state_rollup.max",
             "state_rollup",
+            "metric.min",
+            "metric.max",
             "metric.observe",
             "metric.mean",
             "state_rollup.mean",
@@ -465,6 +607,15 @@ class MethodSemantics:
     @property
     def required_parts(self) -> tuple[PartRole, ...]:
         if self.key.name in (
+            "metric.distinct",
+            "metric.approx_distinct",
+            "metric.quantile",
+            "metric.approx_quantile",
+        ):
+            return ("subject",)
+        if self.key.name in (
+            "metric.min",
+            "metric.max",
             "metric.observe",
             "metric.count",
             "metric.sum_zero",
@@ -476,6 +627,8 @@ class MethodSemantics:
         if self.key.name in (
             "metric.ratio",
             "metric.linear",
+            "state_rollup.min",
+            "state_rollup.max",
             "state_rollup",
             "state_rollup.count",
             "state_rollup.sum_zero",
@@ -493,6 +646,13 @@ class MethodSemantics:
     @property
     def required_checks(self) -> tuple[CheckId, ...]:
         """Minimum checker coverage; invocation-specific checks remain in Pre."""
+        if self.key.name in (
+            "metric.distinct",
+            "metric.approx_distinct",
+            "metric.quantile",
+            "metric.approx_quantile",
+        ):
+            return ("source.contribution_partition@v1", "source.complete_coverage@v1")
         if self.rule == "cell_derive@v1":
             return ("source.exact_pairing@v1", "source.finite_numeric@v1")
         if self.key.name == "row.count_defined":
@@ -500,6 +660,8 @@ class MethodSemantics:
         if self.rule == "row_state@v1" and self.key.name != "row.count":
             return ("source.finite_numeric@v1",)
         if self.key.name in (
+            "state_rollup.min",
+            "state_rollup.max",
             "state_rollup",
             "state_rollup.count",
             "state_rollup.sum_zero",
@@ -511,6 +673,8 @@ class MethodSemantics:
             "metric.ratio",
             "metric.linear",
             "metric.sum_zero",
+            "metric.min",
+            "metric.max",
             "metric.observe",
             "metric.count",
             "metric.weighted_mean",
@@ -524,11 +688,20 @@ class MethodSemantics:
 
     @property
     def output_parts(self) -> tuple[PartRole, ...]:
+        if self.key.name in (
+            "metric.distinct",
+            "metric.approx_distinct",
+            "metric.quantile",
+            "metric.approx_quantile",
+        ):
+            return ("coverage",)
         if self.rule == "cell_derive@v1":
             return ("current_endpoint", "baseline_endpoint")
         if self.rule == "row_state@v1":
             return ("row_state",)
         if self.key.name in (
+            "state_rollup.min",
+            "state_rollup.max",
             "state_rollup",
             "state_rollup.count",
             "state_rollup.sum_zero",
@@ -540,6 +713,8 @@ class MethodSemantics:
             "metric.ratio",
             "metric.linear",
             "metric.sum_zero",
+            "metric.min",
+            "metric.max",
             "metric.observe",
             "metric.count",
             "metric.weighted_mean",
@@ -555,6 +730,8 @@ class MethodSemantics:
     def original_state_method(self) -> str:
         """The only connected original-state contract, independent of row sum."""
         if self.key.name not in (
+            "state_rollup.min",
+            "state_rollup.max",
             "state_rollup",
             "state_rollup.count",
             "state_rollup.sum_zero",
@@ -567,6 +744,8 @@ class MethodSemantics:
             reject(
                 "an original-state method", str(self.key), "Use state_rollup for original state."
             )
+        if self.key.name in ("state_rollup.min", "state_rollup.max"):
+            return self.key.name.removeprefix("state_rollup.") + "@v1"
         return (
             "fold@v1"
             if self.key.name == "state_rollup.fold"
@@ -587,6 +766,8 @@ class MethodSemantics:
 
     @property
     def state_components(self) -> tuple[str, ...]:
+        if self.key.name in ("metric.min", "metric.max", "state_rollup.min", "state_rollup.max"):
+            return (self.key.name.rsplit(".", 1)[1], "non_null_count")
         if self.key.name in ("metric.fold", "state_rollup.fold"):
             return ("samples", "fold_kind")
         if self.key.name in ("metric.mean", "state_rollup.mean"):
@@ -604,6 +785,8 @@ class MethodSemantics:
                 "denominator_non_null_count",
             )
         if self.key.name in (
+            "state_rollup.min",
+            "state_rollup.max",
             "state_rollup",
             "state_rollup.count",
             "state_rollup.sum_zero",
@@ -694,6 +877,14 @@ class MethodSemantics:
 
 
 CONNECTED_METHODS = (
+    MethodSemantics(MethodKey("metric.min"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("metric.max"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("state_rollup.min"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("state_rollup.max"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("metric.distinct"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("metric.approx_distinct"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("metric.quantile"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("metric.approx_quantile"), "analysis.core.rules"),
     MethodSemantics(MethodKey("metric.fold"), "analysis.core.rules"),
     MethodSemantics(MethodKey("state_rollup.fold"), "analysis.core.rules"),
     MethodSemantics(MethodKey("metric.mean"), "analysis.core.rules"),
@@ -727,3 +918,32 @@ CONNECTED_METHODS = (
     MethodSemantics(MethodKey("parts_transport"), "analysis.core.rules"),
     MethodSemantics(MethodKey("association.spearman"), "analysis.core.rules"),
 )
+
+
+def observation_disclosure(
+    method_version: str, value_type: ValueType
+) -> tuple[tuple[str, str], ...]:
+    """Describe the qualified source algorithm without promising exact arithmetic."""
+    algorithms = {
+        "count_distinct@v1": "DuckDB COUNT(DISTINCT); exact identity count",
+        "approx_count_distinct@v1": "DuckDB APPROX_COUNT_DISTINCT; HyperLogLog; no declared error bound",
+        "median@v1": "DuckDB QUANTILE_CONT; continuous linear interpolation; q=0.5",
+        "percentile@v1": "DuckDB QUANTILE_CONT; continuous linear interpolation; q owned by Metric",
+        "approx_median@v1": "DuckDB APPROX_QUANTILE; T-Digest; q=0.5; no declared error bound",
+        "approx_percentile@v1": "DuckDB APPROX_QUANTILE; T-Digest; q owned by Metric; no declared error bound",
+    }
+    algorithm = algorithms.get(method_version)
+    if algorithm is None:
+        return ()
+    facts: tuple[tuple[str, str], ...] = (
+        ("algorithm", algorithm),
+        ("output_type", value_type.name),
+    )
+    if "median" in method_version or "percentile" in method_version:
+        facts += (
+            (
+                "numeric_precision",
+                "Source-native SQL arithmetic; large integers may lose precision and Decimal interpolation retains source scale; no local recomputation.",
+            ),
+        )
+    return facts

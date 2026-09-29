@@ -58,6 +58,7 @@ from marivo.refs import (
     ref as semantic_ref,
 )
 from marivo.semantic.ir import (
+    DIRECT_ONLY_AGGREGATES,
     TargetDimensionContract,
     TargetEntityContract,
     TargetRelationshipContract,
@@ -151,11 +152,24 @@ class ObserveMetric:
     start: str | None
     end: str | None
     amount_column: str
-    amount_type: Literal["int64", "float64"]
+    amount_type: str
     coordinates: tuple[TargetDimensionContract, ...] = ()
     filters: tuple[OccurrenceFilter, ...] = ()
 
-    method: Literal["sum", "mean"] = "sum"
+    method: Literal[
+        "sum",
+        "mean",
+        "min",
+        "max",
+        "count_distinct",
+        "approx_count_distinct",
+        "median",
+        "approx_median",
+        "percentile",
+        "approx_percentile",
+    ] = "sum"
+    quantile: float | None = None
+    distinct_columns: tuple[str, ...] = ()
     fold: Literal["first", "last", "mean", "min", "max"] | None = None
     grid_window: bool = False
     cumulative: CumulativeBinding | None = None
@@ -176,7 +190,7 @@ class ObserveWeightedMean:
     start: str | None
     end: str | None
     amount_column: str
-    amount_type: Literal["int64"]
+    amount_type: str
     weight_column: str
     coordinates: tuple[TargetDimensionContract, ...] = ()
     filters: tuple[OccurrenceFilter, ...] = ()
@@ -293,7 +307,7 @@ class OriginalReduce:
     partition_check_id: CheckId | None = None
     coverage_check_id: CheckId | None = None
     method: Literal[
-        "sum", "sum_zero", "mean", "count", "ratio", "weighted_mean", "linear", "fold"
+        "sum", "sum_zero", "mean", "min", "max", "count", "ratio", "weighted_mean", "linear", "fold"
     ] = "sum"
     coordinates: tuple[Coordinate, ...] = ()
     time_mapping: tuple[tuple[str, str], ...] = ()
@@ -816,7 +830,13 @@ def _observe_metric(
         not (
             isinstance(aggregate, WeightedMeanAggregateNodeV1)
             if isinstance(params, ObserveWeightedMean)
-            else isinstance(aggregate, AggregateNodeV1) and aggregate.agg == aggregate_method
+            else isinstance(aggregate, AggregateNodeV1)
+            and aggregate.agg
+            == (
+                (aggregate_method, params.quantile)
+                if isinstance(params, ObserveMetric) and params.quantile is not None
+                else aggregate_method
+            )
         )
         or _declared_slice(aggregate) != occurrence_slice
         or (
@@ -937,6 +957,7 @@ def _observe_metric(
                 "core.observe.target",
             )
         retained = ()
+    direct_only = aggregate_method in DIRECT_ONLY_AGGREGATES
     original = OriginalStatePart(
         binding,
         quantity.definition_id,
@@ -946,6 +967,8 @@ def _observe_metric(
         if state_method == "fold"
         else ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count")
         if aggregate_method == "weighted_mean"
+        else (aggregate_method, "non_null_count")
+        if aggregate_method in ("min", "max")
         else ("sum", "non_null_count", "row_count")
         if aggregate_method == "mean"
         else ("sum", "non_null_count")
@@ -962,7 +985,25 @@ def _observe_metric(
         if source.domain.time_grid is not None
         else "none",
     )
+    if (
+        isinstance(params, (ObserveMetric, ObserveWeightedMean))
+        and params.amount_type == "float64"
+        and state_method != "fold"
+    ):
+        extra = (
+            ("absolute_sum",)
+            if aggregate_method == "sum"
+            else ("absolute_weight_sum",)
+            if aggregate_method == "weighted_mean"
+            else ()
+        )
+        original = replace(original, components=(*original.components, *extra))
     coordinate_parts: tuple[Part, ...] = ()
+    coordinate_type = (
+        params.amount_type if isinstance(params, (ObserveMetric, ObserveWeightedMean)) else "int64"
+    )
+    if coordinate_type.startswith("decimal("):
+        coordinate_type = "decimal(38," + coordinate_type.split(",")[1]
     for index, coordinate in enumerate(params.coordinates):
         if (
             coordinate.logical_type != "string"
@@ -988,7 +1029,7 @@ def _observe_metric(
                     semantic_ref.dimension(coordinate.ref.path),
                     semantic_ref.entity(coordinate.entity_ref.path),
                     original.components,
-                    params.amount_type if isinstance(params, ObserveMetric) else "int64",
+                    coordinate_type,
                     "v1",
                     tuple(
                         Coordinate(semantic_ref.entity(c.entity_ref.path), c.ref.path, "group")
@@ -1004,10 +1045,14 @@ def _observe_metric(
         inputs,
         output_domain,
         quantity,
-        (*retained, original, coverage, *coordinate_parts),
+        (*retained, *((original,) if not direct_only else ()), coverage, *coordinate_parts),
         pre=(partition, complete),
         required=("subject",),
-        created=("original_state", "coverage", *(part_role(p) for p in coordinate_parts)),
+        created=(
+            *(("original_state",) if not direct_only else ()),
+            "coverage",
+            *(part_role(p) for p in coordinate_parts),
+        ),
         post=(_fact("state_binding", binding, quantity.definition_id),),
         obligations=(
             Obligation(partition, "source.contribution_partition@v1", "publish"),
@@ -1560,7 +1605,7 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
             components is None
             or not isinstance(state, OriginalStatePart)
             or state.method_version != method
-            or state.components != components
+            or state.components not in (components, (*components, "absolute_sum"))
             or state.quantity_id != source_quantity.definition_id
             or state.contribution_id != source_quantity.contribution_id
             or not isinstance(coverage, CoveragePart)
@@ -1612,6 +1657,10 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
         _component_empty_rules(inputs),
         temporal_policy=_component_temporal_policy(inputs),
     )
+    denominator_state = require_part(right, "original_state")
+    assert isinstance(denominator_state, OriginalStatePart)
+    if "absolute_sum" in denominator_state.components:
+        state = replace(state, components=(*state.components, "denominator_absolute_sum"))
     first_coordinate = next((p for p in left.parts if isinstance(p, CoordinateStatePart)), None)
     second_coordinate = next((p for p in right.parts if isinstance(p, CoordinateStatePart)), None)
     coordinate_parts: tuple[Part, ...] = ()
@@ -1622,8 +1671,7 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
             or second_coordinate is None
             or first_coordinate.dimension != second_coordinate.dimension
             or first_coordinate.coordinates != second_coordinate.coordinates
-            or first_coordinate.value_type != "int64"
-            or second_coordinate.value_type != "int64"
+            or first_coordinate.value_type != second_coordinate.value_type
         ):
             reject(
                 "matching exact coordinate states for both original roots",
@@ -1912,7 +1960,22 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
         or state.method_version != quantity.method_version
         or state.contribution_id != quantity.contribution_id
         or state.method_version != method_semantics.original_state_method
-        or (params.method != "linear" and state.components != method_semantics.state_components)
+        or (
+            params.method != "linear"
+            and state.components
+            not in (
+                method_semantics.state_components,
+                (
+                    *method_semantics.state_components,
+                    {
+                        "sum": "absolute_sum",
+                        "sum_zero": "absolute_sum",
+                        "ratio": "denominator_absolute_sum",
+                        "weighted_mean": "absolute_weight_sum",
+                    }.get(params.method, ""),
+                ),
+            )
+        )
         or state.version != "v1"
     ):
         reject(

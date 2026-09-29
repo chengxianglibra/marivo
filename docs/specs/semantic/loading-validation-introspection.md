@@ -721,12 +721,11 @@ It does not add a second catalog, readiness object, or named statistical-weight
 role. `ms.statistical_weight` was withdrawn; neither it nor the dependent
 `mv.statistical_weight` is reactivated by this handoff.
 
-Resolve the closed observation input (Metric Ref, RuntimeMetricExpr or
-QuantileMetricInput) into the existing canonical graph with effective dependency
+Resolve the closed observation input (Metric Ref or RuntimeMetricExpr) into the existing canonical graph with effective dependency
 fingerprints. Runtime expressions do not register persistent business definitions.
 The five factories share the same resolver as governed Metrics; they cannot
-accept CatalogEntry, SQL, callback or name-string substitutes for Ref. Resolve
-quantile accuracy separately from q and from physical algorithm selection.
+accept CatalogEntry, SQL, callback or name-string substitutes for Ref. Preserve the definition-owned aggregate kind and q in algorithm selection;
+observation cannot override exactness.
 Every recursive occurrence retains its own root, filters, role/path, version,
 time requirement, contribution unit and component policy. Same-table or same-Ref
 occurrences with different bindings remain independent. Graph sharing does not

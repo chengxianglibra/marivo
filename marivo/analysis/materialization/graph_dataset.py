@@ -21,10 +21,22 @@ from marivo.analysis.refs import ArtifactRef
 if TYPE_CHECKING:
     from marivo.analysis.materialization.admission import DatasetRuntime
 
+_NUMERIC_TYPES = frozenset(
+    {
+        *(
+            f"decimal:{precision}:{scale}"
+            for precision in range(1, 39)
+            for scale in range(precision + 1)
+        ),
+        *(f"duration:{unit}" for unit in ("s", "ms", "us", "ns")),
+    }
+)
 _IDS = d._StableIdRegistry(
     roles=frozenset({"member", "group", "value", "cell", "status", "metric_identity", "count"}),
-    logical_types=frozenset({"string", "int64", "float64", "boolean", "date", "timestamp"}),
-    physical_types=frozenset({"string", "int64", "float64", "boolean", "date", "timestamp"}),
+    logical_types=frozenset({"string", "int64", "float64", "boolean", "date", "timestamp"})
+    | _NUMERIC_TYPES,
+    physical_types=frozenset({"string", "int64", "float64", "boolean", "date", "timestamp"})
+    | _NUMERIC_TYPES,
     storage_kinds=frozenset({"local_parquet"}),
 )
 
@@ -76,6 +88,10 @@ def _schema(table: pa.Table) -> d.DatasetSchema:
             kind = "date"
         if pa.types.is_timestamp(column.type):
             kind = "timestamp"
+        if pa.types.is_decimal(column.type):
+            kind = f"decimal:{column.type.precision}:{column.type.scale}"
+        if pa.types.is_duration(column.type):
+            kind = f"duration:{column.type.unit}"
         role = (
             "member"
             if column.name.startswith("member")

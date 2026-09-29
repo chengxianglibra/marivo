@@ -6,6 +6,7 @@ import hashlib
 import math
 from dataclasses import replace
 from datetime import date, datetime
+from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 
 import pandas as pd
 import pyarrow as pa
@@ -42,11 +43,18 @@ from marivo.analysis.materialization.graph_exchange import (
     from_arrow,
     from_pandas,
     from_receipts,
+    numeric_primary,
 )
 from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.materialization.graph_spearman_execution import finish_spearman
 from marivo.analysis.methods.local import arithmetic, count, count_defined
-from marivo.analysis.methods.physical import ScalarType, matches_arrow_scalar
+from marivo.analysis.methods.physical import (
+    DecimalType,
+    DurationType,
+    ScalarType,
+    arrow_scalar_type,
+    matches_arrow_scalar,
+)
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.analysis.methods.state_validation import state_matches
 
@@ -64,7 +72,11 @@ def _cells(input_value: ExchangeResult) -> tuple[Cell, ...]:
     if not {"value", "cell_tag", "cell_reason"} <= set(input_value.primary.column_names):
         raise _invalid("fixed input lacks Cell fields")
     cells: list[Cell] = []
-    for row in input_value.primary.select(("value", "cell_tag", "cell_reason")).to_pylist():
+    for row in (
+        numeric_primary(input_value.primary)
+        .select(("value", "cell_tag", "cell_reason"))
+        .to_pylist()
+    ):
         value, tag, reason = row["value"], row["cell_tag"], row["cell_reason"]
         if tag == "defined":
             cells.append(Defined(value))
@@ -104,7 +116,7 @@ def execute_fixed_row(
         or input_contract.signature != read.leaf.signature
         or method.stage.inputs != (read.output,)
         or input_contract.input_binding != read.leaf.artifact.ref
-        or not isinstance(read.leaf.value_type, ScalarType)
+        or not isinstance(read.leaf.value_type, (ScalarType, DecimalType, DurationType))
         or "value" not in input_contract.schema.names
         or input_contract.schema.field("value").type != pa.type_for_alias(read.leaf.value_type.name)
     ):
@@ -384,7 +396,7 @@ def _transport_result(
         read.leaf.artifact.ref != selected.artifact_ref
         or read.leaf.signature != source.contract.signature
         or source.contract.input_binding != selected.artifact_ref
-        or not isinstance(read.leaf.value_type, ScalarType)
+        or not isinstance(read.leaf.value_type, (ScalarType, DecimalType, DurationType))
         or (
             "value" in source.primary.column_names
             and not matches_arrow_scalar(
@@ -408,17 +420,20 @@ def _transport_stage(
     predicate_rows = (
         {}
         if predicate_source is None
-        else {tuple(row[k] for k in keys): row for row in predicate_source.primary.to_pylist()}
+        else {
+            tuple(row[k] for k in keys): row
+            for row in numeric_primary(predicate_source.primary).to_pylist()
+        }
     )
     if predicate_source is not None and (
         predicate_source.contract.key_fields != keys
         or set(predicate_rows)
-        != {tuple(row[k] for k in keys) for row in source.primary.to_pylist()}
+        != {tuple(row[k] for k in keys) for row in numeric_primary(source.primary).to_pylist()}
     ):
         raise _invalid("predicate dependency lacks equal complete input keys")
     selected_keys: set[tuple[object, ...]] = set()
     keep: list[bool] = []
-    for row in source.primary.to_pylist():
+    for row in numeric_primary(source.primary).to_pylist():
         predicate_row = (
             row if predicate_source is None else predicate_rows[tuple(row[k] for k in keys)]
         )
@@ -501,7 +516,7 @@ def execute_fixed_spearman(
             item.artifact_ref != read.leaf.artifact.ref
             or contract.input_binding != item.artifact_ref
             or contract.signature != read.leaf.signature
-            or not isinstance(read.leaf.value_type, ScalarType)
+            or not isinstance(read.leaf.value_type, (ScalarType, DecimalType, DurationType))
             or contract.schema.field("value").type != pa.type_for_alias(read.leaf.value_type.name)
         ):
             raise _invalid("fixed Spearman Artifact, binding, signature or type differs")
@@ -794,79 +809,30 @@ def _coordinate_rollup_stage(
         for row in p.table.to_pylist()
     ):
         raise _invalid("coordinate reduction requires complete retained coverage")
-    groups: dict[tuple[object, ...], dict[str, list[int | float]]] = {}
+    from marivo.analysis.methods.numeric_state import merge_original
+
+    original_table = next(p.table for p in source.parts if p.role == "original_state")
+    groups: dict[tuple[object, ...], list[dict[str, object]]] = {}
     for item in entries:
         label = tuple(item[key] for key in key_fields)
         if any(value is None for value in label):
             raise _invalid("coordinate state has a missing classification")
-        values = groups.setdefault(label, {name: [] for name in components})
-        for name in components:
-            component_value: object = item[name]
-            if type(component_value) not in (int, float) or not isinstance(
-                component_value, (int, float)
-            ):
-                raise _invalid("coordinate state has a nonnumeric component")
-            values[name].append(component_value)
+        groups.setdefault(label, []).append(item)
     primary_rows: list[dict[str, object]] = []
     state_rows: list[dict[str, object]] = []
-    for label, values in sorted(groups.items()):
-        totals: dict[str, int | float] = {}
-        for name, operands in values.items():
-            floating = (
-                source.contract.schema.field("value").type == pa.float64()
-                and params.method in ("sum", "sum_zero")
-                and name in ("sum", "numerator_sum")
+    value_type = method.stage.node.value_type
+    for label, rows in sorted(groups.items()):
+        try:
+            totals, value, tag, reason = merge_original(
+                rows,
+                original_table.schema,
+                components,
+                params.method,
+                value_type,
+                original_contract.empty_rules,
             )
-            try:
-                total = math.fsum(operands) if floating else sum(operands)
-            except OverflowError:
-                raise _invalid("coordinate component overflow") from None
-            if not math.isfinite(total) or (not floating and not -(2**63) <= total < 2**63):
-                raise _invalid("coordinate component exceeds its exact numeric type")
-            totals[name] = total
-        reason: str | None = None
-        value: int | float | None
-        tag = "defined"
-        if params.method == "ratio":
-            denominator = totals["denominator_sum"]
-            contributed = all(
-                totals[f"{prefix}_non_null_count"] > 0 or rule == "zero"
-                for prefix, rule in zip(
-                    ("numerator", "denominator"), original_contract.empty_rules, strict=True
-                )
-            )
-            value = totals["numerator_sum"] / denominator if contributed and denominator else None
-            if not contributed:
-                tag, reason = "null", "empty_contribution"
-            elif not denominator:
-                tag, reason = "undefined", "zero_denominator"
-        elif params.method == "mean":
-            support = totals["non_null_count"]
-            value = totals["sum"] / support if support else None
-            if not support:
-                tag, reason = "null", "empty_contribution"
-        elif params.method == "weighted_mean":
-            support, denominator = totals["non_null_pair_count"], totals["weight_sum"]
-            value = totals["weighted_numerator"] / denominator if support and denominator else None
-            if not support or not denominator:
-                tag, reason = "null", "empty_contribution" if not support else "zero_weight_sum"
-        elif params.method == "linear":
-            value = sum(
-                totals[name] * (1 if name.startswith("plus_") else -1) for name in components[::2]
-            )
-            if not -(2**63) <= value < 2**63:
-                raise _invalid("linear finish exceeds int64")
-            if not all(
-                totals[name] > 0 or rule == "zero"
-                for name, rule in zip(components[1::2], original_contract.empty_rules, strict=True)
-            ):
-                value, tag, reason = None, "null", "empty_contribution"
-        elif params.method == "count":
-            value = totals["count"]
-        else:
-            value = totals["sum"]
-            if params.method == "sum" and totals["non_null_count"] == 0:
-                value, tag, reason = None, "null", "empty_contribution"
+        except (ValueError, OverflowError) as error:
+            raise _invalid(str(error)) from error
         primary_rows.append(
             {
                 **dict(zip(key_fields, label, strict=True)),
@@ -881,12 +847,14 @@ def _coordinate_rollup_stage(
                 **{f"original_state__{name}": value for name, value in totals.items()},
             }
         )
-    value_type = method.stage.node.value_type
-    assert isinstance(value_type, ScalarType)
+    assert isinstance(value_type, (ScalarType, DecimalType, DurationType))
     primary_schema = pa.schema(
         [
             *list(zip(key_fields, key_types, strict=True)),
-            ("value", pa.type_for_alias(value_type.name)),
+            (
+                "value",
+                arrow_scalar_type(value_type),
+            ),
             ("cell_tag", pa.string()),
             ("cell_reason", pa.string()),
         ]
@@ -895,17 +863,7 @@ def _coordinate_rollup_stage(
     state_schema = pa.schema(
         [
             *list(zip(key_fields, key_types, strict=True)),
-            *[
-                (
-                    f"original_state__{name}",
-                    pa.float64()
-                    if source.contract.schema.field("value").type == pa.float64()
-                    and params.method in ("sum", "sum_zero")
-                    and name in ("sum", "numerator_sum")
-                    else pa.int64(),
-                )
-                for name in components
-            ],
+            *(original_table.schema.field(f"original_state__{name}") for name in components),
         ]
     )
     original = pa.Table.from_pylist(state_rows, schema=state_schema)
@@ -969,22 +927,40 @@ def _original_ratio_rollup_stage(
     state_kind = REGISTRY.lookup(method.stage.node.method).semantics.persistent_state_kind
     assert state_kind is not None
     components = original_contract.components
-    totals = dict.fromkeys(components, 0)
-    for row in source.primary.to_pylist():
+    operands: dict[str, list[int | float | Decimal]] = {name: [] for name in components}
+    totals: dict[str, int | float | Decimal] = {}
+    for row in numeric_primary(source.primary).to_pylist():
         original = keyed[tuple(row[key] for key in keys)]
         if not state_matches(state_kind, row, original, empty_rules=original_contract.empty_rules):
             raise _invalid("original ratio Cells differ from their components")
         for component in components:
             value: object = original[f"original_state__{component}"]
-            if type(value) is not int:
+            if not isinstance(value, (int, float, Decimal)) or type(value) not in (
+                int,
+                float,
+                Decimal,
+            ):
                 raise _invalid("original ratio component is not int64")
-            totals[component] += value
-    if any(not -(2**63) <= total < 2**63 for total in totals.values()):
-        raise _invalid("original ratio component rollup exceeds int64")
+            operands[component].append(value)
+    for component, values in operands.items():
+        floating = pa.types.is_floating(state.schema.field(f"original_state__{component}").type)
+        decimal = pa.types.is_decimal(state.schema.field(f"original_state__{component}").type)
+        with localcontext() as context:
+            context.prec = 100
+            total = math.fsum(values) if floating else sum(values)
+        if not math.isfinite(total) or (
+            not floating and not decimal and not -(2**63) <= total < 2**63
+        ):
+            raise _invalid("original component rollup exceeds its declared numeric type")
+        totals[component] = total
+    numerator: int | float | Decimal
+    denominator: int | float | Decimal
     if state_kind == "original_linear":
-        numerator = sum(
-            totals[name] * (1 if name.startswith("plus_") else -1) for name in components[::2]
-        )
+        with localcontext() as context:
+            context.prec = 100
+            numerator = sum(
+                totals[name] * (1 if name.startswith("plus_") else -1) for name in components[::2]
+            )
         denominator = 1
         defined = all(
             totals[name] > 0 or rule == "zero"
@@ -992,7 +968,7 @@ def _original_ratio_rollup_stage(
         )
         tag = "defined" if defined else "null"
         reason = None if defined else "empty_contribution"
-        if not -(2**63) <= numerator < 2**63:
+        if type(numerator) is int and not -(2**63) <= numerator < 2**63:
             raise _invalid("linear finish exceeds int64")
     elif state_kind == "original_mean":
         numerator, denominator = totals["sum"], totals["non_null_count"]
@@ -1015,26 +991,45 @@ def _original_ratio_rollup_stage(
         defined = contributed and denominator != 0
         tag = "defined" if defined else "undefined" if contributed else "null"
         reason = None if defined else "zero_denominator" if contributed else "empty_contribution"
+    output_type = method.stage.node.value_type
+    physical = arrow_scalar_type(output_type)
+    result: int | float | Decimal | None = None
+    if defined:
+        with localcontext() as context:
+            context.prec = 100
+            if isinstance(output_type, DecimalType):
+                assert isinstance(numerator, (int, Decimal)) and isinstance(
+                    denominator, (int, Decimal)
+                )
+                result = (
+                    Decimal(numerator)
+                    if state_kind == "original_linear"
+                    else Decimal(numerator) / Decimal(denominator)
+                )
+                result = result.quantize(
+                    Decimal(1).scaleb(-output_type.scale), rounding=ROUND_HALF_EVEN
+                )
+            else:
+                assert isinstance(numerator, (int, float)) and isinstance(denominator, (int, float))
+                from marivo.analysis.methods.numeric_state import finish_division
+
+                result = (
+                    numerator
+                    if state_kind == "original_linear"
+                    else finish_division(numerator, denominator, output_type)
+                )
     primary = pa.table(
         {
-            "value": pa.array(
-                [
-                    (numerator if state_kind == "original_linear" else numerator / denominator)
-                    if defined
-                    else None
-                ],
-                type=pa.int64() if state_kind == "original_linear" else pa.float64(),
-            ),
+            "value": pa.array([result], type=physical),
             "cell_tag": [tag],
-            "cell_reason": pa.array(
-                [reason],
-                type=pa.string(),
-            ),
+            "cell_reason": pa.array([reason], type=pa.string()),
         }
     )
     original = pa.table(
         {
-            f"original_state__{name}": pa.array([total], type=pa.int64())
+            f"original_state__{name}": pa.array(
+                [total], type=state.schema.field(f"original_state__{name}").type
+            )
             for name, total in totals.items()
         }
     )
@@ -1069,7 +1064,7 @@ def _original_count_stage(
     if any(row["coverage__complete"] is not True for row in coverage.to_pylist()):
         raise _invalid("original count has incomplete coverage")
     total = 0
-    for row in source.primary.to_pylist():
+    for row in numeric_primary(source.primary).to_pylist():
         original = keyed[tuple(row[key] for key in keys)]
         if not state_matches("original_count", row, original):
             raise _invalid("original count state differs from its retained Cells")
@@ -1106,11 +1101,13 @@ def _original_count_stage(
 def _fold_rollup_stage(
     method: LoweredLocal, source: ExchangeResult, input_binding: str
 ) -> ExchangeResult:
+    from marivo.analysis.methods.numeric_state import Number, checked_sum
     from marivo.analysis.methods.temporal_fold import (
         Samples,
         decode_samples,
         encode_samples,
         fold_value,
+        sample_type,
     )
 
     params = method.stage.node.parameters
@@ -1157,23 +1154,29 @@ def _fold_rollup_stage(
         grouped[()] = {}
     labels: dict[str, list[object]] = {k: [] for k in keys}
     encodings: list[str] = []
-    values: list[float | None] = []
+    values: list[Number | None] = []
     for identity, periods in grouped.items():
-        combined: list[tuple[datetime, float, int]] = []
+        combined: list[tuple[datetime, Number, int]] = []
         for rows in periods.values():
             sample_keys = tuple(key for key, _, _ in rows[0])
             if any(tuple(key for key, _, _ in row) != sample_keys for row in rows[1:]):
                 raise _invalid("unaligned pre-fold sample coordinates; keep the spatial groups")
             for i, key in enumerate(sample_keys):
                 try:
-                    total = math.fsum(row[i][1] for row in rows)
+                    total = checked_sum([row[i][1] for row in rows], sample_type(rows[0]))
                 except OverflowError as error:
                     raise _invalid("pre-fold spatial sum exceeds float64") from error
                 combined.append((key, total, sum(row[i][2] for row in rows)))
         combined.sort()
         try:
             encoded = encode_samples(tuple(combined))
-            value = fold_value(decode_samples(encoded), kind)
+            value = fold_value(
+                decode_samples(encoded),
+                kind,
+                method.stage.node.value_type
+                if isinstance(method.stage.node.value_type, DurationType)
+                else None,
+            )
         except (ValueError, OverflowError) as error:
             raise _invalid("overlapping or invalid pre-fold components") from error
         for label, item in zip(keys, identity, strict=True):
@@ -1185,10 +1188,12 @@ def _fold_rollup_stage(
         for key, column in zip(keys, selected, strict=True)
     }
     tags = pa.array(["null" if v is None else "defined" for v in values], type=pa.string())
+    value_type = method.stage.node.value_type
+    physical = arrow_scalar_type(value_type)
     primary = pa.table(
         {
             **arrays,
-            "value": pa.array(values, type=pa.float64()),
+            "value": pa.array(values, type=physical),
             "cell_tag": tags,
             "cell_reason": pa.array(
                 ["empty_contribution" if v is None else None for v in values], type=pa.string()
@@ -1250,11 +1255,11 @@ def _fold_rollup_stage(
 def _original_sum_stage(
     method: LoweredLocal, source: ExchangeResult, input_binding: str
 ) -> ExchangeResult:
-    state_kind = (
-        "original_sum_zero"
-        if method.stage.node.method.name == "state_rollup.sum_zero"
-        else "original_sum"
+    name = method.stage.node.method.name
+    component = (
+        "min" if name == "state_rollup.min" else "max" if name == "state_rollup.max" else "sum"
     )
+    state_kind = "original_sum_zero" if name == "state_rollup.sum_zero" else "original_" + component
     state = next((part.table for part in source.parts if part.role == "original_state"), None)
     coverage = next((part.table for part in source.parts if part.role == "coverage"), None)
     if state is None or coverage is None:
@@ -1263,18 +1268,38 @@ def _original_sum_stage(
     keyed = {tuple(row[key] for key in keys): row for row in state.to_pylist()}
     if any(row["coverage__complete"] is not True for row in coverage.to_pylist()):
         raise _invalid("original rollup has incomplete coverage")
-    for row in source.primary.to_pylist():
+    for row in numeric_primary(source.primary).to_pylist():
         if not state_matches(state_kind, row, keyed[tuple(row[key] for key in keys)]):
             raise _invalid("original rollup state differs from its retained Cells")
-    totals = state.column("original_state__sum").to_pylist()
+    totals = state.column("original_state__" + component).to_pylist()
+    if component in ("min", "max"):
+        contributing = [
+            row["original_state__" + component]
+            for row in state.to_pylist()
+            if row["original_state__non_null_count"] > 0
+        ]
+        totals = [
+            (min(contributing) if component == "min" else max(contributing)) if contributing else 0
+        ]
     support = sum(state.column("original_state__non_null_count").to_pylist())
     value_type = method.stage.node.value_type
-    assert isinstance(value_type, ScalarType)
-    if value_type.name == "int64":
+    assert isinstance(value_type, (ScalarType, DecimalType, DurationType))
+    if isinstance(value_type, DecimalType):
+        with localcontext() as context:
+            context.prec = 100
+            total = sum(totals, Decimal(0))
+        if not total.is_finite() or total.copy_abs() >= Decimal(10) ** (
+            value_type.precision - value_type.scale
+        ):
+            raise _invalid("original Decimal state exceeds its declared precision")
+        physical = pa.decimal128(value_type.precision, value_type.scale)
+    elif value_type.name == "int64" or isinstance(value_type, DurationType):
         total = sum(totals)
         if not -(2**63) <= total < 2**63:
             raise _invalid("original sum exceeds int64")
-        physical = pa.int64()
+        physical = (
+            pa.duration(value_type.unit) if isinstance(value_type, DurationType) else pa.int64()
+        )
     else:
         try:
             total = math.fsum(totals)
@@ -1295,8 +1320,20 @@ def _original_sum_stage(
     )
     original = pa.table(
         {
-            "original_state__sum": pa.array([total], type=physical),
+            "original_state__" + component: pa.array(
+                [total], type=pa.int64() if isinstance(value_type, DurationType) else physical
+            ),
             "original_state__non_null_count": pa.array([support], type=pa.int64()),
+            **(
+                {
+                    "original_state__absolute_sum": pa.array(
+                        [math.fsum(state.column("original_state__absolute_sum").to_pylist())],
+                        type=pa.float64(),
+                    )
+                }
+                if "original_state__absolute_sum" in state.column_names
+                else {}
+            ),
         }
     )
     covered = pa.table({"coverage__complete": [True]})
@@ -1343,6 +1380,8 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                 "group.attach",
                 "parts_transport",
                 "map_correspond",
+                "state_rollup.min",
+                "state_rollup.max",
                 "state_rollup",
                 "state_rollup.count",
                 "state_rollup.sum_zero",
@@ -1365,6 +1404,8 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
         ):
             raise _invalid("unqualified fixed method schedule")
         if name in (
+            "state_rollup.min",
+            "state_rollup.max",
             "state_rollup",
             "state_rollup.count",
             "state_rollup.sum_zero",
@@ -1415,7 +1456,7 @@ def execute_verified_fixed(
                 selected_input is None
                 or selected_input.result.contract.signature != stage.leaf.signature
                 or selected_input.result.contract.input_binding != selected_input.artifact_ref
-                or not isinstance(stage.leaf.value_type, ScalarType)
+                or not isinstance(stage.leaf.value_type, (ScalarType, DecimalType, DurationType))
                 or (
                     "value" in selected_input.result.primary.column_names
                     and not matches_arrow_scalar(
@@ -1478,7 +1519,12 @@ def execute_verified_fixed(
             result = _original_ratio_rollup_stage(stage, values[0], binding)
         elif name == "state_rollup.count":
             result = _original_count_stage(stage, values[0], binding)
-        elif name in ("state_rollup", "state_rollup.sum_zero"):
+        elif name in (
+            "state_rollup",
+            "state_rollup.sum_zero",
+            "state_rollup.min",
+            "state_rollup.max",
+        ):
             result = _original_sum_stage(stage, values[0], binding)
         elif name == "cell.difference":
             result = _difference_stage(stage, (values[0], values[1]), proof, binding, checks)
@@ -1574,7 +1620,7 @@ def _attach_category_stage(
     rows = (
         mapping.to_pylist()
         if params.subject_mapping and mapping is not None
-        else source.primary.to_pylist()
+        else numeric_primary(source.primary).to_pylist()
     )
     for row in rows:
         match = (
@@ -1637,7 +1683,7 @@ def _grouped_row_result(
     columns = tuple(f"key_{source_keys.index(c)}" for c in domain.instance_key)
     keys = tuple(f"key_{i}" for i in range(len(columns)))
     groups: dict[tuple[object, ...], list[int]] = {}
-    for index, row in enumerate(source.primary.to_pylist()):
+    for index, row in enumerate(numeric_primary(source.primary).to_pylist()):
         groups.setdefault(tuple(row[name] for name in columns), []).append(index)
     scalar_domain = replace(domain, kind="singleton", instance_key=(), target_key=())
     scalar_node = replace(
@@ -1768,7 +1814,7 @@ def _complete_groups_stage(
     ]
     if len(set(targets)) != len(targets) or any(any(v is None for v in key) for key in targets):
         raise _invalid("explicit target requires unique complete keys")
-    rows = {tuple(row[k] for k in keys): row for row in source.primary.to_pylist()}
+    rows = {tuple(row[k] for k in keys): row for row in numeric_primary(source.primary).to_pylist()}
     if not rows.keys() <= set(targets):
         raise _invalid("consumed groups are absent from the explicit target")
     if source.contract.signature.quantity is None:
@@ -1847,7 +1893,10 @@ def _group_domain_stage(
     )
     keys = tuple(f"key_{i}" for i in range(len(columns)))
     identities = sorted(
-        {tuple(row[column] for column in columns) for row in source.primary.to_pylist()}
+        {
+            tuple(row[column] for column in columns)
+            for row in numeric_primary(source.primary).to_pylist()
+        }
     )
     schema = pa.schema(
         [

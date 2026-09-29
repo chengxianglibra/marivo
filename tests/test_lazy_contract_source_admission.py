@@ -11,7 +11,7 @@ from marivo.analysis.operators.registry import source_unsupported_reason
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
 from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
-from marivo.semantic._quantile import quantile_metric
+from marivo.semantic._quantile import distribution_metric_input
 from marivo.semantic.validator import Registry
 from tests.lazy_distribution_fixtures import make_distribution_registry
 from tests.lazy_execution_fixtures import make_execution_registry
@@ -54,7 +54,7 @@ def _sources(
 def test_source_rejection_matches_placement_without_source_io(backend: str) -> None:
     dataset = (
         _sources(backend, distribution=True)
-        .observe(quantile_metric(ref.metric("sales.revenue"), method="duckdb_tdigest@v1"))
+        .observe(distribution_metric_input(ref.metric("sales.revenue"), method="duckdb_tdigest@v1"))
         .aggregate()
     )
     reason = source_unsupported_reason(dataset, backend)
