@@ -199,8 +199,13 @@ ratio、同源关系、原生日期桶（单单位 day/week/month/quarter/year�
 ```python
 mean_amount = ms.ref.metric("sales.mean_amount")
 channel = ms.ref.dimension("sales.orders.channel")
-means = session.observe(mean_amount).with_dimensions(channel).aggregate().execute()
-overall = means.rollup(drop_dimensions=(channel,)).execute()
+means = session.members(ms.ref.entity("sales.customer")).observe(
+    mean_amount,
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    coordinates=(channel,),
+).group_by(channel).rollup().execute()
+overall = means.rollup().execute()
 overall.show()
 ```
 
@@ -447,3 +452,39 @@ TimeDimension 返回 Temporal。整数指示列仍是分类；原生日期保持
 执行后的 `.where(...).members()` 使用保留值与完整 Subject 键，来源离线后仍可固定续算，
 但不能引入新的属性读取。通过 `session.artifact(ref)` 恢复后查看 `.contract()`，确认当前结果
 实际可用的操作。旧冻结定义契约生成的 Artifact 会被拒绝，不自动迁移。
+
+## 坐标分组与当前行统计
+
+使用完整的已保留坐标，或按完整键对应的显式分类关系。原 Metric 合并原组件；
+`summarize` 则对当前完成值建立独立统计量：
+
+```python
+all_members = session.members(ms.ref.entity("sales.customer"))
+all_regions = all_members.read(ms.ref.dimension("sales.customer.region"))
+members = all_regions.where(all_regions.value.eq("east")).members()
+region = members.read(ms.ref.dimension("sales.customer.region"))
+values = members.observe(
+    ms.ref.metric("sales.revenue"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+)
+targets = all_regions.group_by()
+original = values.group_by(region, groups=targets).rollup().execute()
+row_mean = values.group_by(region, groups=targets).summarize(mv.mean()).execute()
+total_row_mean = row_mean.rollup().execute()
+selected_regions = all_regions.where(all_regions.value.eq("east"))
+category_counts = selected_regions.group_by(groups=targets).summarize(mv.count()).execute()
+fixed_targets = selected_regions.group_by(groups=targets).execute()
+```
+
+传入 `groups=all_regions.group_by()` 可保留显式目标域中的空组。固定结果续算也需要固定的分类与目标域。
+`mv.count_defined()` 只统计 Defined Cell，`count()` 统计所有 Cell。
+空 mean/min/max 返回 Undefined，但保留有效的合并状态。当前 AOV 行的 mean 可以是 `50.5`，
+而原组件归约为 `200/101`。`group_by(*keys).rollup()` 保留指定轴，`rollup()` 消去全部轴。
+本次资格不包含时间网格粗化。
+
+筛选后的分类在无键分组时仍保留分类轴。上面的 `fixed_targets` 物化后保留 east、south、west，
+包括空组，可用于后续固定续算。按完整键精确对应的数值谓词可以来自另一事实来源；图会同时运输两侧来源绑定。
+
+对已物化的数值分组结果调用 `summarize` 会保留分组轴，并统计当前已物化的分组行：
+每个已存在的组计数为一，不恢复分组前的成员行。合并 Metric 原组件使用原指标的 `rollup()`。

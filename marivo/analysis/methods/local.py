@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from datetime import date, datetime
 
 import pyarrow as pa
 
@@ -289,6 +290,22 @@ def count(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> CountResult:
                     stage.implementation.key.input_types[0] == ScalarType("float64")
                     and type(c.value) is float
                     and math.isfinite(c.value)
+                )
+                or (
+                    stage.implementation.key.input_types[0] == ScalarType("string")
+                    and type(c.value) is str
+                )
+                or (
+                    stage.implementation.key.input_types[0] == ScalarType("boolean")
+                    and type(c.value) is bool
+                )
+                or (
+                    stage.implementation.key.input_types[0] == ScalarType("date")
+                    and type(c.value) is date
+                )
+                or (
+                    stage.implementation.key.input_types[0] == ScalarType("timestamp")
+                    and isinstance(c.value, datetime)
                 )
             )
             for c in cells

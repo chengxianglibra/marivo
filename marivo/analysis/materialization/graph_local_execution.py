@@ -23,7 +23,13 @@ from marivo.analysis.core.model import (
     Undefined,
     Unknown,
 )
-from marivo.analysis.core.rules import MapCorrespond, OriginalReduce, PartsTransport
+from marivo.analysis.core.rules import (
+    AttachCategory,
+    MapCorrespond,
+    OriginalReduce,
+    PartsTransport,
+    RowState,
+)
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     CompletedCheck,
@@ -125,12 +131,59 @@ def _row_result(
     checks: tuple[CheckRequirement, ...],
 ) -> ExchangeResult:
     """Consume one verified current-row stage, including an in-memory predecessor."""
+    if method.stage.node.signature.domain.instance_key:
+        return _grouped_row_result(method, verified, receipt_hash, input_binding, checks)
     cells = _cells(verified)
     name = method.stage.node.method.name
-    state: dict[str, list[int | float]]
-    if name == "row.count":
+    state: dict[str, list[int | float | None]]
+    params = method.stage.node.parameters
+    if isinstance(params, RowState) and params.merge:
+        retained = next(p.table for p in verified.parts if p.role == "row_state")
+        state = {}
+        for field in retained.column_names:
+            if not field.startswith("row_state__"):
+                continue
+            operands: list[int | float] = []
+            for raw in retained[field].to_pylist():
+                if raw is None and field in ("row_state__min", "row_state__max"):
+                    continue
+                if (
+                    type(raw) not in (int, float)
+                    or not isinstance(raw, (int, float))
+                    or not math.isfinite(raw)
+                ):
+                    raise _invalid("invalid retained row state operand")
+                operands.append(raw)
+            floating = pa.types.is_floating(retained.schema.field(field).type)
+            total = (
+                (min(operands) if operands else None)
+                if field == "row_state__min"
+                else (max(operands) if operands else None)
+                if field == "row_state__max"
+                else math.fsum(operands)
+                if floating
+                else sum(operands)
+            )
+            if total is not None and (
+                not math.isfinite(total) or (not floating and not -(2**63) <= total < 2**63)
+            ):
+                raise _invalid("row state merge exceeds its exact numeric type")
+            state[field] = [total]
+        support = state["row_state__count"][0] if params.method in ("mean", "min", "max") else 1
+        assert isinstance(support, (int, float))
+        if params.method == "mean":
+            numerator = state["row_state__sum"][0]
+            assert isinstance(numerator, (int, float))
+            value: int | float | None = float(numerator) / support if support else None
+        else:
+            value = state[f"row_state__{params.method}"][0]
+        tag, reason = ("defined", None) if support else ("undefined", "empty_" + params.method)
+        output_type = method.stage.node.value_type
+        assert isinstance(output_type, ScalarType)
+        value_type = pa.type_for_alias(output_type.name)
+    elif name == "row.count":
         row_count = count(method.stage, cells).count
-        value: int | float | None = row_count
+        value = row_count
         tag, reason = "defined", None
         state = {"row_state__count": [row_count]}
         value_type = pa.int64()
@@ -140,6 +193,22 @@ def _row_result(
         tag, reason = "defined", None
         state = {"row_state__count_defined": [row_count]}
         value_type = pa.int64()
+    elif name in ("row.min", "row.max"):
+        values: list[int | float] = []
+        for cell in cells:
+            if not isinstance(cell, Defined) or type(cell.value) not in (int, float):
+                raise _invalid("current-row extrema require finite Defined numeric Cells")
+            raw = cell.value
+            assert isinstance(raw, (int, float))
+            if not math.isfinite(raw) or (type(raw) is int and not -(2**63) <= raw < 2**63):
+                raise _invalid("current-row extremum operand exceeds its exact numeric type")
+            values.append(raw)
+        value = (min(values) if name == "row.min" else max(values)) if values else None
+        tag, reason = ("defined", None) if values else ("undefined", "empty_" + name[4:])
+        state = {"row_state__" + name[4:]: [value], "row_state__count": [len(values)]}
+        output_type = method.stage.node.value_type
+        assert isinstance(output_type, ScalarType)
+        value_type = pa.type_for_alias(output_type.name)
     elif name in ("row.sum", "row.mean"):
         outcome = arithmetic(method.stage, cells)
         if isinstance(outcome.cell, Defined):
@@ -152,8 +221,7 @@ def _row_result(
         tag = "defined" if isinstance(outcome.cell, Defined) else "undefined"
         reason = None if isinstance(outcome.cell, Defined) else outcome.cell.reason
         state = {"row_state__sum": [outcome.current_sum]}
-        if name == "row.mean":
-            state["row_state__count"] = [outcome.current_count]
+        state["row_state__count"] = [outcome.current_count]
         value_type = (
             pa.float64() if name == "row.mean" or type(outcome.current_sum) is float else pa.int64()
         )
@@ -169,7 +237,7 @@ def _row_result(
                 name == "row.count_defined" and check.obligation.check_id != "source.cell_policy@v1"
             )
             or (
-                name in ("row.sum", "row.mean")
+                name in ("row.sum", "row.mean", "row.min", "row.max")
                 and check.obligation.check_id != "source.finite_numeric@v1"
             )
         ):
@@ -188,7 +256,8 @@ def _row_result(
             pa.field(
                 field,
                 pa.float64()
-                if field == "row_state__sum" and type(values[0]) is float
+                if (field in ("row_state__min", "row_state__max") and value_type == pa.float64())
+                or (field == "row_state__sum" and type(values[0]) is float)
                 else pa.int64(),
             )
             for field, values in state.items()
@@ -207,6 +276,8 @@ def _row_result(
             "row.count_defined": "row_count_defined",
             "row.sum": "row_sum",
             "row.mean": "row_mean",
+            "row.min": "row_min",
+            "row.max": "row_max",
         }[name],
         pa.schema((pa.field("status", pa.string()),)),
         checks,
@@ -326,22 +397,39 @@ def _transport_result(
 
 
 def _transport_stage(
-    method: LoweredLocal, source: ExchangeResult, input_binding: str
+    method: LoweredLocal,
+    source: ExchangeResult,
+    input_binding: str,
+    predicate_source: ExchangeResult | None = None,
 ) -> ExchangeResult:
     params = method.stage.node.parameters
     assert isinstance(params, PartsTransport)
     keys = source.contract.key_fields
+    predicate_rows = (
+        {}
+        if predicate_source is None
+        else {tuple(row[k] for k in keys): row for row in predicate_source.primary.to_pylist()}
+    )
+    if predicate_source is not None and (
+        predicate_source.contract.key_fields != keys
+        or set(predicate_rows)
+        != {tuple(row[k] for k in keys) for row in source.primary.to_pylist()}
+    ):
+        raise _invalid("predicate dependency lacks equal complete input keys")
     selected_keys: set[tuple[object, ...]] = set()
     keep: list[bool] = []
     for row in source.primary.to_pylist():
+        predicate_row = (
+            row if predicate_source is None else predicate_rows[tuple(row[k] for k in keys)]
+        )
         accepted = True
         for predicate in params.predicates:
-            if row["cell_tag"] != "defined":
+            if predicate_row["cell_tag"] != "defined":
                 if predicate.unknown == "reject":
                     raise _invalid("fixed predicate received a non-Defined Cell")
                 accepted = False
                 break
-            if not _matches(row["value"], predicate.operator, predicate.literal):
+            if not _matches(predicate_row["value"], predicate.operator, predicate.literal):
                 accepted = False
                 break
         keep.append(accepted)
@@ -628,40 +716,94 @@ def _coordinate_rollup_stage(
     method: LoweredLocal, source: ExchangeResult, input_binding: str
 ) -> ExchangeResult:
     params = method.stage.node.parameters
-    assert isinstance(params, OriginalReduce) and params.coordinate is not None
-    coordinate = next(
-        p for p in source.contract.signature.parts if isinstance(p, CoordinateStatePart)
-    )
+    assert isinstance(params, OriginalReduce) and params.coordinates
     original_contract = next(
         p for p in source.contract.signature.parts if isinstance(p, OriginalStatePart)
     )
-    state = next(p.table for p in source.parts if p.role == "coordinate_state")
-    coordinate_column = coordinate.column_for(params.coordinate)
-    groups: dict[str, dict[str, list[int | float]]] = {}
-    for row in state.to_pylist():
-        entries: object = row["coordinate_state__groups"]
-        if not isinstance(entries, list):
-            raise _invalid("coordinate state is not a complete list")
-        for item in entries:
-            if not isinstance(item, dict) or not isinstance(item.get(coordinate_column), str):
-                raise _invalid("coordinate state has an invalid key")
-            label = item[coordinate_column]
-            values = groups.setdefault(label, {name: [] for name in coordinate.components})
-            for name in coordinate.components:
-                component_value: object = item[name]
-                if type(component_value) not in (int, float) or not isinstance(
-                    component_value, (int, float)
-                ):
-                    raise _invalid("coordinate state has a nonnumeric component")
-                values[name].append(component_value)
+    components = original_contract.components
+    source_keys = source.contract.signature.domain.instance_key
+    direct = set(params.coordinates) <= set(source_keys)
+    key_fields = tuple(f"key_{i}" for i in range(len(params.coordinates)))
+    entries: list[dict[str, object]]
+    if direct:
+        state = next(p.table for p in source.parts if p.role == "original_state")
+        columns = tuple(f"key_{source_keys.index(c)}" for c in params.coordinates)
+        key_types = tuple(state.schema.field(column).type for column in columns)
+        entries = [
+            {
+                **{key: row[column] for key, column in zip(key_fields, columns, strict=True)},
+                **{name: row[f"original_state__{name}"] for name in components},
+            }
+            for row in state.to_pylist()
+        ]
+    else:
+        coordinate = next(
+            p for p in source.contract.signature.parts if isinstance(p, CoordinateStatePart)
+        )
+        state = next(p.table for p in source.parts if p.role == "coordinate_state")
+        columns = tuple(
+            f"key_{source_keys.index(c)}"
+            if c in source_keys
+            else coordinate.columns[coordinate.coordinates.index(c)]
+            for c in params.coordinates
+        )
+        key_types = tuple(
+            source.primary.schema.field(column).type
+            if column in source.contract.key_fields
+            else pa.string()
+            for column in columns
+        )
+        entries = []
+        for row in state.to_pylist():
+            nested: object = row["coordinate_state__groups"]
+            if not isinstance(nested, list):
+                raise _invalid("coordinate state is not a complete list")
+            for item in nested:
+                if not isinstance(item, dict):
+                    raise _invalid("coordinate state has an invalid entry")
+                entries.append(
+                    {
+                        **{
+                            key: row[column]
+                            if column in source.contract.key_fields
+                            else item[column]
+                            for key, column in zip(key_fields, columns, strict=True)
+                        },
+                        **{name: item[name] for name in components},
+                    }
+                )
+    if any(
+        row["coverage__complete"] is not True
+        for p in source.parts
+        if p.role == "coverage"
+        for row in p.table.to_pylist()
+    ):
+        raise _invalid("coordinate reduction requires complete retained coverage")
+    groups: dict[tuple[object, ...], dict[str, list[int | float]]] = {}
+    for item in entries:
+        label = tuple(item[key] for key in key_fields)
+        if any(value is None for value in label):
+            raise _invalid("coordinate state has a missing classification")
+        values = groups.setdefault(label, {name: [] for name in components})
+        for name in components:
+            component_value: object = item[name]
+            if type(component_value) not in (int, float) or not isinstance(
+                component_value, (int, float)
+            ):
+                raise _invalid("coordinate state has a nonnumeric component")
+            values[name].append(component_value)
     primary_rows: list[dict[str, object]] = []
     state_rows: list[dict[str, object]] = []
     for label, values in sorted(groups.items()):
         totals: dict[str, int | float] = {}
-        for name, entries in values.items():
-            floating = coordinate.value_type == "float64" and name in ("sum", "numerator_sum")
+        for name, operands in values.items():
+            floating = (
+                source.contract.schema.field("value").type == pa.float64()
+                and params.method in ("sum", "sum_zero")
+                and name in ("sum", "numerator_sum")
+            )
             try:
-                total = math.fsum(entries) if floating else sum(entries)
+                total = math.fsum(operands) if floating else sum(operands)
             except OverflowError:
                 raise _invalid("coordinate component overflow") from None
             if not math.isfinite(total) or (not floating and not -(2**63) <= total < 2**63):
@@ -683,6 +825,27 @@ def _coordinate_rollup_stage(
                 tag, reason = "null", "empty_contribution"
             elif not denominator:
                 tag, reason = "undefined", "zero_denominator"
+        elif params.method == "mean":
+            support = totals["non_null_count"]
+            value = totals["sum"] / support if support else None
+            if not support:
+                tag, reason = "null", "empty_contribution"
+        elif params.method == "weighted_mean":
+            support, denominator = totals["non_null_pair_count"], totals["weight_sum"]
+            value = totals["weighted_numerator"] / denominator if support and denominator else None
+            if not support or not denominator:
+                tag, reason = "null", "empty_contribution" if not support else "zero_weight_sum"
+        elif params.method == "linear":
+            value = sum(
+                totals[name] * (1 if name.startswith("plus_") else -1) for name in components[::2]
+            )
+            if not -(2**63) <= value < 2**63:
+                raise _invalid("linear finish exceeds int64")
+            if not all(
+                totals[name] > 0 or rule == "zero"
+                for name, rule in zip(components[1::2], original_contract.empty_rules, strict=True)
+            ):
+                value, tag, reason = None, "null", "empty_contribution"
         elif params.method == "count":
             value = totals["count"]
         else:
@@ -690,16 +853,24 @@ def _coordinate_rollup_stage(
             if params.method == "sum" and totals["non_null_count"] == 0:
                 value, tag, reason = None, "null", "empty_contribution"
         primary_rows.append(
-            {"key_0": label, "value": value, "cell_tag": tag, "cell_reason": reason}
+            {
+                **dict(zip(key_fields, label, strict=True)),
+                "value": value,
+                "cell_tag": tag,
+                "cell_reason": reason,
+            }
         )
         state_rows.append(
-            {"key_0": label, **{f"original_state__{name}": value for name, value in totals.items()}}
+            {
+                **dict(zip(key_fields, label, strict=True)),
+                **{f"original_state__{name}": value for name, value in totals.items()},
+            }
         )
     value_type = method.stage.node.value_type
     assert isinstance(value_type, ScalarType)
     primary_schema = pa.schema(
         [
-            ("key_0", pa.string()),
+            *list(zip(key_fields, key_types, strict=True)),
             ("value", pa.type_for_alias(value_type.name)),
             ("cell_tag", pa.string()),
             ("cell_reason", pa.string()),
@@ -708,25 +879,47 @@ def _coordinate_rollup_stage(
     primary = pa.Table.from_pylist(primary_rows, schema=primary_schema)
     state_schema = pa.schema(
         [
-            ("key_0", pa.string()),
+            *list(zip(key_fields, key_types, strict=True)),
             *[
                 (
                     f"original_state__{name}",
                     pa.float64()
-                    if coordinate.value_type == "float64" and name in ("sum", "numerator_sum")
+                    if source.contract.schema.field("value").type == pa.float64()
+                    and params.method in ("sum", "sum_zero")
+                    and name in ("sum", "numerator_sum")
                     else pa.int64(),
                 )
-                for name in coordinate.components
+                for name in components
             ],
         ]
     )
     original = pa.Table.from_pylist(state_rows, schema=state_schema)
-    labels = pa.array(sorted(groups), type=pa.string())
+    labels = {key: primary[key] for key in key_fields}
     coverage = pa.table(
-        {"key_0": labels, "coverage__complete": pa.array([True] * len(groups), type=pa.bool_())}
+        {**labels, "coverage__complete": pa.array([True] * len(groups), type=pa.bool_())}
     )
-    status = pa.table({"key_0": labels, "status": primary["cell_tag"]})
-    parts = (ExchangePart("original_state", original), ExchangePart("coverage", coverage))
+    status = pa.table({**labels, "status": primary["cell_tag"]})
+    parts: tuple[ExchangePart, ...] = (
+        ExchangePart("original_state", original),
+        ExchangePart("coverage", coverage),
+    )
+    subject = next(
+        (p for p in method.stage.node.signature.parts if isinstance(p, SubjectPart)), None
+    )
+    if subject is not None:
+        subject_table = pa.table(
+            {
+                **labels,
+                **{
+                    f"subject__key_{i}": primary[
+                        f"key_{params.output_domain.instance_key.index(c)}"
+                    ]
+                    for i, c in enumerate(subject.subject_key)
+                },
+            }
+        )
+        parts = (ExchangePart("subject", subject_table), *parts)
+
     semantics = REGISTRY.lookup(method.stage.node.method).semantics
     state_kind = semantics.persistent_state_kind
     assert state_kind is not None
@@ -735,8 +928,8 @@ def _coordinate_rollup_stage(
         method.stage.node.method,
         input_binding,
         primary_schema,
-        ("key_0",),
-        tuple(PartContract(p.role, p.table.schema, ("key_0",)) for p in parts),
+        key_fields,
+        tuple(PartContract(p.role, p.table.schema, key_fields) for p in parts),
         semantics.empty_cell_reasons,
         state_kind,
         status.schema,
@@ -786,6 +979,10 @@ def _original_ratio_rollup_stage(
         reason = None if defined else "empty_contribution"
         if not -(2**63) <= numerator < 2**63:
             raise _invalid("linear finish exceeds int64")
+    elif state_kind == "original_mean":
+        numerator, denominator = totals["sum"], totals["non_null_count"]
+        defined = denominator > 0
+        tag, reason = ("defined", None) if defined else ("null", "empty_contribution")
     elif state_kind == "original_weighted_mean":
         numerator, denominator = totals["weighted_numerator"], totals["weight_sum"]
         contributed = totals["non_null_pair_count"] > 0
@@ -972,10 +1169,19 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
         if not isinstance(stage, LoweredLocal):
             raise _invalid("fixed schedule contains a source stage")
         name = stage.stage.node.method.name
-        arity = 2 if name in ("cell.difference", "association.spearman") else 1
+        arity = (
+            2
+            if isinstance(stage.stage.node.parameters, PartsTransport)
+            and stage.stage.node.parameters.external_predicate
+            else 2
+            if name in ("cell.difference", "association.spearman", "group.attach", "group.complete")
+            else 1
+        )
         if (
             name
             not in (
+                "group.complete",
+                "group.attach",
                 "parts_transport",
                 "map_correspond",
                 "state_rollup",
@@ -983,6 +1189,7 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                 "state_rollup.sum_zero",
                 "state_rollup.ratio",
                 "state_rollup.weighted_mean",
+                "state_rollup.mean",
                 "state_rollup.linear",
                 "cell.difference",
                 "association.spearman",
@@ -990,6 +1197,8 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                 "row.count_defined",
                 "row.sum",
                 "row.mean",
+                "row.min",
+                "row.max",
             )
             or len(stage.stage.inputs) != arity
             or not set(stage.stage.inputs) <= available
@@ -1001,10 +1210,11 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
             "state_rollup.sum_zero",
             "state_rollup.ratio",
             "state_rollup.weighted_mean",
+            "state_rollup.mean",
             "state_rollup.linear",
         ) and any(check.node_id == stage.stage.node.identity for check in lowered.admitted.checks):
             raise _invalid("fixed rollup lacks frozen completed partition and coverage evidence")
-        if arity == 2:
+        if arity == 2 and name not in ("group.attach", "group.complete"):
             domains = tuple(edge.node.signature.domain for edge in stage.stage.node.inputs)
             if any(
                 domain.binding != domains[0].binding
@@ -1068,21 +1278,39 @@ def execute_verified_fixed(
             check for check in lowered.admitted.checks if check.node_id == stage.stage.node.identity
         )
         name = stage.stage.node.method.name
-        if name == "map_correspond":
+        if name == "group.complete":
+            result = _complete_groups_stage(stage, values[0], values[1], binding)
+        elif name == "group.attach":
+            result = _attach_category_stage(stage, values[0], values[1], binding)
+        elif name == "map_correspond":
             params = stage.stage.node.parameters
-            if not isinstance(params, MapCorrespond) or params.mode != "subjects" or checks:
+            if (
+                not isinstance(params, MapCorrespond)
+                or params.mode not in ("subjects", "group_keys")
+                or checks
+            ):
                 raise _invalid("fixed correspondence requires an exact retained Subject image")
-            result = _subject_image(stage, values[0], binding)
+            result = (
+                _group_domain_stage(stage, values[0], binding)
+                if params.mode == "group_keys"
+                else _subject_image(stage, values[0], binding)
+            )
         elif name == "parts_transport":
             if checks:
                 raise _invalid("transport carries an unqualified local check")
-            result = _transport_stage(stage, values[0], binding)
-        elif (
-            isinstance(stage.stage.node.parameters, OriginalReduce)
-            and stage.stage.node.parameters.coordinate is not None
+            result = _transport_stage(
+                stage, values[0], binding, values[1] if len(values) == 2 else None
+            )
+        elif isinstance(stage.stage.node.parameters, OriginalReduce) and bool(
+            stage.stage.node.parameters.coordinates
         ):
             result = _coordinate_rollup_stage(stage, values[0], binding)
-        elif name in ("state_rollup.ratio", "state_rollup.weighted_mean", "state_rollup.linear"):
+        elif name in (
+            "state_rollup.ratio",
+            "state_rollup.weighted_mean",
+            "state_rollup.mean",
+            "state_rollup.linear",
+        ):
             result = _original_ratio_rollup_stage(stage, values[0], binding)
         elif name == "state_rollup.count":
             result = _original_count_stage(stage, values[0], binding)
@@ -1164,3 +1392,312 @@ def _subject_image(method: LoweredLocal, source: ExchangeResult, binding: str) -
         (),
     )
     return from_arrow(primary, contract, parts=(part,))
+
+
+def _attach_category_stage(
+    method: LoweredLocal, source: ExchangeResult, category: ExchangeResult, binding: str
+) -> ExchangeResult:
+    params = method.stage.node.parameters
+    assert isinstance(params, AttachCategory)
+    category_keys = category.contract.key_fields
+    labels: dict[tuple[object, ...], str | int] = {}
+    category_rows = {
+        tuple(row[k] for k in category_keys): row for row in category.primary.to_pylist()
+    }
+    if len(category_rows) != category.primary.num_rows:
+        raise _invalid("classification has duplicate complete keys")
+    mapping = next((p.table for p in source.parts if p.role == "subject"), None)
+    rows = (
+        mapping.to_pylist()
+        if params.subject_mapping and mapping is not None
+        else source.primary.to_pylist()
+    )
+    for row in rows:
+        match = (
+            tuple(row[f"subject__key_{i}"] for i in range(len(category_keys)))
+            if params.subject_mapping
+            else tuple(row[k] for k in source.contract.key_fields)
+        )
+        classified = category_rows.get(match)
+        if (
+            classified is None
+            or classified["cell_tag"] != "defined"
+            or type(classified["value"]) not in (str, int)
+        ):
+            raise _invalid("classification must be total and Defined on consumed complete keys")
+        labels[tuple(row[k] for k in source.contract.key_fields)] = classified["value"]
+    new_key = f"key_{len(source.contract.key_fields)}"
+    keys = (*source.contract.key_fields, new_key)
+
+    def attach(table: pa.Table) -> pa.Table:
+        values = [
+            labels[tuple(row[k] for k in source.contract.key_fields)] for row in table.to_pylist()
+        ]
+        return table.append_column(
+            new_key, pa.array(values, type=category.primary.schema.field("value").type)
+        ).select(
+            (
+                *keys,
+                *(name for name in table.column_names if name not in source.contract.key_fields),
+            )
+        )
+
+    primary = attach(source.primary)
+    parts = tuple(ExchangePart(p.role, attach(p.table)) for p in source.parts)
+    contract = ExchangeContract(
+        method.stage.node.signature,
+        method.stage.node.method,
+        binding,
+        primary.schema,
+        keys,
+        tuple(PartContract(p.role, p.table.schema, keys) for p in parts),
+        source.contract.cell_reasons,
+        "none",
+        None,
+    )
+    return from_arrow(primary, contract, parts=parts)
+
+
+def _grouped_row_result(
+    method: LoweredLocal,
+    source: ExchangeResult,
+    proof: str,
+    binding: str,
+    checks: tuple[CheckRequirement, ...],
+) -> ExchangeResult:
+    node = method.stage.node
+    params = node.parameters
+    assert isinstance(params, RowState)
+    domain = node.signature.domain
+    source_keys = source.contract.signature.domain.instance_key
+    columns = tuple(f"key_{source_keys.index(c)}" for c in domain.instance_key)
+    keys = tuple(f"key_{i}" for i in range(len(columns)))
+    groups: dict[tuple[object, ...], list[int]] = {}
+    for index, row in enumerate(source.primary.to_pylist()):
+        groups.setdefault(tuple(row[name] for name in columns), []).append(index)
+    scalar_domain = replace(domain, kind="singleton", instance_key=(), target_key=())
+    scalar_node = replace(
+        node,
+        parameters=replace(params, output_domain=scalar_domain),
+        derivation=replace(node.derivation, output=replace(node.signature, domain=scalar_domain)),
+    )
+    scalar_method = replace(method, stage=replace(method.stage, node=scalar_node))
+    outputs: list[ExchangeResult] = []
+    scalar_template: ExchangeResult | None = None
+    for label, indices in sorted(groups.items()):
+        primary_slice = source.primary.take(indices)
+        identities = {
+            tuple(row[k] for k in source.contract.key_fields) for row in primary_slice.to_pylist()
+        }
+        selected = replace(
+            source,
+            primary=primary_slice,
+            parts=tuple(
+                replace(
+                    part,
+                    table=part.table.take(
+                        [
+                            index
+                            for index, row in enumerate(part.table.to_pylist())
+                            if tuple(row[k] for k in source.contract.key_fields) in identities
+                        ]
+                    ),
+                )
+                for part in source.parts
+            ),
+        )
+        scalar = _row_result(scalar_method, selected, proof, binding, checks)
+        scalar_template = scalar
+
+        def keyed(table: pa.Table, label: tuple[object, ...] = label) -> pa.Table:
+            fields = [
+                pa.array([value] * table.num_rows, type=source.primary.schema.field(column).type)
+                for value, column in zip(label, columns, strict=True)
+            ]
+            return pa.Table.from_arrays(
+                [*fields, *table.columns], names=[*keys, *table.column_names]
+            )
+
+        outputs.append(
+            replace(
+                scalar,
+                primary=keyed(scalar.primary),
+                parts=tuple(replace(p, table=keyed(p.table)) for p in scalar.parts),
+                method_state=keyed(scalar.method_state)
+                if scalar.method_state is not None
+                else None,
+            )
+        )
+    template = (
+        scalar_template
+        if scalar_template is not None
+        else _row_result(
+            scalar_method,
+            replace(
+                source,
+                primary=source.primary.slice(0, 0),
+                parts=tuple(replace(p, table=p.table.slice(0, 0)) for p in source.parts),
+            ),
+            proof,
+            binding,
+            checks,
+        )
+    )
+
+    def combine(tables: list[pa.Table], schema: pa.Schema) -> pa.Table:
+        if tables:
+            return pa.concat_tables(tables)
+        return pa.Table.from_pylist(
+            [],
+            schema=pa.schema(
+                [
+                    *(
+                        pa.field(key, source.primary.schema.field(column).type)
+                        for key, column in zip(keys, columns, strict=True)
+                    ),
+                    *schema,
+                ]
+            ),
+        )
+
+    primary = combine([o.primary for o in outputs], template.primary.schema)
+    parts = tuple(
+        ExchangePart(
+            p.role,
+            combine(
+                [next(v.table for v in o.parts if v.role == p.role) for o in outputs],
+                p.table.schema,
+            ),
+        )
+        for p in template.parts
+    )
+    assert template.method_state is not None
+    state = combine(
+        [o.method_state for o in outputs if o.method_state is not None],
+        template.method_state.schema,
+    )
+    contract = replace(
+        template.contract,
+        signature=node.signature,
+        schema=primary.schema,
+        key_fields=keys,
+        parts=tuple(PartContract(p.role, p.table.schema, keys) for p in parts),
+        state_schema=state.schema,
+    )
+    return from_arrow(
+        primary,
+        contract,
+        parts=parts,
+        method_state=state,
+        completed_checks=template.completed_checks,
+    )
+
+
+def _complete_groups_stage(
+    method: LoweredLocal, source: ExchangeResult, target: ExchangeResult, binding: str
+) -> ExchangeResult:
+    from marivo.analysis.methods.state_validation import empty_reduction_cell
+
+    keys = source.contract.key_fields
+    targets = [
+        tuple(row[k] for k in target.contract.key_fields) for row in target.primary.to_pylist()
+    ]
+    if len(set(targets)) != len(targets) or any(any(v is None for v in key) for key in targets):
+        raise _invalid("explicit target requires unique complete keys")
+    rows = {tuple(row[k] for k in keys): row for row in source.primary.to_pylist()}
+    if not rows.keys() <= set(targets):
+        raise _invalid("consumed groups are absent from the explicit target")
+    if source.contract.signature.quantity is None:
+        contract = ExchangeContract(
+            method.stage.node.signature,
+            method.stage.node.method,
+            binding,
+            target.primary.schema,
+            target.contract.key_fields,
+        )
+        return from_arrow(target.primary, contract)
+    value, tag, reason = empty_reduction_cell(source.contract.signature)
+    primary_rows = [
+        rows[key]
+        if key in rows
+        else {
+            **dict(zip(keys, key, strict=True)),
+            "value": value,
+            "cell_tag": tag,
+            "cell_reason": reason,
+        }
+        for key in sorted(targets)
+    ]
+    primary = pa.Table.from_pylist(primary_rows, schema=source.primary.schema)
+    subject_fields = {
+        f"subject__key_{i}": source.contract.signature.domain.instance_key.index(coordinate)
+        for declaration in source.contract.signature.parts
+        if isinstance(declaration, SubjectPart)
+        for i, coordinate in enumerate(declaration.subject_key)
+    }
+    parts: list[ExchangePart] = []
+    for part in source.parts:
+        retained = {tuple(row[k] for k in keys): row for row in part.table.to_pylist()}
+        completed = [
+            retained[key]
+            if key in retained
+            else {
+                **dict(zip(keys, key, strict=True)),
+                **{
+                    name: key[subject_fields[name]]
+                    if name in subject_fields
+                    else True
+                    if name == "coverage__complete"
+                    else None
+                    if name in ("row_state__min", "row_state__max")
+                    else 0
+                    for name in part.table.column_names
+                    if name not in keys
+                },
+            }
+            for key in sorted(targets)
+        ]
+        parts.append(
+            ExchangePart(part.role, pa.Table.from_pylist(completed, schema=part.table.schema))
+        )
+    contract = ExchangeContract(
+        method.stage.node.signature,
+        method.stage.node.method,
+        binding,
+        primary.schema,
+        keys,
+        tuple(PartContract(p.role, p.table.schema, keys) for p in parts),
+        source.contract.cell_reasons,
+        "none",
+        None,
+    )
+    return from_arrow(primary, contract, parts=tuple(parts))
+
+
+def _group_domain_stage(
+    method: LoweredLocal, source: ExchangeResult, binding: str
+) -> ExchangeResult:
+    domain = method.stage.node.signature.domain
+    columns = tuple(
+        f"key_{source.contract.signature.domain.instance_key.index(c)}" for c in domain.instance_key
+    )
+    keys = tuple(f"key_{i}" for i in range(len(columns)))
+    identities = sorted(
+        {tuple(row[column] for column in columns) for row in source.primary.to_pylist()}
+    )
+    schema = pa.schema(
+        [
+            pa.field(key, source.primary.schema.field(column).type)
+            for key, column in zip(keys, columns, strict=True)
+        ]
+    )
+    primary = pa.Table.from_pylist(
+        [dict(zip(keys, identity, strict=True)) for identity in identities], schema=schema
+    )
+    if not columns:
+        primary = pa.table({"singleton": pa.array([1], type=pa.int64())})
+        schema = primary.schema
+    contract = ExchangeContract(
+        method.stage.node.signature, method.stage.node.method, binding, schema, keys
+    )
+    return from_arrow(primary, contract)

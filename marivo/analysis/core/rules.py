@@ -155,6 +155,8 @@ class ObserveMetric:
     coordinates: tuple[TargetDimensionContract, ...] = ()
     filters: tuple[OccurrenceFilter, ...] = ()
 
+    method: Literal["sum", "mean"] = "sum"
+
 
 @dataclass(frozen=True, slots=True)
 class ObserveWeightedMean:
@@ -191,7 +193,9 @@ class ObserveCount:
     filters: tuple[OccurrenceFilter, ...] = ()
 
 
-MapMode: TypeAlias = Literal["exact_keys", "one_to_one", "union_keys", "group", "subjects"]
+MapMode: TypeAlias = Literal[
+    "exact_keys", "one_to_one", "union_keys", "group", "group_keys", "subjects"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +203,22 @@ class MapCorrespond:
     mode: MapMode
     output_domain: DomainSignature
     check_id: CheckId | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompleteGroups:
+    """Complete an explicitly bound target using qualified empty reduction states."""
+
+    output_domain: DomainSignature
+
+
+@dataclass(frozen=True, slots=True)
+class AttachCategory:
+    """Transport a complete keyed relation through one explicit classification."""
+
+    coordinate: Coordinate
+    output_domain: DomainSignature
+    subject_mapping: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,7 +232,9 @@ class CellDerive:
     numeric_check_id: CheckId | None = None
 
 
-RowMethod: TypeAlias = Literal["sum", "mean", "count", "count_defined", "weighted_mean"]
+RowMethod: TypeAlias = Literal[
+    "sum", "min", "max", "mean", "count", "count_defined", "weighted_mean"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,6 +245,7 @@ class RowState:
     value_policy: str
     weighting: str = "equal_weight"
     numeric_check_id: CheckId | None = None
+    merge: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,8 +273,8 @@ class OriginalReduce:
     output_domain: DomainSignature
     partition_check_id: CheckId | None = None
     coverage_check_id: CheckId | None = None
-    method: Literal["sum", "sum_zero", "count", "ratio", "weighted_mean", "linear"] = "sum"
-    coordinate: Ref[DimensionKind] | None = None
+    method: Literal["sum", "sum_zero", "mean", "count", "ratio", "weighted_mean", "linear"] = "sum"
+    coordinates: tuple[Coordinate, ...] = ()
 
 
 TransportMode: TypeAlias = Literal["where", "projection", "compare", "view", "materialize"]
@@ -265,6 +288,8 @@ class PartsTransport:
     keep_quantity: bool
     predicates: tuple[ValuePredicate, ...] = ()
     field_kind: Literal["measure", "dimension", "time_dimension"] | None = None
+    external_predicate: bool = False
+    classification: Coordinate | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,6 +306,8 @@ RuleParameters: TypeAlias = (
     | ObserveCount
     | ObserveWeightedMean
     | MapCorrespond
+    | AttachCategory
+    | CompleteGroups
     | CellDerive
     | RowState
     | OriginalReduce
@@ -670,7 +697,7 @@ def _observe_metric(
     aggregate_method = (
         "weighted_mean"
         if isinstance(params, ObserveWeightedMean)
-        else "sum"
+        else params.method
         if isinstance(params, ObserveMetric)
         else "count"
     )
@@ -836,18 +863,13 @@ def _observe_metric(
         quantity.contribution_id,
         ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count")
         if aggregate_method == "weighted_mean"
+        else ("sum", "non_null_count", "row_count")
+        if aggregate_method == "mean"
         else ("sum", "non_null_count")
         if aggregate_method == "sum"
         else ("count",),
         "v1",
     )
-    if len(params.coordinates) > 2:
-        reject(
-            "at most two qualified contribution coordinates",
-            repr(params.coordinates),
-            "Retain the ordered string coordinate tuple.",
-            "core.observe.coordinates",
-        )
     coordinate_parts: tuple[Part, ...] = ()
     for index, coordinate in enumerate(params.coordinates):
         if (
@@ -910,6 +932,7 @@ def _map_correspond(inputs: tuple[Signature, ...], params: MapCorrespond) -> Rul
     _output_domain(binding, params.output_domain, "core.map")
     source = inputs[0]
     pre: tuple[Fact, ...]
+    post: tuple[Fact, ...]
     required: tuple[PartRole, ...] = ()
     obligations: tuple[Obligation, ...] = ()
     parts: tuple[Part, ...] = ()
@@ -990,6 +1013,19 @@ def _map_correspond(inputs: tuple[Signature, ...], params: MapCorrespond) -> Rul
         eval_id = f"map_correspond.{params.mode}@v1"
         role = "union" if params.mode == "union_keys" else "pair"
         multiplicity = "preserve" if params.mode == "union_keys" else "paired"
+    elif params.mode == "group_keys":
+        if len(inputs) != 1 or not set(params.output_domain.instance_key) <= set(
+            source.domain.instance_key
+        ):
+            reject(
+                "retained complete group keys",
+                repr(params.output_domain),
+                "Select existing coordinates.",
+                "core.map.group_keys",
+            )
+        pre, post, obligations = (), (), ()
+        parts, quantity = (), None
+        eval_id, role, multiplicity = "map_correspond.group_keys@v1", "group", "group"
     elif params.mode == "group":
         if len(inputs) != 1 or params.output_domain.kind != "group":
             reject(
@@ -1196,7 +1232,10 @@ def _association_score(inputs: tuple[Signature, ...], params: AssociationScore) 
 def _reduction_domain(source: DomainSignature, target: DomainSignature) -> None:
     """Only the whole-input singleton has an implemented reduction mapping."""
     if (
-        target.kind != "singleton"
+        (
+            target.kind != "singleton"
+            and (target.kind != "group" or not set(target.instance_key) <= set(source.instance_key))
+        )
         or target.binding != source.binding
         or target.version_selection != source.version_selection
         or target.correspondence is not None
@@ -1210,9 +1249,9 @@ def _reduction_domain(source: DomainSignature, target: DomainSignature) -> None:
 
 
 def _row_state(inputs: tuple[Signature, ...], params: RowState) -> RuleDerivation:
-    if len(inputs) != 1 or inputs[0].quantity is None:
+    if len(inputs) != 1:
         reject(
-            "one current-row quantity",
+            "one current-row scalar relation",
             str(len(inputs)),
             "Bind a single-quantity relation.",
             "core.row_state",
@@ -1221,7 +1260,52 @@ def _row_state(inputs: tuple[Signature, ...], params: RowState) -> RuleDerivatio
     binding = _binding(inputs, "core.row_state")
     _output_domain(binding, params.output_domain, "core.row_state")
     _reduction_domain(source.domain, params.output_domain)
-    if params.method not in ("sum", "mean", "count", "count_defined", "weighted_mean"):
+    if params.merge:
+        from marivo.analysis.methods.registry import REGISTRY
+        from marivo.analysis.methods.semantics import key_for_parameters
+
+        semantics = REGISTRY.lookup(key_for_parameters(params)).semantics
+        quantity = source.quantity
+        state = require_part(source, "row_state")
+        if (
+            not isinstance(quantity, RowStatisticQuantity)
+            or not isinstance(state, RowStatePart)
+            or state.quantity_id != quantity.definition_id
+            or state.method_version != f"row.{params.method}@v1"
+            or quantity.method_version != state.method_version
+            or state.version != "v1"
+            or state.components != semantics.state_components
+            or state.input_domain_id != quantity.input_domain_id
+            or params.definition_id != quantity.definition_id
+        ):
+            reject(
+                "this statistic's complete bound row state",
+                repr(state),
+                "Retain the original statistic's state before rollup.",
+                "core.row_state.merge",
+            )
+        return _result(
+            "row_state@v1",
+            inputs,
+            params.output_domain,
+            quantity,
+            (replace(state, binding=params.output_domain.binding),),
+            pre=(),
+            obligations=(),
+            required=("row_state",),
+            created=(),
+            post=(_fact("state_binding", binding, quantity.definition_id),),
+            eval_id=f"row_state.merge.{params.method}@v1",
+        )
+    if params.method not in (
+        "sum",
+        "min",
+        "max",
+        "mean",
+        "count",
+        "count_defined",
+        "weighted_mean",
+    ):
         reject(
             "a closed current-row method",
             str(params.method),
@@ -1244,11 +1328,14 @@ def _row_state(inputs: tuple[Signature, ...], params: RowState) -> RuleDerivatio
             "Use equal_weight or weighted_mean.",
             "core.row_state.weight",
         )
-    assert source.quantity is not None
+    input_quantity = source.quantity
+    input_id = (
+        input_quantity.definition_id if input_quantity is not None else source.domain.definition_id
+    )
     numeric = _fact(
         "cell_policy" if params.method == "count_defined" else "finite_numeric",
         binding,
-        source.quantity.definition_id,
+        input_id,
     )
     obligations = (
         ()
@@ -1263,10 +1350,14 @@ def _row_state(inputs: tuple[Signature, ...], params: RowState) -> RuleDerivatio
     quantity = RowStatisticQuantity(
         params.definition_id,
         method_version,
-        source.quantity.definition_id,
+        input_id,
         source.domain.definition_id,
-        "count" if params.method in ("count", "count_defined") else source.quantity.unit,
-        source.quantity.time_scope,
+        "count"
+        if params.method in ("count", "count_defined")
+        else input_quantity.unit
+        if input_quantity is not None
+        else None,
+        input_quantity.time_scope if input_quantity is not None else binding.scope_id,
         params.value_policy,
         params.weighting,
     )
@@ -1559,8 +1650,30 @@ def _occurrence_combine(inputs: tuple[Signature, ...], params: OccurrenceCombine
             Obligation(complete, "source.complete_coverage@v1", "publish"),
         )
     )
+    coordinate = next((p for p in left.parts if isinstance(p, CoordinateStatePart)), None)
+    coordinate_parts: tuple[Part, ...] = ()
+    if coordinate is not None:
+        for source in inputs[1:]:
+            other = next((p for p in source.parts if isinstance(p, CoordinateStatePart)), None)
+            if (
+                other is None
+                or other.coordinates != coordinate.coordinates
+                or other.value_type != coordinate.value_type
+            ):
+                reject(
+                    "the same complete typed coordinate tuple on every occurrence",
+                    repr(other),
+                    "Bind the same contribution coordinates.",
+                    "core.occurrence_combine.coordinates",
+                )
+        coordinate_parts = (
+            replace(coordinate, quantity_id=quantity.definition_id, components=components),
+        )
     domain = replace(params.output_domain, definition_id=quantity.definition_id)
+    if coordinate is not None:
+        domain = replace(domain, instance_key=(*domain.instance_key, *coordinate.coordinates))
     parts: tuple[Part, ...] = (
+        *coordinate_parts,
         *tuple(
             replace(p, source_key=domain.instance_key)
             for p in left.parts
@@ -1599,30 +1712,45 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
     source = inputs[0]
     binding = _binding(inputs, "core.original_reduce")
     _output_domain(binding, params.output_domain, "core.original_reduce")
-    if params.coordinate is None:
+    if type(params.coordinates) is not tuple or any(
+        type(c) is not Coordinate for c in params.coordinates
+    ):
+        reject(
+            "an ordered tuple of complete coordinates",
+            repr(params.coordinates),
+            "Pass the retained typed axes as a tuple.",
+            "core.original_reduce.coordinate",
+        )
+    nested = bool(params.coordinates) and not set(params.coordinates) <= set(
+        source.domain.instance_key
+    )
+    if not params.coordinates:
         _reduction_domain(source.domain, params.output_domain)
     else:
-        coordinate = require_part(source, "coordinate_state")
-        if not isinstance(coordinate, CoordinateStatePart):
-            reject(
-                "retained contribution coordinates",
-                repr(coordinate),
-                "Observe with the exact coordinate first.",
-                "core.original_reduce.coordinate",
-            )
-        expected = tuple(c for c in coordinate.coordinates if c.field == params.coordinate.path)
+        available = source.domain.instance_key
+        if nested:
+            coordinate = require_part(source, "coordinate_state")
+            if not isinstance(coordinate, CoordinateStatePart):
+                reject(
+                    "retained contribution coordinates",
+                    repr(coordinate),
+                    "Observe with the exact coordinates first.",
+                    "core.original_reduce.coordinate",
+                )
+            available = (*source.domain.instance_key, *coordinate.coordinates)
         if (
-            not expected
+            len(set(params.coordinates)) != len(params.coordinates)
+            or not set(params.coordinates) <= set(available)
             or params.output_domain.kind != "group"
-            or params.output_domain.instance_key != expected
-            or params.output_domain.target_key != expected
+            or params.output_domain.instance_key != params.coordinates
+            or params.output_domain.target_key != params.coordinates
             or params.output_domain.binding != source.domain.binding
             or params.output_domain.correspondence is not None
         ):
             reject(
-                "the exact retained contribution Group domain",
+                "the exact retained complete coordinate target",
                 repr(params.output_domain),
-                "Group by the retained coordinate.",
+                "Group by distinct retained coordinates.",
                 "core.original_reduce.coordinate",
             )
     quantity = source.quantity
@@ -1685,17 +1813,27 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
         binding=params.output_domain.binding,
         scope_id=params.output_domain.binding.scope_id,
     )
+    subjects = tuple(
+        replace(
+            p,
+            source_key=params.output_domain.instance_key,
+            injective=set(p.subject_key) == set(params.output_domain.instance_key),
+        )
+        for p in source.parts
+        if isinstance(p, SubjectPart)
+        and set(p.subject_key) <= set(params.output_domain.instance_key)
+    )
     return _result(
         "original_reduce@v1",
         inputs,
         params.output_domain,
         rolled,
-        (new_state, new_coverage),
+        (*subjects, new_state, new_coverage),
         pre=(partition, complete),
         required=(
             "original_state",
             "coverage",
-            *(("coordinate_state",) if params.coordinate is not None else ()),
+            *(("coordinate_state",) if nested else ()),
         ),
         created=(),
         post=(_fact("state_binding", params.output_domain.binding, rolled.definition_id),),
@@ -1705,8 +1843,24 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
 
 
 def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> RuleDerivation:
-    if len(inputs) != 1:
-        reject("one relation input", str(len(inputs)), "Bind one relation.", "core.parts_transport")
+    if len(inputs) != (2 if params.external_predicate else 1):
+        reject(
+            "the exact receiver and optional predicate input",
+            str(len(inputs)),
+            "Bind explicit relation dependencies.",
+            "core.parts_transport",
+        )
+    if params.external_predicate and (
+        params.mode != "where"
+        or not params.predicates
+        or inputs[0].domain.instance_key != inputs[1].domain.instance_key
+    ):
+        reject(
+            "a predicate on corresponding complete keys",
+            repr(inputs),
+            "Bind the same retained instance domain.",
+            "core.parts_transport.predicate",
+        )
     source = inputs[0]
     binding = _binding(inputs, "core.parts_transport")
     _output_domain(binding, params.output_domain, "core.parts_transport")
@@ -1965,3 +2119,124 @@ def derive_numeric_cell(method: Literal["difference", "ratio"], left: Cell, righ
             "core.cell.eval",
         )
     return Defined(result)
+
+
+def _attach_category(inputs: tuple[Signature, ...], params: AttachCategory) -> RuleDerivation:
+    binding = _binding(inputs, "core.group.classification")
+    if len(inputs) != 2:
+        reject(
+            "one relation and one classification",
+            str(len(inputs)),
+            "Bind an explicit CategoryRelation.",
+            "core.group.classification",
+        )
+    source, category = inputs
+    expected_key = source.domain.instance_key
+    if params.subject_mapping:
+        subject = require_part(source, "subject")
+        if not isinstance(subject, SubjectPart) or not subject.total:
+            reject(
+                "a total retained Subject map",
+                repr(subject),
+                "Retain the full member mapping.",
+                "core.group.classification",
+            )
+        expected_key = subject.subject_key
+    if (
+        category.quantity is not None
+        or category.domain.instance_key != expected_key
+        or params.coordinate in source.domain.instance_key
+        or params.output_domain.instance_key != (*source.domain.instance_key, params.coordinate)
+        or params.output_domain.binding != binding
+    ):
+        reject(
+            "one unambiguous classification on complete input keys",
+            repr(category.domain),
+            "Bind a corresponding category and distinct keys.",
+            "core.group.classification",
+        )
+    parts = tuple(
+        replace(p, source_key=params.output_domain.instance_key)
+        if isinstance(p, SubjectPart)
+        else p
+        for p in source.parts
+    )
+    return _result(
+        "parts_transport@v1",
+        inputs,
+        params.output_domain,
+        source.quantity,
+        parts,
+        pre=(),
+        required=("subject",) if params.subject_mapping else (),
+        created=(),
+        post=(),
+        obligations=(),
+        eval_id="group.attach.complete_keys@v1",
+    )
+
+
+def _complete_groups(inputs: tuple[Signature, ...], params: CompleteGroups) -> RuleDerivation:
+    binding = _binding(inputs, "core.group.target")
+    if len(inputs) != 2:
+        reject(
+            "one reduced relation and one explicit target",
+            str(len(inputs)),
+            "Bind groups explicitly.",
+            "core.group.target",
+        )
+    source, target = inputs
+    if (
+        source.domain.instance_key != target.domain.instance_key
+        or target.quantity is not None
+        or params.output_domain.binding != binding
+        or params.output_domain.instance_key != source.domain.instance_key
+    ):
+        reject(
+            "identical complete typed group coordinates",
+            repr(target.domain),
+            "Use the exact target group domain.",
+            "core.group.target",
+        )
+    if source.quantity is None:
+        if source.parts or source.domain.kind not in ("group", "singleton"):
+            reject(
+                "a projected group domain without value or state parts",
+                repr(source),
+                "Project complete group keys before binding a target domain.",
+                "core.group.target",
+            )
+        return _result(
+            "parts_transport@v1",
+            inputs,
+            params.output_domain,
+            None,
+            (),
+            pre=(),
+            required=(),
+            created=(),
+            post=(),
+            obligations=(),
+            eval_id="group.complete.empty_states@v1",
+        )
+    state_role: PartRole = (
+        "row_state" if isinstance(source.quantity, RowStatisticQuantity) else "original_state"
+    )
+    require_part(source, state_role)
+    required: tuple[PartRole, ...] = (state_role,)
+    if state_role == "original_state":
+        require_part(source, "coverage")
+        required = (*required, "coverage")
+    return _result(
+        "parts_transport@v1",
+        inputs,
+        params.output_domain,
+        source.quantity,
+        source.parts,
+        pre=(),
+        required=required,
+        created=(),
+        post=(),
+        obligations=(),
+        eval_id="group.complete.empty_states@v1",
+    )

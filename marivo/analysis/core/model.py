@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from typing import Literal, NoReturn, TypeAlias
 
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
@@ -323,10 +324,10 @@ def validate_quantity(quantity: Quantity) -> None:
 
 @dataclass(frozen=True, slots=True)
 class Defined:
-    value: bool | int | float | str
+    value: bool | int | float | str | date | datetime
 
     def __post_init__(self) -> None:
-        if type(self.value) not in (bool, int, float, str):
+        if type(self.value) not in (bool, int, float, str, date, datetime):
             reject(
                 "a typed scalar Cell value",
                 type(self.value).__name__,
@@ -554,21 +555,36 @@ def validate_part(part: Part) -> None:
         _nonempty(part.quantity_id, "core.part.coordinate.quantity")
         _unique(part.components, "core.part.coordinate.components")
         if (
-            len(part.extra_coordinates) > 1
-            or len(set(part.coordinates)) != len(part.coordinates)
+            len(set(part.coordinates)) != len(part.coordinates)
             or any(c.role != "group" for c in part.extra_coordinates)
             or part.dimension.kind is not SemanticKind.DIMENSION
             or part.owner.kind is not SemanticKind.ENTITY
-            or part.components
-            not in (
-                ("sum", "non_null_count"),
-                ("count",),
-                (
-                    "numerator_sum",
-                    "numerator_non_null_count",
-                    "denominator_sum",
-                    "denominator_non_null_count",
-                ),
+            or (
+                part.components
+                not in (
+                    ("sum", "non_null_count"),
+                    ("count",),
+                    ("sum", "non_null_count", "row_count"),
+                    ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count"),
+                    (
+                        "numerator_sum",
+                        "numerator_non_null_count",
+                        "denominator_sum",
+                        "denominator_non_null_count",
+                    ),
+                )
+                and not (
+                    len(part.components) >= 4
+                    and len(part.components) % 2 == 0
+                    and all(
+                        part.components[2 * i : 2 * i + 2]
+                        in (
+                            (f"plus_{i}_sum", f"plus_{i}_non_null_count"),
+                            (f"minus_{i}_sum", f"minus_{i}_non_null_count"),
+                        )
+                        for i in range(len(part.components) // 2)
+                    )
+                )
             )
             or part.value_type not in ("int64", "float64")
             or part.version != "v1"

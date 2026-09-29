@@ -6,6 +6,8 @@ import math
 from collections.abc import Mapping
 from typing import Literal
 
+from marivo.analysis.core.model import OriginalStatePart, RowStatisticQuantity, Signature
+
 
 def difference_matches(
     primary: Mapping[str, object],
@@ -198,6 +200,14 @@ def state_matches(
             and primary.get("cell_reason") is None
         )
     if kind in ("row_sum", "row_count", "row_count_defined"):
+        if kind == "row_sum":
+            support = part.get("row_state__count")
+            if (
+                type(support) is not int
+                or not 0 <= support < 2**63
+                or (support == 0 and part.get("row_state__sum") != 0)
+            ):
+                return False
         component = part.get(f"row_state__{kind.removeprefix('row_')}")
         return (
             (
@@ -209,6 +219,54 @@ def state_matches(
             and primary.get("cell_tag") == "defined"
             and type(value) is type(component)
             and value == component
+        )
+    if kind in ("row_min", "row_max"):
+        component = part.get(f"row_state__{kind.removeprefix('row_')}")
+        support = part.get("row_state__count")
+        if type(support) is not int or not 0 <= support < 2**63:
+            return False
+        if support == 0:
+            return (
+                component is None
+                and value is None
+                and primary.get("cell_tag") == "undefined"
+                and primary.get("cell_reason") == "empty_" + kind.removeprefix("row_")
+            )
+        return (
+            (
+                (type(component) is int and -(2**63) <= component < 2**63)
+                or (type(component) is float and math.isfinite(component))
+            )
+            and type(value) is type(component)
+            and value == component
+            and primary.get("cell_tag") == "defined"
+            and primary.get("cell_reason") is None
+        )
+    if kind == "original_mean":
+        total, count, rows = (
+            part.get("original_state__" + name) for name in ("sum", "non_null_count", "row_count")
+        )
+        if (
+            type(total) is not int
+            or not -(2**63) <= total < 2**63
+            or type(count) is not int
+            or type(rows) is not int
+            or not 0 <= count <= rows < 2**63
+        ):
+            return False
+        if count == 0:
+            return (
+                total == 0
+                and value is None
+                and primary.get("cell_tag") == "null"
+                and primary.get("cell_reason") == "empty_contribution"
+            )
+        return (
+            type(value) is float
+            and value == total / count
+            and math.isfinite(value)
+            and primary.get("cell_tag") == "defined"
+            and primary.get("cell_reason") is None
         )
     if kind == "row_mean":
         total, count = part.get("row_state__sum"), part.get("row_state__count")
@@ -287,12 +345,27 @@ def coordinate_state_matches(
             if "count" in name and value < 0:
                 return False
             values[name].append(value)
-        for total_name, count_name in (
+        pairs = [
             ("sum", "non_null_count"),
             ("numerator_sum", "numerator_non_null_count"),
             ("denominator_sum", "denominator_non_null_count"),
-        ):
+            ("weighted_numerator", "non_null_pair_count"),
+            ("weight_sum", "non_null_pair_count"),
+            *(
+                (name, name.removesuffix("_sum") + "_non_null_count")
+                for name in components
+                if name.startswith(("plus_", "minus_")) and name.endswith("_sum")
+            ),
+        ]
+        for total_name, count_name in pairs:
             if count_name in components and item[count_name] == 0 and item[total_name] != 0:
+                return False
+        for support in ("non_null_count", "non_null_pair_count"):
+            if (
+                support in components
+                and "row_count" in components
+                and item[support] > item["row_count"]
+            ):
                 return False
     if labels != sorted(set(labels)):
         return False
@@ -311,3 +384,28 @@ def coordinate_state_matches(
         elif type(expected) is not int or sum(entries) != expected:
             return False
     return True
+
+
+def empty_reduction_cell(signature: Signature) -> tuple[int | None, str, str | None]:
+    """Finish a lawful empty group from its frozen method and component policies."""
+    quantity = signature.quantity
+    if isinstance(quantity, RowStatisticQuantity):
+        method = quantity.method_version
+        if method in ("row.count@v1", "row.count_defined@v1", "row.sum@v1"):
+            return 0, "defined", None
+        if method in ("row.mean@v1", "row.min@v1", "row.max@v1"):
+            return None, "undefined", "empty_" + method.removeprefix("row.").removesuffix("@v1")
+    original = next((p for p in signature.parts if isinstance(p, OriginalStatePart)), None)
+    if original is not None:
+        if original.method_version in ("sum_zero@v1", "count@v1"):
+            return 0, "defined", None
+        if original.method_version == "linear@v1" and all(
+            rule == "zero" for rule in original.empty_rules
+        ):
+            return 0, "defined", None
+        if original.method_version == "ratio@v1" and all(
+            rule == "zero" for rule in original.empty_rules
+        ):
+            return None, "undefined", "zero_denominator"
+        return None, "null", "empty_contribution"
+    raise ValueError("no registered empty reduction state")

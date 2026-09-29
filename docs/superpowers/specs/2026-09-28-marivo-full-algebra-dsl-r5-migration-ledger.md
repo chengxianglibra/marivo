@@ -237,3 +237,40 @@ Nested nonlinear finishes and ratio error policy are not
 qualified by this bounded slice. Positive nesting evidence is nested signed
 linear over additive leaves and outer slices pushed through ratio/linear. Opaque positivity
 means catalog authoring/require, not an invented direct observation permission.
+
+## R5.4 migration outcome (2026-09-29)
+
+The source-tree candidate and exact command results are recorded in
+[evidence/r54](evidence/r54/README.md). R5.3 was already committed at the recorded
+baseline; no prior dirty implementation was discarded. No commit or release was
+performed for this candidate.
+
+| Consumer | R5.4 change | Remaining owner |
+| --- | --- | --- |
+| M03/M05 | Complete coordinate tuple union, combined classifications, explicit targets, partial original-state reduction and current-row statistics use the public graph | R5.5 time grids, R5.6 full type matrix |
+| M11 | Existing rule/method registry adds group attachment/completion, min/max, original mean and row-state merging; no second executor | Other unqualified method/type shapes remain rejected |
+| M14 | OriginalReduce carries an ordered coordinate tuple; RowState carries explicit merge mode; row sum carries support count; Store 7 validates transported state | R5.7 installed candidate and full recovery matrix; no legacy wire reader |
+| M17 | CountMethod and GroupedStatisticRelation join existing families; typing, native Help, dynamic continuations, independent export tests and both latest site editions are aligned | Packaged skills unchanged; their workflow guidance does not enumerate these APIs |
+| D04 | Re-enabled pure fixed mean-selection planning with no source/part reads, Run or worker work | Closed by the new public-graph Runtime regression |
+| D05-D08 | Re-enabled absent/unregistered DuckDB/Ibis diagnostic-version tests with unchanged exact plan and revenue 147 | Closed by four Runtime regressions |
+| D14 | Re-enabled source-offline selected revenue 140 and original mean 140/3; duplicate/foreign/tampered component rejection retained | Closed by the new common exchange consumer |
+
+The replaced legacy execution code was removed from these six tests only.
+`source_admission`, `dataset_execution`, legacy compiler helpers and fixtures still
+have R6-R8 consumers and remain in place. CLI routes through native Help and
+needs no parallel inventory. No packaged skill or AGENTS.md edit was needed or
+made. D01-D03, D09-D13 and D15-D22 keep their existing owners.
+
+### R5.4 adversarial-review repairs
+
+The review follow-up retains the same phase and no-release boundaries. Explicit
+group-domain execution now persists the complete target; selected categories
+transport their Dimension coordinate; foreign numeric predicates transport both
+source bindings. Fixed grouped numeric row statistics preserve axes and use the
+materialized rows, not reconstructed member rows. Help factory examples and
+CountMethod acquisition, the statistic class docstring, and ordered arity gates
+are aligned. The Runtime owner accepts the breaking frozen-state rules explicitly
+in `session-state-and-runtime.md`. Evidence and item-by-item dispositions are in
+`evidence/r54/review-fixes.json`; the candidate fingerprint is refreshed only after
+verification. Diagnostic-version invariance and effective part-corruption tests
+remain intact. No packaged skill or AGENTS.md change is required.

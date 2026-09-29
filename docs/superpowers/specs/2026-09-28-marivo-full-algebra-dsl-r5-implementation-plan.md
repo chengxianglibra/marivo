@@ -2,7 +2,7 @@
 
 Date: 2026-09-28
 
-Status: R5.1 freeze complete; R5.2 bounded member/read qualification complete; R5.3 bounded five-factory graph slice implemented; final qualification is recorded in evidence/r53; R5.4-R5.7 remain unverified.
+Status: R5.1 freeze complete; R5.2 bounded member/read qualification complete; R5.3 bounded five-factory graph slice implemented; qualification is recorded in evidence/r53; R5.4 bounded coordinate/group/row-state implementation and source-tree acceptance are complete, recorded in evidence/r54; R5.5-R5.7 remain unverified.
 
 R5.1 的具体交付、消费者与逐格债务见[迁移清单](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md)；
 [静态证据](evidence/r51/README.md)不授予执行资格。

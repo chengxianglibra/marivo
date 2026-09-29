@@ -146,11 +146,16 @@ EXPECTED_EXPORTS = (
     "RootRoute",
     "RootRoutes",
     "RowMethod",
+    "CountMethod",
+    "GroupedStatisticRelation",
     "route",
     "routes",
     "sum",
     "count",
     "mean",
+    "min",
+    "max",
+    "count_defined",
     "eq",
     "not_eq",
     "lt",
@@ -339,7 +344,7 @@ def test_exact_export_bindings_and_required_native_targets(
 ) -> None:
     actual = {e.name: e for p in disclosure.providers for e in p.exports}
     assert set(actual) == set(EXPECTED_EXPORTS)
-    assert len(actual) == 149
+    assert len(actual) == 154
     assert set(disclosure.canonical_ids()) >= REQUIRED_TARGETS
     for name in EXPECTED_EXPORTS:
         entry = actual[name]
@@ -840,3 +845,25 @@ def test_callable_specialization_uses_registration_scope_not_target_spelling(
         assert isinstance(value, Dataset)
         assert candidate.by_callable(value.attribute).canonical_id == target
         assert candidate.by_callable(type(value).attribute).canonical_id == "renamed.general"
+
+
+@pytest.mark.parametrize("name", ["sum", "count", "count_defined", "min", "max", "mean"])
+def test_row_factory_help_has_its_own_executable_example(
+    name: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    marivo.help(f"analysis.dsl.{name}")
+    rendered = capsys.readouterr().out
+    assert f"result = mv.{name}()" in rendered
+    assert "mv.routes(" not in rendered
+
+
+def test_statistic_docstring_and_count_descriptor_acquisition(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert mv.MaterializedStatisticRelation.__doc__
+    assert "current-row statistic" in mv.MaterializedStatisticRelation.__doc__
+    marivo.help("analysis.CountMethod")
+    rendered = capsys.readouterr().out
+    assert "Call mv.count() or mv.count_defined()." in rendered
+    assert "mv.sum()" not in rendered
+    assert "dsl.sum" not in rendered

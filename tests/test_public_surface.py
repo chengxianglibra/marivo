@@ -142,6 +142,7 @@ SEMANTIC_PUBLIC = {
 
 ANALYSIS_PUBLIC = {
     "GroupedRatioRelation",
+    "GroupedStatisticRelation",
     "LogicalFixedAnalysisDomain",
     "LogicalSelectedCategoryRelation",
     "MaterializedSelectedCategoryRelation",
@@ -186,8 +187,12 @@ ANALYSIS_PUBLIC = {
     "RootRoute",
     "RootRoutes",
     "RowMethod",
+    "CountMethod",
     "count",
     "mean",
+    "min",
+    "max",
+    "count_defined",
     "route",
     "routes",
     "sum",
@@ -292,7 +297,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "f26aeeb828d5f91ba9bb23b7a14a2f68db4ba3ec22fb8230c06a6dd61eb162c4"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "4a00f4f15206426e3655e78a87e27cd8e42d3af56ae7a1ac10f636d23db6818a"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

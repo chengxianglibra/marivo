@@ -1615,3 +1615,57 @@ Public-type Help remains independently resolvable and progressive; its outgoing
 route budget is 12 to include the member projection and selection operations.
 This does not enlarge root or capability-page budgets. The R5 migration ledger
 and R5.2 evidence index own measured execution status, not this contract text.
+
+## R5.4 connected coordinates and reductions
+
+`group_by(*keys, groups=...)` retains complete tuples. Member domains accept
+own Dimension reads and explicit corresponding CategoryRelations; observed
+relations accept retained Entity/Dimension axes and explicit categories. An
+Entity Ref retains its entire composite identity. Classifications join by the
+complete receiver or retained Subject key, never by row order. A missing,
+ambiguous, non-Defined or out-of-target classification rejects on the consumed
+domain. Contribution branches reduce independently before their tuple union;
+denominator-only and cancelled-zero coordinates remain present. There is no
+per-column Cartesian completion. Empty groups require an explicit target and
+complete input coverage. No-key member grouping creates Singleton.
+
+Original `group_by(...).rollup()` eliminates the other axes; `rollup()` eliminates
+all axes. Sum, count, mean, ratio, signed linear and Metric weighted mean merge
+original components before finishing. Grouping numeric reads grants current-row
+`summarize`, not original Metric rollup. `mv.count()` and `mv.count_defined()`
+return CountMethod descriptors and also work on categorical, boolean and temporal
+rows; `mv.sum/min/max/mean()` require finite Defined numeric Cells. Category
+`group_by()` groups its own Defined values before a count. The corresponding
+RowStatistic has its own contribution identity. Its `group_by(...).rollup()` and
+`rollup()` merge retained row state without treating subgroup Cells as new rows.
+
+LogicalStatisticRelation, MaterializedStatisticRelation and
+GroupedStatisticRelation are one statistic family. Grouped original and scalar
+receivers disclose only their mechanically valid continuations. Fixed grouping
+requires fixed classifications and targets; it cannot reload Semantic or switch
+to DuckDB. Store 7 checks exact parts, versions, complete keys and numerical
+consistency before continuation. Missing or damaged parts revoke usable K.
+
+This slice retains the existing string contribution coordinates, string/int64 classifications,
+complete string/int64 Entity keys and qualified numeric/time inputs. Time grids
+and coarsening remain R5.5, the complete numeric matrix remains R5.6, and installed
+candidate qualification remains R5.7. The migration ledger and `evidence/r54/`
+record measured acceptance; this section is not installed-package evidence.
+
+R5.4 review repairs keep explicit targets in the executable group-domain graph:
+`group_by(..., groups=target).execute()` validates consumed-key containment and
+publishes the complete target, including empty tuples. Restoring that Artifact
+returns an AnalysisDomain without Cell or reduction-state parts. Selected
+CategoryRelations retain their Dimension identity through selection and Store 7;
+their unkeyed grouping still groups the selected category values. Cross-relation
+numeric predicates transport the dependency's source bindings as well as its
+node, so independently rooted source observations and their fixed counterparts
+use the same exact-key correspondence checks.
+
+A MaterializedGroupedNumericRelation retains its complete group axes during
+`summarize`. The receiver's current rows are the already materialized group
+rows, not the earlier members. Each existing group therefore contributes one
+row to count; a strict numeric reducer still rejects a non-Defined group Cell.
+Original Metric state is consumed only by original `rollup`, while a newly
+created RowStatistic merges only its own row state. The breaking frozen layouts
+are accepted explicitly by the R5.4 section of `session-state-and-runtime.md`.

@@ -128,9 +128,11 @@ if TYPE_CHECKING:
     )
     from marivo.analysis.public_dsl import AnalysisAction as AnalysisAction
     from marivo.analysis.public_dsl import AnalysisContract as AnalysisContract
+    from marivo.analysis.public_dsl import CountMethod as CountMethod
     from marivo.analysis.public_dsl import GroupedAnalysisDomain as GroupedAnalysisDomain
     from marivo.analysis.public_dsl import GroupedNumericRelation as GroupedNumericRelation
     from marivo.analysis.public_dsl import GroupedRatioRelation as GroupedRatioRelation
+    from marivo.analysis.public_dsl import GroupedStatisticRelation as GroupedStatisticRelation
     from marivo.analysis.public_dsl import LogicalAnalysisDomain as LogicalAnalysisDomain
     from marivo.analysis.public_dsl import LogicalAssociationResult as LogicalAssociationResult
     from marivo.analysis.public_dsl import LogicalBooleanRelation as LogicalBooleanRelation
@@ -220,7 +222,10 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import RootRoutes as RootRoutes
     from marivo.analysis.public_dsl import RowMethod as RowMethod
     from marivo.analysis.public_dsl import count as count
+    from marivo.analysis.public_dsl import count_defined as count_defined
+    from marivo.analysis.public_dsl import max as max
     from marivo.analysis.public_dsl import mean as mean
+    from marivo.analysis.public_dsl import min as min
     from marivo.analysis.public_dsl import route as route
     from marivo.analysis.public_dsl import routes as routes
     from marivo.analysis.public_dsl import sum as sum

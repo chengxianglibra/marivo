@@ -608,7 +608,7 @@ Weighted mean retains `(weighted_numerator, weight_sum, non_null_pair_count,
 row_count)` from rows with both operands non-null. No pairs yields
 `Null(empty_contribution)`; a contributed zero weight sum yields
 `Null(zero_weight_sum)`. Source and fixed rollup merge these four components,
-never average member means. Weighted contribution coordinates remain unqualified.
+never average member means. R5.4 connects retained string contribution-coordinate tuples for this same paired state.
 Nested linear sum/count expressions distribute signs while retaining every
 occurrence and its empty policy; source and fixed rollup merge each original
 component. An outer slice over ratio/linear is pushed to each leaf by canonicalization. Nested nonlinear finishes and ratio `zero_division="error"` are not
@@ -620,3 +620,36 @@ Its return is the numeric/ratio relation union because a Metric Ref's kind is
 resolved from the catalog, not inferred from whether `via` has one or many roots.
 Use `isinstance` to narrow before family-specific continuations. Linear and
 weighted mean produce the numeric family; ratio produces the ratio family.
+
+### R5.4 coordinate and row-state consumers
+
+The common graph adds `group.attach` and `group.complete` to the existing
+parts-transport rule. Attachment preserves every receiver Cell and component;
+completion only fills proven empty target tuples. Both validate transported
+numerical state against the owning method. `OriginalReduce.coordinates` is an
+ordered tuple of complete retained axes. Signed linear and weighted-mean
+coordinate partitions retain their respective full component schemas.
+
+Current-row states are count `(count)`, count_defined `(count)`, sum `(sum,count)`,
+mean `(sum,count)`, min `(min,count)` and max `(max,count)`. Count includes all four
+Cell variants; count_defined includes Defined only. Empty sum/count/count_defined
+finish as zero; mean/min/max finish as Undefined with `empty_mean`, `empty_min`
+or `empty_max`. An empty mean's valid state is `(0,0)`, not an absent state.
+Row-state merge preserves the RowStatistic identity and exact input-domain
+binding. Numeric reducers reject non-Defined inputs rather than silently dropping
+rows. Mean Metric state is separately `(sum,non_null_count,row_count)` and its
+original merge does not average member means.
+
+L8 compares merged components as well as values and semantics. L9 uses the same
+explicit target domain, including empty tuples, on both paths. Qualified fixed
+continuations use the caller-owned Python route and Store 7; exact receipts,
+component correspondence and state versions remain mandatory. No statistical
+weight role, time grid, numerical-matrix or installed-wheel acceptance is added.
+
+R5.4 group-domain completion also accepts projected Group/Singleton inputs with
+no quantity or parts. It checks target uniqueness and consumed-key containment,
+then publishes target keys only; it does not invent Cells or numerical state.
+Selection transports the category coordinate in `PartsTransport.classification`
+so fixed selected categories can group without loading Semantic. Numeric field
+predicates carry their relation binding to merge independently rooted source
+schemas into the existing graph executor.

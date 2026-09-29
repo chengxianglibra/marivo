@@ -1,0 +1,163 @@
+{
+  "recorded_at": "2026-09-29T17:46:21.740433+08:00",
+  "scope": "source tree, no wheel/release/real Agent acceptance",
+  "records": [
+    {
+      "name": "default-targeted",
+      "command": "make test TESTS='tests/test_analysis_lowering_r34.py tests/test_analysis_dsl_contracts.py tests/test_analysis_dsl_public_static.py tests/test_public_surface.py tests/test_lazy_disclosure.py tests/test_agent_api_drift.py'",
+      "exit_code": 0,
+      "result": "157 passed",
+      "log": "default-targeted.log"
+    },
+    {
+      "name": "runtime-expanded",
+      "command": "make runtime-test TESTS='tests/test_analysis_coordinates_r54.py tests/test_analysis_observation_r53.py tests/test_analysis_members_r52.py tests/test_analysis_graph_preflight_r45.py tests/test_analysis_dsl_public.py tests/test_lazy_local_placement.py tests/test_lazy_retained_compiler.py tests/test_cutover_documentation_examples.py'",
+      "exit_code": 2,
+      "result": "154 passed, 6 failed: legacy positional coordinate constructor; superseded for those six cases by runtime-r45-repair",
+      "log": "runtime-expanded.log.gz"
+    },
+    {
+      "name": "runtime-r45-repair",
+      "command": "make runtime-test TESTS='tests/test_analysis_graph_preflight_r45.py -k original_ratio_preserves_independent_root_components'",
+      "exit_code": 0,
+      "result": "6 passed; original numerical assertions retained",
+      "log": "runtime-r45-repair.log"
+    },
+    {
+      "name": "runtime-r54",
+      "command": "make runtime-test TESTS='tests/test_analysis_coordinates_r54.py'",
+      "exit_code": 0,
+      "result": "49 passed, including strengthened anti-Cartesian fixture",
+      "log": "runtime-r54.log"
+    },
+    {
+      "name": "runtime-r54-subject",
+      "command": "make runtime-test TESTS='tests/test_analysis_coordinates_r54.py -k explicit_entity_targets'",
+      "exit_code": 0,
+      "result": "2 passed; added after the 49-case run",
+      "log": "runtime-r54-subject.log"
+    },
+    {
+      "name": "runtime-historical",
+      "command": "make runtime-test TESTS='tests/test_lazy_local_placement.py tests/test_lazy_retained_compiler.py'",
+      "exit_code": 0,
+      "result": "6 passed; also passed in runtime-expanded",
+      "log": "runtime-historical.log"
+    },
+    {
+      "name": "runtime-examples",
+      "command": "make runtime-test TESTS='tests/test_cutover_documentation_examples.py'",
+      "exit_code": 0,
+      "result": "7 passed; also passed in runtime-expanded",
+      "log": "runtime-examples.log"
+    },
+    {
+      "name": "disclosure",
+      "command": "make test TESTS='tests/test_analysis_dsl_contracts.py tests/test_lazy_disclosure.py tests/test_agent_api_drift.py tests/test_public_surface.py tests/test_cutover_documentation_examples.py'",
+      "exit_code": 0,
+      "result": "61 passed",
+      "log": "disclosure.log"
+    },
+    {
+      "name": "typecheck",
+      "command": "make typecheck TYPECHECK_TARGETS='marivo/analysis'",
+      "exit_code": 0,
+      "result": "255 source files; final check-agent rechecks all 401",
+      "log": "typecheck.log"
+    },
+    {
+      "name": "lint",
+      "command": "make lint-agent LINT_TARGETS='marivo/analysis tests/test_analysis_coordinates_r54.py tests/test_analysis_graph_preflight_r45.py'",
+      "exit_code": 0,
+      "result": "257 files formatted; lint and import contracts passed",
+      "log": "lint.log"
+    },
+    {
+      "name": "check-agent",
+      "command": "make check-agent",
+      "exit_code": 0,
+      "result": "5375 passed, 13 skipped; lint, typing and API documentation passed",
+      "log": "check-agent.log"
+    },
+    {
+      "name": "site",
+      "command": "npm --prefix site run build",
+      "exit_code": 0,
+      "result": "321 pages; Astro check/build and installation script verification passed",
+      "log": "site.log.gz"
+    },
+    {
+      "name": "diff-check",
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "passed",
+      "log": "diff-check.log"
+    },
+    {
+      "name": "review-default-targeted",
+      "command": "make test TESTS='tests/test_analysis_lowering_r34.py tests/test_analysis_dsl_contracts.py tests/test_analysis_dsl_public_static.py tests/test_public_surface.py tests/test_lazy_disclosure.py tests/test_agent_api_drift.py tests/test_cutover_documentation_examples.py'",
+      "exit_code": 0,
+      "result": "160 passed",
+      "log": "review-default-targeted.log",
+      "stage": "initial review repair"
+    },
+    {
+      "name": "review-coordinate-regressions",
+      "command": "make runtime-test TESTS='tests/test_analysis_coordinates_r54.py -k review'",
+      "exit_code": 0,
+      "result": "11 passed",
+      "log": "review-coordinate-regressions.log",
+      "stage": "initial review repair"
+    },
+    {
+      "name": "review-disclosure-arity",
+      "command": "make test TESTS='tests/test_analysis_methods_r32.py tests/test_lazy_disclosure.py'",
+      "exit_code": 0,
+      "result": "70 passed",
+      "log": "review-disclosure-arity.log",
+      "stage": "additional review repair"
+    },
+    {
+      "name": "review-fixed-group-statistics",
+      "command": "make runtime-test TESTS='tests/test_analysis_coordinates_r54.py -k review_fixed_group'",
+      "exit_code": 0,
+      "result": "6 passed",
+      "log": "review-fixed-group-statistics.log",
+      "stage": "additional review repair"
+    },
+    {
+      "name": "review-final-check-agent",
+      "command": "make check-agent",
+      "exit_code": 0,
+      "result": "5391 passed, 13 skipped; lint/import contracts; typing401 modules; API docs passed",
+      "log": "review-final-check-agent.log",
+      "stage": "final"
+    },
+    {
+      "name": "review-final-runtime",
+      "command": "make runtime-test TESTS='tests/test_analysis_coordinates_r54.py tests/test_analysis_observation_r53.py tests/test_analysis_members_r52.py tests/test_analysis_graph_preflight_r45.py tests/test_analysis_dsl_public.py tests/test_lazy_local_placement.py tests/test_lazy_retained_compiler.py tests/test_cutover_documentation_examples.py'",
+      "exit_code": 0,
+      "result": "179 passed",
+      "log": "review-final-runtime.log",
+      "stage": "final"
+    },
+    {
+      "name": "review-final-site",
+      "command": "npm --prefix site run build",
+      "exit_code": 0,
+      "result": "Astro check0 errors/warnings; 321 pages; English/Chinese installer verification passed",
+      "log": "review-final-site.log.gz",
+      "stage": "final"
+    },
+    {
+      "name": "review-final-diff-check",
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "passed",
+      "log": "review-final-diff-check.log",
+      "stage": "final"
+    }
+  ],
+  "review_recorded_at": "2026-09-29T18:22:14.853911+08:00",
+  "final_candidate_files_sha256": "d26d5fbe700cf75bda801601174edcda931cbc9a1293f2e162ddae165f5ed203"
+}

@@ -123,9 +123,11 @@ from marivo.analysis.operators.forecast_dataset import (
 )
 from marivo.analysis.public_dsl import AnalysisAction as AnalysisAction
 from marivo.analysis.public_dsl import AnalysisContract as AnalysisContract
+from marivo.analysis.public_dsl import CountMethod as CountMethod
 from marivo.analysis.public_dsl import GroupedAnalysisDomain as GroupedAnalysisDomain
 from marivo.analysis.public_dsl import GroupedNumericRelation as GroupedNumericRelation
 from marivo.analysis.public_dsl import GroupedRatioRelation as GroupedRatioRelation
+from marivo.analysis.public_dsl import GroupedStatisticRelation as GroupedStatisticRelation
 from marivo.analysis.public_dsl import LogicalAnalysisDomain as LogicalAnalysisDomain
 from marivo.analysis.public_dsl import LogicalAssociationResult as LogicalAssociationResult
 from marivo.analysis.public_dsl import LogicalBooleanRelation as LogicalBooleanRelation
@@ -205,7 +207,10 @@ from marivo.analysis.public_dsl import RootRoute as RootRoute
 from marivo.analysis.public_dsl import RootRoutes as RootRoutes
 from marivo.analysis.public_dsl import RowMethod as RowMethod
 from marivo.analysis.public_dsl import count as count
+from marivo.analysis.public_dsl import count_defined as count_defined
+from marivo.analysis.public_dsl import max as max
 from marivo.analysis.public_dsl import mean as mean
+from marivo.analysis.public_dsl import min as min
 from marivo.analysis.public_dsl import route as route
 from marivo.analysis.public_dsl import routes as routes
 from marivo.analysis.public_dsl import sum as sum
@@ -336,11 +341,16 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "RootRoute",
     "RootRoutes",
     "RowMethod",
+    "CountMethod",
+    "GroupedStatisticRelation",
     "route",
     "routes",
     "sum",
     "count",
     "mean",
+    "min",
+    "max",
+    "count_defined",
     "eq",
     "not_eq",
     "lt",

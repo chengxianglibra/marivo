@@ -40,8 +40,10 @@ from marivo.analysis.core.model import (
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
     AssociationScore,
+    AttachCategory,
     BindProject,
     CellDerive,
+    CompleteGroups,
     GroupObservationTarget,
     MapCorrespond,
     ObserveCount,
@@ -452,14 +454,47 @@ def _difference(
 
 
 def _transport(
-    stage: SourceMethodStage, source: LoweredRelation, checks: list[LoweredCheck]
+    stage: SourceMethodStage,
+    source: LoweredRelation,
+    checks: list[LoweredCheck],
+    predicate_source: LoweredRelation | None = None,
 ) -> tuple[ir.Table, RelationLayout]:
     params = stage.node.parameters
     assert isinstance(params, PartsTransport)
     table = source.expression
     cell = source.layout.cell
+    predicate_cell = cell
+    source_ids = source.source_ids
+    if predicate_source is not None:
+        other_cell = predicate_source.layout.cell
+        if other_cell is None:
+            _fail("a Cell-valued predicate dependency", "missing Cell")
+        keys = tuple(k.column for k in source.layout.keys)
+        source_ids = _source_ids(source.source_ids, predicate_source.source_ids)
+        checks.append(
+            IntegrityCheck(
+                stage.output,
+                "equal complete predicate keys",
+                _pair_violations(source, predicate_source),
+                source_ids,
+            )
+        )
+        other = predicate_source.expression.select(
+            *keys,
+            __predicate_value=predicate_source.expression[other_cell.value],
+            __predicate_tag=predicate_source.expression[other_cell.tag],
+            __predicate_reason=predicate_source.expression[other_cell.reason],
+        ).view()
+        left = table.view()
+        table = left.inner_join(other, keys).select(
+            *[left[name] for name in source.layout.columns],
+            other.__predicate_value,
+            other.__predicate_tag,
+            other.__predicate_reason,
+        )
+        predicate_cell = CellColumns("__predicate_value", "__predicate_tag", "__predicate_reason")
     if params.predicates:
-        if cell is None:
+        if predicate_cell is None:
             _fail("a bound value for selection", "domain without value")
         for predicate in params.predicates:
             if predicate.unknown == "reject":
@@ -467,11 +502,13 @@ def _transport(
                     IntegrityCheck(
                         stage.output,
                         "a Defined predicate input",
-                        table.filter(table[cell.tag] != "defined"),
-                        source.source_ids,
+                        table.filter(table[predicate_cell.tag] != "defined"),
+                        source_ids,
                     )
                 )
-        table = table.filter(reduce(and_, (_predicate(table, cell, p) for p in params.predicates)))
+        table = table.filter(
+            reduce(and_, (_predicate(table, predicate_cell, p) for p in params.predicates))
+        )
     target = canonical_layout(
         stage.node.signature, has_value=cell is not None and params.keep_quantity
     )
@@ -665,6 +702,21 @@ def _map(
     assert isinstance(params, MapCorrespond)
     source = inputs[0]
     target = canonical_layout(stage.node.signature, has_value=params.mode == "group")
+    if params.mode == "group_keys":
+        source_keys = source.node.signature.domain.instance_key
+        if not params.output_domain.instance_key:
+            result = source.expression.aggregate(singleton=source.expression.count()).mutate(
+                singleton=ibis.literal(1, type="int64")
+            )
+            target = replace(target, extras=("singleton",))
+        else:
+            result = source.expression.select(
+                **{
+                    f"key_{i}": source.expression[f"key_{source_keys.index(c)}"]
+                    for i, c in enumerate(params.output_domain.instance_key)
+                }
+            ).distinct()
+        return result, target
     if params.mode == "group":
         cell = source.layout.cell
         if (
@@ -734,23 +786,81 @@ def _count(stage: SourceMethodStage, source: LoweredRelation) -> tuple[ir.Table,
     params = stage.node.parameters
     assert isinstance(params, RowState)
     table = source.expression
+    source_keys = source.node.signature.domain.instance_key
+    target_keys = stage.node.signature.domain.instance_key
+    grouping = {f"key_{i}": table[f"key_{source_keys.index(c)}"] for i, c in enumerate(target_keys)}
+    grouped = table.group_by(**grouping) if grouping else table
+    if params.merge:
+        state = next(p for p in source.node.signature.parts if isinstance(p, RowStatePart))
+        aggregate = grouped.aggregate(
+            **{
+                f"row_state__{name}": table[f"row_state__{name}"].min()
+                if name == "min"
+                else table[f"row_state__{name}"].max()
+                if name == "max"
+                else table[f"row_state__{name}"].sum().fill_null(0)
+                for name in state.components
+            }
+        )
+        target = canonical_layout(stage.node.signature, has_value=True)
+        support = (
+            aggregate.row_state__count
+            if params.method in ("mean", "min", "max")
+            else ibis.literal(1)
+        )
+        value = (
+            aggregate.row_state__sum.cast("float64") / support
+            if params.method == "mean"
+            else aggregate[f"row_state__{params.method}"]
+        )
+        result = aggregate.mutate(
+            value=ibis.ifelse(support > 0, value, ibis.null().cast(str(value.type()))),
+            cell_tag=ibis.ifelse(support > 0, "defined", "undefined"),
+            cell_reason=ibis.ifelse(
+                support > 0, ibis.null().cast("string"), "empty_" + params.method
+            ),
+        )
+        return result.select(*target.columns), target
+    if params.method in ("min", "max"):
+        cell = source.layout.cell
+        if cell is None:
+            _fail("Cell values for current-row extrema", "missing Cell")
+        extremum = table[cell.value].min() if params.method == "min" else table[cell.value].max()
+        aggregate = grouped.aggregate(extremum=extremum, support=table.count())
+        target = canonical_layout(stage.node.signature, has_value=True)
+        result = aggregate.select(
+            *tuple(grouping),
+            value=aggregate.extremum,
+            cell_tag=ibis.ifelse(aggregate.support == 0, "undefined", "defined"),
+            cell_reason=ibis.ifelse(
+                aggregate.support == 0, "empty_" + params.method, ibis.null().cast("string")
+            ),
+            **{
+                f"row_state__{params.method}": aggregate.extremum,
+                "row_state__count": aggregate.support,
+            },
+        )
+        return result.select(*target.columns), target
     if params.method in ("sum", "mean"):
         cell = source.layout.cell
         if cell is None:
             _fail("Cell values for registered current-row arithmetic", "missing Cell")
-        aggregate = table.aggregate(
+        aggregate = grouped.aggregate(
             state_sum=table[cell.value].sum().fill_null(0),
             state_count=table.count(),
         )
         if params.method == "sum":
             result = aggregate.select(
+                *tuple(grouping),
                 value=aggregate.state_sum,
                 cell_tag=ibis.literal("defined"),
                 cell_reason=ibis.null().cast("string"),
                 row_state__sum=aggregate.state_sum,
+                row_state__count=aggregate.state_count,
             )
         else:
             result = aggregate.select(
+                *tuple(grouping),
                 value=ibis.ifelse(
                     aggregate.state_count == 0,
                     ibis.null().cast("float64"),
@@ -771,8 +881,10 @@ def _count(stage: SourceMethodStage, source: LoweredRelation) -> tuple[ir.Table,
         cell = source.layout.cell
         if cell is None:
             _fail("Cell tags for defined-count", "missing Cell")
-        table = table.filter(table[cell.tag] == "defined")
-    result = table.aggregate(value=table.count())
+        value = (table[cell.tag] == "defined").cast("int64").sum().fill_null(0)
+    else:
+        value = table.count()
+    result = grouped.aggregate(value=value)
     target = canonical_layout(stage.node.signature, has_value=True)
     result = result.mutate(
         cell_tag=ibis.literal("defined"),
@@ -946,6 +1058,46 @@ def _occurrence_combine(
         )
         table = table.inner_join(part, keys)
     layout = canonical_layout(stage.node.signature, has_value=True)
+    coordinate = next(
+        (p for p in stage.node.signature.parts if isinstance(p, CoordinateStatePart)), None
+    )
+    if coordinate is not None:
+        branches: list[ir.Table] = []
+        for index, source in enumerate(inputs):
+            raw = source.expression
+            branch = raw.select(*keys, group=raw.coordinate_state__groups.unnest())
+            state = _original_state(source.node.signature)
+            magnitude, support = _state_magnitude(state)
+            branch = branch.select(
+                *keys,
+                **{name: branch.group[name] for name in coordinate.columns},
+                **{
+                    name: branch.group[
+                        (magnitude if offset == 0 else support).removeprefix("original_state__")
+                    ]
+                    if term == index
+                    else ibis.literal(0, type="int64")
+                    for term in range(len(inputs))
+                    for offset, name in enumerate(coordinate.components[term * 2 : term * 2 + 2])
+                },
+            )
+            branches.append(branch)
+        union = branches[0].union(*branches[1:], distinct=False)
+        merged = union.group_by(*keys, *coordinate.columns).aggregate(
+            **{name: union[name].sum().fill_null(0).cast("int64") for name in coordinate.components}
+        )
+        cells = ibis.struct(
+            {name: merged[name] for name in (*coordinate.columns, *coordinate.components)}
+        )
+        table = merged.select(
+            *keys,
+            **{f"key_{len(keys) + i}": merged[name] for i, name in enumerate(coordinate.columns)},
+            **{f"original_state__{name}": merged[name] for name in coordinate.components},
+            **{f"subject__key_{i}": merged[key] for i, key in enumerate(keys)}
+            if any(isinstance(p, SubjectPart) for p in stage.node.signature.parts)
+            else {},
+            coordinate_state__groups=ibis.array([cells]),
+        )
     table = _linear_finish(table, layout, stage.node.signature)
     for requirement in admitted.checks:
         if requirement.node_id == stage.node.identity and requirement.obligation.check_id in (
@@ -1156,17 +1308,58 @@ def _original_sum(
     table = source.expression
     params = stage.node.parameters
     assert isinstance(params, OriginalReduce)
-    if params.coordinate is not None:
-        coordinate = next(
-            p for p in source.node.signature.parts if isinstance(p, CoordinateStatePart)
+    keys = tuple(f"key_{i}" for i in range(len(params.coordinates)))
+    if params.coordinates:
+        source_keys = source.node.signature.domain.instance_key
+        if set(params.coordinates) <= set(source_keys):
+            state = _original_state(source.node.signature)
+            table = table.select(
+                **{
+                    key: table[f"key_{source_keys.index(c)}"]
+                    for key, c in zip(keys, params.coordinates, strict=True)
+                },
+                **{
+                    f"original_state__{name}": table[f"original_state__{name}"]
+                    for name in state.components
+                },
+                coverage__complete=table.coverage__complete,
+            )
+        else:
+            coordinate = next(
+                p for p in source.node.signature.parts if isinstance(p, CoordinateStatePart)
+            )
+            exploded = table.select(
+                *(key.column for key in source.layout.keys),
+                group=table.coordinate_state__groups.unnest(),
+            )
+            table = exploded.select(
+                **{
+                    key: (
+                        exploded[f"key_{source_keys.index(c)}"]
+                        if c in source_keys
+                        else exploded.group[coordinate.columns[coordinate.coordinates.index(c)]]
+                    )
+                    for key, c in zip(keys, params.coordinates, strict=True)
+                },
+                **{
+                    f"original_state__{name}": exploded.group[name]
+                    for name in coordinate.components
+                },
+                coverage__complete=ibis.literal(True),
+            )
+    grouped = table.group_by(*keys) if keys else table
+    if stage.node.method.name == "state_rollup.mean":
+        reduced = grouped.aggregate(
+            **{
+                f"original_state__{name}": table[f"original_state__{name}"]
+                .sum()
+                .fill_null(0)
+                .cast("int64")
+                for name in ("sum", "non_null_count", "row_count")
+            }
         )
-        exploded = table.select(group=table.coordinate_state__groups.unnest())
-        table = exploded.select(
-            key_0=exploded.group[coordinate.column_for(params.coordinate)],
-            **{f"original_state__{name}": exploded.group[name] for name in coordinate.components},
-            coverage__complete=ibis.literal(True),
-        )
-    grouped = table.group_by("key_0") if params.coordinate is not None else table
+        target = canonical_layout(stage.node.signature, has_value=True)
+        return _mean_finish(_reduction_subjects(reduced, stage.node.signature), target), target
     if stage.node.method.name in ("state_rollup.weighted_mean", "state_rollup.linear"):
         state = _original_state(stage.node.signature)
         reduced = grouped.aggregate(
@@ -1180,9 +1373,11 @@ def _original_sum(
         )
         target = canonical_layout(stage.node.signature, has_value=True)
         return (
-            _linear_finish(reduced, target, stage.node.signature)
+            _linear_finish(
+                _reduction_subjects(reduced, stage.node.signature), target, stage.node.signature
+            )
             if stage.node.method.name == "state_rollup.linear"
-            else _weighted_finish(reduced, target)
+            else _weighted_finish(_reduction_subjects(reduced, stage.node.signature), target)
         ), target
     if stage.node.method.name == "state_rollup.ratio":
         reduced = grouped.aggregate(
@@ -1197,14 +1392,16 @@ def _original_sum(
             }
         )
         target = canonical_layout(stage.node.signature, has_value=True)
-        return _ratio_finish(reduced, target, stage.node.signature), target
+        return _ratio_finish(
+            _reduction_subjects(reduced, stage.node.signature), target, stage.node.signature
+        ), target
     if stage.node.method.name == "state_rollup.count":
         reduced_count = grouped.aggregate(
             original_state__count=table.original_state__count.sum().fill_null(0),
             coverage__complete=table.coverage__complete.all().fill_null(True),
         )
         target_count = canonical_layout(stage.node.signature, has_value=True)
-        return reduced_count.mutate(
+        return _reduction_subjects(reduced_count, stage.node.signature).mutate(
             value=reduced_count.original_state__count.cast("int64"),
             cell_tag=ibis.literal("defined"),
             cell_reason=ibis.null().cast("string"),
@@ -1229,7 +1426,7 @@ def _original_sum(
         cell_tag=ibis.ifelse(defined, "defined", "null"),
         cell_reason=ibis.ifelse(defined, ibis.null().cast("string"), "empty_contribution"),
     )
-    return result.select(*target.columns), target
+    return _reduction_subjects(result, stage.node.signature).select(*target.columns), target
 
 
 def _contribution_rows(
@@ -1446,10 +1643,16 @@ def _observe(
                 for name in ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count")
             },
         )
-        table = _weighted_finish(table, target)
+        table = _weighted_finish(
+            table,
+            replace(
+                target,
+                parts=tuple(p for p in target.parts if not isinstance(p.part, CoordinateStatePart)),
+            ),
+        )
     else:
         summed = values.group_by(*target_keys).aggregate(
-            state_sum=values.amount.sum(), support=values.amount.count()
+            state_sum=values.amount.sum(), support=values.amount.count(), rows=values.count()
         )
         dense = targets.left_join(summed, list(target_keys))
         amount_type = params.amount_type if isinstance(params, ObserveMetric) else "int64"
@@ -1469,7 +1672,16 @@ def _observe(
             **{f"subject__key_{i}": targets[key] for i, key in enumerate(target_keys)},
             original_state__sum=total,
             original_state__non_null_count=support,
+            original_state__row_count=summed.rows.fill_null(0).cast("int64"),
             coverage__complete=ibis.literal(True),
+        )
+    if isinstance(params, ObserveMetric) and params.method == "mean":
+        table = _mean_finish(
+            table,
+            replace(
+                target,
+                parts=tuple(p for p in target.parts if not isinstance(p.part, CoordinateStatePart)),
+            ),
         )
     if params.coordinates:
         amount_type = params.amount_type if isinstance(params, ObserveMetric) else "int64"
@@ -1482,11 +1694,24 @@ def _observe(
                 source_ids,
             )
         )
-        grouped = values.group_by(*target_keys, *part.columns).aggregate(
-            sum=values.amount.sum().fill_null(0).cast(amount_type),
-            non_null_count=values.amount.count().cast("int64"),
-            count=values.count().cast("int64"),
-        )
+        if isinstance(params, ObserveWeightedMean):
+            pair = values.amount.notnull() & values.weight.notnull()
+            grouped = values.group_by(*target_keys, *part.columns).aggregate(
+                weighted_numerator=pair.ifelse(values.amount * values.weight, 0)
+                .sum()
+                .fill_null(0)
+                .cast("int64"),
+                weight_sum=pair.ifelse(values.weight, 0).sum().fill_null(0).cast("int64"),
+                non_null_pair_count=pair.cast("int64").sum().fill_null(0).cast("int64"),
+                row_count=values.count().cast("int64"),
+            )
+        else:
+            grouped = values.group_by(*target_keys, *part.columns).aggregate(
+                sum=values.amount.sum().fill_null(0).cast(amount_type),
+                non_null_count=values.amount.count().cast("int64"),
+                count=values.count().cast("int64"),
+                row_count=values.count().cast("int64"),
+            )
         cells = ibis.struct(
             {
                 **{name: grouped[name] for name in part.columns},
@@ -1547,8 +1772,12 @@ def _fact_relations(
             or (
                 not fact.inputs
                 and len(immediate) == 1
-                and immediate[0].signature.quantity is not None
-                and immediate[0].signature.quantity.definition_id == fact.subject_id
+                and (
+                    immediate[0].signature.quantity.definition_id
+                    if immediate[0].signature.quantity is not None
+                    else immediate[0].signature.domain.definition_id
+                )
+                == fact.subject_id
             )
         ):
             return (tuple(by_identity[n.identity] for n in immediate),)
@@ -1601,7 +1830,13 @@ def lower(
             if len(stage.inputs) not in (1, 2):
                 _fail("one row input or two Association inputs", repr(stage.inputs))
             if len(stage.inputs) == 2 and not (
-                isinstance(stage.node.parameters, AssociationScore)
+                isinstance(
+                    stage.node.parameters, (AssociationScore, AttachCategory, CompleteGroups)
+                )
+                or (
+                    isinstance(stage.node.parameters, PartsTransport)
+                    and stage.node.parameters.external_predicate
+                )
                 or (
                     isinstance(stage.node.parameters, CellDerive)
                     and stage.node.parameters.method == "difference"
@@ -1613,6 +1848,11 @@ def lower(
                 has_value=not isinstance(stage.node.parameters, PartsTransport)
                 or stage.node.parameters.keep_quantity,
             )
+            if (
+                isinstance(stage.node.parameters, CompleteGroups)
+                and stage.node.signature.quantity is None
+            ):
+                output_layout = canonical_layout(stage.node.signature, has_value=False)
             if isinstance(stage.node.parameters, AssociationScore):
                 output_layout = replace(output_layout, extras=("status",))
             stages.append(
@@ -1675,7 +1915,10 @@ def lower(
             params = stage.node.parameters
             source_ids = inputs[0].source_ids
             if isinstance(params, PartsTransport):
-                table, layout = _transport(stage, inputs[0], checks)
+                table, layout = _transport(
+                    stage, inputs[0], checks, inputs[1] if params.external_predicate else None
+                )
+                source_ids = _source_ids(*(item.source_ids for item in inputs))
                 cell_reasons = inputs[0].cell_reasons
             elif isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
                 table, layout, source_ids = _observe(
@@ -1701,6 +1944,14 @@ def lower(
                 table, layout = _occurrence_combine(stage, inputs, checks, admitted)
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
+            elif isinstance(params, CompleteGroups):
+                table, layout = _complete_groups(stage, inputs, checks)
+                cell_reasons = inputs[0].cell_reasons
+                source_ids = _source_ids(*(item.source_ids for item in inputs))
+            elif isinstance(params, AttachCategory):
+                table, layout = _attach_category(stage, inputs, checks)
+                cell_reasons = inputs[0].cell_reasons
+                source_ids = _source_ids(*(item.source_ids for item in inputs))
             elif isinstance(params, OriginalReduce):
                 table, layout = _original_sum(stage, inputs[0])
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
@@ -1880,3 +2131,154 @@ def lower(
         ),
         bindings,
     )
+
+
+def _attach_category(
+    stage: SourceMethodStage, inputs: tuple[LoweredRelation, ...], checks: list[LoweredCheck]
+) -> tuple[ir.Table, RelationLayout]:
+    params = stage.node.parameters
+    assert isinstance(params, AttachCategory)
+    source, category = inputs
+    cell = category.layout.cell
+    if cell is None:
+        _fail("a Cell-valued category", "missing classification")
+    left, right = source.expression.view(), category.expression.view()
+    columns = (
+        tuple(f"subject__key_{i}" for i in range(len(category.layout.keys)))
+        if params.subject_mapping
+        else tuple(k.column for k in source.layout.keys)
+    )
+    predicates = [
+        left[column] == right[key.column]
+        for column, key in zip(columns, category.layout.keys, strict=True)
+    ]
+    selected = right.semi_join(left, predicates)
+    source_ids = _source_ids(source.source_ids, category.source_ids)
+    checks.extend(
+        (
+            IntegrityCheck(
+                stage.output,
+                "complete classification mapping",
+                left.anti_join(right, predicates),
+                source_ids,
+            ),
+            IntegrityCheck(
+                stage.output,
+                "one classification per complete key",
+                _key_violations(selected, category.layout),
+                source_ids,
+            ),
+            IntegrityCheck(
+                stage.output,
+                "Defined non-null classifications",
+                selected.filter((selected[cell.tag] != "defined") | selected[cell.value].isnull()),
+                source_ids,
+            ),
+        )
+    )
+    target = canonical_layout(stage.node.signature, has_value=source.layout.cell is not None)
+    result = left.inner_join(right, predicates).select(
+        *[left[name] for name in source.layout.columns],
+        **{f"key_{len(source.layout.keys)}": right[cell.value]},
+    )
+    return result.select(*target.columns), target
+
+
+def _complete_groups(
+    stage: SourceMethodStage, inputs: tuple[LoweredRelation, ...], checks: list[LoweredCheck]
+) -> tuple[ir.Table, RelationLayout]:
+    from marivo.analysis.methods.state_validation import empty_reduction_cell
+
+    source, target = inputs
+    keys = tuple(k.column for k in source.layout.keys)
+    if not keys:
+        checks.append(
+            IntegrityCheck(
+                stage.output,
+                "exact Singleton target",
+                target.expression.aggregate(rows=target.expression.count()).filter(
+                    lambda t: t.rows != 1
+                ),
+                target.source_ids,
+            )
+        )
+        return source.expression, source.layout
+    left, right = source.expression.view(), target.expression.select(*keys).view()
+    source_ids = _source_ids(source.source_ids, target.source_ids)
+    checks.append(
+        IntegrityCheck(
+            stage.output,
+            "all consumed groups in the explicit target",
+            left.anti_join(right, keys),
+            source_ids,
+        )
+    )
+    checks.append(
+        IntegrityCheck(
+            stage.output,
+            "unique complete explicit targets",
+            _key_violations(right, RelationLayout(target.layout.keys, None)),
+            target.source_ids,
+        )
+    )
+    if source.layout.cell is None:
+        return right.select(*keys), canonical_layout(stage.node.signature, has_value=False)
+    value, tag, reason = empty_reduction_cell(source.node.signature)
+    marked = left.mutate(__present=ibis.literal(True))
+    joined = right.left_join(marked, keys)
+    missing = marked.__present.isnull()
+    fields: dict[str, ir.Value] = {key: right[key] for key in keys}
+    subject_fields = {
+        f"subject__key_{i}": keys[source.node.signature.domain.instance_key.index(coordinate)]
+        for part in source.node.signature.parts
+        if isinstance(part, SubjectPart)
+        for i, coordinate in enumerate(part.subject_key)
+    }
+    for name in source.layout.columns:
+        if name in keys:
+            continue
+        if name in subject_fields:
+            fields[name] = ibis.ifelse(missing, right[subject_fields[name]], marked[name])
+            continue
+        empty: int | bool | str | None = (
+            value
+            if name == "value"
+            else tag
+            if name == "cell_tag"
+            else reason
+            if name == "cell_reason"
+            else True
+            if name == "coverage__complete"
+            else None
+            if name in ("row_state__min", "row_state__max")
+            else 0
+        )
+        fields[name] = ibis.ifelse(
+            missing, ibis.literal(empty).cast(str(marked[name].type())), marked[name]
+        )
+    layout = canonical_layout(stage.node.signature, has_value=True)
+    return joined.select(**fields).select(*layout.columns), layout
+
+
+def _mean_finish(table: ir.Table, layout: RelationLayout) -> ir.Table:
+    support = table.original_state__non_null_count
+    return table.mutate(
+        value=ibis.ifelse(
+            support > 0,
+            table.original_state__sum.cast("float64") / support,
+            ibis.null().cast("float64"),
+        ),
+        cell_tag=ibis.ifelse(support > 0, "defined", "null"),
+        cell_reason=ibis.ifelse(support > 0, ibis.null().cast("string"), "empty_contribution"),
+        coverage__complete=ibis.literal(True),
+    ).select(*layout.columns)
+
+
+def _reduction_subjects(table: ir.Table, signature: Signature) -> ir.Table:
+    fields = {
+        f"subject__key_{i}": table[f"key_{signature.domain.instance_key.index(c)}"]
+        for part in signature.parts
+        if isinstance(part, SubjectPart)
+        for i, c in enumerate(part.subject_key)
+    }
+    return table.mutate(**fields) if fields else table

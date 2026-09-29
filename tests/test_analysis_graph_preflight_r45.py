@@ -214,7 +214,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
         group_domain,
         "source.contribution_partition@v1",
         "source.complete_coverage@v1",
-        coordinate=channel,
+        coordinates=group_domain.instance_key,
     )
     group_root = method_node(
         (Edge("quantity", observed.root),), group_params, value_type=ScalarType(numeric_type)
@@ -229,7 +229,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
     assert {row["key_0"]: row["value"] for row in grouped_rows} == expected_channels
     fixed_group = method_node(
         (Edge("quantity", fixed),),
-        OriginalReduce(group_domain, coordinate=channel),
+        OriginalReduce(group_domain, coordinates=group_domain.instance_key),
         value_type=ScalarType(numeric_type),
     )
     grouped_saved = runtime._execute_graph(
@@ -1213,7 +1213,7 @@ def test_original_ratio_preserves_independent_root_components(
             "source.contribution_partition@v1",
             "source.complete_coverage@v1",
             "ratio",
-            channel,
+            group_domain.instance_key,
         ),
         value_type=ScalarType("float64"),
     )
@@ -1231,7 +1231,7 @@ def test_original_ratio_preserves_independent_root_components(
     } == expected_groups
     fixed_group = method_node(
         (Edge("quantity", leaf),),
-        OriginalReduce(group_domain, method="ratio", coordinate=channel),
+        OriginalReduce(group_domain, method="ratio", coordinates=group_domain.instance_key),
         value_type=ScalarType("float64"),
     )
     group_saved = runtime._execute_graph(
@@ -1302,7 +1302,7 @@ coordinate = next(part for part in signature.parts if isinstance(part, Coordinat
 key = (Coordinate(coordinate.owner, coordinate.dimension.path, 'group'),)
 domain = DomainSignature(signature.domain.binding, 'group', key, key, 'cold-ratio-channels')
 root = method_node((Edge('quantity', leaf),),
-    OriginalReduce(domain, method='ratio', coordinate=coordinate.dimension), value_type=ScalarType('float64'))
+    OriginalReduce(domain, method='ratio', coordinates=domain.instance_key), value_type=ScalarType('float64'))
 saved = runtime._execute_graph(root, (RouteChoice(root.identity, 'artifact_python'),))
 assert {row['key_0']: row['value'] for row in read_result(store.project_root, saved.descriptor).primary.to_pylist()} == json.loads(sys.argv[4])
 """,

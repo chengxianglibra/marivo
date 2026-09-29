@@ -25,7 +25,7 @@ def _blocks(language: str, page: str) -> tuple[str, ...]:
 
 
 @pytest.mark.parametrize(
-    "page,count", [("analysis-workflow", 9), ("evidence", 2), ("semantic-layer", 47)]
+    "page,count", [("analysis-workflow", 10), ("evidence", 2), ("semantic-layer", 47)]
 )
 def test_bilingual_examples_have_identical_executable_contracts(page: str, count: int) -> None:
     assert len(_blocks("en", page)) == count
@@ -77,7 +77,7 @@ def test_first_round_workflow_examples_execute(
 
 
 @pytest.mark.runtime
-def test_deferred_workflow_mean_rollup_rejects_before_run(
+def test_workflow_mean_rollup_merges_retained_components(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     from dataclasses import replace
@@ -91,15 +91,14 @@ def test_deferred_workflow_mean_rollup_rejects_before_run(
         + "\nmean_amount = ms.aggregate(name='mean_amount', measure=amount, agg='mean', time=ordered_at)\n"
     )
     ms.load(workspace_dir=case.root)
-    namespace: dict[str, object] = {"session": case.session, "ms": ms}
+    namespace: dict[str, object] = {"session": case.session, "ms": ms, "mv": mv}
     code = next(
         block for block in _blocks("en", "analysis-workflow") if block.startswith("mean_amount =")
     )
-    from marivo.analysis.errors import AnalysisError
-
-    with pytest.raises(AnalysisError, match="R5"):
-        exec(compile(code, "mean-rollup-example", "exec"), namespace)
-    assert case.session.runs().items == ()
+    exec(compile(code, "mean-rollup-example", "exec"), namespace)
+    overall = namespace["overall"]
+    assert isinstance(overall, mv.MaterializedRolledNumericRelation)
+    assert overall.to_pandas()["value"].tolist() == pytest.approx([1000 / 3])
 
 
 @pytest.mark.runtime
@@ -179,3 +178,24 @@ def test_workflow_evidence_and_cold_recovery_examples(
     assert recovered.state.artifact_ref == change.state.artifact_ref
     assert recovered.to_pandas().set_index("member")["value"].to_dict() == expected
     assert len(session.runs().items) == 2
+
+
+@pytest.mark.runtime
+def test_coordinate_row_statistic_workflow_example(analysis_dsl_case_factory: DslCaseFactory):
+    case = analysis_dsl_case_factory("j1")
+    namespace: dict[str, object] = {"session": case.session, "mv": mv, "ms": ms}
+    block = next(b for b in _blocks("en", "analysis-workflow") if b.startswith("all_members ="))
+    exec(compile(block, "r54-coordinate-example", "exec"), namespace)
+    counts = namespace["category_counts"]
+    targets = namespace["fixed_targets"]
+    assert isinstance(counts, mv.MaterializedStatisticRelation)
+    assert isinstance(targets, mv.MaterializedAnalysisDomain)
+    assert counts.to_pandas().set_index("group")["value"].to_dict() == {
+        "east": 2,
+        "south": 0,
+        "west": 0,
+    }
+    assert targets.to_pandas()["group"].tolist() == ["east", "south", "west"]
+    total = namespace["total_row_mean"]
+    assert isinstance(total, mv.MaterializedStatisticRelation)
+    assert total.to_pandas()["value"].tolist() == [300]
