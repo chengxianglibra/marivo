@@ -138,6 +138,44 @@ def _read_only_authorizer(
     return sqlite3.SQLITE_DENY
 
 
+@contextmanager
+def owned_temporary_writes(backend: BaseBackend, names: frozenset[str]) -> Iterator[None]:
+    """Permit only issued staging tables while keeping persistent databases read-only."""
+    connection = getattr(backend, "con", None)
+    if (
+        not isinstance(connection, sqlite3.Connection)
+        or not names
+        or any(not re.fullmatch(r"mv_graph_[0-9a-f]{32}(?:_input)?", name) for name in names)
+    ):
+        raise ValueError("Expected an owned SQLite staging connection and exact table names")
+
+    def authorize(
+        action: int, name: str | None, value: str | None, database: str | None, origin: str | None
+    ) -> int:
+        if (
+            database == "temp"
+            and name in names | {"sqlite_temp_master", "sqlite_master"}
+            and action
+            in {
+                sqlite3.SQLITE_CREATE_TEMP_TABLE,
+                sqlite3.SQLITE_CREATE_TABLE,
+                sqlite3.SQLITE_DROP_TABLE,
+                sqlite3.SQLITE_DROP_TEMP_TABLE,
+                sqlite3.SQLITE_INSERT,
+                sqlite3.SQLITE_UPDATE,
+                sqlite3.SQLITE_DELETE,
+            }
+        ):
+            return sqlite3.SQLITE_OK
+        return _read_only_authorizer(action, name, value, database, origin)
+
+    connection.set_authorizer(authorize)
+    try:
+        yield
+    finally:
+        connection.set_authorizer(_read_only_authorizer)
+
+
 def apply_read_only_kwargs(kwargs: Mapping[str, object]) -> dict[str, object]:
     out = dict(kwargs)
     out["read_only"] = True

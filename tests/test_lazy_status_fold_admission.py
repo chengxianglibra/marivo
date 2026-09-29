@@ -12,6 +12,12 @@ from marivo.analysis import time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.operators.registry import implementation
 from marivo.analysis.session._lazy_sources import make_lazy_sources
+from marivo.datasource.adapters import (
+    CompiledRead,
+    SourceBatchStream,
+    SourceSession,
+    SourceSubmission,
+)
 from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.ir import AggKind, CumulativeComposition, TimeFoldIR
@@ -206,33 +212,52 @@ def _journey(
     kind: str,
 ) -> None:
     """Execute the real fold lowering end to end with hand-computed constants."""
-    from tests.lazy_scalar_source_fixtures import capture_submissions
+    from marivo.analysis.materialization.graph_relation import Relation
 
-    submitted = capture_submissions(monkeypatch)
     registry, sidecar = _fold_registry(engine, TimeFoldIR(kind), database=sqlite_fold_database)
-    runtime = DatasetRuntime.create(tmp_path / "project", f"fold-{engine}-{kind}")
-    observed = runtime.sources(semantic_registry=registry, sidecar=sidecar).observe(
-        REVENUE, time_scope=WINDOW
-    )
-    frame = observed.with_dimensions(CHANNEL).aggregate().execute().to_pandas()
-    ordered = frame.sort_values("channel")
-    assert ordered.revenue.tolist()[:2] == pytest.approx(KIND_CHANNELS[kind])
-    assert ordered.revenue.iloc[2] is None or ordered.revenue.isna().iloc[2]
-    # The spatial sum across channels after the temporal fold.
-    assert float(ordered.revenue.dropna().sum()) == pytest.approx(KIND_TOTALS[kind])
-    # The fold's status gate executed as a source validation and the primary
-    # query carries the lowering's status column.
-    assert any(
-        role == "validation_batch" and "__mv_status" in sql
-        for role, sql in runtime.statistics.statements
-    )
-    primary = [sql for role, sql in runtime.statistics.statements if role == "primary"]
-    assert len(primary) == 1 and "__mv_status" in primary[0]
+    runtime = DatasetRuntime.create(tmp_path / "project", f"fold-{engine}-{kind}", _generation=7)
+    import marivo.datasource as md
+
+    monkeypatch.chdir(runtime.store.project_root)
+    md.register(md.sqlite(name="warehouse", path=str(sqlite_fold_database)))
+    runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    members = Relation.members(runtime, registry, sidecar, "UTC", ref.entity("sales.orders"))
+    observed = members.group_members(CHANNEL).observe(REVENUE, during=WINDOW, via=())
+    reads: list[CompiledRead] = []
+    submissions: list[SourceSubmission] = []
+    batches = SourceSession.batches
+
+    def capture(source: SourceSession, read: CompiledRead, *, chunk_size: int) -> SourceBatchStream:
+        stream = batches(source, read, chunk_size=chunk_size)
+        reads.append(read)
+        submissions.append(source.submissions[-1])
+        return stream
+
+    monkeypatch.setattr(SourceSession, "batches", capture)
+    result = observed.execute()
+    checks = [read for read in reads if read.purpose == "analysis.graph.check"]
+    assert any(set(read.schema.names) == {"raw_time", "normalized_time"} for read in checks)
+    primary = [
+        read
+        for read in reads
+        if read.purpose == "analysis.graph.stage" and "original_state__samples" in read.schema.names
+    ]
+    assert len(primary) == 1
+    assert {"cell_tag", "cell_reason", "original_state__fold_kind"} <= set(primary[0].schema.names)
+    assert reads.index(primary[0]) < max(reads.index(read) for read in checks)
+    assert all(submission.state == "succeeded" for submission in submissions)
+    frame = result.to_pandas()
+    ordered = frame.sort_values(frame.columns[0])
+    assert ordered.value.tolist()[:2] == pytest.approx(KIND_CHANNELS[kind])
+    assert ordered.value.isna().iloc[2]
+    assert float(ordered.value.dropna().sum()) == pytest.approx(KIND_TOTALS[kind])
+    from marivo.analysis.errors import AnalysisError
+
+    with pytest.raises(AnalysisError, match="unaligned"):
+        Relation.restore(result).rollup().execute()
 
 
-@pytest.mark.skip(
-    reason="Re-enable after R5 qualifies SQLite temporal fold and spatial aggregation source execution."
-)
+@pytest.mark.runtime
 @pytest.mark.parametrize("kind", ["first", "last", "mean", "min", "max"])
 def test_sqlite_fold_spatial_sum_matches_hand_computed_constants(
     tmp_path: Path, sqlite_fold_database: Path, monkeypatch: pytest.MonkeyPatch, kind: str

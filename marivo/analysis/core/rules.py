@@ -43,6 +43,7 @@ from marivo.analysis.core.model import (
     require_part,
 )
 from marivo.analysis.core.predicates import ValuePredicate
+from marivo.analysis.core.time_grid import CumulativeBinding, GridVersionSelection
 from marivo.refs import (
     DimensionKind,
     EntityKind,
@@ -64,7 +65,6 @@ from marivo.semantic.ir import (
     TargetSnapshotVersion,
     TargetValiditySelection,
     TargetValidityVersion,
-    TimestampParse,
 )
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
@@ -156,6 +156,11 @@ class ObserveMetric:
     filters: tuple[OccurrenceFilter, ...] = ()
 
     method: Literal["sum", "mean"] = "sum"
+    fold: Literal["first", "last", "mean", "min", "max"] | None = None
+    grid_window: bool = False
+    cumulative: CumulativeBinding | None = None
+    report_timezone: str = "UTC"
+    window_timezone: str = "UTC"
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +180,10 @@ class ObserveWeightedMean:
     weight_column: str
     coordinates: tuple[TargetDimensionContract, ...] = ()
     filters: tuple[OccurrenceFilter, ...] = ()
+    grid_window: bool = False
+    cumulative: CumulativeBinding | None = None
+    report_timezone: str = "UTC"
+    window_timezone: str = "UTC"
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,6 +200,10 @@ class ObserveCount:
     end: str | None
     coordinates: tuple[TargetDimensionContract, ...] = ()
     filters: tuple[OccurrenceFilter, ...] = ()
+    grid_window: bool = False
+    cumulative: CumulativeBinding | None = None
+    report_timezone: str = "UTC"
+    window_timezone: str = "UTC"
 
 
 MapMode: TypeAlias = Literal[
@@ -210,6 +223,12 @@ class CompleteGroups:
     """Complete an explicitly bound target using qualified empty reduction states."""
 
     output_domain: DomainSignature
+
+
+@dataclass(frozen=True, slots=True)
+class TimeProduct:
+    output_domain: DomainSignature
+    kind: Literal["time_product"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,8 +292,11 @@ class OriginalReduce:
     output_domain: DomainSignature
     partition_check_id: CheckId | None = None
     coverage_check_id: CheckId | None = None
-    method: Literal["sum", "sum_zero", "mean", "count", "ratio", "weighted_mean", "linear"] = "sum"
+    method: Literal[
+        "sum", "sum_zero", "mean", "count", "ratio", "weighted_mean", "linear", "fold"
+    ] = "sum"
     coordinates: tuple[Coordinate, ...] = ()
+    time_mapping: tuple[tuple[str, str], ...] = ()
 
 
 TransportMode: TypeAlias = Literal["where", "projection", "compare", "view", "materialize"]
@@ -307,6 +329,7 @@ RuleParameters: TypeAlias = (
     | ObserveWeightedMean
     | MapCorrespond
     | AttachCategory
+    | TimeProduct
     | CompleteGroups
     | CellDerive
     | RowState
@@ -444,9 +467,25 @@ def entity_members(
     ref: Ref[EntityKind],
     binding: Binding,
     *,
-    version_selection: TargetSnapshotSelection | TargetValiditySelection | None = None,
+    version_selection: TargetSnapshotSelection
+    | TargetValiditySelection
+    | GridVersionSelection
+    | None = None,
 ) -> Signature:
     """Use the declared complete business key, without scanning or deduplicating rows."""
+    if isinstance(version_selection, GridVersionSelection):
+        signatures = tuple(
+            entity_members(entity, ref, binding, version_selection=anchor)
+            for _, anchor in version_selection.selections
+        )
+        base = signatures[0]
+        return replace(
+            base,
+            domain=replace(base.domain, version_selection=version_selection),
+            parts=tuple(
+                replace(p, injective=False) if isinstance(p, SubjectPart) else p for p in base.parts
+            ),
+        )
     if type(ref) is not Ref or ref.kind is not SemanticKind.ENTITY or entity.ref.path != ref.path:
         reject(
             "the exact declared Entity Ref", repr(ref), "Bind the matching Entity.", "core.members"
@@ -702,14 +741,17 @@ def _observe_metric(
         else "count"
     )
     state_method = (
-        "sum_zero"
+        "fold"
+        if isinstance(params, ObserveMetric) and params.fold is not None
+        else "sum_zero"
         if aggregate_method == "sum" and metric.empty_rule == "zero"
         else aggregate_method
     )
     if (
         not isinstance(subject, SubjectPart)
         or not subject.total
-        or not subject.injective
+        or (not subject.injective and source.domain.time_grid is None)
+        or (params.grid_window and source.domain.time_grid is None)
         or metric.metric_ref != quantity.metric_ref
         or quantity.graph_fingerprint != metric.bound_graph_fingerprint
         or quantity.unit != metric.unit
@@ -717,8 +759,6 @@ def _observe_metric(
         or metric.contribution != params.contribution
         or metric.event_ref.path != params.event.ref.path
         or not params.event.is_time_dimension
-        or params.event.timezone != "UTC"
-        or (params.event.parse is not None and params.event.parse != TimestampParse(timezone="UTC"))
         or (isinstance(params, ObserveMetric) and not params.amount_column)
     ):
         reject(
@@ -727,7 +767,48 @@ def _observe_metric(
             "Bind the qualified Metric, route and time axis.",
             "core.observe",
         )
+    if params.cumulative is not None:
+        cumulative = params.cumulative
+        grid = source.domain.time_grid
+        if (
+            params.grid_window
+            or params.start is not None
+            or params.end is not None
+            or not cumulative.windows
+            or (
+                cumulative.grid_identity is not None
+                and (
+                    grid is None
+                    or cumulative.grid_identity != grid.identity
+                    or tuple(w.key for w in cumulative.windows)
+                    != tuple(c.identity for c in grid.cells)
+                )
+            )
+        ):
+            reject(
+                "an exact endpoint binding on this receiver",
+                repr(cumulative),
+                "Bind at independently of during using this grid.",
+                "core.observe.cumulative",
+            )
     aggregate = component_node(metric.graph, metric.component_node_id)
+    if (
+        isinstance(params, ObserveMetric)
+        and params.fold is not None
+        and (
+            not isinstance(aggregate, AggregateNodeV1)
+            or aggregate.fold != params.fold
+            or params.coordinates
+            or params.cumulative is not None
+            or aggregate_method != "sum"
+        )
+    ):
+        reject(
+            "one declared sum then scalar time fold",
+            repr(params.fold),
+            "Use the exact status fold without cumulative composition.",
+            "core.observe.fold",
+        )
     occurrence_slice = tuple(
         (item.dimension.ref.path, item.operator, item.value) for item in params.filters
     )
@@ -795,7 +876,7 @@ def _observe_metric(
             "Bind the exact event axis and path.",
             "core.observe.time",
         )
-    if current != subject.entity_ref.path or not params.path:
+    if current != subject.entity_ref.path:
         reject(
             "a contribution route ending at the member Entity",
             current,
@@ -861,7 +942,9 @@ def _observe_metric(
         quantity.definition_id,
         f"{state_method}@v1",
         quantity.contribution_id,
-        ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count")
+        ("samples", "fold_kind")
+        if state_method == "fold"
+        else ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count")
         if aggregate_method == "weighted_mean"
         else ("sum", "non_null_count", "row_count")
         if aggregate_method == "mean"
@@ -869,6 +952,15 @@ def _observe_metric(
         if aggregate_method == "sum"
         else ("count",),
         "v1",
+        fold_kind=params.fold if isinstance(params, ObserveMetric) else None,
+        temporal_policy="overlapping"
+        if params.cumulative is not None and params.cumulative.overlapping
+        else "partition"
+        if params.grid_window
+        or (params.cumulative is not None and params.cumulative.grid_identity is not None)
+        else "repeated"
+        if source.domain.time_grid is not None
+        else "none",
     )
     coordinate_parts: tuple[Part, ...] = ()
     for index, coordinate in enumerate(params.coordinates):
@@ -920,6 +1012,23 @@ def _observe_metric(
         obligations=(
             Obligation(partition, "source.contribution_partition@v1", "publish"),
             Obligation(complete, "source.complete_coverage@v1", "publish"),
+            *(
+                (
+                    Obligation(complete, "source.calendar_members@v1", "publish"),
+                    Obligation(complete, "source.calendar_contributions@v1", "publish"),
+                )
+                if (
+                    (
+                        source.domain.time_grid is not None
+                        and source.domain.time_grid.snapshot_digest is not None
+                    )
+                    or (
+                        params.cumulative is not None
+                        and params.cumulative.snapshot_digest is not None
+                    )
+                )
+                else ()
+            ),
         ),
         eval_id=f"metric.observe.{aggregate_method}@v1",
     )
@@ -1501,6 +1610,7 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
         ),
         "v1",
         _component_empty_rules(inputs),
+        temporal_policy=_component_temporal_policy(inputs),
     )
     first_coordinate = next((p for p in left.parts if isinstance(p, CoordinateStatePart)), None)
     second_coordinate = next((p for p in right.parts if isinstance(p, CoordinateStatePart)), None)
@@ -1641,6 +1751,7 @@ def _occurrence_combine(inputs: tuple[Signature, ...], params: OccurrenceCombine
         components,
         "v1",
         _component_empty_rules(inputs),
+        temporal_policy=_component_temporal_policy(inputs),
     )
     partition = _fact("contribution_partition", binding, quantity.contribution_id)
     complete = _fact("complete_coverage", binding, quantity.definition_id)
@@ -1721,13 +1832,33 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
             "Pass the retained typed axes as a tuple.",
             "core.original_reduce.coordinate",
         )
-    nested = bool(params.coordinates) and not set(params.coordinates) <= set(
-        source.domain.instance_key
-    )
+    retained_keys = source.domain.instance_key
+    if params.time_mapping:
+        from marivo.analysis.core.time_grid import coarsening
+
+        if (
+            source.domain.time_grid is None
+            or params.output_domain.time_grid is None
+            or params.time_mapping
+            != coarsening(source.domain.time_grid, params.output_domain.time_grid)
+        ):
+            reject(
+                "exact whole-cell coarsening",
+                repr(params.time_mapping),
+                "Retain the precise input grid and target boundaries.",
+                "core.original_reduce.time",
+            )
+        retained_keys = tuple(
+            replace(c, field="time:" + params.output_domain.time_grid.identity)
+            if c.role == "anchor"
+            else c
+            for c in retained_keys
+        )
+    nested = bool(params.coordinates) and not set(params.coordinates) <= set(retained_keys)
     if not params.coordinates:
         _reduction_domain(source.domain, params.output_domain)
     else:
-        available = source.domain.instance_key
+        available = retained_keys
         if nested:
             coordinate = require_part(source, "coordinate_state")
             if not isinstance(coordinate, CoordinateStatePart):
@@ -1737,7 +1868,7 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
                     "Observe with the exact coordinates first.",
                     "core.original_reduce.coordinate",
                 )
-            available = (*source.domain.instance_key, *coordinate.coordinates)
+            available = (*retained_keys, *coordinate.coordinates)
         if (
             len(set(params.coordinates)) != len(params.coordinates)
             or not set(params.coordinates) <= set(available)
@@ -1763,6 +1894,17 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
             "core.original_reduce.quantity",
         )
     state = require_part(source, "original_state")
+    if (
+        isinstance(state, OriginalStatePart)
+        and state.temporal_policy in ("repeated", "overlapping")
+        and (bool(params.time_mapping) or not any(c.role == "anchor" for c in params.coordinates))
+    ):
+        reject(
+            "disjoint original contributions when removing time",
+            "the fixed window repeats or cumulative windows overlap on time cells",
+            "Keep the time axis or observe each grid.window.",
+            "core.original_reduce.time",
+        )
     coverage = require_part(source, "coverage")
     if (
         not isinstance(state, OriginalStatePart)
@@ -2240,3 +2382,66 @@ def _complete_groups(inputs: tuple[Signature, ...], params: CompleteGroups) -> R
         obligations=(),
         eval_id="group.complete.empty_states@v1",
     )
+
+
+def _time_product(inputs: tuple[Signature, ...], params: TimeProduct) -> RuleDerivation:
+    binding = _binding(inputs, "core.time.product")
+    if len(inputs) != 1:
+        reject(
+            "one member domain", str(len(inputs)), "Bind one member receiver.", "core.time.product"
+        )
+    source = inputs[0]
+    domain = params.output_domain
+    grid = domain.time_grid
+    subject = require_part(source, "subject")
+    if (
+        params.kind != "time_product"
+        or source.quantity is not None
+        or source.domain.time_grid is not None
+        or source.domain.kind != "entity"
+        or grid is None
+        or domain.binding != binding
+        or domain.instance_key[:-1] != source.domain.instance_key
+        or domain.instance_key[-1].role != "anchor"
+        or domain.instance_key[-1].field != "time:" + grid.identity
+        or not isinstance(subject, SubjectPart)
+    ):
+        reject(
+            "one bounded member/time product",
+            repr(domain),
+            "Use each on members with one exact grid.",
+            "core.time.product",
+        )
+    parts = (replace(subject, source_key=domain.instance_key, injective=False),)
+    return _result(
+        "parts_transport@v1",
+        inputs,
+        domain,
+        None,
+        parts,
+        pre=(),
+        required=("subject",),
+        created=(),
+        post=(),
+        obligations=(),
+        eval_id="time.product@v1",
+    )
+
+
+def _component_temporal_policy(
+    inputs: tuple[Signature, ...],
+) -> Literal["none", "partition", "repeated", "overlapping"]:
+    policies = {
+        part.temporal_policy
+        for source in inputs
+        for part in source.parts
+        if isinstance(part, OriginalStatePart)
+    }
+    if len(policies) != 1:
+        reject(
+            "matching component temporal policies",
+            repr(policies),
+            "Bind the same grid windows for all components.",
+            "core.observe.time",
+        )
+    return next(iter(policies))

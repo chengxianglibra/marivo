@@ -32,6 +32,7 @@ from marivo.analysis.core.graph import (
 from marivo.analysis.core.model import Binding, Coordinate, DomainSignature, SubjectPart
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import BindProject, MapCorrespond, PartsTransport, entity_members
+from marivo.analysis.core.time_grid import GridPoint, GridVersionSelection
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import canonical_json
@@ -91,7 +92,7 @@ class MemberGraph:
         self,
         dimension: Ref[DimensionKind] | Ref[MeasureKind] | Ref[TimeDimensionKind],
         *,
-        at: datetime | BeforeEndBoundary | None = None,
+        at: datetime | BeforeEndBoundary | GridPoint | None = None,
         via: Ref[RelationshipKind] | RootRoutesValue | None = None,
         sidecar: CompiledExpressionSidecar | None = None,
         report_timezone: str = "UTC",
@@ -113,6 +114,8 @@ class MemberGraph:
             SemanticKind.MEASURE,
         ):
             raise reject(repr(dimension))
+        if isinstance(at, GridPoint) and at.grid != self.root.signature.domain.time_grid:
+            raise reject("attribute endpoint belongs to a different grid")
         body: ExpressionBody | None = None
         if dimension.kind is SemanticKind.MEASURE:
             measure = self.registry.measures.get(dimension.path)
@@ -362,7 +365,10 @@ class MemberGraph:
             with (
                 service.use_backend(datasource.name, read_only=True) as backend,
                 SourceSession(
-                    provider_for("duckdb"), datasource, backend, owns_backend=False
+                    provider_for(self.entity_schema.shape.backend),
+                    datasource,
+                    backend,
+                    owns_backend=False,
                 ) as source,
             ):
                 bindings: list[SourceBinding] = []
@@ -423,7 +429,7 @@ class MemberGraph:
 def _member_leaf(
     selected: EntitySchema,
     binding: Binding,
-    anchor: TargetSnapshotSelection | TargetValiditySelection | None,
+    anchor: TargetSnapshotSelection | TargetValiditySelection | GridVersionSelection | None,
     *,
     auxiliary: bool = False,
 ) -> SourceLeaf:

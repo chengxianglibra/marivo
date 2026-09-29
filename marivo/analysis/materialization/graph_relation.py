@@ -42,6 +42,7 @@ from marivo.analysis.core.rules import (
     PartsTransport,
     RowState,
 )
+from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
@@ -234,11 +235,30 @@ class Relation:
             )
         return GraphDataset(self.runtime, artifact)
 
+    def each(self, grid: BoundTimeGrid) -> Relation:
+        from marivo.analysis.core.rules import TimeProduct
+
+        domain = self.root.signature.domain
+        owner = domain.instance_key[0].entity_ref
+        coordinate = Coordinate(owner, "time:" + grid.identity, "anchor")
+        target = replace(
+            domain,
+            instance_key=(*domain.instance_key, coordinate),
+            target_key=(*domain.target_key, coordinate),
+            definition_id=domain.definition_id + ":time:" + grid.identity,
+            correspondence=None,
+            time_grid=grid,
+        )
+        root = method_node(
+            (self._edge(),), TimeProduct(target, "time_product"), value_type=self.root.value_type
+        )
+        return self._with(root)
+
     def read(
         self,
         dimension: Ref[DimensionKind] | Ref[MeasureKind] | Ref[TimeDimensionKind],
         *,
-        at: datetime | BeforeEndBoundary | None = None,
+        at: datetime | BeforeEndBoundary | GridPoint | None = None,
         via: Ref[RelationshipKind] | RootRoutesValue | None = None,
     ) -> Relation:
         live = self._live()
@@ -328,15 +348,17 @@ class Relation:
         self,
         metric: Ref[MetricKind] | RuntimeMetricExpr,
         *,
-        during: TimeScope | None,
+        during: TimeScope | BoundTimeGrid | None,
         via: Ref[RelationshipKind] | tuple[Ref[RelationshipKind], ...],
         coordinates: tuple[Ref[DimensionKind], ...] = (),
+        at: datetime | GridPoint | None = None,
     ) -> Relation:
         live = self._live()
         graph = observe_members(
             live.graph,
             metric,
             during=during,
+            at=at,
             via=via,
             coordinates=coordinates,
             sidecar=live.sidecar,
@@ -354,9 +376,10 @@ class Relation:
         self,
         metric: Ref[MetricKind] | RuntimeMetricExpr,
         *,
-        during: TimeScope | None,
+        during: TimeScope | BoundTimeGrid | None,
         paths: tuple[tuple[Ref[RelationshipKind], ...], ...],
         coordinates: tuple[Ref[DimensionKind], ...] = (),
+        at: datetime | GridPoint | None = None,
     ) -> Relation:
         """Observe an ordered multi-root quantity under explicitly bound routes."""
         live = self._live()
@@ -365,6 +388,7 @@ class Relation:
                 live.graph,
                 metric,
                 during=during,
+                at=at,
                 paths=paths,
                 coordinates=coordinates,
                 sidecar=live.sidecar,
@@ -375,6 +399,7 @@ class Relation:
             live.graph,
             metric,
             during=during,
+            at=at,
             paths=paths,
             coordinates=coordinates,
             sidecar=live.sidecar,
@@ -386,7 +411,7 @@ class Relation:
         self,
         metric: Ref[MetricKind] | RuntimeMetricExpr,
         *,
-        during: TimeScope | None,
+        during: TimeScope | BoundTimeGrid | None,
         paths: tuple[tuple[Ref[RelationshipKind], ...], tuple[Ref[RelationshipKind], ...]],
         coordinates: tuple[Ref[DimensionKind], ...] = (),
     ) -> Relation:
@@ -479,7 +504,9 @@ class Relation:
             )
         return self._with(root)
 
-    def rollup(self, *coordinates: Ref[DimensionKind] | Ref[EntityKind]) -> Relation:
+    def rollup(
+        self, *coordinates: Ref[DimensionKind] | Ref[EntityKind] | BoundTimeGrid
+    ) -> Relation:
         signature = self.root.signature
         quantity = signature.quantity
         if not isinstance(quantity, (ObservedQuantity, RolledQuantity)):
@@ -488,9 +515,11 @@ class Relation:
         if state is None:
             raise _reject("original components are absent")
         methods: dict[
-            str, Literal["sum", "sum_zero", "mean", "count", "ratio", "weighted_mean", "linear"]
+            str,
+            Literal["sum", "sum_zero", "mean", "count", "ratio", "weighted_mean", "linear", "fold"],
         ] = {
             "sum@v1": "sum",
+            "fold@v1": "fold",
             "sum_zero@v1": "sum_zero",
             "count@v1": "count",
             "mean@v1": "mean",
@@ -501,7 +530,24 @@ class Relation:
         if state.method_version not in methods:
             raise _reject("original method is not qualified")
         selected: list[Coordinate] = []
+        time_mapping: tuple[tuple[str, str], ...] = ()
+        target_grid: BoundTimeGrid | None = None
         for coordinate in coordinates:
+            if isinstance(coordinate, BoundTimeGrid):
+                from marivo.analysis.core.time_grid import coarsening
+
+                source_grid = signature.domain.time_grid
+                if source_grid is None:
+                    raise _reject("time grouping needs a retained grid")
+                if coordinate != source_grid:
+                    time_mapping = coarsening(source_grid, coordinate)
+                target_grid = coordinate
+                selected.extend(
+                    replace(c, field="time:" + coordinate.identity)
+                    for c in signature.domain.instance_key
+                    if c.role == "anchor"
+                )
+                continue
             # Entity references retain their entire composite identity.
             matches = tuple(
                 c
@@ -533,6 +579,7 @@ class Relation:
             keys,
             keys,
             digest("group:" + repr(keys) + self.root.fingerprint),
+            time_grid=target_grid,
         )
         return self._with(
             method_node(
@@ -543,6 +590,7 @@ class Relation:
                     "source.complete_coverage@v1",
                     methods[state.method_version],
                     keys,
+                    time_mapping,
                 ),
                 value_type=self.root.value_type,
             )

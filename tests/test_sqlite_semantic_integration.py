@@ -6,11 +6,14 @@ import sqlite3
 import textwrap
 from pathlib import Path
 
+import ibis.expr.types as ir
+import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.catalog import SemanticCatalog
 
 
@@ -34,9 +37,6 @@ def _seed_orders(path: Path) -> None:
         connection.close()
 
 
-@pytest.mark.skip(
-    reason="Re-enable after R5 qualifies time-scoped SQLite Metric aggregation through SourceSession."
-)
 def test_sqlite_agent_native_authoring_journey(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -157,12 +157,32 @@ def test_sqlite_agent_native_authoring_journey(
         name="sqlite-revenue",
         question="What is total SQLite revenue?",
     )
-    frame = session.observe(
+    frame = session.members(ms.ref.entity("sales.orders")).observe(
         revenue,
-        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
+        during=mv.time_scope(start="2026-07-01", end="2026-07-03"),
     )
-    logical = frame.aggregate()
-    assert isinstance(logical, mv.LogicalMetricDataset)
-    assert logical.execute().to_pandas().revenue.tolist() == [30.0]
+    logical = frame.rollup()
+    assert isinstance(logical, mv.LogicalRolledNumericRelation)
+    primary_reads: list[CompiledRead] = []
+    stage = SourceSession.stage_derived
+
+    def capture(source: SourceSession, read: CompiledRead) -> tuple[ir.Table, pa.Table]:
+        if "value" in read.schema.names and "key_0" not in read.schema.names:
+            primary_reads.append(read)
+        return stage(source, read)
+
+    monkeypatch.setattr(SourceSession, "stage_derived", capture)
+    assert logical.execute().to_pandas().value.tolist() == [30.0]
     assert len(session.runs().items) == 1
-    assert session._runtime.statistics.primary_queries == 1
+    assert len(primary_reads) == 1
+    assert primary_reads[0].purpose == "analysis.graph.stage"
+
+    grid = mv.time_grid(
+        during=mv.time_scope(start="2026-07-01", end="2026-07-03"), grain=mv.grain("day")
+    )
+    daily = (
+        session.members(ms.ref.entity("sales.orders"))
+        .each(grid)
+        .observe(revenue, during=grid.window)
+    )
+    assert daily.group_by(grid).rollup().execute().to_pandas().value.tolist() == [10.0, 20.0]

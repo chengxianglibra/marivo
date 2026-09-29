@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, fields, is_dataclass
+from datetime import datetime
 from typing import TypeAlias
 
 from marivo.analysis.compiler.graph_plan import GraphPlan, LocalMethodStage, SourceMethodStage
 from marivo.analysis.core import model as core_model
 from marivo.analysis.core.graph import FixedLeaf, MethodNode, Node, SourceLeaf
+from marivo.analysis.core.time_grid import (
+    BoundTimeGrid,
+    CumulativeBinding,
+    EndpointWindow,
+    GridVersionSelection,
+    TimeCell,
+)
 from marivo.analysis.datasets.descriptors import _canonical_digest, _is_stable_identifier
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.methods import physical as method_physical
@@ -31,6 +39,11 @@ _GRAPH_PROTOCOL = "marivo.analysis.execution_key/v1"
 _CanonicalValue: TypeAlias = None | bool | int | float | str | tuple["_CanonicalValue", ...]
 
 _WIRE_TAGS: dict[type[object], str] = {
+    BoundTimeGrid: "time_grid",
+    CumulativeBinding: "cumulative_binding",
+    EndpointWindow: "endpoint_window",
+    GridVersionSelection: "grid_version_selection",
+    TimeCell: "time_cell",
     core_model.Binding: "binding",
     core_model.Coordinate: "coordinate",
     core_model.Correspondence: "correspondence",
@@ -101,6 +114,10 @@ def _wire(value: object) -> _CanonicalValue:
     """Encode only closed contract values, using stable tags instead of class names."""
     if value is None:
         return None
+    if type(value) is datetime:
+        if value.utcoffset() is None:
+            raise _key_error("an aware frozen time boundary", "naive datetime")
+        return ("instant", value.isoformat())
     if type(value) is Ref:
         return ("semantic_ref", value.kind.value, value.path)
     if type(value) is SemanticKind:

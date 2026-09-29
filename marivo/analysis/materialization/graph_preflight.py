@@ -124,7 +124,7 @@ def preflight_entities(
         )
     datasource_path = next(iter(datasource_paths))
     datasource = registry.datasources[datasource_path]
-    if datasource.backend_type != "duckdb":
+    if datasource.backend_type not in ("duckdb", "sqlite"):
         raise _reject(
             "the qualified DuckDB source route",
             datasource.backend_type,
@@ -139,8 +139,15 @@ def preflight_entities(
                 "Declare the complete Entity key with qualified physical identity types.",
             )
         if isinstance(contract.source, TableSourceIR):
-            shapes.append(SourceShape("duckdb", "table", "native", NoTime()))
-        elif isinstance(contract.source, ParquetSourceIR):
+            shapes.append(
+                SourceShape(
+                    "sqlite" if datasource.backend_type == "sqlite" else "duckdb",
+                    "table",
+                    "native",
+                    NoTime(),
+                )
+            )
+        elif isinstance(contract.source, ParquetSourceIR) and datasource.backend_type == "duckdb":
             shapes.append(SourceShape("duckdb", "parquet", "parquet", NoTime()))
         else:
             raise _reject(
@@ -151,7 +158,9 @@ def preflight_entities(
     service = DatasourceConnectionService(project_root, include_semantic_layers=True)
     with (
         service.use_backend(datasource.name, read_only=True) as backend,
-        SourceSession(provider_for("duckdb"), datasource, backend, owns_backend=False) as source,
+        SourceSession(
+            provider_for(datasource.backend_type), datasource, backend, owns_backend=False
+        ) as source,
     ):
         results = []
         for contract, shape in zip(contracts, shapes, strict=True):

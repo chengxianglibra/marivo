@@ -119,3 +119,59 @@ paired int64 weighted means. Weighted means return numeric relations, keep both
 original sums plus pair/row counts, and roll up those components. Other numeric
 types and nested nonlinear finishes require further
 qualification. Read the returned relation's `contract()` for its valid next calls.
+
+## Observe a bounded time grid
+
+For an approved sum/count Metric on the qualified DuckDB table or Parquet UTC
+microsecond event route, keep the complete member/time product:
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-08-01", end="2026-11-01"),
+    grain=mv.grain("month"),
+)
+monthly = session.members(ms.ref.entity("sales.customer")).each(grid).observe(
+    ms.ref.metric("sales.revenue"),
+    during=grid.window,
+    via=ms.ref.relationship("sales.order_buyer"),
+)
+fixed = monthly.execute()
+totals = fixed.group_by(grid).rollup().execute()
+```
+
+`grid.window` selects each row's contribution interval. A fixed `TimeScope`
+repeats that one interval on every cell and cannot be summed across time. Empty
+cells remain present with the Metric's declared empty policy. A carried daily
+axis may be coarsened with `group_by(mv.grain("month"))` only when every original
+cell fits wholly inside one month; a crossing week rejects. The default grid
+zone binds to the consuming Session's report timezone.
+
+Endpoint handles now have explicit consumers:
+
+```python
+from datetime import datetime, timezone
+
+accounts = session.members(
+    ms.ref.entity("sales.account"), at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+)
+balances = accounts.each(grid).read(
+    ms.ref.measure("sales.account.balance"), at=grid.before_end,
+)
+running = session.members(ms.ref.entity("sales.customer")).each(grid).observe(
+    ms.ref.metric("sales.running_revenue"), at=grid.end,
+    via=ms.ref.relationship("sales.order_buyer"),
+)
+```
+
+The fields and metrics must be declared in the catalog. Attribute versions are
+independent of membership versions. Cumulative endpoints read from their declared
+anchor, including history before the displayed grid. Overlapping accumulated
+windows cannot be summed across time. A declared first/last/mean/min/max status
+fold aggregates spatially at each sample before folding time; later original
+rollup needs aligned retained samples. Fixed continuation uses retained state,
+including after source/model files are offline. DuckDB supports governed civil
+dates and explicitly zoned microsecond timestamps; SQLite's required routes use
+UTC timestamps or civil dates. Unqualified routes reject without fallback.

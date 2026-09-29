@@ -100,3 +100,55 @@ total = fixed.rollup().execute()
 以及 int64 数值/权重配对的 weighted_mean。加权均值返回 numeric relation，保留
 原始两项和以及配对数、行数，上卷合并原组件。外层 slice 会下推到 ratio/linear 的各叶分支；其他数值类型
 和嵌套非线性 finish 仍需进一步资格。通过结果的 `contract()` 查看可执行的下一步。
+
+## 观察有界时间网格
+
+对已批准的 sum/count 指标，在已取得资格的 DuckDB table 或 Parquet UTC 微秒事件
+时间路线上，保留完整的成员与时间乘积：
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-08-01", end="2026-11-01"),
+    grain=mv.grain("month"),
+)
+monthly = session.members(ms.ref.entity("sales.customer")).each(grid).observe(
+    ms.ref.metric("sales.revenue"),
+    during=grid.window,
+    via=ms.ref.relationship("sales.order_buyer"),
+)
+fixed = monthly.execute()
+totals = fixed.group_by(grid).rollup().execute()
+```
+
+`grid.window` 选择各行自己的贡献区间。固定 `TimeScope` 会在每格重复同一区间，
+不能跨时间求和。空格仍保留，并遵守指标声明的空贡献规则。携带的日轴可通过
+`group_by(mv.grain("month"))` 粗化，但每个原始格必须完整落在一个月内；跨月周会
+拒绝。默认网格时区绑定到消费它的 Session 的报告时区。
+
+端点句柄现在有明确的消费方式：
+
+```python
+from datetime import datetime, timezone
+
+accounts = session.members(
+    ms.ref.entity("sales.account"), at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+)
+balances = accounts.each(grid).read(
+    ms.ref.measure("sales.account.balance"), at=grid.before_end,
+)
+running = session.members(ms.ref.entity("sales.customer")).each(grid).observe(
+    ms.ref.metric("sales.running_revenue"), at=grid.end,
+    via=ms.ref.relationship("sales.order_buyer"),
+)
+```
+
+字段和指标需要先在 Catalog 声明。属性时点独立于成员版本；累计端点从声明的
+anchor 读取，包括展示网格之前的历史。重叠累计窗口不能跨时间求和。声明的
+first/last/mean/min/max 状态 fold 先在每个采样时点做空间聚合，再折叠时间；
+后续原量上卷需要对齐的保留样本。固定续算使用保留状态，来源和模型文件离线后
+也可执行。DuckDB 支持 civil date 和具有明确时区权威的微秒 timestamp；SQLite
+本阶段所需路线使用 UTC timestamp 或 civil date。不具备资格的路线明确拒绝，
+不会失败后换路。

@@ -21,7 +21,7 @@ from marivo.analysis.compiler.graph_plan import (
     SourceMethodStage,
     plan,
 )
-from marivo.analysis.compiler.member_version import select_version
+from marivo.analysis.compiler.member_version import select_version, version_predicate
 from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import (
     Coordinate,
@@ -55,7 +55,9 @@ from marivo.analysis.core.rules import (
     OriginalReduce,
     PartsTransport,
     RowState,
+    TimeProduct,
 )
+from marivo.analysis.core.time_grid import GridVersionSelection
 from marivo.analysis.methods.builtin import admit
 from marivo.analysis.methods.physical import ScalarType
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
@@ -65,6 +67,7 @@ from marivo.semantic._expression_binding import (
     CompiledExpressionSidecar,
     evaluate_expression_body,
 )
+from marivo.semantic.ir import TargetDimensionContract, TargetSnapshotVersion, TargetValidityVersion
 
 
 def _fail(expected: str, received: str) -> NoReturn:
@@ -190,8 +193,18 @@ class SemanticCheck:
     source_ids: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class TemporalCheck:
+    """Governed raw/engine temporal pairs checked against the frozen axis authority."""
+
+    stage_output: str
+    violations: ir.Table
+    source_ids: tuple[str, ...]
+    axis: TargetDimensionContract
+
+
 LoweredStage: TypeAlias = LoweredRelation | LoweredLocal | ArtifactReadStage
-LoweredCheck: TypeAlias = IntegrityCheck | SemanticCheck | CheckRequirement
+LoweredCheck: TypeAlias = IntegrityCheck | SemanticCheck | TemporalCheck | CheckRequirement
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,7 +221,10 @@ class LoweredPlan:
             item.source_ids
             for item in (*self.stages, *self.checks)
             if (isinstance(item, LoweredRelation) and item.expression is expression)
-            or (isinstance(item, (IntegrityCheck, SemanticCheck)) and item.violations is expression)
+            or (
+                isinstance(item, (IntegrityCheck, SemanticCheck, TemporalCheck))
+                and item.violations is expression
+            )
         )
         if not matches or any(ids != matches[0] for ids in matches):
             reject(
@@ -522,6 +538,12 @@ def _transport(
 
 def _source_fields(admitted: GraphPlan, binding: SourceBinding) -> tuple[str, ...]:
     fields = {key.column for key in binding.layout.keys}
+    version = binding.leaf.definition.version
+    if isinstance(binding.leaf.signature.domain.version_selection, GridVersionSelection):
+        if isinstance(version, TargetSnapshotVersion):
+            fields.add(version.source_column)
+        elif isinstance(version, TargetValidityVersion):
+            fields.update((version.valid_from_column, version.valid_to_column))
     for node in topology(admitted.root):
         if not isinstance(node, MethodNode) or binding.leaf not in node.sources:
             continue
@@ -575,6 +597,38 @@ def _staged_source(binding: SourceBinding, relations: tuple[LoweredRelation, ...
     )
 
 
+def _grid_read_filter(table: ir.Table, binding: SourceBinding, source: LoweredRelation) -> ir.Table:
+    selected = binding.leaf.signature.domain.version_selection
+    if not isinstance(selected, GridVersionSelection):
+        return table
+    grid = source.node.signature.domain.time_grid
+    if (
+        grid is None
+        or selected.grid_identity != grid.identity
+        or tuple(k for k, _ in selected.selections) != tuple(c.identity for c in grid.cells)
+    ):
+        _fail("the receiver's complete ordered grid selection", selected.grid_identity)
+    index = next(i for i, key in enumerate(source.layout.keys) if key.coordinate.role == "anchor")
+    version = binding.leaf.definition.version
+    if isinstance(version, TargetSnapshotVersion):
+        version = replace(version, source_column="owner__" + version.source_column)
+    elif isinstance(version, TargetValidityVersion):
+        version = replace(
+            version,
+            valid_from_column="owner__" + version.valid_from_column,
+            valid_to_column="owner__" + version.valid_to_column,
+        )
+    return table.filter(
+        ibis.cases(
+            *(
+                (table[f"member__{index}"] == key, version_predicate(table, version, anchor))
+                for key, anchor in selected.selections
+            ),
+            else_=False,
+        )
+    )
+
+
 def _bind(
     stage: SourceMethodStage,
     source: LoweredRelation,
@@ -594,7 +648,11 @@ def _bind(
             first,
             tuple(
                 source.expression[key] == first[item.column]
-                for key, item in zip(keys, selected[0].layout.keys, strict=True)
+                for key, item in zip(
+                    tuple(k.column for k in source.layout.keys if k.coordinate.role != "anchor"),
+                    selected[0].layout.keys,
+                    strict=True,
+                )
             ),
         )
         .select(
@@ -602,6 +660,7 @@ def _bind(
             *(first[column].name(f"owner__{column}") for column in first.columns),
         )
     )
+    scoped = _grid_read_filter(scoped, selected[0], source)
     for index, relationship in enumerate(params.path_contracts):
         target = _staged_source(selected[index + 1], relations).view()
         joined = scoped.join(
@@ -612,6 +671,7 @@ def _bind(
             *(scoped[f"member__{i}"] for i in range(len(keys))),
             *(target[column].name(f"owner__{column}") for column in target.columns),
         )
+        scoped = _grid_read_filter(scoped, selected[index + 1], source)
     if params.expression_bodies:
         sidecar = selected[-1].expression_sidecar
         if sidecar is None:
@@ -1302,6 +1362,90 @@ def _weighted_finish(table: ir.Table, layout: RelationLayout) -> ir.Table:
     ).select(*layout.columns)
 
 
+def _fold_rollup(
+    stage: SourceMethodStage, source: LoweredRelation, checks: list[LoweredCheck]
+) -> tuple[ir.Table, RelationLayout]:
+    params = stage.node.parameters
+    assert isinstance(params, OriginalReduce)
+    source_keys = source.node.signature.domain.instance_key
+    output_keys = tuple(f"key_{i}" for i in range(len(params.coordinates)))
+    selected: dict[str, ir.Value] = {}
+    for name, coordinate in zip(output_keys, params.coordinates, strict=True):
+        index = next(
+            i
+            for i, c in enumerate(source_keys)
+            if c == coordinate or (c.role == coordinate.role == "anchor")
+        )
+        column = source.expression[f"key_{index}"]
+        selected[name] = (
+            ibis.cases(*((column == a, b) for a, b in params.time_mapping), else_=column)
+            if params.time_mapping and coordinate.role == "anchor"
+            else column
+        )
+    old_time = next(
+        (source.expression[f"key_{i}"] for i, c in enumerate(source_keys) if c.role == "anchor"),
+        ibis.literal("all"),
+    )
+    base = source.expression.select(
+        **selected,
+        period=old_time,
+        encoded=source.expression.original_state__samples,
+        fold_kind=source.expression.original_state__fold_kind,
+    )
+    kinds = tuple(
+        n.parameters.fold
+        for n in topology(source.node)
+        if isinstance(n, MethodNode)
+        and isinstance(n.parameters, ObserveMetric)
+        and n.parameters.fold is not None
+    )
+    if not kinds or len(set(kinds)) != 1:
+        _fail("one bound fold declaration", repr(kinds))
+    kind = kinds[0]
+    expected = base.group_by(*output_keys, "period").aggregate(expected=base.count())
+    exploded = base.select(*output_keys, "period", token=base.encoded.split(";").unnest())
+    exploded = exploded.filter(exploded.token != "")
+    fields = exploded.token.split("~")
+    samples = exploded.select(
+        *output_keys,
+        "period",
+        sample_time=fields[0].cast("timestamp"),
+        sample_sum=fields[1].cast("float64"),
+        sample_count=fields[2].cast("int64"),
+    )
+    merged = samples.group_by(*output_keys, "period", "sample_time").aggregate(
+        sample_sum=samples.sample_sum.sum(),
+        sample_count=samples.sample_count.sum(),
+        actual=samples.count(),
+    )
+    alignment = merged.left_join(expected, [*output_keys, "period"])
+    checks.append(
+        IntegrityCheck(
+            stage.output,
+            "aligned pre-fold sampling coordinates",
+            alignment.filter(merged.actual != expected.expected),
+            source.source_ids,
+        )
+    )
+    combined = merged.drop("period", "actual")
+    checks.append(
+        IntegrityCheck(
+            stage.output,
+            "disjoint temporal sampling coordinates",
+            combined.group_by(*output_keys, "sample_time")
+            .aggregate(n=combined.count())
+            .filter(ibis._.n != 1),
+            source.source_ids,
+        )
+    )
+    targets = (
+        base.select(*output_keys).distinct() if output_keys else base.aggregate(n=base.count())
+    )
+    table = _fold_samples(combined, targets, output_keys, kind)
+    layout = canonical_layout(stage.node.signature, has_value=True)
+    return _reduction_subjects(table, stage.node.signature).select(*layout.columns), layout
+
+
 def _original_sum(
     stage: SourceMethodStage, source: LoweredRelation
 ) -> tuple[ir.Table, RelationLayout]:
@@ -1311,6 +1455,23 @@ def _original_sum(
     keys = tuple(f"key_{i}" for i in range(len(params.coordinates)))
     if params.coordinates:
         source_keys = source.node.signature.domain.instance_key
+        if params.time_mapping:
+            target_grid = params.output_domain.time_grid
+            assert target_grid is not None
+            index = next(i for i, c in enumerate(source_keys) if c.role == "anchor")
+            field = f"key_{index}"
+            table = table.mutate(
+                **{
+                    field: ibis.cases(
+                        *((table[field] == old, new) for old, new in params.time_mapping),
+                        else_=ibis.null().cast("string"),
+                    )
+                }
+            )
+            source_keys = tuple(
+                replace(c, field="time:" + target_grid.identity) if c.role == "anchor" else c
+                for c in source_keys
+            )
         if set(params.coordinates) <= set(source_keys):
             state = _original_state(source.node.signature)
             table = table.select(
@@ -1406,8 +1567,12 @@ def _original_sum(
             cell_tag=ibis.literal("defined"),
             cell_reason=ibis.null().cast("string"),
         ).select(*target_count.columns), target_count
+    value_type = stage.node.value_type
+    assert isinstance(value_type, ScalarType)
     reduced = grouped.aggregate(
-        original_state__sum=table.original_state__sum.sum().fill_null(0),
+        original_state__sum=table.original_state__sum.sum().fill_null(
+            0.0 if value_type.name == "float64" else 0
+        ),
         original_state__non_null_count=table.original_state__non_null_count.sum().fill_null(0),
         coverage__complete=table.coverage__complete.all().fill_null(True),
     )
@@ -1439,10 +1604,9 @@ def _contribution_rows(
     by_entity = {binding.leaf.definition.ref.path: binding for binding in bindings}
     root_binding = by_entity[params.contribution.path]
     root = _staged_source(root_binding, relations).view()
-    if (
-        isinstance(params, (ObserveMetric, ObserveWeightedMean))
-        and str(root[params.amount_column].type()) != params.amount_type
-    ):
+    if isinstance(params, (ObserveMetric, ObserveWeightedMean)) and root[
+        params.amount_column
+    ].type().copy(nullable=True) != dt.dtype(params.amount_type):
         _fail("the exact contribution amount type", str(root[params.amount_column].type()))
     root_filters = _owner_predicate(root, params.filters, params.contribution.path)
     if root_filters is not None:
@@ -1451,10 +1615,17 @@ def _contribution_rows(
         "amount": root[params.amount_column]
         if isinstance(params, (ObserveMetric, ObserveWeightedMean))
         else ibis.literal(1, type="int64"),
-        **{f"next_key_{i}": root[source] for i, (source, _) in enumerate(params.path[0].keys)},
+        **(
+            {f"next_key_{i}": root[source] for i, (source, _) in enumerate(params.path[0].keys)}
+            if params.path
+            else {
+                f"member_{i}": root[key.coordinate.field]
+                for i, key in enumerate(root_binding.layout.keys)
+            }
+        ),
     }
     if isinstance(params, ObserveWeightedMean):
-        if str(root[params.weight_column].type()) != "int64":
+        if root[params.weight_column].type().copy(nullable=True) != dt.int64:
             _fail("int64 weight column", str(root[params.weight_column].type()))
         fields["weight"] = root[params.weight_column]
     if params.event.entity_ref.path == params.contribution.path:
@@ -1506,6 +1677,24 @@ def _contribution_rows(
         if hop_filters is not None:
             joined = joined.filter(hop_filters)
         rows = joined.select(**selected)
+    from marivo.analysis.compiler.source_time import source_time
+
+    normalized, _authority = source_time(
+        rows.event_time,
+        params.event,
+        boundary_timezone="UTC",
+        read_timezone=params.event.timezone,
+        engine=root_binding.leaf.definition.shape.backend,
+    )
+    checks.append(
+        TemporalCheck(
+            stage.output,
+            rows.select(raw_time=rows.event_time, normalized_time=normalized).distinct(),
+            source_ids,
+            params.event,
+        )
+    )
+    rows = rows.mutate(event_time=normalized)
     return rows, source_ids
 
 
@@ -1555,6 +1744,61 @@ def _slice_predicate(
     _fail("a closed slice operator", operator)
 
 
+def _fold_samples(
+    samples: ir.Table, targets: ir.Table, keys: tuple[str, ...], kind: str
+) -> ir.Table:
+    """Fold already spatially aggregated instants and retain every sample."""
+    token = (
+        samples.sample_time.cast("string")
+        + "~"
+        + samples.sample_sum.cast("string")
+        + "~"
+        + samples.sample_count.cast("string")
+    )
+    state = (samples.group_by(*keys) if keys else samples).aggregate(
+        original_state__samples=token.group_concat(";").fill_null("")
+    )
+    defined = samples.filter(samples.sample_count > 0)
+    if kind in ("first", "last"):
+        ordered = defined.mutate(
+            sample_value=defined.sample_sum.first().over(
+                ibis.window(
+                    group_by=[defined[k] for k in keys],
+                    order_by=defined.sample_time if kind == "first" else defined.sample_time.desc(),
+                )
+            )
+        )
+        finished = (ordered.group_by(*keys) if keys else ordered).aggregate(
+            value=ordered.sample_value.max()
+        )
+    else:
+        aggregate = (
+            defined.sample_sum.mean()
+            if kind == "mean"
+            else defined.sample_sum.min()
+            if kind == "min"
+            else defined.sample_sum.max()
+        )
+        finished = (defined.group_by(*keys) if keys else defined).aggregate(value=aggregate)
+    if keys:
+        table = targets.left_join(state, list(keys)).left_join(finished, list(keys))
+        result = table.select(
+            **{k: targets[k] for k in keys},
+            value=finished.value.cast("float64"),
+            original_state__samples=state.original_state__samples.fill_null(""),
+        )
+    else:
+        result = state.cross_join(finished)
+    return result.mutate(
+        original_state__fold_kind=ibis.literal(kind),
+        cell_tag=ibis.ifelse(result.value.notnull(), "defined", "null"),
+        cell_reason=ibis.ifelse(
+            result.value.notnull(), ibis.null().cast("string"), "empty_contribution"
+        ),
+        coverage__complete=ibis.literal(True),
+    )
+
+
 def _observe(
     stage: SourceMethodStage,
     members: LoweredRelation,
@@ -1570,17 +1814,57 @@ def _observe(
     source, contribution_ids = _contribution_rows(stage, params, bindings, relations, checks)
     event_type = source.event_time.type()
     if (
-        tuple(key.coordinate.field for key in members.layout.keys)
-        != tuple(destination for _, destination in params.path[-1].keys)
-        or not isinstance(event_type, dt.Timestamp)
-        or event_type.timezone not in (None, "UTC", "Etc/UTC")
-        or event_type.scale not in (None, 6)
+        tuple(
+            key.coordinate.field for key in members.layout.keys if key.coordinate.role != "anchor"
+        )
+        != (
+            tuple(destination for _, destination in params.path[-1].keys)
+            if params.path
+            else tuple(
+                c.field for c in members.node.signature.domain.instance_key if c.role == "identity"
+            )
+        )
+        or not isinstance(event_type, (dt.Timestamp, dt.Date))
+        or (
+            isinstance(event_type, dt.Timestamp)
+            and (
+                event_type.timezone not in (None, "UTC", "Etc/UTC")
+                or event_type.scale not in (None, 6)
+            )
+        )
     ):
         _fail("exact observation key and UTC microsecond timestamp schema", "schema drift")
+
+    def bound(value: datetime) -> ir.Scalar:
+        from marivo.datasource.timezone import parse_timezone
+
+        grid = members.node.signature.domain.time_grid
+        zone = (
+            grid.boundary_timezone
+            if params.grid_window and grid is not None
+            else params.cumulative.boundary_timezone
+            if params.cumulative is not None
+            else params.window_timezone
+        )
+        normalized = (
+            value.astimezone(parse_timezone(zone)[1]).date()
+            if isinstance(event_type, dt.Date)
+            else value.replace(tzinfo=None)
+        )
+        return ibis.literal(normalized, type=event_type)
+
     if params.start is not None and params.end is not None:
-        start = ibis.literal(datetime.fromisoformat(params.start), type=event_type)
-        end = ibis.literal(datetime.fromisoformat(params.end), type=event_type)
+        start = bound(datetime.fromisoformat(params.start))
+        end = bound(datetime.fromisoformat(params.end))
         source = source.filter((source.event_time >= start) & (source.event_time < end))
+    if params.cumulative is not None and params.cumulative.grid_identity is None:
+        window = params.cumulative.windows[0]
+        condition = source.event_time < bound(datetime.fromisoformat(window.end))
+        if window.start is not None:
+            condition = condition & (
+                source.event_time >= bound(datetime.fromisoformat(window.start))
+            )
+        source = source.filter(condition)
     mapping = members.expression
     keys = tuple(k.column for k in members.layout.keys)
     source_ids = _source_ids(members.source_ids, contribution_ids)
@@ -1599,12 +1883,47 @@ def _observe(
         )
         target_fields = {"key_0": mapping[cell.value]}
     targets = mapping.select(**target_fields).distinct()
-    predicates = [source[f"member_{i}"] == mapping[key] for i, key in enumerate(keys)]
+    member_keys = tuple(k.column for k in members.layout.keys if k.coordinate.role != "anchor")
+    predicates = [source[f"member_{i}"] == mapping[key] for i, key in enumerate(member_keys)]
+    grid = members.node.signature.domain.time_grid
+    if params.grid_window:
+        assert grid is not None
+        time_key = next(k.column for k in members.layout.keys if k.coordinate.role == "anchor")
+        predicates.append(
+            ibis.cases(
+                *(
+                    (
+                        (mapping[time_key] == cell.identity),
+                        (source.event_time >= bound(cell.start))
+                        & (source.event_time < bound(cell.end)),
+                    )
+                    for cell in grid.cells
+                ),
+                else_=False,
+            )
+        )
+    if params.cumulative is not None and params.cumulative.grid_identity is not None:
+        assert grid is not None
+        time_key = next(k.column for k in members.layout.keys if k.coordinate.role == "anchor")
+        conditions: list[tuple[ir.BooleanValue, ir.BooleanValue]] = []
+        for window in params.cumulative.windows:
+            condition = source.event_time < bound(datetime.fromisoformat(window.end))
+            if window.start is not None:
+                condition = condition & (
+                    source.event_time >= bound(datetime.fromisoformat(window.start))
+                )
+            conditions.append((mapping[time_key] == window.key, condition))
+        predicates.append(ibis.cases(*conditions, else_=False))
     joined = source.inner_join(mapping, predicates)
     target_keys = tuple(target_fields)
     values = joined.select(
         **target_fields,
         amount=source.amount,
+        **(
+            {"sample_time": source.event_time.cast("timestamp")}
+            if isinstance(params, ObserveMetric) and params.fold is not None
+            else {}
+        ),
         **({"weight": source.weight} if isinstance(params, ObserveWeightedMean) else {}),
         **{
             ("coordinate" if i == 0 else f"coordinate_{i}"): source[
@@ -1618,7 +1937,10 @@ def _observe(
             IntegrityCheck(
                 stage.output,
                 "finite contribution amounts",
-                values.filter(values.amount.isnan() | values.amount.isinf()),
+                values.filter(
+                    (values.amount.abs() > float.fromhex("0x1.fffffffffffffp+1023"))
+                    | (values.amount != values.amount)
+                ),
                 source_ids,
             )
         )
@@ -1637,7 +1959,7 @@ def _observe(
         dense = targets.left_join(summed, list(target_keys))
         table = dense.select(
             **{key: targets[key] for key in target_keys},
-            **{f"subject__key_{i}": targets[key] for i, key in enumerate(target_keys)},
+            **{f"subject__key_{i}": targets[key] for i, key in enumerate(member_keys)},
             **{
                 f"original_state__{name}": summed[name].fill_null(0).cast("int64")
                 for name in ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count")
@@ -1656,7 +1978,7 @@ def _observe(
         )
         dense = targets.left_join(summed, list(target_keys))
         amount_type = params.amount_type if isinstance(params, ObserveMetric) else "int64"
-        total = summed.state_sum.fill_null(0).cast(amount_type)
+        total = summed.state_sum.fill_null(0.0 if amount_type == "float64" else 0).cast(amount_type)
         support = summed.support.fill_null(0).cast("int64")
         defined = (
             support > 0
@@ -1669,7 +1991,7 @@ def _observe(
             cell_tag=ibis.ifelse(defined, "defined", "null"),
             cell_reason=ibis.ifelse(defined, ibis.null().cast("string"), "empty_contribution"),
             original_state__count=support,
-            **{f"subject__key_{i}": targets[key] for i, key in enumerate(target_keys)},
+            **{f"subject__key_{i}": targets[key] for i, key in enumerate(member_keys)},
             original_state__sum=total,
             original_state__non_null_count=support,
             original_state__row_count=summed.rows.fill_null(0).cast("int64"),
@@ -1730,11 +2052,54 @@ def _observe(
                 ibis.literal([], type=coordinate_state_type(part))
             ),
         )
+    if isinstance(params, ObserveMetric) and params.fold is not None:
+        if params.amount_type == "int64":
+            exact = values.group_by(*target_keys, "sample_time").aggregate(
+                total=values.amount.sum()
+            )
+            checks.append(
+                IntegrityCheck(
+                    stage.output,
+                    "integer spatial fold sums exactly representable as float64",
+                    exact.filter(exact.total.abs() > 2**53),
+                    source_ids,
+                )
+            )
+        samples = values.group_by(*target_keys, "sample_time").aggregate(
+            sample_sum=values.amount.sum().cast("float64").fill_null(0.0),
+            sample_count=values.amount.count(),
+        )
+        table = _fold_samples(samples, targets, target_keys, params.fold)
+        table = _reduction_subjects(table, stage.node.signature)
     table = table.select(*target.columns)
-    actual = joined.aggregate(actual=joined.count())
-    selected = source.semi_join(mapping, predicates)
-    expected = selected.aggregate(expected=selected.count())
-    partition = actual.cross_join(expected)
+    if grid is not None:
+        time_key = next(k.column for k in members.layout.keys if k.coordinate.role == "anchor")
+        actual = joined.group_by(mapping[time_key].name("time_key")).aggregate(
+            actual=joined.count()
+        )
+        expected_cells = []
+        for time_cell in grid.cells:
+            selected = source.semi_join(
+                mapping, [*predicates, mapping[time_key] == time_cell.identity]
+            )
+            expected_cells.append(
+                selected.aggregate(expected=selected.count()).mutate(
+                    time_key=ibis.literal(time_cell.identity)
+                )
+            )
+        expected = (
+            expected_cells[0].union(*expected_cells[1:], distinct=False)
+            if len(expected_cells) > 1
+            else expected_cells[0]
+        )
+        partition = expected.left_join(actual, "time_key").select(
+            expected=expected.expected, actual=actual.actual.fill_null(0)
+        )
+    else:
+        actual = joined.aggregate(actual=joined.count())
+        selected = source.semi_join(mapping, predicates)
+        expected = selected.aggregate(expected=selected.count())
+        partition = actual.cross_join(expected)
     actual_coverage = table.aggregate(actual=table.count())
     expected_coverage = targets.aggregate(expected=targets.count())
     coverage = actual_coverage.cross_join(expected_coverage)
@@ -1744,8 +2109,10 @@ def _observe(
         check_id = requirement.obligation.check_id
         if check_id == "source.contribution_partition@v1":
             violations = partition.filter(partition.actual != partition.expected)
-        elif check_id == "source.complete_coverage@v1":
+        elif check_id in ("source.complete_coverage@v1", "source.calendar_members@v1"):
             violations = coverage.filter(coverage.actual != coverage.expected)
+        elif check_id == "source.calendar_contributions@v1":
+            violations = joined.filter(source.event_time.isnull()).select(**target_fields)
         else:
             continue
         checks.append(SemanticCheck(requirement, violations, source_ids))
@@ -1944,6 +2311,9 @@ def lower(
                 table, layout = _occurrence_combine(stage, inputs, checks, admitted)
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
+            elif isinstance(params, TimeProduct):
+                table, layout = _time_product(stage, inputs[0])
+                cell_reasons = ()
             elif isinstance(params, CompleteGroups):
                 table, layout = _complete_groups(stage, inputs, checks)
                 cell_reasons = inputs[0].cell_reasons
@@ -1953,7 +2323,11 @@ def lower(
                 cell_reasons = inputs[0].cell_reasons
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
             elif isinstance(params, OriginalReduce):
-                table, layout = _original_sum(stage, inputs[0])
+                table, layout = (
+                    _fold_rollup(stage, inputs[0], checks)
+                    if params.method == "fold"
+                    else _original_sum(stage, inputs[0])
+                )
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, RowState):
                 table, layout = _count(stage, inputs[0])
@@ -2014,7 +2388,12 @@ def lower(
                 for check in checks
                 if isinstance(check, SemanticCheck)
                 and requirement.obligation.check_id
-                in ("source.contribution_partition@v1", "source.complete_coverage@v1")
+                in (
+                    "source.contribution_partition@v1",
+                    "source.complete_coverage@v1",
+                    "source.calendar_members@v1",
+                    "source.calendar_contributions@v1",
+                )
                 and check.requirement.obligation.fact == requirement.obligation.fact
                 and check.requirement.obligation.check_id == requirement.obligation.check_id
             ),
@@ -2088,8 +2467,10 @@ def lower(
                     if str(value.type()) == "float64":
                         invalid = (
                             invalid
-                            | value.isnan().fill_null(False)
-                            | value.isinf().fill_null(False)
+                            | (value.abs() > float.fromhex("0x1.fffffffffffffp+1023")).fill_null(
+                                False
+                            )
+                            | (value != value).fill_null(False)
                         )
                     if (
                         isinstance(owner, MethodNode)
@@ -2282,3 +2663,22 @@ def _reduction_subjects(table: ir.Table, signature: Signature) -> ir.Table:
         for i, c in enumerate(part.subject_key)
     }
     return table.mutate(**fields) if fields else table
+
+
+def _time_product(
+    stage: SourceMethodStage, source: LoweredRelation
+) -> tuple[ir.Table, RelationLayout]:
+    params = stage.node.parameters
+    assert isinstance(params, TimeProduct)
+    grid = params.output_domain.time_grid
+    assert grid is not None
+    table = source.expression
+    key = f"key_{len(source.layout.keys)}"
+    # Literal finite coordinates stay in the admitted Ibis expression; no source
+    # rows are collected by construction or a second executor.
+    branches = tuple(table.mutate(**{key: ibis.literal(cell.identity)}) for cell in grid.cells)
+    expanded = (
+        branches[0].union(*branches[1:], distinct=False) if len(branches) > 1 else branches[0]
+    )
+    layout = canonical_layout(stage.node.signature, has_value=False)
+    return expanded.select(*layout.columns), layout

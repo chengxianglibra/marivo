@@ -9,6 +9,7 @@ import ibis
 import ibis.expr.types as ir
 
 from marivo._temporal import BeforeEndBoundary
+from marivo.analysis.core.time_grid import GridPoint, GridVersionSelection
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.semantic.ir import (
     TargetEntityContract,
@@ -22,9 +23,9 @@ from marivo.semantic.validator import normalize_target_version_selection
 
 def selection(
     contract: TargetEntityContract,
-    at: datetime | BeforeEndBoundary | None,
+    at: datetime | BeforeEndBoundary | GridPoint | None,
     report_timezone: str,
-) -> TargetSnapshotSelection | TargetValiditySelection | None:
+) -> TargetSnapshotSelection | TargetValiditySelection | GridVersionSelection | None:
     """Resolve declared version facts without querying available source rows."""
     if (contract.version is None) != (at is None):
         raise DatasetConstructionError(
@@ -33,6 +34,21 @@ def selection(
             repair="Supply at for this versioned Entity, or remove it for an unversioned Entity.",
             location="analysis.members.version",
         )
+    if isinstance(at, GridPoint):
+        selections: list[tuple[str, TargetSnapshotSelection | TargetValiditySelection]] = []
+        for cell in at.grid.cells:
+            anchor = selection(
+                contract,
+                BeforeEndBoundary(cell.end)
+                if at.side == "before_end"
+                else cell.start
+                if at.side == "start"
+                else cell.end,
+                report_timezone,
+            )
+            assert isinstance(anchor, (TargetSnapshotSelection, TargetValiditySelection))
+            selections.append((cell.identity, anchor))
+        return GridVersionSelection(at.grid.identity, tuple(selections))
     if at is None:
         return None
     if not isinstance(at, (datetime, BeforeEndBoundary)):
@@ -97,24 +113,24 @@ def _bound(column: ir.Value, boundary: datetime) -> ir.Value:
     )
 
 
-def select_version(
+def version_predicate(
     table: ir.Table,
     version: TargetSnapshotVersion | TargetValidityVersion | None,
     selected: TargetSnapshotSelection | TargetValiditySelection | None,
-) -> ir.Table:
-    """Apply exact snapshot or validity comparisons through governed Ibis."""
+) -> ir.BooleanValue:
+    """Build exact snapshot or symbolic validity predicates through Ibis."""
     if isinstance(version, TargetSnapshotVersion) and isinstance(selected, TargetSnapshotSelection):
         column = table[version.source_column]
         period = date.fromisoformat(selected.period)
         if column.type().is_date():
-            return table.filter(column == ibis.literal(period))
+            return column == ibis.literal(period)
         if column.type().is_timestamp():
             from datetime import timedelta
 
             zone = ZoneInfo(version.timezone or "UTC")
             start = datetime.combine(period, time(), zone)
             end = datetime.combine(period + timedelta(days=1), time(), zone)
-            return table.filter((column >= _bound(column, start)) & (column < _bound(column, end)))
+            return (column >= _bound(column, start)) & (column < _bound(column, end))
         raise DatasetConstructionError(
             expected="a native temporal snapshot coordinate",
             received=str(column.type()),
@@ -138,12 +154,32 @@ def select_version(
             right = right | (
                 end.isnull() if sentinel is None else end == ibis.literal(sentinel).cast(end.type())
             )
-        return table.filter(left & right)
+        return left & right
     if version is None and selected is None:
-        return table
+        return ibis.literal(True)
     raise DatasetConstructionError(
         expected="matching declared version and exact selection",
         received=f"{type(version).__name__}/{type(selected).__name__}",
         repair="Rebuild the member graph with the declared version's explicit anchor.",
         location="analysis.members.version",
     )
+
+
+def select_version(
+    table: ir.Table,
+    version: TargetSnapshotVersion | TargetValidityVersion | None,
+    selected: TargetSnapshotSelection | TargetValiditySelection | GridVersionSelection | None,
+) -> ir.Table:
+    """Read the exact selected version or union of grid-selected versions once."""
+    if isinstance(selected, GridVersionSelection):
+        from functools import reduce
+        from operator import or_
+
+        return table.filter(
+            reduce(
+                or_,
+                (version_predicate(table, version, anchor) for _, anchor in selected.selections),
+            )
+        )
+    predicate = version_predicate(table, version, selected)
+    return table.filter(predicate) if version is not None else table

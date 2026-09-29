@@ -333,48 +333,45 @@ def test_source_semantic_grain_uses_exact_preloaded_certified_buckets(tmp_path: 
         assert [row["running"] for row in _rows(fixture, by_period)] == [110, 30]
 
 
-@pytest.mark.skip(
-    reason="Re-enable after R5 qualifies time-scoped Metric source execution and calendar validation publication."
-)
+@pytest.mark.runtime
 @pytest.mark.parametrize("metric_name", ["revenue", "running"])
 def test_semantic_calendar_validations_publish_each_required_occurrence(
-    tmp_path: Path, metric_name: str
+    tmp_path: Path, metric_name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import marivo.datasource as md
+    from marivo.analysis.core.time_grid import GridPoint, bind_grid
+    from marivo.analysis.materialization.graph_relation import Relation
+
     with execution_fixture(tmp_path) as original:
         fixture, reporting_grain = _with_fiscal_calendar(original)
-    runtime = DatasetRuntime.create(tmp_path, "calendar-publication")
-    sources = make_lazy_sources(
+    runtime = DatasetRuntime.create(
+        tmp_path, "calendar-publication", report_timezone="UTC", _generation=7
+    )
+    monkeypatch.chdir(tmp_path)
+    md.register(md.duckdb(name="warehouse", path=str(fixture.database)))
+    snapshots = fixture.sources._owner.period_calendar_snapshots
+    runtime.sources(
         semantic_registry=fixture.registry,
         sidecar=fixture.sidecar,
-        action_port=runtime,
-        session_id=runtime.session_ref,
-        store_id=runtime.store.store_id,
-        period_calendar_snapshots=fixture.sources._owner.period_calendar_snapshots,
+        period_calendar_snapshots=snapshots,
     )
-    logical = (
-        sources.observe(ref.metric(f"sales.{metric_name}"), time_scope=WINDOW)
-        .with_time_axis(DAY, grain=reporting_grain)
-        .aggregate()
-    )
+    grid = bind_grid(WINDOW, reporting_grain, report_timezone="UTC", snapshot=snapshots[0])
+    members = Relation.members(
+        runtime, fixture.registry, fixture.sidecar, "UTC", ref.entity("sales.orders")
+    ).each(grid)
+    logical = members.observe(
+        ref.metric(f"sales.{metric_name}"),
+        during=grid if metric_name == "revenue" else None,
+        at=GridPoint(grid, "end") if metric_name == "running" else None,
+        via=(),
+    ).rollup(grid)
     materialized = logical.execute()
-    assert materialized.to_pandas()[metric_name].tolist() == [110, 30]
-    record = runtime.store.artifact(materialized.state.artifact_ref.ref)
-    assert record is not None
-    validations = record.descriptor.population_authority.validation_results
-    names = tuple(name for name, _ in validations)
-    assert len(names) == len(set(names))
-    assert sum(name.startswith("calendar.coordinate_coverage") for name in names) >= 2
-    assert all(violations == 0 for _, violations in validations)
-    if metric_name == "running":
-        from marivo.analysis.materialization.reads import part_schema
-
-        assert len(record.descriptor.retained_parts) == 1
-        part = record.descriptor.retained_parts[0]
-        assert part.contract_id == "metric.sufficient_components"
-        part_names = part_schema(tmp_path, part).names
-        assert any(name.endswith("_sum") for name in part_names)
-        assert any(name.endswith("_evaluation_end") for name in part_names)
-        assert any(name.endswith("_coverage_complete") for name in part_names)
+    assert materialized.to_pandas().value.tolist() == [110, 30]
+    descriptor = materialized.artifact.descriptor
+    calendar = [check for check in descriptor.completed_checks if "calendar" in check.check_id]
+    assert len(calendar) >= 2
+    assert len({(check.origin_node, check.check_id) for check in calendar}) == len(calendar)
+    assert Relation.restore(materialized).rollup().execute().to_pandas().value.tolist() == [140]
 
 
 @pytest.mark.parametrize("end", ["2026-02-01", "2026-02-06"])

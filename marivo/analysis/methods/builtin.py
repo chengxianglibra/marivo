@@ -22,6 +22,7 @@ from marivo.analysis.core.rules import (
     PartsTransport,
     RowState,
     RuleParameters,
+    TimeProduct,
 )
 from marivo.analysis.methods.errors import reject
 from marivo.analysis.methods.physical import (
@@ -52,6 +53,8 @@ CHECKS: tuple[CheckId, ...] = (
     "source.group_mapping@v1",
     "source.contribution_partition@v1",
     "source.complete_coverage@v1",
+    "source.calendar_members@v1",
+    "source.calendar_contributions@v1",
 )
 NUMERIC_CHECKS: tuple[CheckId, ...] = (
     *CHECKS,
@@ -61,6 +64,63 @@ NUMERIC_CHECKS: tuple[CheckId, ...] = (
 
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
+    declarations = _implementations(method)
+    if method.name not in (
+        "parts_transport",
+        "bind_project",
+        "time.product",
+        "metric.observe",
+        "metric.fold",
+        "metric.sum_zero",
+        "metric.count",
+        "state_rollup",
+        "state_rollup.sum_zero",
+        "state_rollup.count",
+    ):
+        return declarations
+    sqlite = tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend="sqlite")),
+            qualification=Qualified(
+                f"r55.sqlite.{method}.{item.key}",
+                "analysis.compiler.graph_lowering",
+                "tests/test_sqlite_semantic_integration.py",
+            ),
+        )
+        for item in declarations
+        if isinstance(item.key.shape, SourceShape)
+        and item.key.shape.backend == "duckdb"
+        and item.key.shape.form == "table"
+        and item.key.route == "ibis"
+    )
+    return (*declarations, *sqlite)
+
+
+def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
+    if method.name == "time.product":
+        time_forms: tuple[tuple[Literal["table", "parquet"], str], ...] = (
+            ("table", "native"),
+            ("parquet", "parquet"),
+        )
+        return tuple(
+            Implementation(
+                QualificationKey(method, (ScalarType(value),), ("entity",), shape, "ibis"),
+                CHECKS,
+                PARTS,
+                "exact",
+                ResourceRequirements("stream", "producer", None),
+                Qualified(
+                    f"r55.time.product.{value}.{shape}",
+                    "analysis.compiler.graph_lowering",
+                    "tests/test_analysis_temporal_r55.py",
+                ),
+            )
+            for value in ("string", "int64")
+            for form, source_kind in time_forms
+            for temporal in (NoTime(), TimeShape("instant", "us", "UTC"))
+            for shape in (SourceShape("duckdb", form, source_kind, temporal),)
+        )
     if method.name in ("group.attach", "group.complete"):
         classification_forms: tuple[tuple[Literal["table", "parquet"], str], ...] = (
             ("table", "native"),
@@ -186,9 +246,12 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         "state_rollup.count",
         "state_rollup.sum_zero",
         "state_rollup.linear",
+        "state_rollup.fold",
     ):
         rollup_types: tuple[Literal["int64", "float64"], ...] = (
-            ("int64",)
+            ("float64",)
+            if method.name == "state_rollup.fold"
+            else ("int64",)
             if method.name in ("state_rollup.count", "state_rollup.linear")
             else ("int64", "float64")
         )
@@ -227,6 +290,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         )
     if method.name in (
         "metric.observe",
+        "metric.fold",
         "metric.mean",
         "metric.count",
         "metric.sum_zero",
@@ -638,7 +702,18 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             repr(implementation.key),
             "Qualify a real lowerer and all required checkers for this exact key.",
         )
-    if isinstance(params, (AttachCategory, CompleteGroups)):
+    if (
+        isinstance(implementation.key.shape, SourceShape)
+        and implementation.key.shape.backend == "sqlite"
+        and isinstance(params, (ObserveMetric, ObserveCount))
+        and params.coordinates
+    ):
+        reject(
+            "a SQLite observation without nested contribution-coordinate state",
+            repr(params.coordinates),
+            "Omit contribution coordinates; SQLite nested state is not qualified.",
+        )
+    if isinstance(params, (AttachCategory, CompleteGroups, TimeProduct)):
         return
     if isinstance(params, ObserveWeightedMean):
         if params.amount_type != "int64":
@@ -648,12 +723,12 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
                 "Use the qualified value/weight types.",
             )
     elif isinstance(params, ObserveCount):
-        if len(params.path) not in (1, 2):
+        if len(params.path) not in (0, 1, 2):
             reject(
                 "one qualified count route", repr(params.path), "Use a direct member relationship."
             )
     elif isinstance(params, ObserveMetric):
-        if len(params.path) not in (1, 2) or params.amount_type not in ("int64", "float64"):
+        if len(params.path) not in (0, 1, 2) or params.amount_type not in ("int64", "float64"):
             reject(
                 "one qualified to-one observation route",
                 repr(params.path),

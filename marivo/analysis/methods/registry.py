@@ -133,6 +133,7 @@ class MethodRegistration:
                         "metric.ratio",
                         "state_rollup.weighted_mean",
                         "state_rollup.mean",
+                        "state_rollup.fold",
                     )
                     and not any(isinstance(item, DecimalType) for item in input_types)
                 ):
@@ -305,6 +306,7 @@ class MethodRegistry:
                 "state_rollup.ratio",
                 "state_rollup.weighted_mean",
                 "state_rollup.mean",
+                "state_rollup.fold",
                 "state_rollup.linear",
             ):
                 key = MethodKey(name)

@@ -2,7 +2,7 @@
 
 Date: 2026-09-28
 
-Status: R5.1 freeze complete; R5.2 bounded member/read qualification complete; R5.3 bounded five-factory graph slice implemented; qualification is recorded in evidence/r53; R5.4 bounded coordinate/group/row-state implementation and source-tree acceptance are complete, recorded in evidence/r54; R5.5-R5.7 remain unverified.
+Status: R5.1 freeze complete; R5.2 bounded member/read qualification complete; R5.3 bounded five-factory graph slice implemented; qualification is recorded in evidence/r53; R5.4 bounded coordinate/group/row-state implementation and source-tree acceptance are complete, recorded in evidence/r54; R5.5 bounded temporal implementation and source-tree acceptance are complete; the versioned qualification summary is in the migration ledger; R5.6-R5.7 remain unverified.
 
 R5.1 的具体交付、消费者与逐格债务见[迁移清单](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md)；
 [静态证据](evidence/r51/README.md)不授予执行资格。
@@ -335,3 +335,48 @@ empty_rules；ratio 改为双方 magnitude/support 四列；新增 weighted 四�
 方法。无兼容双读、无新 Store 代际，不声称旧冻结状态编码保持不变。
 D01–D22 未解除；D04/D05–D08/D14 既有 skips 保留。M10 source_admission 不在公共图
 路径，仍有 R6–R8 消费者，保留共享代码。未提交、推送或发布。
+
+## 12. R5.5 实施记录（2026-09-29）
+
+实际启动基线为 `panda` / `3eede8b61e2e7cdeb3e43c78333ad59e8e4777c5`，首次工作区干净；
+本次续作 HEAD 为 `8dccde674ed8a4586b2b4b1ff39d017a39ec44e1`（既有证据忽略规则提交）；
+先记录继承的 dirty-tree 指纹，保留前轮全部修改。用户方案中的旧 HEAD
+没有被检出或覆盖。可版本控制的资格摘要与复现入口见[迁移清单](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md#r55-qualification-summary)。启动、续作及候选指纹保存在本地忽略目录 `evidence/r55/`。
+
+已接入公共网格和完整 Entity×Time、逐格贡献窗口、独立属性版本端点及符号 before_end、
+空格与部分格、保留时间轴及整格粗化。累计以每个 occurrence 的实际端点读取
+all-history、grain-to-date 或固定秒长 trailing；展示起点不截断历史，重叠累计拒绝消轴。
+半可加量在采样时点先求声明的空间 sum，再做 first/last/mean/min/max；后续空间
+上卷要求对齐的 pre-fold 样本，错峰设备反例直接与固定分层结果均为 10。
+
+DuckDB table/Parquet 与所需 SQLite UTC/date 路线均走统一方法、Ibis/SourceSession、
+共同交换、receipt 和 Store 7。来源时间按独立权威转换并读取校验原值/引擎值，
+拒绝 DST gap/fold、规则不一致和不具资格的精度。日期保持 civil date。每个观察
+occurrence 的认证检查记录 origin/scope/digest；重叠命名 occurrence 不被当成一个分区。
+
+D01–D03、D09–D13 的 8 个历史参数格恢复，保留 `[110,30]`、SQLite revenue `30`
+以及五种 fold 的 `110/70/90/50/130` 独立预期。产出、断源续算、冷恢复运行于独立
+进程，比较实际结果、状态和 K，并注入部件、receipt、版本损坏验证续算撤销。
+公共 Help、类型、动态指导及英中 latest 示例同步。实际 import/call 迁移和共享
+R6–R9 owner 见迁移清单；未按文件名删除共享逻辑。
+
+资格范围、门禁结果及复现命令以迁移清单中的版本化摘要为准；本地证据目录补充原始日志。
+完整数值资格仍由 R5.6 承担，安装包和
+总体债务收口由 R5.7 承担；没有扩大后端范围或恢复 statistical_weight。
+AGENTS.md、packaged skills 未修改；没有提交、推送、发布、release-check、MinIO、
+wheel 或真实 Agent 验收。
+
+本包门禁：`make check-agent` 通过（5405 passed、5 skipped）；相关 Runtime
+193 passed，另有标量累计端点 3 passed、最终 fold 回归及溢出拒绝 6 passed。
+站点构建与 whitespace 检查通过；精确命令、退出码和候选指纹均保存在证据目录。
+
+### R5.5 review follow-up
+
+The three review findings are repaired: fixed/cumulative DATE windows keep their
+own timezone on a foreign-zone grid; grid construction uses incremental boundary
+checks and skips the historical prefix for fixed-offset zones; zero-row fold
+continuation retains explicit Arrow types. Regressions include repeated-hour
+minute boundaries and source-offline empty grouped/singleton fold continuation.
+The versioned qualification summary and reproduction commands are in the migration
+ledger. Detailed local logs and fingerprints are in ignored `evidence/r55/review-fixes-*`;
+those local files are not prerequisites for reading or reproducing this record.

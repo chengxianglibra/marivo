@@ -1096,3 +1096,43 @@ Store 代际或兼容读取。完整 V10/V12、wheel、SQLite 时间/fold、更�
 受影响 Runtime 退出 0（82 passed），另对加入计算结果断源续算后的冷恢复用例
 单独重跑 2 passed；站点构建退出 0（321 页）；`git diff --check` 退出 0。
 各次日志与候选代码指纹见 [R5.2 证据](evidence/r52/README.md)。
+
+## R5.5 temporal implementation record (2026-09-29)
+
+The previous partial grid-only record is superseded by the
+[versioned R5.5 qualification summary](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md#r55-qualification-summary). Historical R4 and R5.1–R5.4
+acceptance decisions are unchanged.
+
+R5.5 now includes endpoint attribute reads, symbolic before-end, cumulative
+anchors and original-state overlap refusal, spatial-before-time scalar folds,
+aligned retained sample merging, governed source timezone/date validation and
+per-occurrence certified publication. D01–D03 and D09–D13 are restored: eight
+parameter cells retain `[110,30]`, SQLite revenue `30`, and fold totals
+`110/70/90/50/130`. The two-device staggered-sample counterexample yields 10 in
+both direct and legal hierarchical execution. Independent process recovery and
+part/receipt/version damage tests cover the three retained temporal families.
+
+The versioned summary records scope, independent oracles, test owners and command
+results. Ignored local `completion-*.status.json` files supplement that record; their
+absence in another checkout does not supply evidence of a local rerun. Passed, failed attempts, not-run scope
+and route limits are separately recorded. No external approval blocker is
+asserted. Full numerical qualification remains R5.6; wheel/package and total debt
+closure remain R5.7. No release-check, MinIO, real Agent, commit, push or
+publication was run. AGENTS.md and packaged skills were not edited.
+
+R5.5 completion gates: `make check-agent` passed (5405 passed, 5 skipped; lint,
+typing, imports and API docs); the related Runtime selection passed 193 tests,
+with 3 additional scalar endpoint and 6 final fold checks passing separately.
+The final fold check includes typed refusal of overflowing pre-fold spatial sums.
+Site build and whitespace validation passed. These are bounded R5.5 results,
+not full numerical, package or whole-refactor acceptance.
+
+### R5.5 review follow-up
+
+The three review findings are repaired: fixed/cumulative DATE windows keep their
+own timezone on a foreign-zone grid; grid construction uses incremental boundary
+checks and skips the historical prefix for fixed-offset zones; zero-row fold
+continuation retains explicit Arrow types. Regressions include repeated-hour
+minute boundaries and source-offline empty grouped/singleton fold continuation.
+The versioned qualification summary includes reproduction commands. Detailed local
+logs and fingerprints remain in ignored `evidence/r55/review-fixes-*`.

@@ -289,3 +289,33 @@ def test_sqlite_profile_passes_strptime_through_and_lacks_quantile() -> None:
     assert profile.quantile is None
     assert profile.translate_strptime_format("%Y-%m-%d %H:%M:%S") == "%Y-%m-%d %H:%M:%S"
     assert profile.translate_strptime_format("%M") == "%M"
+
+
+def test_owned_staging_never_allows_persistent_or_foreign_temp_writes(tmp_path: Path) -> None:
+    from marivo.datasource.engines.sqlite import connect, owned_temporary_writes
+
+    database = tmp_path / "stage.sqlite"
+    _seed_sqlite(database)
+    backend = connect("sqlite", {"path": str(database), "read_only": True})
+    name = "mv_graph_" + "a" * 32
+    try:
+        with owned_temporary_writes(backend, frozenset({name})):
+            backend.create_table(name, schema={"value": "int64"}, temp=True)
+            with pytest.raises(sqlite3.DatabaseError):
+                backend.create_table("persistent", schema={"value": "int64"})
+            with pytest.raises(sqlite3.DatabaseError):
+                backend.create_table("foreign", schema={"value": "int64"}, temp=True)
+            backend.drop_table(name, database="temp")
+        with pytest.raises(sqlite3.DatabaseError):
+            backend.create_table(name, schema={"value": "int64"}, temp=True)
+        with (
+            pytest.raises(RuntimeError, match="abort"),
+            owned_temporary_writes(backend, frozenset({name})),
+        ):
+            raise RuntimeError("abort")
+        with pytest.raises(sqlite3.DatabaseError):
+            backend.create_table(name, schema={"value": "int64"}, temp=True)
+    finally:
+        backend.disconnect()
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM orders").fetchone() == (2,)

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator, Mapping, Sequence
-from contextlib import closing, suppress
+from contextlib import closing, nullcontext, suppress
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -291,6 +291,8 @@ def _exact_array(
             normalized_values.append(None)
             continue
         if pa.types.is_boolean(arrow_type):
+            if backend_name == "sqlite" and type(value) is int and value in (0, 1):
+                value = bool(value)
             valid = type(value) is bool
         elif pa.types.is_integer(arrow_type):
             valid = type(value) is int
@@ -594,6 +596,8 @@ class SourceSession:
         supported = frozenset({"scan", "filter", "project", "group", "count"})
         if self.provider.name == "duckdb":
             supported |= {"join", "union", "window", "sort"}
+        elif self.provider.name == "sqlite":
+            supported |= {"join", "union"}
         if (
             not need.method_id
             or need.version < 1
@@ -693,26 +697,56 @@ class SourceSession:
         return issued
 
     def stage_derived(self, read: CompiledRead) -> tuple[ir.Table, pa.Table]:
-        """Capture one exact DuckDB read into an owned temporary Ibis relation."""
+        """Capture one exact local read into an owned temporary Ibis relation."""
         self._ensure_open()
         stored = self._issued.get(id(read))
         if (
-            self.provider.name != "duckdb"
+            self.provider.name not in ("duckdb", "sqlite")
             or stored is None
             or stored[0] is not read
             or read._owner is not self._token
         ):
-            raise _invalid("an exact DuckDB read issued by this session", "unowned stage")
+            raise _invalid("an exact local read issued by this session", "unowned stage")
         with closing(self.batches(read, chunk_size=1024)) as stream:
             table = pa.Table.from_batches(stream, schema=stored[1].schema)
         name = "mv_graph_" + uuid4().hex
-        try:
-            relation = self._backend.create_table(name, table, temp=True)
-            if not isinstance(relation, ir.Table):
-                raise _invalid("one temporary Ibis relation", type(relation).__name__)
-        except BaseException:
-            self._backend.drop_table(name, force=True)
-            raise
+        from marivo.datasource.engines.sqlite import owned_temporary_writes
+
+        with (
+            owned_temporary_writes(self._backend, frozenset({name, name + "_input"}))
+            if self.provider.name == "sqlite"
+            else nullcontext()
+        ):
+            try:
+                if self.provider.name == "sqlite":
+                    columns: dict[str, list[object]] = {
+                        field.name: [
+                            value.isoformat(sep=" ", timespec="microseconds")
+                            if isinstance(value, datetime)
+                            else value
+                            for value in table.column(field.name).to_pylist()
+                        ]
+                        for field in table.schema
+                    }
+                    # SQLite compares timestamp storage lexically. Ibis registers
+                    # pandas Timestamp with a T separator, unlike its literals.
+                    data = (
+                        ibis.memtable(columns, schema=ibis.schema(table.schema))
+                        .op()
+                        .copy(name=name + "_input")
+                        .to_expr()
+                    )
+                    try:
+                        relation = self._backend.create_table(name, data, temp=True)
+                    finally:
+                        self._backend.drop_table(name + "_input", database="temp", force=True)
+                else:
+                    relation = self._backend.create_table(name, table, temp=True)
+                if not isinstance(relation, ir.Table):
+                    raise _invalid("one temporary Ibis relation", type(relation).__name__)
+            except BaseException:
+                self._backend.drop_table(name, force=True)
+                raise
         self._staged_relations[relation.op()] = (
             frozenset(stored[1].source_identity.split("|")),
             name,
@@ -732,7 +766,14 @@ class SourceSession:
                     )
                 continue
             try:
-                self._backend.drop_table(owned[1], force=True)
+                from marivo.datasource.engines.sqlite import owned_temporary_writes
+
+                with (
+                    owned_temporary_writes(self._backend, frozenset({owned[1]}))
+                    if self.provider.name == "sqlite"
+                    else nullcontext()
+                ):
+                    self._backend.drop_table(owned[1], force=True)
                 del self._staged_relations[relation.op()]
             except BaseException as error:
                 if failure is None:

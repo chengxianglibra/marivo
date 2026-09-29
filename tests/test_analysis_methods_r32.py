@@ -115,6 +115,8 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "metric.count@v1": "bind_project@v1",
         "metric.weighted_mean@v1": "bind_project@v1",
         "metric.mean@v1": "bind_project@v1",
+        "metric.fold@v1": "bind_project@v1",
+        "state_rollup.fold@v1": "original_reduce@v1",
         "metric.sum_zero@v1": "bind_project@v1",
         "metric.ratio@v1": "original_reduce@v1",
         "metric.linear@v1": "occurrence_combine@v1",
@@ -126,6 +128,7 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "row.min@v1": "row_state@v1",
         "row.max@v1": "row_state@v1",
         "group.attach@v1": "parts_transport@v1",
+        "time.product@v1": "parts_transport@v1",
         "group.complete@v1": "parts_transport@v1",
         "row.count@v1": "row_state@v1",
         "row.count_defined@v1": "row_state@v1",
@@ -145,9 +148,12 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
     } == expected
     assert all(item.semantics.owner == "analysis.core.rules" for item in REGISTRY.registrations)
     assert {item.semantics.key.name for item in REGISTRY.registrations if item.implementations} == {
+        "time.product",
         "group.attach",
         "group.complete",
         "metric.mean",
+        "metric.fold",
+        "state_rollup.fold",
         "state_rollup.mean",
         "row.min",
         "row.max",

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime, time, timezone
 from itertools import pairwise
 
@@ -31,6 +31,7 @@ from marivo.analysis.core.rules import (
     OccurrenceFilter,
     entity_members,
 )
+from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint, bind_cumulative
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.graph_members import MemberGraph
@@ -47,9 +48,10 @@ from marivo.refs import (
     ref,
 )
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
-from marivo.semantic.ir import TargetRelationshipContract, TimestampParse
+from marivo.semantic.ir import DateParse, DatetimeParse, TargetRelationshipContract, TimestampParse
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
+    CumulativeNodeV1,
     TargetMetricContract,
     WeightedMeanAggregateNodeV1,
     component_node,
@@ -114,7 +116,11 @@ def _window_bounds(
         .replace(tzinfo=timezone.utc)
         .isoformat()
         for value in (
-            civil_bound(item, report=report_timezone, boundary="UTC")
+            civil_bound(
+                item,
+                report=report_timezone if during.kind == "absolute" else during.boundary_timezone,
+                boundary="UTC",
+            )
             for item in (during.start, during.end)
         )
     )
@@ -145,7 +151,7 @@ def _occurrence_filters(
     if not aggregate.filter:
         return ()
     route_paths = {
-        path[0].from_entity_ref.path,
+        path[0].from_entity_ref.path if path else entity_paths[0],
         *(relationship.to_entity_ref.path for relationship in path),
     }
     filters: list[OccurrenceFilter] = []
@@ -189,12 +195,13 @@ def observe_members(
     members: MemberGraph,
     metric_ref: Ref[MetricKind] | RuntimeMetricExpr,
     *,
-    during: TimeScope | None,
+    during: TimeScope | BoundTimeGrid | None,
     via: Ref[RelationshipKind] | tuple[Ref[RelationshipKind], ...],
     sidecar: CompiledExpressionSidecar,
     report_timezone: str,
     coordinates: tuple[Ref[DimensionKind], ...] = (),
     component_index: int = 0,
+    at: datetime | GridPoint | None = None,
 ) -> MemberGraph:
     """Resolve schema only and capture one component's observation before admission.
 
@@ -209,24 +216,26 @@ def observe_members(
     component = metric.components[component_index]
     route_refs = (via,) if type(via) is Ref else via
     path = tuple(normalize_target_relationship(registry, item.path) for item in route_refs)
-    if component.computation_root.path != path[0].from_entity_ref.path:
+    if component.computation_root.path != (
+        path[0].from_entity_ref.path if path else members.entity_schema.contract.ref.path
+    ):
         raise _reject("a route bound to this occurrence's distinct contribution root")
-    if metric.cumulative and during is None:
+    if metric.cumulative and at is None:
         # A cumulative occurrence consumes [anchor(e), e) per endpoint, so an
         # omitted window cannot degrade to an unrestricted read.
         raise DatasetConstructionError(
             expected="an observation whose named components need no endpoint",
             received="a cumulative Metric requiring an explicit endpoint window",
             repair=(
-                "Pass an explicit TimeScope with an endpoint for a cumulative "
+                "Pass at=grid.end or an aware datetime for a cumulative "
                 "Metric, or observe a non-cumulative base instead."
             ),
             location="analysis.graph_observation",
             help_target="dsl.LogicalAnalysisDomain.observe",
         )
     if (
-        len(path) not in (1, 2)
-        or path[-1].to_entity_ref.path != members.entity_schema.contract.ref.path
+        len(path) not in (0, 1, 2)
+        or (path and path[-1].to_entity_ref.path != members.entity_schema.contract.ref.path)
         or any(
             relationship.cardinality not in ("many_to_one", "one_to_one")
             or not relationship.keys
@@ -236,8 +245,12 @@ def observe_members(
         )
         or any(first.to_entity_ref != second.from_entity_ref for first, second in pairwise(path))
         or component.empty_rule not in ("null", "zero")
-        or component.spatial_merge != "sum"
-        or metric.requires_source_recompute
+        or (component.spatial_merge != "sum" and component.time_fold is None)
+        or (
+            metric.requires_source_recompute
+            and not metric.cumulative
+            and component.time_fold is None
+        )
     ):
         raise _reject("Metric roots or relationship endpoints differ")
     aggregate = component_node(metric.graph, component.node_id)
@@ -274,7 +287,11 @@ def observe_members(
     ):
         raise _reject("Measure is not a frozen direct column")
     event_path = (
-        component.event_time_dimension.path if component.event_time_dimension is not None else None
+        component.status_time_dimension.path
+        if component.time_fold is not None and component.status_time_dimension is not None
+        else component.event_time_dimension.path
+        if component.event_time_dimension is not None
+        else None
     )
     if event_path is None:
         # Runtime aggregates use the root Entity's explicitly declared default axis.
@@ -310,7 +327,7 @@ def observe_members(
     )
     schemas = {schema.contract.ref.path: schema for schema in selected_schemas}
     member_schema = schemas[members.entity_schema.contract.ref.path]
-    contribution_schema = schemas[path[0].from_entity_ref.path]
+    contribution_schema = schemas[component.computation_root.path]
     if event.entity_ref.path not in schemas:
         raise _reject("event time is outside the qualified contribution route")
     if member_schema != members.entity_schema:
@@ -327,13 +344,19 @@ def observe_members(
     if amount_type.name not in ("int64", "float64"):
         raise _reject("unqualified amount physical type")
     event_type = schemas[event.entity_ref.path].schema.field(event.source_column).type
-    if (
-        event.timezone != "UTC"
-        or (event.parse is not None and event.parse != TimestampParse(timezone="UTC"))
-        or event_type
-        not in (pa.timestamp("us"), pa.timestamp("us", "UTC"), pa.timestamp("us", "Etc/UTC"))
+    if not (
+        (pa.types.is_date(event_type) and event.parse in (None, DateParse()))
+        or (
+            pa.types.is_timestamp(event_type)
+            and event_type.unit == "us"
+            and isinstance(event.parse, (TimestampParse, DatetimeParse))
+        )
     ):
-        raise _reject("unqualified event physical type or timezone")
+        raise _reject("unqualified event physical type or precision")
+    if pa.types.is_date(event_type):
+        event = replace(event, logical_type="date")
+    if contribution_schema.shape.backend == "sqlite" and event.timezone not in (None, "UTC"):
+        raise _reject("SQLite non-UTC observation has no qualified source route")
     for relationship in path:
         first, second = (
             schemas[relationship.from_entity_ref.path],
@@ -348,12 +371,64 @@ def observe_members(
         if schemas[field.entity_ref.path].field_type(field.source_column) != ScalarType("string"):
             raise _reject("coordinate physical type is not string")
     coordinate_fields = tuple(replace(field, logical_type="string") for field in coordinate_fields)
-    start, end = _window_bounds(during, report_timezone)
+    cumulative = None
+    if at is not None:
+        if during is not None:
+            raise _reject("at and during are independent alternatives; do not supply both")
+        occurrences = tuple(
+            item for item in metric.cumulative if component.role.startswith(item.role + ".base")
+        )
+        if len(occurrences) != 1:
+            raise _reject(
+                "endpoint observation requires one cumulative anchor per component occurrence"
+            )
+        if isinstance(at, GridPoint) and at.grid != members.root.signature.domain.time_grid:
+            raise _reject("endpoint belongs to a different grid")
+        occurrence = occurrences[0]
+        if occurrence.over_ref.path != event.ref.path:
+            raise _reject("cumulative axis differs from the bound occurrence event axis")
+        snapshot = None
+        if (
+            occurrence.anchor != "all_history"
+            and occurrence.anchor[0] == "grain_to_date"
+            and not isinstance(occurrence.anchor[1], str)
+            and occurrence.anchor[1].kind == "semantic"
+        ):
+            owner = members.runtime._source_context.current
+            snapshot = (
+                next(
+                    (
+                        item
+                        for item in owner.period_calendar_snapshots
+                        if item.calendar_ref == occurrence.anchor[1].calendar
+                    ),
+                    None,
+                )
+                if owner is not None
+                else None
+            )
+        cumulative = bind_cumulative(occurrence.anchor, at, report_timezone, snapshot)
+    grid_window = isinstance(during, BoundTimeGrid)
+    if grid_window and during != members.root.signature.domain.time_grid:
+        raise _reject("grid window differs from the receiver's exact bound grid")
+    start, end = (
+        (None, None)
+        if grid_window
+        else _window_bounds(None if isinstance(during, BoundTimeGrid) else during, report_timezone)
+    )
     window = (
         canonical_json({"start": start, "end": end})
         if start is not None and end is not None
+        else canonical_json({"grid_window": during.identity})
+        if isinstance(during, BoundTimeGrid)
         else canonical_json({"window": "unrestricted"})
     )
+    if isinstance(during, TimeScope) and during.kind != "absolute":
+        window = canonical_json(
+            {"start": start, "end": end, "scope": during.model_dump(mode="json")}
+        )
+    if cumulative is not None:
+        window = canonical_json(asdict(cumulative))
     temporal = TimeShape("instant", "us", "UTC")
     nodes: dict[str, Node] = {}
     for node in topology(members.root):
@@ -457,7 +532,9 @@ def observe_members(
             + member_root.fingerprint
         ),
         "ignore_null_inputs",
-        "sum_zero@v1"
+        "fold@v1"
+        if component.time_fold is not None
+        else "sum_zero@v1"
         if aggregate_kind == "sum" and component.empty_rule == "zero"
         else f"{aggregate_kind}@v1",
     )
@@ -537,12 +614,29 @@ def observe_members(
             filters,
             "mean" if aggregate_kind == "mean" else "sum",
         )
+    if component.time_fold is not None:
+        if component.time_fold not in ("first", "last", "mean", "min", "max") or not isinstance(
+            parameters, ObserveMetric
+        ):
+            raise _reject("unqualified time fold")
+        parameters = replace(parameters, fold=component.time_fold)
+    parameters = replace(
+        parameters,
+        grid_window=grid_window,
+        cumulative=cumulative,
+        report_timezone=report_timezone,
+        window_timezone=during.boundary_timezone
+        if isinstance(during, TimeScope) and during.kind != "absolute"
+        else report_timezone,
+    )
     root = method_node(
         (Edge("subject", member_root),),
         parameters,
         sources=tuple(leaf for _, leaf in source_entries),
         value_type=ScalarType("float64")
-        if isinstance(parameters, ObserveWeightedMean) or aggregate_kind == "mean"
+        if isinstance(parameters, ObserveWeightedMean)
+        or aggregate_kind == "mean"
+        or component.time_fold is not None
         else amount_type,
     )
 
@@ -558,11 +652,12 @@ def observe_ratio_members(
     members: MemberGraph,
     metric_ref: Ref[MetricKind] | RuntimeMetricExpr,
     *,
-    during: TimeScope | None,
+    during: TimeScope | BoundTimeGrid | None,
     paths: tuple[tuple[Ref[RelationshipKind], ...], ...],
     sidecar: CompiledExpressionSidecar,
     report_timezone: str,
     coordinates: tuple[Ref[DimensionKind], ...] = (),
+    at: datetime | GridPoint | None = None,
 ) -> MemberGraph:
     """Bind a closed ratio to its independently aggregated ordered components."""
     from marivo.analysis.materialization.graph_composition import combine_observations
@@ -578,8 +673,7 @@ def observe_ratio_members(
     if (
         not isinstance(root_node, RatioNodeV1)
         or root_node.zero_division not in ("undefined", "null")
-        or metric.requires_source_recompute
-        or metric.cumulative
+        or (metric.requires_source_recompute and not metric.cumulative)
     ):
         raise _reject_ratio("ratio must be a two-component ratio with declared zero policy")
     by_root = bound_routes(registry, metric, paths)
@@ -593,6 +687,7 @@ def observe_ratio_members(
             report_timezone=report_timezone,
             coordinates=coordinates,
             component_index=index,
+            at=at,
         )
         for index, component in enumerate(metric.components)
     )
@@ -620,11 +715,12 @@ def observe_linear_members(
     members: MemberGraph,
     metric_ref: Ref[MetricKind] | RuntimeMetricExpr,
     *,
-    during: TimeScope | None,
+    during: TimeScope | BoundTimeGrid | None,
     paths: tuple[tuple[Ref[RelationshipKind], ...], ...],
     sidecar: CompiledExpressionSidecar,
     report_timezone: str,
     coordinates: tuple[Ref[DimensionKind], ...] = (),
+    at: datetime | GridPoint | None = None,
 ) -> MemberGraph:
     """Bind a signed linear combination to its independently reduced occurrences."""
     from marivo.analysis.materialization.graph_composition import combine_linear_occurrences
@@ -637,7 +733,7 @@ def observe_linear_members(
     )
     if not isinstance(root_node, LinearNodeV1):
         raise _reject_ratio("input is not a linear combination")
-    if metric.requires_source_recompute or metric.cumulative:
+    if metric.requires_source_recompute and not metric.cumulative:
         raise _reject_ratio("linear combination requires retained component state")
     by_root = bound_routes(registry, metric, paths)
     observed = tuple(
@@ -650,6 +746,7 @@ def observe_linear_members(
             report_timezone=report_timezone,
             coordinates=coordinates,
             component_index=index,
+            at=at,
         )
         for index, component in enumerate(metric.components)
     )
@@ -659,7 +756,7 @@ def observe_linear_members(
         from marivo.semantic.metric_graph import SliceNodeV1
 
         node = next(record.node for record in metric.graph.nodes if record.node_id == node_id)
-        if isinstance(node, SliceNodeV1):
+        if isinstance(node, (SliceNodeV1, CumulativeNodeV1)):
             return leaf_signs(node.child_id, sign)
         if isinstance(node, LinearNodeV1):
             return tuple(
@@ -734,7 +831,7 @@ def _observe_ratio_expression(
     members: MemberGraph,
     expression: RuntimeMetricExpr,
     *,
-    during: TimeScope | None,
+    during: TimeScope | BoundTimeGrid | None,
     paths: tuple[tuple[Ref[RelationshipKind], ...], ...],
     sidecar: CompiledExpressionSidecar,
     report_timezone: str,
