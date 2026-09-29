@@ -46,6 +46,9 @@ from marivo.analysis.core.rules import (
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
+    ObserveWeightedMean,
+    OccurrenceCombine,
+    OccurrenceFilter,
     OriginalRatio,
     OriginalReduce,
     PartsTransport,
@@ -497,17 +500,27 @@ def _source_fields(admitted: GraphPlan, binding: SourceBinding) -> tuple[str, ..
                     fields.update(key[0] for key in relationship.keys)
                 if relationship.to_entity_ref.path == binding.leaf.definition.ref.path:
                     fields.update(key[1] for key in relationship.keys)
-        elif isinstance(params, (ObserveMetric, ObserveCount)):
+        elif isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
+            if (
+                isinstance(params, ObserveWeightedMean)
+                and params.contribution.path == binding.leaf.definition.ref.path
+            ):
+                fields.add(params.weight_column)
             for coordinate in params.coordinates:
                 if coordinate.entity_ref.path == binding.leaf.definition.ref.path:
                     fields.add(coordinate.source_column)
+            for item in params.filters:
+                if item.dimension.entity_ref.path == binding.leaf.definition.ref.path:
+                    fields.add(item.dimension.source_column)
             if params.event.entity_ref.path == binding.leaf.definition.ref.path:
                 fields.add(params.event.source_column)
             for relationship in params.path:
                 if relationship.from_entity_ref.path == binding.leaf.definition.ref.path:
-                    fields.add(relationship.keys[0][0])
+                    fields.update(source for source, _ in relationship.keys)
+                if relationship.to_entity_ref.path == binding.leaf.definition.ref.path:
+                    fields.update(destination for _, destination in relationship.keys)
             if (
-                isinstance(params, ObserveMetric)
+                isinstance(params, (ObserveMetric, ObserveWeightedMean))
                 and params.contribution == binding.leaf.definition.ref
             ):
                 fields.add(params.amount_column)
@@ -884,21 +897,142 @@ def _spearman(
     return output.select(*target.columns), target
 
 
-def _ratio_finish(table: ir.Table, layout: RelationLayout) -> ir.Table:
+def _occurrence_combine(
+    stage: SourceMethodStage,
+    inputs: tuple[LoweredRelation, ...],
+    checks: list[LoweredCheck],
+    admitted: GraphPlan,
+) -> tuple[ir.Table, RelationLayout]:
+    """Combine independently reduced occurrences under ordered signed terms."""
+    params = stage.node.parameters
+    assert isinstance(params, OccurrenceCombine)
+    first = inputs[0]
+    keys = tuple(k.column for k in first.layout.keys)
+    # Rename each component's own state to its indexed term column so the join
+    # cannot silently pair one occurrence's state with another's. Each component
+    # contributes whatever state its own method declared: a sum carries
+    # sum/non-null-count, a count carries count.
+    parts: list[ir.Table] = []
+    for index, (_quantity, sign) in enumerate(params.terms):
+        source = inputs[index]
+        state = next(
+            (part for part in source.node.signature.parts if part_role(part) == "original_state"),
+            None,
+        )
+        if not isinstance(state, OriginalStatePart):
+            _fail("a retained original state on every combined occurrence", stage.output)
+        magnitude, support = _state_magnitude(state)
+        selection: dict[str, ir.Value] = {key: source.expression[key] for key in keys}
+        selection[_term_sum_name(index, sign)] = source.expression[magnitude]
+        selection[_term_support_name(index, sign)] = source.expression[support]
+        for part in source.node.signature.parts:
+            if index == 0 and isinstance(part, SubjectPart):
+                selection.update(
+                    {
+                        column: source.expression[column]
+                        for column in _subject_columns(part, source.expression)
+                    }
+                )
+        parts.append(source.expression.select(**selection).view())
+    table = parts[0]
+    for index, part in enumerate(parts[1:], start=1):
+        checks.append(
+            IntegrityCheck(
+                stage.output,
+                "equal combined occurrence keys",
+                _pair_violations(first, inputs[index]),
+                _source_ids(first.source_ids, inputs[index].source_ids),
+            )
+        )
+        table = table.inner_join(part, keys)
+    layout = canonical_layout(stage.node.signature, has_value=True)
+    table = _linear_finish(table, layout, stage.node.signature)
+    for requirement in admitted.checks:
+        if requirement.node_id == stage.node.identity and requirement.obligation.check_id in (
+            "source.contribution_partition@v1",
+            "source.complete_coverage@v1",
+        ):
+            checks.append(
+                SemanticCheck(
+                    requirement,
+                    table.filter(~table.coverage__complete),
+                    _source_ids(*(item.source_ids for item in inputs)),
+                )
+            )
+    return table, layout
+
+
+def _linear_finish(table: ir.Table, layout: RelationLayout, signature: Signature) -> ir.Table:
+    state = _original_state(signature)
+    total = ibis.literal(0, type="int64")
+    defined = ibis.literal(True)
+    for index, empty in enumerate(state.empty_rules):
+        magnitude, support = state.components[2 * index : 2 * index + 2]
+        sign = 1 if magnitude.startswith("plus_") else -1
+        total = total + table[f"original_state__{magnitude}"] * sign
+        defined = defined & (
+            (table[f"original_state__{support}"] > 0) | ibis.literal(empty == "zero")
+        )
+    return table.mutate(
+        value=ibis.ifelse(defined, total.cast("int64"), ibis.null().cast("int64")),
+        cell_tag=ibis.ifelse(defined, "defined", "null"),
+        cell_reason=ibis.ifelse(defined, ibis.null().cast("string"), "empty_contribution"),
+        coverage__complete=ibis.literal(True),
+    ).select(*layout.columns)
+
+
+def _subject_columns(part: SubjectPart, table: ir.Table) -> tuple[str, ...]:
+    """Return the retained subject-key columns present on one observed relation."""
+    return tuple(
+        f"subject__key_{index}"
+        for index in range(len(part.subject_key))
+        if f"subject__key_{index}" in table.columns
+    )
+
+
+def _state_magnitude(state: OriginalStatePart) -> tuple[str, str]:
+    """Return one component's additive column and its contributing-row count."""
+    if state.components == ("count",):
+        return "original_state__count", "original_state__count"
+    if state.components == ("sum", "non_null_count"):
+        return "original_state__sum", "original_state__non_null_count"
+    _fail("a registered additive original state", repr(state.components))
+
+
+def _term_sum_name(index: int, sign: int) -> str:
+    return f"original_state__{'plus' if sign > 0 else 'minus'}_{index}_sum"
+
+
+def _term_support_name(index: int, sign: int) -> str:
+    return f"original_state__{'plus' if sign > 0 else 'minus'}_{index}_non_null_count"
+
+
+def _original_state(signature: Signature) -> OriginalStatePart:
+    return next(part for part in signature.parts if isinstance(part, OriginalStatePart))
+
+
+def _ratio_finish(table: ir.Table, layout: RelationLayout, signature: Signature) -> ir.Table:
+    state = _original_state(signature)
     numerator = table.original_state__numerator_sum.cast("int64")
-    denominator = table.original_state__denominator_count.cast("int64")
-    defined = denominator > 0
+    denominator = table.original_state__denominator_sum.cast("int64")
+    contribution = (
+        (table.original_state__numerator_non_null_count > 0)
+        | ibis.literal(state.empty_rules[0] == "zero")
+    ) & (
+        (table.original_state__denominator_non_null_count > 0)
+        | ibis.literal(state.empty_rules[1] == "zero")
+    )
+    defined = contribution & (denominator != 0)
     return table.mutate(
         value=ibis.ifelse(
             defined, numerator.cast("float64") / denominator, ibis.null().cast("float64")
         ),
-        cell_tag=ibis.ifelse(defined, "defined", "undefined"),
-        cell_reason=ibis.ifelse(defined, ibis.null().cast("string"), "zero_denominator"),
-        original_state__numerator_sum=numerator,
-        original_state__numerator_non_null_count=table.original_state__numerator_non_null_count.cast(
-            "int64"
+        cell_tag=ibis.ifelse(defined, "defined", ibis.ifelse(contribution, "undefined", "null")),
+        cell_reason=ibis.ifelse(
+            defined,
+            ibis.null().cast("string"),
+            ibis.ifelse(contribution, "zero_denominator", "empty_contribution").cast("string"),
         ),
-        original_state__denominator_count=denominator,
         coverage__complete=ibis.literal(True),
     ).select(*layout.columns)
 
@@ -922,12 +1056,15 @@ def _original_ratio(
     )
     joined = a.inner_join(b, keys)
     layout = canonical_layout(stage.node.signature, has_value=True)
+    first_sum, first_support = _state_magnitude(_original_state(left.node.signature))
+    second_sum, second_support = _state_magnitude(_original_state(right.node.signature))
     fields = {key: a[key] for key in keys}
     fields.update(
         {
-            "original_state__numerator_sum": a.original_state__sum,
-            "original_state__numerator_non_null_count": a.original_state__non_null_count,
-            "original_state__denominator_count": b.original_state__count,
+            "original_state__numerator_sum": a[first_sum],
+            "original_state__numerator_non_null_count": a[first_support],
+            "original_state__denominator_sum": b[second_sum],
+            "original_state__denominator_non_null_count": b[second_support],
         }
     )
     if any(isinstance(part, SubjectPart) for part in stage.node.signature.parts):
@@ -941,14 +1078,17 @@ def _original_ratio(
         first = first.select(
             *keys,
             **{name: first.group[name] for name in coordinate.columns},
-            numerator_sum=first.group["sum"],
-            numerator_non_null_count=first.group["non_null_count"],
+            numerator_sum=first.group[first_sum.removeprefix("original_state__")],
+            numerator_non_null_count=first.group[first_support.removeprefix("original_state__")],
         )
         second = b.select(*keys, group=b.coordinate_state__groups.unnest())
         second = second.select(
             *keys,
             **{name: second.group[name] for name in coordinate.columns},
-            denominator_count=second.group["count"],
+            denominator_sum=second.group[second_sum.removeprefix("original_state__")],
+            denominator_non_null_count=second.group[
+                second_support.removeprefix("original_state__")
+            ],
         )
         paired = first.outer_join(second, (*keys, *coordinate.columns))
         merged = paired.select(
@@ -956,7 +1096,8 @@ def _original_ratio(
             **{name: first[name].coalesce(second[name]) for name in coordinate.columns},
             numerator_sum=first.numerator_sum.fill_null(0),
             numerator_non_null_count=first.numerator_non_null_count.fill_null(0),
-            denominator_count=second.denominator_count.fill_null(0),
+            denominator_sum=second.denominator_sum.fill_null(0),
+            denominator_non_null_count=second.denominator_non_null_count.fill_null(0),
         )
         cells = ibis.struct(
             {
@@ -973,7 +1114,7 @@ def _original_ratio(
             else {},
             coordinate_state__groups=ibis.array([cells]),
         )
-    table = _ratio_finish(base, layout)
+    table = _ratio_finish(base, layout, stage.node.signature)
     for requirement in admitted.checks:
         if requirement.node_id == stage.node.identity and requirement.obligation.check_id in (
             "source.contribution_partition@v1",
@@ -987,6 +1128,26 @@ def _original_ratio(
                 )
             )
     return table, layout
+
+
+def _weighted_finish(table: ir.Table, layout: RelationLayout) -> ir.Table:
+    support = table.original_state__non_null_pair_count
+    denominator = table.original_state__weight_sum
+    defined = (support > 0) & (denominator != 0)
+    return table.mutate(
+        value=ibis.ifelse(
+            defined,
+            table.original_state__weighted_numerator.cast("float64") / denominator,
+            ibis.null().cast("float64"),
+        ),
+        cell_tag=ibis.ifelse(defined, "defined", "null"),
+        cell_reason=ibis.ifelse(
+            defined,
+            ibis.null().cast("string"),
+            ibis.ifelse(support == 0, "empty_contribution", "zero_weight_sum"),
+        ),
+        coverage__complete=ibis.literal(True),
+    ).select(*layout.columns)
 
 
 def _original_sum(
@@ -1006,6 +1167,23 @@ def _original_sum(
             coverage__complete=ibis.literal(True),
         )
     grouped = table.group_by("key_0") if params.coordinate is not None else table
+    if stage.node.method.name in ("state_rollup.weighted_mean", "state_rollup.linear"):
+        state = _original_state(stage.node.signature)
+        reduced = grouped.aggregate(
+            **{
+                f"original_state__{name}": table[f"original_state__{name}"]
+                .sum()
+                .fill_null(0)
+                .cast("int64")
+                for name in state.components
+            }
+        )
+        target = canonical_layout(stage.node.signature, has_value=True)
+        return (
+            _linear_finish(reduced, target, stage.node.signature)
+            if stage.node.method.name == "state_rollup.linear"
+            else _weighted_finish(reduced, target)
+        ), target
     if stage.node.method.name == "state_rollup.ratio":
         reduced = grouped.aggregate(
             **{
@@ -1013,12 +1191,13 @@ def _original_sum(
                 for name in (
                     "original_state__numerator_sum",
                     "original_state__numerator_non_null_count",
-                    "original_state__denominator_count",
+                    "original_state__denominator_sum",
+                    "original_state__denominator_non_null_count",
                 )
             }
         )
         target = canonical_layout(stage.node.signature, has_value=True)
-        return _ratio_finish(reduced, target), target
+        return _ratio_finish(reduced, target, stage.node.signature), target
     if stage.node.method.name == "state_rollup.count":
         reduced_count = grouped.aggregate(
             original_state__count=table.original_state__count.sum().fill_null(0),
@@ -1055,7 +1234,7 @@ def _original_sum(
 
 def _contribution_rows(
     stage: SourceMethodStage,
-    params: ObserveMetric | ObserveCount,
+    params: ObserveMetric | ObserveCount | ObserveWeightedMean,
     bindings: tuple[SourceBinding, ...],
     relations: tuple[LoweredRelation, ...],
     checks: list[LoweredCheck],
@@ -1064,16 +1243,23 @@ def _contribution_rows(
     root_binding = by_entity[params.contribution.path]
     root = _staged_source(root_binding, relations).view()
     if (
-        isinstance(params, ObserveMetric)
+        isinstance(params, (ObserveMetric, ObserveWeightedMean))
         and str(root[params.amount_column].type()) != params.amount_type
     ):
         _fail("the exact contribution amount type", str(root[params.amount_column].type()))
+    root_filters = _owner_predicate(root, params.filters, params.contribution.path)
+    if root_filters is not None:
+        root = root.filter(root_filters)
     fields: dict[str, ir.Value] = {
         "amount": root[params.amount_column]
-        if isinstance(params, ObserveMetric)
+        if isinstance(params, (ObserveMetric, ObserveWeightedMean))
         else ibis.literal(1, type="int64"),
-        "next_key": root[params.path[0].keys[0][0]],
+        **{f"next_key_{i}": root[source] for i, (source, _) in enumerate(params.path[0].keys)},
     }
+    if isinstance(params, ObserveWeightedMean):
+        if str(root[params.weight_column].type()) != "int64":
+            _fail("int64 weight column", str(root[params.weight_column].type()))
+        fields["weight"] = root[params.weight_column]
     if params.event.entity_ref.path == params.contribution.path:
         fields["event_time"] = root[params.event.source_column]
     for index, coordinate in enumerate(params.coordinates):
@@ -1086,18 +1272,21 @@ def _contribution_rows(
     for index, relationship in enumerate(params.path):
         binding = by_entity[relationship.to_entity_ref.path]
         destination = _staged_source(binding, relations).view()
-        key = relationship.keys[0][1]
-        joined = rows.left_join(destination, rows.next_key == destination[key])
+        destination_keys = tuple(key for _, key in relationship.keys)
+        joined = rows.left_join(
+            destination,
+            [rows[f"next_key_{i}"] == destination[key] for i, key in enumerate(destination_keys)],
+        )
         source_ids = _source_ids(source_ids, (binding.leaf.identity,))
         checks.append(
             IntegrityCheck(
                 stage.output,
                 "complete contribution relationship mapping",
-                joined.filter(destination[key].isnull()),
+                joined.filter(reduce(or_, (destination[key].isnull() for key in destination_keys))),
                 source_ids,
             )
         )
-        selected = {name: rows[name] for name in rows.columns if name != "next_key"}
+        selected = {name: rows[name] for name in rows.columns if not name.startswith("next_key_")}
         if relationship.to_entity_ref.path == params.event.entity_ref.path:
             selected["event_time"] = destination[params.event.source_column]
         for coordinate_index, coordinate in enumerate(params.coordinates):
@@ -1106,11 +1295,67 @@ def _contribution_rows(
                     "coordinate" if coordinate_index == 0 else f"coordinate_{coordinate_index}"
                 ] = destination[coordinate.source_column]
         if index + 1 < len(params.path):
-            selected["next_key"] = destination[params.path[index + 1].keys[0][0]]
+            selected.update(
+                {
+                    f"next_key_{i}": destination[source]
+                    for i, (source, _) in enumerate(params.path[index + 1].keys)
+                }
+            )
         else:
-            selected["member"] = destination[key]
+            selected.update(
+                {f"member_{i}": destination[key] for i, key in enumerate(destination_keys)}
+            )
+        hop_filters = _owner_predicate(destination, params.filters, relationship.to_entity_ref.path)
+        if hop_filters is not None:
+            joined = joined.filter(hop_filters)
         rows = joined.select(**selected)
     return rows, source_ids
+
+
+def _owner_predicate(
+    source: ir.Table,
+    filters: tuple[OccurrenceFilter, ...],
+    owner_path: str,
+) -> ir.BooleanValue | None:
+    """Restrict one joined owner's rows to this occurrence's declared slice branch."""
+    predicates = [
+        _slice_predicate(source[item.dimension.source_column], item.operator, item.value)
+        for item in filters
+        if item.dimension.entity_ref.path == owner_path
+    ]
+    if not predicates:
+        return None
+    combined = predicates[0]
+    for predicate in predicates[1:]:
+        combined = combined & predicate
+    return combined
+
+
+def _slice_predicate(
+    column: ir.Value,
+    operator: str,
+    value: object,
+) -> ir.BooleanValue:
+    """Apply the closed canonical slice operator set to one bound source column."""
+    if operator == "==":
+        return column == value
+    if operator == "!=":
+        return column != value
+    if operator == "in":
+        assert isinstance(value, tuple)
+        return column.isin(list(value))
+    if operator == "between":
+        assert isinstance(value, tuple) and len(value) == 2
+        return (column >= value[0]) & (column <= value[1])
+    if operator == ">":
+        return column > value
+    if operator == ">=":
+        return column >= value
+    if operator == "<":
+        return column < value
+    if operator == "<=":
+        return column <= value
+    _fail("a closed slice operator", operator)
 
 
 def _observe(
@@ -1124,25 +1369,25 @@ def _observe(
     from datetime import datetime
 
     params = stage.node.parameters
-    assert isinstance(params, (ObserveMetric, ObserveCount))
+    assert isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean))
     source, contribution_ids = _contribution_rows(stage, params, bindings, relations, checks)
     event_type = source.event_time.type()
     if (
-        len(members.layout.keys) != 1
-        or members.layout.keys[0].coordinate.field != params.path[-1].keys[0][1]
+        tuple(key.coordinate.field for key in members.layout.keys)
+        != tuple(destination for _, destination in params.path[-1].keys)
         or not isinstance(event_type, dt.Timestamp)
         or event_type.timezone not in (None, "UTC", "Etc/UTC")
         or event_type.scale not in (None, 6)
     ):
         _fail("exact observation key and UTC microsecond timestamp schema", "schema drift")
-    start = ibis.literal(datetime.fromisoformat(params.start), type=event_type)
-    end = ibis.literal(datetime.fromisoformat(params.end), type=event_type)
-    source = source.filter((source.event_time >= start) & (source.event_time < end))
-    from_column = "member"
+    if params.start is not None and params.end is not None:
+        start = ibis.literal(datetime.fromisoformat(params.start), type=event_type)
+        end = ibis.literal(datetime.fromisoformat(params.end), type=event_type)
+        source = source.filter((source.event_time >= start) & (source.event_time < end))
     mapping = members.expression
-    key = members.layout.keys[0].column
+    keys = tuple(k.column for k in members.layout.keys)
     source_ids = _source_ids(members.source_ids, contribution_ids)
-    coordinate = mapping[key]
+    target_fields = {key: mapping[key] for key in keys}
     if isinstance(params.target, GroupObservationTarget):
         cell = members.layout.cell
         if cell is None or str(mapping[cell.value].type()) != "string":
@@ -1155,12 +1400,15 @@ def _observe(
                 members.source_ids,
             )
         )
-        coordinate = mapping[cell.value]
-    targets = mapping.select(key_0=coordinate).distinct()
-    joined = source.inner_join(mapping, source[from_column] == mapping[key])
+        target_fields = {"key_0": mapping[cell.value]}
+    targets = mapping.select(**target_fields).distinct()
+    predicates = [source[f"member_{i}"] == mapping[key] for i, key in enumerate(keys)]
+    joined = source.inner_join(mapping, predicates)
+    target_keys = tuple(target_fields)
     values = joined.select(
-        key_0=coordinate,
+        **target_fields,
         amount=source.amount,
+        **({"weight": source.weight} if isinstance(params, ObserveWeightedMean) else {}),
         **{
             ("coordinate" if i == 0 else f"coordinate_{i}"): source[
                 "coordinate" if i == 0 else f"coordinate_{i}"
@@ -1168,7 +1416,7 @@ def _observe(
             for i in range(len(params.coordinates))
         },
     )
-    if isinstance(params, ObserveMetric) and params.amount_type == "float64":
+    if isinstance(params, (ObserveMetric, ObserveWeightedMean)) and params.amount_type == "float64":
         checks.append(
             IntegrityCheck(
                 stage.output,
@@ -1177,32 +1425,54 @@ def _observe(
                 source_ids,
             )
         )
-    summed = values.group_by("key_0").aggregate(
-        state_sum=values.amount.sum(),
-        support=values.amount.count(),
-    )
-    dense = targets.left_join(summed, targets[key] == summed.key_0)
-    amount_type = params.amount_type if isinstance(params, ObserveMetric) else "int64"
-    total = summed.state_sum.fill_null(0).cast(amount_type)
-    support = summed.support.fill_null(0).cast("int64")
     target = canonical_layout(stage.node.signature, has_value=True)
-    defined = (
-        support > 0
-        if isinstance(params, ObserveMetric) and params.metric.empty_rule == "null"
-        else ibis.literal(True)
-    )
-    table = dense.select(
-        key_0=targets[key],
-        value=ibis.ifelse(defined, total, ibis.null().cast(amount_type)),
-        cell_tag=ibis.ifelse(defined, "defined", "null"),
-        cell_reason=ibis.ifelse(defined, ibis.null().cast("string"), "empty_contribution"),
-        original_state__count=support,
-        subject__key_0=targets[key],
-        original_state__sum=total,
-        original_state__non_null_count=support,
-        coverage__complete=ibis.literal(True),
-    )
+    if isinstance(params, ObserveWeightedMean):
+        pair = values.amount.notnull() & values.weight.notnull()
+        summed = values.group_by(*target_keys).aggregate(
+            weighted_numerator=pair.ifelse(values.amount * values.weight, 0)
+            .sum()
+            .fill_null(0)
+            .cast("int64"),
+            weight_sum=pair.ifelse(values.weight, 0).sum().fill_null(0).cast("int64"),
+            non_null_pair_count=pair.cast("int64").sum().fill_null(0).cast("int64"),
+            row_count=values.count().cast("int64"),
+        )
+        dense = targets.left_join(summed, list(target_keys))
+        table = dense.select(
+            **{key: targets[key] for key in target_keys},
+            **{f"subject__key_{i}": targets[key] for i, key in enumerate(target_keys)},
+            **{
+                f"original_state__{name}": summed[name].fill_null(0).cast("int64")
+                for name in ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count")
+            },
+        )
+        table = _weighted_finish(table, target)
+    else:
+        summed = values.group_by(*target_keys).aggregate(
+            state_sum=values.amount.sum(), support=values.amount.count()
+        )
+        dense = targets.left_join(summed, list(target_keys))
+        amount_type = params.amount_type if isinstance(params, ObserveMetric) else "int64"
+        total = summed.state_sum.fill_null(0).cast(amount_type)
+        support = summed.support.fill_null(0).cast("int64")
+        defined = (
+            support > 0
+            if isinstance(params, ObserveMetric) and params.metric.empty_rule == "null"
+            else ibis.literal(True)
+        )
+        table = dense.select(
+            **{key: targets[key] for key in target_keys},
+            value=ibis.ifelse(defined, total, ibis.null().cast(amount_type)),
+            cell_tag=ibis.ifelse(defined, "defined", "null"),
+            cell_reason=ibis.ifelse(defined, ibis.null().cast("string"), "empty_contribution"),
+            original_state__count=support,
+            **{f"subject__key_{i}": targets[key] for i, key in enumerate(target_keys)},
+            original_state__sum=total,
+            original_state__non_null_count=support,
+            coverage__complete=ibis.literal(True),
+        )
     if params.coordinates:
+        amount_type = params.amount_type if isinstance(params, ObserveMetric) else "int64"
         part = next(p for p in stage.node.signature.parts if isinstance(p, CoordinateStatePart))
         checks.append(
             IntegrityCheck(
@@ -1212,7 +1482,7 @@ def _observe(
                 source_ids,
             )
         )
-        grouped = values.group_by("key_0", *part.columns).aggregate(
+        grouped = values.group_by(*target_keys, *part.columns).aggregate(
             sum=values.amount.sum().fill_null(0).cast(amount_type),
             non_null_count=values.amount.count().cast("int64"),
             count=values.count().cast("int64"),
@@ -1223,12 +1493,12 @@ def _observe(
                 **{name: grouped[name] for name in part.components},
             }
         )
-        nested = grouped.group_by("key_0").aggregate(
+        nested = grouped.group_by(*target_keys).aggregate(
             coordinate_state__groups=cells.collect(
                 order_by=[grouped[name] for name in part.columns]
             )
         )
-        combined = table.left_join(nested, table.key_0 == nested.key_0)
+        combined = table.left_join(nested, list(target_keys))
         table = combined.select(
             *[table[name] for name in table.columns],
             coordinate_state__groups=nested.coordinate_state__groups.fill_null(
@@ -1237,7 +1507,7 @@ def _observe(
         )
     table = table.select(*target.columns)
     actual = joined.aggregate(actual=joined.count())
-    selected = source.filter(source[from_column].isin(mapping[key]))
+    selected = source.semi_join(mapping, predicates)
     expected = selected.aggregate(expected=selected.count())
     partition = actual.cross_join(expected)
     actual_coverage = table.aggregate(actual=table.count())
@@ -1407,7 +1677,7 @@ def lower(
             if isinstance(params, PartsTransport):
                 table, layout = _transport(stage, inputs[0], checks)
                 cell_reasons = inputs[0].cell_reasons
-            elif isinstance(params, (ObserveMetric, ObserveCount)):
+            elif isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
                 table, layout, source_ids = _observe(
                     stage, inputs[0], bindings, checks, admitted, tuple(results.values())
                 )
@@ -1425,6 +1695,10 @@ def lower(
                     source_ids = _source_ids(*(input.source_ids for input in inputs))
             elif isinstance(params, OriginalRatio) and len(inputs) == 2:
                 table, layout = _original_ratio(stage, (inputs[0], inputs[1]), checks, admitted)
+                source_ids = _source_ids(*(item.source_ids for item in inputs))
+                cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
+            elif isinstance(params, OccurrenceCombine) and len(inputs) >= 2:
+                table, layout = _occurrence_combine(stage, inputs, checks, admitted)
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, OriginalReduce):
@@ -1516,8 +1790,12 @@ def lower(
                 output = inputs[0]
                 violations = _key_violations(output.expression, output.layout)
                 source_ids = output.source_ids
-            elif check_id == "source.exact_pairing@v1" and len(inputs) == 2:
-                violations = _pair_violations(*inputs)
+            elif check_id == "source.exact_pairing@v1" and len(inputs) >= 2:
+                violations = _pair_violations(inputs[0], inputs[1])
+                for other in inputs[2:]:
+                    violations = violations.union(
+                        _pair_violations(inputs[0], other), distinct=False
+                    )
             elif check_id == "source.cell_policy@v1" and inputs[0].layout.cell is not None:
                 violations = _cell_violations(inputs[0].expression, inputs[0].layout.cell)
                 source_ids = inputs[0].source_ids

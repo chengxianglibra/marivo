@@ -414,13 +414,13 @@ def provider(
         target = "runtime_metric." + name
         members.append(target)
         guidance = (
-            "Use exact semantic refs or closed Runtime Metric expressions with ±1 "
-            "coefficients and an explicit label; admitted linear shapes execute on all "
-            "six backends and stay value-exact (integer and Decimal sum terms keep "
-            "their types, mixed terms follow the engine's float promotion); no SQL or "
-            "arbitrary expressions."
-            if name == "linear"
-            else "Use exact semantic refs or closed Runtime Metric expressions, typed slice mappings and an explicit label; no SQL or arbitrary expressions."
+            "Construct a closed expression from exact semantic refs and an explicit label. "
+            "Graph observation currently qualifies DuckDB table/Parquet UTC instant-us "
+            "sources: int64 sum/count leaves, independently reduced ratios, nested signed "
+            "linear sum/count terms, and paired int64 value/weight means. Omitted during "
+            "adds no time restriction; runtime leaves need an explicit default event axis. "
+            "Other numeric types, nested nonlinear finishes and coordinate transport need "
+            "their own method qualification. No SQL or arbitrary expressions."
         )
         descriptors.append(
             operation(

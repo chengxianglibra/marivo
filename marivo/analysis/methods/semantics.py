@@ -22,7 +22,9 @@ MethodName: TypeAlias = Literal[
     "metric.observe",
     "metric.sum_zero",
     "metric.count",
+    "metric.weighted_mean",
     "metric.ratio",
+    "metric.linear",
     "map_correspond",
     "cell.difference",
     "cell.ratio",
@@ -35,6 +37,8 @@ MethodName: TypeAlias = Literal[
     "state_rollup.sum_zero",
     "state_rollup.count",
     "state_rollup.ratio",
+    "state_rollup.weighted_mean",
+    "state_rollup.linear",
     "parts_transport",
     "association.spearman",
 ]
@@ -46,6 +50,8 @@ PersistentStateKind: TypeAlias = Literal[
     "original_sum_zero",
     "original_count",
     "original_ratio",
+    "original_weighted_mean",
+    "original_linear",
     "difference",
     "row_sum",
     "row_count",
@@ -80,6 +86,10 @@ def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     """Map closed parameter variants to exactly one concrete method identity."""
     if type(params) is rules.OriginalRatio:
         return MethodKey("metric.ratio")
+    if type(params) is rules.OccurrenceCombine:
+        return MethodKey("metric.linear")
+    if type(params) is rules.ObserveWeightedMean:
+        return MethodKey("metric.weighted_mean")
     if type(params) is rules.ObserveCount:
         return MethodKey("metric.count")
     if type(params) is rules.ObserveMetric:
@@ -101,7 +111,11 @@ def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
                 return MethodKey(name)
     if type(params) is rules.OriginalReduce:
         return MethodKey(
-            "state_rollup.ratio"
+            "state_rollup.linear"
+            if params.method == "linear"
+            else "state_rollup.weighted_mean"
+            if params.method == "weighted_mean"
+            else "state_rollup.ratio"
             if params.method == "ratio"
             else "state_rollup.count"
             if params.method == "count"
@@ -147,8 +161,12 @@ class MethodSemantics:
             "metric.sum_zero": "original_sum_zero",
             "state_rollup.sum_zero": "original_sum_zero",
             "metric.ratio": "original_ratio",
+            "metric.linear": "original_linear",
+            "state_rollup.linear": "original_linear",
             "state_rollup.ratio": "original_ratio",
             "metric.count": "original_count",
+            "metric.weighted_mean": "original_weighted_mean",
+            "state_rollup.weighted_mean": "original_weighted_mean",
             "state_rollup.count": "original_count",
             "state_rollup": "original_sum",
             "parts_transport": "none",
@@ -221,7 +239,13 @@ class MethodSemantics:
                     "Retain the exact input value type.",
                 )
             return
-        if name in ("association.spearman", "metric.ratio", "state_rollup.ratio"):
+        if name in (
+            "association.spearman",
+            "metric.ratio",
+            "state_rollup.ratio",
+            "metric.weighted_mean",
+            "state_rollup.weighted_mean",
+        ):
             expected: ValueType = ScalarType("float64")
         elif name in ("row.count", "row.count_defined"):
             expected = ScalarType("int64")
@@ -255,6 +279,8 @@ class MethodSemantics:
             "state_rollup.count",
             "state_rollup.sum_zero",
             "state_rollup.ratio",
+            "state_rollup.weighted_mean",
+            "state_rollup.linear",
         ):
             return ("L8", "L9")
         return ()
@@ -268,16 +294,26 @@ class MethodSemantics:
             return "row_state@v1"
         if name == "metric.ratio":
             return "original_reduce@v1"
+        if name == "metric.linear":
+            return "occurrence_combine@v1"
         if name in (
             "state_rollup",
             "state_rollup.count",
             "state_rollup.sum_zero",
             "state_rollup.ratio",
+            "state_rollup.weighted_mean",
+            "state_rollup.linear",
         ):
             return "original_reduce@v1"
         if name == "association.spearman":
             return "association_score@v1"
-        if name in ("bind_project", "metric.observe", "metric.count", "metric.sum_zero"):
+        if name in (
+            "bind_project",
+            "metric.observe",
+            "metric.count",
+            "metric.sum_zero",
+            "metric.weighted_mean",
+        ):
             return "bind_project@v1"
         if name == "map_correspond":
             return "map_correspond@v1"
@@ -326,21 +362,38 @@ class MethodSemantics:
                 ("undefined", ("insufficient_pairs", "constant_a", "constant_b", "constant_both")),
             )
         if self.key.name in ("metric.ratio", "state_rollup.ratio"):
-            return (("undefined", ("zero_denominator",)),)
+            # Each component retains its own empty rule. Null operands propagate;
+            # defined operands with a zero denominator produce Undefined.
+            return (
+                ("null", ("empty_contribution",)),
+                ("undefined", ("zero_denominator",)),
+            )
+        if self.key.name in ("metric.weighted_mean", "state_rollup.weighted_mean"):
+            return (("null", ("empty_contribution", "zero_weight_sum")),)
+        if self.key.name in ("metric.linear", "state_rollup.linear"):
+            return (("null", ("empty_contribution",)),)
         if self.key.name in ("state_rollup", "metric.observe"):
             return (("null", ("empty_contribution",)),)
         return ()
 
     @property
     def required_parts(self) -> tuple[PartRole, ...]:
-        if self.key.name in ("metric.observe", "metric.count", "metric.sum_zero"):
+        if self.key.name in (
+            "metric.observe",
+            "metric.count",
+            "metric.sum_zero",
+            "metric.weighted_mean",
+        ):
             return ("subject",)
         if self.key.name in (
             "metric.ratio",
+            "metric.linear",
             "state_rollup",
             "state_rollup.count",
             "state_rollup.sum_zero",
             "state_rollup.ratio",
+            "state_rollup.weighted_mean",
+            "state_rollup.linear",
         ):
             return ("original_state", "coverage")
         if self.key.name == "row.weighted_mean":
@@ -361,10 +414,14 @@ class MethodSemantics:
             "state_rollup.count",
             "state_rollup.sum_zero",
             "state_rollup.ratio",
+            "state_rollup.weighted_mean",
+            "state_rollup.linear",
             "metric.ratio",
+            "metric.linear",
             "metric.sum_zero",
             "metric.observe",
             "metric.count",
+            "metric.weighted_mean",
         ):
             return ("source.contribution_partition@v1", "source.complete_coverage@v1")
         if self.key.name == "association.spearman":
@@ -382,10 +439,14 @@ class MethodSemantics:
             "state_rollup.count",
             "state_rollup.sum_zero",
             "state_rollup.ratio",
+            "state_rollup.weighted_mean",
+            "state_rollup.linear",
             "metric.ratio",
+            "metric.linear",
             "metric.sum_zero",
             "metric.observe",
             "metric.count",
+            "metric.weighted_mean",
         ):
             return ("original_state", "coverage")
         if self.key.name == "association.spearman":
@@ -400,12 +461,18 @@ class MethodSemantics:
             "state_rollup.count",
             "state_rollup.sum_zero",
             "state_rollup.ratio",
+            "state_rollup.weighted_mean",
+            "state_rollup.linear",
         ):
             reject(
                 "an original-state method", str(self.key), "Use state_rollup for original state."
             )
         return (
-            "ratio@v1"
+            "linear@v1"
+            if self.key.name == "state_rollup.linear"
+            else "weighted_mean@v1"
+            if self.key.name == "state_rollup.weighted_mean"
+            else "ratio@v1"
             if self.key.name == "state_rollup.ratio"
             else "count@v1"
             if self.key.name == "state_rollup.count"
@@ -416,13 +483,25 @@ class MethodSemantics:
 
     @property
     def state_components(self) -> tuple[str, ...]:
+        if self.key.name in ("metric.linear", "state_rollup.linear"):
+            # Component names and signs belong to the bound occurrence tuple.
+            return ()
+        if self.key.name in ("metric.weighted_mean", "state_rollup.weighted_mean"):
+            return ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count")
         if self.key.name in ("metric.ratio", "state_rollup.ratio"):
-            return ("numerator_sum", "numerator_non_null_count", "denominator_count")
+            return (
+                "numerator_sum",
+                "numerator_non_null_count",
+                "denominator_sum",
+                "denominator_non_null_count",
+            )
         if self.key.name in (
             "state_rollup",
             "state_rollup.count",
             "state_rollup.sum_zero",
             "state_rollup.ratio",
+            "state_rollup.weighted_mean",
+            "state_rollup.linear",
         ):
             return (
                 ("count",) if self.key.name == "state_rollup.count" else ("sum", "non_null_count")
@@ -459,8 +538,10 @@ class MethodSemantics:
                 params.value_policy,
                 "Preserve the registered method's Cell policy; adapters cannot redefine it.",
             )
-        if type(params) in (rules.ObserveMetric, rules.ObserveCount):
-            assert isinstance(params, (rules.ObserveMetric, rules.ObserveCount))
+        if type(params) in (rules.ObserveMetric, rules.ObserveCount, rules.ObserveWeightedMean):
+            assert isinstance(
+                params, (rules.ObserveMetric, rules.ObserveCount, rules.ObserveWeightedMean)
+            )
             return rules._observe_metric(inputs, params)
         if type(params) is rules.BindProject:
             return rules._bind_project(inputs, params)
@@ -483,6 +564,8 @@ class MethodSemantics:
             return rules._row_state(inputs, params)
         if type(params) is rules.OriginalRatio:
             return rules._original_ratio(inputs, params)
+        if type(params) is rules.OccurrenceCombine:
+            return rules._occurrence_combine(inputs, params)
         if type(params) is rules.OriginalReduce:
             return rules._original_reduce(inputs, params)
         if type(params) is rules.PartsTransport:
@@ -495,9 +578,13 @@ class MethodSemantics:
 CONNECTED_METHODS = (
     MethodSemantics(MethodKey("metric.sum_zero"), "analysis.core.rules"),
     MethodSemantics(MethodKey("metric.ratio"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("metric.linear"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("state_rollup.linear"), "analysis.core.rules"),
     MethodSemantics(MethodKey("state_rollup.ratio"), "analysis.core.rules"),
     MethodSemantics(MethodKey("state_rollup.sum_zero"), "analysis.core.rules"),
     MethodSemantics(MethodKey("metric.count"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("metric.weighted_mean"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("state_rollup.weighted_mean"), "analysis.core.rules"),
     MethodSemantics(MethodKey("state_rollup.count"), "analysis.core.rules"),
     MethodSemantics(MethodKey("metric.observe"), "analysis.core.rules"),
     MethodSemantics(MethodKey("bind_project"), "analysis.core.rules"),

@@ -70,3 +70,33 @@ custom 分析。
 - [证据](/zh-cn/docs/latest/concepts/evidence/)说明最终回顾中的结论由什么支持。
 
 当前 J1–J4 公共执行和恢复统一使用 Store 7；构造允许仅 schema 预检，业务读取在准入后进行。R5–R9 Dataset 执行尚未取得 Store 7 资格；旧代际项目不迁移或回退读取。
+
+
+## 在图上观察运行时指标
+
+在项目已有 `session` 的前提下，从已批准的目录 Ref 构造运行时表达式，再在实体域上
+观察。下面示例使用 DuckDB 来源、UTC 事件时间轴和 int64 收入、计数指标：
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+customers = session.members(ms.ref.entity("sales.customer"))
+rate = mv.runtime_metric.ratio(
+    ms.ref.metric("sales.revenue"),
+    ms.ref.metric("sales.order_count"),
+    label="revenue_per_order",
+)
+observed = customers.observe(rate, via=ms.ref.relationship("sales.order_buyer"))
+assert isinstance(observed, mv.LogicalRatioRelation)
+fixed = observed.execute()
+total = fixed.rollup().execute()
+```
+
+省略 `during` 表示不增加时间限制，不代表历史数据完整。各贡献根先独立归约；有多个
+根时，用 `mv.routes` 为每个不同的根提供一条 `mv.route`。运行时 `aggregate` 和
+`weighted_mean` 要求实体显式声明默认事件时间轴。五工厂在当前数值与时间资格内
+进入同一图：int64 sum/count、叶分支 slice、ratio、嵌套正负 linear sum/count 项，
+以及 int64 数值/权重配对的 weighted_mean。加权均值返回 numeric relation，保留
+原始两项和以及配对数、行数，上卷合并原组件。外层 slice 会下推到 ratio/linear 的各叶分支；其他数值类型
+和嵌套非线性 finish 仍需进一步资格。通过结果的 `contract()` 查看可执行的下一步。

@@ -69,8 +69,10 @@ from marivo.semantic.ir import (
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
     MetricExpressionGraphV1,
+    SliceOperatorV1,
     TargetMetricContract,
 )
+from marivo.semantic.runtime_metric import RuntimeMetricExpr, SliceValue
 
 RuleId: TypeAlias = Literal[
     "bind_project@v1",
@@ -78,6 +80,7 @@ RuleId: TypeAlias = Literal[
     "cell_derive@v1",
     "row_state@v1",
     "original_reduce@v1",
+    "occurrence_combine@v1",
     "parts_transport@v1",
     "association_score@v1",
 ]
@@ -100,7 +103,7 @@ class BindProject:
 class DirectMetricDefinition:
     """Persistable computation facts without live authoring constructor tokens."""
 
-    metric_ref: Ref[MetricKind]
+    metric_ref: Ref[MetricKind] | RuntimeMetricExpr
     graph: MetricExpressionGraphV1
     component_node_id: str
     bound_graph_fingerprint: str
@@ -127,6 +130,15 @@ ObservationTarget: TypeAlias = EntityObservationTarget | GroupObservationTarget
 
 
 @dataclass(frozen=True, slots=True)
+class OccurrenceFilter:
+    """One occurrence's own contribution branch restriction."""
+
+    dimension: TargetDimensionContract
+    operator: SliceOperatorV1
+    value: SliceValue
+
+
+@dataclass(frozen=True, slots=True)
 class ObserveMetric:
     """A frozen direct aggregate, contribution route and half-open UTC window."""
 
@@ -136,11 +148,31 @@ class ObserveMetric:
     contribution: Ref[EntityKind]
     path: tuple[TargetRelationshipContract, ...]
     event: TargetDimensionContract
-    start: str
-    end: str
+    start: str | None
+    end: str | None
     amount_column: str
     amount_type: Literal["int64", "float64"]
     coordinates: tuple[TargetDimensionContract, ...] = ()
+    filters: tuple[OccurrenceFilter, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ObserveWeightedMean:
+    """A governed paired value/weight observation with exact int64 state."""
+
+    metric: DirectMetricDefinition
+    target: ObservationTarget
+    quantity: ObservedQuantity
+    contribution: Ref[EntityKind]
+    path: tuple[TargetRelationshipContract, ...]
+    event: TargetDimensionContract
+    start: str | None
+    end: str | None
+    amount_column: str
+    amount_type: Literal["int64"]
+    weight_column: str
+    coordinates: tuple[TargetDimensionContract, ...] = ()
+    filters: tuple[OccurrenceFilter, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,9 +185,10 @@ class ObserveCount:
     contribution: Ref[EntityKind]
     path: tuple[TargetRelationshipContract, ...]
     event: TargetDimensionContract
-    start: str
-    end: str
+    start: str | None
+    end: str | None
     coordinates: tuple[TargetDimensionContract, ...] = ()
+    filters: tuple[OccurrenceFilter, ...] = ()
 
 
 MapMode: TypeAlias = Literal["exact_keys", "one_to_one", "union_keys", "group", "subjects"]
@@ -194,11 +227,22 @@ class RowState:
 
 @dataclass(frozen=True, slots=True)
 class OriginalRatio:
-    """Compose the original sum-zero and Entity-count states in endpoint order."""
+    """Compose two independently observed additive component states in endpoint order."""
 
     quantity: ObservedQuantity
-    numerator: Ref[MetricKind]
-    denominator: Ref[MetricKind]
+    numerator: Ref[MetricKind] | RuntimeMetricExpr
+    denominator: Ref[MetricKind] | RuntimeMetricExpr
+
+
+@dataclass(frozen=True, slots=True)
+class OccurrenceCombine:
+    """Combine independently reduced occurrences into one signed linear result."""
+
+    quantity: ObservedQuantity
+    terms: tuple[tuple[ObservedQuantity, int], ...]
+    output_domain: DomainSignature
+    pairing_check_id: CheckId | None = None
+    numeric_check_id: CheckId | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,7 +250,7 @@ class OriginalReduce:
     output_domain: DomainSignature
     partition_check_id: CheckId | None = None
     coverage_check_id: CheckId | None = None
-    method: Literal["sum", "sum_zero", "count", "ratio"] = "sum"
+    method: Literal["sum", "sum_zero", "count", "ratio", "weighted_mean", "linear"] = "sum"
     coordinate: Ref[DimensionKind] | None = None
 
 
@@ -235,11 +279,13 @@ RuleParameters: TypeAlias = (
     BindProject
     | ObserveMetric
     | ObserveCount
+    | ObserveWeightedMean
     | MapCorrespond
     | CellDerive
     | RowState
     | OriginalReduce
     | OriginalRatio
+    | OccurrenceCombine
     | PartsTransport
     | AssociationScore
 )
@@ -593,12 +639,27 @@ def _bind_project(inputs: tuple[Signature, ...], params: BindProject) -> RuleDer
     )
 
 
+def _declared_slice(aggregate: object) -> tuple[tuple[str, str, object], ...]:
+    """Read one component's canonical slice predicates as comparable facts."""
+    from marivo.semantic.metric_graph import component_predicate
+
+    facts: list[tuple[str, str, object]] = []
+    for condition in getattr(aggregate, "filter", ()):
+        operator, value = component_predicate(condition.value)
+        facts.append((condition.dimension_ref.path, operator, value))
+    return tuple(facts)
+
+
 def _observe_metric(
-    inputs: tuple[Signature, ...], params: ObserveMetric | ObserveCount
+    inputs: tuple[Signature, ...], params: ObserveMetric | ObserveCount | ObserveWeightedMean
 ) -> RuleDerivation:
     from datetime import datetime, timedelta
 
-    from marivo.semantic.metric_graph import AggregateNodeV1, component_node
+    from marivo.semantic.metric_graph import (
+        AggregateNodeV1,
+        WeightedMeanAggregateNodeV1,
+        component_node,
+    )
 
     if len(inputs) != 1 or inputs[0].domain.kind != "entity":
         reject("one Entity member domain", repr(inputs), "Bind Entity members.", "core.observe")
@@ -606,7 +667,13 @@ def _observe_metric(
     binding = _binding(inputs, "core.observe")
     subject = require_part(source, "subject")
     metric, quantity = params.metric, params.quantity
-    aggregate_method = "sum" if isinstance(params, ObserveMetric) else "count"
+    aggregate_method = (
+        "weighted_mean"
+        if isinstance(params, ObserveWeightedMean)
+        else "sum"
+        if isinstance(params, ObserveMetric)
+        else "count"
+    )
     state_method = (
         "sum_zero"
         if aggregate_method == "sum" and metric.empty_rule == "zero"
@@ -634,20 +701,27 @@ def _observe_metric(
             "core.observe",
         )
     aggregate = component_node(metric.graph, metric.component_node_id)
+    occurrence_slice = tuple(
+        (item.dimension.ref.path, item.operator, item.value) for item in params.filters
+    )
     if (
-        not isinstance(aggregate, AggregateNodeV1)
-        or aggregate.agg != aggregate_method
-        or aggregate.filter
+        not (
+            isinstance(aggregate, WeightedMeanAggregateNodeV1)
+            if isinstance(params, ObserveWeightedMean)
+            else isinstance(aggregate, AggregateNodeV1) and aggregate.agg == aggregate_method
+        )
+        or _declared_slice(aggregate) != occurrence_slice
         or (
             isinstance(params, ObserveCount)
             and (
-                aggregate.target_ref.kind != "entity"
+                not isinstance(aggregate, AggregateNodeV1)
+                or aggregate.target_ref.kind != "entity"
                 or aggregate.target_ref.path != params.contribution.path
             )
         )
     ):
         reject(
-            "one unsliced sum or Entity-count component",
+            "one sum or Entity-count component with its own declared branch filter",
             repr(aggregate),
             "Use a qualified sum Metric.",
             "core.observe",
@@ -659,7 +733,7 @@ def _observe_metric(
             or relationship.cardinality not in ("one_to_one", "many_to_one")
             or relationship.from_version_resolution_required
             or relationship.to_version_resolution_required
-            or len(relationship.keys) != 1
+            or not relationship.keys
         ):
             reject(
                 "a directed unversioned to-one contribution path",
@@ -701,20 +775,30 @@ def _observe_metric(
             "Bind the declared member relationship.",
             "core.observe",
         )
-    try:
-        start, end = datetime.fromisoformat(params.start), datetime.fromisoformat(params.end)
-        valid = (
-            start.utcoffset() == timedelta(0) and end.utcoffset() == timedelta(0) and start < end
-        )
-    except (ValueError, TypeError):
-        valid = False
-    if not valid:
-        reject(
-            "an increasing half-open UTC instant window",
-            repr((params.start, params.end)),
-            "Resolve the Session report timezone before binding the window.",
-            "core.observe",
-        )
+    if params.start is not None or params.end is not None:
+        if params.start is None or params.end is None:
+            reject(
+                "both window bounds or neither",
+                repr((params.start, params.end)),
+                "Omit the window entirely or bind both bounds.",
+                "core.observe",
+            )
+        try:
+            start, end = datetime.fromisoformat(params.start), datetime.fromisoformat(params.end)
+            valid = (
+                start.utcoffset() == timedelta(0)
+                and end.utcoffset() == timedelta(0)
+                and start < end
+            )
+        except (ValueError, TypeError):
+            valid = False
+        if not valid:
+            reject(
+                "an increasing half-open UTC instant window",
+                repr((params.start, params.end)),
+                "Resolve the Session report timezone before binding the window.",
+                "core.observe",
+            )
     output_domain = params.target.domain
     _output_domain(binding, output_domain, "core.observe.target")
     if isinstance(params.target, EntityObservationTarget):
@@ -750,7 +834,11 @@ def _observe_metric(
         quantity.definition_id,
         f"{state_method}@v1",
         quantity.contribution_id,
-        ("sum", "non_null_count") if aggregate_method == "sum" else ("count",),
+        ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count")
+        if aggregate_method == "weighted_mean"
+        else ("sum", "non_null_count")
+        if aggregate_method == "sum"
+        else ("count",),
         "v1",
     )
     if len(params.coordinates) > 2:
@@ -1205,6 +1293,26 @@ def _row_state(inputs: tuple[Signature, ...], params: RowState) -> RuleDerivatio
     )
 
 
+def _component_empty_rules(inputs: tuple[Signature, ...]) -> tuple[Literal["null", "zero"], ...]:
+    """Retain each admitted additive component's declared empty policy."""
+    policies: list[Literal["null", "zero"]] = []
+    for source in inputs:
+        quantity = source.quantity
+        if not isinstance(quantity, ObservedQuantity) or quantity.method_version not in (
+            "sum@v1",
+            "sum_zero@v1",
+            "count@v1",
+        ):
+            reject(
+                "an admitted additive component",
+                repr(quantity),
+                "Observe each sum or count component independently.",
+                "core.component.empty",
+            )
+        policies.append("null" if quantity.method_version == "sum@v1" else "zero")
+    return tuple(policies)
+
+
 def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> RuleDerivation:
     binding = _binding(inputs, "core.original_ratio")
     if len(inputs) != 2:
@@ -1234,16 +1342,23 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
         )
     pre: list[Fact] = []
     obligations: list[Obligation] = []
-    for source, method, components in (
-        (left, "sum_zero@v1", ("sum", "non_null_count")),
-        (right, "count@v1", ("count",)),
-    ):
+    # Each named component retains the state its own observed method declared:
+    # a sum-zero component carries sum/non-null-count, a count component carries
+    # count. Requiring one fixed pair would reject a sliced sum numerator.
+    for source in (left, right):
         state = require_part(source, "original_state")
         coverage = require_part(source, "coverage")
         source_quantity = source.quantity
         assert isinstance(source_quantity, ObservedQuantity)
+        method = source_quantity.method_version
+        components = {
+            "sum_zero@v1": ("sum", "non_null_count"),
+            "sum@v1": ("sum", "non_null_count"),
+            "count@v1": ("count",),
+        }.get(method)
         if (
-            not isinstance(state, OriginalStatePart)
+            components is None
+            or not isinstance(state, OriginalStatePart)
             or state.method_version != method
             or state.components != components
             or state.quantity_id != source_quantity.definition_id
@@ -1253,7 +1368,7 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
             or coverage.binding != binding
         ):
             reject(
-                "exact original sum-zero/count components and coverage",
+                "each component's own registered original state and coverage",
                 repr(state),
                 "Retain the registered original states.",
                 "core.original_ratio.state",
@@ -1287,8 +1402,14 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
         quantity.definition_id,
         "ratio@v1",
         quantity.contribution_id,
-        ("numerator_sum", "numerator_non_null_count", "denominator_count"),
+        (
+            "numerator_sum",
+            "numerator_non_null_count",
+            "denominator_sum",
+            "denominator_non_null_count",
+        ),
         "v1",
+        _component_empty_rules(inputs),
     )
     first_coordinate = next((p for p in left.parts if isinstance(p, CoordinateStatePart)), None)
     second_coordinate = next((p for p in right.parts if isinstance(p, CoordinateStatePart)), None)
@@ -1341,6 +1462,125 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
         post=(partition, complete),
         obligations=tuple(obligations),
         eval_id="original_ratio.finish@v1",
+    )
+
+
+def _occurrence_combine(inputs: tuple[Signature, ...], params: OccurrenceCombine) -> RuleDerivation:
+    """Combine independently reduced occurrences under ordered signed terms."""
+    binding = _binding(inputs, "core.occurrence_combine")
+    if len(inputs) != len(params.terms) or len(inputs) < 2:
+        reject(
+            "one input per ordered signed term",
+            repr(len(inputs)),
+            "Bind every named occurrence.",
+            "core.occurrence_combine",
+        )
+    quantity = params.quantity
+    left = inputs[0]
+    for source, (expected, sign) in zip(inputs, params.terms, strict=True):
+        if (
+            source.domain != left.domain
+            or not isinstance(source.quantity, ObservedQuantity)
+            or source.quantity != expected
+            or sign not in (1, -1)
+        ):
+            reject(
+                "same-domain original components with signed terms",
+                repr(source.quantity),
+                "Observe every named component over the same members.",
+                "core.occurrence_combine",
+            )
+    if quantity.method_version != "linear@v1":
+        reject(
+            "an admitted linear combination",
+            repr(quantity.method_version),
+            "Use the registered linear method.",
+            "core.occurrence_combine",
+        )
+    pre: list[Fact] = []
+    obligations: list[Obligation] = []
+    for source in inputs:
+        state = require_part(source, "original_state")
+        coverage = require_part(source, "coverage")
+        source_quantity = source.quantity
+        assert isinstance(source_quantity, ObservedQuantity)
+        if (
+            not isinstance(state, OriginalStatePart)
+            or state.quantity_id != source_quantity.definition_id
+            or state.contribution_id != source_quantity.contribution_id
+            or not isinstance(coverage, CoveragePart)
+            or coverage.quantity_id != source_quantity.definition_id
+            or coverage.binding != binding
+        ):
+            reject(
+                "each occurrence's own registered original state and coverage",
+                repr(state),
+                "Retain the registered original states.",
+                "core.occurrence_combine.state",
+            )
+        premises: tuple[tuple[Fact, CheckId], ...] = (
+            (
+                _fact("contribution_partition", binding, source_quantity.contribution_id),
+                "source.contribution_partition@v1",
+            ),
+            (
+                _fact("complete_coverage", binding, source_quantity.definition_id),
+                "source.complete_coverage@v1",
+            ),
+        )
+        for fact, check in premises:
+            pre.append(fact)
+            obligations.extend(_premise(inputs, fact, check_id=check, before="consume"))
+    pair = _fact("key_set_equal", binding, quantity.definition_id, inputs)
+    pre.append(pair)
+    obligations.extend(_premise(inputs, pair, check_id="source.exact_pairing@v1", before="consume"))
+    # The combined quantity has no source rows of its own: each component's own
+    # observation node already owns and publishes its partition/coverage facts,
+    # which the combination consumes through the premises bound above.
+    components = tuple(
+        f"{'plus' if sign > 0 else 'minus'}_{index}_{name}"
+        for index, (_source, sign) in enumerate(params.terms)
+        for name in ("sum", "non_null_count")
+    )
+    state = OriginalStatePart(
+        binding,
+        quantity.definition_id,
+        "linear@v1",
+        quantity.contribution_id,
+        components,
+        "v1",
+        _component_empty_rules(inputs),
+    )
+    partition = _fact("contribution_partition", binding, quantity.contribution_id)
+    complete = _fact("complete_coverage", binding, quantity.definition_id)
+    obligations.extend(
+        (
+            Obligation(partition, "source.contribution_partition@v1", "publish"),
+            Obligation(complete, "source.complete_coverage@v1", "publish"),
+        )
+    )
+    domain = replace(params.output_domain, definition_id=quantity.definition_id)
+    parts: tuple[Part, ...] = (
+        *tuple(
+            replace(p, source_key=domain.instance_key)
+            for p in left.parts
+            if isinstance(p, SubjectPart)
+        ),
+        state,
+        CoveragePart(binding, quantity.definition_id, binding.scope_id, "v1"),
+    )
+    return _result(
+        "occurrence_combine@v1",
+        inputs,
+        domain,
+        quantity,
+        parts,
+        pre=tuple(pre),
+        required=("original_state", "coverage"),
+        created=("original_state", "coverage"),
+        post=(partition, complete),
+        obligations=tuple(obligations),
+        eval_id="occurrence_combine.finish@v1",
     )
 
 
@@ -1402,7 +1642,7 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
         or state.method_version != quantity.method_version
         or state.contribution_id != quantity.contribution_id
         or state.method_version != method_semantics.original_state_method
-        or state.components != method_semantics.state_components
+        or (params.method != "linear" and state.components != method_semantics.state_components)
         or state.version != "v1"
     ):
         reject(

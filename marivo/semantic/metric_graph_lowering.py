@@ -1898,6 +1898,16 @@ def _normalize_target_graph(
                     time_fold is not None,
                     policies.get(role, "block"),
                     unit=node.unit_override or unit,
+                    event_time_dimension=(
+                        _ref_payload("time_dimension", declaration.event_time_dimension)
+                        if declaration is not None and declaration.event_time_dimension is not None
+                        else None
+                    ),
+                    event_time_path=tuple(
+                        _ref_payload("relationship", path) for path in declaration.event_time_path
+                    )
+                    if declaration is not None
+                    else (),
                     numeric_method="weighted_mean@v1",
                     spatial_merge=spatial_merge,
                     time_merge=time_merge,

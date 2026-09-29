@@ -526,3 +526,65 @@ fields fail canonical validation; there is no compatibility fill, migration or
 automatic source reconstruction. Start fresh project state or restore state made
 with the same definition contract. This is a deliberate breaking refactor of
 weakly reusable prior analysis, not a claim of cross-version Artifact recovery.
+
+## R5.3 observation and occurrence-combination frozen definitions
+
+One observation binds one occurrence per canonical `TargetMetricComponent`. Each
+occurrence carries its own contribution root, branch filter, route, time range,
+unit, amount type and complete target key, and each reduces independently before
+any combination. Occurrence combination is a single common-graph rule variant: it
+consumes N>=2 ordered quantity inputs on one frozen member binding and produces
+the complete-tuple union on the complete target key. It is not a new executor, a
+per-column projection product, a root intersection or a row-order alignment, and
+it never multiplies a shared contribution table across branches.
+
+The combination rule retains, per occurrence, its original component state,
+coverage and `original_state` part, plus the ordered signed terms for `linear`
+and the named original components and zero-denominator policy for `ratio`. A
+`weighted_mean` occurrence retains the paired value/weight components and its
+declared zero or missing-weight-sum policy. This extends the existing
+descriptor/receipt transport and method/state version slots; no new Store
+generation, dual reader or v6 public recovery path is introduced, and pre-R5.3
+state missing these frozen occurrences fails canonical validation rather than
+being filled or rebuilt from source.
+
+The R5.3 review repair records a breaking frozen-state change within the same
+unpublished v7 generation: `OriginalStatePart.empty_rules` binds one `null` or
+`zero` policy per combined occurrence. Ratio state now uniformly carries
+`numerator_sum`, `numerator_non_null_count`, `denominator_sum`, and
+`denominator_non_null_count`. Count maps to its count magnitude and support;
+sum retains its actual sum and non-null support. Policies are metadata, not
+fabricated contributing rows. Source, fixed and coordinate rollups merge these
+components independently and apply the retained policies before division.
+A defined negative denominator is valid; only zero is a zero-denominator case.
+Old ratio layouts are not read through a compatibility decoder.
+
+Linear uses the same per-occurrence policies: empty count and empty-zero sum
+remain Defined(0), while an empty-null sum propagates Null. The homogeneous
+int64 source consumer specializes its exact qualification to the requested
+ordered arity, retaining the same backend, domain, shape and route constraints.
+Every input is checked against the first complete key set, and the Subject map
+is projected once. Existing graph and 256 KiB continuation budgets still apply.
+
+An omitted observation window means the admitted source without an added time
+restriction; it is not a claim of all-history completeness, and a method that
+requires an endpoint or cumulative anchor still rejects a missing required time
+argument instead of degrading. Ownership, share, Session/Store identity, exact
+ordered Artifact inputs, receipts, definition and method/state versions, required
+parts and time/coverage facts remain part of the fixed key, and integrity
+validation still precedes cache-hit and consumer admission. Diagnostic or
+unregistered engine versions cannot alter the selected route, the frozen
+observation definition or any published state.
+
+
+The R5.3 follow-up adds `ObserveWeightedMean` and `original_weighted_mean`
+publication under the same Store 7 generation. Its four int64 components bind
+paired values/weights and row support; validation rejects inconsistent counts,
+nonzero unsupported sums, out-of-range state, and Cells that differ from their
+finish. `state_rollup.weighted_mean` and `state_rollup.linear` consume retained
+original components in source and artifact execution. Cold-process tests recover
+both through `session.artifact` with models and sources offline; missing original
+state blocks recovery and advertised continuations. This bounded result does not
+replace R5.7's full recovery matrix. Method-to-state-kind lookup in source exchange
+and exchange validation now uses the existing MethodSemantics owner; protocol
+state-kind/role inventories remain explicit closed wire-schema constraints.

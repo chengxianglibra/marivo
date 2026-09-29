@@ -159,7 +159,14 @@ class MethodState:
             if self.kind == "difference"
             else ("original_state", "coverage")
             if self.kind
-            in ("original_sum", "original_sum_zero", "original_count", "original_ratio")
+            in (
+                "original_sum",
+                "original_sum_zero",
+                "original_count",
+                "original_ratio",
+                "original_weighted_mean",
+                "original_linear",
+            )
             else ("row_state",)
         )
         if (

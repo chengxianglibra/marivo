@@ -25,7 +25,8 @@ if TYPE_CHECKING:
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
     )
-    assert_type(observed, mv.LogicalNumericRelation)
+    assert_type(observed, mv.LogicalNumericRelation | mv.LogicalRatioRelation)
+    assert isinstance(observed, mv.LogicalNumericRelation)
     assert_type(observed.rollup(), mv.LogicalRolledNumericRelation)
     assert_type(
         observed.group_by(ms.ref.dimension("sales.order.channel")),
@@ -52,7 +53,8 @@ if TYPE_CHECKING:
             ),
         ),
     )
-    assert_type(ratio, mv.LogicalRatioRelation)
+    assert_type(ratio, mv.LogicalNumericRelation | mv.LogicalRatioRelation)
+    assert isinstance(ratio, mv.LogicalRatioRelation)
     assert_type(ratio.rollup(), mv.LogicalRolledRatioRelation)
     assert_type(
         ratio.group_by(ms.ref.dimension("sales.order.channel")),

@@ -14,6 +14,7 @@ from marivo.analysis.core.rules import (
     CellDerive,
     ObserveCount,
     ObserveMetric,
+    ObserveWeightedMean,
     PartsTransport,
     RuleDerivation,
     RuleParameters,
@@ -245,7 +246,7 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
         _fail(f"ordered input roles {expected}", repr(roles))
     if type(node.sources) is not tuple or any(type(s) is not SourceLeaf for s in node.sources):
         _fail("immutable explicit source dependencies", node.identity)
-    if isinstance(node.parameters, (ObserveMetric, ObserveCount)):
+    if isinstance(node.parameters, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
         required = {node.parameters.contribution.path}
         for path in node.parameters.path:
             required.update((path.from_entity_ref.path, path.to_entity_ref.path))

@@ -457,6 +457,7 @@ A semantic allowance below still requires a qualified physical implementation.
 | Metric weighted mean | Same non-null value/weight pairs; existing Metric zero/missing-weight-sum policy | weighted sum, paired weight sum, paired and row counts, original value/weight refs and units | Merge original paired components; no substitution of current-row weights |
 | Metric ratio | Named numerator/denominator policies; zero denominator Undefined or error as declared | Every named original component with its own state, binding and coverage | Merge components independently then finish; no sum/mean of finished ratios |
 | Metric linear | Ordered signed components, compatible units and explicit component policies | Every ordered occurrence's state and sign | Merge components independently then finish; retain branch distinctions |
+| Metric occurrence combine | One occurrence per canonical component with its own root, filter, route and time range; no cross-occurrence Cell substitution | Every occurrence's original component state, coverage and complete target key; no retained set/sketch promise | Merge each occurrence independently, then combine on the complete target key; never a per-column projection product, root intersection or row-order alignment |
 | Current-row count | Every current instance, including Null/Undefined/Unknown; empty 0 | checked int64 count, current instance unit/domain | RowStatistic count-state merge on disjoint retained row contributions |
 | Current-row count_defined | Inspect Cell tag; only Defined counts; empty 0 | checked int64 count, current instance unit/domain and original tag policy | Merge this statistic's counts, never recast as count_all |
 | Current-row sum | All consumed values Defined and finite; admitted empty 0 | sum and row count, new RowStatistic identity | Same statistic's sum-state merge, disjoint current-row contributions |
@@ -564,3 +565,58 @@ is checked separately from null values. Scalar read creates no original Metric
 state and therefore grants no original `rollup` capability. These stateless
 results keep state kind `none`; the existing row-statistic and observation
 qualifications are not expanded by matching numeric output values.
+
+### R5.3 observation and runtime expression consumers
+
+Observation inputs are the closed union of a Metric Ref, a RuntimeMetricExpr and
+a QuantileMetricInput. Each canonical `TargetMetricComponent` becomes its own
+occurrence with an independent contribution root, filter, route, time range,
+unit and amount type; a component's own `filter` is no longer a reason to reject
+an observation, and same-root occurrences under different filters stay distinct
+rather than merging. `aggregate`, `slice`, `ratio`, `linear` and `weighted_mean`
+all reach the common graph: `weighted_mean` binds through its existing canonical
+node variant, `linear` combines ordered +1/-1 occurrences, and `ratio` keeps its
+named original components and finish/zero-denominator policy.
+
+Occurrence state is transported under the existing `components`/state-version
+mechanism: `original_state` requires the component's declared state tuple, and a
+`weighted_mean` occurrence requires the paired value/weight components and the
+declared zero or missing weight-sum policy. An opaque Metric contributes only its
+declared permissions and actually available state; components are never inferred
+from a function body, a result column name or numerically equal values. Combining
+occurrences of unequal fact grain is admitted only when each occurrence reduces
+first; the same fact table under two filters is never multiplied or summed across
+branches before its own reduction.
+
+Diagnostic or unregistered engine versions cannot alter selected route, exact
+observation definition or any published state. No compatibility route, forwarding
+alias or generation-6 reopening is introduced by this slice.
+
+The R5.3 review regressions additionally qualify sum/sum and count/count ratios,
+negative sum denominators, and three independently reduced roots. Empty component
+policies survive combination: a count of zero is Defined, not an empty-null sum.
+Runtime `aggregate(..., agg="sum")` resolves the contribution Entity's explicit
+unambiguous default UTC event axis before observation admission; this applies to
+both omitted and finite windows. Missing default axes still reject, without
+choosing a time field by name or order.
+
+
+The R5.3 executable qualification is bounded: direct int64 value/weight columns
+for Metric weighted mean, int64 sum/count leaves for ratio and signed linear,
+DuckDB table/Parquet with UTC instant-us time, and the existing route lengths.
+Weighted mean retains `(weighted_numerator, weight_sum, non_null_pair_count,
+row_count)` from rows with both operands non-null. No pairs yields
+`Null(empty_contribution)`; a contributed zero weight sum yields
+`Null(zero_weight_sum)`. Source and fixed rollup merge these four components,
+never average member means. Weighted contribution coordinates remain unqualified.
+Nested linear sum/count expressions distribute signs while retaining every
+occurrence and its empty policy; source and fixed rollup merge each original
+component. An outer slice over ratio/linear is pushed to each leaf by canonicalization. Nested nonlinear finishes and ratio `zero_division="error"` are not
+qualified by this slice and reject; descriptor construction does not grant an
+execution method. Composite member identities join and reduce on every key.
+
+`LogicalAnalysisDomain.observe` accepts omitted `during` in its static signature.
+Its return is the numeric/ratio relation union because a Metric Ref's kind is
+resolved from the catalog, not inferred from whether `via` has one or many roots.
+Use `isinstance` to narrow before family-specific continuations. Linear and
+weighted mean produce the numeric family; ratio produces the ratio family.

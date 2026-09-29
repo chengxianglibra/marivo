@@ -749,6 +749,15 @@ domain and before-consume/before-publish deadline. Source rows used by these
 checks pass through the same admitted Ibis source boundary. No whole-source
 uniqueness scan is inserted merely because an Entity has a declared key.
 
+Every occurrence resolved from one input is separately ready or separately
+blocked: a blocked occurrence names its own component and never silently drops or
+substitutes for a ready sibling, and an observation whose occurrences bind
+different contribution roots reports each root's own obligation set. Occurrence
+combinations add no dependency of their own beyond their member occurrences. An
+opaque Metric contributes only its declared permissions and the state it actually
+declares, never components inferred from a function body, a result column name or
+numerically equal values.
+
 Construction rejects wrong Ref kind, cross-Session identity, conflicting temporal
 arguments, unavailable required declaration and mixed source/fixed dependencies
 before a Run or business-data read. Schema-only R1 preflight retains its existing

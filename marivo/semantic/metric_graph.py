@@ -8,7 +8,7 @@ contains no executable expressions.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, get_args
 
 from typing_extensions import TypeAliasType
 
@@ -222,23 +222,29 @@ class MetricExpressionGraphV1:
     occurrences: tuple[ExpressionOccurrenceV1, ...]
 
 
+SliceOperatorV1: TypeAlias = Literal["==", "!=", "in", "between", ">", ">=", "<", "<="]
+
+
 def component_predicate(
     value: CanonicalValue,
-) -> tuple[str, CanonicalScalar | tuple[CanonicalScalar, ...]]:
+) -> tuple[SliceOperatorV1, CanonicalScalar | tuple[CanonicalScalar, ...]]:
     """Validate the existing closed slice operators before execution admission."""
-    op = "in" if isinstance(value, tuple) else "=="
+    op: SliceOperatorV1 = "in" if isinstance(value, tuple) else "=="
     if (
         isinstance(value, tuple)
         and len(value) == 2
         and isinstance(value[0], tuple)
         and len(value[0]) == 2
         and value[0][0] == "op"
-        and isinstance(value[0][1], str)
         and isinstance(value[1], tuple)
         and len(value[1]) == 2
         and value[1][0] == "value"
     ):
-        op, value = value[0][1], value[1][1]
+        declared = value[0][1]
+        if declared not in get_args(SliceOperatorV1):
+            raise ValueError("Slice comparison requires one registered operator and a scalar")
+        op = declared
+        value = value[1][1]
     if op in ("in", "between"):
         if not isinstance(value, tuple):
             raise ValueError("Slice membership/range requires a scalar sequence")

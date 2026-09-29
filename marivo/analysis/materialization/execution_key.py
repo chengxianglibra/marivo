@@ -14,7 +14,17 @@ from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.methods import physical as method_physical
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.refs import Ref, RefPayloadV1, SemanticKind
+from marivo.semantic import metric_graph
 from marivo.semantic.ir import TargetSnapshotSelection, TargetValiditySelection
+from marivo.semantic.runtime_metric import (
+    FrozenSliceMap,
+    FrozenSlicePredicateV1,
+    RuntimeAggregateExpr,
+    RuntimeLinearExpr,
+    RuntimeRatioExpr,
+    RuntimeSliceExpr,
+    RuntimeWeightedMeanExpr,
+)
 
 _DEFINITION = re.compile(r"ds_[0-9a-f]{64}\Z")
 _GRAPH_PROTOCOL = "marivo.analysis.execution_key/v1"
@@ -54,6 +64,27 @@ _WIRE_TAGS: dict[type[object], str] = {
     method_physical.SourceShape: "source_shape",
     method_physical.FixedShape: "fixed_shape",
     method_physical.QualificationKey: "qualification",
+    RuntimeAggregateExpr: "runtime_aggregate",
+    RuntimeSliceExpr: "runtime_slice",
+    RuntimeRatioExpr: "runtime_ratio",
+    RuntimeWeightedMeanExpr: "runtime_weighted_mean",
+    RuntimeLinearExpr: "runtime_linear",
+    metric_graph.MetricExpressionGraphV1: "metric_expression_graph",
+    metric_graph.MetricGraphNodeRecordV1: "metric_graph_node_record",
+    metric_graph.CanonicalSliceEntryV1: "canonical_slice_entry",
+    metric_graph.AggregateNodeV1: "aggregate_node",
+    metric_graph.SliceNodeV1: "slice_node",
+    metric_graph.RatioNodeV1: "ratio_node",
+    metric_graph.LinearNodeV1: "linear_node",
+    metric_graph.LinearTermV1: "linear_term",
+    metric_graph.CumulativeNodeV1: "cumulative_node",
+    metric_graph.WeightedMeanAggregateNodeV1: "weighted_mean_node",
+    metric_graph.ExpressionOccurrenceV1: "expression_occurrence",
+    metric_graph.CatalogBodyLeafV1: "catalog_body_leaf",
+    metric_graph.CatalogMetricIdentity: "catalog_metric_identity",
+    metric_graph.RuntimeExpressionIdentity: "runtime_expression_identity",
+    FrozenSliceMap: "frozen_slice_map",
+    FrozenSlicePredicateV1: "frozen_slice_predicate",
 }
 
 

@@ -64,15 +64,15 @@ reachability, executed SQL, or complete dynamic call coverage.
 | --- | --- | --- | --- |
 | M01 | `A/session/core.py::Session.members` -> `A/public_dsl.py`; concrete read/observe/group/rollup/summarize variants -> graph member/relation/composition objects | F02/F05; R5.2-R5.4 | Extend the sole public path; retire single-key/string-only/two-root limits only with the exact new qualification; V01-V05/V12 |
 | M02 | `A/materialization/graph_members.py::MemberGraph.read`, member construction and `graph_preflight.py` schema checks -> SourceLeaf/BindProject | F01/F02; R5.2 | Add complete typed K/version/read, preserve schema-only preflight and no implicit distinct; V01/V02 |
-| M03 | `graph_observation.py::observe_members/observe_ratio_members` and `graph_composition.py` -> core/rules, graph lowering and source bindings | F03-F06; R5.3/R5.4 | Per-occurrence bindings and complete tuple domain; remove limited graph branches rather than add an alternate executor; V03-V05 |
-| M04 | `A/runtime_metric.py` re-exports `S/runtime_metric.py`; `S/runtime_metric_lowering.py`, `_metric_resolution.py`, `metric_graph*.py` resolve/lower into semantic graph; tests/runtime replay workers also import factories | F03/F04; R5.3 | Keep canonical graph owner and five factories; remove duplicate Analysis inference/old replay consumers after replacement; V03/V08, runtime_metric suites |
+| M03 | `graph_observation.py::observe_members/observe_ratio_members` and `graph_composition.py` -> core/rules, graph lowering and source bindings | F03-F06; R5.3 (occurrences, combination) / R5.4 (coordinates, groups) | Per-occurrence bindings and complete tuple domain; remove limited graph branches rather than add an alternate executor; V03-V05. R5.3 freezes the per-occurrence contract and N-ary combination in the owning specs; coordinate/group axis removal stays R5.4 |
+| M04 | `A/runtime_metric.py` re-exports `S/runtime_metric.py`; `S/runtime_metric_lowering.py`, `_metric_resolution.py`, `metric_graph*.py` resolve/lower into semantic graph; tests/runtime replay workers also import factories | F03/F04; R5.3 | Keep canonical graph owner and five factories; remove duplicate Analysis inference/old replay consumers after replacement; V03/V08, runtime_metric suites. R5.3 target: all five factories reach the common graph, `linear`/`weighted_mean` included |
 | M05 | `A/session/_lazy_sources.py` calls `observation.population.make_population` and `observation.metric.make_observation`; `metric.py` delegates aggregation, coordinate and retained rollup | F01-F06; R5.2-R5.4/R5.7 | Migrate public tests to members/read/observe/group_by/rollup/summarize; delete R5 legacy nodes and calls when no R6-R8 consumer remains; no forwarding shim |
 | M06 | `observation/{aggregation,coordinates,rollup}.py` bind_aggregation/with_dimensions/with_time_axis/retained_aggregate; `compiler/lowering.py` and `operators/rollup.py` consume their contracts | F05-F07; R5.4/R5.5 | Preserve independent business oracles, migrate algorithms into shared rules/methods; delete migrated R5 dispatch, retain documented R6-R8 shared consumers until their cutover |
 | M07 | `graph_observation.py:185` calls `observation.temporal.civil_bound`; same helper called by `compiler/lowering.py`, `observation/coordinates.py`, `operators/rollup.py` | F07; R5.5 | Extract still-valid boundary semantics to the common temporal owner and move actual callers; do not delete temporal.py first or retain a forwarding shim; V06 |
 | M08 | `compiler/temporal.py::bucket/bucket_end/cumulative_start/endpoint_reset_start`; bucket callers include `compiler/distinct_fold.py`, `compiler/lowering.py`, temporal tests | F07/F08; R5.5 | Replace R5 time consumers with admitted Ibis/registered local algorithms including check expressions; inspect remaining Event/Lifecycle references before deletion; V06/V07 |
 | M09 | `materialization/temporal_sql.py::lower_temporal` called by SQLite/MySQL/Trino/ClickHouse execution and ClickHouse Event SQL | Temporal owner and R1 adapter boundary; R5.5 for R5, R7/R9 for remaining consumers | Name alone does not prove handwritten SQL: inspect Ibis rewrites/UDF signatures separately from SQL text builders. Migrate R5 business/check reads through SourceSession; do not delete shared backend/Event support early |
 | M10 | `operators/registry.py::legacy_source_migration_stage`, implementation/source_unsupported_reason; compiler/source_admission and materialization/dataset_execution consume old declarations | F03/F11; R5.3-R5.7 | Remove each migrated R5 registration/block branch; stage function already maps delta/comparison to R6, Event/Lifecycle R7, candidate/forecast/association R8. Do not broaden default admission |
-| M11 | `methods/registry.py::REGISTRY` iterates `semantics.CONNECTED_METHODS` and `builtin.implementations`; core/rules, graph plan/lowering/execution consume selected rules | F06/F10; R5.3-R5.6 | Extend one method owner, exact qualification keys and typed states; no duplicate registration in old operators. Private row.weighted_mean remains non-public and is not an R5 requirement |
+| M11 | `methods/registry.py::REGISTRY` iterates `semantics.CONNECTED_METHODS` and `builtin.implementations`; core/rules, graph plan/lowering/execution consume selected rules | F06/F10; R5.3-R5.6 | Extend one method owner, exact qualification keys and typed states; no duplicate registration in old operators. Private row.weighted_mean remains non-public and is not an R5 requirement. R5.3 adds the occurrence-combination and Metric weighted-mean entries to the existing owner rather than a second registry |
 | M12 | `S/_quantile.py::quantile_metric` currently exposes method= and old session.observe guidance; observation/compiler distribution/distinct modules and quantile tests consume it | F09/F10; R5.6 | Replace target input with accuracy= without compatibility alias; preserve q, direct numeric oracles and algorithm evidence; remove migrated old method routing; V09/V12 |
 | M13 | `materialization/{dataset_publication,publication,retained}.py`, observation contracts/fold/private parts and compiler retained routes serve private old Dataset harnesses | F06/F11; R5.3-R5.7 | Move R5 components/selection into graph_protocol/exchange/publication/store; delete ownerless R5 codecs only after test/worker consumers move; never reopen generation 6 publicly |
 | M14 | `graph_protocol.py`, graph_storage/store/publication and graph source/local execution consume current v7 frozen signatures, parts and receipts | F11; each activating package/R5.7 | Add closed method/state layouts and strict decoding, common publication, actual recovery K; no new Store generation; V10 |
@@ -214,3 +214,26 @@ claimed. R5.3 must revisit observation-expression consumers with its observation
 lowering; R5.5/R5.6 retain temporal/numeric expansion. Historical J1-J4 Runtime
 regression passes alongside the new cases. No packaged skill disclosure gap was
 found for these call shapes; no skill or AGENTS.md edits were needed.
+
+## R5.3 migration outcome (2026-09-29, reviewed follow-up)
+
+[The current evidence](evidence/r53/README.md) supersedes the initial handoff:
+all five factories execute in the bounded graph qualification. V03 covers real
+three-root execution, same-root branches, unequal grain, wrong root roles and
+units, composite member keys, and opaque authoring acceptance versus observation
+rejection. V08 has a paired-int64 weighted-mean source/fixed/cold slice; its full
+numeric matrix remains R5.6. No D01-D22 debt is promoted.
+
+| Consumer | R5.3 result | Remaining owner |
+| --- | --- | --- |
+| M03 | Independent occurrences, complete composite member identity, sum/count ratios, nested additive linear state and rollup, paired weighted means | R5.4 coordinates/groups; other exact method shapes remain unqualified |
+| M04 | Five factories execute through the canonical graph; runtime leaves resolve the declared default event axis | R5.5 temporal expansion; R5.6 numeric matrix |
+| M10 | Preserved: public graph bypasses source_admission/dataset_execution, Store 7 refuses legacy Dataset route, shared R6-R8 consumers still exist | R6-R8 / R5.7 reverse scan |
+| M11 | Existing owner gains metric.weighted_mean and state_rollup.weighted_mean/linear; source/exchange use MethodSemantics persistent_state_kind | R5.4-R5.6 other states |
+| M14 | Closed input union, explicit empty policies, ratio four-column state and weighted paired state recorded under plan 3.5; no dual reader/new Store generation | R5.7 full recovery matrix |
+| M17 | Optional during typing, actual numeric/ratio return family, Help and current EN/ZH example alignment; packaged skills unchanged | R5.7 installed wheel; skill changes require explicit approval |
+
+Nested nonlinear finishes and ratio error policy are not
+qualified by this bounded slice. Positive nesting evidence is nested signed
+linear over additive leaves and outer slices pushed through ratio/linear. Opaque positivity
+means catalog authoring/require, not an invented direct observation permission.

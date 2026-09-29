@@ -56,6 +56,7 @@ from marivo.refs import (
     SemanticKind,
     TimeDimensionKind,
 )
+from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from marivo.semantic.validator import normalize_target_relationship
 
 if TYPE_CHECKING:
@@ -64,6 +65,7 @@ if TYPE_CHECKING:
 
 RootRoute: TypeAlias = RootRouteValue
 RootRoutes: TypeAlias = RootRoutesValue
+MetricInputValue: TypeAlias = Ref[MetricKind] | RuntimeMetricExpr
 _TOKEN = object()
 
 
@@ -385,7 +387,14 @@ class _Value:
                 )
             )
             if isinstance(quantity, ObservedQuantity):
-                facts.append(("metric", quantity.metric_ref.path))
+                facts.append(
+                    (
+                        "metric",
+                        quantity.metric_ref.label
+                        if isinstance(quantity.metric_ref, RuntimeMetricExpr)
+                        else quantity.metric_ref.path,
+                    )
+                )
             if quantity.method_version == "ratio@v1":
                 facts.append(("weighting", "original numerator and denominator components"))
             if (
@@ -631,48 +640,29 @@ class LogicalAnalysisDomain(_Value):
             _TOKEN, self._node.group_members(dimension), self._runtime, inputs=(self,)
         )
 
-    @overload
     def observe(
         self,
-        metric: Ref[MetricKind],
+        metric: MetricInputValue,
         *,
-        during: TimeScope,
-        via: Ref[RelationshipKind],
-        coordinates: tuple[Ref[DimensionKind], ...] = (),
-    ) -> LogicalNumericRelation: ...
-
-    @overload
-    def observe(
-        self,
-        metric: Ref[MetricKind],
-        *,
-        during: TimeScope,
-        via: RootRoutes,
-        coordinates: tuple[Ref[DimensionKind], ...] = (),
-    ) -> LogicalRatioRelation: ...
-
-    def observe(
-        self,
-        metric: Ref[MetricKind],
-        *,
-        during: TimeScope,
+        during: TimeScope | None = None,
         via: Ref[RelationshipKind] | RootRoutes,
         coordinates: tuple[Ref[DimensionKind], ...] = (),
     ) -> LogicalNumericRelation | LogicalRatioRelation:
-        """Observe one governed Metric over this logical member domain.
+        """Observe one governed Metric or runtime expression over this member domain.
 
         Args:
-            metric: Declared Metric Ref to observe.
-            during: Explicit fixed TimeScope for the observation.
-            via: Admitted relationship Ref or closed route pair.
+            metric: Declared Metric Ref or closed runtime Metric expression to observe.
+            during: Explicit fixed TimeScope, or None for no added time restriction.
+            via: Admitted relationship Ref or an ordered closed route list.
             coordinates: Optional declared contribution coordinate Dimension Refs.
         Returns: A LogicalNumericRelation | LogicalRatioRelation bound to this exact relation.
         Example: ``result = relation.observe(metric, during=during, via=via, coordinates=coordinates)``.
         Constraints: The Metric, window, path, and member binding must be admitted.
         """
-        if isinstance(via, RootRoutesValue):
-            live = self._node._live()
-            for route in via.routes:
+        live = self._node._live()
+        declared = via.routes if isinstance(via, RootRoutesValue) else (via,)
+        for route in declared:
+            if isinstance(route, RootRouteValue):
                 relationship = normalize_target_relationship(
                     live.graph.registry, route.through[0].path
                 )
@@ -682,14 +672,31 @@ class LogicalAnalysisDomain(_Value):
                         route.root.path,
                         "Bind the exact route root.",
                     )
-            observed = self._node.observe_ratio(
-                metric,
-                during=during,
-                paths=(via.routes[0].through, via.routes[1].through),
-                coordinates=coordinates,
+        paths = tuple(
+            route.through if isinstance(route, RootRouteValue) else (route,) for route in declared
+        )
+        if self._node.resolves_multiple_components(metric):
+            observed = self._node.observe_routes(
+                metric, during=during, paths=paths, coordinates=coordinates
             )
+            if (
+                observed.root.signature.quantity is not None
+                and observed.root.signature.quantity.method_version == "linear@v1"
+            ):
+                return LogicalNumericRelation(_TOKEN, observed, self._runtime, inputs=(self,))
             return LogicalRatioRelation(_TOKEN, observed, self._runtime, inputs=(self,))
-        observed = self._node.observe(metric, during=during, via=via, coordinates=coordinates)
+        if len(paths) != 1:
+            raise _reject(
+                "one route for the single contribution root",
+                f"{len(paths)} routes",
+                "Pass exactly the route of the observed contribution root.",
+            )
+        single = paths[0]
+        observed = (
+            self._node.observe(metric, during=during, via=single[0], coordinates=coordinates)
+            if len(single) == 1
+            else self._node.observe(metric, during=during, via=single, coordinates=coordinates)
+        )
         return LogicalNumericRelation(_TOKEN, observed, self._runtime, inputs=(self,))
 
 
