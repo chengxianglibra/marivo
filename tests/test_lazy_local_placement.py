@@ -67,64 +67,88 @@ def test_binding_identity_never_uses_connection_argument_equality(tmp_path: Path
     assert not source_eligible(registration, (None, a), a)
 
 
-@pytest.mark.skip(
-    reason="Re-enable after R5 qualifies mean Metric source execution that publishes retained parts."
-)
+@pytest.mark.runtime
 def test_required_parts_place_locally_without_worker_or_origin_work(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    retained_r54_case, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    runtime, sources, _ = setup_local(tmp_path)
     import pyarrow.parquet as pq
 
-    from marivo.analysis.materialization import source_preparation
-    from marivo.refs import ref
+    import marivo.analysis as mv
+    import marivo.semantic as ms
+    from marivo.analysis.compiler.graph_plan import LocalMethodStage, RouteChoice
+    from marivo.analysis.materialization.graph_execution import prepare_graph
+    from marivo.datasource.runtime import DatasourceConnectionService
     from tests.lazy_materialization_crash_worker import snapshot
 
-    retained = sources.observe(ref.metric("sales.mean_amount")).execute()
+    case = retained_r54_case
+    runtime = case.session._runtime
+    retained = (
+        case.session.members(ms.ref.entity("sales.customer"))
+        .observe(
+            ms.ref.metric("sales.mean_amount"),
+            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+            via=ms.ref.relationship("sales.order_buyer"),
+        )
+        .execute()
+    )
     before = snapshot(runtime)
     queries = runtime.statistics.primary_queries
-    monkeypatch.setattr(
-        source_preparation,
-        "_build_backend_from_effective",
-        lambda *args, **kwargs: pytest.fail("placement touched an origin"),
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("placement read retained parts or touched an origin")
+
+    monkeypatch.setattr(DatasourceConnectionService, "use_backend", forbidden)
+    monkeypatch.setattr(pq, "ParquetFile", forbidden)
+    target = retained.where(retained.value.gt(0))
+    placed = prepare_graph(
+        target._node.root,
+        session_ref=case.session.id,
+        routes=(RouteChoice(target._node.root.identity, "artifact_python"),),
     )
-    monkeypatch.setattr(
-        pq, "ParquetFile", lambda *args, **kwargs: pytest.fail("placement read a retained part")
-    )
-    target = retained.where(gt(retained.fields.get("mean_amount"), 0))
-    placed = place(target)
-    assert len(placed.local_steps) == 1
-    assert placed.local_steps[0].implementation.local_method == "metric.where"
+    local = [s for s in placed.admitted.stages if isinstance(s, LocalMethodStage)]
+    assert len(local) == 1
+    assert local[0].node.method.name == "parts_transport"
     assert snapshot(runtime) == before
     assert runtime.statistics.events.get("local_execution_started", 0) == 0
     assert runtime.statistics.primary_queries == queries
 
 
-@pytest.mark.skip(
-    reason="Re-enable after R5 qualifies metric.where source execution; retain diagnostic version invariance."
-)
+@pytest.mark.runtime
 @pytest.mark.parametrize("dependency", ["duckdb", "ibis"])
 @pytest.mark.parametrize("version", [None, "unregistered"])
 def test_diagnostic_version_does_not_change_selection_or_execution(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dependency: str, version: str | None
+    retained_r54_case, monkeypatch: pytest.MonkeyPatch, dependency: str, version: str | None
 ) -> None:
     import importlib
 
-    from marivo.analysis.compiler.placement import source_binding
+    import marivo.analysis as mv
+    import marivo.semantic as ms
+    from marivo.analysis.materialization.graph_execution import prepare_graph
 
-    _, sources, _ = setup_local(tmp_path)
-    source = sources.observe(REVENUE)
-    target = source.where(gt(REVENUE, 0))
-    before = source_binding(target)
+    case = retained_r54_case
+    source = case.session.members(ms.ref.entity("sales.customer")).observe(
+        ms.ref.metric("sales.revenue"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+    )
+    target = source.where(source.value.gt(0))
+    from marivo.analysis.compiler.graph_plan import RouteChoice
+    from marivo.analysis.core.graph import MethodNode, topology
+
+    routes = tuple(
+        RouteChoice(node.identity, "ibis")
+        for node in topology(target._node.root)
+        if isinstance(node, MethodNode)
+    )
+    before = prepare_graph(target._node.root, session_ref=case.session.id, routes=routes)
     module = importlib.import_module(dependency)
     if version is None:
         monkeypatch.delattr(module, "__version__")
     else:
         monkeypatch.setattr(module, "__version__", version)
-    after = source_binding(target)
-    assert before.same_domain(after)
-    assert source_eligible(registry.implementation(target), (before,), after)
-    assert target.execute().to_pandas()["revenue"].sum() == 147
+    after = prepare_graph(target._node.root, session_ref=case.session.id, routes=routes)
+    assert before == after
+    assert target.execute().to_pandas()["value"].sum() == 147
 
 
 def test_semantic_observation_keeps_its_owner_while_comparison_federates_inputs() -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 from contextlib import redirect_stdout
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
@@ -18,6 +19,7 @@ from marivo.analysis.core.model import (
     ObservedQuantity,
     RolledQuantity,
     RowStatisticQuantity,
+    SubjectPart,
     part_role,
 )
 from marivo.analysis.core.predicates import TemporalLiteral, ValuePredicate
@@ -25,6 +27,7 @@ from marivo.analysis.core.rules import (
     AssociationScore,
     BindProject,
     CellDerive,
+    CompleteGroups,
     MapCorrespond,
     PartsTransport,
     RowState,
@@ -79,11 +82,34 @@ def _reject(expected: str, received: str, repair: str) -> DatasetConstructionErr
 class RowMethod:
     """Closed current-row statistic selected by the caller."""
 
-    kind: Literal["sum", "count", "mean"]
+    kind: Literal["sum", "count", "count_defined", "min", "max", "mean"]
+
+    def __repr__(self) -> str:
+        return f"RowMethod(kind={self.kind!r}; use marivo.help('analysis.RowMethod'))"
 
     def __post_init__(self) -> None:
-        if self.kind not in ("sum", "count", "mean"):
-            raise _reject("sum, count or mean", str(self.kind), "Use mv.sum/count/mean().")
+        if self.kind not in ("sum", "count", "count_defined", "min", "max", "mean"):
+            raise _reject(
+                "sum, count, count_defined, min, max or mean",
+                str(self.kind),
+                "Use mv.sum/count/count_defined/min/max/mean().",
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class CountMethod(RowMethod):
+    """Closed count-all or Defined-count descriptor for scalar relations."""
+
+    kind: Literal["count", "count_defined"]
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("count", "count_defined"):
+            raise _reject(
+                "count or count_defined", str(self.kind), "Use mv.count() or mv.count_defined()."
+            )
+
+    def __repr__(self) -> str:
+        return f"CountMethod(kind={self.kind!r}; use marivo.help('analysis.CountMethod'))"
 
 
 def sum() -> RowMethod:
@@ -97,7 +123,7 @@ def sum() -> RowMethod:
     return RowMethod("sum")
 
 
-def count() -> RowMethod:
+def count() -> CountMethod:
     """Select the current-row count method.
 
     Args: None.
@@ -105,7 +131,7 @@ def count() -> RowMethod:
     Example: ``result = relation.summarize(mv.count())``.
     Constraints: Count includes current rows with non-Defined Cells.
     """
-    return RowMethod("count")
+    return CountMethod("count")
 
 
 def mean() -> RowMethod:
@@ -117,6 +143,39 @@ def mean() -> RowMethod:
     Constraints: Non-Defined participating Cells reject the strict mean.
     """
     return RowMethod("mean")
+
+
+def count_defined() -> CountMethod:
+    """Select the Defined current-row count method.
+
+    Args: None.
+    Returns: A closed RowMethod value.
+    Example: ``result = relation.summarize(mv.count_defined())``.
+    Constraints: Counts only Defined Cells, without numeric conversion.
+    """
+    return CountMethod("count_defined")
+
+
+def min() -> RowMethod:
+    """Select the current-row minimum method.
+
+    Args: None.
+    Returns: A closed RowMethod value.
+    Example: ``result = relation.summarize(mv.min())``.
+    Constraints: Requires finite Defined values; empty input is Undefined(empty_min).
+    """
+    return RowMethod("min")
+
+
+def max() -> RowMethod:
+    """Select the current-row maximum method.
+
+    Args: None.
+    Returns: A closed RowMethod value.
+    Example: ``result = relation.summarize(mv.max())``.
+    Constraints: Requires finite Defined values; empty input is Undefined(empty_max).
+    """
+    return RowMethod("max")
 
 
 def route(root: Ref[EntityKind], *, through: tuple[Ref[RelationshipKind], ...]) -> RootRoute:
@@ -204,6 +263,17 @@ class AnalysisContract:
 def _kind(node: Relation) -> str:
     definition = node.definition
     params, quantity = definition.parameters, definition.signature.quantity
+    if isinstance(params, CompleteGroups):
+        quantity = node.root.signature.quantity
+        return (
+            "group"
+            if quantity is None
+            else "summarize"
+            if isinstance(quantity, RowStatisticQuantity)
+            else "ratio_rollup"
+            if quantity is not None and quantity.method_version == "ratio@v1"
+            else "rollup"
+        )
     if isinstance(params, RowState):
         return "summarize"
     if isinstance(params, AssociationScore):
@@ -213,7 +283,7 @@ def _kind(node: Relation) -> str:
     if isinstance(params, BindProject):
         return "read"
     if isinstance(params, MapCorrespond):
-        return "group" if params.mode == "group" else "members"
+        return "group" if params.mode in ("group", "group_keys") else "members"
     if isinstance(params, PartsTransport):
         if not params.keep_quantity:
             return "members"
@@ -302,7 +372,17 @@ class _Value:
                 else ("read", "group_by", "observe", "execute")
             )
         elif kind == "read":
-            names = ("where", "members") if fixed else ("where", "members", "group_by", "execute")
+            names = (
+                ("where", "members", "group_by", "summarize")
+                if fixed
+                else ("where", "members", "group_by", "summarize", "execute")
+            )
+        elif isinstance(signature.quantity, RowStatisticQuantity):
+            names = (
+                (("group_by", "rollup") if signature.domain.instance_key else ("rollup",))
+                if "row_state" in roles
+                else ()
+            )
         elif kind == "group":
             names = ("observe",)
         elif kind == "correlate":
@@ -315,7 +395,11 @@ class _Value:
             names = ("members", "summarize") if signature.quantity is not None else ("members",)
         elif kind in ("observe", "ratio_observe", "rollup", "ratio_rollup"):
             names = (
-                *(("group_by",) if "coordinate_state" in roles else ()),
+                *(
+                    ("group_by",)
+                    if "coordinate_state" in roles or signature.domain.instance_key
+                    else ()
+                ),
                 *(("rollup",) if "original_state" in roles and "coverage" in roles else ()),
                 "summarize",
                 *(
@@ -326,6 +410,8 @@ class _Value:
             )
         else:
             names = ()
+        if isinstance(self, _CountRelation):
+            names = tuple(dict.fromkeys((*names, "group_by", "summarize")))
         if not fixed and kind not in ("members", "read", "group", "correlate"):
             names = (*names, "execute")
         if self._node.root.value_type != ScalarType("int64"):
@@ -437,10 +523,7 @@ class _Value:
     def _select(
         self, predicate: CategoryPredicate | NumericPredicate | ScalarPredicate
     ) -> Relation:
-        if (
-            not isinstance(predicate, (CategoryPredicate, NumericPredicate, ScalarPredicate))
-            or predicate.root is not self._node.root
-        ):
+        if not isinstance(predicate, (CategoryPredicate, NumericPredicate, ScalarPredicate)):
             raise _reject(
                 "a predicate on this exact relation",
                 "foreign predicate",
@@ -472,7 +555,68 @@ class _Value:
                 operations[predicate.operation],
                 predicate.threshold,
             )
-        return self._node.where(value)
+        dependency = None
+        if predicate.root is not self._node.root:
+            if not isinstance(predicate, NumericPredicate) or predicate.relation is None:
+                raise _reject(
+                    "a predicate with its exact relation binding",
+                    "foreign predicate without a numeric relation",
+                    "Build the predicate from the corresponding numeric relation.value.",
+                )
+            dependency = predicate.relation
+        return self._node.where(value, dependency)
+
+    def _group_nodes(
+        self,
+        keys: tuple[
+            Ref[DimensionKind]
+            | Ref[EntityKind]
+            | LogicalCategoryRelation
+            | MaterializedCategoryRelation
+            | LogicalSelectedCategoryRelation
+            | MaterializedSelectedCategoryRelation,
+            ...,
+        ],
+    ) -> tuple[Relation, Relation]:
+        node = self._node
+        references: list[Ref[DimensionKind] | Ref[EntityKind]] = []
+        for key in keys:
+            if isinstance(
+                key,
+                (
+                    LogicalCategoryRelation,
+                    MaterializedCategoryRelation,
+                    LogicalSelectedCategoryRelation,
+                    MaterializedSelectedCategoryRelation,
+                ),
+            ):
+                node = node.attach_category(key._node)
+                from marivo.refs import ref
+
+                references.append(ref.dimension(key._node.classification_coordinate().field))
+            else:
+                references.append(key)
+        if isinstance(node.root.signature.quantity, (ObservedQuantity, RolledQuantity)):
+            return node.rollup(*references), node
+        coordinates = []
+        for key in references:
+            matches = [
+                c
+                for c in node.root.signature.domain.instance_key
+                if (
+                    c.entity_ref == key and c.role == "identity"
+                    if key.kind == "entity"
+                    else c.field == key.path
+                )
+            ]
+            if not matches or (key.kind == "dimension" and len(matches) != 1):
+                raise _reject(
+                    "one retained complete coordinate",
+                    key.path,
+                    "Use a retained axis or a corresponding categorical read.",
+                )
+            coordinates.extend(matches)
+        return node.group_domain(tuple(coordinates)), node
 
     def _action_contract(self, names: tuple[str, ...]) -> tuple[AnalysisAction, ...]:
         from marivo.analysis._capabilities.registry import REGISTRY
@@ -493,7 +637,9 @@ class _Value:
             bound = getattr(self, name)
             descriptor = REGISTRY.by_callable(bound)
             arguments = tuple(
-                f"{parameter.name}={parameter.name}"
+                f"*{parameter.name}"
+                if parameter.kind is Parameter.VAR_POSITIONAL
+                else f"{parameter.name}={parameter.name}"
                 if parameter.kind is Parameter.KEYWORD_ONLY
                 else parameter.name
                 for parameter in signature(bound).parameters.values()
@@ -506,6 +652,171 @@ class _Value:
                 )
             )
         return tuple(actions)
+
+
+class _OriginalContinuation(_Value):
+    def group_by(
+        self,
+        *dimensions: Ref[DimensionKind]
+        | Ref[EntityKind]
+        | LogicalCategoryRelation
+        | MaterializedCategoryRelation
+        | LogicalSelectedCategoryRelation
+        | MaterializedSelectedCategoryRelation,
+        groups: LogicalAnalysisDomain
+        | GroupedAnalysisDomain
+        | MaterializedAnalysisDomain
+        | None = None,
+    ) -> GroupedNumericRelation | GroupedRatioRelation:
+        """Retain selected coordinates for another original-state reduction.
+
+        Args:
+            dimensions: Retained complete axes or explicit corresponding classifications.
+            groups: Optional explicit target retaining empty groups.
+        Returns: A grouped original numeric or ratio relation.
+        Example: ``result = relation.group_by(dimension).rollup().execute()``.
+        Constraints: Removed axes cannot be recovered and grouping never reloads attributes.
+        """
+        grouped, rows = self._group_nodes(dimensions)
+        if groups is not None:
+            grouped = grouped.complete_groups(groups._node)
+        quantity = self._node.root.signature.quantity
+        cls = (
+            GroupedRatioRelation
+            if quantity is not None and quantity.method_version == "ratio@v1"
+            else GroupedNumericRelation
+        )
+        return cls(
+            _TOKEN,
+            grouped,
+            self._runtime,
+            inputs=(self,),
+            row_node=rows,
+            target_node=None if groups is None else groups._node,
+        )
+
+    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+        """Reduce the current finished Cells into a new row statistic.
+
+        Args: method: A descriptor returned by a current-row method factory.
+        Returns: A logical RowStatistic independent of original Metric identity.
+        Example: ``result = relation.summarize(mv.mean()).execute()``.
+        Constraints: Numeric reducers require finite Defined Cells.
+        """
+        if not isinstance(method, RowMethod):
+            raise _reject("a RowMethod", type(method).__name__, "Choose a row method factory.")
+        return LogicalStatisticRelation(
+            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
+        )
+
+    def rollup(self) -> LogicalRolledNumericRelation | LogicalRolledRatioRelation:
+        """Merge retained original components over all remaining coordinates.
+
+        Args: None.
+        Returns: A logical original numeric or ratio total.
+        Example: ``total = relation.rollup().execute()``.
+        Constraints: Requires complete original state and coverage; no finished-value averaging.
+        """
+        node = self._node.rollup()
+        quantity = node.root.signature.quantity
+        cls = (
+            LogicalRolledRatioRelation
+            if quantity is not None and quantity.method_version == "ratio@v1"
+            else LogicalRolledNumericRelation
+        )
+        return cls(_TOKEN, node, self._runtime, inputs=(self,))
+
+
+class _CountRelation(_Value):
+    def group_by(
+        self,
+        *keys: Ref[DimensionKind]
+        | Ref[EntityKind]
+        | LogicalCategoryRelation
+        | MaterializedCategoryRelation
+        | LogicalSelectedCategoryRelation
+        | MaterializedSelectedCategoryRelation,
+        groups: GroupedAnalysisDomain | MaterializedAnalysisDomain | None = None,
+    ) -> GroupedAnalysisDomain:
+        """Bind complete classification keys for current-row counts.
+
+        Args:
+            keys: Retained coordinates or corresponding categorical relations.
+            groups: Optional complete target domain, including empty groups.
+        Returns: A grouped count receiver and target domain.
+        Example: ``result = category.group_by().summarize(mv.count()).execute()``.
+        Constraints: Categories, including selections, group their own Defined values without keys; other scalar kinds form Singleton.
+        """
+        effective = keys or (
+            (self,)
+            if isinstance(
+                self,
+                (
+                    LogicalCategoryRelation,
+                    MaterializedCategoryRelation,
+                    LogicalSelectedCategoryRelation,
+                    MaterializedSelectedCategoryRelation,
+                ),
+            )
+            else ()
+        )
+        node = self._node
+        coordinates = []
+        for key in effective:
+            if isinstance(
+                key,
+                (
+                    LogicalCategoryRelation,
+                    MaterializedCategoryRelation,
+                    LogicalSelectedCategoryRelation,
+                    MaterializedSelectedCategoryRelation,
+                ),
+            ):
+                node = node.attach_category(key._node)
+                coordinates.append(node.root.signature.domain.instance_key[-1])
+            else:
+                matches = [
+                    c
+                    for c in node.root.signature.domain.instance_key
+                    if (
+                        c.entity_ref == key and c.role == "identity"
+                        if key.kind == "entity"
+                        else c.field == key.path
+                    )
+                ]
+                if not matches:
+                    raise _reject(
+                        "retained grouping coordinates",
+                        key.path,
+                        "Pass a retained coordinate or corresponding categorical read.",
+                    )
+                coordinates.extend(matches)
+        return GroupedAnalysisDomain(
+            _TOKEN,
+            node.group_domain(tuple(coordinates)),
+            self._runtime,
+            inputs=(self,),
+            row_node=node,
+            target_groups=groups,
+        )
+
+    def summarize(self, method: CountMethod) -> LogicalStatisticRelation:
+        """Count current scalar rows under the selected Cell policy.
+
+        Args: method: A descriptor from mv.count() or mv.count_defined().
+        Returns: A new logical current-row statistic.
+        Example: ``result = relation.summarize(mv.count_defined()).execute()``.
+        Constraints: Numeric reducers are not admitted on categorical, temporal or boolean values.
+        """
+        if not isinstance(method, CountMethod):
+            raise _reject(
+                "mv.count() or mv.count_defined()",
+                type(method).__name__,
+                "Choose a count method for this scalar relation.",
+            )
+        return LogicalStatisticRelation(
+            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
+        )
 
 
 class _MaterializedValue(_Value):
@@ -537,9 +848,11 @@ class _MaterializedValue(_Value):
         with redirect_stdout(buffer):
             self.contract().show()
             self._dataset.show(max_output_bytes=max_output_bytes)
-        limit = 8192 if max_output_bytes is None else min(8192, max_output_bytes)
+        limit = 8192 if max_output_bytes is None else builtins.min(8192, max_output_bytes)
         print(
-            buffer.getvalue().encode("utf-8")[: max(0, limit - 1)].decode("utf-8", errors="ignore")
+            buffer.getvalue()
+            .encode("utf-8")[: builtins.max(0, limit - 1)]
+            .decode("utf-8", errors="ignore")
         )
 
     def to_pandas(self) -> pd.DataFrame:
@@ -627,17 +940,43 @@ class LogicalAnalysisDomain(_Value):
             return LogicalBooleanRelation(_TOKEN, node, self._runtime, inputs=(self,))
         return LogicalCategoryRelation(_TOKEN, node, self._runtime, inputs=(self,))
 
-    def group_by(self, dimension: Ref[DimensionKind]) -> GroupedAnalysisDomain:
-        """Group current members by their declared categorical Dimension.
+    def group_by(
+        self,
+        *keys: Ref[DimensionKind] | LogicalCategoryRelation | LogicalSelectedCategoryRelation,
+        groups: LogicalAnalysisDomain | GroupedAnalysisDomain | None = None,
+    ) -> GroupedAnalysisDomain:
+        """Bind a complete combination of member classifications.
 
         Args:
-            dimension: Declared Dimension Ref for the current member or contribution domain.
-        Returns: A GroupedAnalysisDomain bound to this exact relation.
-        Example: ``result = relation.group_by(dimension)``.
-        Constraints: Only declared member Dimensions or retained coordinates are admitted.
+            keys: Own Dimension Refs or explicitly corresponding categorical reads.
+            groups: Optional explicit target domain, including empty groups.
+        Returns: A lazy grouped member domain; no keys denotes Singleton.
+        Example: ``result = members.group_by(region).observe(metric, during=window, via=buyer)``.
+        Constraints: Classifications must be Defined on consumed members and align by full keys.
         """
+        node = self._node
+        categories: list[LogicalCategoryRelation | LogicalSelectedCategoryRelation] = []
+        coordinates = []
+        for key in keys:
+            category = self.read(key) if isinstance(key, Ref) else key
+            if not isinstance(category, (LogicalCategoryRelation, LogicalSelectedCategoryRelation)):
+                raise _reject(
+                    "a categorical Dimension",
+                    type(category).__name__,
+                    "Use a qualified categorical classification.",
+                )
+            node = node.attach_category(category._node)
+            categories.append(category)
+            coordinates.append(node.root.signature.domain.instance_key[-1])
+        target = node.group_domain(tuple(coordinates))
         return GroupedAnalysisDomain(
-            _TOKEN, self._node.group_members(dimension), self._runtime, inputs=(self,)
+            _TOKEN,
+            target,
+            self._runtime,
+            inputs=(self, *categories),
+            member_source=self,
+            categories=tuple(categories),
+            target_groups=groups,
         )
 
     def observe(
@@ -697,6 +1036,9 @@ class LogicalAnalysisDomain(_Value):
             if len(single) == 1
             else self._node.observe(metric, during=during, via=single, coordinates=coordinates)
         )
+        if coordinates:
+            subject = next(p for p in observed.root.signature.parts if isinstance(p, SubjectPart))
+            observed = observed.rollup(subject.entity_ref, *coordinates)
         return LogicalNumericRelation(_TOKEN, observed, self._runtime, inputs=(self,))
 
 
@@ -735,9 +1077,82 @@ class LogicalFixedAnalysisDomain(_Value):
 class GroupedAnalysisDomain(_Value):
     """Logical grouping descriptor for one member Dimension."""
 
+    def __init__(
+        self,
+        token: object,
+        node: Relation,
+        runtime: DatasetRuntime,
+        *,
+        inputs: tuple[_Value, ...],
+        member_source: LogicalAnalysisDomain | None = None,
+        categories: tuple[LogicalCategoryRelation | LogicalSelectedCategoryRelation, ...] = (),
+        target_groups: LogicalAnalysisDomain
+        | GroupedAnalysisDomain
+        | MaterializedAnalysisDomain
+        | None = None,
+        row_node: Relation | None = None,
+    ) -> None:
+        if target_groups is not None:
+            node = node.complete_groups(target_groups._node)
+        super().__init__(token, node, runtime, inputs=inputs)
+        self._member_source = member_source
+        self._categories = categories
+        self._target_groups = target_groups
+        self._row_node = row_node
+
+    def contract(self) -> AnalysisContract:
+        """Disclose only continuations bound by this grouping descriptor.
+
+        Args: None.
+        Returns: The bounded current grouping contract.
+        Example: ``groups.contract().show()``.
+        Constraints: Target-only groups do not create observations or row state.
+        """
+        names: tuple[str, ...] = ("execute",)
+        if self._member_source is not None:
+            names = (*names, "observe")
+        if self._row_node is not None:
+            names = (*names, "summarize")
+        return replace(super().contract(), actions=self._action_contract(names))
+
+    def summarize(self, method: CountMethod) -> LogicalStatisticRelation:
+        """Count current rows within these complete groups.
+
+        Args: method: mv.count() or mv.count_defined().
+        Returns: A new grouped row-count statistic.
+        Example: ``result = category.group_by().summarize(mv.count()).execute()``.
+        Constraints: Requires a scalar row receiver; target-only domains cannot invent rows.
+        """
+        if not isinstance(method, CountMethod) or self._row_node is None:
+            raise _reject(
+                "a scalar count receiver and CountMethod",
+                type(method).__name__,
+                "Group a scalar relation and choose a count factory.",
+            )
+        node = self._row_node.summarize(
+            method.kind, coordinates=self._node.root.signature.domain.instance_key
+        )
+        if self._target_groups is not None:
+            node = node.complete_groups(self._target_groups._node)
+        return LogicalStatisticRelation(_TOKEN, node, self._runtime, inputs=(self,))
+
+    def execute(self) -> MaterializedAnalysisDomain:
+        """Retain the complete explicit target-group domain.
+
+        Args: None.
+        Returns: A fixed group domain usable as groups in fixed continuations.
+        Example: ``targets = category.group_by().execute()``.
+        Constraints: Validate consumed keys against explicit targets and retain all target groups.
+        """
+        return MaterializedAnalysisDomain(_TOKEN, self._node, self._runtime, dataset=self._run())
+
     def observe(
-        self, metric: Ref[MetricKind], *, during: TimeScope, via: Ref[RelationshipKind]
-    ) -> GroupedNumericRelation:
+        self,
+        metric: MetricInputValue,
+        *,
+        during: TimeScope | None = None,
+        via: Ref[RelationshipKind] | RootRoutes,
+    ) -> GroupedNumericRelation | GroupedRatioRelation:
         """Observe a Metric grouped by the bound member attribute.
 
         Args:
@@ -748,6 +1163,15 @@ class GroupedAnalysisDomain(_Value):
         Example: ``result = relation.observe(metric, during=during, via=via)``.
         Constraints: The Metric, window, path, and member binding must be admitted.
         """
+        if self._member_source is not None:
+            observed = self._member_source.observe(metric, during=during, via=via)
+            return observed.group_by(*self._categories, groups=self._target_groups)
+        if not isinstance(via, Ref):
+            raise _reject(
+                "a grouped member observation",
+                "target-only group domain",
+                "Group the member domain before observing multiple contribution roots.",
+            )
         return GroupedNumericRelation(
             _TOKEN,
             self._node.observe(metric, during=during, via=via),
@@ -756,7 +1180,7 @@ class GroupedAnalysisDomain(_Value):
         )
 
 
-class LogicalCategoryRelation(_Value):
+class LogicalCategoryRelation(_CountRelation):
     """Unexecuted categorical member attribute relation."""
 
     def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
@@ -797,17 +1221,6 @@ class LogicalCategoryRelation(_Value):
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
         )
 
-    def group_by(self) -> GroupedAnalysisDomain:
-        """Group by this bound categorical value.
-
-        Args:
-            None.
-        Returns: A GroupedAnalysisDomain bound to this exact relation.
-        Example: ``result = relation.group_by()``.
-        Constraints: Only declared member Dimensions or retained coordinates are admitted.
-        """
-        return GroupedAnalysisDomain(_TOKEN, self._node.group_read(), self._runtime, inputs=(self,))
-
     def execute(self) -> MaterializedCategoryRelation:
         """Evaluate and publish this categorical relation.
 
@@ -820,7 +1233,7 @@ class LogicalCategoryRelation(_Value):
         return MaterializedCategoryRelation(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedCategoryRelation(_MaterializedValue):
+class MaterializedCategoryRelation(_MaterializedValue, _CountRelation):
     """Fixed categorical relation retaining admitted member identity."""
 
     def members(self) -> LogicalFixedAnalysisDomain:
@@ -861,7 +1274,7 @@ class MaterializedCategoryRelation(_MaterializedValue):
         )
 
 
-class LogicalSelectedCategoryRelation(_Value):
+class LogicalSelectedCategoryRelation(_CountRelation):
     """Unexecuted category selection over one exact read relation."""
 
     def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
@@ -891,7 +1304,7 @@ class LogicalSelectedCategoryRelation(_Value):
         )
 
 
-class MaterializedSelectedCategoryRelation(_MaterializedValue):
+class MaterializedSelectedCategoryRelation(_MaterializedValue, _CountRelation):
     """Fixed categorical selection with an exact retained member projection."""
 
     def members(self) -> LogicalFixedAnalysisDomain:
@@ -918,8 +1331,12 @@ class GroupedNumericRelation(_Value):
         runtime: DatasetRuntime,
         *,
         inputs: tuple[_Value, ...],
+        row_node: Relation | None = None,
+        target_node: Relation | None = None,
     ) -> None:
         super().__init__(token, grouped, runtime, inputs=inputs)
+        self._row_node = inputs[0]._node if row_node is None else row_node
+        self._target_node = target_node
 
     def contract(self) -> AnalysisContract:
         """Report the grouped observation's one admitted continuation.
@@ -930,7 +1347,12 @@ class GroupedNumericRelation(_Value):
         Example: ``result = relation.contract()``.
         Constraints: This reads local contract metadata and does not execute a source.
         """
-        return replace(super().contract(), actions=self._action_contract(("execute",)))
+        actions = (
+            ("execute", "rollup", "summarize")
+            if self._node.root.signature.quantity is not None
+            else ("summarize",)
+        )
+        return replace(super().contract(), actions=self._action_contract(actions))
 
     def execute(self) -> MaterializedGroupedNumericRelation:
         """Publish the contribution-coordinate group with its original state.
@@ -941,15 +1363,59 @@ class GroupedNumericRelation(_Value):
         Example: ``result = relation.execute()``.
         Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
         """
+        if self._node.root.signature.quantity is None:
+            raise _reject(
+                "an original Metric grouping",
+                "current numeric rows",
+                "Choose summarize with a row method.",
+            )
         return MaterializedGroupedNumericRelation(
             _TOKEN, self._node, self._runtime, dataset=self._run()
         )
+
+    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+        """Reduce current rows within the selected complete target keys.
+
+        Args: method: A closed current-row descriptor.
+        Returns: A new grouped RowStatistic.
+        Example: ``result = relation.group_by(dimension).summarize(mv.mean()).execute()``.
+        Constraints: Uses current rows, independently of original Metric state.
+        """
+        if not isinstance(method, RowMethod):
+            raise _reject(
+                "a RowMethod", type(method).__name__, "Use a current-row method descriptor."
+            )
+        node = self._row_node.summarize(
+            method.kind, coordinates=self._node.root.signature.domain.instance_key
+        )
+        if self._target_node is not None:
+            node = node.complete_groups(self._target_node)
+        return LogicalStatisticRelation(_TOKEN, node, self._runtime, inputs=(self,))
+
+    def rollup(self) -> LogicalRolledNumericRelation:
+        """Merge original components into the selected complete groups.
+
+        Args: None.
+        Returns: A logical original-state reduction.
+        Example: ``result = relation.group_by(dimension).rollup().execute()``.
+        Constraints: Requires original state and complete coverage.
+        """
+        if self._node.root.signature.quantity is None:
+            raise _reject(
+                "original Metric state",
+                "current numeric rows",
+                "Choose summarize with a row method.",
+            )
+        return LogicalRolledNumericRelation(_TOKEN, self._node, self._runtime, inputs=(self,))
 
 
 class GroupedRatioRelation(_Value):
     """Grouped original ratio components awaiting a target-domain rollup."""
 
-    __slots__ = ()
+    __slots__ = (
+        "_row_node",
+        "_target_node",
+    )
 
     def __init__(
         self,
@@ -958,8 +1424,12 @@ class GroupedRatioRelation(_Value):
         runtime: DatasetRuntime,
         *,
         inputs: tuple[_Value, ...],
+        row_node: Relation | None = None,
+        target_node: Relation | None = None,
     ) -> None:
         super().__init__(token, grouped, runtime, inputs=inputs)
+        self._row_node = inputs[0]._node if row_node is None else row_node
+        self._target_node = target_node
 
     def contract(self) -> AnalysisContract:
         """Report the ratio group's one admitted continuation.
@@ -970,7 +1440,7 @@ class GroupedRatioRelation(_Value):
         Example: ``result = relation.contract()``.
         Constraints: This reads local contract metadata and does not execute a source.
         """
-        return replace(super().contract(), actions=self._action_contract(("rollup",)))
+        return replace(super().contract(), actions=self._action_contract(("rollup", "summarize")))
 
     def rollup(self) -> LogicalRolledRatioRelation:
         """Merge original numerator and denominator state by the selected coordinate.
@@ -982,6 +1452,25 @@ class GroupedRatioRelation(_Value):
         Constraints: Requires original retained components; subgroup values are not averaged.
         """
         return LogicalRolledRatioRelation(_TOKEN, self._node, self._runtime, inputs=(self,))
+
+    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+        """Reduce current rows within the selected complete target keys.
+
+        Args: method: A closed current-row descriptor.
+        Returns: A new grouped RowStatistic.
+        Example: ``result = relation.group_by(dimension).summarize(mv.mean()).execute()``.
+        Constraints: Uses current rows, independently of original Metric state.
+        """
+        if not isinstance(method, RowMethod):
+            raise _reject(
+                "a RowMethod", type(method).__name__, "Use a current-row method descriptor."
+            )
+        node = self._row_node.summarize(
+            method.kind, coordinates=self._node.root.signature.domain.instance_key
+        )
+        if self._target_node is not None:
+            node = node.complete_groups(self._target_node)
+        return LogicalStatisticRelation(_TOKEN, node, self._runtime, inputs=(self,))
 
 
 class LogicalNumericRelation(_Value):
@@ -1010,15 +1499,15 @@ class LogicalNumericRelation(_Value):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return NumericField(self._node.root)
+        return NumericField(self._node.root, self._node)
 
     def where(self, predicate: NumericPredicate) -> LogicalSelectedNumericRelation:
         """Select current numeric values using their bound predicate.
 
-        Args: predicate: A comparison built from this relation.value.
+        Args: predicate: A comparison from this or an exactly corresponding numeric relation.value.
         Returns: A logical numeric selection preserving the Subject part.
         Example: ``selected = relation.where(relation.value.gt(0))``.
-        Constraints: Foreign predicates and non-Defined inputs reject.
+        Constraints: Numeric dependencies require exact corresponding keys; non-Defined predicates reject.
         """
         return LogicalSelectedNumericRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
@@ -1061,17 +1550,38 @@ class LogicalNumericRelation(_Value):
             _TOKEN, self._node.combine(other._node, "spearman"), self._runtime, inputs=(self, other)
         )
 
-    def group_by(self, dimension: Ref[DimensionKind]) -> GroupedNumericRelation:
-        """Select one already retained contribution coordinate for rollup.
+    def group_by(
+        self,
+        *dimensions: Ref[DimensionKind]
+        | Ref[EntityKind]
+        | LogicalCategoryRelation
+        | MaterializedCategoryRelation
+        | LogicalSelectedCategoryRelation
+        | MaterializedSelectedCategoryRelation,
+        groups: LogicalAnalysisDomain
+        | GroupedAnalysisDomain
+        | MaterializedAnalysisDomain
+        | None = None,
+    ) -> GroupedNumericRelation:
+        """Select complete retained axes or explicit classifications for reduction.
 
         Args:
-            dimension: Declared Dimension Ref for the current member or contribution domain.
+            dimensions: Retained Entity/Dimension axes or corresponding categorical reads.
+            groups: Optional typed target domain preserving empty groups.
         Returns: A GroupedNumericRelation bound to this exact relation.
-        Example: ``result = relation.group_by(dimension)``.
-        Constraints: Only declared member Dimensions or retained coordinates are admitted.
+        Example: ``result = relation.group_by(dimension, groups=targets)``.
+        Constraints: Classifications use complete keys; fixed inputs require fixed categories and targets.
         """
+        grouped, rows = self._group_nodes(dimensions)
+        if groups is not None:
+            grouped = grouped.complete_groups(groups._node)
         return GroupedNumericRelation(
-            _TOKEN, self._node.rollup(dimension), self._runtime, inputs=(self,)
+            _TOKEN,
+            grouped,
+            self._runtime,
+            inputs=(self,),
+            row_node=rows,
+            target_node=None if groups is None else groups._node,
         )
 
     def rollup(self) -> LogicalRolledNumericRelation:
@@ -1098,7 +1608,9 @@ class LogicalNumericRelation(_Value):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1141,15 +1653,15 @@ class MaterializedNumericRelation(_MaterializedValue):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return NumericField(self._node.root)
+        return NumericField(self._node.root, self._node)
 
     def where(self, predicate: NumericPredicate) -> LogicalSelectedNumericRelation:
         """Select current numeric values using their bound predicate.
 
-        Args: predicate: A comparison built from this relation.value.
+        Args: predicate: A comparison from this or an exactly corresponding numeric relation.value.
         Returns: A logical numeric selection preserving the Subject part.
         Example: ``selected = relation.where(relation.value.gt(0))``.
-        Constraints: Foreign predicates and non-Defined inputs reject.
+        Constraints: Numeric dependencies require exact corresponding keys; non-Defined predicates reject.
         """
         return LogicalSelectedNumericRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
@@ -1189,17 +1701,38 @@ class MaterializedNumericRelation(_MaterializedValue):
             _TOKEN, self._node.combine(other._node, "spearman"), self._runtime, inputs=(self, other)
         )
 
-    def group_by(self, dimension: Ref[DimensionKind]) -> GroupedNumericRelation:
-        """Group one coordinate retained by this fixed observation.
+    def group_by(
+        self,
+        *dimensions: Ref[DimensionKind]
+        | Ref[EntityKind]
+        | LogicalCategoryRelation
+        | MaterializedCategoryRelation
+        | LogicalSelectedCategoryRelation
+        | MaterializedSelectedCategoryRelation,
+        groups: LogicalAnalysisDomain
+        | GroupedAnalysisDomain
+        | MaterializedAnalysisDomain
+        | None = None,
+    ) -> GroupedNumericRelation:
+        """Group retained fixed axes with fixed classifications and targets.
 
         Args:
-            dimension: Declared Dimension Ref for the current member or contribution domain.
+            dimensions: Retained Entity/Dimension axes or corresponding categorical reads.
+            groups: Optional typed target domain preserving empty groups.
         Returns: A GroupedNumericRelation bound to this exact relation.
-        Example: ``result = relation.group_by(dimension)``.
-        Constraints: Only declared member Dimensions or retained coordinates are admitted.
+        Example: ``result = relation.group_by(dimension, groups=targets)``.
+        Constraints: Classifications use complete keys; fixed inputs require fixed categories and targets.
         """
+        grouped, rows = self._group_nodes(dimensions)
+        if groups is not None:
+            grouped = grouped.complete_groups(groups._node)
         return GroupedNumericRelation(
-            _TOKEN, self._node.rollup(dimension), self._runtime, inputs=(self,)
+            _TOKEN,
+            grouped,
+            self._runtime,
+            inputs=(self,),
+            row_node=rows,
+            target_node=None if groups is None else groups._node,
         )
 
     def rollup(self) -> LogicalRolledNumericRelation:
@@ -1226,14 +1759,16 @@ class MaterializedNumericRelation(_MaterializedValue):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
         )
 
 
-class MaterializedGroupedNumericRelation(_MaterializedValue):
+class MaterializedGroupedNumericRelation(MaterializedNumericRelation):
     """Fixed member or contribution group with retained Metric components."""
 
     def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
@@ -1243,18 +1778,25 @@ class MaterializedGroupedNumericRelation(_MaterializedValue):
             method: Closed row statistic method or admitted correlation method.
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
-        Constraints: Calculates over current rows using the selected Cell policy.
+        Constraints: Preserves every retained group axis and counts current materialized rows, not their original contributions.
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
+            _TOKEN,
+            self._node.summarize(
+                method.kind, coordinates=self._node.root.signature.domain.instance_key
+            ),
+            self._runtime,
+            inputs=(self,),
         )
 
 
-class LogicalRolledNumericRelation(_Value):
+class LogicalRolledNumericRelation(_OriginalContinuation):
     """Unexecuted Singleton observation derived from original Metric state."""
 
     def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
@@ -1268,7 +1810,9 @@ class LogicalRolledNumericRelation(_Value):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1288,7 +1832,7 @@ class LogicalRolledNumericRelation(_Value):
         )
 
 
-class MaterializedRolledNumericRelation(_MaterializedValue):
+class MaterializedRolledNumericRelation(_MaterializedValue, _OriginalContinuation):
     """Fixed original-state Singleton observation."""
 
     def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
@@ -1302,7 +1846,9 @@ class MaterializedRolledNumericRelation(_MaterializedValue):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1312,17 +1858,38 @@ class MaterializedRolledNumericRelation(_MaterializedValue):
 class LogicalRatioRelation(_Value):
     """Unexecuted ratio observation with its original component state."""
 
-    def group_by(self, dimension: Ref[DimensionKind]) -> GroupedRatioRelation:
-        """Group one already retained contribution coordinate.
+    def group_by(
+        self,
+        *dimensions: Ref[DimensionKind]
+        | Ref[EntityKind]
+        | LogicalCategoryRelation
+        | MaterializedCategoryRelation
+        | LogicalSelectedCategoryRelation
+        | MaterializedSelectedCategoryRelation,
+        groups: LogicalAnalysisDomain
+        | GroupedAnalysisDomain
+        | MaterializedAnalysisDomain
+        | None = None,
+    ) -> GroupedRatioRelation:
+        """Select complete retained axes for original ratio reduction.
 
         Args:
-            dimension: Declared Dimension Ref for the current member or contribution domain.
+            dimensions: Retained Entity/Dimension axes or corresponding categorical reads.
+            groups: Optional typed target domain preserving empty groups.
         Returns: A GroupedRatioRelation bound to this exact relation.
-        Example: ``result = relation.group_by(dimension)``.
-        Constraints: Only declared member Dimensions or retained coordinates are admitted.
+        Example: ``result = relation.group_by(dimension, groups=targets)``.
+        Constraints: Classifications use complete keys; fixed inputs require fixed categories and targets.
         """
+        grouped, rows = self._group_nodes(dimensions)
+        if groups is not None:
+            grouped = grouped.complete_groups(groups._node)
         return GroupedRatioRelation(
-            _TOKEN, self._node.rollup(dimension), self._runtime, inputs=(self,)
+            _TOKEN,
+            grouped,
+            self._runtime,
+            inputs=(self,),
+            row_node=rows,
+            target_node=None if groups is None else groups._node,
         )
 
     def rollup(self) -> LogicalRolledRatioRelation:
@@ -1349,7 +1916,9 @@ class LogicalRatioRelation(_Value):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1370,17 +1939,38 @@ class LogicalRatioRelation(_Value):
 class MaterializedRatioRelation(_MaterializedValue):
     """Fixed ratio observation with retained numerator and denominator parts."""
 
-    def group_by(self, dimension: Ref[DimensionKind]) -> GroupedRatioRelation:
-        """Group one retained contribution coordinate.
+    def group_by(
+        self,
+        *dimensions: Ref[DimensionKind]
+        | Ref[EntityKind]
+        | LogicalCategoryRelation
+        | MaterializedCategoryRelation
+        | LogicalSelectedCategoryRelation
+        | MaterializedSelectedCategoryRelation,
+        groups: LogicalAnalysisDomain
+        | GroupedAnalysisDomain
+        | MaterializedAnalysisDomain
+        | None = None,
+    ) -> GroupedRatioRelation:
+        """Group complete fixed coordinates for original ratio reduction.
 
         Args:
-            dimension: Declared Dimension Ref for the current member or contribution domain.
+            dimensions: Retained Entity/Dimension axes or corresponding categorical reads.
+            groups: Optional typed target domain preserving empty groups.
         Returns: A GroupedRatioRelation bound to this exact relation.
-        Example: ``result = relation.group_by(dimension)``.
-        Constraints: Only declared member Dimensions or retained coordinates are admitted.
+        Example: ``result = relation.group_by(dimension, groups=targets)``.
+        Constraints: Classifications use complete keys; fixed inputs require fixed categories and targets.
         """
+        grouped, rows = self._group_nodes(dimensions)
+        if groups is not None:
+            grouped = grouped.complete_groups(groups._node)
         return GroupedRatioRelation(
-            _TOKEN, self._node.rollup(dimension), self._runtime, inputs=(self,)
+            _TOKEN,
+            grouped,
+            self._runtime,
+            inputs=(self,),
+            row_node=rows,
+            target_node=None if groups is None else groups._node,
         )
 
     def rollup(self) -> LogicalRolledRatioRelation:
@@ -1407,14 +1997,16 @@ class MaterializedRatioRelation(_MaterializedValue):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
         )
 
 
-class LogicalRolledRatioRelation(_Value):
+class LogicalRolledRatioRelation(_OriginalContinuation):
     """Unexecuted ratio reobserved from original numerator and denominator state."""
 
     def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
@@ -1428,7 +2020,9 @@ class LogicalRolledRatioRelation(_Value):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1448,7 +2042,7 @@ class LogicalRolledRatioRelation(_Value):
         )
 
 
-class MaterializedRolledRatioRelation(_MaterializedValue):
+class MaterializedRolledRatioRelation(_MaterializedValue, _OriginalContinuation):
     """Fixed ratio rollup with retained original component meaning."""
 
     def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
@@ -1462,7 +2056,9 @@ class MaterializedRolledRatioRelation(_MaterializedValue):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1482,7 +2078,7 @@ class LogicalDifferenceRelation(_Value):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return NumericField(self._node.root)
+        return NumericField(self._node.root, self._node)
 
     def where(self, predicate: NumericPredicate) -> LogicalSelectedDifferenceRelation:
         """Select Defined Difference rows through this exact field.
@@ -1508,7 +2104,9 @@ class LogicalDifferenceRelation(_Value):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1541,7 +2139,7 @@ class MaterializedDifferenceRelation(_MaterializedValue):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return NumericField(self._node.root)
+        return NumericField(self._node.root, self._node)
 
     def where(self, predicate: NumericPredicate) -> LogicalSelectedDifferenceRelation:
         """Build a fixed-only Difference selection.
@@ -1567,7 +2165,9 @@ class MaterializedDifferenceRelation(_MaterializedValue):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1601,7 +2201,9 @@ class LogicalSelectedDifferenceRelation(_Value):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1648,15 +2250,74 @@ class MaterializedSelectedDifferenceRelation(_MaterializedValue):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
         )
 
 
-class LogicalStatisticRelation(_Value):
-    """Unexecuted current-row statistic with no original-state rollup."""
+class GroupedStatisticRelation(_Value):
+    """A retained row-statistic grouping awaiting its state merge."""
+
+    def rollup(self) -> LogicalStatisticRelation:
+        """Finish the selected merge of this statistic's states.
+
+        Args: None.
+        Returns: A logical RowStatistic with the same contribution identity.
+        Example: ``result = statistic.group_by(dimension).rollup().execute()``.
+        Constraints: Removed coordinates and missing state cannot be recovered.
+        """
+        return LogicalStatisticRelation(_TOKEN, self._node, self._runtime, inputs=(self,))
+
+    def contract(self) -> AnalysisContract:
+        """Report the pending statistic state merge.
+
+        Args: None.
+        Returns: The current bounded continuation contract.
+        Example: ``statistic.group_by(dimension).contract().show()``.
+        Constraints: Does not execute or open a source.
+        """
+        return replace(super().contract(), actions=self._action_contract(("rollup",)))
+
+
+class _StatisticContinuation(_Value):
+    def group_by(
+        self,
+        *keys: Ref[DimensionKind] | Ref[EntityKind],
+        groups: GroupedAnalysisDomain | MaterializedAnalysisDomain | None = None,
+    ) -> GroupedStatisticRelation:
+        """Select retained axes for a partial row-state merge.
+
+        Args:
+            keys: Retained complete coordinates to preserve.
+            groups: Optional explicit target including valid empty groups.
+        Returns: A grouped statistic awaiting rollup.
+        Example: ``result = statistic.group_by(dimension).rollup().execute()``.
+        Constraints: Merges this statistic's state; does not summarize finished values.
+        """
+        node = self._node.rollup_statistic(*keys)
+        if groups is not None:
+            node = node.complete_groups(groups._node)
+        return GroupedStatisticRelation(_TOKEN, node, self._runtime, inputs=(self,))
+
+
+class LogicalStatisticRelation(_StatisticContinuation):
+    """Unexecuted row statistic with retained-state merge continuations."""
+
+    def rollup(self) -> LogicalStatisticRelation:
+        """Merge this statistic's retained states, then finish once.
+
+        Args: None.
+        Returns: A logical statistic preserving its row-contribution identity.
+        Example: ``total = statistic.rollup().execute()``.
+        Constraints: Requires the exact row state; never averages finished subgroup means.
+        """
+        return LogicalStatisticRelation(
+            _TOKEN, self._node.rollup_statistic(), self._runtime, inputs=(self,)
+        )
 
     def execute(self) -> MaterializedStatisticRelation:
         """Evaluate and publish this current-row statistic.
@@ -1670,8 +2331,20 @@ class LogicalStatisticRelation(_Value):
         return MaterializedStatisticRelation(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedStatisticRelation(_MaterializedValue):
-    """Fixed terminal current-row statistic."""
+class MaterializedStatisticRelation(_MaterializedValue, _StatisticContinuation):
+    """Fixed current-row statistic with retained-state merge continuations."""
+
+    def rollup(self) -> LogicalStatisticRelation:
+        """Merge this statistic's retained states, then finish once.
+
+        Args: None.
+        Returns: A logical statistic preserving its row-contribution identity.
+        Example: ``total = statistic.rollup().execute()``.
+        Constraints: Requires the exact row state; never averages finished subgroup means.
+        """
+        return LogicalStatisticRelation(
+            _TOKEN, self._node.rollup_statistic(), self._runtime, inputs=(self,)
+        )
 
 
 class MaterializedCoefficientRelation(_MaterializedValue):
@@ -1687,7 +2360,7 @@ class MaterializedCoefficientRelation(_MaterializedValue):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return NumericField(self._node.root)
+        return NumericField(self._node.root, self._node)
 
     def where(self, predicate: NumericPredicate) -> LogicalCoefficientSelectionRelation:
         """Select a Defined coefficient on this Association.
@@ -1713,7 +2386,9 @@ class MaterializedCoefficientRelation(_MaterializedValue):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1734,7 +2409,9 @@ class LogicalCoefficientSelectionRelation(_Value):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1768,7 +2445,9 @@ class MaterializedCoefficientSelectionRelation(_MaterializedValue):
         """
         if not isinstance(method, RowMethod):
             raise _reject(
-                "mv.sum/count/mean()", type(method).__name__, "Select a closed row method."
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
             )
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
@@ -1813,7 +2492,7 @@ def wrap_materialized(
 ) -> PublicMaterialized:
     """Restore the existing public result variant from its checked typed graph."""
     kind = _kind(node)
-    if kind == "members":
+    if kind in ("members", "group"):
         return MaterializedAnalysisDomain(_TOKEN, node, runtime, dataset=dataset)
     if kind == "read":
         params = node.definition.parameters
@@ -1836,6 +2515,8 @@ def wrap_materialized(
             if isinstance(params, PartsTransport) and params.field_kind == "measure":
                 return MaterializedSelectedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
             return MaterializedSelectedCategoryRelation(_TOKEN, node, runtime, dataset=dataset)
+        if isinstance(node.root.signature.quantity, (ObservedQuantity, RolledQuantity)):
+            return MaterializedSelectedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
         return MaterializedSelectedDifferenceRelation(_TOKEN, node, runtime, dataset=dataset)
     if kind == "compare":
         return MaterializedDifferenceRelation(_TOKEN, node, runtime, dataset=dataset)
@@ -1863,7 +2544,7 @@ def new_members(node: Relation, runtime: DatasetRuntime) -> LogicalAnalysisDomai
     return LogicalAnalysisDomain(_TOKEN, node, runtime)
 
 
-class LogicalBooleanRelation(_Value):
+class LogicalBooleanRelation(_CountRelation):
     """Unexecuted boolean member attribute relation."""
 
     def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
@@ -1916,7 +2597,7 @@ class LogicalBooleanRelation(_Value):
         return MaterializedBooleanRelation(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedBooleanRelation(_MaterializedValue):
+class MaterializedBooleanRelation(_MaterializedValue, _CountRelation):
     """Fixed boolean relation retaining admitted member identity."""
 
     def members(self) -> LogicalFixedAnalysisDomain:
@@ -1957,7 +2638,7 @@ class MaterializedBooleanRelation(_MaterializedValue):
         )
 
 
-class LogicalSelectedBooleanRelation(_Value):
+class LogicalSelectedBooleanRelation(_CountRelation):
     """Unexecuted boolean selection over one exact read relation."""
 
     def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
@@ -1987,7 +2668,7 @@ class LogicalSelectedBooleanRelation(_Value):
         )
 
 
-class MaterializedSelectedBooleanRelation(_MaterializedValue):
+class MaterializedSelectedBooleanRelation(_MaterializedValue, _CountRelation):
     """Fixed boolean selection with an exact retained member projection."""
 
     def members(self) -> LogicalFixedAnalysisDomain:
@@ -2004,7 +2685,7 @@ class MaterializedSelectedBooleanRelation(_MaterializedValue):
         )
 
 
-class LogicalTemporalRelation(_Value):
+class LogicalTemporalRelation(_CountRelation):
     """Unexecuted temporal member attribute relation."""
 
     def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
@@ -2057,7 +2738,7 @@ class LogicalTemporalRelation(_Value):
         return MaterializedTemporalRelation(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedTemporalRelation(_MaterializedValue):
+class MaterializedTemporalRelation(_MaterializedValue, _CountRelation):
     """Fixed temporal relation retaining admitted member identity."""
 
     def members(self) -> LogicalFixedAnalysisDomain:
@@ -2098,7 +2779,7 @@ class MaterializedTemporalRelation(_MaterializedValue):
         )
 
 
-class LogicalSelectedTemporalRelation(_Value):
+class LogicalSelectedTemporalRelation(_CountRelation):
     """Unexecuted temporal selection over one exact read relation."""
 
     def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
@@ -2128,7 +2809,7 @@ class LogicalSelectedTemporalRelation(_Value):
         )
 
 
-class MaterializedSelectedTemporalRelation(_MaterializedValue):
+class MaterializedSelectedTemporalRelation(_MaterializedValue, _CountRelation):
     """Fixed temporal selection with an exact retained member projection."""
 
     def members(self) -> LogicalFixedAnalysisDomain:
@@ -2145,7 +2826,7 @@ class MaterializedSelectedTemporalRelation(_MaterializedValue):
         )
 
 
-class LogicalSelectedNumericRelation(_Value):
+class LogicalSelectedNumericRelation(_OriginalContinuation):
     """Unexecuted numeric selection over one exact read relation."""
 
     def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
@@ -2175,7 +2856,7 @@ class LogicalSelectedNumericRelation(_Value):
         )
 
 
-class MaterializedSelectedNumericRelation(_MaterializedValue):
+class MaterializedSelectedNumericRelation(_MaterializedValue, _OriginalContinuation):
     """Fixed numeric selection with an exact retained member projection."""
 
     def members(self) -> LogicalFixedAnalysisDomain:

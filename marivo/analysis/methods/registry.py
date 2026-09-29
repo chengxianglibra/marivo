@@ -71,7 +71,14 @@ class MethodRegistration:
             keys.add(implementation.key)
             rule = self.semantics.rule
             input_count = len(implementation.key.input_domains)
-            if rule == "map_correspond@v1":
+            if self.semantics.key.name in ("group.attach", "group.complete"):
+                if input_count != 2:
+                    reject(
+                        "two ordered classification inputs",
+                        repr(implementation.key),
+                        "Bind receiver and category.",
+                    )
+            elif rule == "map_correspond@v1" or self.semantics.key.name == "parts_transport":
                 if input_count not in (1, 2):
                     reject(
                         "one or two ordered correspondence inputs",
@@ -125,6 +132,7 @@ class MethodRegistration:
                         "cell.ratio",
                         "metric.ratio",
                         "state_rollup.weighted_mean",
+                        "state_rollup.mean",
                     )
                     and not any(isinstance(item, DecimalType) for item in input_types)
                 ):
@@ -270,7 +278,14 @@ class MethodRegistry:
         if output.quantity is not None:
             candidates.extend(
                 ContinuationRequirement(MethodKey(name), ())
-                for name in ("row.sum", "row.mean", "row.count", "row.count_defined")
+                for name in (
+                    "row.sum",
+                    "row.mean",
+                    "row.min",
+                    "row.max",
+                    "row.count",
+                    "row.count_defined",
+                )
             )
             if any(
                 isinstance(item, StatisticalWeightPart) and item.binding == output.domain.binding
@@ -289,6 +304,7 @@ class MethodRegistry:
                 "state_rollup.sum_zero",
                 "state_rollup.ratio",
                 "state_rollup.weighted_mean",
+                "state_rollup.mean",
                 "state_rollup.linear",
             ):
                 key = MethodKey(name)

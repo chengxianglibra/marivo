@@ -114,6 +114,7 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "metric.observe@v1": "bind_project@v1",
         "metric.count@v1": "bind_project@v1",
         "metric.weighted_mean@v1": "bind_project@v1",
+        "metric.mean@v1": "bind_project@v1",
         "metric.sum_zero@v1": "bind_project@v1",
         "metric.ratio@v1": "original_reduce@v1",
         "metric.linear@v1": "occurrence_combine@v1",
@@ -122,6 +123,10 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "cell.ratio@v1": "cell_derive@v1",
         "row.sum@v1": "row_state@v1",
         "row.mean@v1": "row_state@v1",
+        "row.min@v1": "row_state@v1",
+        "row.max@v1": "row_state@v1",
+        "group.attach@v1": "parts_transport@v1",
+        "group.complete@v1": "parts_transport@v1",
         "row.count@v1": "row_state@v1",
         "row.count_defined@v1": "row_state@v1",
         "row.weighted_mean@v1": "row_state@v1",
@@ -130,6 +135,7 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "state_rollup.sum_zero@v1": "original_reduce@v1",
         "state_rollup.ratio@v1": "original_reduce@v1",
         "state_rollup.weighted_mean@v1": "original_reduce@v1",
+        "state_rollup.mean@v1": "original_reduce@v1",
         "state_rollup.linear@v1": "original_reduce@v1",
         "parts_transport@v1": "parts_transport@v1",
         "association.spearman@v1": "association_score@v1",
@@ -139,6 +145,12 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
     } == expected
     assert all(item.semantics.owner == "analysis.core.rules" for item in REGISTRY.registrations)
     assert {item.semantics.key.name for item in REGISTRY.registrations if item.implementations} == {
+        "group.attach",
+        "group.complete",
+        "metric.mean",
+        "state_rollup.mean",
+        "row.min",
+        "row.max",
         "metric.observe",
         "metric.count",
         "metric.weighted_mean",
@@ -299,7 +311,7 @@ def test_physical_input_positions_match_the_connected_rule() -> None:
             candidate.key,
             input_types=(ScalarType("int64"), ScalarType("float64")),
         )
-    for method in ("bind_project", "parts_transport"):
+    for method in ("bind_project",):
         key = replace(
             candidate.key,
             method=MethodKey(method),
@@ -536,3 +548,22 @@ def test_registry_and_core_consumer_use_no_io_or_legacy_registry(
     monkeypatch.setattr(method_registry, "REGISTRY", MethodRegistry(()))
     with pytest.raises(MethodRegistrationError, match="registered method version"):
         derive((source,), _params(source))
+
+
+@pytest.mark.parametrize("name", ["parts_transport", "group.attach", "group.complete"])
+@pytest.mark.parametrize("arity", [1, 2, 3])
+def test_transport_and_group_methods_enforce_ordered_arity(name: str, arity: int) -> None:
+    registration = REGISTRY.lookup(MethodKey(name))
+    candidate = registration.implementations[0]
+    key = replace(
+        candidate.key,
+        input_types=(ScalarType("int64"),) * arity,
+        input_domains=("entity",) * arity,
+    )
+    implementation = replace(candidate, key=key)
+    if arity == 2 or (name == "parts_transport" and arity == 1):
+        accepted = replace(registration, implementations=(implementation,))
+        assert accepted.implementations == (implementation,)
+    else:
+        with pytest.raises(MethodRegistrationError, match="ordered"):
+            replace(registration, implementations=(implementation,))

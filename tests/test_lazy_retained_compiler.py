@@ -4,28 +4,21 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
-import ibis
 import pyarrow as pa
 import pytest
 
 from marivo.analysis import grain, time_scope
 from marivo.analysis.compiler import compile_dataset
-from marivo.analysis.compiler.lowering import compile_retained_rows
 from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.fold_contracts import (
     RetainedFoldPayload,
     coverage_columns,
-    fold_part_role,
 )
 from marivo.analysis.observation.predicates import gt
 from marivo.refs import ref
 from marivo.semantic.ir import CumulativeComposition
 from tests.lazy_execution_fixtures import (
-    assert_compiled_validations,
     execution_fixture,
-    make_execution_registry,
-    seed_execution_database,
 )
 
 REVENUE = ref.metric("sales.revenue")
@@ -79,84 +72,59 @@ def test_combined_rollup_is_the_same_time_then_dimension_graph(tmp_path: Path) -
         assert row["mean_amount"] == pytest.approx(35)
 
 
-@pytest.mark.skip(
-    reason="Re-enable after R5 qualifies multi-root Metric source execution and retained part publication."
-)
-def test_retained_filter_aggregate_joins_exact_component_parts(tmp_path: Path) -> None:
-    database = tmp_path / "warehouse.duckdb"
-    seed_execution_database(database)
-    registry, sidecar = make_execution_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "retained-compiler")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    original = sources.observe(
-        (REVENUE, MEAN), population=sources.population(ref.entity("sales.customers"))
-    )
-    retained = original.execute()
-    backend = ibis.duckdb.connect(str(database), read_only=True)
-    try:
-        from marivo.analysis.compiler.normalize import required_entities
-        from marivo.datasource.ir import TableSourceIR
+@pytest.mark.runtime
+def test_retained_filter_aggregate_joins_exact_component_parts(retained_r54_case) -> None:
+    import marivo.analysis as mv
+    import marivo.semantic as ms
+    from marivo.analysis.errors import AnalysisError
+    from marivo.analysis.materialization.graph_exchange import from_arrow
 
-        tables = {
-            entity.ref.path: backend.table(entity.source.table).select(
-                *(name for name, _ in entity.columns)
-            )
-            for entity in required_entities(original)
-            if isinstance(entity.source, TableSourceIR)
-        }
-        source = compile_dataset(original, tables)
-        data = ibis.memtable(source.expression.to_pyarrow())
-    finally:
-        backend.disconnect()
-    database.rename(tmp_path / "origin-offline.duckdb")
-    parts = {part.role: data.select(part.column_names) for part in source.retained_parts}
-    compiled = compile_retained_rows(
-        retained.where(gt(REVENUE, 10)).aggregate(),
-        data.select(source.primary_columns),
-        parts=parts,
+    case = retained_r54_case
+    members = case.session.members(ms.ref.entity("sales.customer"))
+    revenue = members.observe(
+        ms.ref.metric("sales.revenue"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
     )
-    assert_compiled_validations(compiled.validations)
-    row = compiled.expression.to_pyarrow().to_pylist()[0]
-    assert row["revenue"] == 140
-    assert row["mean_amount"] == pytest.approx(140 / 3)
-    assert len(compiled.retained_parts) == 2
-    mean_role = fold_part_role(
-        next(
-            authority
-            for authority in original.row_contract.family_semantics.metric_folds
-            if authority.metric_ref == MEAN.path
-        )
+    mean = members.observe(
+        ms.ref.metric("sales.mean_amount"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
     )
-    projected = compile_retained_rows(
-        retained.metric(MEAN),
-        data.select(source.primary_columns),
-        parts={mean_role: parts[mean_role]},
+    fixed_revenue, fixed_mean = revenue.execute(), mean.execute()
+    case.database_path.rename(case.database_path.with_suffix(".offline"))
+    selected = fixed_mean.where(fixed_revenue.value.gt(10))
+    assert (
+        fixed_revenue.where(fixed_revenue.value.gt(10))
+        .rollup()
+        .execute()
+        .to_pandas()
+        .iloc[0]["value"]
+        == 140
     )
-    assert projected.primary_columns == ("entity_identity", "mean_amount")
-    assert len(projected.retained_parts) == 1
-    selected_part = parts[mean_role].to_pyarrow()
+    assert selected.rollup().execute().to_pandas().iloc[0]["value"] == pytest.approx(140 / 3)
+    exchange = fixed_mean._dataset.verified()
+    state = next(p for p in exchange.parts if p.role == "original_state")
     for violation in ("duplicate", "foreign", "value"):
-        damaged = selected_part.to_pylist()
+        damaged = state.table.to_pylist()
         if violation == "value":
-            sum_name = next(name for name in selected_part.column_names if name.endswith("_sum"))
-            damaged[0][sum_name] += 1
+            damaged[0]["original_state__sum"] += 1
         else:
-            damaged[0]["entity_identity"] = (
-                damaged[1]["entity_identity"] if violation == "duplicate" else {"id": 99}
+            damaged[0]["key_0"] = damaged[1]["key_0"] if violation == "duplicate" else "foreign"
+        parts = tuple(
+            replace(p, table=pa.Table.from_pylist(damaged, schema=p.table.schema))
+            if p.role == state.role
+            else p
+            for p in exchange.parts
+        )
+        with pytest.raises(AnalysisError):
+            from_arrow(
+                exchange.primary,
+                exchange.contract,
+                parts=parts,
+                method_state=exchange.method_state,
+                completed_checks=exchange.completed_checks,
             )
-        invalid_parts = {
-            **parts,
-            mean_role: ibis.memtable(pa.Table.from_pylist(damaged, schema=selected_part.schema)),
-        }
-        rejected = compile_retained_rows(
-            retained.metric(MEAN),
-            data.select(source.primary_columns),
-            parts=invalid_parts,
-        )
-        assert any(
-            check.expression.to_pyarrow()["violations"][0].as_py() > 0
-            for check in rejected.validations
-        )
 
 
 def test_empty_current_rows_rollup_keeps_scalar_identity(tmp_path: Path) -> None:

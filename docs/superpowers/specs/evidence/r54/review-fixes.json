@@ -1,0 +1,74 @@
+{
+  "reviewed_candidate": "17d6804f345bb44f8df20651c356697004c6af12fca3fcdd3015c666e80733df",
+  "scope": "R5.4 review fixes; no commit, push, release, packaged skill or AGENTS.md edits",
+  "decisions": [
+    {
+      "id": "P1-target-domain / I1",
+      "decision": "accepted",
+      "fix": "Execute target completion as a typed graph node, update correspondence identity, validate and persist target-only domains in Store 7. Both execute and grouped count paths are covered.",
+      "oracle": "east/south/west retained; selected east counts2/0/0; outside target rejected"
+    },
+    {
+      "id": "P1-selected-category",
+      "decision": "accepted",
+      "fix": "Transport exact Dimension coordinate through selection and Store 7; include selected category variants in grouping.",
+      "oracle": "east remains a group coordinate; row state2/0/0; fresh-process recovery cannot load Semantic, sources or DuckDB"
+    },
+    {
+      "id": "P1-foreign-predicate",
+      "decision": "accepted",
+      "fix": "Carry numeric relation binding and merge source schemas for an independently rooted predicate.",
+      "oracle": "j3 line totals A100/B60; line total >80 selects customer A with order revenue0 for table/Parquet and source/fixed"
+    },
+    {
+      "id": "C1",
+      "decision": "accepted axis-loss defect; clarified current-row semantics",
+      "fix": "Materialized grouped numeric summarize preserves complete group coordinates. It reads materialized group rows, not pre-group members.",
+      "oracle": "member revenues120/20/7; logical grouped means70/7; fixed revenues140/7; fixed grouped means140/7 and counts1/1; original rollup147. All six reducers and restored artifacts covered."
+    },
+    {
+      "id": "I2",
+      "decision": "accepted",
+      "fix": "Restore MaterializedStatisticRelation class docstring and assert it independently"
+    },
+    {
+      "id": "I3",
+      "decision": "accepted",
+      "fix": "Each of six row-factory Help examples invokes its own factory; CountMethod acquisition and producers list only count/count_defined"
+    },
+    {
+      "id": "I4",
+      "decision": "accepted",
+      "fix": "Runtime owner explicitly accepts incompatible R5.4 graph/state layouts within unpublished Store 7, without dual reader or implicit reconstruction"
+    },
+    {
+      "id": "I5-arity",
+      "decision": "accepted",
+      "fix": "Independent registration tests accept parts_transport arity1/2, reject3; group.attach/group.complete accept2, reject1/3"
+    },
+    {
+      "id": "I5-diagnostic-version",
+      "decision": "retain existing regression",
+      "reason": "The no-influence contract is tested by absent/unregistered diagnostic versions and exact plan equality plus execution147. Current absence of reads is consistent with that contract; future version-sensitive changes can falsify it."
+    },
+    {
+      "id": "duplicate-literals",
+      "decision": "remove duplicates; no missing kinds found",
+      "missing_exchange_kinds": [],
+      "missing_fixed_methods": [],
+      "existing_exchange_only_kind": "ratio (pre-existing; not removed as unrelated compatibility ownership)"
+    },
+    {
+      "id": "count-docstring / corruption-tests",
+      "decision": "no change",
+      "reason": "count includes non-Defined Cells; effective corruption tests and independent numerical assertions remain intact"
+    }
+  ],
+  "verification": {
+    "check_agent": "5391 passed, 13 skipped; all401 modules typed",
+    "runtime": "179 passed",
+    "site": "321 pages; Astro and installer checks passed",
+    "diff_check": "passed",
+    "candidate_files_sha256": "d26d5fbe700cf75bda801601174edcda931cbc9a1293f2e162ddae165f5ed203"
+  }
+}

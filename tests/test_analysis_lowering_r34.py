@@ -494,7 +494,11 @@ def test_unqualified_parameters_and_shapes_fail_at_plan():
         )
 
 
-def test_fixed_count_handoff_and_registered_local_consumer():
+@pytest.mark.parametrize("method, expected", [("count", 4), ("count_defined", 1)])
+def test_fixed_count_handoff_and_registered_local_consumer(method, expected):
+    from marivo.analysis.methods.local import count_defined
+
+    reducer = count if method == "count" else count_defined
     source = _leaf()
     fixed = FixedLeaf(
         ArtifactRef("old/revenue"),
@@ -503,15 +507,18 @@ def test_fixed_count_handoff_and_registered_local_consumer():
         source.value_type,
         FixedShape(NoTime()),
     )
-    lowered = lower(_plan(_count(fixed), "artifact_python"), bindings=())
+    lowered = lower(_plan(_count(fixed, method), "artifact_python"), bindings=())
     stage = next(s for s in lowered.stages if isinstance(s, LoweredLocal))
     assert (
-        count(stage.stage, (Defined(1), Null("empty"), Undefined("zero"), Unknown("missing"))).count
-        == 4
+        reducer(
+            stage.stage, (Defined(1), Null("empty"), Undefined("zero"), Unknown("missing"))
+        ).count
+        == expected
     )
-    assert count(stage.stage, ()).cell == Defined(0)
-    with pytest.raises(CoreRuleError, match="100000"):
-        count(stage.stage, (Defined(1),) * 100001)
+    assert reducer(stage.stage, ()).cell == Defined(0)
+    if method == "count":
+        with pytest.raises(CoreRuleError, match="100000"):
+            reducer(stage.stage, (Defined(1),) * 100001)
 
 
 def _states():

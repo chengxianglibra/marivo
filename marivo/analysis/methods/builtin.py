@@ -8,8 +8,10 @@ from typing import Literal
 from marivo.analysis.core.model import CheckId, DomainKind, PartRole
 from marivo.analysis.core.rules import (
     AssociationScore,
+    AttachCategory,
     BindProject,
     CellDerive,
+    CompleteGroups,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
@@ -59,12 +61,66 @@ NUMERIC_CHECKS: tuple[CheckId, ...] = (
 
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
-    if method.name in ("metric.ratio", "state_rollup.ratio", "state_rollup.weighted_mean"):
+    if method.name in ("group.attach", "group.complete"):
+        classification_forms: tuple[tuple[Literal["table", "parquet"], str], ...] = (
+            ("table", "native"),
+            ("parquet", "parquet"),
+        )
+        classification_shapes: tuple[SourceShape | FixedShape, ...] = (
+            *(
+                SourceShape("duckdb", form, kind, time)
+                for form, kind in classification_forms
+                for time in (NoTime(), TimeShape("instant", "us", "UTC"))
+            ),
+            FixedShape(NoTime()),
+            FixedShape(TimeShape("instant", "us", "UTC")),
+        )
+        return tuple(
+            Implementation(
+                QualificationKey(
+                    method,
+                    (ScalarType(value), ScalarType(category_type)),
+                    (domain, target_domain),
+                    shape,
+                    "artifact_python" if isinstance(shape, FixedShape) else "ibis",
+                ),
+                NUMERIC_CHECKS,
+                PARTS,
+                "exact",
+                ResourceRequirements("complete", "caller", None)
+                if isinstance(shape, FixedShape)
+                else ResourceRequirements("stream", "producer", None),
+                Qualified(
+                    f"r54.{method}.{value}.{category_type}.{domain}.{target_domain}.{shape}",
+                    "analysis.materialization.graph_local_execution"
+                    if isinstance(shape, FixedShape)
+                    else "analysis.compiler.graph_lowering",
+                    "tests/test_analysis_coordinates_r54.py",
+                ),
+            )
+            for value in ("int64", "float64", "string", "boolean", "date", "timestamp")
+            for category_type in ("string", "int64")
+            for domain in (
+                ("entity", "group", "singleton")
+                if method.name == "group.complete"
+                else ("entity", "group")
+            )
+            for target_domain in (
+                ("entity", "group", "singleton") if method.name == "group.complete" else ("entity",)
+            )
+            for shape in classification_shapes
+        )
+    if method.name in (
+        "metric.ratio",
+        "state_rollup.ratio",
+        "state_rollup.weighted_mean",
+        "state_rollup.mean",
+    ):
         ratio_shapes: tuple[SourceShape | FixedShape, ...] = (
             SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
             SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
         )
-        if method.name in ("state_rollup.ratio", "state_rollup.weighted_mean"):
+        if method.name in ("state_rollup.ratio", "state_rollup.weighted_mean", "state_rollup.mean"):
             ratio_shapes += (FixedShape(NoTime()), FixedShape(TimeShape("instant", "us", "UTC")))
         return tuple(
             Implementation(
@@ -169,7 +225,13 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             for value_type in rollup_types
             for domain in ("entity", "group", "singleton")
         )
-    if method.name in ("metric.observe", "metric.count", "metric.sum_zero", "metric.weighted_mean"):
+    if method.name in (
+        "metric.observe",
+        "metric.mean",
+        "metric.count",
+        "metric.sum_zero",
+        "metric.weighted_mean",
+    ):
         observation_shapes: tuple[tuple[Literal["table", "parquet"], str], ...] = (
             ("table", "native"),
             ("parquet", "parquet"),
@@ -276,6 +338,8 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         "row.count_defined",
         "row.sum",
         "row.mean",
+        "row.min",
+        "row.max",
     ):
         return ()
     declarations: list[Implementation] = []
@@ -337,7 +401,14 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         ),
                     )
                 )
-    if method.name in ("row.count", "row.count_defined", "row.sum", "row.mean"):
+    if method.name in (
+        "row.count",
+        "row.count_defined",
+        "row.sum",
+        "row.mean",
+        "row.min",
+        "row.max",
+    ):
         declarations.append(
             Implementation(
                 QualificationKey(
@@ -422,8 +493,19 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     ),
                 )
             )
-    if method.name in ("row.count", "row.count_defined", "row.sum", "row.mean"):
-        numeric_types: tuple[Literal["int64", "float64"], ...] = ("int64", "float64")
+    if method.name in (
+        "row.count",
+        "row.count_defined",
+        "row.sum",
+        "row.mean",
+        "row.min",
+        "row.max",
+    ):
+        numeric_types: tuple[ScalarName, ...] = (
+            ("int64", "float64", "string", "boolean", "date", "timestamp")
+            if method.name in ("row.count", "row.count_defined")
+            else ("int64", "float64")
+        )
         row_domains: tuple[DomainKind, ...] = ("entity", "group", "singleton")
         templates = tuple(declarations)
         for template in templates:
@@ -442,7 +524,10 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                             key=key,
                             precision="finite_float64"
                             if method.name == "row.mean"
-                            or (method.name == "row.sum" and numeric_type == "float64")
+                            or (
+                                method.name in ("row.sum", "row.min", "row.max")
+                                and numeric_type == "float64"
+                            )
                             else "checked_int64",
                             qualification=Qualified(
                                 f"r45.{method}.{key.shape}.{numeric_type}.{row_domain}@v1",
@@ -453,6 +538,29 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                             ),
                         )
                     )
+    if method.name == "parts_transport":
+        unary = tuple(declarations)
+        for item in unary:
+            if item.key.input_types[0] not in (ScalarType("int64"), ScalarType("float64")):
+                continue
+            for predicate_type in ("int64", "float64"):
+                declarations.append(
+                    replace(
+                        item,
+                        key=replace(
+                            item.key,
+                            input_types=(*item.key.input_types, ScalarType(predicate_type)),
+                            input_domains=(*item.key.input_domains, *item.key.input_domains),
+                        ),
+                        qualification=Qualified(
+                            f"r54.where.corresponding.{item.key}.{predicate_type}",
+                            "analysis.materialization.graph_local_execution"
+                            if isinstance(item.key.shape, FixedShape)
+                            else "analysis.compiler.graph_lowering",
+                            "tests/test_analysis_coordinates_r54.py",
+                        ),
+                    )
+                )
     if method.name == "parts_transport":
         transport_shapes: tuple[tuple[Literal["int64", "float64"], DomainKind], ...] = (
             ("float64", "entity"),
@@ -530,10 +638,12 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             repr(implementation.key),
             "Qualify a real lowerer and all required checkers for this exact key.",
         )
+    if isinstance(params, (AttachCategory, CompleteGroups)):
+        return
     if isinstance(params, ObserveWeightedMean):
-        if params.amount_type != "int64" or params.coordinates:
+        if params.amount_type != "int64":
             reject(
-                "int64 paired observation without contribution coordinates",
+                "int64 paired observation",
                 repr(params),
                 "Use the qualified value/weight types.",
             )
@@ -572,7 +682,7 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             )
     elif isinstance(params, OriginalReduce):
         if params.output_domain.kind not in ("singleton", "group") or (
-            (params.output_domain.kind == "group") != (params.coordinate is not None)
+            (params.output_domain.kind == "group") != bool(params.coordinates)
         ):
             reject(
                 "a whole-domain or retained-coordinate original rollup",
@@ -580,7 +690,14 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
                 "Use the qualified singleton target.",
             )
     elif isinstance(params, MapCorrespond):
-        if params.mode not in ("exact_keys", "one_to_one", "union_keys", "subjects", "group"):
+        if params.mode not in (
+            "exact_keys",
+            "one_to_one",
+            "union_keys",
+            "subjects",
+            "group",
+            "group_keys",
+        ):
             reject(
                 "qualified complete-key or single-string group correspondence",
                 params.mode,
@@ -626,5 +743,7 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
         "count_defined",
         "sum",
         "mean",
+        "min",
+        "max",
     ):
         reject("a connected row state consumer", repr(params), "Use the registered exact method.")

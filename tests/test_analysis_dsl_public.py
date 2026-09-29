@@ -197,7 +197,11 @@ def test_public_member_read_and_category_selection(
 
     assert isinstance(selected, mv.MaterializedSelectedCategoryRelation)
     actions = selected.contract().actions
-    assert tuple(action.call for action in actions) == ("relation.members()",)
+    assert tuple(action.call for action in actions) == (
+        "relation.members()",
+        "relation.group_by(*keys)",
+        "relation.summarize(method)",
+    )
     assert all(action.help_target.startswith("analysis.") for action in actions)
     assert isinstance(
         case.session.artifact(selected.state.artifact_ref), mv.MaterializedSelectedCategoryRelation

@@ -42,14 +42,17 @@ _INPUT_GUIDANCE = {
     "field": "Use an exact Measure, Dimension or TimeDimension Ref from the current catalog.",
     "at": "Select the attribute version independently with datetime or TimeScope.before_end.",
     "metric": "Use one exact Metric Ref from the current Semantic catalog.",
+    "keys": "Retain complete axes or explicit classifications; unkeyed categories group their values, other receivers use Singleton.",
+    "dimensions": "Retain complete Entity/Dimension axes or explicit corresponding categories.",
+    "groups": "Use an explicit matching typed target domain to retain empty groups.",
     "dimension": "Use a declared categorical Dimension Ref on this receiver's domain.",
     "during": "Use mv.time_scope(start=..., end=...) with absolute bounds.",
     "via": "Use the exact relationship Ref or mv.routes(...) required by this Metric.",
-    "coordinates": "Up to two distinct string contribution Dimension Refs; omit when none are needed.",
+    "coordinates": "Distinct qualified contribution Dimension Refs; complete tuples remain bound together.",
     "baseline": "Use a distinct observation of the same members and Metric.",
     "other": "Use another Metric observation on the same members and time scope.",
-    "method": "Use one closed mv.sum/count/mean() value or the stated method literal.",
-    "predicate": "Build the predicate from this receiver's own value handle.",
+    "method": "Use one closed mv.sum/count/count_defined/min/max/mean() value or the stated method literal.",
+    "predicate": "Build a predicate from this receiver or an exactly corresponding numeric relation.",
     "max_output_bytes": "Keep the default bound or request a smaller positive byte limit.",
 }
 
@@ -89,6 +92,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.AnalysisContract,
         dsl.GroupedAnalysisDomain,
         dsl.GroupedNumericRelation,
+        dsl.GroupedStatisticRelation,
         dsl.GroupedRatioRelation,
         dsl.LogicalAnalysisDomain,
         dsl.LogicalAssociationResult,
@@ -128,6 +132,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.LogicalSelectedCategoryRelation,
         dsl.MaterializedSelectedCategoryRelation,
         dsl.RowMethod,
+        dsl.CountMethod,
         dsl.RootRoute,
         dsl.RootRoutes,
     )
@@ -142,7 +147,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             if value is dsl.AnalysisAction
             else "Call relation.contract()."
             if value is dsl.AnalysisContract
-            else "Call mv.sum(), mv.count(), or mv.mean()."
+            else "Call mv.count() or mv.count_defined()."
+            if value is dsl.CountMethod
+            else "Call mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean()."
             if value is dsl.RowMethod
             else "Call mv.route(root, through=(...))."
             if value is dsl.RootRoute
@@ -155,7 +162,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             if value is dsl.AnalysisContract
             else ("AnalysisContract",)
             if value is dsl.AnalysisAction
-            else ("dsl.sum", "dsl.count", "dsl.mean")
+            else ("dsl.count", "dsl.count_defined")
+            if value is dsl.CountMethod
+            else ("dsl.sum", "dsl.count", "dsl.count_defined", "dsl.min", "dsl.max", "dsl.mean")
             if value is dsl.RowMethod
             else ("dsl.route",)
             if value is dsl.RootRoute
@@ -177,14 +186,23 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 else ("dsl.LogicalAnalysisDomain.observe",)
                 if value is dsl.RootRoutes
                 else ("methods.metric",)
-                if value is dsl.RowMethod
+                if value in (dsl.RowMethod, dsl.CountMethod)
                 else (),
                 constraints=("Exact member, semantic and Artifact bindings govern continuations.",),
             )
         )
         exports.append(ExportInput(name, value, name))
 
-    functions = (dsl.route, dsl.routes, dsl.sum, dsl.count, dsl.mean)
+    functions = (
+        dsl.route,
+        dsl.routes,
+        dsl.sum,
+        dsl.count,
+        dsl.count_defined,
+        dsl.min,
+        dsl.max,
+        dsl.mean,
+    )
     for function in functions:
         name = function.__name__
         params = tuple(
@@ -198,7 +216,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 function,
                 summary=f"Construct the admitted {name} argument for the Analysis DSL.",
                 parameters=params,
-                output="RootRoute"
+                output="CountMethod"
+                if name in ("count", "count_defined")
+                else "RootRoute"
                 if name == "route"
                 else "RootRoutes"
                 if name == "routes"
@@ -208,12 +228,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 failures=("AnalysisError: use the structured expected and received repair.",),
                 example=ExampleInput(
                     f"result = mv.{name}()"
-                    if name in ("sum", "count", "mean")
+                    if name in ("sum", "count", "count_defined", "min", "max", "mean")
                     else f"result = mv.{name}(root, through=(relationship,))"
                     if name == "route"
                     else "result = mv.routes(first_route, second_route)",
                     ()
-                    if name in ("sum", "count", "mean")
+                    if name in ("sum", "count", "count_defined", "min", "max", "mean")
                     else ("root", "relationship")
                     if name == "route"
                     else ("first_route", "second_route"),
@@ -227,8 +247,15 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
 
     owner_methods: tuple[type[object], ...] = (
         dsl._Value,
+        dsl._CountRelation,
+        dsl._OriginalContinuation,
+        dsl._StatisticContinuation,
         dsl._MaterializedValue,
-        *(value for value in types if value not in (dsl.RowMethod, dsl.RootRoute, dsl.RootRoutes)),
+        *(
+            value
+            for value in types
+            if value not in (dsl.RowMethod, dsl.CountMethod, dsl.RootRoute, dsl.RootRoutes)
+        ),
     )
     for owner in owner_methods:
         for name, value in vars(owner).items():
@@ -236,7 +263,11 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 continue
             target = "dsl." + owner.__name__.lstrip("_") + "." + name
             arguments = tuple(
-                f"{key}={key}" if parameter.kind is Parameter.KEYWORD_ONLY else key
+                f"*{key}"
+                if parameter.kind is Parameter.VAR_POSITIONAL
+                else f"{key}={key}"
+                if parameter.kind is Parameter.KEYWORD_ONLY
+                else key
                 for key, parameter in signature(value).parameters.items()
                 if key != "self" and parameter.default is Parameter.empty
             )
@@ -246,7 +277,14 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     _INPUT_GUIDANCE.get(key, "Use the exact bound relation or governed input."),
                     ("dsl.route", "dsl.routes")
                     if key == "via"
-                    else ("dsl.sum", "dsl.count", "dsl.mean")
+                    else (
+                        "dsl.sum",
+                        "dsl.count",
+                        "dsl.count_defined",
+                        "dsl.min",
+                        "dsl.max",
+                        "dsl.mean",
+                    )
                     if key == "method" and name == "summarize"
                     else (),
                 )

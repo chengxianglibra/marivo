@@ -280,8 +280,13 @@ For an authored mean Metric, retain its sufficient components before rolling up:
 ```python
 mean_amount = ms.ref.metric("sales.mean_amount")
 channel = ms.ref.dimension("sales.orders.channel")
-means = session.observe(mean_amount).with_dimensions(channel).aggregate().execute()
-overall = means.rollup(drop_dimensions=(channel,)).execute()
+means = session.members(ms.ref.entity("sales.customer")).observe(
+    mean_amount,
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    coordinates=(channel,),
+).group_by(channel).rollup().execute()
+overall = means.rollup().execute()
 overall.show()
 ```
 
@@ -641,3 +646,45 @@ Subject keys. It supports fixed continuation after the source is offline, but
 cannot introduce a new attribute read. Recover with `session.artifact(ref)` and
 inspect `.contract()` for the actual result's available operations. Artifacts
 from an earlier frozen-definition contract are rejected rather than migrated.
+
+## Group coordinates and current rows
+
+Use complete retained axes or an explicitly corresponding category relation.
+The original Metric merges its components, while `summarize` creates a new
+statistic over the current finished values:
+
+```python
+all_members = session.members(ms.ref.entity("sales.customer"))
+all_regions = all_members.read(ms.ref.dimension("sales.customer.region"))
+members = all_regions.where(all_regions.value.eq("east")).members()
+region = members.read(ms.ref.dimension("sales.customer.region"))
+values = members.observe(
+    ms.ref.metric("sales.revenue"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+)
+targets = all_regions.group_by()
+original = values.group_by(region, groups=targets).rollup().execute()
+row_mean = values.group_by(region, groups=targets).summarize(mv.mean()).execute()
+total_row_mean = row_mean.rollup().execute()
+selected_regions = all_regions.where(all_regions.value.eq("east"))
+category_counts = selected_regions.group_by(groups=targets).summarize(mv.count()).execute()
+fixed_targets = selected_regions.group_by(groups=targets).execute()
+```
+
+Pass `groups=all_regions.group_by()` to preserve explicit empty target groups. Fixed
+continuations need fixed classifications and targets too. Use
+`mv.count_defined()` to count only Defined Cells; `count()` includes all Cells.
+Empty mean/min/max return Undefined but retain valid merge state. A mean over
+finished AOV rows can be `50.5` while the original component rollup is `200/101`.
+`group_by(*keys).rollup()` keeps the named axes; `rollup()` removes all axes.
+Time-grid coarsening is not part of this qualification.
+
+A selected category keeps its classification axis when grouped without keys.
+Materializing `fixed_targets` above retains east, south and west, including empty
+groups, for later fixed continuations. An exactly corresponding numeric predicate
+may use another fact source; both source bindings are retained by the graph.
+
+On a materialized grouped numeric result, `summarize` preserves the group axes
+and uses the materialized group rows: count is one per existing group. It does
+not restore pre-group members. Use original `rollup()` to merge Metric components.

@@ -201,7 +201,7 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
     ):
         _fail("ordered immutable data dependencies", node.identity)
     if isinstance(node.parameters, PartsTransport):
-        physical = node.inputs[0].node.value_type
+        physical = node.inputs[1 if node.parameters.external_predicate else 0].node.value_type
         for predicate in node.parameters.predicates:
             value = predicate.literal
             if not isinstance(physical, ScalarType) or not (

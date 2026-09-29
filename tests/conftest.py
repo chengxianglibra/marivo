@@ -422,3 +422,28 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
+
+
+@pytest.fixture
+def retained_r54_case(analysis_dsl_case_factory: DslCaseFactory) -> DslCase:
+    """Preserve the historical 147 total and selected 140/3 fold oracle."""
+    import duckdb
+
+    import marivo.semantic as ms
+
+    case = analysis_dsl_case_factory("j1")
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute('DELETE FROM "order"')
+        connection.execute("DELETE FROM customer WHERE customer_id = 'D'")
+        connection.execute("""INSERT INTO "order" VALUES
+            ('a1', 'A', 'web', 'paid', '2026-08-10T00:00:00+00:00', 100),
+            ('a2', 'A', 'web', 'paid', '2026-08-11T00:00:00+00:00', 20),
+            ('b1', 'B', 'app', 'paid', '2026-08-10T00:00:00+00:00', 20),
+            ('c1', 'C', 'app', 'paid', '2026-08-10T00:00:00+00:00', 7)""")
+    model = case.root / "models/semantic/sales/models.py"
+    model.write_text(
+        model.read_text()
+        + "\nmean_amount = ms.aggregate(name='mean_amount', measure=amount, agg='mean', time=ordered_at)\n"
+    )
+    ms.load(workspace_dir=case.root)
+    return case

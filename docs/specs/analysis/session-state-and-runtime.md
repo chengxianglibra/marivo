@@ -588,3 +588,31 @@ state blocks recovery and advertised continuations. This bounded result does not
 replace R5.7's full recovery matrix. Method-to-state-kind lookup in source exchange
 and exchange validation now uses the existing MethodSemantics owner; protocol
 state-kind/role inventories remain explicit closed wire-schema constraints.
+
+## R5.4 breaking frozen-state acceptance
+
+Within the same unpublished Store 7 generation, R5.4 accepts a breaking change
+to the frozen graph and retained state contract. `OriginalReduce` binds an
+ordered tuple of complete coordinates rather than one optional coordinate.
+`RowState.merge` distinguishes fresh current-row statistics from merging retained
+statistics. `row.sum` now requires `(sum,count)` state, replacing `(sum)`, so
+empty groups and their support remain verifiable. `PartsTransport.classification`
+retains an exact Dimension coordinate across selected-category publication;
+`external_predicate` records the second exact-correspondence input. These fields,
+component names, key correspondence and owning method/state versions are checked
+before cache reuse or continuation admission.
+
+Earlier incompatible frozen layouts are rejected. There is no compatibility
+reader, implicit support-count synthesis, Semantic reload or source recomputation
+to repair them. Missing or corrupt necessary state removes usable continuation
+capability and execution fails. This is a source-tree contract acceptance;
+installed-package qualification remains R5.7.
+
+Group-domain completion persists complete target keys without Cells or state
+parts. Fixed grouped numeric `summarize` retains its group coordinates and
+operates on the current materialized rows, one per complete group. It does not
+recover the pre-group member rows. For member revenues120/20/7, logical regional
+row means are70/7; materialized regional revenues are140/7 and their per-group
+current-row means remain140/7, with counts1/1. Original Metric `rollup` still
+merges original components; subsequent RowStatistic `rollup` merges only that
+statistic's own retained state and identity.

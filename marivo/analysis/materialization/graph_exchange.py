@@ -11,7 +11,13 @@ import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.compiler.graph_plan import CheckRequirement
-from marivo.analysis.core.model import CoordinateStatePart, OriginalStatePart, Signature, part_role
+from marivo.analysis.core.model import (
+    CoordinateStatePart,
+    OriginalStatePart,
+    RowStatePart,
+    Signature,
+    part_role,
+)
 from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
@@ -83,6 +89,7 @@ class ExchangeContract:
             or self.state_kind
             not in (
                 "none",
+                "original_mean",
                 "original_sum",
                 "original_sum_zero",
                 "original_count",
@@ -93,6 +100,8 @@ class ExchangeContract:
                 "row_count",
                 "row_count_defined",
                 "row_mean",
+                "row_min",
+                "row_max",
                 "ratio",
                 "difference",
                 "spearman",
@@ -277,6 +286,11 @@ def collect(
         raise _invalid("singleton result has an invalid row count")
     if tuple(part.role for part in parts) != tuple(part.role for part in contract.parts):
         raise _invalid("missing, reordered or extra method state part")
+    if any(
+        isinstance(p, (OriginalStatePart, RowStatePart, CoordinateStatePart)) and p.version != "v1"
+        for p in contract.signature.parts
+    ):
+        raise _invalid("unsupported required numerical state version")
     primary_keys = _table_keys(primary, contract.key_fields)
     for declared, part in zip(contract.parts, parts, strict=True):
         if not part.table.schema.equals(declared.schema, check_metadata=False):
@@ -309,6 +323,28 @@ def collect(
                 coordinate.columns,
             ):
                 raise _invalid("coordinate partition differs from its complete original state")
+    if contract.state_kind == "none":
+        # Transport preserves the owning state invariant even without a new method vector.
+        for declaration in contract.signature.parts:
+            if not isinstance(declaration, (OriginalStatePart, RowStatePart)):
+                continue
+            role = "original_state" if isinstance(declaration, OriginalStatePart) else "row_state"
+            prefix = "original_" if isinstance(declaration, OriginalStatePart) else "row_"
+            method = declaration.method_version.removesuffix("@v1").removeprefix("row.")
+            if declaration.version != "v1" or not declaration.method_version.endswith("@v1"):
+                raise _invalid("unsupported transported numerical state version")
+            table = next(part.table for part in parts if part.role == role)
+            keyed = {tuple(row[k] for k in contract.key_fields): row for row in table.to_pylist()}
+            for row in primary.to_pylist():
+                if not state_matches(
+                    prefix + method,
+                    row,
+                    keyed[tuple(row[k] for k in contract.key_fields)],
+                    empty_rules=declaration.empty_rules
+                    if isinstance(declaration, OriginalStatePart)
+                    else (),
+                ):
+                    raise _invalid("transported numerical state and primary Cell disagree")
     if contract.state_schema is None:
         if method_state is not None:
             raise _invalid("unexpected method state vector")
@@ -372,6 +408,7 @@ def _verify_single_state_part(
         else "original_state"
         if contract.state_kind
         in (
+            "original_mean",
             "original_sum",
             "original_sum_zero",
             "original_count",

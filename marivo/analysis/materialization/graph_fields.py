@@ -5,11 +5,14 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from marivo.analysis.core.graph import Node
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.refs import EntityKind, Ref, RelationshipKind, SemanticKind
+
+if TYPE_CHECKING:
+    from marivo.analysis.materialization.graph_relation import Relation
 
 
 def _invalid(received: str) -> DatasetConstructionError:
@@ -42,11 +45,13 @@ class NumericPredicate:
     root: Node
     operation: Literal["lt", "lte", "gt", "gte", "eq"]
     threshold: int | float
+    relation: Relation | None = None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class NumericField:
     root: Node
+    relation: Relation | None = None
 
     def _predicate(
         self, operation: Literal["lt", "lte", "gt", "gte", "eq"], threshold: int | float
@@ -56,7 +61,7 @@ class NumericField:
             or (type(threshold) is float and math.isfinite(threshold))
         ):
             raise _invalid("numeric threshold is not a finite int64 or float64")
-        return NumericPredicate(self.root, operation, threshold)
+        return NumericPredicate(self.root, operation, threshold, self.relation)
 
     def lt(self, threshold: int | float) -> NumericPredicate:
         return self._predicate("lt", threshold)

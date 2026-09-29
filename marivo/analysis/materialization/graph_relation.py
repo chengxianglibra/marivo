@@ -8,7 +8,15 @@ from typing import Literal, TypeAlias
 
 from marivo._temporal import BeforeEndBoundary, TimeScope
 from marivo.analysis.compiler.graph_plan import RouteChoice
-from marivo.analysis.core.graph import Edge, FixedLeaf, MethodNode, Node, method_node, topology
+from marivo.analysis.core.graph import (
+    Edge,
+    FixedLeaf,
+    MethodNode,
+    Node,
+    SourceLeaf,
+    method_node,
+    topology,
+)
 from marivo.analysis.core.model import (
     Coordinate,
     CoordinateStatePart,
@@ -16,14 +24,17 @@ from marivo.analysis.core.model import (
     ObservedQuantity,
     OriginalStatePart,
     RolledQuantity,
+    RowStatisticQuantity,
     SubjectPart,
     part_role,
 )
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
     AssociationScore,
+    AttachCategory,
     BindProject,
     CellDerive,
+    CompleteGroups,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
@@ -46,7 +57,9 @@ from marivo.analysis.materialization.graph_observation import (
     observe_ratio_members,
 )
 from marivo.analysis.materialization.graph_protocol import (
+    NODE,
     digest,
+    encode,
     fixed_signature,
     validate_descriptor,
 )
@@ -85,6 +98,40 @@ def _reject(received: str) -> DatasetConstructionError:
         repair="Use matching logical inputs or exact Artifacts from this Session.",
         location="analysis.graph_relation",
     )
+
+
+def _shared_root(first: Node, second: Node) -> Node:
+    """Share exact nodes, including a read's unbound temporal source shape."""
+    known = {node.identity: node for node in topology(first)}
+    for node in topology(second):
+        prior = known.get(node.identity)
+        if (
+            isinstance(node, SourceLeaf)
+            and isinstance(prior, SourceLeaf)
+            and isinstance(node.definition.shape.time, NoTime)
+        ):
+            node = replace(
+                node,
+                definition=replace(
+                    node.definition,
+                    shape=replace(node.definition.shape, time=prior.definition.shape.time),
+                ),
+            )
+        if isinstance(node, MethodNode):
+            sources = tuple(known[source.identity] for source in node.sources)
+            if any(not isinstance(source, SourceLeaf) for source in sources):
+                raise _reject("shared source dependency is not a SourceLeaf")
+            node = replace(
+                node,
+                inputs=tuple(Edge(edge.role, known[edge.node.identity]) for edge in node.inputs),
+                sources=tuple(source for source in sources if isinstance(source, SourceLeaf)),
+            )
+        if prior is not None:
+            if encode(prior, NODE) != encode(node, NODE):
+                raise _reject("shared node identity has conflicting frozen definitions")
+            continue
+        known[node.identity] = node
+    return known[second.identity]
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,7 +268,7 @@ class Relation:
         root = method_node((self._edge(),), parameters, value_type=self.root.value_type)
         return self._with(root)
 
-    def where(self, predicate: ValuePredicate) -> Relation:
+    def where(self, predicate: ValuePredicate, dependency: Relation | None = None) -> Relation:
         if predicate.binding != self.root.signature.domain.binding:
             raise _reject("predicate belongs to a different member realization")
         definition = self.definition.parameters
@@ -237,7 +284,9 @@ class Relation:
         elif isinstance(definition, PartsTransport):
             field_kind = definition.field_kind
         root = method_node(
-            (self._edge(),),
+            (self._edge(),)
+            if dependency is None
+            else (self._edge(), Edge("quantity", _shared_root(self.root, dependency.root))),
             PartsTransport(
                 "where",
                 self.root.signature.domain,
@@ -245,10 +294,13 @@ class Relation:
                 True,
                 (predicate,),
                 field_kind,
+                dependency is not None,
+                self.classification_coordinate() if field_kind == "dimension" else None,
             ),
             value_type=self.root.value_type,
         )
-        return self._with(root)
+        result = self._with(root)
+        return result._with_sources(dependency) if dependency is not None else result
 
     def group_members(self, dimension: Ref[DimensionKind]) -> Relation:
         live = self._live()
@@ -427,7 +479,7 @@ class Relation:
             )
         return self._with(root)
 
-    def rollup(self, coordinate: Ref[DimensionKind] | None = None) -> Relation:
+    def rollup(self, *coordinates: Ref[DimensionKind] | Ref[EntityKind]) -> Relation:
         signature = self.root.signature
         quantity = signature.quantity
         if not isinstance(quantity, (ObservedQuantity, RolledQuantity)):
@@ -436,45 +488,52 @@ class Relation:
         if state is None:
             raise _reject("original components are absent")
         methods: dict[
-            str, Literal["sum", "sum_zero", "count", "ratio", "weighted_mean", "linear"]
+            str, Literal["sum", "sum_zero", "mean", "count", "ratio", "weighted_mean", "linear"]
         ] = {
             "sum@v1": "sum",
             "sum_zero@v1": "sum_zero",
             "count@v1": "count",
+            "mean@v1": "mean",
             "ratio@v1": "ratio",
             "weighted_mean@v1": "weighted_mean",
             "linear@v1": "linear",
         }
         if state.method_version not in methods:
             raise _reject("original method is not qualified")
-        if coordinate is None:
-            target = DomainSignature(
-                signature.domain.binding,
-                "singleton",
-                (),
-                (),
-                digest("total:" + self.root.fingerprint),
+        selected: list[Coordinate] = []
+        for coordinate in coordinates:
+            # Entity references retain their entire composite identity.
+            matches = tuple(
+                c
+                for c in signature.domain.instance_key
+                if (
+                    c.entity_ref == coordinate and c.role == "identity"
+                    if coordinate.kind == "entity"
+                    else c.field == coordinate.path
+                )
             )
-        else:
-            retained = next(
-                (
-                    p
-                    for p in signature.parts
-                    if isinstance(p, CoordinateStatePart)
-                    and any(c.field == coordinate.path for c in p.coordinates)
-                ),
-                None,
-            )
-            if retained is None:
-                raise _reject("coordinate was not retained with this observation")
-            key = tuple(c for c in retained.coordinates if c.field == coordinate.path)
-            target = DomainSignature(
-                signature.domain.binding,
-                "group",
-                key,
-                key,
-                digest("group:" + coordinate.path + self.root.fingerprint),
-            )
+            if not matches:
+                retained = next(
+                    (p for p in signature.parts if isinstance(p, CoordinateStatePart)), None
+                )
+                matches = (
+                    ()
+                    if retained is None
+                    else tuple(c for c in retained.coordinates if c.field == coordinate.path)
+                )
+            if not matches or (coordinate.kind == "dimension" and len(matches) != 1):
+                raise _reject("group key was not uniquely retained with this relation")
+            selected.extend(matches)
+        keys = tuple(selected)
+        if len(set(keys)) != len(keys):
+            raise _reject("group keys repeat a retained coordinate")
+        target = DomainSignature(
+            signature.domain.binding,
+            "group" if keys else "singleton",
+            keys,
+            keys,
+            digest("group:" + repr(keys) + self.root.fingerprint),
+        )
         return self._with(
             method_node(
                 (self._edge(),),
@@ -483,20 +542,29 @@ class Relation:
                     "source.contribution_partition@v1",
                     "source.complete_coverage@v1",
                     methods[state.method_version],
-                    coordinate,
+                    keys,
                 ),
                 value_type=self.root.value_type,
             )
         )
 
-    def summarize(self, method: Literal["sum", "mean", "count"]) -> Relation:
+    def summarize(
+        self,
+        method: Literal["sum", "min", "max", "mean", "count", "count_defined"],
+        *,
+        coordinates: tuple[Coordinate, ...] = (),
+    ) -> Relation:
         definition = digest("row." + method + self.root.fingerprint)
         domain = DomainSignature(
-            self.root.signature.domain.binding, "singleton", (), (), definition
+            self.root.signature.domain.binding,
+            "group" if coordinates else "singleton",
+            coordinates,
+            coordinates,
+            definition,
         )
         value_type = (
             ScalarType("int64")
-            if method == "count"
+            if method in ("count", "count_defined")
             else ScalarType("float64")
             if method == "mean"
             else self.root.value_type
@@ -508,9 +576,147 @@ class Relation:
                     method,
                     domain,
                     definition,
-                    "count_all" if method == "count" else "strict",
-                    numeric_check_id=None if method == "count" else "source.finite_numeric@v1",
+                    "count_all"
+                    if method == "count"
+                    else "defined_only"
+                    if method == "count_defined"
+                    else "strict",
+                    numeric_check_id=(
+                        None
+                        if method == "count"
+                        else "source.cell_policy@v1"
+                        if method == "count_defined"
+                        else "source.finite_numeric@v1"
+                    ),
                 ),
                 value_type=value_type,
+            )
+        )
+
+    def rollup_statistic(self, *coordinates: Ref[DimensionKind] | Ref[EntityKind]) -> Relation:
+        quantity = self.root.signature.quantity
+        if not isinstance(quantity, RowStatisticQuantity):
+            raise _reject("row rollup requires a retained RowStatistic")
+        from marivo.analysis.core.rules import RowMethod
+
+        methods: dict[str, RowMethod] = {
+            "row.sum@v1": "sum",
+            "row.mean@v1": "mean",
+            "row.min@v1": "min",
+            "row.max@v1": "max",
+            "row.count@v1": "count",
+            "row.count_defined@v1": "count_defined",
+        }
+        method = methods.get(quantity.method_version)
+        if method is None or method == "weighted_mean":
+            raise _reject("statistic method is not qualified for retained merge")
+        keys: list[Coordinate] = []
+        for reference in coordinates:
+            matched = tuple(
+                c
+                for c in self.root.signature.domain.instance_key
+                if (
+                    c.entity_ref == reference and c.role == "identity"
+                    if reference.kind == "entity"
+                    else c.field == reference.path
+                )
+            )
+            if not matched or (reference.kind == "dimension" and len(matched) != 1):
+                raise _reject("statistic group coordinate was not uniquely retained")
+            keys.extend(matched)
+        if len(keys) != len(set(keys)):
+            raise _reject("statistic grouping repeats a coordinate")
+        domain = DomainSignature(
+            self.root.signature.domain.binding,
+            "group" if keys else "singleton",
+            tuple(keys),
+            tuple(keys),
+            digest("row.rollup:" + repr(keys) + self.root.fingerprint),
+        )
+        return self._with(
+            method_node(
+                (self._edge(),),
+                RowState(method, domain, quantity.definition_id, quantity.value_policy, merge=True),
+                value_type=self.root.value_type,
+            )
+        )
+
+    def classification_coordinate(self) -> Coordinate:
+        params = self.definition.parameters
+        if isinstance(params, PartsTransport) and params.classification is not None:
+            return params.classification
+        if (
+            isinstance(params, BindProject)
+            and params.field_contract is not None
+            and params.ref.kind == "dimension"
+        ):
+            return Coordinate(params.field_owner, params.ref.path, "group")
+        raise _reject("classification requires an explicit retained Dimension identity")
+
+    def _with_sources(self, dependency: Relation) -> Relation:
+        if isinstance(self.binding, LiveBinding) and isinstance(dependency.binding, LiveBinding):
+            sources = {
+                leaf.identity: (schema, leaf)
+                for schema, leaf in (*dependency.binding.graph.sources, *self.binding.graph.sources)
+            }
+            return replace(
+                self,
+                binding=replace(
+                    self.binding,
+                    graph=replace(self.binding.graph, sources=tuple(sources.values())),
+                ),
+            )
+        return self
+
+    def attach_category(self, category: Relation) -> Relation:
+        coordinate = category.classification_coordinate()
+        source = self.root.signature.domain
+        target = replace(
+            source,
+            instance_key=(*source.instance_key, coordinate),
+            definition_id=digest(source.definition_id + category.root.fingerprint),
+        )
+        node = method_node(
+            (self._edge(), Edge(category._edge().role, _shared_root(self.root, category.root))),
+            AttachCategory(
+                coordinate,
+                target,
+                category.root.signature.domain.instance_key != source.instance_key,
+            ),
+            value_type=self.root.value_type,
+        )
+        return self._with(node)._with_sources(category)
+
+    def complete_groups(self, target: Relation) -> Relation:
+        source_domain = self.root.signature.domain
+        definition_id = digest("target:" + self.root.fingerprint + target.root.fingerprint)
+        domain = replace(
+            source_domain,
+            definition_id=definition_id,
+            correspondence=replace(source_domain.correspondence, target_definition_id=definition_id)
+            if source_domain.correspondence is not None
+            else None,
+        )
+        node = method_node(
+            (self._edge(), Edge(target._edge().role, _shared_root(self.root, target.root))),
+            CompleteGroups(domain),
+            value_type=self.root.value_type,
+        )
+        return self._with(node)._with_sources(target)
+
+    def group_domain(self, coordinates: tuple[Coordinate, ...]) -> Relation:
+        source = self.root.signature.domain
+        target = DomainSignature(
+            source.binding,
+            "group" if coordinates else "singleton",
+            coordinates,
+            coordinates,
+            digest("target-groups:" + repr(coordinates) + self.root.fingerprint),
+        )
+        return self._with(
+            method_node(
+                (self._edge(),),
+                MapCorrespond("group_keys", target),
+                value_type=self.root.value_type,
             )
         )

@@ -244,7 +244,7 @@ def observe_members(
     aggregate_kind = (
         "weighted_mean" if isinstance(aggregate, WeightedMeanAggregateNodeV1) else aggregate.agg
     )
-    if aggregate_kind not in ("sum", "count", "weighted_mean"):
+    if aggregate_kind not in ("sum", "mean", "count", "weighted_mean"):
         raise _reject("Metric is not a sum or Entity count")
     if (
         isinstance(aggregate, AggregateNodeV1)
@@ -269,7 +269,9 @@ def observe_members(
         ),
         None,
     )
-    if aggregate_kind in ("sum", "weighted_mean") and (body is None or body.source_column is None):
+    if aggregate_kind in ("sum", "mean", "weighted_mean") and (
+        body is None or body.source_column is None
+    ):
         raise _reject("Measure is not a frozen direct column")
     event_path = (
         component.event_time_dimension.path if component.event_time_dimension is not None else None
@@ -291,8 +293,8 @@ def observe_members(
         )
     )
     filters = _occurrence_filters(registry, aggregate, entity_paths, path)
-    if len(coordinates) > 2 or len(set(coordinates)) != len(coordinates):
-        raise _reject("one or two distinct string contribution coordinates are qualified")
+    if len(set(coordinates)) != len(coordinates):
+        raise _reject("distinct string contribution coordinates are required")
     coordinate_fields = tuple(
         normalize_target_dimension(registry, item.path) for item in coordinates
     )
@@ -315,11 +317,13 @@ def observe_members(
         raise _reject("member schema changed after construction")
     amount_type = (
         contribution_schema.field_type(body.source_column)
-        if aggregate_kind in ("sum", "weighted_mean")
+        if aggregate_kind in ("sum", "mean", "weighted_mean")
         and body is not None
         and body.source_column is not None
         else ScalarType("int64")
     )
+    if aggregate_kind == "mean" and amount_type != ScalarType("int64"):
+        raise _reject("original mean currently requires direct int64 input")
     if amount_type.name not in ("int64", "float64"):
         raise _reject("unqualified amount physical type")
     event_type = schemas[event.entity_ref.path].schema.field(event.source_column).type
@@ -486,11 +490,8 @@ def observe_members(
             or weight_body.source_column is None
             or amount_type != ScalarType("int64")
             or contribution_schema.field_type(weight_body.source_column) != ScalarType("int64")
-            or coordinate_fields
         ):
-            raise _reject(
-                "weighted mean requires direct int64 value/weight columns without contribution coordinates"
-            )
+            raise _reject("weighted mean requires direct int64 value/weight columns")
         parameters = ObserveWeightedMean(
             definition,
             target,
@@ -503,7 +504,7 @@ def observe_members(
             body.source_column,
             "int64",
             weight_body.source_column,
-            (),
+            coordinate_fields,
             filters,
         )
     elif aggregate_kind == "count":
@@ -534,13 +535,14 @@ def observe_members(
             "int64" if amount_type == ScalarType("int64") else "float64",
             coordinate_fields,
             filters,
+            "mean" if aggregate_kind == "mean" else "sum",
         )
     root = method_node(
         (Edge("subject", member_root),),
         parameters,
         sources=tuple(leaf for _, leaf in source_entries),
         value_type=ScalarType("float64")
-        if isinstance(parameters, ObserveWeightedMean)
+        if isinstance(parameters, ObserveWeightedMean) or aggregate_kind == "mean"
         else amount_type,
     )
 
