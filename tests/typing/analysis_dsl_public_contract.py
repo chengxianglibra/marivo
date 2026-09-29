@@ -12,6 +12,23 @@ if TYPE_CHECKING:
     session = mv.session.get_or_create("typing-public", report_timezone="UTC")
     members = session.members(ms.ref.entity("sales.customer"))
     assert_type(members, mv.LogicalAnalysisDomain)
+    grid = mv.time_grid(
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day")
+    )
+    assert_type(grid, mv.TimeGrid)
+    assert_type(grid.window, mv.GridWindow)
+    assert_type(grid.end, mv.GridEndpoint)
+    product = members.each(grid)
+    assert_type(product, mv.LogicalTimeAnalysisDomain)
+    assert_type(product.execute(), mv.MaterializedTimeAnalysisDomain)
+    assert_type(
+        product.read(ms.ref.measure("sales.customer.balance"), at=grid.before_end),
+        mv.LogicalNumericRelation,
+    )
+    assert_type(
+        product.observe(ms.ref.metric("sales.running"), at=grid.end),
+        mv.LogicalNumericRelation | mv.LogicalRatioRelation,
+    )
     category = members.read(ms.ref.dimension("sales.customer.region"))
     assert_type(category, mv.LogicalCategoryRelation | mv.LogicalBooleanRelation)
     assert isinstance(category, mv.LogicalCategoryRelation)

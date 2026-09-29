@@ -616,3 +616,39 @@ row means are70/7; materialized regional revenues are140/7 and their per-group
 current-row means remain140/7, with counts1/1. Original Metric `rollup` still
 merges original components; subsequent RowStatistic `rollup` merges only that
 statistic's own retained state and identity.
+
+## R5.5 candidate frozen-state change
+
+The in-progress R5.5 candidate changes the unpublished Store 7 frozen graph:
+`DomainSignature.time_grid` carries the exact grid identity, ordered original and
+clipped UTC bounds, partial flags, precision, report/boundary zones and certified
+snapshot identity. `time.product@v1` uses the existing method registry and source
+lowering; its required `kind="time_product"` field separates its frozen parameter
+variant from existing target-group completion. Observation parameters distinguish row windows; original state records
+`none`, `partition`, `repeated` or `overlapping` temporal policy. `OriginalReduce.time_mapping`
+records and revalidates whole-cell coarsening. Fixed execution uses those frozen
+facts and original components through the registered local reducer.
+
+This changes definition and execution fingerprints even for signatures with no
+grid. Incompatible earlier frozen graphs reject on canonical fingerprint/receipt
+validation; no Store generation, dual reader, default-state repair or source
+recomputation is introduced. Cumulative parameters additionally freeze ordered endpoint windows, reset identity,
+report/boundary zones and certification digest. `GridVersionSelection` freezes
+attribute versions independently for every cell. Scope identity distinguishes
+named occurrences sharing the same bounds.
+
+The `original_fold` state contract retains `samples` and `fold_kind` components,
+with the same kind frozen in OriginalStatePart. Sample encoding is version-one
+UTC-naive ISO microsecond keys, finite float64 spatial sums and int64 support
+counts; source publication canonicalizes ordering, and decoding rejects duplicate
+keys or malformed/nonfinite state. The registered local reducer validates aligned
+pre-fold samples before any spatial merge and rejects overlapping temporal state.
+Coverage, primary Cells, required parts, method state and receipts are checked
+through the common exchange. Kind, version, part and receipt damage revoke K.
+These additional fields also change the unpublished frozen encoding. Older
+candidates reject; no inferred defaults or compatibility reader restore their
+continuation. Produce, offline continuation and cold recovery are tested in
+separate processes for both source forms and all three state families.
+Zero-row fold results retain explicit string status/sample/kind columns and
+boolean coverage columns. Fixed grouped reductions preserve that schema even
+with no members, and whole-domain reduction produces the declared empty Cell.

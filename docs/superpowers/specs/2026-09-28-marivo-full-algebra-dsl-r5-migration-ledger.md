@@ -274,3 +274,135 @@ in `session-state-and-runtime.md`. Evidence and item-by-item dispositions are in
 `evidence/r54/review-fixes.json`; the candidate fingerprint is refreshed only after
 verification. Diagnostic-version invariance and effective part-corruption tests
 remain intact. No packaged skill or AGENTS.md change is required.
+
+## R5.5 temporal consumer migration (2026-09-29)
+
+The versioned qualification summary and reproduction commands are below. Detailed
+logs in ignored `evidence/r55/` are local supplements; earlier partial-slice records
+are historical and do not define the current scope.
+
+| Item | Current consumer and disposition |
+| --- | --- |
+| M03/M05 | Public each/read/observe/group_by dispatches to the existing core, registered graph methods and Store 7. Endpoint and fold branches replace the former unconditional temporal refusal in graph_observation. No parallel executor was added. |
+| D01/D02 | Historical calendar publication journeys now use graph Relation/time product/observe and common completed evidence. Old generation-six materialization/assertions were replaced; `[110,30]` remains independent. |
+| D03 | Public identity-root observation/rollup restores SQLite revenue 30 with source preview/readiness/health and initial Run/primary submission assertions. |
+| D09–D13 | Historical SQLite journeys use graph grouped members and metric.fold, preserving all five numerical oracles and adding refusal of unaligned fixed spatial merging. The old lazy-source dispatch/SQL-string assertions in those journeys were removed. |
+| M07 | Attribute consumers use member_version.selection/version_predicate with frozen per-grid selections. Graph windows reuse observation.temporal.civil_bound; certified scopes retain their own boundary timezone and identity. |
+| M08/M09 | Graph contribution normalization imports compiler.source_time.source_time. Its existing Ibis localization/rendering is reused; actual raw/normalized validation reads pass through SourceSession. |
+| Shared R6–R9 | compiler/lowering and its temporal bucket/reset helpers remain consumers for legacy event/journey/lifecycle/interval paths. materialization/temporal_sql remains imported by mysql/trino/clickhouse/sqlite executors and governed-operation guards. These shared algorithms and remote qualification owners were retained, not duplicated or deleted wholesale. |
+| V06/V07 | Independent source/report/grid zones, date, DST and disagreement checks; calendar per-occurrence proofs; cumulative overlap refusal; first/last/mean/min/max aligned pre-fold state and the staggered-device counterexample. |
+| V10 | Table/Parquet produce, offline continuation and cold recovery for additive, cumulative and fold families compare values/state/K; required-part, receipt and version faults revoke continuation. |
+
+The consumer inventory is `evidence/r55/temporal-consumers-completion.txt`.
+No production hand-written temporal SQL was added. Fold reductions use Ibis
+aggregation/window expressions and the registered fixed Python reducer. The
+unpublished Store 7 encoding changes are explicit in the Runtime owner; there is
+no new generation, dual reader or fallback route. R5.6 numerical qualification,
+R5.7 package acceptance and unrelated historical debt remain separate.
+
+Completion validation: the broad daily gate passed 5405 tests with 5 skips;
+related Runtime passed 193 tests, plus 3 scalar endpoint and 6 final fold checks.
+Site and whitespace gates passed. Exact candidate and command records remain
+in the linked evidence; R5.6/R5.7 exclusions are not reclassified as passes.
+
+### R5.5 review follow-up
+
+The three review findings are repaired: fixed/cumulative DATE windows keep their
+own timezone on a foreign-zone grid; grid construction uses incremental boundary
+checks and skips the historical prefix for fixed-offset zones; zero-row fold
+continuation retains explicit Arrow types. Regressions include repeated-hour
+minute boundaries and source-offline empty grouped/singleton fold continuation.
+The versioned summary below records the accepted scope and executable test owners.
+Detailed local logs and fingerprints remain in ignored `evidence/r55/review-fixes-*`.
+
+## R5.5 qualification summary
+
+This versioned record is self-contained. Commit `8dccde674e` deliberately removed
+run artifacts from Git while preserving local files. The ignored `evidence/`
+directory remains a local diagnostics archive, not the sole authority for phase
+acceptance. This record reports observed source-tree tests; another checkout must
+run the commands below to establish its own execution evidence. No evidence files
+are force-added, and the existing ignore policy is unchanged.
+
+Qualified scope: unified graph / Runtime / Store 7 time products, endpoint reads,
+certified occurrences, cumulative anchors and spatial sum before scalar
+first/last/mean/min/max folds. Source forms are DuckDB table/Parquet and the required
+SQLite UTC/date routes; fixed continuation uses registered local algorithms.
+Full numerical qualification remains R5.6; wheel/package qualification remains
+R5.7. Release-check, MinIO, real Agent and publication were not run.
+
+| Obligation | Executable owner / independently specified oracle |
+| --- | --- |
+| Complete product, empty/partial cells, exact handles, DST and date | `tests/test_analysis_temporal_r55.py`: 8 entity/time rows; 23/25-hour days with explicitly listed UTC instants; cross-month week refusal; fixed DATE value 10 across a foreign-zone grid |
+| Symbolic attribute selection | `tests/test_analysis_members_r52.py::test_grid_attribute_point_is_independent_of_member_version` and `::test_grid_snapshot_before_end_uses_symbolic_left_period`: explicit start/end/left-limit values, including [10,20] on the snapshot left period |
+| Cumulative anchors and state | `test_cumulative_anchors_ignore_display_start`: all-history [1077,1176], month-to-date [1000,99], trailing [1000,499]; overlap refusal and scalar endpoints |
+| Noncommuting fold | `test_fold_reaggregates_aligned_samples_before_time`: input devices [10,0] and [0,10]; spatial totals are [10,10], so every declared fold is the literal 10. Each direct/fixed/offline result is compared to that constant, never to another product result |
+| D01/D02 calendar occurrence publication | `tests/test_lazy_source_algebra.py::test_semantic_calendar_validations_publish_each_required_occurrence`: [110,30], fixed total 140 and distinct completed calendar checks |
+| D03 SQLite | `tests/test_sqlite_semantic_integration.py::test_sqlite_agent_native_authoring_journey`: 30 and daily [10,20], one primary stage read |
+| D09–D13 SQLite | `tests/test_lazy_status_fold_admission.py::test_sqlite_fold_spatial_sum_matches_hand_computed_constants`: first/last/mean/min/max totals 110/70/90/50/130, preserving all-null channel behavior |
+| Recovery and damage | `tests/test_analysis_temporal_r55.py`: separate produce/offline/cold processes for table/Parquet x additive/cumulative/fold; compare values/state/K, reject missing/corrupt parts, receipt and version faults; typed empty fold continuation |
+
+Observed repair candidate results: `make check-agent` exited 0 (5407 passed,
+5 skipped; lint, typing, imports and API docs); temporal Runtime exited 0
+(45 passed), temporal pure tests exited 0 (14 passed), touched-module typing and
+whitespace exited 0. The earlier completion selection passed 193 Runtime tests;
+it is historical evidence, not a rerun after every later edit. The first repair
+broad attempt had two module-import failures; unchanged-code focused/full reruns
+passed. Their cause remains unconfirmed. The earlier site build passed 321 pages;
+site content was unchanged by the review fixes.
+
+Reproduction commands (repository virtual environment required):
+
+```sh
+make test TESTS='tests/test_analysis_temporal_r55.py'
+make runtime-test TESTS='tests/test_analysis_temporal_r55.py tests/test_analysis_members_r52.py tests/test_lazy_source_algebra.py tests/test_lazy_status_fold_admission.py tests/test_sqlite_semantic_integration.py'
+make check-agent
+git diff --check
+```
+
+### SQLite status-gate assertion migration
+
+The `__mv_status` SQL alias belonged to the former lazy executor. The unified graph
+owns Cell status and required checks separately, so retaining that alias would
+assert an obsolete representation. Its behavioral obligations remain:
+
+| Former SQLite assertion | Current contract and replacement |
+| --- | --- |
+| `validation_batch` contains `__mv_status` | Governed `SourceSession.batches` actually submits `analysis.graph.check` reads; the SQLite journey asserts the raw/normalized temporal check and successful exhausted submissions. Checks run before the artifact is returned |
+| Exactly one primary SQL contains `__mv_status` | Exactly one `analysis.graph.stage` read carries `original_state__samples`, `original_state__fold_kind`, `cell_tag` and `cell_reason`; the same journey asserts a subsequent check read before successful return |
+| Null/defined fold status and numerical values | The SQLite journey retains all five independent channel/total constants and the all-null channel assertion. Common exchange validates primary Cells and retained fold state |
+| Unaligned spatial continuation | Additional refusal regression only; it does not replace either source-check or numerical obligations |
+
+`tests/lazy_shared_assertions.py` remains the owner of the old SQL-shape assertions
+for remote legacy consumers. No global deletion or remote qualification is implied.
+
+### Additional review suggestion dispositions
+
+- **Accepted:** plan header was stale; it now agrees with the bounded R5.5 record.
+  Versioned consumers no longer require an ignored README to determine scope or
+  reproduce tests. SQLite assertion migration is explicitly mapped and its actual
+  governed reads are asserted on all five fold kinds.
+- **Rejected as a contract mismatch:** `time_scope(end=scope.before_end)` is not a
+  supported signature. `before_end` selects a version through `at=`; windows keep
+  ordinary exclusive endpoints. Existing source tests exercise both validity and
+  snapshot grid left limits. The owning temporal document now states the distinction.
+- **Rejected as an oracle misreading:** `[10]` and the per-device dictionary are
+  literal hand-calculated expectations. `fixed.rollup()` produces the actual side
+  of the assertion, not its expected side. Importing `decode_samples` to test three
+  manually authored malformed payloads is a rejection-unit test, not an oracle
+  computed by the implementation.
+- **Rejected as stale:** the current local README says implemented/verified; the
+  quoted incomplete paragraph belongs to the superseded grid-only snapshot.
+- **No speculative refactor:** the cited journeys have different responsibilities
+  (calendar publication, SQLite fold admission, grid/fixed recovery); the temporal
+  grid module primarily uses DuckDB, not a duplicated SQLite journey. The small
+  `_component_temporal_policy` function enforces one common policy across component
+  states and rejects incompatible combinations; it is not a passive forwarding API.
+- The acknowledged pre-existing `time_dimension` documentation drift, candidate
+  fingerprint allegation and restored-parameter allegation are not reopened.
+
+Additional-suggestion validation: SQLite fold checks passed 5 cases; symbolic
+grid endpoints and the independent fold counterexample passed 10 cases. The
+post-change `make check-agent` exited 0 (5407 passed, 5 skipped; lint, typing,
+imports and API docs passed), and `git diff --check` exited 0. No production
+execution logic changed in this suggestion-adoption pass.

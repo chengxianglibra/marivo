@@ -129,6 +129,8 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import AnalysisAction as AnalysisAction
     from marivo.analysis.public_dsl import AnalysisContract as AnalysisContract
     from marivo.analysis.public_dsl import CountMethod as CountMethod
+    from marivo.analysis.public_dsl import GridEndpoint as GridEndpoint
+    from marivo.analysis.public_dsl import GridWindow as GridWindow
     from marivo.analysis.public_dsl import GroupedAnalysisDomain as GroupedAnalysisDomain
     from marivo.analysis.public_dsl import GroupedNumericRelation as GroupedNumericRelation
     from marivo.analysis.public_dsl import GroupedRatioRelation as GroupedRatioRelation
@@ -165,6 +167,7 @@ if TYPE_CHECKING:
     )
     from marivo.analysis.public_dsl import LogicalStatisticRelation as LogicalStatisticRelation
     from marivo.analysis.public_dsl import LogicalTemporalRelation as LogicalTemporalRelation
+    from marivo.analysis.public_dsl import LogicalTimeAnalysisDomain as LogicalTimeAnalysisDomain
     from marivo.analysis.public_dsl import MaterializedAnalysisDomain as MaterializedAnalysisDomain
     from marivo.analysis.public_dsl import (
         MaterializedAssociationResult as MaterializedAssociationResult,
@@ -218,9 +221,13 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import (
         MaterializedTemporalRelation as MaterializedTemporalRelation,
     )
+    from marivo.analysis.public_dsl import (
+        MaterializedTimeAnalysisDomain as MaterializedTimeAnalysisDomain,
+    )
     from marivo.analysis.public_dsl import RootRoute as RootRoute
     from marivo.analysis.public_dsl import RootRoutes as RootRoutes
     from marivo.analysis.public_dsl import RowMethod as RowMethod
+    from marivo.analysis.public_dsl import TimeGrid as TimeGrid
     from marivo.analysis.public_dsl import count as count
     from marivo.analysis.public_dsl import count_defined as count_defined
     from marivo.analysis.public_dsl import max as max
@@ -229,6 +236,7 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import route as route
     from marivo.analysis.public_dsl import routes as routes
     from marivo.analysis.public_dsl import sum as sum
+    from marivo.analysis.public_dsl import time_grid as time_grid
     from marivo.analysis.refs import ArtifactRef as ArtifactRef
     from marivo.analysis.session._lazy_read_model import ArtifactSummary as ArtifactSummary
     from marivo.analysis.session._lazy_read_model import FailedRun as FailedRun

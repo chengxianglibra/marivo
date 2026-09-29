@@ -626,3 +626,45 @@ def test_wrong_role_many_mapping_and_missing_coverage_reject_before_io(
         )
     )
     assert members.read(field, at=at, via=path).execute().to_pandas()["value"].tolist() == [10, 20]
+
+
+@pytest.mark.runtime
+def test_grid_attribute_point_is_independent_of_member_version(members_session: Session) -> None:
+    prefix = _domain(members_session)
+    grid = mv.time_grid(
+        during=mv.time_scope(start="2026-08-01", end="2026-10-01"), grain=mv.grain("month")
+    )
+    members = members_session.members(
+        ms.ref.entity(f"{prefix}.valid"), at=datetime(2026, 8, 1, tzinfo=timezone.utc)
+    ).each(grid)
+    field = ms.ref.measure(f"{prefix}.valid.amount")
+    for endpoint, expected in (
+        (grid.start, [10, 30, 20, 20]),
+        (grid.end, [30, 30, 20, 20]),
+        (grid.before_end, [10, 30, 20, 20]),
+    ):
+        result = members.read(field, at=endpoint).execute()
+        assert result.to_pandas().value.tolist() == expected
+        assert (
+            members_session.artifact(result.state.artifact_ref).to_pandas().value.tolist()
+            == expected
+        )
+
+
+@pytest.mark.runtime
+def test_grid_snapshot_before_end_uses_symbolic_left_period(members_session: Session) -> None:
+    session = members_session
+    prefix = _domain(session)
+    grid = mv.time_grid(
+        during=mv.time_scope(start="2026-08-01", end="2026-08-02"), grain=mv.grain("day")
+    )
+    product = session.members(ms.ref.entity(f"{prefix}.plain")).each(grid)
+    field = ms.ref.measure(f"{prefix}.snapshot.amount")
+    route = ms.ref.relationship(f"{prefix}.to_snapshot")
+    for point in (grid.start, grid.before_end):
+        assert product.read(field, at=point, via=route).execute().to_pandas().value.tolist() == [
+            10,
+            20,
+        ]
+    with pytest.raises(AnalysisError):
+        product.read(field, at=grid.end, via=route).execute()

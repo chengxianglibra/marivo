@@ -722,6 +722,13 @@ def _coordinate_rollup_stage(
     )
     components = original_contract.components
     source_keys = source.contract.signature.domain.instance_key
+    if params.time_mapping:
+        target_grid = params.output_domain.time_grid
+        assert target_grid is not None
+        source_keys = tuple(
+            replace(c, field="time:" + target_grid.identity) if c.role == "anchor" else c
+            for c in source_keys
+        )
     direct = set(params.coordinates) <= set(source_keys)
     key_fields = tuple(f"key_{i}" for i in range(len(params.coordinates)))
     entries: list[dict[str, object]]
@@ -772,6 +779,14 @@ def _coordinate_rollup_stage(
                         **{name: item[name] for name in components},
                     }
                 )
+    if params.time_mapping:
+        mapping = dict(params.time_mapping)
+        column = key_fields[next(i for i, c in enumerate(params.coordinates) if c.role == "anchor")]
+        for row in entries:
+            old = row[column]
+            if not isinstance(old, str) or old not in mapping:
+                raise _invalid("time coordinate is outside its frozen coarsening map")
+            row[column] = mapping[old]
     if any(
         row["coverage__complete"] is not True
         for p in source.parts
@@ -1088,6 +1103,150 @@ def _original_count_stage(
     return from_arrow(primary, contract, parts=parts, method_state=status)
 
 
+def _fold_rollup_stage(
+    method: LoweredLocal, source: ExchangeResult, input_binding: str
+) -> ExchangeResult:
+    from marivo.analysis.methods.temporal_fold import (
+        Samples,
+        decode_samples,
+        encode_samples,
+        fold_value,
+    )
+
+    params = method.stage.node.parameters
+    assert isinstance(params, OriginalReduce)
+    state = next(p.table for p in source.parts if p.role == "original_state")
+    coverage = next(p.table for p in source.parts if p.role == "coverage")
+    if any(v is not True for v in coverage["coverage__complete"].to_pylist()):
+        raise _invalid("fold requires complete coverage")
+    coordinates = source.contract.signature.domain.instance_key
+    time_index = next((i for i, c in enumerate(coordinates) if c.role == "anchor"), None)
+    if params.time_mapping:
+        assert params.output_domain.time_grid is not None
+        coordinates = tuple(
+            replace(c, field="time:" + params.output_domain.time_grid.identity)
+            if c.role == "anchor"
+            else c
+            for c in coordinates
+        )
+    selected = tuple(f"key_{coordinates.index(c)}" for c in params.coordinates)
+    keys = tuple(f"key_{i}" for i in range(len(selected)))
+    # Distinct original time cells can concatenate; spatial inputs within each
+    # cell must agree on the complete sample coordinate set before merging.
+    grouped: dict[tuple[object, ...], dict[object, list[Samples]]] = {}
+    kinds: set[str] = set()
+    for row in state.to_pylist():
+        identity = tuple(
+            dict(params.time_mapping).get(row[k], row[k])
+            if time_index is not None and k == f"key_{time_index}"
+            else row[k]
+            for k in selected
+        )
+        period = row[f"key_{time_index}"] if time_index is not None else None
+        try:
+            samples = decode_samples(row["original_state__samples"])
+        except (ValueError, TypeError, OverflowError) as error:
+            raise _invalid("invalid ordered pre-fold samples") from error
+        kinds.add(row["original_state__fold_kind"])
+        grouped.setdefault(identity, {}).setdefault(period, []).append(samples)
+    declared = next(p for p in source.contract.signature.parts if isinstance(p, OriginalStatePart))
+    kind = declared.fold_kind
+    if kind is None or (kinds and kinds != {kind}):
+        raise _invalid("fold kinds differ from the bound declaration")
+    if not grouped and not keys:
+        grouped[()] = {}
+    labels: dict[str, list[object]] = {k: [] for k in keys}
+    encodings: list[str] = []
+    values: list[float | None] = []
+    for identity, periods in grouped.items():
+        combined: list[tuple[datetime, float, int]] = []
+        for rows in periods.values():
+            sample_keys = tuple(key for key, _, _ in rows[0])
+            if any(tuple(key for key, _, _ in row) != sample_keys for row in rows[1:]):
+                raise _invalid("unaligned pre-fold sample coordinates; keep the spatial groups")
+            for i, key in enumerate(sample_keys):
+                try:
+                    total = math.fsum(row[i][1] for row in rows)
+                except OverflowError as error:
+                    raise _invalid("pre-fold spatial sum exceeds float64") from error
+                combined.append((key, total, sum(row[i][2] for row in rows)))
+        combined.sort()
+        try:
+            encoded = encode_samples(tuple(combined))
+            value = fold_value(decode_samples(encoded), kind)
+        except (ValueError, OverflowError) as error:
+            raise _invalid("overlapping or invalid pre-fold components") from error
+        for label, item in zip(keys, identity, strict=True):
+            labels[label].append(item)
+        encodings.append(encoded)
+        values.append(value)
+    arrays = {
+        key: pa.array(labels[key], type=state.schema.field(column).type)
+        for key, column in zip(keys, selected, strict=True)
+    }
+    tags = pa.array(["null" if v is None else "defined" for v in values], type=pa.string())
+    primary = pa.table(
+        {
+            **arrays,
+            "value": pa.array(values, type=pa.float64()),
+            "cell_tag": tags,
+            "cell_reason": pa.array(
+                ["empty_contribution" if v is None else None for v in values], type=pa.string()
+            ),
+        }
+    )
+    parts: tuple[ExchangePart, ...] = (
+        ExchangePart(
+            "original_state",
+            pa.table(
+                {
+                    **arrays,
+                    "original_state__samples": pa.array(encodings, type=pa.string()),
+                    "original_state__fold_kind": pa.array([kind] * len(values), type=pa.string()),
+                }
+            ),
+        ),
+        ExchangePart(
+            "coverage",
+            pa.table(
+                {**arrays, "coverage__complete": pa.array([True] * len(values), type=pa.bool_())}
+            ),
+        ),
+    )
+    subject = next(
+        (p for p in method.stage.node.signature.parts if isinstance(p, SubjectPart)), None
+    )
+    if subject is not None:
+        parts = (
+            ExchangePart(
+                "subject",
+                pa.table(
+                    {
+                        **arrays,
+                        **{
+                            f"subject__key_{i}": arrays[f"key_{params.coordinates.index(c)}"]
+                            for i, c in enumerate(subject.subject_key)
+                        },
+                    }
+                ),
+            ),
+            *parts,
+        )
+    status = pa.table({**arrays, "status": tags})
+    contract = ExchangeContract(
+        method.stage.node.signature,
+        method.stage.node.method,
+        input_binding,
+        primary.schema,
+        keys,
+        tuple(PartContract(p.role, p.table.schema, keys) for p in parts),
+        (("null", ("empty_contribution",)),),
+        "original_fold",
+        status.schema,
+    )
+    return from_arrow(primary, contract, parts=parts, method_state=status)
+
+
 def _original_sum_stage(
     method: LoweredLocal, source: ExchangeResult, input_binding: str
 ) -> ExchangeResult:
@@ -1190,6 +1349,7 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                 "state_rollup.ratio",
                 "state_rollup.weighted_mean",
                 "state_rollup.mean",
+                "state_rollup.fold",
                 "state_rollup.linear",
                 "cell.difference",
                 "association.spearman",
@@ -1211,6 +1371,7 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
             "state_rollup.ratio",
             "state_rollup.weighted_mean",
             "state_rollup.mean",
+            "state_rollup.fold",
             "state_rollup.linear",
         ) and any(check.node_id == stage.stage.node.identity for check in lowered.admitted.checks):
             raise _invalid("fixed rollup lacks frozen completed partition and coverage evidence")
@@ -1301,6 +1462,8 @@ def execute_verified_fixed(
             result = _transport_stage(
                 stage, values[0], binding, values[1] if len(values) == 2 else None
             )
+        elif name == "state_rollup.fold":
+            result = _fold_rollup_stage(stage, values[0], binding)
         elif isinstance(stage.stage.node.parameters, OriginalReduce) and bool(
             stage.stage.node.parameters.coordinates
         ):
@@ -1309,6 +1472,7 @@ def execute_verified_fixed(
             "state_rollup.ratio",
             "state_rollup.weighted_mean",
             "state_rollup.mean",
+            "state_rollup.fold",
             "state_rollup.linear",
         ):
             result = _original_ratio_rollup_stage(stage, values[0], binding)

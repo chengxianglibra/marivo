@@ -105,7 +105,12 @@ bound once when a Session consumes the grid, enters its identity, and cannot be
 reused with a conflicting authority. It never resolves host timezone itself.
 An explicit calendar timezone must agree with the snapshot or reject.
 
-`TimeScope.before_end -> BeforeEndBoundary` is a typed left-limit view;
+`TimeScope.before_end -> BeforeEndBoundary` is a typed left-limit view consumed
+by version selection such as `members(..., at=scope.before_end)`. It is not a
+`date`/`datetime` and is not accepted by `time_scope(end=...)`; use `scope.end`
+when constructing another half-open window. Likewise, `grid.before_end` is an
+`at=` selector on the matching product, while `grid.window` selects its interval.
+
 TimeGrid exposes `window -> GridWindow`, `start/end -> GridEndpoint`, and
 `before_end -> GridEndpoint` with a closed before-end interpretation. Grid
 handles are bound to the exact grid identity and usable only on its product
@@ -114,6 +119,9 @@ receiver. Fixed `during=TimeScope` remains one fixed window, even on each(grid);
 must be timezone-aware instants; naive source timestamps use the separate
 resolved source authority. Existing date/string TimeScope construction retains
 its governed normalization and civil-date semantics.
+For DATE sources, fixed windows retain their own boundary timezone even on a
+product whose grid uses another timezone; cumulative windows retain their reset
+authority. Only row windows use the grid's boundary timezone.
 
 Each grid row retains stable identity, original and clipped half-open boundaries,
 partial-cell status, physical time precision, timezone authorities and any
@@ -141,3 +149,44 @@ Semi-additive evaluation first applies the declared spatial aggregation at each
 sample, then its time fold. A later spatial merge requires a commutation proof
 or aligned pre-fold state. In particular, summing per-channel finished peaks is
 not automatically the peak of the spatial total.
+
+## R5.5 unified temporal execution
+
+The public product is `members.each(grid)`. Use `during=grid.window` for
+partitioned contributions, `read(field, at=grid.start/end/before_end)` for an
+independent attribute version, and `observe(cumulative, at=grid.end)` for an
+endpoint accumulation. A fixed TimeScope never supplies an omitted endpoint.
+The cumulative anchor is retained per component occurrence, including the two
+components of a ratio of cumulative aggregates. Different overlapping cumulative
+windows cannot be rolled up by removing time.
+
+DuckDB table/Parquet observations bind native microsecond timestamps (aware or
+explicitly localized) and civil dates through the existing Ibis source-time
+owner. Governed raw/normalized pairs are checked against the declared timezone
+before publication; gaps, folds and engine disagreement reject. The report,
+source and grid/calendar zones remain independent. SQLite qualifies the required
+UTC timestamp/date routes, including first/last/mean/min/max status folds.
+Other SQLite timezone routes remain closed at admission.
+
+`metric.fold@v1` performs the declared spatial sum per exact sample instant,
+then the declared scalar time fold. Its original state retains canonical ordered
+UTC sample keys, sums, non-null counts and the bound fold kind. Local
+`state_rollup.fold@v1` requires aligned sample sets for spatial merging within
+each original time cell, merges those components, and folds again. Distinct time
+cells concatenate only under the disjoint temporal policy. Missing samples are
+not invented as zeros. First/last order is temporal, never physical row order.
+Percentile folds and the full numerical qualification remain outside this slice.
+
+Original/clipped boundaries, partial flags, calendar snapshot digest and named
+scope identity are frozen with the grid. Equal bounds of two overlapping named
+occurrences do not make them one partition. Calendar publication records checks
+for each observation occurrence, with its own origin, scope and digest. Source
+and fixed whole-cell coarsening preserve the crossing-week rejection.
+
+These paths use the common graph, method registry, SourceSession, exchange and
+Store 7 publication. Fixed continuation uses registered local algorithms and
+receipts without Semantic, source or DuckDB access. Qualification scope, independent
+oracles, reproduction commands and remaining release boundaries are recorded in
+the [versioned R5.5 summary](../../superpowers/specs/2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md#r55-qualification-summary).
+Detailed run logs under `docs/superpowers/specs/evidence/r55/` are intentionally
+local and ignored; they are not shipped as part of this specification.

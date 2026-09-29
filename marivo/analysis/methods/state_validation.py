@@ -43,6 +43,21 @@ def state_matches(
 ) -> bool:
     """Check one complete-key-associated primary and required state part."""
     value = primary.get("value")
+    if kind == "original_fold":
+        from marivo.analysis.methods.temporal_fold import decode_samples, fold_value
+
+        try:
+            expected = fold_value(
+                decode_samples(part.get("original_state__samples")),
+                part.get("original_state__fold_kind"),
+            )
+        except (ValueError, TypeError, OverflowError):
+            return False
+        return (
+            value == expected
+            and primary.get("cell_tag") == ("null" if expected is None else "defined")
+            and primary.get("cell_reason") == ("empty_contribution" if expected is None else None)
+        )
     if kind == "original_linear":
         terms = sorted(
             name.removeprefix("original_state__").removesuffix("_sum")

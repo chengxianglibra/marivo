@@ -15,7 +15,7 @@ from marivo.analysis.compiler.graph_plan import CheckRequirement, GraphPlan, Rou
 from marivo.analysis.compiler.graph_plan import plan as make_plan
 from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import Evidence, PartRole, Signature, part_role
-from marivo.analysis.core.rules import CompleteGroups, MapCorrespond, PartsTransport
+from marivo.analysis.core.rules import CompleteGroups, MapCorrespond, PartsTransport, TimeProduct
 from marivo.analysis.materialization.contracts import (
     LocalReceipt,
     canonical_json,
@@ -161,6 +161,7 @@ class MethodState:
             if self.kind
             in (
                 "original_mean",
+                "original_fold",
                 "original_sum",
                 "original_sum_zero",
                 "original_count",
@@ -378,7 +379,9 @@ def validate_descriptor(value: Descriptor) -> Node:
     if isinstance(root, MethodNode):
         params = root.parameters
         expects_value = (
-            params.keep_quantity
+            False
+            if isinstance(params, TimeProduct)
+            else params.keep_quantity
             if isinstance(params, PartsTransport)
             else root.signature.quantity is not None
             if isinstance(params, CompleteGroups)

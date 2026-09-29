@@ -12,11 +12,17 @@ from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, overload
 
 import pandas as pd
 
-from marivo._temporal import BeforeEndBoundary, TimeScope
+from marivo._temporal import BeforeEndBoundary, Grain, TimeScope
+from marivo.analysis._time_grid import GridEndpoint as GridEndpoint
+from marivo.analysis._time_grid import GridWindow as GridWindow
+from marivo.analysis._time_grid import TimeGrid as TimeGrid
+from marivo.analysis._time_grid import time_grid as time_grid
 from marivo.analysis.core.graph import FixedLeaf
 from marivo.analysis.core.model import (
+    Coordinate,
     DerivedQuantity,
     ObservedQuantity,
+    OriginalStatePart,
     RolledQuantity,
     RowStatisticQuantity,
     SubjectPart,
@@ -31,7 +37,9 @@ from marivo.analysis.core.rules import (
     MapCorrespond,
     PartsTransport,
     RowState,
+    TimeProduct,
 )
+from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint, bind_grid
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.graph_dataset import GraphDataset
 from marivo.analysis.materialization.graph_fields import (
@@ -263,6 +271,8 @@ class AnalysisContract:
 def _kind(node: Relation) -> str:
     definition = node.definition
     params, quantity = definition.parameters, definition.signature.quantity
+    if isinstance(params, TimeProduct):
+        return "members"
     if isinstance(params, CompleteGroups):
         quantity = node.root.signature.quantity
         return (
@@ -370,6 +380,8 @@ class _Value:
                 else ("execute",)
                 if self._has_fixed()
                 else ("read", "group_by", "observe", "execute")
+                if signature.domain.time_grid is not None
+                else ("each", "read", "group_by", "observe", "execute")
             )
         elif kind == "read":
             names = (
@@ -410,6 +422,9 @@ class _Value:
             )
         else:
             names = ()
+        state = next((p for p in signature.parts if isinstance(p, OriginalStatePart)), None)
+        if state is not None and state.temporal_policy == "repeated":
+            names = tuple(name for name in names if name != "rollup")
         if isinstance(self, _CountRelation):
             names = tuple(dict.fromkeys((*names, "group_by", "summarize")))
         if not fixed and kind not in ("members", "read", "group", "correlate"):
@@ -574,13 +589,40 @@ class _Value:
             | LogicalCategoryRelation
             | MaterializedCategoryRelation
             | LogicalSelectedCategoryRelation
-            | MaterializedSelectedCategoryRelation,
+            | MaterializedSelectedCategoryRelation
+            | TimeGrid
+            | Grain,
             ...,
         ],
     ) -> tuple[Relation, Relation]:
         node = self._node
-        references: list[Ref[DimensionKind] | Ref[EntityKind]] = []
+        references: list[Ref[DimensionKind] | Ref[EntityKind] | BoundTimeGrid] = []
         for key in keys:
+            if isinstance(key, Grain):
+                from marivo._temporal import time_scope
+
+                source_grid = node.root.signature.domain.time_grid
+                if source_grid is None:
+                    raise _reject(
+                        "one retained time axis", "no time grid", "Observe a time grid first."
+                    )
+                target = bind_grid(
+                    time_scope(start=source_grid.cells[0].start, end=source_grid.cells[-1].end),
+                    key,
+                    report_timezone=source_grid.report_timezone,
+                    explicit_timezone=source_grid.boundary_timezone,
+                )
+                references.append(target)
+                continue
+            if isinstance(key, TimeGrid):
+                if key._bound is None or key._bound != node.root.signature.domain.time_grid:
+                    raise _reject(
+                        "the retained TimeGrid",
+                        "foreign or unbound grid",
+                        "Group by the grid carried by this relation.",
+                    )
+                references.append(key._bound)
+                continue
             if isinstance(
                 key,
                 (
@@ -598,21 +640,26 @@ class _Value:
                 references.append(key)
         if isinstance(node.root.signature.quantity, (ObservedQuantity, RolledQuantity)):
             return node.rollup(*references), node
-        coordinates = []
-        for key in references:
+        coordinates: list[Coordinate] = []
+        for reference in references:
+            if isinstance(reference, BoundTimeGrid):
+                coordinates.extend(
+                    c for c in node.root.signature.domain.instance_key if c.role == "anchor"
+                )
+                continue
             matches = [
                 c
                 for c in node.root.signature.domain.instance_key
                 if (
-                    c.entity_ref == key and c.role == "identity"
-                    if key.kind == "entity"
-                    else c.field == key.path
+                    c.entity_ref == reference and c.role == "identity"
+                    if reference.kind == "entity"
+                    else c.field == reference.path
                 )
             ]
-            if not matches or (key.kind == "dimension" and len(matches) != 1):
+            if not matches or (reference.kind == "dimension" and len(matches) != 1):
                 raise _reject(
                     "one retained complete coordinate",
-                    key.path,
+                    reference.path,
                     "Use a retained axis or a corresponding categorical read.",
                 )
             coordinates.extend(matches)
@@ -662,7 +709,9 @@ class _OriginalContinuation(_Value):
         | LogicalCategoryRelation
         | MaterializedCategoryRelation
         | LogicalSelectedCategoryRelation
-        | MaterializedSelectedCategoryRelation,
+        | MaterializedSelectedCategoryRelation
+        | TimeGrid
+        | Grain,
         groups: LogicalAnalysisDomain
         | GroupedAnalysisDomain
         | MaterializedAnalysisDomain
@@ -735,7 +784,8 @@ class _CountRelation(_Value):
         | LogicalCategoryRelation
         | MaterializedCategoryRelation
         | LogicalSelectedCategoryRelation
-        | MaterializedSelectedCategoryRelation,
+        | MaterializedSelectedCategoryRelation
+        | TimeGrid,
         groups: GroupedAnalysisDomain | MaterializedAnalysisDomain | None = None,
     ) -> GroupedAnalysisDomain:
         """Bind complete classification keys for current-row counts.
@@ -761,8 +811,17 @@ class _CountRelation(_Value):
             else ()
         )
         node = self._node
-        coordinates = []
+        coordinates: list[Coordinate] = []
         for key in effective:
+            if isinstance(key, TimeGrid):
+                if key._bound is None or key._bound != node.root.signature.domain.time_grid:
+                    raise _reject(
+                        "the retained grid", "foreign grid", "Use the receiver's time grid."
+                    )
+                coordinates.extend(
+                    c for c in node.root.signature.domain.instance_key if c.role == "anchor"
+                )
+                continue
             if isinstance(
                 key,
                 (
@@ -871,6 +930,33 @@ class _MaterializedValue(_Value):
 class LogicalAnalysisDomain(_Value):
     """Unexecuted governed Entity membership and its selected subdomains."""
 
+    def each(self, grid: TimeGrid) -> LogicalTimeAnalysisDomain:
+        """Bind the bounded product of these members and one time grid.
+
+        Args: grid: Finite grid constructed with mv.time_grid().
+        Returns: A LogicalTimeAnalysisDomain retaining every member/time cell.
+        Example: ``product = members.each(grid)``.
+        Constraints: One time axis only; report and certified boundary authorities bind exactly.
+        """
+        if not isinstance(grid, TimeGrid):
+            raise _reject("TimeGrid", type(grid).__name__, "Use mv.time_grid().")
+        live = self._node._live()
+        owner = self._runtime._source_context.current
+        snapshot = None
+        if grid._grain.kind == "semantic" and owner is not None:
+            snapshot = next(
+                (
+                    s
+                    for s in owner.period_calendar_snapshots
+                    if s.calendar_ref == grid._grain.calendar
+                ),
+                None,
+            )
+        bound = grid._bind(live.report_timezone, snapshot)
+        return LogicalTimeAnalysisDomain(
+            _TOKEN, self._node.each(bound), self._runtime, inputs=(self,)
+        )
+
     def execute(self) -> MaterializedAnalysisDomain:
         """Evaluate and publish this exact member domain.
 
@@ -887,7 +973,7 @@ class LogicalAnalysisDomain(_Value):
         self,
         field: Ref[MeasureKind],
         *,
-        at: datetime | BeforeEndBoundary | None = None,
+        at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
         via: Ref[RelationshipKind] | RootRoutes | None = None,
     ) -> LogicalNumericRelation: ...
 
@@ -896,7 +982,7 @@ class LogicalAnalysisDomain(_Value):
         self,
         field: Ref[DimensionKind],
         *,
-        at: datetime | BeforeEndBoundary | None = None,
+        at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
         via: Ref[RelationshipKind] | RootRoutes | None = None,
     ) -> LogicalCategoryRelation | LogicalBooleanRelation: ...
 
@@ -905,7 +991,7 @@ class LogicalAnalysisDomain(_Value):
         self,
         field: Ref[TimeDimensionKind],
         *,
-        at: datetime | BeforeEndBoundary | None = None,
+        at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
         via: Ref[RelationshipKind] | RootRoutes | None = None,
     ) -> LogicalTemporalRelation: ...
 
@@ -913,7 +999,7 @@ class LogicalAnalysisDomain(_Value):
         self,
         field: Ref[MeasureKind] | Ref[DimensionKind] | Ref[TimeDimensionKind],
         *,
-        at: datetime | BeforeEndBoundary | None = None,
+        at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
         via: Ref[RelationshipKind] | RootRoutes | None = None,
     ) -> (
         LogicalNumericRelation
@@ -925,13 +1011,25 @@ class LogicalAnalysisDomain(_Value):
 
         Args:
             field: Declared Measure, Dimension or TimeDimension Ref.
-            at: Independent explicit attribute version; None for unversioned fields.
+            at: Independent aware attribute instant or this product grid endpoint; None for unversioned fields.
             via: Exact single-valued member-to-owner relationship or route.
         Returns: Numeric, Category, Boolean or Temporal relation according to field kind.
         Example: ``values = members.read(field, at=scope.before_end)``.
-        Constraints: Missing coverage, multivalued mappings and mixed fixed/source inputs reject.
+        Constraints: Missing coverage, multivalued mappings and foreign grid endpoints reject. before_end is a symbolic left limit.
         """
-        node = self._node.read(field, at=at, via=via)
+        point: datetime | BeforeEndBoundary | GridPoint | None = (
+            at if not isinstance(at, GridEndpoint) else None
+        )
+        if isinstance(at, GridEndpoint):
+            bound = at._grid._bound
+            if bound is None or bound != self._node.root.signature.domain.time_grid:
+                raise _reject(
+                    "the receiver's grid endpoint",
+                    "foreign or unbound grid",
+                    "Use the same grid as each(grid).",
+                )
+            point = GridPoint(bound, at._side)
+        node = self._node.read(field, at=point, via=via)
         if field.kind is SemanticKind.MEASURE:
             return LogicalNumericRelation(_TOKEN, node, self._runtime, inputs=(self,))
         if field.kind is SemanticKind.TIME_DIMENSION:
@@ -956,7 +1054,7 @@ class LogicalAnalysisDomain(_Value):
         """
         node = self._node
         categories: list[LogicalCategoryRelation | LogicalSelectedCategoryRelation] = []
-        coordinates = []
+        coordinates: list[Coordinate] = []
         for key in keys:
             category = self.read(key) if isinstance(key, Ref) else key
             if not isinstance(category, (LogicalCategoryRelation, LogicalSelectedCategoryRelation)):
@@ -983,23 +1081,46 @@ class LogicalAnalysisDomain(_Value):
         self,
         metric: MetricInputValue,
         *,
-        during: TimeScope | None = None,
-        via: Ref[RelationshipKind] | RootRoutes,
+        during: TimeScope | GridWindow | None = None,
+        at: datetime | GridEndpoint | None = None,
+        via: Ref[RelationshipKind] | RootRoutes | None = None,
         coordinates: tuple[Ref[DimensionKind], ...] = (),
     ) -> LogicalNumericRelation | LogicalRatioRelation:
         """Observe one governed Metric or runtime expression over this member domain.
 
         Args:
             metric: Declared Metric Ref or closed runtime Metric expression to observe.
-            during: Explicit fixed TimeScope, or None for no added time restriction.
-            via: Admitted relationship Ref or an ordered closed route list.
+            during: Fixed TimeScope, the exact grid.window, or None for no added restriction.
+            at: Explicit cumulative endpoint, bound grid endpoint or aware datetime.
+            via: Admitted relationship Ref or ordered routes; omit only for the same Entity root.
             coordinates: Optional declared contribution coordinate Dimension Refs.
         Returns: A LogicalNumericRelation | LogicalRatioRelation bound to this exact relation.
         Example: ``result = relation.observe(metric, during=during, via=via, coordinates=coordinates)``.
         Constraints: The Metric, window, path, and member binding must be admitted.
         """
+        point: datetime | GridPoint | None = at if not isinstance(at, GridEndpoint) else None
+        if isinstance(at, GridEndpoint):
+            bound_point = at._grid._bound
+            if bound_point is None or bound_point != self._node.root.signature.domain.time_grid:
+                raise _reject(
+                    "the receiver's grid endpoint",
+                    "foreign or unbound grid",
+                    "Use the same grid as each(grid).",
+                )
+            point = GridPoint(bound_point, at._side)
         live = self._node._live()
-        declared = via.routes if isinstance(via, RootRoutesValue) else (via,)
+        if isinstance(during, GridWindow):
+            bound = during._grid._bound
+            if bound is None or bound != self._node.root.signature.domain.time_grid:
+                raise _reject(
+                    "the receiver's grid.window",
+                    "foreign or unbound grid",
+                    "Use the same grid as members.each(grid).",
+                )
+        window = bound if isinstance(during, GridWindow) else during
+        declared = (
+            via.routes if isinstance(via, RootRoutesValue) else (via,) if via is not None else ()
+        )
         for route in declared:
             if isinstance(route, RootRouteValue):
                 relationship = normalize_target_relationship(
@@ -1013,10 +1134,10 @@ class LogicalAnalysisDomain(_Value):
                     )
         paths = tuple(
             route.through if isinstance(route, RootRouteValue) else (route,) for route in declared
-        )
+        ) or ((),)
         if self._node.resolves_multiple_components(metric):
             observed = self._node.observe_routes(
-                metric, during=during, paths=paths, coordinates=coordinates
+                metric, during=window, at=point, paths=paths, coordinates=coordinates
             )
             if (
                 observed.root.signature.quantity is not None
@@ -1032,9 +1153,13 @@ class LogicalAnalysisDomain(_Value):
             )
         single = paths[0]
         observed = (
-            self._node.observe(metric, during=during, via=single[0], coordinates=coordinates)
+            self._node.observe(
+                metric, during=window, at=point, via=single[0], coordinates=coordinates
+            )
             if len(single) == 1
-            else self._node.observe(metric, during=during, via=single, coordinates=coordinates)
+            else self._node.observe(
+                metric, during=window, at=point, via=single, coordinates=coordinates
+            )
         )
         if coordinates:
             subject = next(p for p in observed.root.signature.parts if isinstance(p, SubjectPart))
@@ -1044,6 +1169,26 @@ class LogicalAnalysisDomain(_Value):
 
 class MaterializedAnalysisDomain(_MaterializedValue):
     """Exact fixed Entity membership; it cannot introduce a new live observation."""
+
+
+class LogicalTimeAnalysisDomain(LogicalAnalysisDomain):
+    """Unexecuted bounded Entity/time product with exact grid authority."""
+
+    def execute(self) -> MaterializedTimeAnalysisDomain:
+        """Publish the complete member/time product through the unified graph.
+
+        Args: None.
+        Returns: A MaterializedTimeAnalysisDomain with retained temporal authority.
+        Example: ``result = members.each(grid).execute()``.
+        Constraints: Source evaluation retains empty time cells and exact member identities.
+        """
+        return MaterializedTimeAnalysisDomain(
+            _TOKEN, self._node, self._runtime, dataset=self._run()
+        )
+
+
+class MaterializedTimeAnalysisDomain(MaterializedAnalysisDomain):
+    """Committed member/time product with retained grid identity."""
 
 
 class LogicalFixedAnalysisDomain(_Value):
@@ -1557,7 +1702,9 @@ class LogicalNumericRelation(_Value):
         | LogicalCategoryRelation
         | MaterializedCategoryRelation
         | LogicalSelectedCategoryRelation
-        | MaterializedSelectedCategoryRelation,
+        | MaterializedSelectedCategoryRelation
+        | TimeGrid
+        | Grain,
         groups: LogicalAnalysisDomain
         | GroupedAnalysisDomain
         | MaterializedAnalysisDomain
@@ -1708,7 +1855,9 @@ class MaterializedNumericRelation(_MaterializedValue):
         | LogicalCategoryRelation
         | MaterializedCategoryRelation
         | LogicalSelectedCategoryRelation
-        | MaterializedSelectedCategoryRelation,
+        | MaterializedSelectedCategoryRelation
+        | TimeGrid
+        | Grain,
         groups: LogicalAnalysisDomain
         | GroupedAnalysisDomain
         | MaterializedAnalysisDomain
@@ -1865,7 +2014,9 @@ class LogicalRatioRelation(_Value):
         | LogicalCategoryRelation
         | MaterializedCategoryRelation
         | LogicalSelectedCategoryRelation
-        | MaterializedSelectedCategoryRelation,
+        | MaterializedSelectedCategoryRelation
+        | TimeGrid
+        | Grain,
         groups: LogicalAnalysisDomain
         | GroupedAnalysisDomain
         | MaterializedAnalysisDomain
@@ -1946,7 +2097,9 @@ class MaterializedRatioRelation(_MaterializedValue):
         | LogicalCategoryRelation
         | MaterializedCategoryRelation
         | LogicalSelectedCategoryRelation
-        | MaterializedSelectedCategoryRelation,
+        | MaterializedSelectedCategoryRelation
+        | TimeGrid
+        | Grain,
         groups: LogicalAnalysisDomain
         | GroupedAnalysisDomain
         | MaterializedAnalysisDomain
@@ -2492,6 +2645,8 @@ def wrap_materialized(
 ) -> PublicMaterialized:
     """Restore the existing public result variant from its checked typed graph."""
     kind = _kind(node)
+    if kind in ("members", "group") and node.root.signature.domain.time_grid is not None:
+        return MaterializedTimeAnalysisDomain(_TOKEN, node, runtime, dataset=dataset)
     if kind in ("members", "group"):
         return MaterializedAnalysisDomain(_TOKEN, node, runtime, dataset=dataset)
     if kind == "read":

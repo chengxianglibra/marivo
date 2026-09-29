@@ -90,6 +90,7 @@ class ExchangeContract:
             not in (
                 "none",
                 "original_mean",
+                "original_fold",
                 "original_sum",
                 "original_sum_zero",
                 "original_count",
@@ -323,6 +324,20 @@ def collect(
                 coordinate.columns,
             ):
                 raise _invalid("coordinate partition differs from its complete original state")
+    by_role = {part.role: part.table for part in parts}
+    for declaration in contract.signature.parts:
+        if (
+            isinstance(declaration, OriginalStatePart)
+            and declaration.method_version == "fold@v1"
+            and (
+                declaration.fold_kind is None
+                or any(
+                    value != declaration.fold_kind
+                    for value in by_role["original_state"]["original_state__fold_kind"].to_pylist()
+                )
+            )
+        ):
+            raise _invalid("retained fold kind differs from the declared original quantity")
     if contract.state_kind == "none":
         # Transport preserves the owning state invariant even without a new method vector.
         for declaration in contract.signature.parts:
@@ -409,6 +424,7 @@ def _verify_single_state_part(
         if contract.state_kind
         in (
             "original_mean",
+            "original_fold",
             "original_sum",
             "original_sum_zero",
             "original_count",

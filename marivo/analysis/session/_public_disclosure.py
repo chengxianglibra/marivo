@@ -17,6 +17,7 @@ from marivo.analysis._capabilities.dataset_model import (
 
 _METHOD_GROUPS = {
     ("GroupedRatioRelation", "rollup"): "methods.metric",
+    ("LogicalAnalysisDomain", "each"): "methods.metric",
     ("LogicalAnalysisDomain", "read"): "inputs.population",
     ("LogicalAnalysisDomain", "group_by"): "methods.metric",
     ("LogicalAnalysisDomain", "observe"): "methods.metric",
@@ -95,6 +96,11 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.GroupedStatisticRelation,
         dsl.GroupedRatioRelation,
         dsl.LogicalAnalysisDomain,
+        dsl.LogicalTimeAnalysisDomain,
+        dsl.MaterializedTimeAnalysisDomain,
+        dsl.TimeGrid,
+        dsl.GridWindow,
+        dsl.GridEndpoint,
         dsl.LogicalAssociationResult,
         dsl.LogicalCategoryRelation,
         dsl.LogicalBooleanRelation,
@@ -143,7 +149,13 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             else ("RootRoute" if value is dsl.RootRoute else "RootRoutes")
         )
         acquisition = (
-            "Read one action from relation.contract().actions."
+            "Call mv.time_grid(during=scope, grain=mv.grain('day'))."
+            if value is dsl.TimeGrid
+            else "Read grid.window."
+            if value is dsl.GridWindow
+            else "Read grid.start, grid.end or grid.before_end."
+            if value is dsl.GridEndpoint
+            else "Read one action from relation.contract().actions."
             if value is dsl.AnalysisAction
             else "Call relation.contract()."
             if value is dsl.AnalysisContract
@@ -158,7 +170,13 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             else "Construct through session.members() or the returned typed relation."
         )
         producers = (
-            ("dsl.Value.contract",)
+            ("dsl.time_grid",)
+            if value is dsl.TimeGrid
+            else ("TimeGrid",)
+            if value in (dsl.GridWindow, dsl.GridEndpoint)
+            else ("dsl.LogicalAnalysisDomain.each",)
+            if value is dsl.LogicalTimeAnalysisDomain
+            else ("dsl.Value.contract",)
             if value is dsl.AnalysisContract
             else ("AnalysisContract",)
             if value is dsl.AnalysisAction
@@ -179,7 +197,17 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 summary=f"First-round governed Analysis {name} value.",
                 acquisition=acquisition,
                 producers=("session.artifact",) if name.startswith("Materialized") else producers,
-                consumers=("AnalysisAction",)
+                consumers=("GridWindow", "GridEndpoint", "dsl.TimeGrid.show")
+                if value is dsl.TimeGrid
+                else (
+                    "dsl.LogicalAnalysisDomain.read",
+                    "dsl.LogicalAnalysisDomain.observe",
+                    "dsl.GridEndpoint.show",
+                )
+                if value is dsl.GridEndpoint
+                else ("dsl.LogicalAnalysisDomain.observe", "dsl.GridWindow.show")
+                if value is dsl.GridWindow
+                else ("AnalysisAction",)
                 if value is dsl.AnalysisContract
                 else ("dsl.routes",)
                 if value is dsl.RootRoute
@@ -192,6 +220,36 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             )
         )
         exports.append(ExportInput(name, value, name))
+
+    descriptors.append(
+        operation(
+            "dsl.time_grid",
+            "mv.time_grid",
+            dsl.time_grid,
+            summary="Construct a finite time grid with exact receiver-bound handles.",
+            discovery_group="methods.metric",
+            parameters=(
+                ParameterInput("during", "Use one finite half-open TimeScope."),
+                ParameterInput("grain", "Use a builtin or certified calendar Grain."),
+                ParameterInput(
+                    "timezone",
+                    "Optional boundary authority; a calendar must match its certification.",
+                ),
+            ),
+            output="TimeGrid",
+            constraints=("The Session binds report timezone once; conflicting reuse rejects.",),
+            effects="Pure construction; no business rows or Run.",
+            failures=("AnalysisError: inspect the exact binding repair.",),
+            example=ExampleInput(
+                "grid = mv.time_grid(during=mv.time_scope(start='2026-08-01', end='2026-09-01'), grain=mv.grain('day'))",
+                (),
+                "grid",
+                "A bounded time-grid specification.",
+                True,
+            ),
+        )
+    )
+    exports.append(ExportInput("time_grid", dsl.time_grid, "dsl.time_grid"))
 
     functions = (
         dsl.route,

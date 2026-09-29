@@ -442,9 +442,8 @@ def test_windowless_observation_rejects_a_cumulative_metric(
 
     with pytest.raises(AnalysisError, match="explicit endpoint window"):
         members.observe(cumulative, during=None, via=buyer)
-    # Under an explicit window the windowless rejection does not apply, so the
-    # failure that remains is the component shape, not the missing endpoint.
-    with pytest.raises(AnalysisError, match="endpoints differ"):
+    # A contribution window never supplies an omitted cumulative endpoint.
+    with pytest.raises(AnalysisError, match="endpoint"):
         members.observe(
             cumulative,
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),

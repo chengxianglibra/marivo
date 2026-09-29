@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Literal, NoReturn, TypeAlias
 
+from marivo.analysis.core.time_grid import BoundTimeGrid, GridVersionSelection
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import DimensionKind, EntityKind, MetricKind, Ref, SemanticKind
@@ -156,8 +157,11 @@ class DomainSignature:
     instance_key: tuple[Coordinate, ...]
     target_key: tuple[Coordinate, ...]
     definition_id: str
-    version_selection: TargetSnapshotSelection | TargetValiditySelection | None = None
+    version_selection: (
+        TargetSnapshotSelection | TargetValiditySelection | GridVersionSelection | None
+    ) = None
     correspondence: Correspondence | None = None
+    time_grid: BoundTimeGrid | None = None
 
     def __post_init__(self) -> None:
         _nonempty(self.definition_id, "core.domain.definition")
@@ -203,7 +207,8 @@ class DomainSignature:
                 "core.domain",
             )
         if self.version_selection is not None and not isinstance(
-            self.version_selection, (TargetSnapshotSelection, TargetValiditySelection)
+            self.version_selection,
+            (TargetSnapshotSelection, TargetValiditySelection, GridVersionSelection),
         ):
             reject(
                 "an exact Semantic version selection",
@@ -406,6 +411,8 @@ class OriginalStatePart:
     components: tuple[str, ...]
     version: str
     empty_rules: tuple[Literal["null", "zero"], ...] = ()
+    temporal_policy: Literal["none", "partition", "repeated", "overlapping"] = "none"
+    fold_kind: Literal["first", "last", "mean", "min", "max"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -597,7 +604,8 @@ def validate_part(part: Part) -> None:
             )
     elif isinstance(part, (OriginalStatePart, RowStatePart)):
         if isinstance(part, OriginalStatePart) and (
-            any(rule not in ("null", "zero") for rule in part.empty_rules)
+            ((part.method_version == "fold@v1") != (part.fold_kind is not None))
+            or any(rule not in ("null", "zero") for rule in part.empty_rules)
             or (part.method_version == "ratio@v1" and len(part.empty_rules) != 2)
             or (
                 part.method_version == "linear@v1"
@@ -761,6 +769,8 @@ CheckId: TypeAlias = Literal[
     "source.cell_policy@v1",
     "source.contribution_partition@v1",
     "source.complete_coverage@v1",
+    "source.calendar_members@v1",
+    "source.calendar_contributions@v1",
 ]
 
 _CHECK_FACTS: dict[CheckId, frozenset[FactKind]] = {
@@ -772,6 +782,8 @@ _CHECK_FACTS: dict[CheckId, frozenset[FactKind]] = {
     "source.cell_policy@v1": frozenset({"cell_policy"}),
     "source.contribution_partition@v1": frozenset({"contribution_partition"}),
     "source.complete_coverage@v1": frozenset({"complete_coverage"}),
+    "source.calendar_members@v1": frozenset({"complete_coverage"}),
+    "source.calendar_contributions@v1": frozenset({"complete_coverage"}),
 }
 
 

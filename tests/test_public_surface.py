@@ -253,6 +253,12 @@ ANALYSIS_PUBLIC = {
     "PatternStep",
     "TimeScope",
     "BeforeEndBoundary",
+    "TimeGrid",
+    "GridWindow",
+    "GridEndpoint",
+    "time_grid",
+    "LogicalTimeAnalysisDomain",
+    "MaterializedTimeAnalysisDomain",
     "ArtifactDigest",
     "ArtifactRef",
     "ArtifactRevalidation",
@@ -297,7 +303,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "4a00f4f15206426e3655e78a87e27cd8e42d3af56ae7a1ac10f636d23db6818a"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "6697b2eba747e24f09106e87095fb327c5b047defcb3da4aa582ce66250a51bb"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

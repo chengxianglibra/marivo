@@ -18,11 +18,13 @@ if TYPE_CHECKING:
 
 
 MethodName: TypeAlias = Literal[
+    "time.product",
     "group.attach",
     "group.complete",
     "bind_project",
     "metric.observe",
     "metric.mean",
+    "metric.fold",
     "metric.sum_zero",
     "metric.count",
     "metric.weighted_mean",
@@ -40,6 +42,7 @@ MethodName: TypeAlias = Literal[
     "row.weighted_mean",
     "state_rollup",
     "state_rollup.mean",
+    "state_rollup.fold",
     "state_rollup.sum_zero",
     "state_rollup.count",
     "state_rollup.ratio",
@@ -54,6 +57,7 @@ PersistentStateKind: TypeAlias = Literal[
     "none",
     "original_sum",
     "original_mean",
+    "original_fold",
     "original_sum_zero",
     "original_count",
     "original_ratio",
@@ -93,6 +97,8 @@ class MethodKey:
 
 def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     """Map closed parameter variants to exactly one concrete method identity."""
+    if type(params) is rules.TimeProduct:
+        return MethodKey("time.product")
     if type(params) is rules.CompleteGroups:
         return MethodKey("group.complete")
     if type(params) is rules.AttachCategory:
@@ -106,6 +112,8 @@ def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     if type(params) is rules.ObserveCount:
         return MethodKey("metric.count")
     if type(params) is rules.ObserveMetric:
+        if params.fold is not None:
+            return MethodKey("metric.fold")
         if params.method == "mean":
             return MethodKey("metric.mean")
         return MethodKey(
@@ -133,6 +141,8 @@ def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
             if name == f"row.{params.method}":
                 return MethodKey(name)
     if type(params) is rules.OriginalReduce:
+        if params.method == "fold":
+            return MethodKey("state_rollup.fold")
         if params.method == "mean":
             return MethodKey("state_rollup.mean")
         return MethodKey(
@@ -181,11 +191,14 @@ class MethodSemantics:
     def persistent_state_kind(self) -> PersistentStateKind | None:
         """Return the connected durable state kind; absence grants no publication."""
         kinds: dict[MethodName, PersistentStateKind] = {
+            "time.product": "none",
             "group.attach": "none",
             "group.complete": "none",
             "bind_project": "none",
             "metric.observe": "original_sum",
             "metric.mean": "original_mean",
+            "metric.fold": "original_fold",
+            "state_rollup.fold": "original_fold",
             "state_rollup.mean": "original_mean",
             "metric.sum_zero": "original_sum_zero",
             "state_rollup.sum_zero": "original_sum_zero",
@@ -218,6 +231,10 @@ class MethodSemantics:
         from marivo.analysis.methods.physical import DecimalType, ScalarType
 
         name = self.key.name
+        if name == "time.product":
+            if len(inputs) != 1 or inputs[0] != output:
+                reject("unchanged member type", repr(output), "Preserve the member identity type.")
+            return
         if name in ("group.attach", "group.complete"):
             if len(inputs) != 2 or inputs[0] != output:
                 reject(
@@ -289,8 +306,10 @@ class MethodSemantics:
             "state_rollup.ratio",
             "metric.weighted_mean",
             "metric.mean",
+            "metric.fold",
             "state_rollup.weighted_mean",
             "state_rollup.mean",
+            "state_rollup.fold",
         ):
             expected: ValueType = ScalarType("float64")
         elif name in ("row.count", "row.count_defined"):
@@ -327,6 +346,7 @@ class MethodSemantics:
             "state_rollup.ratio",
             "state_rollup.weighted_mean",
             "state_rollup.mean",
+            "state_rollup.fold",
             "state_rollup.linear",
         ):
             return ("L8", "L9")
@@ -358,6 +378,7 @@ class MethodSemantics:
             "state_rollup.ratio",
             "state_rollup.weighted_mean",
             "state_rollup.mean",
+            "state_rollup.fold",
             "state_rollup.linear",
         ):
             return "original_reduce@v1"
@@ -370,6 +391,7 @@ class MethodSemantics:
             "metric.sum_zero",
             "metric.weighted_mean",
             "metric.mean",
+            "metric.fold",
         ):
             return "bind_project@v1"
         if name == "map_correspond":
@@ -429,7 +451,14 @@ class MethodSemantics:
             return (("null", ("empty_contribution", "zero_weight_sum")),)
         if self.key.name in ("metric.linear", "state_rollup.linear"):
             return (("null", ("empty_contribution",)),)
-        if self.key.name in ("state_rollup", "metric.observe", "metric.mean", "state_rollup.mean"):
+        if self.key.name in (
+            "state_rollup",
+            "metric.observe",
+            "metric.mean",
+            "state_rollup.mean",
+            "metric.fold",
+            "state_rollup.fold",
+        ):
             return (("null", ("empty_contribution",)),)
         return ()
 
@@ -441,6 +470,7 @@ class MethodSemantics:
             "metric.sum_zero",
             "metric.weighted_mean",
             "metric.mean",
+            "metric.fold",
         ):
             return ("subject",)
         if self.key.name in (
@@ -452,6 +482,7 @@ class MethodSemantics:
             "state_rollup.ratio",
             "state_rollup.weighted_mean",
             "state_rollup.mean",
+            "state_rollup.fold",
             "state_rollup.linear",
         ):
             return ("original_state", "coverage")
@@ -475,6 +506,7 @@ class MethodSemantics:
             "state_rollup.ratio",
             "state_rollup.weighted_mean",
             "state_rollup.mean",
+            "state_rollup.fold",
             "state_rollup.linear",
             "metric.ratio",
             "metric.linear",
@@ -483,6 +515,7 @@ class MethodSemantics:
             "metric.count",
             "metric.weighted_mean",
             "metric.mean",
+            "metric.fold",
         ):
             return ("source.contribution_partition@v1", "source.complete_coverage@v1")
         if self.key.name == "association.spearman":
@@ -502,6 +535,7 @@ class MethodSemantics:
             "state_rollup.ratio",
             "state_rollup.weighted_mean",
             "state_rollup.mean",
+            "state_rollup.fold",
             "state_rollup.linear",
             "metric.ratio",
             "metric.linear",
@@ -510,6 +544,7 @@ class MethodSemantics:
             "metric.count",
             "metric.weighted_mean",
             "metric.mean",
+            "metric.fold",
         ):
             return ("original_state", "coverage")
         if self.key.name == "association.spearman":
@@ -526,13 +561,16 @@ class MethodSemantics:
             "state_rollup.ratio",
             "state_rollup.weighted_mean",
             "state_rollup.mean",
+            "state_rollup.fold",
             "state_rollup.linear",
         ):
             reject(
                 "an original-state method", str(self.key), "Use state_rollup for original state."
             )
         return (
-            "mean@v1"
+            "fold@v1"
+            if self.key.name == "state_rollup.fold"
+            else "mean@v1"
             if self.key.name == "state_rollup.mean"
             else "linear@v1"
             if self.key.name == "state_rollup.linear"
@@ -549,6 +587,8 @@ class MethodSemantics:
 
     @property
     def state_components(self) -> tuple[str, ...]:
+        if self.key.name in ("metric.fold", "state_rollup.fold"):
+            return ("samples", "fold_kind")
         if self.key.name in ("metric.mean", "state_rollup.mean"):
             return ("sum", "non_null_count", "row_count")
         if self.key.name in ("metric.linear", "state_rollup.linear"):
@@ -570,6 +610,7 @@ class MethodSemantics:
             "state_rollup.ratio",
             "state_rollup.weighted_mean",
             "state_rollup.mean",
+            "state_rollup.fold",
             "state_rollup.linear",
         ):
             return (
@@ -614,6 +655,8 @@ class MethodSemantics:
                 params, (rules.ObserveMetric, rules.ObserveCount, rules.ObserveWeightedMean)
             )
             return rules._observe_metric(inputs, params)
+        if type(params) is rules.TimeProduct:
+            return rules._time_product(inputs, params)
         if type(params) is rules.CompleteGroups:
             return rules._complete_groups(inputs, params)
         if type(params) is rules.AttachCategory:
@@ -651,9 +694,12 @@ class MethodSemantics:
 
 
 CONNECTED_METHODS = (
+    MethodSemantics(MethodKey("metric.fold"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("state_rollup.fold"), "analysis.core.rules"),
     MethodSemantics(MethodKey("metric.mean"), "analysis.core.rules"),
     MethodSemantics(MethodKey("state_rollup.mean"), "analysis.core.rules"),
     MethodSemantics(MethodKey("group.complete"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("time.product"), "analysis.core.rules"),
     MethodSemantics(MethodKey("group.attach"), "analysis.core.rules"),
     MethodSemantics(MethodKey("metric.sum_zero"), "analysis.core.rules"),
     MethodSemantics(MethodKey("metric.ratio"), "analysis.core.rules"),

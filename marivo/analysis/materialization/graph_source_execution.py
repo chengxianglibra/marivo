@@ -14,6 +14,7 @@ from marivo.analysis.compiler.graph_lowering import (
     LoweredPlan,
     LoweredRelation,
     SemanticCheck,
+    TemporalCheck,
 )
 from marivo.analysis.compiler.graph_plan import CheckRequirement
 from marivo.analysis.core.graph import MethodNode
@@ -91,7 +92,7 @@ def _read(
 def _check(
     source: SourceSession,
     lowered: LoweredPlan,
-    check: IntegrityCheck | SemanticCheck,
+    check: IntegrityCheck | SemanticCheck | TemporalCheck,
     replacements: dict[ops.Node, ops.Node],
 ) -> CompletedCheck | None:
     table = _read(
@@ -102,6 +103,28 @@ def _check(
         replacements=replacements,
         validate_cells=False,
     )
+    if isinstance(check, TemporalCheck):
+        from datetime import date, datetime, timezone
+
+        from marivo.analysis.core.time_grid import instant
+
+        for row in table.to_pylist():
+            raw, actual = row["raw_time"], row["normalized_time"]
+            if raw is None and actual is None:
+                continue
+            if isinstance(raw, datetime):
+                expected_time: date = instant(raw, check.axis.timezone or "UTC").replace(
+                    tzinfo=None
+                )
+                if isinstance(actual, datetime) and actual.tzinfo is not None:
+                    actual = actual.astimezone(timezone.utc).replace(tzinfo=None)
+            elif isinstance(raw, date):
+                expected_time = raw
+            else:
+                raise _invalid("unqualified temporal source representation")
+            if actual != expected_time:
+                raise _invalid("source engine timezone rules differ from frozen temporal authority")
+        return None
     if table.num_rows:
         expected = (
             check.expected
@@ -146,6 +169,21 @@ def _result(
 ) -> ExchangeResult:
     if not isinstance(stage.node, MethodNode):
         raise _invalid("root must be a registered method node")
+    if "original_state__samples" in table.column_names:
+        from marivo.analysis.methods.temporal_fold import decode_samples, encode_samples
+
+        try:
+            canonical_samples = [
+                encode_samples(decode_samples(value))
+                for value in table["original_state__samples"].to_pylist()
+            ]
+        except (ValueError, TypeError, OverflowError) as error:
+            raise _invalid("invalid source pre-fold samples") from error
+        table = table.set_column(
+            table.schema.get_field_index("original_state__samples"),
+            "original_state__samples",
+            pa.array(canonical_samples, type=pa.string()),
+        )
     key_names = tuple(item.column for item in stage.layout.keys)
     cell_names = (
         ()
@@ -297,7 +335,10 @@ def execute_source_graph(
             tables[stage.output] = table
             replacements[stage.expression.op()] = staged.op()
             for check in lowered.checks:
-                if (isinstance(check, IntegrityCheck) and check.stage_output == stage.output) or (
+                if (
+                    isinstance(check, (IntegrityCheck, TemporalCheck))
+                    and check.stage_output == stage.output
+                ) or (
                     isinstance(check, SemanticCheck)
                     and check.requirement.stage_output == stage.output
                     and check.requirement.obligation.before == "publish"
