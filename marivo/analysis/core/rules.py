@@ -46,6 +46,7 @@ from marivo.analysis.core.predicates import ValuePredicate
 from marivo.refs import (
     DimensionKind,
     EntityKind,
+    MeasureKind,
     MetricKind,
     Ref,
     RelationshipKind,
@@ -84,13 +85,15 @@ RuleId: TypeAlias = Literal[
 
 @dataclass(frozen=True, slots=True)
 class BindProject:
-    ref: Ref[DimensionKind] | Ref[TimeDimensionKind] | Ref[MetricKind]
+    ref: Ref[DimensionKind] | Ref[TimeDimensionKind] | Ref[MetricKind] | Ref[MeasureKind]
     field_owner: Ref[EntityKind]
     field_contract: TargetDimensionContract | None
     metric_contract: TargetMetricContract | None
     path: tuple[Ref[RelationshipKind], ...]
     path_contracts: tuple[TargetRelationshipContract, ...]
     quantity: ObservedQuantity | None = None
+    resolved_versions: tuple[str, ...] = ()
+    expression_bodies: tuple[tuple[str, str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,6 +220,7 @@ class PartsTransport:
     retained_roles: tuple[PartRole, ...]
     keep_quantity: bool
     predicates: tuple[ValuePredicate, ...] = ()
+    field_kind: Literal["measure", "dimension", "time_dimension"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -461,6 +465,7 @@ def _bind_project(inputs: tuple[Signature, ...], params: BindProject) -> RuleDer
     binding = _binding(inputs, "core.bind_project")
     if type(params.ref) is not Ref or params.ref.kind not in (
         SemanticKind.DIMENSION,
+        SemanticKind.MEASURE,
         SemanticKind.TIME_DIMENSION,
         SemanticKind.METRIC,
     ):
@@ -492,7 +497,10 @@ def _bind_project(inputs: tuple[Signature, ...], params: BindProject) -> RuleDer
             or contract.ref.path != ref.path
             or contract.from_entity_ref.path != current_entity
             or contract.cardinality not in ("one_to_one", "many_to_one")
-            or contract.to_version_resolution_required
+            or (
+                contract.to_version_resolution_required
+                and contract.to_entity_ref.path not in params.resolved_versions
+            )
         ):
             reject(
                 "a directed single-valued, version-resolved Relationship",
@@ -544,6 +552,22 @@ def _bind_project(inputs: tuple[Signature, ...], params: BindProject) -> RuleDer
                 "Bind the exact field definition and value role.",
                 "core.bind_project.field",
             )
+    if params.expression_bodies and (
+        params.ref.kind is not SemanticKind.MEASURE
+        or params.expression_bodies[0][:2] != (params.ref.kind.value, params.ref.path)
+        or any(
+            not kind or not path or not body_hash
+            for kind, path, body_hash in params.expression_bodies
+        )
+        or len({(kind, path) for kind, path, _ in params.expression_bodies})
+        != len(params.expression_bodies)
+    ):
+        reject(
+            "one exact Measure expression and distinct bound body fingerprints",
+            repr(params.expression_bodies),
+            "Freeze the resolved Measure body and each bound field definition.",
+            "core.bind_project.expression",
+        )
     pre = (
         _fact("field_ownership", binding, params.ref.path),
         _fact("single_value", binding, params.ref.path),

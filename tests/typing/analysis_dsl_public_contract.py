@@ -1,5 +1,6 @@
 """Positive static contract for the public first-round Analysis DSL."""
 
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from typing_extensions import assert_type
@@ -12,7 +13,8 @@ if TYPE_CHECKING:
     members = session.members(ms.ref.entity("sales.customer"))
     assert_type(members, mv.LogicalAnalysisDomain)
     category = members.read(ms.ref.dimension("sales.customer.region"))
-    assert_type(category, mv.LogicalCategoryRelation)
+    assert_type(category, mv.LogicalCategoryRelation | mv.LogicalBooleanRelation)
+    assert isinstance(category, mv.LogicalCategoryRelation)
     chosen = category.where(category.value.eq("west"))
     assert_type(chosen, mv.LogicalSelectedCategoryRelation)
     fixed_chosen = chosen.execute()
@@ -63,3 +65,18 @@ if TYPE_CHECKING:
     recovered = session.artifact(fixed.state.artifact_ref)
     if isinstance(recovered, mv.MaterializedNumericRelation):
         assert_type(recovered, mv.MaterializedNumericRelation)
+
+if TYPE_CHECKING:
+    temporal = members.read(ms.ref.time_dimension("sales.customer.registered_at"))
+    assert_type(temporal, mv.LogicalTemporalRelation)
+    numeric = members.read(ms.ref.measure("sales.customer.balance"))
+    assert_type(numeric, mv.LogicalNumericRelation)
+    assert_type(numeric.where(numeric.value.gt(0)), mv.LogicalSelectedNumericRelation)
+    assert_type(temporal.execute(), mv.MaterializedTemporalRelation)
+    assert_type(
+        temporal.where(temporal.value.lt(datetime(2026, 9, 1, tzinfo=timezone.utc))).members(),
+        mv.LogicalAnalysisDomain | mv.LogicalFixedAnalysisDomain,
+    )
+    assert_type(
+        mv.time_scope(start="2026-08-01", end="2026-09-01").before_end, mv.BeforeEndBoundary
+    )

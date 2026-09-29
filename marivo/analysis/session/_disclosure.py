@@ -243,6 +243,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
         ),
     )
     acquisition = {
+        "at": "Use an exact datetime or TimeScope.before_end for versioned membership; omit for unversioned Entities.",
         "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
         "name": "Choose a project-local Session name from recent() or a new name for get_or_create().",
         "report_timezone": "Choose an IANA or explicit UTC-offset report timezone on first creation; existing Sessions retain their timezone.",

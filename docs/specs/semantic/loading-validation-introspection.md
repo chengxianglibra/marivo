@@ -759,3 +759,12 @@ and received facts, bound occurrence/Ref/field, and a concrete repair based on t
 actual catalog or retained parts. R5.2-R5.6 must align the native Help, errors and
 typed surfaces in the package that activates each variant; a frozen signature
 here does not make it callable.
+
+
+R5.2's Analysis consumer now resolves complete member identity, native temporal
+version axes and four scalar field kinds from the frozen registry and R1 schema.
+The loader still performs no source identity/coverage scan. Analysis rejects a
+missing required attribute anchor or non-to-one path before business I/O; runtime
+checks distinguish a missing representation from a represented null value.
+Native boolean physical fields resolve boolean Dimensions; integer indicators
+remain categorical and do not acquire boolean semantics.

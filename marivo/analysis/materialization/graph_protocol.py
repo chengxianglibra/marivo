@@ -15,7 +15,7 @@ from marivo.analysis.compiler.graph_plan import CheckRequirement, GraphPlan, Rou
 from marivo.analysis.compiler.graph_plan import plan as make_plan
 from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import Evidence, PartRole, Signature, part_role
-from marivo.analysis.core.rules import PartsTransport
+from marivo.analysis.core.rules import MapCorrespond, PartsTransport
 from marivo.analysis.materialization.contracts import (
     LocalReceipt,
     canonical_json,
@@ -367,6 +367,18 @@ def validate_descriptor(value: Descriptor) -> Node:
         raise invalid("frozen continuation exceeds the 256 KiB metadata budget")
     snapshot = decode(value.continuation_snapshot, SNAPSHOT)
     root = thaw_graph(snapshot.root)
+    if isinstance(root, MethodNode):
+        params = root.parameters
+        expects_value = (
+            params.keep_quantity
+            if isinstance(params, PartsTransport)
+            else params.mode == "group"
+            if isinstance(params, MapCorrespond)
+            else True
+        )
+        fields = set(schema_from(value.realized_schema).names)
+        if expects_value != ({"value", "cell_tag", "cell_reason"} <= fields):
+            raise invalid("result Cell fields differ from the frozen method contract")
     state = value.method_state
     schema = schema_from(value.realized_schema)
     keys = tuple((name, str(schema.field(name).type)) for name in value.row_contract.key_fields)

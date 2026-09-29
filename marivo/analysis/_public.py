@@ -2,6 +2,7 @@
 
 import marivo.analysis.runtime_metric as runtime_metric
 import marivo.analysis.session as session
+from marivo._temporal import BeforeEndBoundary as BeforeEndBoundary
 from marivo._temporal import Grain as Grain
 from marivo._temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
@@ -127,6 +128,7 @@ from marivo.analysis.public_dsl import GroupedNumericRelation as GroupedNumericR
 from marivo.analysis.public_dsl import GroupedRatioRelation as GroupedRatioRelation
 from marivo.analysis.public_dsl import LogicalAnalysisDomain as LogicalAnalysisDomain
 from marivo.analysis.public_dsl import LogicalAssociationResult as LogicalAssociationResult
+from marivo.analysis.public_dsl import LogicalBooleanRelation as LogicalBooleanRelation
 from marivo.analysis.public_dsl import LogicalCategoryRelation as LogicalCategoryRelation
 from marivo.analysis.public_dsl import (
     LogicalCoefficientSelectionRelation as LogicalCoefficientSelectionRelation,
@@ -138,16 +140,27 @@ from marivo.analysis.public_dsl import LogicalRatioRelation as LogicalRatioRelat
 from marivo.analysis.public_dsl import LogicalRolledNumericRelation as LogicalRolledNumericRelation
 from marivo.analysis.public_dsl import LogicalRolledRatioRelation as LogicalRolledRatioRelation
 from marivo.analysis.public_dsl import (
+    LogicalSelectedBooleanRelation as LogicalSelectedBooleanRelation,
+)
+from marivo.analysis.public_dsl import (
     LogicalSelectedCategoryRelation as LogicalSelectedCategoryRelation,
 )
 from marivo.analysis.public_dsl import (
     LogicalSelectedDifferenceRelation as LogicalSelectedDifferenceRelation,
 )
+from marivo.analysis.public_dsl import (
+    LogicalSelectedNumericRelation as LogicalSelectedNumericRelation,
+)
+from marivo.analysis.public_dsl import (
+    LogicalSelectedTemporalRelation as LogicalSelectedTemporalRelation,
+)
 from marivo.analysis.public_dsl import LogicalStatisticRelation as LogicalStatisticRelation
+from marivo.analysis.public_dsl import LogicalTemporalRelation as LogicalTemporalRelation
 from marivo.analysis.public_dsl import MaterializedAnalysisDomain as MaterializedAnalysisDomain
 from marivo.analysis.public_dsl import (
     MaterializedAssociationResult as MaterializedAssociationResult,
 )
+from marivo.analysis.public_dsl import MaterializedBooleanRelation as MaterializedBooleanRelation
 from marivo.analysis.public_dsl import MaterializedCategoryRelation as MaterializedCategoryRelation
 from marivo.analysis.public_dsl import (
     MaterializedCoefficientRelation as MaterializedCoefficientRelation,
@@ -170,14 +183,24 @@ from marivo.analysis.public_dsl import (
     MaterializedRolledRatioRelation as MaterializedRolledRatioRelation,
 )
 from marivo.analysis.public_dsl import (
+    MaterializedSelectedBooleanRelation as MaterializedSelectedBooleanRelation,
+)
+from marivo.analysis.public_dsl import (
     MaterializedSelectedCategoryRelation as MaterializedSelectedCategoryRelation,
 )
 from marivo.analysis.public_dsl import (
     MaterializedSelectedDifferenceRelation as MaterializedSelectedDifferenceRelation,
 )
 from marivo.analysis.public_dsl import (
+    MaterializedSelectedNumericRelation as MaterializedSelectedNumericRelation,
+)
+from marivo.analysis.public_dsl import (
+    MaterializedSelectedTemporalRelation as MaterializedSelectedTemporalRelation,
+)
+from marivo.analysis.public_dsl import (
     MaterializedStatisticRelation as MaterializedStatisticRelation,
 )
+from marivo.analysis.public_dsl import MaterializedTemporalRelation as MaterializedTemporalRelation
 from marivo.analysis.public_dsl import RootRoute as RootRoute
 from marivo.analysis.public_dsl import RootRoutes as RootRoutes
 from marivo.analysis.public_dsl import RowMethod as RowMethod
@@ -254,6 +277,7 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "InState",
     "PatternStep",
     "TimeScope",
+    "BeforeEndBoundary",
     "ArtifactDigest",
     "ArtifactRef",
     "ArtifactRevalidation",
@@ -272,6 +296,16 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "LogicalAnalysisDomain",
     "MaterializedAnalysisDomain",
     "LogicalCategoryRelation",
+    "LogicalBooleanRelation",
+    "MaterializedBooleanRelation",
+    "LogicalTemporalRelation",
+    "MaterializedTemporalRelation",
+    "LogicalSelectedBooleanRelation",
+    "MaterializedSelectedBooleanRelation",
+    "LogicalSelectedTemporalRelation",
+    "MaterializedSelectedTemporalRelation",
+    "LogicalSelectedNumericRelation",
+    "MaterializedSelectedNumericRelation",
     "MaterializedCategoryRelation",
     "LogicalNumericRelation",
     "MaterializedNumericRelation",

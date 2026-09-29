@@ -1,7 +1,7 @@
 # R5.1 contract freeze and consumer migration ledger
 
-Date: 2026-09-28. Status: documentation freeze complete; R5 product execution,
-physical qualification and debt restoration unverified. This ledger accompanies
+Date: 2026-09-28; R5.2 update: 2026-09-29. Status: R5.1 freeze and bounded R5.2
+qualification complete; remaining R5 execution and debt restoration unverified. This ledger accompanies
 [the R5 implementation plan](2026-09-28-marivo-full-algebra-dsl-r5-implementation-plan.md).
 It is an index of owners and work, not another API/method/state registry.
 
@@ -41,7 +41,8 @@ superseded by this correction.
 | F11 / cross-cutting | [Runtime state/recovery](../../specs/analysis/session-state-and-runtime.md#r51-state-extension-and-recovery-contract): common exchange, version slots, receipts, source freshness and fixed K | Every package; R5.7 full closure; V10 |
 | F12 / withdrawal | [Semantic scope decision](../../specs/semantic/semantic-object-model.md#named-statistical-weight-role-withdrawn-from-implementation-scope): no named statistical-weight activation | Excluded, not blocked; Metric weights remain F06/F10 |
 
-Every new physical cell is unverified. R4's existing measured J1-J4 cells stay
+R5.2 cells are qualified only as listed in [its evidence](evidence/r52/README.md).
+All other new physical cells remain unverified. R4's existing measured J1-J4 cells stay
 bounded to their original evidence. Required R5 source cells are DuckDB native
 table and local Parquet, with SQLite window/calendar/fold debt explicitly required;
 fixed cells are artifact_python. Remaining backend expansion is R9. Duration is
@@ -154,7 +155,8 @@ these are additional obligations, not invented extra entries in the eight failur
 ## V01-V12 scenarios and independent oracles
 
 Existing files below are seeds, not proof they already exercise new public R5.
-New filenames are reserved future test work, absent in this documentation slice.
+The R5.2 member test file now exists and is executed in its evidence; other new
+filenames remain reserved future work.
 All future fixture work uses the repository marivo-test-fixtures skill.
 
 | Cell | Contract / implementing package | Existing seeds | New public cases and independent oracle |
@@ -189,3 +191,26 @@ Product tests, Runtime execution, site/package build and wheel are not run in th
 document-only slice. Future packages execute the narrow suites first, then required
 broad `make check-agent`, site and separate targeted Runtime gates per the plan.
 R5.7's same-wheel/cold-process requirements are not replaced by R4.6 results.
+
+## R5.2 migration outcome (2026-09-29)
+
+V01/V02 and the member/read portions of V10/V12 are closed for the bounded
+DuckDB table/Parquet and artifact_python matrix in
+[the R5.2 evidence](evidence/r52/README.md). Full V10/V12 and wheel qualification
+remain R5.7 obligations. No D01-D22 debt is promoted by this package.
+
+| Consumer | R5.2 result | Remaining owner |
+| --- | --- | --- |
+| M01/M02 | Sole public members/read entry extended; first-key-only and string-only guards replaced by complete typed identity/version/scalar contracts | R5.3/R5.4 observation/grouping limits remain |
+| M11 | Existing BindProject/PartsTransport/MapCorrespond registrations extended; source checks are scoped to consuming domain | R5.3-R5.6 other state/numeric methods |
+| M14 | Complete Subject/Cell receipts, strict frozen version/path/read-kind fields; local scalar filters and set image; cold process test blocks Semantic/DuckDB | R5.7 full state/recovery matrix and strict old-snapshot rejection remain; no generation or compatibility path added |
+| M17 | Public families, Help, export snapshot, typing, dynamic contracts, API and EN/ZH latest updated; CLI continues shared Help routing | Packaged skills inspected and unchanged; R5.7 installed wheel |
+| M05-M10/M13/M15-M16 | Shared legacy observation/temporal/retained/worker consumers preserved; no replacement forwarding aliases added | Existing R5.3-R5.7/R6-R8 assignments above |
+
+Direct-column and bound row-expression Measure, direct-column Dimension and
+TimeDimension qualification is explicit in the owning analysis contract;
+broader temporal parsing/naive conversion and numeric Decimal/Duration are not
+claimed. R5.3 must revisit observation-expression consumers with its observation
+lowering; R5.5/R5.6 retain temporal/numeric expansion. Historical J1-J4 Runtime
+regression passes alongside the new cases. No packaged skill disclosure gap was
+found for these call shapes; no skill or AGENTS.md edits were needed.

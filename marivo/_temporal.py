@@ -581,6 +581,31 @@ class TimeScopeContractV1(BaseModel):
         return self.render()
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class BeforeEndBoundary:
+    """Exact left limit of a TimeScope end, without a precision-dependent tick."""
+
+    end: date | datetime
+    boundary_timezone: str | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.end) not in (date, datetime):
+            raise ValueError("BeforeEndBoundary requires a date or datetime end")
+        if self.boundary_timezone is not None:
+            ZoneInfo(self.boundary_timezone)
+
+    def show(self) -> None:
+        """Print the boundary. Args: None. Returns: None.
+
+        Example: ``scope.before_end.show()``.
+        Constraints: Does not resolve a source or select an available version.
+        """
+        print(f"before_end={self.end.isoformat()}")
+
+    def __repr__(self) -> str:
+        return f"<BeforeEndBoundary end={self.end.isoformat()}; use .show()>"
+
+
 class TimeScope(BaseModel):
     """One immutable public selection window shared by semantic and analysis.
 
@@ -605,6 +630,19 @@ class TimeScope(BaseModel):
     # semantically identical scopes have stable equality and hashing.
     start: date | datetime
     end: date | datetime
+
+    @property
+    def before_end(self) -> BeforeEndBoundary:
+        """Return the symbolic left limit of this scope's end.
+
+        Args: None.
+        Returns: A BeforeEndBoundary retaining the exact end.
+        Example: ``members = session.members(entity, at=scope.before_end)``.
+        Constraints: Never subtracts a timestamp tick or selects a latest version.
+        """
+        return BeforeEndBoundary(
+            self.end, None if self.kind == "absolute" else self.boundary_timezone
+        )
 
     # Provenance belongs to the private concrete variants.  These declarations
     # keep the dependency-neutral base usable by statically typed internal

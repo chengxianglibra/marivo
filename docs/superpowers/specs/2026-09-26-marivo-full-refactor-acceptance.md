@@ -1062,3 +1062,37 @@ release-check、启动 MinIO、提交、推送或发布。
 **R5.1 文档冻结完成；R5.2–R5.7 尚未实施/验收。** 本包未运行产品测试、Runtime、
 site/API build、check-agent 或 wheel；无后端资格、冷恢复执行或真实 Agent 证据。
 没有提交、推送、发布，也未启动 MinIO 或运行 release-check。
+
+### 2026-09-29 R5.2 完整身份与四类属性读取
+
+**R5.2 在声明的直接列、已绑定行表达式 Measure 和 native temporal 矩阵内完成；不是整个 R5 完成。**
+基线 `75d573e87c6a48aa337c3be170c87baa87d5a15c`，证据取自提交前工作区候选。
+[V01/V02 与本包 V10/V12 证据](evidence/r52/README.md)包含输入/预期、方法与代码
+指纹、命令/退出状态及日志。完整键、版本选择、独立属性时点、单值/覆盖、消费域检查、
+四类筛选与成员投影，经 DuckDB table/Parquet 和 fixed artifact_python 实际执行。
+断源删模型新进程阻断 Semantic/DuckDB 后实际续算并验证精确命中；损坏部件拒绝。
+
+- `make check-agent`：退出 0；5363 passed、19 skipped，lint/typecheck/API docs 通过。
+- 受影响 Runtime：退出 0；80 passed，包括新增 21 格及既有 J1–J4。
+- 站点构建与 `git diff --check`：退出 0。
+- 一次早期 Runtime 的 2 个时间戳倒退失败保留日志；未削弱完整性检查，定向 6 格
+  及完整 80 格重跑通过。不能据此推定外部时钟倒退原因已修复。
+
+公共导出、Help、动态续算、typing、英中 latest 和 API 同步；packaged skills 检查后
+未发现必要变更，保持未修改。新增冻结字段使缺字段的旧 v7 快照明确拒绝；不新增
+Store 代际或兼容读取。完整 V10/V12、wheel、SQLite 时间/fold、更多观察/分组/数值
+和 D01–D22 均保留后续 owner。无 release-check、MinIO、真实 Agent 或发布声明。
+
+#### R5.2 对抗性审查修复
+
+审查复现了合法的计算 Measure 被 `read` 拒绝，以及类型不匹配时错误修复提示笼统。
+现已接入 Semantic/Ibis 行表达式绑定，冻结表达式及其绑定依赖指纹；仅在消费域内求值。
+手列原始值 `[10,20]` 的 `amount * 0.9` 预期 `[9,18]`，再经嵌套
+`ms.bind(...)+5` 预期 `[14,23]`，table/Parquet 均实际通过；保存后 fixed 筛选与
+成员投影也通过。日期属性传入 datetime 时，错误明确报告收到的值并提示使用 date。
+本修复后命令结果、候选指纹与更新后的限定范围见同一 R5.2 证据目录。
+
+修复候选的最终门禁：`make check-agent` 退出 0（5363 passed、19 skipped）；
+受影响 Runtime 退出 0（82 passed），另对加入计算结果断源续算后的冷恢复用例
+单独重跑 2 passed；站点构建退出 0（321 页）；`git diff --check` 退出 0。
+各次日志与候选代码指纹见 [R5.2 证据](evidence/r52/README.md)。

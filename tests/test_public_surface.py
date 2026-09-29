@@ -168,6 +168,16 @@ ANALYSIS_PUBLIC = {
     "LogicalAnalysisDomain",
     "LogicalAssociationResult",
     "LogicalCategoryRelation",
+    "LogicalBooleanRelation",
+    "MaterializedBooleanRelation",
+    "LogicalTemporalRelation",
+    "MaterializedTemporalRelation",
+    "LogicalSelectedBooleanRelation",
+    "MaterializedSelectedBooleanRelation",
+    "LogicalSelectedTemporalRelation",
+    "MaterializedSelectedTemporalRelation",
+    "LogicalSelectedNumericRelation",
+    "MaterializedSelectedNumericRelation",
     "LogicalNumericRelation",
     "MaterializedAnalysisDomain",
     "MaterializedAssociationResult",
@@ -237,6 +247,7 @@ ANALYSIS_PUBLIC = {
     "InState",
     "PatternStep",
     "TimeScope",
+    "BeforeEndBoundary",
     "ArtifactDigest",
     "ArtifactRef",
     "ArtifactRevalidation",
@@ -281,7 +292,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "8ecff0d812d27524b0db701b8fb5a91d7361cc8ec47fec8cc95f23007faf8617"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "f26aeeb828d5f91ba9bb23b7a14a2f68db4ba3ec22fb8230c06a6dd61eb162c4"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

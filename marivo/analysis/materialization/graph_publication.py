@@ -69,7 +69,7 @@ from marivo.analysis.materialization.resources import discharge_resources, reser
 from marivo.analysis.materialization.storage import _fsync_directory
 from marivo.analysis.materialization.store import SessionStore, _new_run_ref, _rows, _text
 from marivo.analysis.materialization.writer_guard import session_writer_guard
-from marivo.analysis.methods.physical import Qualified, ScalarType
+from marivo.analysis.methods.physical import Qualified, ScalarType, matches_arrow_scalar
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.datasource.adapters import SourceSession
 from marivo.introspection.live.model import LiveHelpTarget
@@ -211,8 +211,8 @@ def execute(
                 from marivo.analysis.materialization.graph_protocol import schema_from
 
                 schema = schema_from(descriptor.realized_schema)
-                if "value" not in schema.names or schema.field("value").type != pa.type_for_alias(
-                    leaf.value_type.name
+                if "value" in schema.names and not matches_arrow_scalar(
+                    schema.field("value").type, leaf.value_type
                 ):
                     raise invalid("fixed physical value type differs before receipt read")
                 if leaf.identity not in fixed:

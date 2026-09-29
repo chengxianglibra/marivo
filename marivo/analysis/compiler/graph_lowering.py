@@ -21,6 +21,7 @@ from marivo.analysis.compiler.graph_plan import (
     SourceMethodStage,
     plan,
 )
+from marivo.analysis.compiler.member_version import select_version
 from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import (
     Coordinate,
@@ -55,6 +56,10 @@ from marivo.analysis.methods.physical import ScalarType
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 from marivo.datasource.adapters import BoundSource, PhysicalRequirement
 from marivo.datasource.ir import ParquetSourceIR, TableSourceIR
+from marivo.semantic._expression_binding import (
+    CompiledExpressionSidecar,
+    evaluate_expression_body,
+)
 
 
 def _fail(expected: str, received: str) -> NoReturn:
@@ -143,6 +148,7 @@ class SourceBinding:
     source: BoundSource
     layout: RelationLayout
     cell_reasons: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    expression_sidecar: CompiledExpressionSidecar | None = None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -359,12 +365,12 @@ def _cell_violations(table: ir.Table, cell: CellColumns) -> ir.Table:
 def _predicate(table: ir.Table, cell: CellColumns, predicate: ValuePredicate) -> ir.BooleanValue:
     value = table[cell.value]
     operations = {
-        "eq": value == predicate.value,
-        "ne": value != predicate.value,
-        "lt": value < predicate.value,
-        "le": value <= predicate.value,
-        "gt": value > predicate.value,
-        "ge": value >= predicate.value,
+        "eq": value == predicate.literal,
+        "ne": value != predicate.literal,
+        "lt": value < predicate.literal,
+        "le": value <= predicate.literal,
+        "gt": value > predicate.literal,
+        "ge": value >= predicate.literal,
     }
     result: ir.BooleanValue = (
         (table[cell.tag] == "defined") & operations[predicate.operator]
@@ -481,7 +487,16 @@ def _source_fields(admitted: GraphPlan, binding: SourceBinding) -> tuple[str, ..
             continue
         params = node.parameters
         if isinstance(params, BindProject) and params.field_contract is not None:
-            fields.add(params.field_contract.source_column)
+            if params.field_owner.path == binding.leaf.definition.ref.path:
+                if params.expression_bodies:
+                    fields.update(binding.source.relation.columns)
+                else:
+                    fields.add(params.field_contract.source_column)
+            for relationship in params.path_contracts:
+                if relationship.from_entity_ref.path == binding.leaf.definition.ref.path:
+                    fields.update(key[0] for key in relationship.keys)
+                if relationship.to_entity_ref.path == binding.leaf.definition.ref.path:
+                    fields.update(key[1] for key in relationship.keys)
         elif isinstance(params, (ObserveMetric, ObserveCount)):
             for coordinate in params.coordinates:
                 if coordinate.entity_ref.path == binding.leaf.definition.ref.path:
@@ -519,19 +534,101 @@ def _bind(
 ) -> tuple[ir.Table, RelationLayout]:
     params = stage.node.parameters
     assert isinstance(params, BindProject) and params.field_contract is not None
-    owner = next(b for b in bindings if b.leaf is stage.node.sources[0])
-    if owner.leaf.signature.domain != source.node.signature.domain:
-        _fail("direct projection on the exact owner domain", owner.leaf.identity)
-    field = params.field_contract.source_column
-    raw = _staged_source(owner, relations)
-    if field not in raw.columns or str(raw[field].type()) != params.field_contract.logical_type:
-        _fail(f"the exact {params.field_contract.logical_type} field column", field)
-    keys = tuple(k.column for k in source.layout.keys)
-    projected = raw.select(
-        *(raw[k.column].name(f"key_{i}") for i, k in enumerate(owner.layout.keys)),
-        __bound_value=raw[field],
-    ).view()
-    # Restrict to the actual subject input, not the full owner relation.
+    selected = tuple(next(b for b in bindings if b.leaf is leaf) for leaf in stage.node.sources)
+    keys = tuple(key.column for key in source.layout.keys)
+    first = _staged_source(selected[0], relations).view()
+    # Anchor the correspondence to the consumer before validating any owner rows.
+    scoped = (
+        source.expression.select(*keys)
+        .join(
+            first,
+            tuple(
+                source.expression[key] == first[item.column]
+                for key, item in zip(keys, selected[0].layout.keys, strict=True)
+            ),
+        )
+        .select(
+            *(source.expression[key].name(f"member__{i}") for i, key in enumerate(keys)),
+            *(first[column].name(f"owner__{column}") for column in first.columns),
+        )
+    )
+    for index, relationship in enumerate(params.path_contracts):
+        target = _staged_source(selected[index + 1], relations).view()
+        joined = scoped.join(
+            target,
+            tuple(scoped[f"owner__{left}"] == target[right] for left, right in relationship.keys),
+        )
+        scoped = joined.select(
+            *(scoped[f"member__{i}"] for i in range(len(keys))),
+            *(target[column].name(f"owner__{column}") for column in target.columns),
+        )
+    if params.expression_bodies:
+        sidecar = selected[-1].expression_sidecar
+        if sidecar is None:
+            _fail("the frozen expression sidecar for this source read", params.ref.path)
+        for kind, path, body_hash in params.expression_bodies:
+            candidate = next(
+                (
+                    body
+                    for ref, body in sidecar.bodies.items()
+                    if ref.kind.value == kind and ref.path == path
+                ),
+                None,
+            )
+            if candidate is None or candidate.body_ast_hash != body_hash:
+                _fail("the exact frozen expression body and bindings", path)
+        owner_alias = scoped.select(
+            *(scoped[f"member__{i}"] for i in range(len(keys))),
+            *(
+                scoped[f"owner__{column}"].name(column)
+                for column in selected[-1].source.relation.columns
+            ),
+        )
+        body = next(body for ref, body in sidecar.bodies.items() if ref == params.ref)
+        value = evaluate_expression_body(
+            catalog_definition_fingerprint=params.expression_bodies[0][2],
+            expression_sidecar=sidecar,
+            owning_ref=params.ref,
+            body=body,
+            entity_refs=(params.field_owner,),
+            aliases=(owner_alias,),
+        )
+        # Ibis can infer float64 for integer * decimal literal while DuckDB
+        # physically returns DECIMAL; force the declared source boundary type.
+        if not isinstance(stage.node.value_type, ScalarType):
+            _fail("a computed scalar read type", repr(stage.node.value_type))
+        value = (
+            value.cast("string").cast("float64")
+            if stage.node.value_type.name == "float64"
+            else value.cast("int64")
+        )
+        projected = owner_alias.select(
+            *(owner_alias[f"member__{i}"].name(key) for i, key in enumerate(keys)),
+            __bound_value=value,
+        ).view()
+    else:
+        field = params.field_contract.source_column
+        projected = scoped.select(
+            *(scoped[f"member__{i}"].name(key) for i, key in enumerate(keys)),
+            __bound_value=scoped[f"owner__{field}"],
+        ).view()
+    source_ids = _source_ids(source.source_ids, tuple(item.leaf.identity for item in selected))
+    checks.append(
+        IntegrityCheck(
+            stage.output,
+            "single field value per complete consumed identity",
+            _key_violations(projected, RelationLayout(source.layout.keys, None)),
+            source_ids,
+        )
+    )
+    checks.append(
+        IntegrityCheck(
+            stage.output,
+            "complete field-owner coverage",
+            source.expression.anti_join(projected, keys),
+            source_ids,
+        )
+    )
     joined = source.expression.left_join(projected, keys).select(
         *(
             source.expression[c]
@@ -544,16 +641,8 @@ def _bind(
             projected.__bound_value.isnull(), "source_null", ibis.null().cast("string")
         ),
     )
-    checks.append(
-        IntegrityCheck(
-            stage.output,
-            "complete field-owner coverage",
-            source.expression.anti_join(projected, keys),
-            _source_ids(source.source_ids, (owner.leaf.identity,)),
-        )
-    )
-    target = canonical_layout(stage.node.signature, has_value=True)
-    return joined.select(*target.columns), target
+    target_layout = canonical_layout(stage.node.signature, has_value=True)
+    return joined.select(*target_layout.columns), target_layout
 
 
 def _map(
@@ -1175,6 +1264,12 @@ def _fact_relations(
     by_identity = {r.node.identity: r for r in relations}
     fact = obligation.fact
     if isinstance(node, MethodNode):
+        if (
+            isinstance(node.parameters, BindProject)
+            and obligation.check_id == "source.single_value@v1"
+            and fact in node.derivation.pre
+        ):
+            return ((by_identity[node.identity],),)
         immediate = tuple(edge.node for edge in node.inputs)
         if fact in node.derivation.pre and (
             fact.inputs
@@ -1276,7 +1371,11 @@ def lower(
                 stage.leaf.value_type.name,
             )
             layout = canonical_layout(stage.leaf.signature, has_value=bound.layout.cell is not None)
-            raw = bound.source.relation
+            raw = select_version(
+                bound.source.relation,
+                stage.leaf.definition.version,
+                stage.leaf.signature.domain.version_selection,
+            )
             raw_fields = _source_fields(admitted, bound)
             extras = tuple(f"source__{raw.columns.index(column)}" for column in raw_fields)
             selected_columns = tuple(
@@ -1315,7 +1414,9 @@ def lower(
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, BindProject):
                 table, layout = _bind(stage, inputs[0], bindings, checks, tuple(results.values()))
-                source_ids = _source_ids(source_ids, (stage.node.sources[0].identity,))
+                source_ids = _source_ids(
+                    source_ids, tuple(leaf.identity for leaf in stage.node.sources)
+                )
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, MapCorrespond):
                 table, layout = _map(stage, inputs, checks)
@@ -1351,21 +1452,27 @@ def lower(
         results[stage.output] = relation
         layouts[stage.output] = layout
         stages.append(relation)
-        checks.append(
-            IntegrityCheck(
-                stage.output,
-                "unique non-null complete identity",
-                _key_violations(
-                    table,
-                    layout,
-                    allow_empty=isinstance(node, MethodNode)
-                    and isinstance(node.parameters, PartsTransport)
-                    and node.parameters.mode == "where"
-                    and not layout.keys,
-                ),
-                source_ids,
-            )
+        auxiliary = isinstance(node, SourceLeaf) and not any(
+            isinstance(candidate, MethodNode)
+            and any(edge.node is node for edge in candidate.inputs)
+            for candidate in topology(admitted.root)
         )
+        if not auxiliary:
+            checks.append(
+                IntegrityCheck(
+                    stage.output,
+                    "unique non-null complete identity",
+                    _key_violations(
+                        table,
+                        layout,
+                        allow_empty=isinstance(node, MethodNode)
+                        and isinstance(node.parameters, PartsTransport)
+                        and node.parameters.mode == "where"
+                        and not layout.keys,
+                    ),
+                    source_ids,
+                )
+            )
         if layout.cell is not None:
             checks.append(
                 IntegrityCheck(
@@ -1405,6 +1512,10 @@ def lower(
                     violations = violations.union(
                         _key_violations(other.expression, other.layout), distinct=False
                     )
+            elif check_id == "source.single_value@v1":
+                output = inputs[0]
+                violations = _key_violations(output.expression, output.layout)
+                source_ids = output.source_ids
             elif check_id == "source.exact_pairing@v1" and len(inputs) == 2:
                 violations = _pair_violations(*inputs)
             elif check_id == "source.cell_policy@v1" and inputs[0].layout.cell is not None:

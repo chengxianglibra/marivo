@@ -12,7 +12,7 @@ from marivo.analysis.methods.physical import NoTime, ScalarType, SourceShape
 from marivo.datasource.adapters import BoundSource, SourceSession, provider_for
 from marivo.datasource.ir import ParquetSourceIR, TableSourceIR
 from marivo.datasource.runtime import DatasourceConnectionService
-from marivo.semantic.ir import TargetEntityContract
+from marivo.semantic.ir import TargetEntityContract, TargetSnapshotVersion, TargetValidityVersion
 from marivo.semantic.validator import Registry, normalize_target_entity
 
 
@@ -31,8 +31,13 @@ class EntitySchema:
 
     contract: TargetEntityContract
     schema: pa.Schema
-    identity_type: ScalarType
+    identity_types: tuple[ScalarType, ...]
     shape: SourceShape
+
+    @property
+    def identity_type(self) -> ScalarType:
+        """Scalar carrier for existing single-value method qualification."""
+        return self.identity_types[0]
 
     def field_type(self, column: str) -> ScalarType:
         """Return an exact supported physical scalar for a bound source field."""
@@ -127,11 +132,11 @@ def preflight_entities(
         )
     shapes: list[SourceShape] = []
     for contract in contracts:
-        if contract.version is not None or len(contract.primary_key) != 1:
+        if not contract.primary_key:
             raise _reject(
-                "one non-versioned, single-key Entity",
+                "an Entity with a complete declared key",
                 contract.ref.path,
-                "Select a non-versioned Entity with a qualified physical identity type.",
+                "Declare the complete Entity key with qualified physical identity types.",
             )
         if isinstance(contract.source, TableSourceIR):
             shapes.append(SourceShape("duckdb", "table", "native", NoTime()))
@@ -152,6 +157,25 @@ def preflight_entities(
         for contract, shape in zip(contracts, shapes, strict=True):
             bound = source.bind(contract.source, source_identity=contract.ref.path)
             schema = bound.facts.schema
-            identity_type = _identity_type(schema, contract.primary_key[0])
-            results.append(EntitySchema(contract, schema, identity_type, shape))
+            identity_types = tuple(_identity_type(schema, key) for key in contract.primary_key)
+            version = contract.version
+            axes = (
+                (version.source_column,)
+                if isinstance(version, TargetSnapshotVersion)
+                else (version.valid_from_column, version.valid_to_column)
+                if isinstance(version, TargetValidityVersion)
+                else ()
+            )
+            for column in axes:
+                index = schema.get_field_index(column)
+                if index < 0 or not (
+                    pa.types.is_date(schema.field(index).type)
+                    or pa.types.is_timestamp(schema.field(index).type)
+                ):
+                    raise _reject(
+                        "native temporal version axes",
+                        column,
+                        "Bind a qualified native date or timestamp version field.",
+                    )
+            results.append(EntitySchema(contract, schema, identity_types, shape))
         return tuple(results)

@@ -5,6 +5,7 @@ from datetime import datetime as _datetime
 from types import ModuleType
 from typing import TYPE_CHECKING, Literal
 
+from marivo._temporal import BeforeEndBoundary as BeforeEndBoundary
 from marivo._temporal import Grain, TimeScope
 from marivo._temporal import time_scope as _time_scope
 
@@ -132,6 +133,7 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import GroupedRatioRelation as GroupedRatioRelation
     from marivo.analysis.public_dsl import LogicalAnalysisDomain as LogicalAnalysisDomain
     from marivo.analysis.public_dsl import LogicalAssociationResult as LogicalAssociationResult
+    from marivo.analysis.public_dsl import LogicalBooleanRelation as LogicalBooleanRelation
     from marivo.analysis.public_dsl import LogicalCategoryRelation as LogicalCategoryRelation
     from marivo.analysis.public_dsl import (
         LogicalCoefficientSelectionRelation as LogicalCoefficientSelectionRelation,
@@ -145,15 +147,28 @@ if TYPE_CHECKING:
     )
     from marivo.analysis.public_dsl import LogicalRolledRatioRelation as LogicalRolledRatioRelation
     from marivo.analysis.public_dsl import (
+        LogicalSelectedBooleanRelation as LogicalSelectedBooleanRelation,
+    )
+    from marivo.analysis.public_dsl import (
         LogicalSelectedCategoryRelation as LogicalSelectedCategoryRelation,
     )
     from marivo.analysis.public_dsl import (
         LogicalSelectedDifferenceRelation as LogicalSelectedDifferenceRelation,
     )
+    from marivo.analysis.public_dsl import (
+        LogicalSelectedNumericRelation as LogicalSelectedNumericRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        LogicalSelectedTemporalRelation as LogicalSelectedTemporalRelation,
+    )
     from marivo.analysis.public_dsl import LogicalStatisticRelation as LogicalStatisticRelation
+    from marivo.analysis.public_dsl import LogicalTemporalRelation as LogicalTemporalRelation
     from marivo.analysis.public_dsl import MaterializedAnalysisDomain as MaterializedAnalysisDomain
     from marivo.analysis.public_dsl import (
         MaterializedAssociationResult as MaterializedAssociationResult,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedBooleanRelation as MaterializedBooleanRelation,
     )
     from marivo.analysis.public_dsl import (
         MaterializedCategoryRelation as MaterializedCategoryRelation,
@@ -181,13 +196,25 @@ if TYPE_CHECKING:
         MaterializedRolledRatioRelation as MaterializedRolledRatioRelation,
     )
     from marivo.analysis.public_dsl import (
+        MaterializedSelectedBooleanRelation as MaterializedSelectedBooleanRelation,
+    )
+    from marivo.analysis.public_dsl import (
         MaterializedSelectedCategoryRelation as MaterializedSelectedCategoryRelation,
     )
     from marivo.analysis.public_dsl import (
         MaterializedSelectedDifferenceRelation as MaterializedSelectedDifferenceRelation,
     )
     from marivo.analysis.public_dsl import (
+        MaterializedSelectedNumericRelation as MaterializedSelectedNumericRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedSelectedTemporalRelation as MaterializedSelectedTemporalRelation,
+    )
+    from marivo.analysis.public_dsl import (
         MaterializedStatisticRelation as MaterializedStatisticRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedTemporalRelation as MaterializedTemporalRelation,
     )
     from marivo.analysis.public_dsl import RootRoute as RootRoute
     from marivo.analysis.public_dsl import RootRoutes as RootRoutes

@@ -7,7 +7,7 @@ from datetime import datetime, tzinfo
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from marivo._temporal import TimeScope
+from marivo._temporal import BeforeEndBoundary, TimeScope
 from marivo.analysis.datasets.base import MaterializedDataset
 from marivo.analysis.evidence._dataset_types import ArtifactRevalidation
 from marivo.analysis.materialization.contracts import SessionRecord
@@ -182,13 +182,17 @@ class Session:
             entity, time_scope=time_scope, time_dimension=time_dimension
         )
 
-    def members(self, entity: Ref[EntityKind]) -> LogicalAnalysisDomain:
-        """Construct one governed, non-versioned Entity member domain.
+    def members(
+        self, entity: Ref[EntityKind], *, at: datetime | BeforeEndBoundary | None = None
+    ) -> LogicalAnalysisDomain:
+        """Construct the complete governed Entity member domain at an exact version.
 
-        Args: entity: Exact declared Entity Ref.
+        Args:
+            entity: Exact declared Entity Ref.
+            at: Explicit version instant or TimeScope.before_end; None for unversioned Entities.
         Returns: A logical AnalysisDomain bound to this Session.
         Example: ``customers = session.members(ms.ref.entity('sales.customer'))``.
-        Constraints: R1 schema-only preflight precedes Run allocation; no business rows are read. Identity is one string or int64 column.
+        Constraints: R1 schema-only preflight precedes Run allocation; no business rows are read. Identity retains every declared string or int64 key column.
         """
         from marivo.analysis.materialization.graph_relation import Relation
         from marivo.analysis.public_dsl import new_members
@@ -197,7 +201,7 @@ class Session:
         assert self._catalog_value is not None
         state = self._catalog_value._state
         relation = Relation.members(
-            self._runtime, state.registry, state.sidecar, self.report_tz_name, entity
+            self._runtime, state.registry, state.sidecar, self.report_tz_name, entity, at=at
         )
         return new_members(relation, self._runtime)
 

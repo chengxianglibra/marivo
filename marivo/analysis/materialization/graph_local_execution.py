@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import math
 from dataclasses import replace
+from datetime import date, datetime
 
 import pandas as pd
 import pyarrow as pa
@@ -21,7 +22,7 @@ from marivo.analysis.core.model import (
     Undefined,
     Unknown,
 )
-from marivo.analysis.core.rules import OriginalReduce, PartsTransport
+from marivo.analysis.core.rules import MapCorrespond, OriginalReduce, PartsTransport
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     CompletedCheck,
@@ -38,7 +39,7 @@ from marivo.analysis.materialization.graph_exchange import (
 from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.materialization.graph_spearman_execution import finish_spearman
 from marivo.analysis.methods.local import arithmetic, count, count_defined
-from marivo.analysis.methods.physical import ScalarType
+from marivo.analysis.methods.physical import ScalarType, matches_arrow_scalar
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.analysis.methods.state_validation import state_matches
 
@@ -238,11 +239,23 @@ def execute_fixed_count(
     return execute_fixed_row(prepared, lowered, selected, input_contract)
 
 
-def _matches(value: object, operator: str, expected: int | float | str) -> bool:
+def _matches(
+    value: object, operator: str, expected: int | float | str | bool | date | datetime
+) -> bool:
     if operator == "eq":
         return value == expected
     if operator == "ne":
         return value != expected
+    if (isinstance(value, datetime) and isinstance(expected, datetime)) or (
+        type(value) is date and type(expected) is date
+    ):
+        assert isinstance(expected, (date, datetime))
+        return {
+            "lt": value < expected,
+            "le": value <= expected,
+            "gt": value > expected,
+            "ge": value >= expected,
+        }[operator]
     if (
         not isinstance(expected, (int, float))
         or isinstance(expected, bool)
@@ -300,8 +313,12 @@ def _transport_result(
         or read.leaf.signature != source.contract.signature
         or source.contract.input_binding != selected.artifact_ref
         or not isinstance(read.leaf.value_type, ScalarType)
-        or "value" not in source.primary.column_names
-        or source.primary.schema.field("value").type != pa.type_for_alias(read.leaf.value_type.name)
+        or (
+            "value" in source.primary.column_names
+            and not matches_arrow_scalar(
+                source.primary.schema.field("value").type, read.leaf.value_type
+            )
+        )
     ):
         raise _invalid("fixed transport input signature, binding or type differs")
     return _transport_stage(method, source, selected.artifact_ref)
@@ -323,7 +340,7 @@ def _transport_stage(
                     raise _invalid("fixed predicate received a non-Defined Cell")
                 accepted = False
                 break
-            if not _matches(row["value"], predicate.operator, predicate.value):
+            if not _matches(row["value"], predicate.operator, predicate.literal):
                 accepted = False
                 break
         keep.append(accepted)
@@ -907,6 +924,7 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
             name
             not in (
                 "parts_transport",
+                "map_correspond",
                 "state_rollup",
                 "state_rollup.count",
                 "state_rollup.sum_zero",
@@ -970,8 +988,13 @@ def execute_verified_fixed(
                 or selected_input.result.contract.signature != stage.leaf.signature
                 or selected_input.result.contract.input_binding != selected_input.artifact_ref
                 or not isinstance(stage.leaf.value_type, ScalarType)
-                or selected_input.result.primary.schema.field("value").type
-                != pa.type_for_alias(stage.leaf.value_type.name)
+                or (
+                    "value" in selected_input.result.primary.column_names
+                    and not matches_arrow_scalar(
+                        selected_input.result.primary.schema.field("value").type,
+                        stage.leaf.value_type,
+                    )
+                )
             ):
                 raise _invalid("fixed stage differs from its exact verified Artifact")
             results[stage.output] = selected_input.result
@@ -988,7 +1011,12 @@ def execute_verified_fixed(
             check for check in lowered.admitted.checks if check.node_id == stage.stage.node.identity
         )
         name = stage.stage.node.method.name
-        if name == "parts_transport":
+        if name == "map_correspond":
+            params = stage.stage.node.parameters
+            if not isinstance(params, MapCorrespond) or params.mode != "subjects" or checks:
+                raise _invalid("fixed correspondence requires an exact retained Subject image")
+            result = _subject_image(stage, values[0], binding)
+        elif name == "parts_transport":
             if checks:
                 raise _invalid("transport carries an unqualified local check")
             result = _transport_stage(stage, values[0], binding)
@@ -1036,3 +1064,46 @@ def execute_verified_fixed(
         completed_checks=tuple(completed),
         method_state=result.method_state,
     )
+
+
+def _subject_image(method: LoweredLocal, source: ExchangeResult, binding: str) -> ExchangeResult:
+    """Project complete retained Subject tuples using local set-image semantics."""
+    from marivo.analysis.core.model import SubjectPart
+
+    subject = next(
+        part for part in source.contract.signature.parts if isinstance(part, SubjectPart)
+    )
+    retained = next(part.table for part in source.parts if part.role == "subject")
+    fields = tuple(f"subject__key_{i}" for i in range(len(subject.subject_key)))
+    keys = tuple(f"key_{i}" for i in range(len(fields)))
+    rows = retained.select(fields).to_pylist()
+    seen: set[tuple[object, ...]] = set()
+    indices: list[int] = []
+    for index, row in enumerate(rows):
+        identity = tuple(row[name] for name in fields)
+        if identity in seen:
+            if subject.injective:
+                raise _invalid("declared injective Subject mapping contains duplicate identities")
+            continue
+        if any(value is None for value in identity):
+            raise _invalid("Subject mapping contains a null identity")
+        seen.add(identity)
+        indices.append(index)
+    primary = retained.select(fields).take(pa.array(indices, type=pa.int64())).rename_columns(keys)
+    part_table = primary
+    for key, name in zip(keys, fields, strict=True):
+        part_table = part_table.append_column(name, primary[key])
+    part = ExchangePart("subject", part_table)
+    contract = ExchangeContract(
+        method.stage.node.signature,
+        method.stage.node.method,
+        binding,
+        primary.schema,
+        keys,
+        (PartContract("subject", part_table.schema, keys),),
+        (),
+        "none",
+        None,
+        (),
+    )
+    return from_arrow(primary, contract, parts=(part,))

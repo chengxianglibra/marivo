@@ -39,6 +39,8 @@ _METHOD_GROUPS = {
 }
 
 _INPUT_GUIDANCE = {
+    "field": "Use an exact Measure, Dimension or TimeDimension Ref from the current catalog.",
+    "at": "Select the attribute version independently with datetime or TimeScope.before_end.",
     "metric": "Use one exact Metric Ref from the current Semantic catalog.",
     "dimension": "Use a declared categorical Dimension Ref on this receiver's domain.",
     "during": "Use mv.time_scope(start=..., end=...) with absolute bounds.",
@@ -91,6 +93,16 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.LogicalAnalysisDomain,
         dsl.LogicalAssociationResult,
         dsl.LogicalCategoryRelation,
+        dsl.LogicalBooleanRelation,
+        dsl.MaterializedBooleanRelation,
+        dsl.LogicalTemporalRelation,
+        dsl.MaterializedTemporalRelation,
+        dsl.LogicalSelectedBooleanRelation,
+        dsl.MaterializedSelectedBooleanRelation,
+        dsl.LogicalSelectedTemporalRelation,
+        dsl.MaterializedSelectedTemporalRelation,
+        dsl.LogicalSelectedNumericRelation,
+        dsl.MaterializedSelectedNumericRelation,
         dsl.LogicalNumericRelation,
         dsl.MaterializedAnalysisDomain,
         dsl.MaterializedAssociationResult,
@@ -157,7 +169,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 value,
                 summary=f"First-round governed Analysis {name} value.",
                 acquisition=acquisition,
-                producers=producers,
+                producers=("session.artifact",) if name.startswith("Materialized") else producers,
                 consumers=("AnalysisAction",)
                 if value is dsl.AnalysisContract
                 else ("dsl.routes",)
@@ -166,8 +178,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 if value is dsl.RootRoutes
                 else ("methods.metric",)
                 if value is dsl.RowMethod
-                else ("session.artifact",)
-                if name.startswith("Materialized")
                 else (),
                 constraints=("Exact member, semantic and Artifact bindings govern continuations.",),
             )

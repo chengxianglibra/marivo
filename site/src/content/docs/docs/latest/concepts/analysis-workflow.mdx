@@ -62,7 +62,7 @@ For the admitted J1–J4 Entity domain on a configured DuckDB source, start with
 `session.members(Entity Ref)`. The member domain owns `read`, `group_by`, and
 `observe`; its returned relations own selection, comparison, rollup, row
 statistics, and association. `marivo.help("analysis.entry")` directs
-Entity-member questions here. The member source route requires a UTC
+Entity-member questions here. The currently qualified Metric observation route requires a UTC
 event Time Dimension; a different or unresolved axis timezone is rejected.
 For example:
 
@@ -600,3 +600,44 @@ Native timestamp conversion uses the declared authority and runtime ZoneInfo.
 Analysis does not scan source rows for ambiguous wall times, malformed parsed
 cells, or engine/runtime timezone-rule disagreements. Backend conversion errors
 still surface during the requested query; temporal provenance remains in the Artifact.
+
+
+### Complete members and typed attributes
+
+Member identity includes the complete declared key, including composite keys.
+Root membership does not deduplicate rows or choose a latest available version.
+For a versioned customer Entity, select membership and attribute versions
+independently:
+
+```python
+from datetime import datetime, timezone
+
+anchor = datetime(2026, 8, 1, tzinfo=timezone.utc)
+customers = session.members(ms.ref.entity("sales.customer"), at=anchor)
+region = customers.read(ms.ref.dimension("sales.customer.region"), at=anchor)
+# A declared @ms.measure row expression uses the same read entry point:
+score = customers.read(ms.ref.measure("sales.customer.score"), at=anchor)
+assert isinstance(region, mv.LogicalCategoryRelation)
+selected = region.where(region.value.eq("west")).members()
+selected.execute().show()
+```
+
+`at=scope.before_end` means immediately before the exact end, without subtracting
+a timestamp tick. An absent exact snapshot yields no represented members; it
+never carries an older row forward. Unversioned Entities omit `at`.
+
+`read` returns a Numeric relation for a Measure, a Category or Boolean relation
+for a Dimension, and a Temporal relation for a TimeDimension. Integer indicators
+remain categorical. Native dates stay dates; aware timestamps retain their
+physical precision and timezone. This slice supports direct columns and bound
+row-expression Measures on
+DuckDB tables/Parquet; unsupported parsing and naive timestamp conversion reject.
+Use an explicit `via=relationship` for another owner's single-valued attribute.
+Missing coverage and multiple matching rows reject; a represented null remains
+Null. Inspect the structured repair instead of taking the first row or filling zero.
+
+After execution, `.where(...).members()` uses retained values and complete
+Subject keys. It supports fixed continuation after the source is offline, but
+cannot introduce a new attribute read. Recover with `session.artifact(ref)` and
+inspect `.contract()` for the actual result's available operations. Artifacts
+from an earlier frozen-definition contract are rejected rather than migrated.

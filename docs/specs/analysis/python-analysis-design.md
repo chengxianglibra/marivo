@@ -1558,3 +1558,48 @@ values alone never establish state or semantic equivalence.
 No target here becomes a public export, live Help target or dynamic action until
 its implementation package aligns native signatures, export snapshots, independent
 Help reachability/budgets, structured repairs, CLI, and both latest site editions.
+
+
+## R5.2 connected member and scalar-read slice
+
+R5.2 connects the frozen member/read signatures above to the existing graph and
+Store 7 route. Entity identities retain every ordered string/int64 primary-key
+column. `members(at=...)` requires an aware datetime or `TimeScope.before_end`
+for versioned Entities and rejects an anchor for unversioned Entities. Native
+date/timestamp snapshot and validity axes use exact declared version selection.
+The member version is never an implicit attribute version: historical `read`
+requires its own `at`. The direct-own-Dimension grouping shorthand inherits the
+already selected member version without discovering another property owner.
+
+The qualified DuckDB table/Parquet scalar reads are direct-column or bound
+row-expression Measures (int64/float64), Dimensions (string/int64 or native boolean), and
+TimeDimensions (native date or aware timestamp). An integer 0/1 Dimension stays
+categorical. Computed Measures retain their ordered expression and bound-field
+fingerprints; source execution evaluates them on the scoped owner rows through
+the existing Semantic/Ibis binder, while fixed continuation uses retained values.
+Unqualified parsing, naive attribute
+timestamp conversion, Decimal and Duration do not acquire qualification from
+this slice. Broader temporal conversion and numeric qualification remain with
+R5.5/R5.6; there is no coercion or fallback. Source physical schema and the exact
+realized Arrow schema remain part of Runtime authority.
+
+A scalar read accepts a direct owner, one directed to-one Relationship Ref, or
+one explicit member-rooted `mv.routes(mv.route(...))` path. Every relationship
+key is used; static multiplicity, role and version errors reject before source
+binding. Missing mappings and multiple actual matching rows reject before
+publication, including for a declared to-one path. Checks concern the current
+consumer domain, not unrelated owner identities. A represented null attribute
+is a Null Cell, distinct from missing owner coverage.
+
+Boolean/Temporal logical, materialized and selected variants join the existing
+Relation protocol. Numeric read selection uses SelectedNumeric variants rather
+than Difference labels. `members()` on these relations consumes their Subject
+mapping and returns a logical source or logical fixed domain according to the
+actual dependency binding. Source members project complete keys directly;
+non-injective multi-instance mappings take the complete-tuple set image. Fixed
+continuations cannot introduce external attributes or reload current Semantic.
+
+Public-type Help remains independently resolvable and progressive; its outgoing
+route budget is 12 to include the member projection and selection operations.
+This does not enlarge root or capability-page budgets. The R5 migration ledger
+and R5.2 evidence index own measured execution status, not this contract text.

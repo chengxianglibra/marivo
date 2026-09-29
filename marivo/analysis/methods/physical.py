@@ -244,3 +244,16 @@ class Implementation:
                 self.precision,
                 "Qualify the exact Decimal shape without float conversion.",
             )
+
+
+def matches_arrow_scalar(dtype: object, scalar: ScalarType) -> bool:
+    """Check the scalar family; exact temporal metadata is frozen in the receipt schema."""
+    import pyarrow as pa
+
+    if not isinstance(dtype, pa.DataType):
+        return False
+    if scalar.name == "timestamp":
+        return bool(pa.types.is_timestamp(dtype))
+    if scalar.name == "date":
+        return bool(pa.types.is_date(dtype))
+    return bool(dtype == pa.type_for_alias(scalar.name))
