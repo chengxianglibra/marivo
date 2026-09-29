@@ -59,7 +59,7 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.core.time_grid import GridVersionSelection
 from marivo.analysis.methods.builtin import admit
-from marivo.analysis.methods.physical import ScalarType
+from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 from marivo.datasource.adapters import BoundSource, PhysicalRequirement
 from marivo.datasource.ir import ParquetSourceIR, TableSourceIR
@@ -67,7 +67,12 @@ from marivo.semantic._expression_binding import (
     CompiledExpressionSidecar,
     evaluate_expression_body,
 )
-from marivo.semantic.ir import TargetDimensionContract, TargetSnapshotVersion, TargetValidityVersion
+from marivo.semantic.ir import (
+    DIRECT_ONLY_AGGREGATES,
+    TargetDimensionContract,
+    TargetSnapshotVersion,
+    TargetValidityVersion,
+)
 
 
 def _fail(expected: str, received: str) -> NoReturn:
@@ -272,7 +277,13 @@ def coordinate_state_type(part: CoordinateStatePart) -> dt.Array:
                 *(
                     (
                         name,
-                        dt.dtype(part.value_type) if name in ("sum", "numerator_sum") else dt.int64,
+                        dt.Decimal(38, (dt.dtype(part.value_type).scale or 0) * 2)
+                        if name == "weighted_numerator" and part.value_type.startswith("decimal(")
+                        else dt.dtype(
+                            "int64" if part.value_type.startswith("interval(") else part.value_type
+                        )
+                        if "count" not in name
+                        else dt.int64,
                     )
                     for name in part.components
                 ),
@@ -560,6 +571,11 @@ def _source_fields(admitted: GraphPlan, binding: SourceBinding) -> tuple[str, ..
                 if relationship.to_entity_ref.path == binding.leaf.definition.ref.path:
                     fields.update(key[1] for key in relationship.keys)
         elif isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
+            if (
+                isinstance(params, ObserveMetric)
+                and params.contribution.path == binding.leaf.definition.ref.path
+            ):
+                fields.update(params.distinct_columns)
             if (
                 isinstance(params, ObserveWeightedMean)
                 and params.contribution.path == binding.leaf.definition.ref.path
@@ -1136,7 +1152,7 @@ def _occurrence_combine(
                         (magnitude if offset == 0 else support).removeprefix("original_state__")
                     ]
                     if term == index
-                    else ibis.literal(0, type="int64")
+                    else ibis.literal(0, type=raw[magnitude if offset == 0 else support].type())
                     for term in range(len(inputs))
                     for offset, name in enumerate(coordinate.components[term * 2 : term * 2 + 2])
                 },
@@ -1144,7 +1160,10 @@ def _occurrence_combine(
             branches.append(branch)
         union = branches[0].union(*branches[1:], distinct=False)
         merged = union.group_by(*keys, *coordinate.columns).aggregate(
-            **{name: union[name].sum().fill_null(0).cast("int64") for name in coordinate.components}
+            **{
+                name: union[name].sum().fill_null(0).cast(union[name].type())
+                for name in coordinate.components
+            }
         )
         cells = ibis.struct(
             {name: merged[name] for name in (*coordinate.columns, *coordinate.components)}
@@ -1181,12 +1200,16 @@ def _linear_finish(table: ir.Table, layout: RelationLayout, signature: Signature
     for index, empty in enumerate(state.empty_rules):
         magnitude, support = state.components[2 * index : 2 * index + 2]
         sign = 1 if magnitude.startswith("plus_") else -1
-        total = total + table[f"original_state__{magnitude}"] * sign
+        component = table[f"original_state__{magnitude}"]
+        if component.type().is_integer():
+            component = component.cast("decimal(38,0)")
+        total = total + component * sign
         defined = defined & (
             (table[f"original_state__{support}"] > 0) | ibis.literal(empty == "zero")
         )
+    output_type = table["original_state__" + state.components[0]].type()
     return table.mutate(
-        value=ibis.ifelse(defined, total.cast("int64"), ibis.null().cast("int64")),
+        value=ibis.ifelse(defined, total.cast(output_type), ibis.null().cast(output_type)),
         cell_tag=ibis.ifelse(defined, "defined", "null"),
         cell_reason=ibis.ifelse(defined, ibis.null().cast("string"), "empty_contribution"),
         coverage__complete=ibis.literal(True),
@@ -1206,7 +1229,7 @@ def _state_magnitude(state: OriginalStatePart) -> tuple[str, str]:
     """Return one component's additive column and its contributing-row count."""
     if state.components == ("count",):
         return "original_state__count", "original_state__count"
-    if state.components == ("sum", "non_null_count"):
+    if state.components in (("sum", "non_null_count"), ("sum", "non_null_count", "absolute_sum")):
         return "original_state__sum", "original_state__non_null_count"
     _fail("a registered additive original state", repr(state.components))
 
@@ -1223,10 +1246,50 @@ def _original_state(signature: Signature) -> OriginalStatePart:
     return next(part for part in signature.parts if isinstance(part, OriginalStatePart))
 
 
+def _division_value(
+    table: ir.Table,
+    numerator: str,
+    denominator: str,
+    *,
+    scale: int | None = None,
+    duration: bool = False,
+) -> tuple[ir.Table, ir.Value]:
+    ntype, dtype = table[numerator].type(), table[denominator].type()
+    if duration:
+        from marivo.analysis.compiler.numeric_sql import decimal_divide
+
+        table = decimal_divide(table, numerator, denominator, dt.Decimal(38, 0))
+        return table, table.numeric_result.cast("int64")
+    if isinstance(ntype, dt.Decimal):
+        from marivo.analysis.compiler.numeric_sql import decimal_divide
+
+        result_scale = (
+            scale
+            if scale is not None
+            else max(ntype.scale or 0, dtype.scale or 0 if isinstance(dtype, dt.Decimal) else 0, 6)
+        )
+        table = decimal_divide(table, numerator, denominator, dt.Decimal(38, result_scale))
+        return table, table.numeric_result
+    backends, _ = table._find_backends()
+    if (
+        ntype.is_integer()
+        and dtype.is_integer()
+        and len(backends) == 1
+        and backends[0].name == "duckdb"
+    ):
+        from marivo.analysis.compiler.numeric_sql import integer_divide
+
+        table = integer_divide(table, numerator, denominator)
+        return table, table.numeric_result
+    return table, table[numerator].cast("float64") / table[denominator]
+
+
 def _ratio_finish(table: ir.Table, layout: RelationLayout, signature: Signature) -> ir.Table:
     state = _original_state(signature)
-    numerator = table.original_state__numerator_sum.cast("int64")
-    denominator = table.original_state__denominator_sum.cast("int64")
+    table, result = _division_value(
+        table, "original_state__numerator_sum", "original_state__denominator_sum"
+    )
+    denominator = table.original_state__denominator_sum
     contribution = (
         (table.original_state__numerator_non_null_count > 0)
         | ibis.literal(state.empty_rules[0] == "zero")
@@ -1236,14 +1299,12 @@ def _ratio_finish(table: ir.Table, layout: RelationLayout, signature: Signature)
     )
     defined = contribution & (denominator != 0)
     return table.mutate(
-        value=ibis.ifelse(
-            defined, numerator.cast("float64") / denominator, ibis.null().cast("float64")
-        ),
+        value=defined.ifelse(result, ibis.null().cast(result.type())),
         cell_tag=ibis.ifelse(defined, "defined", ibis.ifelse(contribution, "undefined", "null")),
         cell_reason=ibis.ifelse(
             defined,
             ibis.null().cast("string"),
-            ibis.ifelse(contribution, "zero_denominator", "empty_contribution").cast("string"),
+            ibis.ifelse(contribution, "zero_denominator", "empty_contribution"),
         ),
         coverage__complete=ibis.literal(True),
     ).select(*layout.columns)
@@ -1279,6 +1340,8 @@ def _original_ratio(
             "original_state__denominator_non_null_count": b[second_support],
         }
     )
+    if "denominator_absolute_sum" in _original_state(stage.node.signature).components:
+        fields["original_state__denominator_absolute_sum"] = b.original_state__absolute_sum
     if any(isinstance(part, SubjectPart) for part in stage.node.signature.parts):
         fields.update({f"subject__key_{i}": a[key] for i, key in enumerate(keys)})
     base = joined.select(**fields)
@@ -1297,6 +1360,11 @@ def _original_ratio(
         second = second.select(
             *keys,
             **{name: second.group[name] for name in coordinate.columns},
+            **(
+                {"denominator_absolute_sum": second.group.absolute_sum}
+                if "denominator_absolute_sum" in coordinate.components
+                else {}
+            ),
             denominator_sum=second.group[second_sum.removeprefix("original_state__")],
             denominator_non_null_count=second.group[
                 second_support.removeprefix("original_state__")
@@ -1308,6 +1376,11 @@ def _original_ratio(
             **{name: first[name].coalesce(second[name]) for name in coordinate.columns},
             numerator_sum=first.numerator_sum.fill_null(0),
             numerator_non_null_count=first.numerator_non_null_count.fill_null(0),
+            **(
+                {"denominator_absolute_sum": second.denominator_absolute_sum.fill_null(0)}
+                if "denominator_absolute_sum" in coordinate.components
+                else {}
+            ),
             denominator_sum=second.denominator_sum.fill_null(0),
             denominator_non_null_count=second.denominator_non_null_count.fill_null(0),
         )
@@ -1342,16 +1415,23 @@ def _original_ratio(
     return table, layout
 
 
-def _weighted_finish(table: ir.Table, layout: RelationLayout) -> ir.Table:
+def _weighted_finish(
+    table: ir.Table, layout: RelationLayout, *, duration: bool = False
+) -> ir.Table:
+    weight_type = table.original_state__weight_sum.type()
+    scale = max(weight_type.scale or 0, 6) if isinstance(weight_type, dt.Decimal) else None
+    table, result = _division_value(
+        table,
+        "original_state__weighted_numerator",
+        "original_state__weight_sum",
+        scale=scale,
+        duration=duration,
+    )
     support = table.original_state__non_null_pair_count
     denominator = table.original_state__weight_sum
     defined = (support > 0) & (denominator != 0)
     return table.mutate(
-        value=ibis.ifelse(
-            defined,
-            table.original_state__weighted_numerator.cast("float64") / denominator,
-            ibis.null().cast("float64"),
-        ),
+        value=defined.ifelse(result, ibis.null().cast(result.type())),
         cell_tag=ibis.ifelse(defined, "defined", "null"),
         cell_reason=ibis.ifelse(
             defined,
@@ -1410,11 +1490,27 @@ def _fold_rollup(
         *output_keys,
         "period",
         sample_time=fields[0].cast("timestamp"),
-        sample_sum=fields[1].cast("float64"),
+        sample_sum=fields[1]
+        .substr(2)
+        .cast(
+            next(
+                (
+                    "int64"
+                    if n.parameters.amount_type.startswith("interval(")
+                    else str(dt.Decimal(38, dt.dtype(n.parameters.amount_type).scale))
+                    if n.parameters.amount_type.startswith("decimal(")
+                    else n.parameters.amount_type
+                )
+                for n in topology(source.node)
+                if isinstance(n, MethodNode)
+                and isinstance(n.parameters, ObserveMetric)
+                and n.parameters.fold is not None
+            )
+        ),
         sample_count=fields[2].cast("int64"),
     )
     merged = samples.group_by(*output_keys, "period", "sample_time").aggregate(
-        sample_sum=samples.sample_sum.sum(),
+        sample_sum=samples.sample_sum.sum().cast(samples.sample_sum.type()),
         sample_count=samples.sample_count.sum(),
         actual=samples.count(),
     )
@@ -1441,7 +1537,13 @@ def _fold_rollup(
     targets = (
         base.select(*output_keys).distinct() if output_keys else base.aggregate(n=base.count())
     )
-    table = _fold_samples(combined, targets, output_keys, kind)
+    table = _fold_samples(
+        combined,
+        targets,
+        output_keys,
+        kind,
+        duration=isinstance(stage.node.value_type, DurationType),
+    )
     layout = canonical_layout(stage.node.signature, has_value=True)
     return _reduction_subjects(table, stage.node.signature).select(*layout.columns), layout
 
@@ -1509,18 +1611,49 @@ def _original_sum(
                 coverage__complete=ibis.literal(True),
             )
     grouped = table.group_by(*keys) if keys else table
+    if params.method in ("min", "max"):
+        name = "original_state__" + params.method
+        values = (table.original_state__non_null_count > 0).ifelse(
+            table[name], ibis.null().cast(table[name].type())
+        )
+        reduced = grouped.aggregate(
+            **{name: (values.min() if params.method == "min" else values.max()).fill_null(0)},
+            original_state__non_null_count=table.original_state__non_null_count.sum().fill_null(0),
+            coverage__complete=table.coverage__complete.all().fill_null(True),
+        )
+        output_type = stage.node.value_type
+        assert isinstance(output_type, (ScalarType, DecimalType, DurationType))
+        reduced = reduced.mutate(
+            **{
+                name: reduced[name].cast(
+                    "int64" if isinstance(output_type, DurationType) else output_type.name
+                )
+            }
+        )
+        support = reduced.original_state__non_null_count
+        result = reduced.mutate(
+            value=(support > 0).ifelse(reduced[name], ibis.null().cast(reduced[name].type())),
+            cell_tag=(support > 0).ifelse("defined", "null"),
+            cell_reason=(support > 0).ifelse(ibis.null().cast("string"), "empty_contribution"),
+        )
+        target = canonical_layout(stage.node.signature, has_value=True)
+        return _reduction_subjects(result, stage.node.signature).select(*target.columns), target
     if stage.node.method.name == "state_rollup.mean":
         reduced = grouped.aggregate(
             **{
                 f"original_state__{name}": table[f"original_state__{name}"]
                 .sum()
                 .fill_null(0)
-                .cast("int64")
+                .cast(table[f"original_state__{name}"].type())
                 for name in ("sum", "non_null_count", "row_count")
             }
         )
         target = canonical_layout(stage.node.signature, has_value=True)
-        return _mean_finish(_reduction_subjects(reduced, stage.node.signature), target), target
+        return _mean_finish(
+            _reduction_subjects(reduced, stage.node.signature),
+            target,
+            duration=isinstance(stage.node.value_type, DurationType),
+        ), target
     if stage.node.method.name in ("state_rollup.weighted_mean", "state_rollup.linear"):
         state = _original_state(stage.node.signature)
         reduced = grouped.aggregate(
@@ -1528,7 +1661,7 @@ def _original_sum(
                 f"original_state__{name}": table[f"original_state__{name}"]
                 .sum()
                 .fill_null(0)
-                .cast("int64")
+                .cast(table[f"original_state__{name}"].type())
                 for name in state.components
             }
         )
@@ -1538,17 +1671,19 @@ def _original_sum(
                 _reduction_subjects(reduced, stage.node.signature), target, stage.node.signature
             )
             if stage.node.method.name == "state_rollup.linear"
-            else _weighted_finish(_reduction_subjects(reduced, stage.node.signature), target)
+            else _weighted_finish(
+                _reduction_subjects(reduced, stage.node.signature),
+                target,
+                duration=isinstance(stage.node.value_type, DurationType),
+            )
         ), target
     if stage.node.method.name == "state_rollup.ratio":
         reduced = grouped.aggregate(
             **{
                 name: table[name].sum().fill_null(0)
                 for name in (
-                    "original_state__numerator_sum",
-                    "original_state__numerator_non_null_count",
-                    "original_state__denominator_sum",
-                    "original_state__denominator_non_null_count",
+                    "original_state__" + component
+                    for component in _original_state(stage.node.signature).components
                 )
             }
         )
@@ -1568,8 +1703,17 @@ def _original_sum(
             cell_reason=ibis.null().cast("string"),
         ).select(*target_count.columns), target_count
     value_type = stage.node.value_type
-    assert isinstance(value_type, ScalarType)
+    assert isinstance(value_type, (ScalarType, DecimalType, DurationType))
     reduced = grouped.aggregate(
+        **(
+            {
+                "original_state__absolute_sum": table.original_state__absolute_sum.sum().fill_null(
+                    0.0
+                )
+            }
+            if "absolute_sum" in _original_state(stage.node.signature).components
+            else {}
+        ),
         original_state__sum=table.original_state__sum.sum().fill_null(
             0.0 if value_type.name == "float64" else 0
         ),
@@ -1579,14 +1723,18 @@ def _original_sum(
     support = reduced.original_state__non_null_count
     defined = support > 0 if stage.node.method.name == "state_rollup" else ibis.literal(True)
     value_type = stage.node.value_type
-    assert isinstance(value_type, ScalarType)
+    assert isinstance(value_type, (ScalarType, DecimalType, DurationType))
     target = canonical_layout(stage.node.signature, has_value=True)
     result = reduced.mutate(
-        original_state__sum=reduced.original_state__sum.cast(value_type.name),
+        original_state__sum=reduced.original_state__sum.cast(
+            "int64" if isinstance(value_type, DurationType) else value_type.name
+        ),
         value=ibis.ifelse(
             defined,
-            reduced.original_state__sum.cast(value_type.name),
-            ibis.null().cast(value_type.name),
+            reduced.original_state__sum.cast(
+                "int64" if isinstance(value_type, DurationType) else value_type.name
+            ),
+            ibis.null().cast("int64" if isinstance(value_type, DurationType) else value_type.name),
         ),
         cell_tag=ibis.ifelse(defined, "defined", "null"),
         cell_reason=ibis.ifelse(defined, ibis.null().cast("string"), "empty_contribution"),
@@ -1604,9 +1752,14 @@ def _contribution_rows(
     by_entity = {binding.leaf.definition.ref.path: binding for binding in bindings}
     root_binding = by_entity[params.contribution.path]
     root = _staged_source(root_binding, relations).view()
-    if isinstance(params, (ObserveMetric, ObserveWeightedMean)) and root[
-        params.amount_column
-    ].type().copy(nullable=True) != dt.dtype(params.amount_type):
+    if (
+        isinstance(params, (ObserveMetric, ObserveWeightedMean))
+        and root[params.amount_column].type().copy(nullable=True) != dt.dtype(params.amount_type)
+        and not (
+            params.amount_type.startswith("interval(")
+            and root[params.amount_column].type().is_int64()
+        )
+    ):
         _fail("the exact contribution amount type", str(root[params.amount_column].type()))
     root_filters = _owner_predicate(root, params.filters, params.contribution.path)
     if root_filters is not None:
@@ -1624,8 +1777,35 @@ def _contribution_rows(
             }
         ),
     }
+    if isinstance(params, (ObserveMetric, ObserveWeightedMean)) and params.amount_type.startswith(
+        "interval("
+    ):
+        amount = root[params.amount_column]
+        if isinstance(amount.type(), dt.Interval):
+            from marivo.analysis.compiler.numeric_sql import duration_ticks, interval_part
+
+            native = root_binding.source.relation
+            raw_amount = native[params.amount_column]
+            invalid = (
+                (interval_part(ibis.literal("year"), raw_amount) != 0)
+                | (interval_part(ibis.literal("month"), raw_amount) != 0)
+                | (interval_part(ibis.literal("day"), raw_amount) != 0)
+            )
+            checks.append(
+                IntegrityCheck(
+                    stage.output,
+                    "fixed elapsed Duration without calendar components",
+                    native.filter(invalid).select(violation=ibis.literal(1)),
+                    (root_binding.leaf.identity,),
+                )
+            )
+            fields["amount"] = duration_ticks(amount)
+    if isinstance(params, ObserveMetric) and params.distinct_columns:
+        fields["amount"] = ibis.struct({name: root[name] for name in params.distinct_columns})
     if isinstance(params, ObserveWeightedMean):
-        if root[params.weight_column].type().copy(nullable=True) != dt.int64:
+        if root[params.weight_column].type().copy(nullable=True) != dt.dtype(
+            "int64" if params.amount_type.startswith("interval(") else params.amount_type
+        ):
             _fail("int64 weight column", str(root[params.weight_column].type()))
         fields["weight"] = root[params.weight_column]
     if params.event.entity_ref.path == params.contribution.path:
@@ -1745,12 +1925,24 @@ def _slice_predicate(
 
 
 def _fold_samples(
-    samples: ir.Table, targets: ir.Table, keys: tuple[str, ...], kind: str
+    samples: ir.Table,
+    targets: ir.Table,
+    keys: tuple[str, ...],
+    kind: str,
+    *,
+    duration: bool = False,
 ) -> ir.Table:
     """Fold already spatially aggregated instants and retain every sample."""
     token = (
         samples.sample_time.cast("string")
         + "~"
+        + ibis.literal(
+            "d:"
+            if isinstance(samples.sample_sum.type(), dt.Decimal)
+            else "i:"
+            if samples.sample_sum.type().is_integer()
+            else "f:"
+        )
         + samples.sample_sum.cast("string")
         + "~"
         + samples.sample_count.cast("string")
@@ -1771,20 +1963,25 @@ def _fold_samples(
         finished = (ordered.group_by(*keys) if keys else ordered).aggregate(
             value=ordered.sample_value.max()
         )
-    else:
-        aggregate = (
-            defined.sample_sum.mean()
-            if kind == "mean"
-            else defined.sample_sum.min()
-            if kind == "min"
-            else defined.sample_sum.max()
+    elif kind == "mean":
+        grouped = defined.group_by(*keys) if keys else defined
+        finished = grouped.aggregate(
+            numeric_sum=defined.sample_sum.sum().cast(defined.sample_sum.type()),
+            numeric_count=defined.count(),
         )
-        finished = (defined.group_by(*keys) if keys else defined).aggregate(value=aggregate)
+        finished, value = _division_value(
+            finished, "numeric_sum", "numeric_count", duration=duration
+        )
+        finished = finished.select(*keys, value=value)
+    else:
+        finished = (defined.group_by(*keys) if keys else defined).aggregate(
+            value=defined.sample_sum.min() if kind == "min" else defined.sample_sum.max()
+        )
     if keys:
         table = targets.left_join(state, list(keys)).left_join(finished, list(keys))
         result = table.select(
             **{k: targets[k] for k in keys},
-            value=finished.value.cast("float64"),
+            value=finished.value,
             original_state__samples=state.original_state__samples.fill_null(""),
         )
     else:
@@ -1945,14 +2142,66 @@ def _observe(
             )
         )
     target = canonical_layout(stage.node.signature, has_value=True)
-    if isinstance(params, ObserveWeightedMean):
+    if isinstance(params, ObserveMetric) and params.method in DIRECT_ONLY_AGGREGATES:
+        if params.method == "count_distinct":
+            statistic = values.amount.nunique()
+        elif params.method == "approx_count_distinct":
+            statistic = values.amount.approx_nunique()
+        elif params.method in ("median", "percentile"):
+            statistic = values.amount.quantile(0.5 if params.quantile is None else params.quantile)
+        else:
+            statistic = values.amount.approx_quantile(
+                0.5 if params.quantile is None else params.quantile
+            )
+        summed = values.group_by(*target_keys).aggregate(statistic=statistic)
+        dense = targets.left_join(summed, list(target_keys))
+        value = summed.statistic
+        if params.method in ("count_distinct", "approx_count_distinct"):
+            value = value.fill_null(0).cast("int64")
+        elif params.method in ("approx_median", "approx_percentile"):
+            value = value.cast("float64")
+        table = dense.select(
+            **{key: targets[key] for key in target_keys},
+            **{f"subject__key_{i}": targets[key] for i, key in enumerate(member_keys)},
+            value=value,
+            cell_tag=value.notnull().ifelse("defined", "null"),
+            cell_reason=value.notnull().ifelse(ibis.null().cast("string"), "empty_contribution"),
+            coverage__complete=ibis.literal(True),
+        )
+    elif isinstance(params, ObserveWeightedMean):
+        input_type = dt.dtype(
+            "int64" if params.amount_type.startswith("interval(") else params.amount_type
+        )
+        product_type = (
+            str(dt.Decimal(38, (input_type.scale or 0) * 2))
+            if isinstance(input_type, dt.Decimal)
+            else str(input_type)
+        )
+        weight_type = (
+            str(dt.Decimal(38, input_type.scale))
+            if isinstance(input_type, dt.Decimal)
+            else str(input_type)
+        )
+        if params.amount_type.startswith("interval("):
+            checks.append(
+                IntegrityCheck(
+                    stage.output,
+                    "nonnegative Duration weights",
+                    values.filter(values.weight < 0),
+                    source_ids,
+                )
+            )
         pair = values.amount.notnull() & values.weight.notnull()
         summed = values.group_by(*target_keys).aggregate(
-            weighted_numerator=pair.ifelse(values.amount * values.weight, 0)
+            absolute_weight_sum=pair.ifelse(values.weight.abs(), 0).sum().fill_null(0),
+            weighted_numerator=pair.ifelse(
+                values.amount.cast(weight_type) * values.weight.cast(weight_type), 0
+            )
+            .cast(product_type)
             .sum()
             .fill_null(0)
-            .cast("int64"),
-            weight_sum=pair.ifelse(values.weight, 0).sum().fill_null(0).cast("int64"),
+            .cast(product_type),
+            weight_sum=pair.ifelse(values.weight, 0).sum().fill_null(0).cast(weight_type),
             non_null_pair_count=pair.cast("int64").sum().fill_null(0).cast("int64"),
             row_count=values.count().cast("int64"),
         )
@@ -1961,8 +2210,16 @@ def _observe(
             **{key: targets[key] for key in target_keys},
             **{f"subject__key_{i}": targets[key] for i, key in enumerate(member_keys)},
             **{
-                f"original_state__{name}": summed[name].fill_null(0).cast("int64")
-                for name in ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count")
+                f"original_state__{name}": summed[name]
+                .fill_null(0)
+                .cast(
+                    product_type
+                    if name == "weighted_numerator"
+                    else weight_type
+                    if name in ("weight_sum", "absolute_weight_sum")
+                    else "int64"
+                )
+                for name in _original_state(stage.node.signature).components
             },
         )
         table = _weighted_finish(
@@ -1971,13 +2228,31 @@ def _observe(
                 target,
                 parts=tuple(p for p in target.parts if not isinstance(p.part, CoordinateStatePart)),
             ),
+            duration=isinstance(stage.node.value_type, DurationType),
         )
     else:
         summed = values.group_by(*target_keys).aggregate(
-            state_sum=values.amount.sum(), support=values.amount.count(), rows=values.count()
+            absolute_sum=values.amount.abs().sum().fill_null(0.0),
+            state_sum=values.amount.min()
+            if isinstance(params, ObserveMetric) and params.method == "min"
+            else values.amount.max()
+            if isinstance(params, ObserveMetric) and params.method == "max"
+            else values.amount.sum(),
+            support=values.amount.count(),
+            rows=values.count(),
         )
         dense = targets.left_join(summed, list(target_keys))
-        amount_type = params.amount_type if isinstance(params, ObserveMetric) else "int64"
+        amount_type = (
+            params.amount_type
+            if isinstance(params, ObserveMetric) and not params.amount_type.startswith("interval(")
+            else "int64"
+        )
+        if isinstance(stage.node.value_type, DecimalType) and isinstance(params, ObserveMetric):
+            amount_type = (
+                str(dt.Decimal(38, dt.dtype(params.amount_type).scale))
+                if params.method in ("sum", "mean")
+                else params.amount_type
+            )
         total = summed.state_sum.fill_null(0.0 if amount_type == "float64" else 0).cast(amount_type)
         support = summed.support.fill_null(0).cast("int64")
         defined = (
@@ -1992,7 +2267,14 @@ def _observe(
             cell_reason=ibis.ifelse(defined, ibis.null().cast("string"), "empty_contribution"),
             original_state__count=support,
             **{f"subject__key_{i}": targets[key] for i, key in enumerate(member_keys)},
+            **(
+                {"original_state__absolute_sum": summed.absolute_sum.fill_null(0.0)}
+                if "absolute_sum" in _original_state(stage.node.signature).components
+                else {}
+            ),
             original_state__sum=total,
+            original_state__min=total,
+            original_state__max=total,
             original_state__non_null_count=support,
             original_state__row_count=summed.rows.fill_null(0).cast("int64"),
             coverage__complete=ibis.literal(True),
@@ -2004,9 +2286,18 @@ def _observe(
                 target,
                 parts=tuple(p for p in target.parts if not isinstance(p.part, CoordinateStatePart)),
             ),
+            duration=isinstance(stage.node.value_type, DurationType),
         )
     if params.coordinates:
-        amount_type = params.amount_type if isinstance(params, ObserveMetric) else "int64"
+        amount_type = (
+            params.amount_type
+            if isinstance(params, (ObserveMetric, ObserveWeightedMean))
+            else "int64"
+        )
+        if amount_type.startswith("interval("):
+            amount_type = "int64"
+        if amount_type.startswith("decimal("):
+            amount_type = str(dt.Decimal(38, dt.dtype(amount_type).scale))
         part = next(p for p in stage.node.signature.parts if isinstance(p, CoordinateStatePart))
         checks.append(
             IntegrityCheck(
@@ -2019,17 +2310,21 @@ def _observe(
         if isinstance(params, ObserveWeightedMean):
             pair = values.amount.notnull() & values.weight.notnull()
             grouped = values.group_by(*target_keys, *part.columns).aggregate(
+                absolute_weight_sum=pair.ifelse(values.weight.abs(), 0).sum().fill_null(0),
                 weighted_numerator=pair.ifelse(values.amount * values.weight, 0)
                 .sum()
                 .fill_null(0)
-                .cast("int64"),
-                weight_sum=pair.ifelse(values.weight, 0).sum().fill_null(0).cast("int64"),
+                .cast(product_type),
+                weight_sum=pair.ifelse(values.weight, 0).sum().fill_null(0).cast(weight_type),
                 non_null_pair_count=pair.cast("int64").sum().fill_null(0).cast("int64"),
                 row_count=values.count().cast("int64"),
             )
         else:
             grouped = values.group_by(*target_keys, *part.columns).aggregate(
+                absolute_sum=values.amount.abs().sum().fill_null(0).cast(amount_type),
                 sum=values.amount.sum().fill_null(0).cast(amount_type),
+                min=values.amount.min().fill_null(0).cast(amount_type),
+                max=values.amount.max().fill_null(0).cast(amount_type),
                 non_null_count=values.amount.count().cast("int64"),
                 count=values.count().cast("int64"),
                 row_count=values.count().cast("int64"),
@@ -2053,23 +2348,22 @@ def _observe(
             ),
         )
     if isinstance(params, ObserveMetric) and params.fold is not None:
-        if params.amount_type == "int64":
-            exact = values.group_by(*target_keys, "sample_time").aggregate(
-                total=values.amount.sum()
-            )
-            checks.append(
-                IntegrityCheck(
-                    stage.output,
-                    "integer spatial fold sums exactly representable as float64",
-                    exact.filter(exact.total.abs() > 2**53),
-                    source_ids,
-                )
-            )
+        sample_type = dt.dtype(
+            "int64" if params.amount_type.startswith("interval(") else params.amount_type
+        )
+        if isinstance(sample_type, dt.Decimal):
+            sample_type = dt.Decimal(38, sample_type.scale)
         samples = values.group_by(*target_keys, "sample_time").aggregate(
-            sample_sum=values.amount.sum().cast("float64").fill_null(0.0),
+            sample_sum=values.amount.sum().cast(sample_type).fill_null(0),
             sample_count=values.amount.count(),
         )
-        table = _fold_samples(samples, targets, target_keys, params.fold)
+        table = _fold_samples(
+            samples,
+            targets,
+            target_keys,
+            params.fold,
+            duration=isinstance(stage.node.value_type, DurationType),
+        )
         table = _reduction_subjects(table, stage.node.signature)
     table = table.select(*target.columns)
     if grid is not None:
@@ -2641,14 +2935,13 @@ def _complete_groups(
     return joined.select(**fields).select(*layout.columns), layout
 
 
-def _mean_finish(table: ir.Table, layout: RelationLayout) -> ir.Table:
+def _mean_finish(table: ir.Table, layout: RelationLayout, *, duration: bool = False) -> ir.Table:
+    table, result = _division_value(
+        table, "original_state__sum", "original_state__non_null_count", duration=duration
+    )
     support = table.original_state__non_null_count
     return table.mutate(
-        value=ibis.ifelse(
-            support > 0,
-            table.original_state__sum.cast("float64") / support,
-            ibis.null().cast("float64"),
-        ),
+        value=(support > 0).ifelse(result, ibis.null().cast(result.type())),
         cell_tag=ibis.ifelse(support > 0, "defined", "null"),
         cell_reason=ibis.ifelse(support > 0, ibis.null().cast("string"), "empty_contribution"),
         coverage__complete=ibis.literal(True),

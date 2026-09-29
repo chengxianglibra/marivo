@@ -1438,9 +1438,9 @@ bound member version as its explicit property dependency. It cannot search for
 cross-Entity attributes or inherit an observation window.
 
 The observe input alias is exactly
-`MetricInput = Ref[MetricKind] | MetricEntry | RuntimeMetricExpr | QuantileMetricInput`;
-the code alias of that name in `observation/contracts.py` is the sole owner of
-this union. Each member, time-member and grouped-domain receiver offers these
+`MetricInputValue = Ref[MetricKind] | RuntimeMetricExpr`;
+`public_dsl.py` owns this union. Private legacy observation consumers do not expand
+the public input contract. Each member, time-member and grouped-domain receiver offers these
 mutually exclusive forms:
 
 - `observe(metric: MetricInput, *, during: TimeScope | GridWindow | None = None,

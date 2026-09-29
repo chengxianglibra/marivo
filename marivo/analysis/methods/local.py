@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 
 import pyarrow as pa
 
@@ -12,7 +13,7 @@ from marivo.analysis.compiler.graph_plan import LocalMethodStage
 from marivo.analysis.core.model import Cell, Defined, Null, Undefined, Unknown, reject
 from marivo.analysis.core.rules import AssociationScore, RowState
 from marivo.analysis.methods.builtin import admit
-from marivo.analysis.methods.physical import ScalarType
+from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,7 +283,10 @@ def count(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> CountResult:
             isinstance(c, Defined)
             and not (
                 (
-                    stage.implementation.key.input_types[0] == ScalarType("int64")
+                    (
+                        stage.implementation.key.input_types[0] == ScalarType("int64")
+                        or isinstance(stage.implementation.key.input_types[0], DurationType)
+                    )
                     and type(c.value) is int
                     and -(2**63) <= c.value < 2**63
                 )
@@ -290,6 +294,11 @@ def count(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> CountResult:
                     stage.implementation.key.input_types[0] == ScalarType("float64")
                     and type(c.value) is float
                     and math.isfinite(c.value)
+                )
+                or (
+                    isinstance(stage.implementation.key.input_types[0], DecimalType)
+                    and type(c.value) is Decimal
+                    and c.value.is_finite()
                 )
                 or (
                     stage.implementation.key.input_types[0] == ScalarType("string")

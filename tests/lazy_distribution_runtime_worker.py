@@ -21,7 +21,7 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.operators.attribution import MaterializedAttributionDataset
 from marivo.analysis.operators.delta import MaterializedDeltaDataset
 from marivo.refs import ref
-from marivo.semantic._quantile import QuantileMethod, quantile_metric
+from marivo.semantic._quantile import QuantileMethod, distribution_metric_input
 from tests.lazy_distinct_runtime_worker import frame_rows, rows
 from tests.lazy_distribution_fixtures import (
     CHANNEL,
@@ -54,7 +54,7 @@ def run(
         sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
         current = (
             sources.observe(
-                quantile_metric(METRIC, method=method),
+                distribution_metric_input(METRIC, method=method),
                 time_scope=time_scope(start="2026-02-02", end="2026-02-04"),
             )
             .with_dimensions(REGION, CHANNEL)
@@ -63,7 +63,7 @@ def run(
         )
         baseline = (
             sources.observe(
-                quantile_metric(METRIC, method=method),
+                distribution_metric_input(METRIC, method=method),
                 time_scope=time_scope(start="2026-01-02", end="2026-01-04"),
             )
             .with_dimensions(REGION, CHANNEL)

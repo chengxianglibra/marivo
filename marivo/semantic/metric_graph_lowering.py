@@ -1700,12 +1700,15 @@ def _normalize_target_graph(
                 _validate_component_slice(registry, condition, metric_id)
         if isinstance(node, AggregateNodeV1):
             if node.target_ref.kind is SemanticKind.ENTITY:
-                if node.agg not in ("count", "count_distinct"):
+                if node.agg not in ("count", "count_distinct", "approx_count_distinct"):
                     _target_metric_error(
                         metric_id, "count or count_distinct for an Entity target", role
                     )
                 target_entity = normalize_target_entity(registry, node.target_ref.path)
-                if node.agg == "count_distinct" and not target_entity.identity_signature:
+                if (
+                    node.agg in ("count_distinct", "approx_count_distinct")
+                    and not target_entity.identity_signature
+                ):
                     _target_metric_error(
                         metric_id, "a declared Entity identity for distinct count", role
                     )
@@ -1724,7 +1727,7 @@ def _normalize_target_graph(
                 if isinstance(additivity, SemiAdditive):
                     status_time_dimension = _ref_payload("time_dimension", additivity.over)
             if (
-                node.agg not in ("count", "count_distinct")
+                node.agg not in ("count", "count_distinct", "approx_count_distinct")
                 and data_type != "unknown"
                 and not dt.dtype(data_type).is_numeric()
             ):
@@ -1761,11 +1764,11 @@ def _normalize_target_graph(
                     )
                 )
                 state = ("sum", "non_null_count", "row_count")
-            elif node.agg in ("count", "count_distinct"):
+            elif node.agg in ("count", "count_distinct", "approx_count_distinct"):
                 output_type = "int64"
                 state = ("count" if node.agg == "count" else "value", "row_count")
                 unit = None
-                if node.agg == "count_distinct":
+                if node.agg in ("count_distinct", "approx_count_distinct"):
                     source_recompute = True
                     requirements.add("metric.source_distinct@v1")
             elif node.agg in ("min", "max"):
@@ -1806,7 +1809,7 @@ def _normalize_target_graph(
                         empty_policy.kind
                         if empty_policy is not None
                         else "zero"
-                        if node.agg in ("count", "count_distinct")
+                        if node.agg in ("count", "count_distinct", "approx_count_distinct")
                         else "null"
                     ),
                     node.fold,
@@ -1822,7 +1825,8 @@ def _normalize_target_graph(
                     unit=node.unit_override or unit,
                     numeric_method=(
                         "linear_interpolation@v1"
-                        if agg_name in {"median", "percentile"}
+                        if agg_name
+                        in {"median", "percentile", "approx_median", "approx_percentile"}
                         else f"{agg_name}@v1"
                     ),
                     spatial_merge=spatial_merge,
@@ -1841,7 +1845,7 @@ def _normalize_target_graph(
             )
             return (
                 output_type,
-                node.agg not in ("count", "count_distinct"),
+                node.agg not in ("count", "count_distinct", "approx_count_distinct"),
                 node.unit_override or unit,
             )
         if isinstance(node, WeightedMeanAggregateNodeV1):

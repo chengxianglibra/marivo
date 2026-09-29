@@ -85,7 +85,7 @@ from marivo.refs import (
     _create_ref,
 )
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
-from marivo.semantic._quantile import QuantileMetricInput
+from marivo.semantic._quantile import DistributionMetricInput
 from marivo.semantic.catalog import (
     DimensionEntry,
     EntityEntry,
@@ -157,7 +157,7 @@ EntityInput: TypeAlias = Ref[EntityKind] | EntityEntry
 DimensionInput: TypeAlias = Ref[DimensionKind] | DimensionEntry
 TimeDimensionInput: TypeAlias = Ref[TimeDimensionKind] | TimeDimensionEntry
 
-MetricInput: TypeAlias = Ref[MetricKind] | MetricEntry | RuntimeMetricExpr | QuantileMetricInput
+MetricInput: TypeAlias = Ref[MetricKind] | MetricEntry | RuntimeMetricExpr | DistributionMetricInput
 METRIC_SHAPES = (
     "entity",
     "entity-dimension",

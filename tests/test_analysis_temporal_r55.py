@@ -408,7 +408,7 @@ def test_grid_required_state_damage_revokes_continuation(
         if damage == "receipt":
             payload["primary_receipt"]["input_binding"] = "foreign-grid"
         else:
-            payload["method_state"]["contract_version"] = 2
+            payload["method_state"]["contract_version"] += 1
         with store._write() as connection:
             connection.execute(
                 "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",

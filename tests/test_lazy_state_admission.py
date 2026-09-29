@@ -27,7 +27,7 @@ from marivo.analysis.operators.scalar_support import unsupported_reason as scala
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
 from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
-from marivo.semantic._quantile import quantile_metric
+from marivo.semantic._quantile import distribution_metric_input
 from marivo.semantic.errors import SemanticLoadError
 from marivo.semantic.ir import AggKind, CumulativeComposition, SemiAdditive, TimeFoldIR
 from marivo.semantic.validator import Registry
@@ -102,8 +102,8 @@ def _observed_pair(
     }
     return _sources(registry, sidecar).observe(
         [
-            quantile_metric(ref.metric(first), method=methods[first]),
-            quantile_metric(ref.metric(second), method=methods[second]),
+            distribution_metric_input(ref.metric(first), method=methods[first]),
+            distribution_metric_input(ref.metric(second), method=methods[second]),
         ]
     )
 
@@ -159,7 +159,7 @@ def test_qualified_distribution_admits_linear_interpolation_only() -> None:
     """The distribution gate judges the quantile method against the set."""
     registry, sidecar = make_distribution_registry(Path("state-admission.duckdb"))
     observed = _sources(registry, sidecar).observe(
-        quantile_metric(ref.metric("sales.revenue"), method="linear_interpolation@v1")
+        distribution_metric_input(ref.metric("sales.revenue"), method="linear_interpolation@v1")
     )
     assert (
         scalar_reason(
@@ -211,7 +211,7 @@ def test_remote_tdigest_method_remains_unqualified(backend: str) -> None:
     registry, sidecar = make_distribution_registry(Path("state-admission.duckdb"))
     approximate = (
         _sources(registry, sidecar)
-        .observe(quantile_metric(ref.metric("sales.revenue"), method="duckdb_tdigest@v1"))
+        .observe(distribution_metric_input(ref.metric("sales.revenue"), method="duckdb_tdigest@v1"))
         .with_dimensions(ref.dimension("sales.orders.channel"))
         .aggregate()
     )

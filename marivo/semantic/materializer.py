@@ -16,7 +16,6 @@ import ibis.expr.types as ir
 from ibis.expr.operations.relations import SQLQueryResult
 
 from marivo._compat import UTC
-from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceError
 from marivo.datasource.ir import DatasourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.json_source import read_json_source
@@ -29,7 +28,7 @@ from marivo.semantic._expression_binding import (
     evaluate_expression_body,
 )
 from marivo.semantic._filter_runtime import authored_filter_predicate
-from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
+from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
 from marivo.semantic.ir import (
     AggKind,
     CsvSourceIR,
@@ -782,25 +781,30 @@ class Materializer:
         *,
         backend_type: str | None = None,
     ) -> ir.Value:
-        agg_name = agg[0] if isinstance(agg, tuple) else agg
-        if agg_name in {"median", "percentile"}:
-            profile = (
-                require_profile_for_backend_type(backend_type) if backend_type is not None else None
-            )
-            if profile is not None and profile.name == "sqlite":
+        from marivo.semantic._aggregate_accuracy import aggregate_repair
+
+        if backend_type is not None:
+            action = aggregate_repair(agg, backend_type)
+            if action is not None:
                 _raise(
                     ErrorKind.MATERIALIZE_FAILED,
-                    f"Metric {semantic_id!r} uses {agg_name}, which is not supported by "
-                    "the SQLite backend. Use a supported aggregation or another backend.",
+                    f"Metric {semantic_id!r} has no source-native implementation satisfying its aggregate definition.",
                     cls=SemanticRuntimeError,
                     refs=(semantic_id,),
+                    expected=f"source-native agg={agg!r} with its declared exactness",
+                    received=f"backend={backend_type}",
+                    hint=action,
+                    repair_value=repair(kind="reauthor", canonical_id="aggregate", action=action),
                 )
+        agg_name = agg[0] if isinstance(agg, tuple) else agg
         if agg_name == "sum":
             return column.sum()
         if agg_name == "count":
             return column.count()
         if agg_name == "count_distinct":
             return column.nunique()
+        if agg_name == "approx_count_distinct":
+            return column.approx_nunique()
         if agg_name == "min":
             return column.min()
         if agg_name == "max":
@@ -808,13 +812,13 @@ class Materializer:
         if agg_name == "mean":
             return column.mean()
         if agg_name == "median":
-            if profile is not None and profile.percentile_uses_approx_quantile:
-                return column.approx_quantile(0.5)
             return column.median()
         if agg_name == "percentile":
-            if profile is not None and profile.percentile_uses_approx_quantile:
-                return column.approx_quantile(agg[1])
             return column.quantile(agg[1])
+        if agg_name == "approx_median":
+            return column.approx_quantile(0.5)
+        if agg_name == "approx_percentile":
+            return column.approx_quantile(agg[1])
         _raise(
             ErrorKind.MATERIALIZE_FAILED,
             f"Metric {semantic_id!r} has unsupported aggregation {agg!r}.",

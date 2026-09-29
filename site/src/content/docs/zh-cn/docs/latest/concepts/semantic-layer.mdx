@@ -1458,21 +1458,26 @@ order_lifecycle = ms.state_model(
 会说明来源值和事件历史尚未验证；R7 消费事件时再做该核验。occurrence ID
 本身不能证明业务先后。
 
-## 明确分位数语义
+## 定义侧分位数语义
 
-中位数或分位数 Metric 的声明决定 q。Dataset 观察默认使用精确插值；问题明确需要语义近似时，在观察前显式选择方法：
+在 Metric 中声明聚合操作：`median`、`count_distinct` 和 `("percentile", q)`
+使用非近似操作；`approx_median`、`approx_count_distinct` 和
+`("approx_percentile", q)` 明确允许近似。观察时不再指定算法或 accuracy。
 
 ```python
-selected = ms.quantile_metric(
-    ms.ref.metric("sales.p95_amount"), method="duckdb_tdigest@v1"
+p95_amount = ms.aggregate(
+    name="p95_amount", measure=amount, agg=("percentile", 0.95), time=ordered_at
 )
-result = session.observe(selected).aggregate().execute()
-result.show()
+p95_estimate = ms.aggregate(
+    name="p95_estimate", measure=amount, agg=("approx_percentile", 0.95), time=ordered_at
+)
 ```
-示例要求已有 `session` 和已治理的分位数 Metric `sales.p95_amount`。
-`linear_interpolation@v1` 用于显式选择精确算法。当前实现支持 DuckDB 数据源，
-并用 Parquet 保留状态。冷恢复后的投影与下游分析保持方法不变；执行不会自动选择
-其他方法，也不会失败后更换算法重试。通过 `marivo.help("semantic.quantile_metric")`
-发现完整输入契约。
+
+上述声明放在已有 `amount` Measure 和 `ordered_at` 时间维度的语义模型中。
+聚合通过 Ibis 编译为数据源 SQL；原生分位数可能损失大整数精度，或保留 Decimal
+输入的小数位数，结果契约会披露实际算法与输出类型。不支持精确操作时，错误提示
+对应的近似定义，并说明数据源是否支持该操作，但不会自动替换。直接观察不保留分布，也不授予原量上卷能力；
+对结果当前行进行统计仍是独立操作。通过 `marivo.help("semantic.aggregate")`
+发现声明契约。
 
 ClickHouse Dataset 执行支持任意引擎下的表和视图，要求已验证标量类型，且只读账户须具有有效的 `join_use_nulls=1`；详细范围见分析工作流。

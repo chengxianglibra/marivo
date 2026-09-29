@@ -245,20 +245,30 @@ def _canonical_slice(value: object, *, context: str) -> tuple[CanonicalSliceEntr
 
 def _aggregate_value(value: object, *, context: str) -> AggKind:
     if isinstance(value, str):
-        if value not in {"sum", "count", "count_distinct", "min", "max", "mean", "median"}:
+        if value not in {
+            "sum",
+            "count",
+            "count_distinct",
+            "min",
+            "max",
+            "mean",
+            "median",
+            "approx_count_distinct",
+            "approx_median",
+        }:
             _invalid(f"{context} has unsupported aggregation {value!r}")
         return cast("AggKind", value)
     pair = _sequence(value, context=context)
     if (
         len(pair) != 2
-        or pair[0] != "percentile"
+        or pair[0] not in ("percentile", "approx_percentile")
         or isinstance(pair[1], bool)
         or not isinstance(pair[1], int | float)
         or not math.isfinite(float(pair[1]))
         or not 0 < float(pair[1]) < 1
     ):
         _invalid(f"{context} must be a registered aggregation or ['percentile', q]")
-    return ("percentile", float(pair[1]))
+    return ("approx_percentile" if pair[0] == "approx_percentile" else "percentile", float(pair[1]))
 
 
 def _fold_value(value: object, *, context: str) -> AggregateFoldInput:

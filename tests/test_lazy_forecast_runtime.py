@@ -133,7 +133,7 @@ def test_certified_custom_period_forecast_uses_retained_snapshot(tmp_path: Path)
 def test_semantic_approximation_keeps_numeric_history_source_private(tmp_path: Path) -> None:
     from marivo._temporal import builtin_grain, time_scope
     from marivo.refs import ref
-    from marivo.semantic._quantile import quantile_metric
+    from marivo.semantic._quantile import distribution_metric_input
     from tests.lazy_distribution_fixtures import (
         guard_distribution_transport,
         make_distribution_registry,
@@ -144,7 +144,7 @@ def test_semantic_approximation_keeps_numeric_history_source_private(tmp_path: P
     source = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     metric = (
         source.observe(
-            quantile_metric(ref.metric("sales.revenue"), method="duckdb_tdigest@v1"),
+            distribution_metric_input(ref.metric("sales.revenue"), method="duckdb_tdigest@v1"),
             time_scope=time_scope(start="2026-02-01", end="2026-02-05"),
         )
         .with_time_axis(ref.time_dimension("sales.orders.order_time"), grain=builtin_grain("day"))

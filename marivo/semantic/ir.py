@@ -810,9 +810,32 @@ AggregateFoldValue: TypeAlias = (
 AggregateFoldInput: TypeAlias = AggregateFoldValue | None
 
 
+# These aggregates publish scalar observations without reusable original state.
+DIRECT_ONLY_AGGREGATES = frozenset(
+    {
+        "count_distinct",
+        "approx_count_distinct",
+        "median",
+        "approx_median",
+        "percentile",
+        "approx_percentile",
+    }
+)
+
+
 AggKind = (
-    Literal["sum", "count", "count_distinct", "min", "max", "mean", "median"]
-    | tuple[Literal["percentile"], float]
+    Literal[
+        "sum",
+        "count",
+        "count_distinct",
+        "min",
+        "max",
+        "mean",
+        "median",
+        "approx_count_distinct",
+        "approx_median",
+    ]
+    | tuple[Literal["percentile", "approx_percentile"], float]
 )
 AggregationTargetKind = Literal["measure", "entity"]
 

@@ -1628,24 +1628,29 @@ Subject, field ownership, and precedence graph. Scoped readiness reports that
 source values and Event history remain unverified; R7 will check them when
 consuming events. An occurrence ID alone never establishes business order.
 
-## Explicit quantile meaning
+## Definition-owned quantiles
 
-A median or percentile Metric owns its quantile. Dataset observation uses exact
-interpolation by default. If the question calls for semantic approximation,
-select that method explicitly before observation:
+Declare the operation on the Metric itself. `median`, `count_distinct` and
+`("percentile", q)` select non-approximate operations; `approx_median`,
+`approx_count_distinct` and `("approx_percentile", q)` explicitly permit
+approximation. Observation has no algorithm or accuracy override.
 
 ```python
-selected = ms.quantile_metric(
-    ms.ref.metric("sales.p95_amount"), method="duckdb_tdigest@v1"
+p95_amount = ms.aggregate(
+    name="p95_amount", measure=amount, agg=("percentile", 0.95), time=ordered_at
 )
-result = session.observe(selected).aggregate().execute()
-result.show()
+p95_estimate = ms.aggregate(
+    name="p95_estimate", measure=amount, agg=("approx_percentile", 0.95), time=ordered_at
+)
 ```
-This example requires an existing `session` and the governed percentile Metric
-`sales.p95_amount`. `linear_interpolation@v1` selects the exact method explicitly.
-The current implementations use DuckDB sources and retain Parquet state.
-Cold projection and downstream analysis preserve the method; execution never
-changes it automatically or retries with another method. Discover the exact
-contract through `marivo.help("semantic.quantile_metric")`.
+
+These declarations belong in a semantic model with the `amount` Measure and
+`ordered_at` time dimension. Aggregate execution stays in datasource SQL compiled
+by Ibis. Native quantiles can lose large-integer precision or retain a Decimal
+input's scale; result contracts disclose the actual algorithm and output type.
+An unsupported exact operation names its corresponding approximate definition
+and states whether the datasource supports it, without substituting it. Direct results do not retain a distribution or grant
+original-quantity rollup; current-row statistics remain separate.
+Discover declarations with `marivo.help("semantic.aggregate")`.
 
 ClickHouse Dataset execution accepts tables and views under any engine, requires qualified scalar types and effective `join_use_nulls=1` on the read-only account; see the analysis workflow for the exact scope.

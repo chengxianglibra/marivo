@@ -12,6 +12,20 @@ if TYPE_CHECKING:
     session = mv.session.get_or_create("typing-public", report_timezone="UTC")
     members = session.members(ms.ref.entity("sales.customer"))
     assert_type(members, mv.LogicalAnalysisDomain)
+    approximate_count = mv.runtime_metric.aggregate(
+        ms.ref.measure("sales.order.amount"), agg="approx_count_distinct", label="distinct"
+    )
+    approximate_median = mv.runtime_metric.aggregate(
+        ms.ref.measure("sales.order.amount"), agg="approx_median", label="median"
+    )
+    approximate_percentile = mv.runtime_metric.aggregate(
+        ms.ref.measure("sales.order.amount"), agg=("approx_percentile", 0.95), label="p95"
+    )
+    for metric in (approximate_count, approximate_median, approximate_percentile):
+        assert_type(
+            members.observe(metric, via=ms.ref.relationship("sales.order_buyer")),
+            mv.LogicalNumericRelation | mv.LogicalRatioRelation,
+        )
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day")
     )

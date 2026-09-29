@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Literal, NoReturn, TypeAlias
 
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridVersionSelection
@@ -329,10 +330,10 @@ def validate_quantity(quantity: Quantity) -> None:
 
 @dataclass(frozen=True, slots=True)
 class Defined:
-    value: bool | int | float | str | date | datetime
+    value: bool | int | float | str | date | datetime | Decimal
 
     def __post_init__(self) -> None:
-        if type(self.value) not in (bool, int, float, str, date, datetime):
+        if type(self.value) not in (bool, int, float, str, date, datetime, Decimal):
             reject(
                 "a typed scalar Cell value",
                 type(self.value).__name__,
@@ -422,7 +423,7 @@ class CoordinateStatePart:
     dimension: Ref[DimensionKind]
     owner: Ref[EntityKind]
     components: tuple[str, ...]
-    value_type: Literal["int64", "float64"]
+    value_type: str
     version: Literal["v1"]
 
     extra_coordinates: tuple[Coordinate, ...] = ()
@@ -570,6 +571,23 @@ def validate_part(part: Part) -> None:
                 part.components
                 not in (
                     ("sum", "non_null_count"),
+                    ("sum", "non_null_count", "absolute_sum"),
+                    (
+                        "weighted_numerator",
+                        "weight_sum",
+                        "non_null_pair_count",
+                        "row_count",
+                        "absolute_weight_sum",
+                    ),
+                    (
+                        "numerator_sum",
+                        "numerator_non_null_count",
+                        "denominator_sum",
+                        "denominator_non_null_count",
+                        "denominator_absolute_sum",
+                    ),
+                    ("min", "non_null_count"),
+                    ("max", "non_null_count"),
                     ("count",),
                     ("sum", "non_null_count", "row_count"),
                     ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count"),
@@ -593,7 +611,12 @@ def validate_part(part: Part) -> None:
                     )
                 )
             )
-            or part.value_type not in ("int64", "float64")
+            or (
+                part.value_type not in ("int64", "float64")
+                and part.value_type not in tuple(f"decimal(38,{scale})" for scale in range(39))
+                and part.value_type
+                not in tuple(f"interval('{unit}')" for unit in ("s", "ms", "us", "ns"))
+            )
             or part.version != "v1"
         ):
             reject(

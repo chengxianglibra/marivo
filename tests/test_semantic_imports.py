@@ -133,8 +133,6 @@ def test_all_list_matches_expected() -> None:
         "time_dimension",
         "time_dimension_column",
         "aggregate",
-        "quantile_metric",
-        "QuantileMetricInput",
         "ai_context",
         "all_rows",
         "bind",

@@ -516,8 +516,21 @@ class Relation:
             raise _reject("original components are absent")
         methods: dict[
             str,
-            Literal["sum", "sum_zero", "mean", "count", "ratio", "weighted_mean", "linear", "fold"],
+            Literal[
+                "sum",
+                "sum_zero",
+                "mean",
+                "min",
+                "max",
+                "count",
+                "ratio",
+                "weighted_mean",
+                "linear",
+                "fold",
+            ],
         ] = {
+            "min@v1": "min",
+            "max@v1": "max",
             "sum@v1": "sum",
             "fold@v1": "fold",
             "sum_zero@v1": "sum_zero",

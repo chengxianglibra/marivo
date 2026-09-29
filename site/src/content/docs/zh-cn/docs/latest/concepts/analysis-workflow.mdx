@@ -135,7 +135,7 @@ Event 漏斗比较要求队列窗口时长、时间域和后续跟踪偏移一�
 
 ## 保持判断明确
 
-当指标、人群、比较方式或重要假设需要改变时，确认新的业务含义。可复用的语义缺口归属语义建模。分位数默认使用精确线性插值；只有明确接受近似语义时，才选择 `ms.quantile_metric(..., method="duckdb_tdigest@v1")`。投影与恢复保持这一选择。
+当指标、人群、比较方式或重要假设需要改变时，确认新的业务含义。可复用的语义缺口归属语义建模。在 Metric 定义中通过 `agg=("approx_percentile", q)` 明确允许近似；观察与恢复保持该定义。原生 SQL 的数值精度限制由结果契约披露。
 
 归因是代数分解，相关性是描述性结果，Candidate 分数是调查线索，预测带有模型假设。Agent 负责综合判断与结论。`to_pandas()` 或 `md.raw_sql(...)` 的自定义分析是终端出口，结果不能重新注入受治理的 Dataset 组合。
 
@@ -213,20 +213,18 @@ rollup 从保留的 sum/count 状态重新计算均值，不对分组均值直�
 比较与归因使用完整的非 Entity 保留轴；Forecast、Kendall 和时间发现方法在源端完整
 聚合后于调用进程执行。冷读与保留结果折叠不需要原始数据源。
 
-线性 Metric 图与计算型 Measure（对单一 Entity 已声明列的行级表达式）已在六个后端
-启用；组合 Decimal 结果按发布单元逐个判定：Decimal 线性结果在后端 scale 契约公开时
-逐值精确，Decimal 分量上的 mean/div 仍不支持并给出具体引擎原因（逐后端矩阵见所属
-设计规范）。语义日历桶与累计 Metric 图已在五个远程后端启用，运行在原生 civil-date
-轴且日历快照一致时；其余任何 source requirement 仍然拒绝。所有已准入的累计
-anchor 形态都在每个后端准入，包括财政复合形
-`ms.cumulative(anchor=ms.grain_to_date(grain=<认证日历粒度>))`；该复合形当前由
-DuckDB oracle 旅程执行，五个远程后端的执行证据随 C7/C8 日历工作排期。status-time 折叠按后端
-准入：PostgreSQL、SQLite、Trino 与 ClickHouse 支持 first/last/mean/min/max，MySQL
-支持 mean/min/max，first/last 等待引擎 argmin/argmax 支持，percentile 折叠在所有
-后端仍拒绝。未确定精度的 Decimal mean/div 结果仍不支持。直接 Measure 键及 Entity 身份键的精确去重已在
-PostgreSQL、MySQL、SQLite、Trino 和 ClickHouse 启用；SQLite/MySQL 在 SQL 中逐列去重有类型的身份字段，
-私有 part 保持原有 Arrow struct。精确线性插值 median/percentile 已在五个远程后端启用。远程
-`duckdb_tdigest@v1` 以及 percentile status-time 折叠仍未准入。五个远程后端已支持在源端对完整私有配对做 Entity Pearson 和 Spearman 相关性归约；Kendall 继续使用完整输入的本地续算。
+统一图的 DuckDB table 与本地 Parquet 数值方法支持 int64、有限 float64、Decimal
+和固定 Duration。Decimal 求和保留输入 scale，mean、Metric weighted mean 和 ratio
+按声明 scale 仅做一次 HALF_EVEN 舍入。Duration 保留 s/ms/us/ns 单位，均值只做一次
+nearest-even tick 舍入。原生 DuckDB INTERVAL 必须先拒绝日历成分，按微秒处理；
+Parquet 保留四种 Arrow Duration 单位。原状态上卷和时间 fold 在冷恢复后仍保留这些
+类型。源端计算由 Ibis 编译为 SQL，断源续算只消费已校验的保留状态。
+
+精确与近似 distinct/quantile 由 Metric 定义选择，原生分位数的舍入限制会明确披露。
+数据源不支持精确定义时，错误会提示对应的近似定义、保留 q，并说明是否支持；不会
+自动替换。这些 R5 资格不扩展远程后端执行范围，完整矩阵由 R9 验证。percentile
+status-time fold 仍未准入。相关性消费者保留其独立资格边界。
+
 PostgreSQL、SQLite、Trino 与 ClickHouse 支持基于完整非 Entity 状态的隐藏轴展开加性与组件归因。MySQL 的组合查询在实测中超过验收服务的内存限制，因此仍拒绝；Trino 的展开 Top-K 查询超过服务的 stage 上限，也保持拒绝。PostgreSQL 支持精确的两步或三步 `session.events.match(...)` 旅程，以及包含两个触发 Event 的 `session.lifecycle.replay(...)` 历史；要求未版本化表源和 `int64` 主体、事件身份。直接 Event 漏斗、耗时和主体选择，以及 Lifecycle 状态分布、转移、停留、违规和主体选择均已验收。完整 PostgreSQL 漏斗可通过既有保留结果路径继续比较和归因。
 
 ClickHouse 和 Trino 支持相同表源与身份条件下的两步旅程，匹配策略包括 `first_per_subject()` 和 `every_start()` 的共享／独占完成分配。Trino 的真实验收使用 Iceberg；ClickHouse 要求只读账户获准设置 `enable_materialized_cte=1`。空输出也执行源端断言，只有契约允许的完整结果进入既有本地续算。Trino 还支持直接无分组漏斗、first-per-subject 耗时、主体选择和完整无分组漏斗比较。Trino 分组漏斗的核对查询超过验收服务的 stage 上限，因此分组漏斗和依赖它的归因保持拒绝。ClickHouse 的直接 Event 派生方法与主体选择仍因计划或内存限制保持拒绝。Trino（Iceberg）和 ClickHouse（MergeTree）还支持相同表源条件下的双触发 Event Lifecycle history，主体与事件身份各限定为一个 `int64` 分量：使用源端数组折叠完成全量重放，并验证并列顺序是否有歧义。先执行 history，再从完整保留结果继续状态分布、转移、停留、违规和主体选择；这两个后端的直接源端 Lifecycle 派生方法仍未开放。SQLite、MySQL 的 Event/Lifecycle 仍未开放。

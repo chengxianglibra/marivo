@@ -72,6 +72,7 @@ _WIRE_TAGS: dict[type[object], str] = {
     MethodKey: "method",
     method_physical.ScalarType: "scalar_type",
     method_physical.DecimalType: "decimal_type",
+    method_physical.DurationType: "duration_type",
     method_physical.NoTime: "no_time",
     method_physical.TimeShape: "time_shape",
     method_physical.SourceShape: "source_shape",

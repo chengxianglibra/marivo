@@ -57,7 +57,7 @@ from marivo.analysis.operators.forecast_contracts import (
     ForecastModel,
 )
 from marivo.refs import MetricKind, Ref, SemanticKind
-from marivo.semantic._quantile import QuantileMetricInput
+from marivo.semantic._quantile import DistributionMetricInput
 from marivo.semantic.catalog import MetricEntry
 from marivo.semantic.ir import TargetDimensionContract
 from marivo.semantic.metric_graph_lowering import normalize_target_metric_inputs
@@ -468,7 +468,7 @@ def make_observation(
     references: list[Ref[MetricKind] | RuntimeMetricExpr] = []
     reference: Ref[MetricKind] | RuntimeMetricExpr
     for item in submitted:
-        if isinstance(item, QuantileMetricInput):
+        if isinstance(item, DistributionMetricInput):
             item = item.metric
         if isinstance(item, MetricEntry):
             if type(item) is not MetricEntry or item._catalog is not owner.catalog_identity:
@@ -495,9 +495,9 @@ def make_observation(
             metric,
             owner.semantic_registry,
             owner.sidecar,
-            item.method if isinstance(item, QuantileMetricInput) else "linear_interpolation@v1",
+            item.method if isinstance(item, DistributionMetricInput) else "linear_interpolation@v1",
         )
-        if isinstance(item, QuantileMetricInput) and basis is None:
+        if isinstance(item, DistributionMetricInput) and basis is None:
             raise construction_error(
                 "a governed root median or percentile", "unsupported explicit quantile method input"
             )
@@ -724,7 +724,7 @@ def _where(dataset: Dataset, predicates: tuple[AnalysisPredicate, ...]) -> Logic
 
 
 def _project(dataset: Dataset, metric: MetricInput | DatasetFieldRef) -> LogicalMetricDataset:
-    if isinstance(metric, QuantileMetricInput):
+    if isinstance(metric, DistributionMetricInput):
         raise construction_error(
             "a Metric ref selecting an existing percentile method",
             "a quantile method input at projection",

@@ -36,7 +36,7 @@ superseded by this correction.
 | F06 / C05 | [State/Cell matrix](../../specs/analysis/operators-and-frames.md#state-and-cell-matrix): original components versus row statistics, empty states, parts and K | R5.3/R5.4; V05/V10 |
 | F07 / C06 | [Temporal binding](../../specs/analysis/timezone-and-calendar-design.md#r51-frozen-temporal-binding): grid/boundary types, three timezone authorities, DST, cumulative anchors, non-commuting folds | R5.5; V06/V07 |
 | F08 / C06 | [Certification handoff](../../specs/temporal-semantics.md#r51-certified-time-dependency-handoff): existing Catalog period/occurrence inputs and exact snapshot identity | R5.5; V06/V10 |
-| F09 / C10 | [Semantic exactness](../../specs/semantic/semantic-object-model.md#metric-occurrences-and-policies): accuracy wrapper, q, exact distinct/linear interpolation; no original K | R5.6; V09 |
+| F09 / C10 | [Semantic exactness](../../specs/semantic/semantic-object-model.md#metric-occurrences-and-policies): definition-owned exact/approximate kinds, q, source-native distinct/quantile with numerical limitations disclosed; no original K | R5.6; V09 |
 | F10 / C04-C06/C10 | [Numeric/physical matrix](../../specs/analysis/operators-and-frames.md#numeric-target-matrix): type/state/finish precision, overflow, numeric oracle bounds, required/rejected/backend cells | R5.3-R5.6; V08/V09 |
 | F11 / cross-cutting | [Runtime state/recovery](../../specs/analysis/session-state-and-runtime.md#r51-state-extension-and-recovery-contract): common exchange, version slots, receipts, source freshness and fixed K | Every package; R5.7 full closure; V10 |
 | F12 / withdrawal | [Semantic scope decision](../../specs/semantic/semantic-object-model.md#named-statistical-weight-role-withdrawn-from-implementation-scope): no named statistical-weight activation | Excluded, not blocked; Metric weights remain F06/F10 |
@@ -73,7 +73,7 @@ reachability, executed SQL, or complete dynamic call coverage.
 | M09 | `materialization/temporal_sql.py::lower_temporal` called by SQLite/MySQL/Trino/ClickHouse execution and ClickHouse Event SQL | Temporal owner and R1 adapter boundary; R5.5 for R5, R7/R9 for remaining consumers | Name alone does not prove handwritten SQL: inspect Ibis rewrites/UDF signatures separately from SQL text builders. Migrate R5 business/check reads through SourceSession; do not delete shared backend/Event support early |
 | M10 | `operators/registry.py::legacy_source_migration_stage`, implementation/source_unsupported_reason; compiler/source_admission and materialization/dataset_execution consume old declarations | F03/F11; R5.3-R5.7 | Remove each migrated R5 registration/block branch; stage function already maps delta/comparison to R6, Event/Lifecycle R7, candidate/forecast/association R8. Do not broaden default admission |
 | M11 | `methods/registry.py::REGISTRY` iterates `semantics.CONNECTED_METHODS` and `builtin.implementations`; core/rules, graph plan/lowering/execution consume selected rules | F06/F10; R5.3-R5.6 | Extend one method owner, exact qualification keys and typed states; no duplicate registration in old operators. Private row.weighted_mean remains non-public and is not an R5 requirement. R5.3 adds the occurrence-combination and Metric weighted-mean entries to the existing owner rather than a second registry |
-| M12 | `S/_quantile.py::quantile_metric` currently exposes method= and old session.observe guidance; observation/compiler distribution/distinct modules and quantile tests consume it | F09/F10; R5.6 | Replace target input with accuracy= without compatibility alias; preserve q, direct numeric oracles and algorithm evidence; remove migrated old method routing; V09/V12 |
+| M12 | The removed public `quantile_metric` / `QuantileMetricInput` surface formerly exposed observation-side method=; private distribution consumers remain until their owning migration | F09/F10; R5.6 | Define approximate operations explicitly in Metric agg without compatibility aliases or observation overrides; preserve q and algorithm evidence; source-native SQL only, with corresponding approximate-definition repair when exact is unsupported; V09/V12 |
 | M13 | `materialization/{dataset_publication,publication,retained}.py`, observation contracts/fold/private parts and compiler retained routes serve private old Dataset harnesses | F06/F11; R5.3-R5.7 | Move R5 components/selection into graph_protocol/exchange/publication/store; delete ownerless R5 codecs only after test/worker consumers move; never reopen generation 6 publicly |
 | M14 | `graph_protocol.py`, graph_storage/store/publication and graph source/local execution consume current v7 frozen signatures, parts and receipts | F11; each activating package/R5.7 | Add closed method/state layouts and strict decoding, common publication, actual recovery K; no new Store generation; V10 |
 | M15 | Family-specific comparison/attribution, Event/Lifecycle and candidate/forecast/association codecs/publication still have generic private Dataset consumers (R4.6 residual ledger) | R6/R7/R8, shared Runtime F11 | Preserve these dependencies until their owning phase; R5.7 registers remaining concrete callers rather than deleting whole codec directories |
@@ -169,7 +169,7 @@ All future fixture work uses the repository marivo-test-fixtures skill.
 | V06 | F07/F08; R5.5 | `test_lazy_temporal_parsing.py`, `test_lazy_temporal_source.py`, D01-D03 | `test_analysis_temporal_r55.py`: independently listed 23/25-hour UTC instants, date invariance, partial grids, crossing week/month rejection, exact calendar digest, before_end without epsilon |
 | V07 | F06/F07; R5.5 | `test_lazy_status_fold_admission.py`, `test_lazy_temporal_public_runtime.py`, D09-D13 | Same new file: [10,0]/[0,10] device peaks, overlapping occurrence rejection, all-history/display separation, grain-to-date/trailing anchors and source-offline fixed folds |
 | V08 | F06/F10; R5.6 | `test_lazy_distinct_numeric.py`, `test_metric_unit_algebra.py` | `test_analysis_numeric_r56.py`: big int/Decimal/Duration exactness, overflow/nonfinite, shuffled/batched/tree reductions, Metric pairwise weighted oracle (10,2),(Null,9),(20,1) -> 40/3, zero-weight declared policy; no named-role activation |
-| V09 | F09/F10; R5.6 | `test_public_quantile_input.py`, `test_lazy_distinct_numeric.py`, `test_lazy_distinct_contracts.py` | Same new file: sorted linear interpolation with Fraction, full distinct identity, empty/Null/q/bool bounds, actual accuracy/algorithm, no automatic fallback/original K |
+| V09 | F09/F10; R5.6 | `test_public_quantile_input.py`, `test_lazy_distinct_numeric.py`, `test_lazy_distinct_contracts.py` | Same new file: native quantile results compared against independent oracles with disclosed numerical limitations, full distinct identity, empty/Null/q/bool bounds, actual definition/algorithm, no automatic fallback/original K |
 | V10 | F11; each package/R5.7 | `test_analysis_graph_publication_r44.py`, `test_analysis_dsl_exchange.py`, D04/D14-D22 | `test_analysis_recovery_r57.py`: per-state produce/continue/recover processes, exact fixed hit, source freshness/sharing, no Semantic/source/DuckDB, corrupted/missing/reordered parts, empty/unfinished/close-failed streams, fault visibility; L6 value/semantics/K separately |
 | V11 | M01-M17; R5.7 | Existing debt files, R4.6 residual scan | Refresh static and dynamic consumer scan; restore D01-D22 without deleting numeric/fault oracles, adding xfail or keeping old public aliases; compare installed wheel inventory |
 | V12 | F02/F04/F09; each package/R5.7 | `test_public_surface.py`, `test_analysis_help_resolution.py`, `test_cutover_documentation_examples.py`, `test_analysis_runtime_wheel.py` | Positive/negative typing per closed variant, repr/show/contract and errors, independent Help budgets/reachability, CLI and both latest editions; same candidate wheel public journeys |
@@ -180,7 +180,7 @@ Each activating package owns signatures/docstrings, exports, native Help,
 structured expected/received/repair errors, dynamic actions based on retained
 state, independent reachability/budget tests, CLI and latest English/Chinese
 examples for its rows. R5.2 owns member/read families; R5.3 the five factories and
-observation; R5.4 grouping and row statistics; R5.5 grid/boundaries; R5.6 accuracy
+observation; R5.4 grouping and row statistics; R5.5 grid/boundaries; R5.6 definition-owned exactness
 and numeric qualification. R5.7 verifies the combined installed surface. Packaged
 skills are inspected for alignment in that package, but modifications still need
 explicit user approval. No skill was edited or alignment acceptance claimed here.
@@ -406,3 +406,111 @@ grid endpoints and the independent fold counterexample passed 10 cases. The
 post-change `make check-agent` exited 0 (5407 passed, 5 skipped; lint, typing,
 imports and API docs passed), and `git diff --check` exited 0. No production
 execution logic changed in this suggestion-adoption pass.
+
+
+## R5.6 implementation checkpoint
+
+Status: **complete within the local source-tree numerical qualification boundary**.
+R5.7 package/whole-phase acceptance, R9 remote Runtime and real Agents remain
+unverified and outside this task. This supersedes the earlier partial checkpoint.
+
+The public quantile wrapper/input exports are removed without aliases. Metric
+aggregate kinds and q determine exact/approximate identity; observation cannot
+override them. Heavy computation stays in datasource SQL compiled by Ibis. Native
+quantile precision limitations are disclosed. Unsupported exact definitions name
+the corresponding approximate declaration and its availability, without fallback.
+
+| Method / type | Qualified route and evidence |
+| --- | --- |
+| int64 sum/linear, extrema, mean, weighted mean, ratio | DuckDB SQL and fixed state; exact checked sums/products, once-rounded rational finish, large-integer cancellation/overflow and Fraction oracle |
+| finite float64 sum/linear, extrema, mean, weighted mean, ratio | DuckDB SQL and fixed state; owner error bounds, finite checks, same non-Null pairing and zero-weight policy |
+| Decimal sum/linear, extrema, mean, weighted mean, ratio | SQL integer quotient/remainder with one HALF_EVEN finish; input scale retained, exact component scales, source/fixed coordinate trees; Decimal/Fraction oracle |
+| Duration sum/linear, extrema, mean, weighted mean, ratio/distinct | Native table microseconds and local Parquet s/ms/us/ns; checked int64 ticks, nearest-even means, same-unit ratio, Arrow/receipt unit preservation; calendar components rejected on raw source values |
+| first/last/min/max/mean time folds and cumulative sum | All four numeric families; exact typed pre-fold samples, aligned spatial-then-temporal reduction, source/fixed and cold continuation |
+| exact/approximate distinct and quantiles | int64/float64 table and Parquet; native Decimal quantile precision; duplicate, Null, empty, interpolation and q validation; no distribution/sketch state or original rollup |
+| current-row count/count_defined | All four families; Null policy on logical and fixed relations; distribution results remain countable |
+| recovery / state integrity | 64 artifacts across four families and table/Parquet, separate producer and two source-offline consumers; compare values, state and actual K; 256 missing/corrupt/receipt/version faults reject |
+
+Decimal oracle coverage includes scales 0/2/6/18, large coefficients and signed
+rounding. Integer ratio SQL is compared to 205 independent Fraction cases. Tests
+vary row order, partitions and reduction trees. Native DuckDB INTERVAL does not
+represent four independent fixed units: its admitted unit is us; Parquet provides
+s/ms/us/ns without conversion to float. Approximate agreement on small fixtures
+is not an error bound.
+
+Typed folds and changed numeric finishing/extrema consumers use implementation
+version 3 through existing Store 7 keys/receipts. Prior versions are rejected,
+without dual reads, migration or state reconstruction. State exposes exact
+`decimal:p:s` and `duration:unit` physical identifiers. Shared R6–R8 code remains.
+
+Validation on Ibis 12.0.0, DuckDB 1.5.3 and PyArrow 25.0.1:
+
+- `make check-agent`: 5432 passed, 5 skipped; lint, typing, imports and API docs pass.
+- Related Runtime selection: 304 passed. Additional new cold int64/float64,
+  cancellation, signed tick ties and typed row counts: 4 + 2 + 1 + 4 passed.
+- Targeted typing: 262 files pass. Site build and `git diff --check` pass.
+- Intermediate failures are retained and resolved: Decimal coordinate extrema
+  precision, public numeric state projection, raw calendar-interval admission,
+  floating linear validation, stale in-flight version registries and import order.
+- No current blocked or failed required matrix cell. Package installation,
+  publishing, R9 remote Runtime and real Agent validation were not run.
+
+Reproduction:
+
+```sh
+make runtime-test TESTS='tests/test_analysis_numeric_r56.py tests/test_analysis_observation_r53.py tests/test_analysis_coordinates_r54.py tests/test_analysis_temporal_r55.py tests/test_public_quantile_input.py tests/test_sqlite_semantic_integration.py'
+make check-agent
+(cd site && npm run build)
+git diff --check
+```
+
+The final combined Runtime selection contains 315 cases; the recorded acceptance
+ran the 304-case selection and eleven subsequently added cases separately. Exact
+commands, exits, method/type/route matrix and candidate hashes are in local
+`evidence/r56/closure-*`. The versioned summary above is sufficient to reproduce
+acceptance without those ignored local logs. No commit, push, wheel installation,
+release, packaged-skill or AGENTS.md change was performed.
+
+### R5.6 review repair verification
+
+Three reproduced defects are repaired: unstable float denominator qualification,
+Decimal fold-state narrowing, and rounded Decimal range validation. Float sums
+and paired weights retain absolute magnitudes through source, coordinate and
+fixed reductions; old implementation receipts do not continue. Source execution
+remains Ibis SQL. Independent regressions live in
+`tests/test_analysis_numeric_review_r56.py`. Repaired-candidate verification:
+
+- 217 numeric Runtime cases passed, including 50 review regressions, grouped
+  distribution refusal, reversed source facts, exchange batches and cold recovery.
+- 59 focused registration/method/unit cases passed; both new test modules pass
+  targeted typing. `make check-agent` passed: 5451 passed, 5 skipped, with lint,
+  407-module typing, import contracts and API documentation stages passing.
+- Site build and `git diff --check` passed. Local `evidence/r56/review-fixes-*`
+  stores command logs, candidate hashes and the resolved intermediate failures.
+- Earlier closure counts describe the pre-review candidate. No current review
+  finding remains failed or blocked; R5.7, remote R9 and installed/Agent acceptance
+  remain outside this verification.
+
+### Additional review suggestions: disposition
+
+- Accepted maintainability improvements: one internal semantic owner for the
+  direct-only aggregate set; `specialize_numeric` names its actual Decimal,
+  Duration and float64 scope, with independent positive/negative selection tests;
+  Arrow scalar construction shares one physical owner; Duration metadata uses the
+  datasource producer's named key. These are bounded refactors, not new public APIs.
+- V09's reported missing quantile assertions was stale: direct-distribution tests
+  already checked absent rollup actions, rollup refusal and current-row counts
+  outside the distinct-only branch. Added grouped logical/fixed refusal coverage;
+  the graph remains the single rights-checking owner rather than duplicating guards.
+- No second opaque approximate branch exists in `graph_lowering.py`; its sole
+  approximate calls are in the public definition-owned direct aggregate branch.
+  Private legacy distribution method selection remains for existing R6–R8 consumers,
+  as authorized; it does not restore a public observation override.
+- V08 evidence is separated: raw source row reversal has its own boundary-fact
+  tests; permutations/partition/reduction-tree checks in `merge_original` are
+  in-memory oracle tests. Added public source/fixed sum tests with reversed raw
+  facts and exchange batch sizes 1/2/1024. This is local source-exchange evidence,
+  not remote backend or arbitrary distributed partition qualification.
+- V11 remains a whole-phase R5.7 gate. The plan header explicitly distinguishes
+  local R5.6 evidence from whole-R5 completion; already closed debt entries retain
+  their own evidence and unresolved entries are not promoted.

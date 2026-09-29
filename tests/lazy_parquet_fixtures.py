@@ -7,7 +7,7 @@ from marivo.analysis import time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.contracts import MetricInput
 from marivo.analysis.observation.metric import LogicalMetricDataset
-from marivo.semantic._quantile import QuantileMethod, quantile_metric
+from marivo.semantic._quantile import QuantileMethod, distribution_metric_input
 from tests.lazy_distinct_fixtures import (
     CHANNEL,
     DISTINCT_BUYERS,
@@ -34,7 +34,7 @@ def operands(
     else:
         seed_distribution_database(database)
         registry, sidecar = make_distribution_registry(database)
-        metric = quantile_metric(METRIC, method=method)
+        metric = distribution_metric_input(METRIC, method=method)
     runtime = DatasetRuntime.create(project, "private-parquet")
     sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
     return (

@@ -28,9 +28,22 @@ from marivo.analysis.methods.registry import REGISTRY
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.analysis.methods.state_validation import (
     coordinate_state_matches,
+    denominator_interval_spans_zero,
     difference_matches,
     state_matches,
 )
+
+
+def numeric_primary(table: pa.Table) -> pa.Table:
+    """Expose exact Duration ticks to numerical validators without changing the receipt."""
+    if "value" in table.column_names and pa.types.is_duration(table.schema.field("value").type):
+        return table.set_column(
+            table.schema.get_field_index("value"), "value", table["value"].cast(pa.int64())
+        ).append_column(
+            "__duration_unit",
+            pa.array([table.schema.field("value").type.unit] * table.num_rows, type=pa.string()),
+        )
+    return table
 
 
 def _invalid(received: str) -> MaterializationError:
@@ -89,6 +102,8 @@ class ExchangeContract:
             or self.state_kind
             not in (
                 "none",
+                "original_min",
+                "original_max",
                 "original_mean",
                 "original_fold",
                 "original_sum",
@@ -350,7 +365,7 @@ def collect(
                 raise _invalid("unsupported transported numerical state version")
             table = next(part.table for part in parts if part.role == role)
             keyed = {tuple(row[k] for k in contract.key_fields): row for row in table.to_pylist()}
-            for row in primary.to_pylist():
+            for row in numeric_primary(primary).to_pylist():
                 if not state_matches(
                     prefix + method,
                     row,
@@ -385,7 +400,7 @@ def collect(
             }
             if set(endpoints) != {"current_endpoint", "baseline_endpoint"}:
                 raise _invalid("missing ordered Difference endpoints")
-            for row in primary.to_pylist():
+            for row in numeric_primary(primary).to_pylist():
                 key = tuple(row[name] for name in contract.key_fields)
                 if (
                     not difference_matches(
@@ -423,6 +438,8 @@ def _verify_single_state_part(
         else "original_state"
         if contract.state_kind
         in (
+            "original_min",
+            "original_max",
             "original_mean",
             "original_fold",
             "original_sum",
@@ -440,11 +457,15 @@ def _verify_single_state_part(
     keyed_parts = {
         tuple(row[name] for name in contract.key_fields): row for row in state_part.to_pylist()
     }
-    for row in primary.to_pylist():
+    for row in numeric_primary(primary).to_pylist():
         key = tuple(row[name] for name in contract.key_fields)
         original = next(
             (p for p in contract.signature.parts if isinstance(p, OriginalStatePart)), None
         )
+        if denominator_interval_spans_zero(contract.state_kind, keyed_parts[key]):
+            raise _invalid(
+                "float64 denominator error interval spans zero; use a stable denominator or precise input types"
+            )
         if not state_matches(
             contract.state_kind,
             row,

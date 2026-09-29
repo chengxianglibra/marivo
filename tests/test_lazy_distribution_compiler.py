@@ -13,7 +13,7 @@ from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.operators.attribution_contracts import AttributePayload
 from marivo.analysis.operators.distribution_values import execute_distribution
 from marivo.analysis.session._lazy_sources import make_lazy_sources
-from marivo.semantic._quantile import QuantileMethod, quantile_metric
+from marivo.semantic._quantile import QuantileMethod, distribution_metric_input
 from tests.lazy_distribution_fixtures import (
     CHANNEL,
     METRIC,
@@ -45,7 +45,7 @@ def test_complete_source_coalitions(
         fixture = ExecutionFixture(database, registry, sidecar, sources, backend)
         current = (
             sources.observe(
-                quantile_metric(METRIC, method=method),
+                distribution_metric_input(METRIC, method=method),
                 time_scope=time_scope(start="2026-02-01", end="2026-02-05"),
             )
             .with_dimensions(REGION, CHANNEL)
@@ -53,7 +53,7 @@ def test_complete_source_coalitions(
         )
         baseline = (
             sources.observe(
-                quantile_metric(METRIC, method=method),
+                distribution_metric_input(METRIC, method=method),
                 time_scope=time_scope(start="2026-01-01", end="2026-01-05"),
             )
             .with_dimensions(REGION, CHANNEL)

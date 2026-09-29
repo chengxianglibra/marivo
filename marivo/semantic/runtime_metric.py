@@ -140,19 +140,29 @@ def _normalize_label(label: str) -> str:
 
 def _normalize_agg(agg: AggKind) -> AggKind:
     if isinstance(agg, str):
-        if agg not in {"sum", "count", "count_distinct", "min", "max", "mean", "median"}:
+        if agg not in {
+            "sum",
+            "count",
+            "count_distinct",
+            "min",
+            "max",
+            "mean",
+            "median",
+            "approx_count_distinct",
+            "approx_median",
+        }:
             raise ValueError(f"unsupported runtime aggregate kind {agg!r}")
         return cast("AggKind", agg)
     if (
         not isinstance(agg, tuple)
         or len(agg) != 2
-        or agg[0] != "percentile"
+        or agg[0] not in ("percentile", "approx_percentile")
         or isinstance(agg[1], bool)
         or not isinstance(agg[1], int | float)
         or not 0 < float(agg[1]) < 1
     ):
         raise ValueError("aggregate percentile must be ('percentile', q) with 0 < q < 1")
-    return ("percentile", float(agg[1]))
+    return (agg[0], float(agg[1]))
 
 
 def _normalize_fold(fold: AggregateFoldInput) -> AggregateFoldInput:
@@ -628,6 +638,11 @@ def aggregate(
     Args:
         measure: Exact loaded ``Ref[measure]`` to aggregate.
         agg: Registered aggregate kind, including ``("percentile", q)``.
+            ``"approx_count_distinct"``, ``"approx_median"`` and
+            ``("approx_percentile", q)`` explicitly permit approximation;
+            observation cannot change the declared aggregate.
+            Unsupported exact operations report the corresponding approximate
+            definition and whether the datasource supports it; no automatic substitution.
         fold: Optional temporal-fold override. A semi-additive measure supplies
             the governed status-time axis and default fold when this is omitted.
         slice_by: Optional branch-local typed slice copied into the descriptor.

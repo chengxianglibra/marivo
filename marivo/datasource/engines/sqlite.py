@@ -374,6 +374,7 @@ PROFILE = EngineProfile(
     ),
     translate_strptime_format=identity_strptime,
     datetime_decode_policy="local_naive_label",
+    exact_count_distinct=True,
     quantile=None,
     percentile_uses_approx_quantile=False,
     authoring_timeout=authoring_timeout,

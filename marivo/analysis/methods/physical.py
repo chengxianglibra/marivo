@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, TypeAlias, get_args
 
+import pyarrow as pa
+
 from marivo.analysis.core.model import CheckId, DomainKind, PartRole
 from marivo.analysis.methods.errors import reject
 from marivo.analysis.methods.semantics import MethodKey
@@ -35,7 +37,7 @@ class DecimalType:
             type(self.precision) is not int
             or type(self.scale) is not int
             or not 0 <= self.scale <= self.precision
-            or self.precision < 1
+            or not 1 <= self.precision <= 38
         ):
             reject(
                 "positive Decimal precision and scale within precision",
@@ -43,8 +45,31 @@ class DecimalType:
                 "Bind exact decimal metadata.",
             )
 
+    @property
+    def name(self) -> str:
+        return f"decimal({self.precision},{self.scale})"
 
-ValueType: TypeAlias = ScalarType | DecimalType
+
+@dataclass(frozen=True, slots=True)
+class DurationType:
+    """Fixed elapsed ticks, never a calendar interval or a floating value."""
+
+    unit: Literal["s", "ms", "us", "ns"]
+
+    def __post_init__(self) -> None:
+        if self.unit not in ("s", "ms", "us", "ns"):
+            reject(
+                "fixed duration unit s/ms/us/ns",
+                repr(self.unit),
+                "Preserve the exact elapsed tick unit.",
+            )
+
+    @property
+    def name(self) -> str:
+        return f"interval('{self.unit}')"
+
+
+ValueType: TypeAlias = ScalarType | DecimalType | DurationType
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +145,10 @@ class QualificationKey:
             type(self.method) is not MethodKey
             or type(self.input_types) is not tuple
             or not self.input_types
-            or any(type(item) not in (ScalarType, DecimalType) for item in self.input_types)
+            or any(
+                type(item) not in (ScalarType, DecimalType, DurationType)
+                for item in self.input_types
+            )
             or type(self.input_domains) is not tuple
             or not self.input_domains
             or any(item not in get_args(DomainKind) for item in self.input_domains)
@@ -246,12 +274,29 @@ class Implementation:
             )
 
 
-def matches_arrow_scalar(dtype: object, scalar: ScalarType) -> bool:
+def arrow_scalar_type(scalar: ValueType) -> pa.DataType:
+    """Render a registered scalar's exact default Arrow carrier."""
+    if isinstance(scalar, DecimalType):
+        return pa.decimal128(scalar.precision, scalar.scale)
+    if isinstance(scalar, DurationType):
+        return pa.duration(scalar.unit)
+    if scalar.name == "date":
+        return pa.date32()
+    if scalar.name == "timestamp":
+        return pa.timestamp("us")
+    return pa.type_for_alias(scalar.name)
+
+
+def matches_arrow_scalar(dtype: object, scalar: ValueType) -> bool:
     """Check the scalar family; exact temporal metadata is frozen in the receipt schema."""
     import pyarrow as pa
 
     if not isinstance(dtype, pa.DataType):
         return False
+    if isinstance(scalar, DecimalType):
+        return bool(dtype == pa.decimal128(scalar.precision, scalar.scale))
+    if isinstance(scalar, DurationType):
+        return bool(dtype == pa.duration(scalar.unit))
     if scalar.name == "timestamp":
         return bool(pa.types.is_timestamp(dtype))
     if scalar.name == "date":

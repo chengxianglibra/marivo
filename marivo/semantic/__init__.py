@@ -36,7 +36,6 @@ from marivo.refs import (
 )
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
-from marivo.semantic._quantile import QuantileMetricInput, quantile_metric
 from marivo.semantic.authoring import (
     GrainToDate,
     PeriodCorrespondence,
@@ -234,7 +233,6 @@ __all__ = [
     "PeriodCalendarKind",
     "PeriodCorrespondence",
     "PreviewBatchResult",
-    "QuantileMetricInput",
     "ReadinessInputSummary",
     "ReadinessIssue",
     "ReadinessReport",
@@ -297,7 +295,6 @@ __all__ = [
     "period_calendar",
     "period_correspondence",
     "precedes",
-    "quantile_metric",
     "ratio",
     "ref",
     "relationship",

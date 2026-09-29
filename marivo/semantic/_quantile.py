@@ -1,4 +1,4 @@
-"""Explicit governed percentile method selection."""
+"""Private distribution-method input for unmigrated R6-R8 Dataset consumers."""
 
 from __future__ import annotations
 
@@ -23,10 +23,10 @@ class QuantileMethodV1(BaseModel):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class QuantileMetricInput:
+class DistributionMetricInput:
     """Immutable method selection for one governed median/percentile Metric.
 
-    Acquire with ``ms.quantile_metric(metric, method=...)`` and pass to
+    Acquire with ``distribution_metric_input(metric, method=...)`` and pass to
     ``session.observe``. The original Metric declaration continues to own q.
     """
 
@@ -45,13 +45,13 @@ class QuantileMetricInput:
                 expected="Ref[metric] or RuntimeMetric expression and an exact registered quantile method",
                 received=f"metric={type(self.metric).__name__}, method={type(self.method).__name__}",
                 hint=action,
-                repair=repair(kind="reauthor", canonical_id="quantile_metric", action=action),
+                repair=repair(kind="reauthor", canonical_id="aggregate", action=action),
             )
 
     def __repr__(self) -> str:
         identity = self.metric.key if isinstance(self.metric, Ref) else self.metric.label
         safe = repr(identity[:96])
-        return f"<QuantileMetricInput metric={safe} method={self.method}; use .show()>"
+        return f"<DistributionMetricInput metric={safe} method={self.method}; use .show()>"
 
     def render(self) -> str:
         """Describe the fixed quantile method and its observation continuation.
@@ -59,7 +59,7 @@ class QuantileMetricInput:
         Returns:
             Bounded text containing the Metric identity and selected method.
         Example:
-            print(ms.quantile_metric(metric, method="duckdb_tdigest@v1").render())
+            print(distribution_metric_input(metric, method="duckdb_tdigest@v1").render())
         Constraints:
             Performs no source reads or execution; the Metric still owns q.
         """
@@ -71,16 +71,16 @@ class QuantileMetricInput:
         Returns:
             None; writes the bounded description to standard output.
         Example:
-            ms.quantile_metric(metric, method="duckdb_tdigest@v1").show()
+            distribution_metric_input(metric, method="duckdb_tdigest@v1").show()
         Constraints:
             Performs no source reads or execution; the Metric still owns q.
         """
         print(self.render())
 
 
-def quantile_metric(
+def distribution_metric_input(
     metric: Ref[MetricKind] | RuntimeMetricExpr, *, method: QuantileMethod
-) -> QuantileMetricInput:
+) -> DistributionMetricInput:
     """Choose the exact or approximate implementation of a governed quantile.
 
     Args:
@@ -89,10 +89,10 @@ def quantile_metric(
             ``duckdb_tdigest@v1`` for explicit semantic approximation.
 
     Returns:
-        An immutable QuantileMetricInput accepted by Session.observe.
+        An immutable DistributionMetricInput accepted by Session.observe.
 
     Example:
-        >>> selected = ms.quantile_metric(
+        >>> selected = distribution_metric_input(
         ...     ms.ref.metric("sales.p95_amount"), method="duckdb_tdigest@v1"
         ... )
         >>> result = session.observe(selected).aggregate().execute()
@@ -102,7 +102,7 @@ def quantile_metric(
         verifies the root is a supported median/percentile. Projection cannot
         change the method, and execution never selects a fallback method.
     """
-    return QuantileMetricInput(metric, method)
+    return DistributionMetricInput(metric, method)
 
 
 ApproximationClass = Literal[

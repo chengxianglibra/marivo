@@ -469,6 +469,8 @@ PROFILE = EngineProfile(
     ),
     translate_strptime_format=identity_str,
     datetime_decode_policy="local_naive_label",
+    exact_count_distinct=True,
+    exact_quantile=True,
     quantile=QuantileCapability(mode="exact", method="linear_interpolation"),
     percentile_uses_approx_quantile=False,
     authoring_timeout=authoring_timeout,

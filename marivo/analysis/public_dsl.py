@@ -488,6 +488,11 @@ class _Value:
                 )
             )
             if isinstance(quantity, ObservedQuantity):
+                from marivo.analysis.methods.semantics import observation_disclosure
+
+                facts.extend(
+                    observation_disclosure(quantity.method_version, self._node.root.value_type)
+                )
                 facts.append(
                     (
                         "metric",
