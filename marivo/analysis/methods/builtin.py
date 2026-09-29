@@ -13,6 +13,8 @@ from marivo.analysis.core.rules import (
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
+    ObserveWeightedMean,
+    OccurrenceCombine,
     OriginalRatio,
     OriginalReduce,
     PartsTransport,
@@ -57,12 +59,12 @@ NUMERIC_CHECKS: tuple[CheckId, ...] = (
 
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
-    if method.name in ("metric.ratio", "state_rollup.ratio"):
+    if method.name in ("metric.ratio", "state_rollup.ratio", "state_rollup.weighted_mean"):
         ratio_shapes: tuple[SourceShape | FixedShape, ...] = (
             SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
             SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
         )
-        if method.name == "state_rollup.ratio":
+        if method.name in ("state_rollup.ratio", "state_rollup.weighted_mean"):
             ratio_shapes += (FixedShape(NoTime()), FixedShape(TimeShape("instant", "us", "UTC")))
         return tuple(
             Implementation(
@@ -92,9 +94,47 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             for shape in ratio_shapes
             for domain in ("entity", "group")
         )
-    if method.name in ("state_rollup", "state_rollup.count", "state_rollup.sum_zero"):
+    if method.name == "metric.linear":
+        linear_shapes: tuple[SourceShape | FixedShape, ...] = (
+            SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
+            SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
+        )
+        return tuple(
+            Implementation(
+                QualificationKey(
+                    method,
+                    (ScalarType("int64"),) * 2,
+                    (domain,) * 2,
+                    shape,
+                    "artifact_python" if isinstance(shape, FixedShape) else "ibis",
+                ),
+                NUMERIC_CHECKS,
+                PARTS,
+                "checked_int64",
+                ResourceRequirements("complete", "caller", None)
+                if isinstance(shape, FixedShape)
+                else ResourceRequirements("stream", "producer", None),
+                Qualified(
+                    f"r53.{method}.{shape}.{domain}@v1",
+                    "analysis.materialization.graph_local_execution"
+                    if isinstance(shape, FixedShape)
+                    else "analysis.compiler.graph_lowering",
+                    "tests/test_analysis_observation_r53.py",
+                ),
+            )
+            for shape in linear_shapes
+            for domain in ("entity", "group")
+        )
+    if method.name in (
+        "state_rollup",
+        "state_rollup.count",
+        "state_rollup.sum_zero",
+        "state_rollup.linear",
+    ):
         rollup_types: tuple[Literal["int64", "float64"], ...] = (
-            ("int64",) if method.name == "state_rollup.count" else ("int64", "float64")
+            ("int64",)
+            if method.name in ("state_rollup.count", "state_rollup.linear")
+            else ("int64", "float64")
         )
         rollup_shapes: tuple[SourceShape | FixedShape, ...] = (
             SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
@@ -129,7 +169,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             for value_type in rollup_types
             for domain in ("entity", "group", "singleton")
         )
-    if method.name in ("metric.observe", "metric.count", "metric.sum_zero"):
+    if method.name in ("metric.observe", "metric.count", "metric.sum_zero", "metric.weighted_mean"):
         observation_shapes: tuple[tuple[Literal["table", "parquet"], str], ...] = (
             ("table", "native"),
             ("parquet", "parquet"),
@@ -459,15 +499,45 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     return (*declarations, *temporal)
 
 
+def specialize_arity(implementation: Implementation, arity: int) -> Implementation:
+    """Expand only the homogeneous linear consumer's ordered component arity."""
+    if implementation.key.method.name != "metric.linear" or arity < 2:
+        return implementation
+    key = implementation.key
+    if (
+        key.input_types != (key.input_types[0],) * 2
+        or key.input_domains != (key.input_domains[0],) * 2
+    ):
+        return implementation
+    return replace(
+        implementation,
+        key=replace(
+            key,
+            input_types=(key.input_types[0],) * arity,
+            input_domains=(key.input_domains[0],) * arity,
+        ),
+    )
+
+
 def admit(implementation: Implementation, params: RuleParameters) -> None:
     """Resolve a real consumer and reject parameter variants outside its evidence."""
-    if implementation not in implementations(implementation.key.method):
+    if implementation not in tuple(
+        specialize_arity(candidate, len(implementation.key.input_types))
+        for candidate in implementations(implementation.key.method)
+    ):
         reject(
             "an implemented R3.4 consumer",
             repr(implementation.key),
             "Qualify a real lowerer and all required checkers for this exact key.",
         )
-    if isinstance(params, ObserveCount):
+    if isinstance(params, ObserveWeightedMean):
+        if params.amount_type != "int64" or params.coordinates:
+            reject(
+                "int64 paired observation without contribution coordinates",
+                repr(params),
+                "Use the qualified value/weight types.",
+            )
+    elif isinstance(params, ObserveCount):
         if len(params.path) not in (1, 2):
             reject(
                 "one qualified count route", repr(params.path), "Use a direct member relationship."
@@ -493,6 +563,13 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             )
     elif isinstance(params, OriginalRatio):
         pass
+    elif isinstance(params, OccurrenceCombine):
+        if len(params.terms) < 2 or any(sign not in (1, -1) for _quantity, sign in params.terms):
+            reject(
+                "at least two ordered signed terms",
+                repr(params.terms),
+                "Combine the named occurrences with an explicit sign.",
+            )
     elif isinstance(params, OriginalReduce):
         if params.output_domain.kind not in ("singleton", "group") or (
             (params.output_domain.kind == "group") != (params.coordinate is not None)

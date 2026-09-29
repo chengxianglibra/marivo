@@ -18,6 +18,7 @@ from marivo.analysis.core.model import (
     CoordinateStatePart,
     Defined,
     Null,
+    OriginalStatePart,
     SubjectPart,
     Undefined,
     Unknown,
@@ -631,6 +632,9 @@ def _coordinate_rollup_stage(
     coordinate = next(
         p for p in source.contract.signature.parts if isinstance(p, CoordinateStatePart)
     )
+    original_contract = next(
+        p for p in source.contract.signature.parts if isinstance(p, OriginalStatePart)
+    )
     state = next(p.table for p in source.parts if p.role == "coordinate_state")
     coordinate_column = coordinate.column_for(params.coordinate)
     groups: dict[str, dict[str, list[int | float]]] = {}
@@ -667,9 +671,17 @@ def _coordinate_rollup_stage(
         value: int | float | None
         tag = "defined"
         if params.method == "ratio":
-            denominator = totals["denominator_count"]
-            value = totals["numerator_sum"] / denominator if denominator else None
-            if not denominator:
+            denominator = totals["denominator_sum"]
+            contributed = all(
+                totals[f"{prefix}_non_null_count"] > 0 or rule == "zero"
+                for prefix, rule in zip(
+                    ("numerator", "denominator"), original_contract.empty_rules, strict=True
+                )
+            )
+            value = totals["numerator_sum"] / denominator if contributed and denominator else None
+            if not contributed:
+                tag, reason = "null", "empty_contribution"
+            elif not denominator:
                 tag, reason = "undefined", "zero_denominator"
         elif params.method == "count":
             value = totals["count"]
@@ -743,11 +755,16 @@ def _original_ratio_rollup_stage(
     keyed = {tuple(row[key] for key in keys): row for row in state.to_pylist()}
     if any(row["coverage__complete"] is not True for row in coverage.to_pylist()):
         raise _invalid("original ratio has incomplete coverage")
-    components = ("numerator_sum", "numerator_non_null_count", "denominator_count")
+    original_contract = next(
+        p for p in source.contract.signature.parts if isinstance(p, OriginalStatePart)
+    )
+    state_kind = REGISTRY.lookup(method.stage.node.method).semantics.persistent_state_kind
+    assert state_kind is not None
+    components = original_contract.components
     totals = dict.fromkeys(components, 0)
     for row in source.primary.to_pylist():
         original = keyed[tuple(row[key] for key in keys)]
-        if not state_matches("original_ratio", row, original):
+        if not state_matches(state_kind, row, original, empty_rules=original_contract.empty_rules):
             raise _invalid("original ratio Cells differ from their components")
         for component in components:
             value: object = original[f"original_state__{component}"]
@@ -756,15 +773,51 @@ def _original_ratio_rollup_stage(
             totals[component] += value
     if any(not -(2**63) <= total < 2**63 for total in totals.values()):
         raise _invalid("original ratio component rollup exceeds int64")
-    defined = totals["denominator_count"] > 0
+    if state_kind == "original_linear":
+        numerator = sum(
+            totals[name] * (1 if name.startswith("plus_") else -1) for name in components[::2]
+        )
+        denominator = 1
+        defined = all(
+            totals[name] > 0 or rule == "zero"
+            for name, rule in zip(components[1::2], original_contract.empty_rules, strict=True)
+        )
+        tag = "defined" if defined else "null"
+        reason = None if defined else "empty_contribution"
+        if not -(2**63) <= numerator < 2**63:
+            raise _invalid("linear finish exceeds int64")
+    elif state_kind == "original_weighted_mean":
+        numerator, denominator = totals["weighted_numerator"], totals["weight_sum"]
+        contributed = totals["non_null_pair_count"] > 0
+        defined = contributed and denominator != 0
+        tag = "defined" if defined else "null"
+        reason = None if defined else "zero_weight_sum" if contributed else "empty_contribution"
+    else:
+        numerator, denominator = totals["numerator_sum"], totals["denominator_sum"]
+        contributed = all(
+            totals[f"{prefix}_non_null_count"] > 0 or rule == "zero"
+            for prefix, rule in zip(
+                ("numerator", "denominator"), original_contract.empty_rules, strict=True
+            )
+        )
+        defined = contributed and denominator != 0
+        tag = "defined" if defined else "undefined" if contributed else "null"
+        reason = None if defined else "zero_denominator" if contributed else "empty_contribution"
     primary = pa.table(
         {
             "value": pa.array(
-                [totals["numerator_sum"] / totals["denominator_count"] if defined else None],
-                type=pa.float64(),
+                [
+                    (numerator if state_kind == "original_linear" else numerator / denominator)
+                    if defined
+                    else None
+                ],
+                type=pa.int64() if state_kind == "original_linear" else pa.float64(),
             ),
-            "cell_tag": ["defined" if defined else "undefined"],
-            "cell_reason": pa.array([None if defined else "zero_denominator"], type=pa.string()),
+            "cell_tag": [tag],
+            "cell_reason": pa.array(
+                [reason],
+                type=pa.string(),
+            ),
         }
     )
     original = pa.table(
@@ -785,8 +838,8 @@ def _original_ratio_rollup_stage(
         primary.schema,
         (),
         tuple(PartContract(part.role, part.table.schema, ()) for part in parts),
-        (("undefined", ("zero_denominator",)),),
-        "original_ratio",
+        REGISTRY.lookup(method.stage.node.method).semantics.empty_cell_reasons,
+        state_kind,
         status.schema,
     )
     return from_arrow(primary, contract, parts=parts, method_state=status)
@@ -929,6 +982,8 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                 "state_rollup.count",
                 "state_rollup.sum_zero",
                 "state_rollup.ratio",
+                "state_rollup.weighted_mean",
+                "state_rollup.linear",
                 "cell.difference",
                 "association.spearman",
                 "row.count",
@@ -945,6 +1000,8 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
             "state_rollup.count",
             "state_rollup.sum_zero",
             "state_rollup.ratio",
+            "state_rollup.weighted_mean",
+            "state_rollup.linear",
         ) and any(check.node_id == stage.stage.node.identity for check in lowered.admitted.checks):
             raise _invalid("fixed rollup lacks frozen completed partition and coverage evidence")
         if arity == 2:
@@ -1025,7 +1082,7 @@ def execute_verified_fixed(
             and stage.stage.node.parameters.coordinate is not None
         ):
             result = _coordinate_rollup_stage(stage, values[0], binding)
-        elif name == "state_rollup.ratio":
+        elif name in ("state_rollup.ratio", "state_rollup.weighted_mean", "state_rollup.linear"):
             result = _original_ratio_rollup_stage(stage, values[0], binding)
         elif name == "state_rollup.count":
             result = _original_count_stage(stage, values[0], binding)

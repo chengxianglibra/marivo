@@ -85,3 +85,37 @@ Before accepting the conclusion or asking for a deeper investigation, confirm th
 - [Evidence](/docs/latest/concepts/evidence/) explains what supports the final recap.
 
 Public J1–J4 execution and recovery use Store 7. Construction may perform schema-only preflight; business reads follow admission. R5–R9 Dataset execution is not yet qualified for Store 7, and old-generation projects are neither migrated nor read through a fallback.
+
+
+## Observe a runtime metric on the graph
+
+With `session` bound to the project, construct a runtime expression from approved
+catalog refs and observe it over an Entity domain. For example, this slice uses
+int64 revenue and count metrics on a DuckDB source with a UTC event axis:
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+customers = session.members(ms.ref.entity("sales.customer"))
+rate = mv.runtime_metric.ratio(
+    ms.ref.metric("sales.revenue"),
+    ms.ref.metric("sales.order_count"),
+    label="revenue_per_order",
+)
+observed = customers.observe(rate, via=ms.ref.relationship("sales.order_buyer"))
+assert isinstance(observed, mv.LogicalRatioRelation)
+fixed = observed.execute()
+total = fixed.rollup().execute()
+```
+
+Omitting `during` adds no time restriction and does not certify historical
+completeness. Each contribution root reduces independently; use `mv.routes` with
+one `mv.route` per distinct root when roots differ. Runtime `aggregate` and
+`weighted_mean` require an explicitly declared default event axis. The five
+factories reach the graph within the current numeric/time qualification:
+int64 sum/count, leaf slices, ratios, nested signed linear sum/count terms, and
+paired int64 weighted means. Weighted means return numeric relations, keep both
+original sums plus pair/row counts, and roll up those components. Other numeric
+types and nested nonlinear finishes require further
+qualification. Read the returned relation's `contract()` for its valid next calls.

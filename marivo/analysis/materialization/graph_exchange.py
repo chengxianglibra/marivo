@@ -11,13 +11,14 @@ import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.compiler.graph_plan import CheckRequirement
-from marivo.analysis.core.model import CoordinateStatePart, Signature, part_role
+from marivo.analysis.core.model import CoordinateStatePart, OriginalStatePart, Signature, part_role
 from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.execution import BatchStream
 from marivo.analysis.materialization.reads import open_receipt_batch_stream
 from marivo.analysis.materialization.storage import _hash_file, _open_payload
+from marivo.analysis.methods.registry import REGISTRY
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.analysis.methods.state_validation import (
     coordinate_state_matches,
@@ -66,22 +67,6 @@ class ExchangeContract:
     allow_empty_singleton: bool = False
 
     def __post_init__(self) -> None:
-        method_states = {
-            "cell.difference": "difference",
-            "metric.observe": "original_sum",
-            "metric.ratio": "original_ratio",
-            "state_rollup.ratio": "original_ratio",
-            "metric.sum_zero": "original_sum_zero",
-            "state_rollup.sum_zero": "original_sum_zero",
-            "metric.count": "original_count",
-            "state_rollup.count": "original_count",
-            "state_rollup": "original_sum",
-            "row.sum": "row_sum",
-            "row.count": "row_count",
-            "row.count_defined": "row_count_defined",
-            "row.mean": "row_mean",
-            "association.spearman": "spearman",
-        }
         if (
             not isinstance(self.signature, Signature)
             or not isinstance(self.method, MethodKey)
@@ -102,6 +87,8 @@ class ExchangeContract:
                 "original_sum_zero",
                 "original_count",
                 "original_ratio",
+                "original_weighted_mean",
+                "original_linear",
                 "row_sum",
                 "row_count",
                 "row_count_defined",
@@ -111,7 +98,7 @@ class ExchangeContract:
                 "spearman",
             )
             or (self.state_kind == "none") != (self.state_schema is None)
-            or self.state_kind != method_states.get(self.method.name, "none")
+            or self.state_kind != REGISTRY.lookup(self.method).semantics.persistent_state_kind
             or any(not isinstance(item, CheckRequirement) for item in self.pending_checks)
             or type(self.allow_empty_singleton) is not bool
             or (
@@ -384,7 +371,14 @@ def _verify_single_state_part(
         if contract.state_kind == "spearman"
         else "original_state"
         if contract.state_kind
-        in ("original_sum", "original_sum_zero", "original_count", "original_ratio")
+        in (
+            "original_sum",
+            "original_sum_zero",
+            "original_count",
+            "original_ratio",
+            "original_weighted_mean",
+            "original_linear",
+        )
         else "row_state"
     )
     state_part = next((part.table for part in parts if part.role == role), None)
@@ -395,7 +389,15 @@ def _verify_single_state_part(
     }
     for row in primary.to_pylist():
         key = tuple(row[name] for name in contract.key_fields)
-        if not state_matches(contract.state_kind, row, keyed_parts[key]):
+        original = next(
+            (p for p in contract.signature.parts if isinstance(p, OriginalStatePart)), None
+        )
+        if not state_matches(
+            contract.state_kind,
+            row,
+            keyed_parts[key],
+            empty_rules=original.empty_rules if original else (),
+        ):
             raise _invalid("method part and primary numerical state disagree")
         status = states[key]
         if not isinstance(status, str) or not status:

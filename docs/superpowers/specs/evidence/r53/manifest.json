@@ -1,0 +1,146 @@
+{
+  "package": "R5.3 reviewed five-factory graph slice",
+  "baseline": {
+    "branch": "panda",
+    "commit": "09a1ef3b73e9cf2420b7e3ee087dcbe8727c3a68",
+    "followup_started_with_existing_changes": true
+  },
+  "status": "bounded source-tree qualification; no commit, push, wheel or release",
+  "diff_digest_scope": "git diff HEAD excluding evidence/r53; untracked source contents listed separately",
+  "dirty_tree_diff_digest": "sha256:e820f790727f4735a1653ee120b9500f7769091c573b416e5c3367c5af11e938",
+  "changed_sources": {
+    "docs/specs/analysis/operators-and-frames.md": "sha256:92636811872fdf8892dd6de7321962ba21502c02ddbf7c4bd1a3e9ae7beb8ebe",
+    "docs/specs/analysis/python-analysis-design.md": "sha256:29d11e301367e02b1a17bd85fcf02d2c72290aee145e8d779cc4fc0d8f911485",
+    "docs/specs/analysis/session-state-and-runtime.md": "sha256:85054ba14b6728260f8d77b8ed3bc064909a44acf1f1e820c5c1fb58446734d0",
+    "docs/specs/semantic/loading-validation-introspection.md": "sha256:d62307863cbdf38b3a24d5f3deea0e1600f4a21713ceae20b8f76bc7902c1d03",
+    "docs/superpowers/specs/2026-09-28-marivo-full-algebra-dsl-r5-implementation-plan.md": "sha256:6d22cf535d1886af4ab2ffb8e3d6be29a4bf1ab2a26ed5302c80b1b5e997aa54",
+    "docs/superpowers/specs/2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md": "sha256:901e1d08a6c8cc0318182f579667c7e75a4e322c52bc9cb0b9000624a0d7258d",
+    "marivo/analysis/compiler/graph_lowering.py": "sha256:a0944cecb1976280972fe7c116ce9ac2472e784773892233b320a00713fc3995",
+    "marivo/analysis/core/graph.py": "sha256:134be4d63f32f59d11b9c3e78b3342ecc5dee7d41f9f94301d348039ba06b48e",
+    "marivo/analysis/core/model.py": "sha256:cf3cd70f1f796d919abdcb32a5cc9c347a25531723734567ada2e55011b5ae74",
+    "marivo/analysis/core/rules.py": "sha256:7dea0110cddabf8152c005db270701cbfb5d9740c9b35310634a0016c4172ddb",
+    "marivo/analysis/materialization/execution_key.py": "sha256:5af0a46e5bf7991b97569424950c2438f1563a9bce0d730687534d5b3c9a2045",
+    "marivo/analysis/materialization/graph_composition.py": "sha256:e6fec9917115914de12b71e4515fc2c3ceba123aab579d5ba7585e26da9df7f4",
+    "marivo/analysis/materialization/graph_exchange.py": "sha256:880f42eff26f93147cd40585e8a6f868de1f0090f032f82b95f4d8fae03c1d0a",
+    "marivo/analysis/materialization/graph_fields.py": "sha256:1d35c93060916514650b5878ba0a29b06b34fd8e1a78542a0fae584032d49f05",
+    "marivo/analysis/materialization/graph_local_execution.py": "sha256:7aac69a3446945f1365763f28d985e94f91b80ba62f285af5e593fe9990f4c6a",
+    "marivo/analysis/materialization/graph_observation.py": "sha256:4b8d9827a44e6a4cdf58cf3b046d4d57d2fd8bedf1f2022bfe552f6ab1c9ebf6",
+    "marivo/analysis/materialization/graph_protocol.py": "sha256:b95878c23c1cb46cbb02adde616aaaae9028e03555ccb37e22a45b456ce675f2",
+    "marivo/analysis/materialization/graph_relation.py": "sha256:d44742a9c36bc39a5ebabf4920b5829cc998c695c13d6a8ef9f665c3380f1a27",
+    "marivo/analysis/materialization/graph_source_execution.py": "sha256:31ce3bedb07bfc74d2f45ccd5e5a1db2f6de89cb81b831aee67d2bee53d1bbc5",
+    "marivo/analysis/methods/builtin.py": "sha256:1ecef1319af14a6b2a48fc572b9d6fd7255d18b6acd430c8b2f88afe71e9fafe",
+    "marivo/analysis/methods/registry.py": "sha256:5389d1bd15f67c41e02ed393382f50b2f70d8a727c1cf0c8fbb9c6ee3e1f3d6a",
+    "marivo/analysis/methods/semantics.py": "sha256:ebd48f041e95fdd399841029d8016cc4aadc35fe0150fa5f723903dcf6598bc4",
+    "marivo/analysis/methods/state_validation.py": "sha256:42a5fe486343ac7b89e1b8930def7717be5b820623478197c84ae7035c28e2bc",
+    "marivo/analysis/observation/_disclosure.py": "sha256:6052430ede14cf1e49347a0d8804a8a1565b9b52132fff8e34a96c3f072e20e5",
+    "marivo/analysis/public_dsl.py": "sha256:07c104571486f3a1e72df1280cf7e2255c2f104e12fe87550f2668e511ba1d49",
+    "marivo/semantic/metric_graph.py": "sha256:265173653bd2fa6db0f64a17c9d6baf3c3f02e6f4709aba6f988a356566e9166",
+    "marivo/semantic/metric_graph_lowering.py": "sha256:5bfe536eca7c2b3dbf542f69952b2dfb6ceacfa4e0de900971e7e2d40f83a9fb",
+    "site/src/content/docs/docs/latest/first-analysis.mdx": "sha256:a281ad18e38f871fb6df21d8c6325bfec95e6d32a9175668f1f6f3d6c9cb7032",
+    "site/src/content/docs/zh-cn/docs/latest/first-analysis.mdx": "sha256:de9990b03fe8344fb4e0a92dc3ae0ab2f9c6647c10198a39f803ff729b5e059b",
+    "tests/test_analysis_dsl_public_static.py": "sha256:7f48e607aae22bfb3a56cf3a0e8e41d344c31d92cbc9398f4678f6545a53984c",
+    "tests/test_analysis_methods_r32.py": "sha256:864aa8d0b510ef01e55694fe0bd61cf6953102c981f04bf455456c5d95b323bc",
+    "tests/test_analysis_observation_r53.py": "sha256:171280c5a7b4aed698c66c798ab9bfcadea7db41d7729734c6a4e3ea8a1703f7",
+    "tests/typing/analysis_dsl_public_contract.py": "sha256:5b6c08025ac3201331a5c905ea6e74f72655303dc09bbd88da1ec9230edb549f"
+  },
+  "new_sources": {},
+  "protocol": {
+    "store_generation": 7,
+    "compatibility_decoder": false,
+    "breaking_rule": "Plan 3.5: closed runtime input union, OriginalStatePart.empty_rules, ratio magnitude/support state, weighted_mean four-component state and observation method; no old-state encoding compatibility promise"
+  },
+  "qualification": {
+    "source": "DuckDB native table and Parquet; UTC instant-us; current one/two-hop routes",
+    "runtime_forms": [
+      "aggregate sum/count leaves",
+      "slice including pushdown through ratio/linear",
+      "ratio over additive leaves",
+      "nested signed additive linear",
+      "paired int64 weighted_mean",
+      "omitted or finite window"
+    ],
+    "fixed": "source/fixed linear and weighted original rollup, public cold recovery without models/source; missing original part rejection",
+    "unsupported": [
+      "nested nonlinear finishes",
+      "ratio error policy",
+      "weighted contribution coordinates",
+      "remaining numeric/time qualification matrices"
+    ],
+    "continuation_budget_bytes": 262144
+  },
+  "verdicts": {
+    "V03": "passed for stated bounded cases, opaque positive means catalog authoring/require",
+    "V08": "paired-int64 weighted_mean slice passed; full numeric matrix remains R5.6",
+    "V04_V05": "R5.4",
+    "V06_V07": "R5.5",
+    "V09": "R5.6",
+    "V10_V12": "new-state bounded cold recovery passed; full matrix R5.7",
+    "D01_D22": "no debt promoted; 19 existing skips retained"
+  },
+  "commands": [
+    {
+      "command": "make check-agent",
+      "exit": 0,
+      "result": "5374 passed, 19 skipped; lint/import, 401-file typing, API docs passed",
+      "log": "check-agent.log"
+    },
+    {
+      "command": "make runtime-test TESTS='tests/test_analysis_observation_r53.py tests/test_analysis_graph_preflight_r45.py tests/test_analysis_dsl_public.py'",
+      "exit": 0,
+      "result": "75 passed",
+      "log": "targeted.log"
+    },
+    {
+      "command": "make runtime-test TESTS='tests/test_analysis_observation_r53.py -k \"linear or weighted_mean\"'",
+      "exit": 0,
+      "result": "14 passed after final method metadata alignment",
+      "log": "state-continuation.log"
+    },
+    {
+      "command": "make test TESTS='tests/test_analysis_methods_r32.py tests/test_analysis_observation_r53.py'",
+      "exit": 0,
+      "result": "41 passed",
+      "log": "default-targeted.log"
+    },
+    {
+      "command": "make typecheck",
+      "exit": 0,
+      "result": "401 source files clean",
+      "log": "typecheck.log"
+    },
+    {
+      "command": "make lint-agent",
+      "exit": 0,
+      "result": "format/lint/import contracts clean",
+      "log": "static.log"
+    },
+    {
+      "command": "git diff --check",
+      "exit": 0,
+      "result": "clean"
+    },
+    {
+      "command": "npm --prefix site run build",
+      "exit": 0,
+      "result": "321 pages, install scripts verified",
+      "log": "site-build.log"
+    }
+  ],
+  "log_digests": {
+    "check-agent.log": "sha256:ec51d71c645e642655a579aba5f3bb4cffbd65c8d35fd5875262fff22f140012",
+    "default-targeted.log": "sha256:45668c27b7dba0f477b9c286aae52882924b52bfb134c35d12452b9d0dc55139",
+    "site-build.log": "sha256:b6e1d48e557501e7919a7133e51b2460c8044c8dc0293f2276b0615b4aee97ac",
+    "state-continuation.log": "sha256:41904943bccc3859cc34782bdb97d75a5873cbc6bad3a52f679daf1d047350cf",
+    "static.log": "sha256:2bc79b5cfcdf40611920c0a46cbd0599565a3bdf3d1c651e756de4ff48dbe05b",
+    "targeted.log": "sha256:b92a474597a9433444863e20f6e282ef81a43cb57efdfd77e22cd8d3990c12db",
+    "typecheck.log": "sha256:db5db82ea48e520b452c09cdb86cb95be58713c17293381603d4617f3eba0bce"
+  },
+  "readme_digest": "sha256:dd07da99868f31d207a5e23c80678142ac86d11f238c336f1d6a48d8da71f535",
+  "untouched_boundaries": [
+    "AGENTS.md",
+    "packaged skills",
+    "shared legacy R6-R8 admission consumers",
+    "no new Store generation",
+    "no full Runtime/release/MinIO/wheel acceptance"
+  ]
+}

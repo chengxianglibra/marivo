@@ -104,7 +104,7 @@ class RootRoutesValue:
             or any(type(item) is not RootRouteValue for item in self.routes)
             or len({item.root for item in self.routes}) != len(self.routes)
         ):
-            raise _invalid("ratio requires two ordered routes with distinct contribution roots")
+            raise _invalid("one to sixteen ordered routes over distinct contribution roots")
 
 
 def root_route(

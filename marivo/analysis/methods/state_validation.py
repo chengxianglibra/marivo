@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from typing import Literal
 
 
 def difference_matches(
@@ -31,23 +32,85 @@ def difference_matches(
     )
 
 
-def state_matches(kind: str, primary: Mapping[str, object], part: Mapping[str, object]) -> bool:
+def state_matches(
+    kind: str,
+    primary: Mapping[str, object],
+    part: Mapping[str, object],
+    *,
+    empty_rules: tuple[Literal["null", "zero"], ...] = (),
+) -> bool:
     """Check one complete-key-associated primary and required state part."""
     value = primary.get("value")
-    if kind == "original_ratio":
-        numerator = part.get("original_state__numerator_sum")
-        support = part.get("original_state__numerator_non_null_count")
-        denominator = part.get("original_state__denominator_count")
-        if (
-            type(numerator) is not int
-            or not -(2**63) <= numerator < 2**63
-            or type(support) is not int
-            or not 0 <= support < 2**63
-            or type(denominator) is not int
-            or not 0 <= denominator < 2**63
-            or (support == 0 and numerator != 0)
-        ):
+    if kind == "original_linear":
+        terms = sorted(
+            name.removeprefix("original_state__").removesuffix("_sum")
+            for name in part
+            if name.startswith("original_state__") and name.endswith("_sum")
+        )
+        if len(terms) < 2 or len(empty_rules) != len(terms):
             return False
+        signed_total = 0
+        contributed = True
+        indices: set[int] = set()
+        for term in terms:
+            sign, separator, position = term.partition("_")
+            if sign not in ("plus", "minus") or not separator or not position.isdecimal():
+                return False
+            index = int(position)
+            if index >= len(terms) or index in indices:
+                return False
+            indices.add(index)
+            magnitude = part.get(f"original_state__{term}_sum")
+            support = part.get(f"original_state__{term}_non_null_count")
+            if (
+                type(magnitude) is not int
+                or not -(2**63) <= magnitude < 2**63
+                or type(support) is not int
+                or not 0 <= support < 2**63
+                or (support == 0 and magnitude != 0)
+            ):
+                return False
+            signed_total += magnitude if term.startswith("plus_") else -magnitude
+            contributed = contributed and (support > 0 or empty_rules[index] == "zero")
+        if not contributed:
+            # No component rows: an empty contribution, never a silent zero.
+            return (
+                value is None
+                and primary.get("cell_tag") == "null"
+                and primary.get("cell_reason") == "empty_contribution"
+            )
+        return (
+            (type(value) is float or type(value) is int)
+            and math.isfinite(value)
+            and value == signed_total
+            and primary.get("cell_tag") == "defined"
+            and primary.get("cell_reason") is None
+        )
+    if kind == "original_ratio":
+        if len(empty_rules) != 2:
+            return False
+        magnitudes: list[int] = []
+        contributed = True
+        for index, prefix in enumerate(("numerator", "denominator")):
+            magnitude = part.get(f"original_state__{prefix}_sum")
+            support = part.get(f"original_state__{prefix}_non_null_count")
+            if (
+                type(magnitude) is not int
+                or not -(2**63) <= magnitude < 2**63
+                or type(support) is not int
+                or not 0 <= support < 2**63
+                or (support == 0 and magnitude != 0)
+            ):
+                return False
+            magnitudes.append(magnitude)
+            contributed = contributed and (support > 0 or empty_rules[index] == "zero")
+        if not contributed:
+            return (
+                value is None
+                and primary.get("cell_tag") == "null"
+                and primary.get("cell_reason") == "empty_contribution"
+            )
+        numerator, denominator = magnitudes
         if denominator == 0:
             return (
                 value is None
@@ -58,6 +121,36 @@ def state_matches(kind: str, primary: Mapping[str, object], part: Mapping[str, o
             type(value) is float
             and math.isfinite(value)
             and value == numerator / denominator
+            and primary.get("cell_tag") == "defined"
+            and primary.get("cell_reason") is None
+        )
+    if kind == "original_weighted_mean":
+        weighted_total = part.get("original_state__weighted_numerator")
+        weight_total = part.get("original_state__weight_sum")
+        pairs = part.get("original_state__non_null_pair_count")
+        rows = part.get("original_state__row_count")
+        if (
+            type(weighted_total) is not int
+            or type(weight_total) is not int
+            or type(pairs) is not int
+            or type(rows) is not int
+            or not -(2**63) <= weighted_total < 2**63
+            or not -(2**63) <= weight_total < 2**63
+            or not 0 <= pairs <= rows < 2**63
+            or (pairs == 0 and (weighted_total != 0 or weight_total != 0))
+        ):
+            return False
+        if pairs == 0 or weight_total == 0:
+            return (
+                value is None
+                and primary.get("cell_tag") == "null"
+                and primary.get("cell_reason")
+                == ("empty_contribution" if pairs == 0 else "zero_weight_sum")
+            )
+        return (
+            type(value) is float
+            and math.isfinite(value)
+            and value == weighted_total / weight_total
             and primary.get("cell_tag") == "defined"
             and primary.get("cell_reason") is None
         )
@@ -197,6 +290,7 @@ def coordinate_state_matches(
         for total_name, count_name in (
             ("sum", "non_null_count"),
             ("numerator_sum", "numerator_non_null_count"),
+            ("denominator_sum", "denominator_non_null_count"),
         ):
             if count_name in components and item[count_name] == 0 and item[total_name] != 0:
                 return False

@@ -12,12 +12,96 @@ from marivo.analysis.core.rules import (
     CellDerive,
     ObserveCount,
     ObserveMetric,
+    OccurrenceCombine,
     OriginalRatio,
 )
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.graph_members import MemberGraph
 from marivo.analysis.materialization.graph_protocol import NODE, digest, encode
 from marivo.analysis.methods.physical import ScalarType
+
+
+def combine_linear_occurrences(
+    occurrences: tuple[MemberGraph, ...],
+    quantities: tuple[ObservedQuantity, ...],
+    signs: tuple[int, ...],
+    quantity: ObservedQuantity,
+) -> MemberGraph:
+    """Combine N independently reduced occurrences under ordered signed terms."""
+    if len(occurrences) < 2 or not len(occurrences) == len(signs) == len(quantities):
+        raise _invalid_composition("two or more occurrences with one sign each")
+    current = occurrences[0]
+    known = {node.identity: node for node in topology(current.root)}
+    for following in occurrences[1:]:
+        if following.runtime is not current.runtime or following.registry is not current.registry:
+            raise _invalid_composition("different Session or Semantic binding")
+        for node in topology(following.root):
+            prior = known.get(node.identity)
+            if prior is not None:
+                if encode(prior, NODE) != encode(node, NODE):
+                    raise _invalid_composition("one node identity has different frozen definitions")
+                continue
+            if isinstance(node, MethodNode):
+                sources = tuple(known[source.identity] for source in node.sources)
+                if any(not isinstance(source, SourceLeaf) for source in sources):
+                    raise _invalid_composition("non-source dependency in a source node")
+                node = replace(
+                    node,
+                    inputs=tuple(
+                        Edge(edge.role, known[edge.node.identity]) for edge in node.inputs
+                    ),
+                    sources=tuple(source for source in sources if isinstance(source, SourceLeaf)),
+                )
+            known[node.identity] = node
+    roots = tuple(known[item.root.identity] for item in occurrences)
+    methods: list[MethodNode] = []
+    for item in roots:
+        if not isinstance(item, MethodNode) or item.parameters.__class__ not in (
+            ObserveMetric,
+            ObserveCount,
+        ):
+            raise _invalid_composition("an occurrence is not an exact original observation")
+        methods.append(item)
+    first = methods[0]
+    binding = first.signature.domain.binding
+    for item in methods[1:]:
+        if item.signature.domain.binding != binding:
+            raise _invalid_composition("occurrences do not share one frozen member binding")
+        if item.inputs[0].node.identity != first.inputs[0].node.identity:
+            raise _invalid_composition("occurrences do not share the same frozen member node")
+    domain = DomainSignature(
+        binding,
+        first.signature.domain.kind,
+        first.signature.domain.instance_key,
+        first.signature.domain.target_key,
+        quantity.definition_id,
+    )
+    root = method_node(
+        tuple(Edge("quantity", item) for item in methods),
+        OccurrenceCombine(
+            quantity,
+            tuple(zip(quantities, signs, strict=True)),
+            domain,
+            "source.exact_pairing@v1",
+            "source.finite_numeric@v1",
+        ),
+        value_type=first.value_type,
+    )
+    schemas = {
+        leaf.identity: schema for occurrence in occurrences for schema, leaf in occurrence.sources
+    }
+    source_nodes = tuple(node for node in topology(root) if isinstance(node, SourceLeaf))
+    bindings = tuple((schemas[node.identity], node) for node in source_nodes)
+    return replace(current, root=root, sources=bindings)
+
+
+def _invalid_composition(received: str) -> DatasetConstructionError:
+    return DatasetConstructionError(
+        expected="two or more source observations over one exact member realization",
+        received=received,
+        repair="Build every occurrence from the same member domain and Metric root.",
+        location="analysis.graph_composition",
+    )
 
 
 def combine_observations(

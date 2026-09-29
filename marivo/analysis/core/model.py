@@ -9,6 +9,7 @@ from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import DimensionKind, EntityKind, MetricKind, Ref, SemanticKind
 from marivo.semantic.ir import TargetSnapshotSelection, TargetValiditySelection
+from marivo.semantic.runtime_metric import RuntimeMetricExpr
 
 
 class CoreRuleError(AnalysisError):
@@ -224,7 +225,7 @@ class DomainSignature:
 @dataclass(frozen=True, slots=True)
 class ObservedQuantity:
     definition_id: str
-    metric_ref: Ref[MetricKind]
+    metric_ref: Ref[MetricKind] | RuntimeMetricExpr
     graph_fingerprint: str
     unit: str | None
     time_scope: str
@@ -281,14 +282,14 @@ def validate_quantity(quantity: Quantity) -> None:
     if quantity.unit is not None:
         _nonempty(quantity.unit, "core.quantity.unit")
     if isinstance(quantity, ObservedQuantity):
-        if (
-            type(quantity.metric_ref) is not Ref
-            or quantity.metric_ref.kind is not SemanticKind.METRIC
-        ):
+        reference = quantity.metric_ref
+        if isinstance(reference, RuntimeMetricExpr):
+            pass
+        elif type(reference) is not Ref or reference.kind is not SemanticKind.METRIC:
             reject(
-                "an exact Metric Ref",
-                type(quantity.metric_ref).__name__,
-                "Bind a Metric Ref.",
+                "an exact Metric Ref or runtime expression",
+                type(reference).__name__,
+                "Bind a Metric Ref or a closed runtime expression.",
                 "core.quantity.metric",
             )
         _nonempty(quantity.contribution_id, "core.quantity.contribution")
@@ -403,6 +404,7 @@ class OriginalStatePart:
     contribution_id: str
     components: tuple[str, ...]
     version: str
+    empty_rules: tuple[Literal["null", "zero"], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -561,7 +563,12 @@ def validate_part(part: Part) -> None:
             not in (
                 ("sum", "non_null_count"),
                 ("count",),
-                ("numerator_sum", "numerator_non_null_count", "denominator_count"),
+                (
+                    "numerator_sum",
+                    "numerator_non_null_count",
+                    "denominator_sum",
+                    "denominator_non_null_count",
+                ),
             )
             or part.value_type not in ("int64", "float64")
             or part.version != "v1"
@@ -573,6 +580,20 @@ def validate_part(part: Part) -> None:
                 "core.part.coordinate",
             )
     elif isinstance(part, (OriginalStatePart, RowStatePart)):
+        if isinstance(part, OriginalStatePart) and (
+            any(rule not in ("null", "zero") for rule in part.empty_rules)
+            or (part.method_version == "ratio@v1" and len(part.empty_rules) != 2)
+            or (
+                part.method_version == "linear@v1"
+                and len(part.empty_rules) * 2 != len(part.components)
+            )
+        ):
+            reject(
+                "one empty rule per original component",
+                repr(part.empty_rules),
+                "Retain each component empty policy.",
+                "core.part.state",
+            )
         _nonempty(part.quantity_id, "core.part.state.quantity")
         _nonempty(part.method_version, "core.part.state.method")
         _unique(part.components, "core.part.state.components")

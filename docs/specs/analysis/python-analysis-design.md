@@ -664,7 +664,7 @@ recovery can preserve the same K without loading current semantics.
 | `observed.correlate(other, method="spearman")` | `LogicalAssociationResult` | `MaterializedAssociationResult`, then fixed `MaterializedCoefficientRelation` | paired observation state, pair counts and exact member binding |
 | `coefficient.where(coefficient.value.lt(threshold))` | `LogicalCoefficientSelectionRelation` | `MaterializedCoefficientSelectionRelation` | retained pair counts and coefficient policy |
 
-`mv.route(root, *, through=(...))` and `mv.routes(first, second)` are
+`mv.route(root, *, through=(...))` and `mv.routes(*items)` are
 closed values; `mv.sum()`, `mv.count()`, and `mv.mean()` take no arguments.
 `rollup()` merges original retained components, while `summarize(...)`
 calculates over current rows. Logical values own `execute()` and
@@ -1438,14 +1438,16 @@ bound member version as its explicit property dependency. It cannot search for
 cross-Entity attributes or inherit an observation window.
 
 The observe input alias is exactly
-`Ref[MetricKind] | RuntimeMetricExpr | QuantileMetricInput`. Each member,
-time-member and grouped-domain receiver offers these mutually exclusive forms:
+`MetricInput = Ref[MetricKind] | MetricEntry | RuntimeMetricExpr | QuantileMetricInput`;
+the code alias of that name in `observation/contracts.py` is the sole owner of
+this union. Each member, time-member and grouped-domain receiver offers these
+mutually exclusive forms:
 
-- `observe(metric: ObservationInput, *, during: TimeScope | GridWindow | None = None,
+- `observe(metric: MetricInput, *, during: TimeScope | GridWindow | None = None,
   via: Ref[RelationshipKind] | RootRoutes | None = None,
   coordinates: tuple[Ref[DimensionKind], ...] = (),
   time_dimension: Ref[TimeDimensionKind] | None = None)`.
-- `observe(metric: ObservationInput, *, at: datetime | BeforeEndBoundary | GridEndpoint,
+- `observe(metric: MetricInput, *, at: datetime | BeforeEndBoundary | GridEndpoint,
   via: Ref[RelationshipKind] | RootRoutes | None = None,
   coordinates: tuple[Ref[DimensionKind], ...] = (),
   time_dimension: Ref[TimeDimensionKind] | None = None)`.
@@ -1463,13 +1465,23 @@ binding; fixed continuation only consumes already retained values and parts.
 
 `mv.route(root: Ref[EntityKind], *, through: tuple[Ref[RelationshipKind], ...])
 -> RootRoute` and `mv.routes(*items: RootRoute) -> RootRoutes` remain the only
-explicit route shape. Identity or a unique definition-bound route permits None;
-reachability/shortest-path guesses do not. Every actual root has exactly one
-route; extra, duplicate and missing roots reject. Each occurrence receives its
-own bound route and filter. Same-root occurrences requiring incompatible roles
-reject with their occurrence identities: R5 does not add an occurrence-browser
-API. Coordinate paths must be uniquely authorized by that bound graph; no fanout
-switch or generic join is introduced.
+explicit route shape; `RootRoutes` accepts one to sixteen ordered routes.
+Identity or a unique definition-bound route permits None; reachability/shortest-path
+guesses do not. A route binds one **distinct contribution root**, not one
+component occurrence: every distinct computation root of the resolved input has
+exactly one route, and several occurrences that share a root share that one
+route while keeping their own branch filters. Extra, duplicate and missing roots
+reject; routes carry distinct roots in the order the roots are first observed. A
+single route suffices for a single-root input. Same-root occurrences requiring
+incompatible roles reject with their occurrence identities: R5 does not add an
+occurrence-browser API. Coordinate paths must be uniquely authorized by that
+bound graph; no fanout switch or generic join is introduced.
+
+Each occurrence reduces independently within its own branch filter, route and
+time range before any combination. Occurrences are combined on the complete
+target key; a shared contribution table is never multiplied or summed across
+branches first. Combination never falls back to per-column projection products,
+root intersections, or row-order alignment.
 
 ### Runtime expression signatures
 

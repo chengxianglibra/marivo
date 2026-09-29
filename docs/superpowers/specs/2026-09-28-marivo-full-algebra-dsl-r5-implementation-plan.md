@@ -2,7 +2,7 @@
 
 Date: 2026-09-28
 
-Status: R5.1 freeze complete; R5.2 bounded member/read qualification complete; R5.3-R5.7 remain unverified.
+Status: R5.1 freeze complete; R5.2 bounded member/read qualification complete; R5.3 bounded five-factory graph slice implemented; final qualification is recorded in evidence/r53; R5.4-R5.7 remain unverified.
 
 R5.1 的具体交付、消费者与逐格债务见[迁移清单](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md)；
 [静态证据](evidence/r51/README.md)不授予执行资格。
@@ -163,7 +163,7 @@ Runtime owner 接受明确破坏性规则，无双读、迁移或自动重建用
 | R5.3 多根与 runtime_metric | 统一 `semantic/runtime_metric*.py` 与 `analysis/runtime_metric.py` 消费规范图；迁入五工厂、独立组件/分支、无窗口和既有有限窗口观察；原组件数值状态随方法接入 | 三根以上、同根不同过滤、不同事实粒度、路径角色/贡献单位及 opaque 正反例；独立 raw-fact oracle 不放大；原组件与行统计分离 |
 | R5.4 坐标、目标组与部分归约 | 扩展完整元组域、组合分组、显式 groups、部分轴消去、成员/坐标状态运输；接入当前行 count/count_defined/sum/min/max/mean 与承诺的 RowStatistic 续算 | 完整并集、零值坐标、空组、严格分类、无笛卡尔放大；L8/L9 在同目标域与真实状态上验证；丢部件撤销 K |
 | R5.5 时间网格与 fold | 在现有 temporal/calendar owner 接入 each/grid/边界句柄、状态时点、认证窗口、三时区/DST、累计与半可加顺序；替换对应旧 temporal SQL | Entity×Time、部分格、时间粗化、重叠和非交换反例；DuckDB/SQLite 所需实源路径与断源 fixed fold 通过；所有检查读取可追溯 Ibis |
-| R5.6 数值资格与直接观察补全 | 完成 Metric weighted_mean 与剩余数值类型资格，distinct/quantile accuracy 切换；校验 min/max/mean/加权/时间状态与版本 | 精确/近似无静默替换；Decimal/Duration/精度/溢出矩阵明确；所有必需方法已闭合，distinct/quantile 原量上卷拒绝，当前行统计仍可单独成立 |
+| R5.6 数值资格与直接观察补全 | 扩展 Metric weighted_mean 与剩余数值类型资格，distinct/quantile accuracy 切换；校验 min/max/mean/加权/时间状态与版本 | 精确/近似无静默替换；Decimal/Duration/精度/溢出矩阵明确；所有必需方法已闭合，distinct/quantile 原量上卷拒绝，当前行统计仍可单独成立 |
 | R5.7 冷恢复、债务与安装收口 | 逐方法核对 graph protocol/receipt/K；迁移遗留正例与并发用例；反查注册/SQL/codec/Help/包内消费者；同一候选 wheel 重跑旅程 | §6 全部必需格取得证据，旧 R5 链退出产品及测试消费者；14 skip 与 8 fail 按 §5 逐项处置；R6/R9 交接明确 |
 
 R5.3/R5.4 先在既有时间形状下形成可执行切片；R5.5 扩展网格与时间消轴；R5.6 完成数值
@@ -294,3 +294,44 @@ R5 收口要求本阶段必需格无开放阻塞，14/8 债务逐项可核对；
 站点、API、typing、lint 与 whitespace 门禁通过。旧 v7 快照缺少新增冻结字段时明确
 拒绝，无兼容重建。本包不代表完整 R5、安装 wheel 或真实 Agent 验收。
 R5.3–R5.7 及 D01–D22 不改判；未提交、推送或发布。
+
+## 10. R5.3 实施交接（2026-09-29，审查后收口）
+
+候选基线 `panda` / `09a1ef3b73e9cf2420b7e3ee087dcbe8727c3a68`。
+当前工作承接已有未提交变更；本节取代先前 15/26 项用例及「weighted_mean 全部移交
+R5.6」的交接结论。最终命令、候选摘要与矩阵见 [R5.3 证据](evidence/r53/README.md)。
+
+五工厂已在既有公共图、Ibis/SourceSession 与 Store 7 路线上形成可执行切片。
+每个 canonical component 独立绑定根、过滤、路由与时间范围，先归约再按完整目标键
+组合；复合实体主键回归覆盖同首列、不同租户，以及 sum/ratio 和 fixed rollup。
+三根、同根不同过滤、不同事实粒度、错误根角色、多余路由、单位冲突均有独立回归。
+opaque 的正例是目录加载与 require；负例是不得从相等数值推断贡献图及原量上卷许可，
+不把 opaque 直接观察声明为已支持。
+
+`weighted_mean` 新增自己的观察规则、精确方法、四项 int64 配对状态、源端与固定
+上卷及一致性校验。catalog/runtime × table/Parquet 均执行；成员 A=1000/3、C=400，
+总量必须合并成 2600/7，而不是平均成员均值。零权重和、空贡献、单侧 Null、损坏
+状态、缺文件及来源/语义模型离线的新进程恢复均有验证。R5.6 继续承担其他数值类型
+和完整精度/溢出矩阵，不再接收「整个 weighted_mean 尚未实现」的债务。
+
+linear 保留每项 empty policy，支持嵌套正负 sum/count 项及 source/fixed 原量上卷；
+`revenue - (revenue - count)` 成员为 1/1/1、原量合计 3。ratio 各侧可为 sum/count，
+保留空贡献与零分母区别。源端及 exchange 的方法→状态类型映射改用 MethodSemantics
+唯一语义所有者，wire 角色表仍为显式协议约束。
+
+公开 observe 的 typing 与运行时一致：during 可省略；Metric Ref 返回 numeric/ratio
+联合，由实际图决定家族；linear/weighted 返回 numeric，ratio 返回 ratio。正负 typing
+断言、Help 和当前中英文示例同步。packaged skills 与 AGENTS.md 未改动。
+
+**当前资格边界**：DuckDB table/Parquet、UTC instant-us、既有 1–2 跳路由；weighted
+是直接 int64 数值/权重且不带贡献坐标，ratio/linear 为 int64 sum/count 叶。
+复合 ratio/linear 外层 slice 经 canonicalization 下推至各叶，已执行验证；
+嵌套 nonlinear finish 与 ratio error policy 没有获得新资格。构造器可表示的图不等于每个组合
+已有执行资格。256 KiB continuation 预算保持，17 项压力探针仍拒绝；不扩大预算。
+坐标与分组归 R5.4，时间归 R5.5，完整数值矩阵归 R5.6，wheel/全恢复矩阵归 R5.7。
+
+按 §3.5 显式记录：Ref 字段扩为闭 runtime 联合；OriginalStatePart 增加逐组件
+empty_rules；ratio 改为双方 magnitude/support 四列；新增 weighted 四项原状态及
+方法。无兼容双读、无新 Store 代际，不声称旧冻结状态编码保持不变。
+D01–D22 未解除；D04/D05–D08/D14 既有 skips 保留。M10 source_admission 不在公共图
+路径，仍有 R6–R8 消费者，保留共享代码。未提交、推送或发布。

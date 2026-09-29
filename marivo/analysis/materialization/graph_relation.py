@@ -39,7 +39,12 @@ from marivo.analysis.materialization.graph_composition import combine_observatio
 from marivo.analysis.materialization.graph_dataset import GraphDataset
 from marivo.analysis.materialization.graph_fields import RootRoutesValue
 from marivo.analysis.materialization.graph_members import MemberGraph, construct_members
-from marivo.analysis.materialization.graph_observation import observe_members, observe_ratio_members
+from marivo.analysis.materialization.graph_observation import (
+    normalize_metric_input,
+    observe_linear_members,
+    observe_members,
+    observe_ratio_members,
+)
 from marivo.analysis.materialization.graph_protocol import (
     digest,
     fixed_signature,
@@ -57,7 +62,20 @@ from marivo.refs import (
     TimeDimensionKind,
 )
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from marivo.semantic.validator import Registry
+
+
+def _resolves_linear(live: LiveBinding, metric: Ref[MetricKind] | RuntimeMetricExpr) -> bool:
+    """Report whether an input resolves to a signed linear combination."""
+    from marivo.semantic.metric_graph import LinearNodeV1
+
+    contract = normalize_metric_input(live.graph.registry, metric, sidecar=live.sidecar)
+    roots = contract.graph.roots
+    return any(
+        isinstance(record.node, LinearNodeV1) and record.node_id in roots
+        for record in contract.graph.nodes
+    )
 
 
 def _reject(received: str) -> DatasetConstructionError:
@@ -256,10 +274,10 @@ class Relation:
 
     def observe(
         self,
-        metric: Ref[MetricKind],
+        metric: Ref[MetricKind] | RuntimeMetricExpr,
         *,
-        during: TimeScope,
-        via: Ref[RelationshipKind],
+        during: TimeScope | None,
+        via: Ref[RelationshipKind] | tuple[Ref[RelationshipKind], ...],
         coordinates: tuple[Ref[DimensionKind], ...] = (),
     ) -> Relation:
         live = self._live()
@@ -274,11 +292,49 @@ class Relation:
         )
         return Relation(self.runtime, graph.root, replace(live, graph=graph))
 
+    def resolves_multiple_components(self, metric: Ref[MetricKind] | RuntimeMetricExpr) -> bool:
+        """Report whether an input binds more than one canonical occurrence."""
+        live = self._live()
+        contract = normalize_metric_input(live.graph.registry, metric, sidecar=live.sidecar)
+        return len(contract.components) > 1
+
+    def observe_routes(
+        self,
+        metric: Ref[MetricKind] | RuntimeMetricExpr,
+        *,
+        during: TimeScope | None,
+        paths: tuple[tuple[Ref[RelationshipKind], ...], ...],
+        coordinates: tuple[Ref[DimensionKind], ...] = (),
+    ) -> Relation:
+        """Observe an ordered multi-root quantity under explicitly bound routes."""
+        live = self._live()
+        if _resolves_linear(live, metric):
+            linear = observe_linear_members(
+                live.graph,
+                metric,
+                during=during,
+                paths=paths,
+                coordinates=coordinates,
+                sidecar=live.sidecar,
+                report_timezone=live.report_timezone,
+            )
+            return Relation(self.runtime, linear.root, replace(live, graph=linear))
+        graph = observe_ratio_members(
+            live.graph,
+            metric,
+            during=during,
+            paths=paths,
+            coordinates=coordinates,
+            sidecar=live.sidecar,
+            report_timezone=live.report_timezone,
+        )
+        return Relation(self.runtime, graph.root, replace(live, graph=graph))
+
     def observe_ratio(
         self,
-        metric: Ref[MetricKind],
+        metric: Ref[MetricKind] | RuntimeMetricExpr,
         *,
-        during: TimeScope,
+        during: TimeScope | None,
         paths: tuple[tuple[Ref[RelationshipKind], ...], tuple[Ref[RelationshipKind], ...]],
         coordinates: tuple[Ref[DimensionKind], ...] = (),
     ) -> Relation:
@@ -379,11 +435,15 @@ class Relation:
         state = next((p for p in signature.parts if isinstance(p, OriginalStatePart)), None)
         if state is None:
             raise _reject("original components are absent")
-        methods: dict[str, Literal["sum", "sum_zero", "count", "ratio"]] = {
+        methods: dict[
+            str, Literal["sum", "sum_zero", "count", "ratio", "weighted_mean", "linear"]
+        ] = {
             "sum@v1": "sum",
             "sum_zero@v1": "sum_zero",
             "count@v1": "count",
             "ratio@v1": "ratio",
+            "weighted_mean@v1": "weighted_mean",
+            "linear@v1": "linear",
         }
         if state.method_version not in methods:
             raise _reject("original method is not qualified")

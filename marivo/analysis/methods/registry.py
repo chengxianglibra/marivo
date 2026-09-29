@@ -18,7 +18,7 @@ from marivo.analysis.core.model import (
     part_role,
 )
 from marivo.analysis.core.rules import RuleDerivation, RuleParameters
-from marivo.analysis.methods.builtin import admit, implementations
+from marivo.analysis.methods.builtin import admit, implementations, specialize_arity
 from marivo.analysis.methods.errors import reject
 from marivo.analysis.methods.physical import (
     DecimalType,
@@ -84,6 +84,12 @@ class MethodRegistration:
                     repr(implementation.key),
                     "Declare the rule's exact input arity.",
                 )
+            if rule == "occurrence_combine@v1" and input_count < 2:
+                reject(
+                    "two or more ordered signed inputs",
+                    repr(implementation.key),
+                    "Declare one precise value type and domain per occurrence.",
+                )
             if rule in ("cell_derive@v1", "row_state@v1", "original_reduce@v1"):
                 arity = (
                     2
@@ -112,7 +118,14 @@ class MethodRegistration:
                 elif any(
                     item.name == "float64" for item in input_types if isinstance(item, ScalarType)
                 ) or (
-                    method in ("row.mean", "row.weighted_mean", "cell.ratio", "metric.ratio")
+                    method
+                    in (
+                        "row.mean",
+                        "row.weighted_mean",
+                        "cell.ratio",
+                        "metric.ratio",
+                        "state_rollup.weighted_mean",
+                    )
                     and not any(isinstance(item, DecimalType) for item in input_types)
                 ):
                     precision = "finite_float64"
@@ -218,6 +231,7 @@ class MethodRegistry:
                 "Request the exact invocation shape.",
             )
         for implementation in registration.implementations:
+            implementation = specialize_arity(implementation, len(inputs))
             if implementation.key != key:
                 continue
             status = implementation.qualification
@@ -274,6 +288,8 @@ class MethodRegistry:
                 "state_rollup.count",
                 "state_rollup.sum_zero",
                 "state_rollup.ratio",
+                "state_rollup.weighted_mean",
+                "state_rollup.linear",
             ):
                 key = MethodKey(name)
                 original = registered.get(key)
@@ -286,7 +302,10 @@ class MethodRegistry:
                     == original.original_state_method
                     and state.quantity_id == output.quantity.definition_id
                     and state.contribution_id == output.quantity.contribution_id
-                    and state.components == original.state_components
+                    and (
+                        name == "state_rollup.linear"
+                        or state.components == original.state_components
+                    )
                     and state.version == "v1"
                     and coverage is not None
                     and coverage.quantity_id == output.quantity.definition_id

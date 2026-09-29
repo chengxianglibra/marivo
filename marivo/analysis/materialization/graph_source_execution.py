@@ -30,6 +30,7 @@ from marivo.analysis.materialization.graph_exchange import (
 )
 from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.materialization.graph_spearman_execution import finish_spearman
+from marivo.analysis.methods.registry import REGISTRY
 from marivo.datasource.adapters import CompiledRead, SourceSession
 
 
@@ -168,22 +169,9 @@ def _result(
         part_contracts.append(PartContract(role, selected.schema, key_names))
         parts.append(ExchangePart(role, selected))
     source_ids = ",".join(stage.source_ids)
-    state_kind = {
-        "cell.difference": "difference",
-        "metric.observe": "original_sum",
-        "metric.ratio": "original_ratio",
-        "state_rollup.ratio": "original_ratio",
-        "metric.sum_zero": "original_sum_zero",
-        "state_rollup.sum_zero": "original_sum_zero",
-        "metric.count": "original_count",
-        "state_rollup.count": "original_count",
-        "state_rollup": "original_sum",
-        "row.count": "row_count",
-        "row.count_defined": "row_count_defined",
-        "row.sum": "row_sum",
-        "row.mean": "row_mean",
-        "association.spearman": "spearman",
-    }.get(stage.node.method.name, "none")
+    state_kind = REGISTRY.lookup(stage.node.method).semantics.persistent_state_kind
+    if state_kind is None:
+        raise _invalid(f"method {stage.node.method} has no durable state qualification")
     state = None
     if state_kind != "none":
         statuses = (
