@@ -1670,3 +1670,208 @@ row to count; a strict numeric reducer still rejects a non-Defined group Cell.
 Original Metric state is consumed only by original `rollup`, while a newly
 created RowStatistic merges only its own row state. The breaking frozen layouts
 are accepted explicitly by the R5.4 section of `session-state-and-runtime.md`.
+
+## R6.1 frozen relation-composition target
+
+Status (2026-09-30): accepted implementation target for R6.2–R6.7, **not new
+public execution qualification**. The [R6 migration ledger](../../superpowers/specs/2026-09-30-marivo-full-algebra-dsl-r6-migration-ledger.md)
+records the actual starting surface and test owners. This section owns the
+concrete API target for C07–C09 and supersedes historical Dataset/Delta field
+selection shapes for these capabilities. Existing R4/R5 qualifications remain
+bounded to their evidence. No names below are exported merely by this freeze.
+
+### Closed inputs and result families
+
+In the signatures below, NumericRelation means the closed union of Logical and
+Materialized numeric families (observed, original ratio, rolled, Difference,
+RowStatistic and named numeric views); CategoryRelation, BooleanRelation,
+TemporalRelation and AnalysisDomain similarly mean their existing concrete
+paired variants. These are documentation/type-checking aliases, not public
+constructors or Help targets. A capability is admitted from the exact quantity,
+domain and retained parts, never just membership in this union. Selected
+variants retain the same family and may repeat where, compare or rank when
+their contracts permit it. Every transformation returns a Logical variant;
+execute returns its paired Materialized variant. Fixed inputs remain fixed
+through any Logical continuation; Logical does not mean source-backed.
+
+```text
+ExactKeys()
+UnionKeys(*, missing: Literal["keep", "metric_empty"])
+TimeChange(*, pairing: ExactKeys | UnionKeys = ExactKeys())
+CohortContrast(*, pairing: ExactKeys | UnionKeys = ExactKeys())
+PeriodChange(*, alignment: WindowBucketAlignment,
+             pairing: ExactKeys | UnionKeys = ExactKeys())
+window_bucket() -> WindowBucketAlignment
+
+NumericRelation.compare(baseline: NumericRelation, *,
+    design: TimeChange | CohortContrast | PeriodChange = TimeChange(),
+    value: Literal["difference", "relative_change"] = "difference")
+    -> LogicalDifferenceRelation
+NumericRelation.ratio(other: NumericRelation, *,
+    pairing: ExactKeys | OneToOneCorrespondence = ExactKeys())
+    -> LogicalNumericRelation
+one_to_one(*, left: NumericRelation, right: NumericRelation,
+    via: Ref[RelationshipKind], time: PeriodChange | None = None)
+    -> OneToOneCorrespondence
+
+Relation.where(predicate: BoundPredicate) -> Logical variant of receiver
+Relation.members(*, through: SubjectBinding | None = None)
+    -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain
+all_of(*predicates: BoundPredicate) -> BoundPredicate
+any_of(*predicates: BoundPredicate) -> BoundPredicate
+not_(predicate: BoundPredicate) -> BoundPredicate
+Relation.value.is_defined() -> StatePredicate
+
+AnalysisDomain.cohort(predicate: BoundPredicate, *,
+    rule: AnyInstance | AtLeast | AllInstances,
+    through: SubjectBinding | None = None)
+    -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain
+any_instance() -> AnyInstance
+at_least(count: int) -> AtLeast
+all_instances(*, empty: EmptyOpportunityPolicy) -> AllInstances
+empty_opportunity.true() -> EmptyOpportunityPolicy
+empty_opportunity.false() -> EmptyOpportunityPolicy
+empty_opportunity.undefined() -> EmptyOpportunityPolicy
+
+NumericRelation.share_of(reference: NumericRelation) -> LogicalNumericRelation
+AnalysisDomain.penetration_in(reference: AnalysisDomain) -> LogicalNumericRelation
+reference_weights(values: NumericRelation, *,
+    strata: tuple[CategoryRelation, ...], unit: Ref[EntityKind]) -> ReferenceWeights
+NumericRelation.standardize(*, reference: ReferenceWeights) -> LogicalNumericRelation
+NumericRelation.rank(*, order: Literal["ascending", "descending"],
+    ties: Literal["ordinal", "dense", "min", "max"],
+    partition_by: tuple[CategoryRelation, ...] = ()) -> LogicalRankingResult
+RankingResult.where(predicate: BoundPredicate) -> LogicalRankingResult
+RankingResult.limit(count: int) -> LogicalRankingResult
+DifferenceRelation.attribute(*, axes: tuple[Ref[DimensionKind], ...],
+    mode: Literal["joint", "hierarchy"] = "joint", top_k: int | None = None)
+    -> LogicalAttributionResult
+AttributionResult.where(predicate: BoundPredicate) -> LogicalAttributionResult
+
+table(**columns: NumericRelation | CategoryRelation | BooleanRelation |
+    TemporalRelation) -> LogicalTable
+LogicalTable.execute() -> MaterializedTable
+MaterializedTable.show(*, max_output_bytes: int | None = None) -> None
+MaterializedTable.to_pandas() -> pandas.DataFrame
+```
+
+There is no alternative relative_change method, generic join, formula builder,
+free-form pairing callback or current-row statistical_weight surface. Comparison
+and ratio accept the same source/fixed mode and Session only, even when the
+static input union can express an invalid pair. Static typing must reject wrong
+kinds, strings and untyped callables; ownership/parts checks refine those types.
+
+BoundPredicate is a closed immutable union of NumericPredicate,
+CategoryPredicate, BooleanPredicate, TemporalPredicate, StatePredicate and
+composite AllOf/AnyOf/Not variants. It is not a callback, SQL expression or
+implicit Python truth value. StatePredicate contains the exact field input and
+an is_defined tag operation; it is not itself a BooleanRelation and does not
+read business rows. all_of/any_of require at least two operands; not_ exactly
+one. Fields and literals carry concrete types: numeric methods eq/lt/lte/gt/gte
+accept a compatible NumericField or int/float/Decimal literal under the numeric
+matrix; bool is excluded. Duration comparisons require a compatible Duration
+field on both sides; no untyped tick literal or new duration constructor is
+introduced in R6. Negated equality uses not_(field.eq(...)), not a second
+spelling. Category eq accepts a compatible CategoryField or str/int literal;
+Boolean eq accepts a compatible BooleanField or bool literal. Temporal uses
+eq/lt/lte/gt/gte with a compatible TemporalField or date/datetime
+of the same temporal kind and authority. No implicit timezone or unit coercion.
+Scalar literals inherit the field's unit; two fields must prove compatible
+units. Composite predicates retain all actually referenced inputs in authored
+order, including inputs from named views. Runtime dependencies are explicit.
+
+SubjectBinding is a producer-owned immutable value with exact instance domain,
+Subject Entity, complete typed Subject key and single-valued mapping. It is
+returned by the owning domain producer, never a user-authored arbitrary map.
+Entity identity and Entity×Time's retained projection need no through argument;
+an explicit through, if supplied, must match that retained mapping. Other
+instance domains require through and retained coverage. R7 owns their producers.
+Groups without a retained Subject map reject members; projection forms a set
+image without changing the original instance multiplicity. cohort additionally
+requires the complete opportunity contract, not merely a Subject map. at_least
+requires a positive integer excluding bool; empty-opportunity and Metric
+empty-contribution policies remain different closed types.
+
+### Comparison compatibility and quantity templates
+
+| Design | What may change | What must remain equal / proved |
+| --- | --- | --- |
+| TimeChange | Explicit observation-window or endpoint roles | Same quantity template, exact shared target realization, contribution roles/routes, group axes, units and policies; distinct time bindings |
+| CohortContrast | Explicit target membership/selection | Same quantity template and observation time, contribution roles, group axes, units and policies; Group or Singleton output with explicit complete coordinate correspondence |
+| PeriodChange(window_bucket()) | Bound observation periods and their time coordinates | Same target realization and quantity template, non-time coordinates, roles, units and policies; complete ordered equal-length bucket bindings from the temporal owner |
+
+ExactKeys/UnionKeys operate only after design compatibility. Union is a chosen
+method, never a failed-Exact fallback. CohortContrast cannot pair unrelated Entity
+identities by row order. PeriodChange's non-time Union policy does not waive
+complete bucket correspondence. An equal target definition or equal returned
+keys is not proof of the same target realization. Source target sharing uses
+one explicit node; fixed sharing uses the retained exact target realization and
+receipt-bound identity, not just equal current/baseline Artifact schemas.
+
+A quantity template is a typed expression tree. Observed leaves retain Metric
+or runtime-expression definition, occurrence order, roles, filters, units and
+policies; only the time slots selected by the design may be substituted.
+Original ratios/linear/weighted means retain their component templates and
+finish policies. Difference nodes retain inner design, pairing, absolute versus
+relative choice and ordered child templates; both children must match
+recursively under the outer design. RowStatistic templates retain method and
+input template; ordinary ratio and standardized quantities retain pairing and
+reference bindings. Different operators are never interchangeable on units
+alone. A comparison cannot rewrite, reorder or cancel this tree. In particular,
+(Aug−Jul1)−(Jul2−Jun) can retain two different July realizations; it neither
+identifies them nor grants attribution or a linear rewrite. Reference identity
+is not a replaceable time slot. Unsupported template combinations reject before
+reading rows; extending them requires a registered rule with independent tests.
+
+The ordinary ratio correspondence binds the exact ordered left/right nodes and
+a declared one-to-one relationship. It validates both full key images and time
+roles. A different node with the same definition cannot reuse that object.
+No many-to-one, UnionKeys, metric_empty or guessed relationship path is admitted.
+
+### Reference, named-view and terminal protocols
+
+ReferenceWeights is an input value in the existing reference family, with a
+bounded one-line repr and show; it has no standalone execute or arbitrary
+constructor. It freezes exact values/strata dependencies, nonempty ordered
+unique strata axes, dimensionless weights, complete stratum tuples and the
+statistical-unit Entity. The standardized receiver must be grouped by those
+same axes and carry that same statistical-unit identity. Output is one
+Singleton standardized quantity, preserving the receiver's measurement unit;
+there is no inferred per-group reference join. Numerical/zero-weight policy
+belongs to [the method owner](operators-and-frames.md#r61-method-rules-and-qualification-target).
+share_of consumes only a same-measure Singleton reference; penetration_in
+returns a Singleton over the complete fixed reference member domain. Logical
+references are fixed for that execution and shared by explicit dependency.
+
+RankingResult has values and ranks; AttributionResult has contribution, current
+and baseline. All are typed numeric views bound to the result's complete key,
+selection and fixed realization. They use the existing Logical/Materialized
+numeric family, not dynamic attributes from column names. Results have bounded
+repr/show and contract, with only state-valid continuations. where/limit on the
+ranking result restrict both views; where on attribution restricts all three.
+An attribution's current/baseline labels mean allocated side terms, especially
+for component_mix. View selection preserves the original ranking/reference/
+reconciliation scope while separately recording the current selected domain.
+
+Table requires at least one column with a nonempty string display label;
+keyword insertion order fixes output-column order. All columns must have the
+same typed complete keys, compatible time meaning, source/fixed mode and Session.
+Key fields are carried once; display labels colliding with exported key names
+reject rather than rename silently. Duplicate/missing keys fail before output,
+including equal-length misaligned inputs; double-empty same-key inputs are legal.
+Table uses the common graph scheduler, checks and atomic publication protocol,
+with a terminal descriptor containing ordered labels, exact input/view bindings
+and key schema. Recovery reads those verified inputs/parts without sources.
+MaterializedTable has bounded one-line repr, deterministic bounded show and an
+isolated to_pandas copy. It has no contract/K, dynamic column attributes,
+where/group/arithmetic, or path back into analysis. Continue from the original
+Relation variables. LogicalTable exposes execute and bounded repr only.
+
+Errors use existing structured AnalysisError subclasses with expected, received,
+repair, constraint identity and stage. Construction/admission rejects kind,
+Session, mixed mode and known binding errors; execute discharges actual key,
+coverage, value, weight and partition obligations before publication. Help owns
+static signatures, result contract owns current valid actions and structured
+errors own repairs. R6.2–R6.6 must update native Help, export snapshots, dynamic
+guidance, CLI and latest English/Chinese examples together with each executable
+surface; this target text alone adds none of those promises.

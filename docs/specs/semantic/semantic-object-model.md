@@ -1031,3 +1031,23 @@ source-owned as described above. The definition distinguishes exact and approxim
 operations through AggKind, not an observation wrapper. Actual algorithm and
 physical output type remain inspectable; no invented error bound, retained
 distribution/sketch, original rollup or attribution is authorized by this slice.
+
+## R6.1 relation-composition handoff
+
+R6 consumes governed Metric/runtime-expression identity, units, contribution
+roles, relationship cardinality, dimension tuple identity, additive partition
+and component/empty policies without changing Semantic declarations. A declared
+one-to-one relationship is necessary for an explicit ordinary-ratio
+correspondence; actual complete bijection is checked at execution. Equal column
+names or Entity types cannot replace either fact. Definition templates retain
+ordered occurrences and policies; comparison time bindings, selected cohorts,
+references, rankings and attribution reconciliation belong to Analysis state,
+not new Catalog objects.
+
+Metric empty-contribution policy is consumed only with complete observation and
+coverage evidence. It is distinct from Analysis empty-opportunity policy.
+ReferenceWeights binds an existing Entity as statistical unit and existing
+Dimension identities as strata; it does not add a named statistical-weight role.
+The withdrawn ms.statistical_weight, mv.statistical_weight and dependent
+current-row weighted mean remain excluded. R6 does not reinterpret direct
+distinct/quantile display values as membership/distribution sufficient state.

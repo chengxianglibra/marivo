@@ -211,3 +211,30 @@ and authored string parsing), with exact UTC grid keys and values `[1, 2]`.
 Fixed continuations preserve their frozen values and authority without reopening
 the source. Shared temporal authority values live in `analysis.core.time_authority`;
 the old observation module is removed without a forwarding alias.
+
+## R6.1 period correspondence
+
+Status: frozen PeriodChange target, not a new backend/time qualification.
+`PeriodChange(alignment=window_bucket())` pairs the complete ordered buckets
+inside each equal non-time coordinate by their retained ordinal within the
+original two bound grids. Both sides must retain their exact ordered grid,
+calendar/timezone authority, boundary instants or DATE keys, evaluation key and
+observation-window bindings. The two complete bucket counts must agree. An
+ordinal is correspondence evidence, not a replacement for either original time
+coordinate and not a claim of equal weekdays/fiscal meaning.
+
+Filter/limit/rank cannot re-number surviving buckets. If complete original bucket
+maps survive, selection is validated against that original correspondence;
+otherwise pairing rejects. UnionKeys may union non-time coordinates only after
+this complete bucket rule succeeds; it cannot truncate, pad or infer missing
+time buckets. A one-to-one ordinary ratio using a PeriodChange consumes the
+same exact time correspondence bound to its ordered input nodes.
+
+R6 required qualification includes R5-qualified NoTime/scoped observation,
+UTC instant-us windows, DATE grids and aware report-local calendar grids for the
+three comparison designs where meaningful; grouping and Singleton must retain
+their originating time authority. Include unequal 28/31 bucket rejection,
+equal-length different-month pairing, and a DST-local day-grid case preserving
+both sides' distinct instants/durations. Fixed continuation uses those retained
+bindings with no calendar/Catalog reload. No new elapsed/calendar coercion,
+SQLite numeric expansion or six-backend qualification follows from R6.
