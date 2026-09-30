@@ -6,6 +6,9 @@ engine process recovery is the actual contract.
 
 | Boundary | Owning checks |
 | --- | --- |
+| R5 public graph cold recovery and exact fixed hits | `test_analysis_numeric_r56.py` covers four numeric families, table/Parquet, eight state methods and 256 part/receipt/version faults; `test_analysis_recovery_r57.py` adds six row-state methods, typed reads, direct-only distributions and structural contract/signature preservation in three processes |
+| R5 Session writer contention and activation | `test_lazy_runtime_concurrency.py` uses Store 7, real graph-primary publication, six thread/process/reentrant contenders, actual driver query barriers, fresh source evaluations and distinct/exact fixed keys |
+| R5 installed public journeys | `test_analysis_runtime_wheel.py` runs the R5 modules and debt owners from one non-editable wheel outside the checkout; every spawned Python process checks installed origin, and source injection must fail |
 | Analysis, compare, attribution, sampling, ordering, ordinary concurrency | Local-file Runtime tests with real DuckDB sources and calling-process execution/reads |
 | Producer, continuation, and cold binding independence | Local-file fresh-process journeys; dedicated engine adapter/recovery journeys |
 | File integrity, complete-input limits, atomic publication and crash recovery | Local-file and engine-specific Runtime checks |

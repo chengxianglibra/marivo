@@ -8,6 +8,7 @@ from datetime import datetime
 
 from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis.compiler.source_admission import source_admission_fact
+from marivo.analysis.core.time_authority import ReportTimeAuthority
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.analysis.domains.completeness import CompletenessDeclaration
 from marivo.analysis.domains.event import LogicalEventDataset, make_match
@@ -32,7 +33,6 @@ from marivo.analysis.observation.metric import (
 )
 from marivo.analysis.observation.population import LogicalPopulationDataset, make_population
 from marivo.analysis.observation.source_bindings import SourceBindingMap, SourceBindingScopes
-from marivo.analysis.observation.temporal import ReportTimeAuthority
 from marivo.refs import Ref, StateModelKind
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.catalog import SemanticCatalog, StateModelEntry

@@ -205,14 +205,20 @@ def _admit_miss(
         final_root = dataset._root
         if not isinstance(final_root, LogicalRootHandle):
             raise _error("graph_validation")
-        stage = max(
-            legacy_source_migration_stage(operator_id)
+        stages = tuple(
+            stage
             for operator_id in (*operator_ids, final_root.operator_id)
+            if (stage := legacy_source_migration_stage(operator_id)) is not None
+        )
+        repair = (
+            f"Use a source method qualified after its R{max(stages)} migration; the old route cannot execute in R1.1."
+            if stages
+            else "This R5 route is retired. Use session.members(...).observe(...) through the public graph."
         )
         raise MaterializationError(
             expected="a source route through a session-issued Ibis read",
             received=f"legacy text-backed source steps: {', '.join(operator_ids[:4])}",
-            repair=f"Use a source method qualified after its R{stage} migration; the old route cannot execute in R1.1.",
+            repair=repair,
             stage="source_admission",
         )
     if (

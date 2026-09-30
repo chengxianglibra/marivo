@@ -76,7 +76,7 @@ def test_selected_legacy_source_route_discloses_migration_block(
     contract = dataset.contract()
     rendered = contract.render()
     assert (
-        "source_admission: blocked_r1.1 backend=sqlite: legacy Dataset source route awaits R5 migration"
+        "source_admission: blocked_r1.1 backend=sqlite: retired R5 route; use session.members(...).observe(...)"
         in rendered
     )
     assert "operators:" in rendered

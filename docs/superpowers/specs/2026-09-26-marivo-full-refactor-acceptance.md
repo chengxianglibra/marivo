@@ -1186,3 +1186,32 @@ targeted typing for both new test modules, site build and whitespace checks pass
 `evidence/r56/review-fixes-*` records logs and candidate fingerprints, separately
 from earlier closure evidence. Whole-R5 V11/R5.7 debt, remote backends and installed
 Agent acceptance remain unverified; no commit, release or installation occurred.
+
+## R5.7 completed qualification (2026-09-30)
+
+Implementation and the detailed D01–D22/V01–V12 coverage map are in the R5 migration
+ledger's R5.7 section. Baseline `ea787d116b` was clean on `panda`. Current source
+changes preserve the single graph/Runtime/Store 7 path; shared time authority
+moves to core, old R5 migration repair is retired, concurrency uses actual graph
+publication and query barriers, and recovery checks actual structured K and
+frozen signatures separately from values and execution-key/Artifact hits.
+
+Final candidate passed: 447 focused source Runtime cases; documentation Runtime
+follow-up (7); `make check-agent` (5451 passed, five existing non-debt skips, lint,
+407-module typing, import contracts and API docs); 321-page site build; whitespace
+checks. `make release-test` passed 26 outer tests. One non-editable wheel passed
+1110 isolated installed tests without skips and eight table/Parquet J1–J4
+produce/continue/recover journeys, with per-process installed-origin guards.
+
+Wheel: `marivo-0.5.3.dev0-py3-none-any.whl`; SHA256
+`ba64ba6454a5c01770d2212287756a8fb5bac60e23a07aa02ec97b4c5866ea5a`.
+The [R5 migration ledger](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md#final-candidate-evidence)
+records dependencies, source/test digest, exact commands, consumer ownership,
+method/type/routes, and V01–V12/D01–D22 dispositions. Detailed evidence stays
+ignored under `evidence/r57/`; failed/interrupted attempts remain separate.
+
+R5.7 is complete within the accepted R5.6 per-method matrix. Decimal/Duration
+current-row sum/mean/min/max remain unqualified; count/count_defined are qualified.
+This does not qualify R9 backends, R10 real Agents, release/publication, or a
+second/legacy execution route. Packaged skills and AGENTS.md are unchanged.
+No push, publication or MinIO service was performed.

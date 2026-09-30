@@ -144,7 +144,7 @@ def test_deferred_semantic_monthly_observation_rejects_before_run(
     assert not session._runtime.statistics.statements
     from marivo.analysis.errors import AnalysisError
 
-    with pytest.raises(AnalysisError, match="R5"):
+    with pytest.raises(AnalysisError, match="R6–R9"):
         logical.execute()
     assert session.runs().items == ()
 

@@ -12,6 +12,7 @@ import pandas as pd
 import pyarrow as pa
 
 from marivo._temporal import PeriodCalendarSnapshotV1
+from marivo.analysis.core.time_authority import ReportTimeAuthority
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
 from marivo.analysis.domains.completeness import (
     EventCoverageProvider,
@@ -50,7 +51,6 @@ from marivo.analysis.observation.population import (
     LogicalPopulationDataset,
     MaterializedPopulationDataset,
 )
-from marivo.analysis.observation.temporal import ReportTimeAuthority
 from marivo.analysis.operators.association import (
     LogicalAssociationDataset,
     MaterializedAssociationDataset,
@@ -506,7 +506,7 @@ class DatasetRuntime:
             raise DatasetConstructionError(
                 expected="a qualified Store 7 typed relation",
                 received="an unqualified Dataset family execution",
-                repair="Use session.members(...); R5–R9 Dataset execution has no Store 7 qualification.",
+                repair="Use session.members(...); R6–R9 Dataset execution has no Store 7 qualification.",
                 location="analysis.execution_admission",
                 help_target="session.members",
             )

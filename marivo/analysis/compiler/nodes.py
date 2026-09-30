@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, Literal
 
 import ibis.expr.types as ir
 
+from marivo.analysis.core.time_authority import TemporalExecution
 from marivo.analysis.datasets.handles import CanonicalValue
-from marivo.analysis.observation.temporal import TemporalExecution
 from marivo.analysis.operators.candidate_contracts import CandidateDefinition
 from marivo.analysis.operators.driver_contracts import DriverCandidateDefinition
 from marivo.semantic.ir import TargetEntityContract

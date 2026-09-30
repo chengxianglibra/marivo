@@ -725,9 +725,15 @@ base = mv.runtime_metric.aggregate(amount, agg='sum', label='sum')
 metrics = {kind: mv.runtime_metric.aggregate(amount, agg=kind, label=kind) for kind in ('sum','min','max','mean')}
 metrics.update(weighted=mv.runtime_metric.weighted_mean(amount, weight, label='weighted'), ratio=mv.runtime_metric.ratio(base,base,label='ratio'), linear=mv.runtime_metric.linear(add=[base,base],label='linear'), fold=ms.ref.metric('sales.folded'))
 artifacts = {}
+contracts = {}
+from dataclasses import asdict
+from pathlib import Path
+from marivo.analysis.materialization.graph_protocol import SIGNATURE, encode
 for kind, metric in metrics.items():
     fixed = session.members(ms.ref.entity('sales.customer')).observe(metric, during=mv.time_scope(start='2026-08-01',end='2026-08-03'),via=ms.ref.relationship('sales.order_buyer')).execute()
     artifacts[kind] = fixed.state.artifact_ref.ref
+    contracts[kind] = {'K': asdict(fixed.contract()), 'signature': encode(fixed._node.root.signature, SIGNATURE)}
+Path('recovery-contracts.json').write_text(json.dumps(contracts))
 print(json.dumps(artifacts))
 """
 
@@ -762,14 +768,23 @@ ms.load = forbidden
 duckdb.connect = forbidden
 ibis.duckdb.connect = forbidden
 DatasourceConnectionService.use_backend = forbidden
+from pathlib import Path
+from dataclasses import asdict
+from marivo.analysis.materialization.graph_protocol import SIGNATURE, encode
+contracts = json.loads(Path('recovery-contracts.json').read_text())
 session = mv.session.resume(sys.argv[1], by='id')
 output = {}
 for kind, artifact in json.loads(sys.argv[2]).items():
     fixed = session.artifact(artifact)
     assert any(action.call == 'relation.rollup()' for action in fixed.contract().actions)
+    assert json.loads(json.dumps(asdict(fixed.contract()))) == contracts[kind]['K']
+    assert encode(fixed._node.root.signature, SIGNATURE) == contracts[kind]['signature']
     result = fixed.rollup().execute()
+    again = fixed.rollup().execute()
+    assert again.state.artifact_ref == result.state.artifact_ref
+    assert session._runtime.statistics.primary_queries == 0
     verified = result._dataset.verified()
-    output[kind] = {'value': [str(value) for value in numeric_primary(verified.primary)['value'].to_pylist()], 'state': [part.table.to_pylist() for part in verified.parts if part.role == 'original_state'], 'K': result._dataset.artifact.descriptor.execution_key_digest}
+    output[kind] = {'value': [str(value) for value in numeric_primary(verified.primary)['value'].to_pylist()], 'state': [part.table.to_pylist() for part in verified.parts if part.role == 'original_state'], 'K': asdict(result.contract()), 'signature': encode(result._node.root.signature, SIGNATURE), 'artifact': result.state.artifact_ref.ref, 'run': result.state.producing_run_ref, 'execution_key': result._dataset.artifact.descriptor.execution_key_digest}
 print(json.dumps(output, default=str, sort_keys=True))
 """
     first = run(consumer, json.dumps(artifacts))

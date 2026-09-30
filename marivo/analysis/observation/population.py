@@ -6,6 +6,7 @@ from datetime import datetime, time
 from typing import TYPE_CHECKING, TypeGuard
 
 from marivo._temporal import TimeScope
+from marivo.analysis.core.time_authority import time_zone
 from marivo.analysis.datasets.actions import construct_operator
 from marivo.analysis.datasets.base import (
     Dataset,
@@ -42,7 +43,6 @@ from marivo.analysis.observation.predicates import (
     PredicateField,
     bind_predicates,
 )
-from marivo.analysis.observation.temporal import time_zone
 from marivo.refs import Ref, SemanticKind
 from marivo.semantic.catalog import DimensionEntry, EntityEntry
 from marivo.semantic.validator import normalize_target_entity, normalize_target_version_selection

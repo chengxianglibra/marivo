@@ -31,6 +31,7 @@ from marivo.analysis.core.rules import (
     OccurrenceFilter,
     entity_members,
 )
+from marivo.analysis.core.time_authority import civil_bound
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint, bind_cumulative
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.contracts import canonical_json
@@ -38,7 +39,6 @@ from marivo.analysis.materialization.graph_members import MemberGraph
 from marivo.analysis.materialization.graph_preflight import preflight_entities
 from marivo.analysis.materialization.graph_protocol import digest, schema_text
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType, TimeShape
-from marivo.analysis.observation.temporal import civil_bound
 from marivo.refs import (
     DimensionKind,
     MetricKind,
@@ -52,6 +52,7 @@ from marivo.semantic.ir import (
     DIRECT_ONLY_AGGREGATES,
     DateParse,
     DatetimeParse,
+    StrptimeParse,
     TargetRelationshipContract,
     TimestampParse,
 )
@@ -73,7 +74,7 @@ from marivo.semantic.validator import (
 
 def _reject(received: str) -> DatasetConstructionError:
     return DatasetConstructionError(
-        expected="a qualified sum/count or weighted-mean occurrence, member route and UTC event axis",
+        expected="a qualified numeric occurrence, member route and declared or driver-bound event axis",
         received=received,
         repair="Use direct numeric Measure columns, an explicit default event axis for runtime leaves, and the exact contribution-to-member relationship.",
         location="analysis.graph_observation",
@@ -409,12 +410,20 @@ def observe_members(
         or (
             pa.types.is_timestamp(event_type)
             and event_type.unit == "us"
-            and isinstance(event.parse, (TimestampParse, DatetimeParse))
+            and (event.parse is None or isinstance(event.parse, (TimestampParse, DatetimeParse)))
         )
+        or (pa.types.is_string(event_type) and isinstance(event.parse, StrptimeParse))
     ):
         raise _reject("unqualified event physical type or precision")
     if pa.types.is_date(event_type):
         event = replace(event, logical_type="date")
+    elif event.timezone is None and (
+        not pa.types.is_timestamp(event_type) or event_type.tz is None
+    ):
+        engine_timezone = schemas[event.entity_ref.path].engine_timezone
+        if engine_timezone is None:
+            raise _reject("event time requires a declared or driver-reported read timezone")
+        event = replace(event, timezone=engine_timezone)
     if contribution_schema.shape.backend == "sqlite" and event.timezone not in (None, "UTC"):
         raise _reject("SQLite non-UTC observation has no qualified source route")
     for relationship in path:

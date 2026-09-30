@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 
-from marivo.analysis.observation.temporal import ReportTimeAuthority
+from marivo.analysis.core.time_authority import ReportTimeAuthority
 from marivo.analysis.session._lazy_sources import make_lazy_sources
 from marivo.semantic.ir import SemanticParse
 from tests.lazy_execution_fixtures import ExecutionFixture, execution_fixture

@@ -273,7 +273,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 output="Paired Materialized Dataset",
                 code="result = metric.execute()",
                 requires=("metric",),
-                effects="Public Sessions use Store 7. Dataset family execution is not qualified and rejects before business reads or Run allocation pending R5–R9 migration. Use session.members(...) for qualified typed relation execution, then session.artifact(ref) for exact recovery. Private Dataset harness qualification and definition-key reuse do not authorize public execution.",
+                effects="Public Sessions use Store 7. Dataset family execution is not qualified and rejects before business reads or Run allocation pending R6–R9 migration. Use session.members(...) for qualified typed relation execution, then session.artifact(ref) for exact recovery. Private Dataset harness qualification and definition-key reuse do not authorize public execution.",
                 runtime=True,
             ),
             common(
@@ -314,7 +314,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 output="DatasetContract",
                 code="result = metric.contract()",
                 requires=("metric",),
-                effects="Pure metadata and consumer-admission inspection; no query or Run. Dataset static backend checks do not grant Store 7 execution qualification. Public Dataset execution remains blocked pending R5–R9 migration; qualified relation contracts are acquired from session.members(...).",
+                effects="Pure metadata and consumer-admission inspection; no query or Run. Dataset static backend checks do not grant Store 7 execution qualification. Public Dataset execution remains blocked pending R6–R9 migration; qualified relation contracts are acquired from session.members(...).",
             ),
         )
     )

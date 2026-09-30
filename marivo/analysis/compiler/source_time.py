@@ -11,8 +11,8 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo.analysis.compiler.errors import compilation_error
+from marivo.analysis.core.time_authority import SourceTimeAuthority, time_zone
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.observation.temporal import SourceTimeAuthority, time_zone
 from marivo.semantic.ir import (
     DateParse,
     DatetimeParse,

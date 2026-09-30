@@ -54,8 +54,8 @@ BackendName: TypeAlias = Literal["duckdb", "postgres", "mysql", "sqlite", "trino
 PreparationKind: TypeAlias = Literal["correlation", "distribution"]
 
 
-def legacy_source_migration_stage(operator_id: str) -> int:
-    """Return the planned method migration stage for a blocked legacy source route."""
+def legacy_source_migration_stage(operator_id: str) -> Literal[6, 7, 8] | None:
+    """Return the remaining domain owner, or None for a retired R5 route."""
     if operator_id.startswith(("session.events.", "event.", "session.lifecycle.", "lifecycle.")):
         return 7
     if operator_id.startswith(("delta.attribute", "attribution.", "delta.", "metric.compare")):
@@ -71,7 +71,7 @@ def legacy_source_migration_stage(operator_id: str) -> int:
         )
     ):
         return 8
-    return 5
+    return None
 
 
 @dataclass(frozen=True, slots=True)

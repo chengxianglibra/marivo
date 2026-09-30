@@ -8,6 +8,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from marivo._temporal import Grain, PeriodCalendarSnapshotV1, TemporalResolver, TimeScope
+from marivo.analysis.core.time_authority import civil_bound
 from marivo.analysis.datasets.actions import construct_operator
 from marivo.analysis.datasets.base import Dataset
 from marivo.analysis.datasets.descriptors import _CORE_TOKEN
@@ -28,7 +29,6 @@ from marivo.analysis.observation.contracts import (
     source_owner_of,
 )
 from marivo.analysis.observation.errors import ObservationConstructionError
-from marivo.analysis.observation.temporal import civil_bound
 from marivo.refs import Ref, SemanticKind
 from marivo.semantic.catalog import DimensionEntry, TimeDimensionEntry
 from marivo.semantic.ir import DateParse, RelationshipIR, TargetDimensionContract

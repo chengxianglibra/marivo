@@ -10,29 +10,32 @@ import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 import pytest
 from ibis.backends.duckdb import Backend
 
+import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.materialization import admission
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.materialization.errors import SessionBusyError
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
+from marivo.datasource import backends
+from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
 from marivo.datasource.backends import (
     BuiltDatasourceBackend,
     EffectiveDatasourceKwargs,
     _build_backend_from_effective,
 )
-from marivo.datasource.ir import DatasourceIR, TableSourceIR
-from marivo.refs import ref
-from tests.lazy_concurrency_runtime_worker import snapshot
-from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
-from tests.lazy_runtime_patch_targets import runtime_patch_owner
+from marivo.datasource.ir import DatasourceIR
+from tests.lazy_concurrency_runtime_worker import observation, snapshot
+from tests.shared_fixtures import DslCase
 
 pytestmark = pytest.mark.runtime
 
@@ -51,23 +54,32 @@ def _evidence(name: str, value: dict[str, object]) -> None:
 @pytest.mark.parametrize("key", ["same", "different"])
 @pytest.mark.parametrize("mode", ["thread", "process", "reentrant"])
 def test_busy_contender_preserves_real_producer(
-    tmp_path: Path, kind: str, key: str, mode: str
+    retained_r54_case: DslCase, kind: str, key: str, mode: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    database = tmp_path / "warehouse.duckdb"
-    seed_execution_database(database)
-    registry, sidecar = make_execution_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "writer")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    committed = sources.population(ref.entity("sales.customers")).execute()
-    logical = sources.observe(ref.metric("sales.revenue"))
+    case = retained_r54_case
+    runtime = case.session._runtime
+    reads: list[CompiledRead] = []
+    batches = SourceSession.batches
+
+    def capture(source: SourceSession, read: CompiledRead, *, chunk_size: int) -> SourceBatchStream:
+        reads.append(read)
+        return batches(source, read, chunk_size=chunk_size)
+
+    monkeypatch.setattr(SourceSession, "batches", capture)
+    committed = case.session.members(ms.ref.entity("sales.customer")).execute()
+    logical = observation(case.session, "sales.revenue")
     metric = "sales.revenue" if key == "same" else "sales.order_count"
-    contender = sources.observe(ref.metric(metric))
+    contender = observation(case.session, metric)
+    initial_reads = len(reads)
     paused, resume = threading.Event(), threading.Event()
     evidence: dict[str, object] = {"pid": os.getpid(), "kind": kind, "key": key, "mode": mode}
 
     def check_contender() -> None:
         before, stats, run = snapshot(runtime), asdict(runtime.statistics), runtime.last_run_ref
-        assert run is not None and stats["primary_queries"] == 1
+        assert run is not None
+        read_count = len(reads)
+        assert read_count > initial_reads
+        assert any("original_state__sum" in read.schema.names for read in reads[initial_reads:])
         if mode == "process":
             child = subprocess.run(
                 [
@@ -76,13 +88,13 @@ def test_busy_contender_preserves_real_producer(
                     "-m",
                     "tests.lazy_concurrency_runtime_worker",
                     "contend",
-                    str(tmp_path),
+                    str(case.root),
                     "--session",
                     runtime.session_ref,
                     "--metric",
                     metric,
                     "--artifact",
-                    committed.state.artifact_ref.ref,
+                    committed._run().state.artifact_ref.ref,
                 ],
                 capture_output=True,
                 text=True,
@@ -101,15 +113,16 @@ def test_busy_contender_preserves_real_producer(
             with pytest.raises(SessionBusyError) as rejected:
                 contender.execute()
             assert rejected.value.session_ref == runtime.session_ref
-            assert str(tmp_path) not in str(rejected.value)
+            assert str(case.root) not in str(rejected.value)
             assert rejected.value.run_ref is None
         assert snapshot(runtime) == before
+        assert len(reads) == read_count
         assert asdict(runtime.statistics) == stats and runtime.last_run_ref == run
-        assert runtime.artifact(committed.state.artifact_ref.ref).to_pandas().shape[0] == 4
+        assert case.session.artifact(committed.state.artifact_ref.ref).to_pandas().shape[0] == 3
         evidence.update({"before": before, "producer_statistics": stats, "run": run})
 
     def pause(point: str) -> None:
-        if point == "quality":
+        if point == "graph_primary_written":
             if mode == "reentrant":
                 check_contender()
             else:
@@ -133,25 +146,44 @@ def test_busy_contender_preserves_real_producer(
     assert completed["analysis_action_runs"] == completed["analysis_action_run_terminals"] == 2
     assert completed["dataset_artifacts"] == completed["dataset_evidence"] == 2
     assert completed["action_resource_journal"] == 0
+    produced_reads = len(reads) - initial_reads
     retry = logical.execute()
-    assert retry.state.artifact_ref == produced.state.artifact_ref
-    assert snapshot(runtime) == completed
-    assert runtime.statistics.events == {"reconciliation": 1}
+    assert retry._run().state.artifact_ref != produced._run().state.artifact_ref
+    assert retry.to_pandas()["value"].sum() == 147
+    assert len(reads) == initial_reads + 2 * produced_reads
+    fixed = produced.rollup()
+    first_fixed = fixed.execute()
+    assert first_fixed.to_pandas()["value"].tolist() == [147]
+    fixed_snapshot = snapshot(runtime)
+    read_count = len(reads)
+    fixed_retry = fixed.execute()
+    assert len(reads) == read_count
+    assert fixed_retry._run().state.artifact_ref == first_fixed._run().state.artifact_ref
+    assert snapshot(runtime) == fixed_snapshot
     assert runtime.statistics.primary_queries == runtime.statistics.transferred_rows == 0
     assert runtime.statistics.events.get("local_execution_started", 0) == 0
+    different_fixed = produced.where(produced.value.gt(10)).rollup().execute()
+    assert different_fixed.state.artifact_ref != first_fixed.state.artifact_ref
+    assert different_fixed.to_pandas()["value"].tolist() == [140]
+    assert len(reads) == read_count
     evidence.update(
         {
             "session": runtime.session_ref,
-            "artifact": produced.state.artifact_ref.ref,
+            "artifact": produced._run().state.artifact_ref.ref,
             "completed": completed,
             "retry_statistics": asdict(runtime.statistics),
         }
     )
     if key == "different":
+        before_contender = snapshot(runtime)
         retried_contender = contender.execute()
-        assert retried_contender.state.artifact_ref != produced.state.artifact_ref
-        assert snapshot(runtime)["analysis_action_runs"] == 3
-        evidence["contender_retry_artifact"] = retried_contender.state.artifact_ref.ref
+        assert retried_contender._run().state.artifact_ref != produced._run().state.artifact_ref
+        assert (
+            snapshot(runtime)["analysis_action_runs"]
+            == before_contender["analysis_action_runs"] + 1
+        )
+        assert retried_contender.to_pandas()["value"].sum() == 4
+        evidence["contender_retry_artifact"] = retried_contender._run().state.artifact_ref.ref
         evidence["contender_retry_run"] = runtime.last_run_ref
     _evidence(f"contention-{kind}-{key}-{mode}", evidence)
 
@@ -159,7 +191,7 @@ def test_busy_contender_preserves_real_producer(
 def test_canonical_creation_releases_candidate_before_winner_guard(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    SessionStore(tmp_path)
+    SessionStore._graph_store(tmp_path)
     barrier = threading.Barrier(2)
     original_create = SessionStore.create_session
     held = threading.local()
@@ -208,7 +240,10 @@ def test_canonical_creation_releases_candidate_before_winner_guard(
     monkeypatch.setattr(admission, "session_writer_guard", tracked_guard)
     monkeypatch.setattr(SessionStore, "create_session", create)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [pool.submit(DatasetRuntime.create, tmp_path, "canonical") for _ in range(2)]
+        futures = [
+            pool.submit(DatasetRuntime.create, tmp_path, "canonical", _generation=7)
+            for _ in range(2)
+        ]
         runtimes = [future.result(timeout=20) for future in futures]
     assert runtimes[0].session_ref == runtimes[1].session_ref
     assert snapshot(runtimes[0])["sessions"] == 1
@@ -220,8 +255,8 @@ def test_canonical_creation_releases_candidate_before_winner_guard(
 def test_losing_candidate_cannot_activate_busy_canonical_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    winner = DatasetRuntime.create(tmp_path, "canonical")
-    current = DatasetRuntime.create(tmp_path, "current")
+    winner = DatasetRuntime.create(tmp_path, "canonical", _generation=7)
+    current = DatasetRuntime.create(tmp_path, "current", _generation=7)
     original = SessionStore.session_by_name
     first = True
 
@@ -237,14 +272,14 @@ def test_losing_candidate_cannot_activate_busy_canonical_session(
         session_writer_guard(winner.store.layout.lock_path(winner.session_ref)),
         pytest.raises(SessionBusyError) as rejected,
     ):
-        DatasetRuntime.create(tmp_path, "canonical")
+        DatasetRuntime.create(tmp_path, "canonical", _generation=7)
     assert rejected.value.session_ref == winner.session_ref
     assert winner.store.current() == winner.store.session(current.session_ref)
     assert snapshot(winner)["sessions"] == 2
 
 
 def test_fresh_process_name_race_has_one_canonical_identity(tmp_path: Path) -> None:
-    store = SessionStore(tmp_path)
+    store = SessionStore._graph_store(tmp_path)
     processes = [
         subprocess.Popen(
             [
@@ -290,25 +325,25 @@ def test_fresh_process_name_race_has_one_canonical_identity(tmp_path: Path) -> N
 
 
 def test_activation_is_guarded_and_existing_handle_owner_is_stable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    retained_r54_case: DslCase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    database = tmp_path / "warehouse.duckdb"
-    seed_execution_database(database)
-    registry, sidecar = make_execution_registry(database)
-    first, second = (DatasetRuntime.create(tmp_path, name) for name in ("first", "second"))
-    logical = first.sources(semantic_registry=registry, sidecar=sidecar).observe(
-        ref.metric("sales.revenue")
-    )
+    tmp_path = retained_r54_case.root
+    sessions = [mv.session.get_or_create(name) for name in ("first", "second")]
+    first, second = (session._runtime for session in sessions)
+    logical = observation(sessions[0], "sales.revenue")
     with session_writer_guard(
         first.store.layout.lock_path(first.session_ref), session_ref=first.session_ref
     ):
         with pytest.raises(SessionBusyError) as rejected:
-            DatasetRuntime.create(tmp_path, "first")
+            DatasetRuntime.create(tmp_path, "first", _generation=7)
         assert rejected.value.session_ref == first.session_ref
         assert first.store.current() == first.store.session(second.session_ref)
-        opened = DatasetRuntime.open(tmp_path, first.session_ref)
+        opened = DatasetRuntime.open(tmp_path, first.session_ref, _generation=7)
         assert opened.session_ref == first.session_ref and opened.statistics.events == {}
-        assert DatasetRuntime.create(tmp_path, "second").session_ref == second.session_ref
+        assert (
+            DatasetRuntime.create(tmp_path, "second", _generation=7).session_ref
+            == second.session_ref
+        )
     original = SessionStore.activate
     barrier = threading.Barrier(2)
 
@@ -321,7 +356,8 @@ def test_activation_is_guarded_and_existing_handle_owner_is_stable(
     monkeypatch.setattr(SessionStore, "activate", activate)
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [
-            pool.submit(DatasetRuntime.create, tmp_path, name) for name in ("first", "second")
+            pool.submit(DatasetRuntime.create, tmp_path, name, _generation=7)
+            for name in ("first", "second")
         ]
         assert {value.result(timeout=20).session_ref for value in futures} == {
             first.session_ref,
@@ -330,13 +366,13 @@ def test_activation_is_guarded_and_existing_handle_owner_is_stable(
     current = first.store.current()
     assert current is not None and current.session_ref in (first.session_ref, second.session_ref)
     result = logical.execute()
-    assert result._owner.session_id == first.session_ref
+    assert result._run().runtime.session_ref == first.session_ref
     assert first.store.current() == current
 
 
 @pytest.mark.parametrize("kind", ["local"])
 def test_different_sessions_overlap_inside_real_duckdb_queries(
-    tmp_path: Path, kind: str, monkeypatch: pytest.MonkeyPatch
+    retained_r54_case: DslCase, kind: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     entered = threading.Barrier(3)
     release = threading.Event()
@@ -345,9 +381,18 @@ def test_different_sessions_overlap_inside_real_duckdb_queries(
     thread_guard = threading.Lock()
 
     def build(
-        datasource: DatasourceIR, effective: EffectiveDatasourceKwargs, *, read_only: bool = False
+        datasource: DatasourceIR,
+        effective: EffectiveDatasourceKwargs,
+        *,
+        read_only: bool = False,
+        terminal_timeout_seconds: int | None = None,
     ) -> BuiltDatasourceBackend:
-        built = original(datasource, effective, read_only=read_only)
+        built = original(
+            datasource,
+            effective,
+            read_only=read_only,
+            terminal_timeout_seconds=terminal_timeout_seconds,
+        )
         backend = built.backend
         assert isinstance(backend, Backend)
         first = True
@@ -362,52 +407,40 @@ def test_different_sessions_overlap_inside_real_duckdb_queries(
                 assert release.wait(20)
             return value
 
-        backend.con.create_function("overlap_probe", blocking_identity, ["DOUBLE"], "DOUBLE")
+        function = "overlap_probe_" + uuid4().hex
+        backend.con.create_function(function, blocking_identity, ["DOUBLE"], "DOUBLE")
         backend.raw_sql(
-            "CREATE TEMP VIEW blocked_orders AS SELECT * REPLACE (overlap_probe(amount) AS amount) FROM orders"
+            f'CREATE TEMP VIEW blocked_orders AS SELECT * REPLACE (CAST({function}(amount) AS BIGINT) AS amount) FROM "order"'
         )
         return built
 
-    monkeypatch.setattr(
-        runtime_patch_owner("_build_backend_from_effective"), "_build_backend_from_effective", build
-    )
-    runtimes, logicals = [], []
-    for name in ("first", "second"):
-        database = tmp_path / f"{name}.duckdb"
-        seed_execution_database(database)
-        registry, sidecar = make_execution_registry(database)
-        order = registry.entities["sales.orders"]
-        assert isinstance(order.source, TableSourceIR)
-        registry = replace(
-            registry,
-            entities={
-                **registry.entities,
-                "sales.orders": replace(
-                    order, source=replace(order.source, table="blocked_orders")
-                ),
-            },
-        )
-        registry.freeze()
-        runtime = DatasetRuntime.create(tmp_path, name)
-        runtimes.append(runtime)
-        logicals.append(
-            runtime.sources(semantic_registry=registry, sidecar=sidecar).observe(
-                ref.metric("sales.revenue")
-            )
-        )
+    monkeypatch.setattr(backends, "_build_backend_from_effective", build)
+    case = retained_r54_case
+    model = case.root / "models/semantic/sales/models.py"
+    model.write_text(model.read_text().replace("md.table('order')", "md.table('blocked_orders')"))
+    ms.load(workspace_dir=case.root)
+    sessions = [mv.session.get_or_create(name) for name in ("first", "second")]
+    runtimes = [session._runtime for session in sessions]
+    logicals = [observation(session, "sales.revenue") for session in sessions]
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(logical.execute) for logical in logicals]
         try:
-            entered.wait(timeout=20)
+            try:
+                entered.wait(timeout=20)
+            except threading.BrokenBarrierError:
+                release.set()
+                for future in futures:
+                    future.result(timeout=5)
+                raise
             assert len(query_threads) == 2
             assert all(runtime.last_run_ref is not None for runtime in runtimes)
         finally:
             release.set()
         results = [future.result(timeout=30) for future in futures]
-    assert {value._owner.session_id for value in results} == {
+    assert {value._run().runtime.session_ref for value in results} == {
         runtime.session_ref for runtime in runtimes
     }
-    assert all(result.to_pandas()["revenue"].sum() == 147.0 for result in results)
+    assert all(result.to_pandas()["value"].sum() == 147.0 for result in results)
     assert all(snapshot(runtime)["analysis_action_run_terminals"] == 2 for runtime in runtimes)
     _evidence(
         f"backend-overlap-{kind}",
