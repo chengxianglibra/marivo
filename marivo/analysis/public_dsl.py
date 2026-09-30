@@ -3217,14 +3217,12 @@ def one_to_one(
     Example: ``left.ratio(right, pairing=mv.one_to_one(left=left, right=right, via=relationship))``.
     Constraints: Rejects many-to-one, UnionKeys, mixed source/fixed modes and unretained relationship keys.
     """
-    from marivo.analysis.core.graph import MethodNode, topology
+    from marivo.analysis.core.graph import MethodNode, Node
     from marivo.analysis.core.rules import (
         ObserveCount,
         ObserveMetric,
         ObserveWeightedMean,
-        OriginalReduce,
     )
-    from marivo.analysis.materialization.graph_composition import thaw_endpoint
 
     if (
         not isinstance(left, _NumericComparison)
@@ -3255,26 +3253,29 @@ def one_to_one(
         relationship = normalize_target_relationship(left._node.binding.graph.registry, via.path)
     else:
         retained: list[TargetRelationshipContract] = []
-        pending = [left._node.definition, right._node.definition]
+        pending: list[Node] = [left._node.definition, right._node.definition]
+        seen: set[str] = set()
         while pending:
-            for node in topology(pending.pop()):
-                if not isinstance(node, MethodNode):
-                    continue
-                params = node.parameters
-                if isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
-                    retained.extend(item for item in params.path if item.ref.path == via.path)
-                elif isinstance(params, BindProject):
-                    retained.extend(
-                        item for item in params.path_contracts if item.ref.path == via.path
-                    )
-                elif (
-                    isinstance(params, CellDerive)
-                    and params.relationship is not None
-                    and params.relationship.ref.path == via.path
-                ):
-                    retained.append(params.relationship)
-                if isinstance(params, (CellDerive, PartsTransport, RowState, OriginalReduce)):
-                    pending.extend(thaw_endpoint(value) for value in params.endpoint_definitions)
+            node = pending.pop()
+            if node.identity in seen:
+                continue
+            seen.add(node.identity)
+            if not isinstance(node, MethodNode):
+                continue
+            pending.extend(edge.node for edge in node.inputs)
+            pending.extend(node.sources)
+            pending.extend(node.retained_endpoints)
+            params = node.parameters
+            if isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
+                retained.extend(item for item in params.path if item.ref.path == via.path)
+            elif isinstance(params, BindProject):
+                retained.extend(item for item in params.path_contracts if item.ref.path == via.path)
+            elif (
+                isinstance(params, CellDerive)
+                and params.relationship is not None
+                and params.relationship.ref.path == via.path
+            ):
+                retained.append(params.relationship)
         if not retained or any(item != retained[0] for item in retained):
             raise _reject(
                 "one retained exact relationship definition",

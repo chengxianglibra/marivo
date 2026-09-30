@@ -41,12 +41,12 @@ from marivo.analysis.materialization.execution_key import SourceKeyBinding
 from marivo.analysis.materialization.graph_exchange import ExchangeContract, from_arrow
 from marivo.analysis.materialization.graph_protocol import (
     DESCRIPTOR,
-    NODE,
     SourceRunInput,
     decode,
     digest,
     encode,
     fixed_signature,
+    freeze_graph,
     thaw_graph,
 )
 from marivo.analysis.materialization.graph_storage import read_result
@@ -291,7 +291,7 @@ assert saved.producing_run_ref != sys.argv[4]
 """,
                 str(case[0].store.project_root),
                 case[0].session_ref,
-                encode(forward, NODE),
+                freeze_graph(forward),
                 saved.producing_run_ref,
             ],
             capture_output=True,
@@ -309,7 +309,7 @@ def test_source_roundtrip_new_identity_and_fixed_exact_hit(case):
     assert read_result(runtime.store.project_root, first.descriptor).primary[
         "value"
     ].to_pylist() == [3]
-    assert thaw_graph(encode(root, NODE)).fingerprint == root.fingerprint
+    assert thaw_graph(freeze_graph(root)).fingerprint == root.fingerprint
     assert decode(encode(first.descriptor, DESCRIPTOR), DESCRIPTOR) == first.descriptor
     backend.insert(
         "facts",
@@ -977,7 +977,7 @@ def test_spearman_shared_node_preserves_frozen_identity_and_parts(case, route):
     result = read_result(case[0].store.project_root, record.descriptor)
     assert result.primary["value"].to_pylist() == pytest.approx([1.0])
     assert result.parts[0].table["pair_counts__complete_pair_count"].to_pylist() == [3]
-    frozen = thaw_graph(encode(root, NODE))
+    frozen = thaw_graph(freeze_graph(root))
     assert frozen.inputs[0].node is frozen.inputs[1].node
 
 
@@ -1344,3 +1344,52 @@ def test_native_write_failure_is_structured_and_has_no_publication(case, monkeyp
     with pytest.raises(MaterializationError, match="local Parquet write failed"):
         _execute(case)
     assert _counts(case[0].store) == (1, 0, 1, 0)
+
+
+@pytest.mark.parametrize("target", ["input", "cached_output"])
+def test_invalid_dag_cannot_hit_or_admit(case, target):
+    import base64
+    import zlib
+
+    from marivo.analysis.materialization.graph_protocol import SNAPSHOT
+    from marivo.analysis.materialization.graph_snapshot import GRAPH, PREFIX, graph_document
+
+    saved = _capture(case)
+    runtime = case[0]
+    fixed = _fixed(saved)
+    output = runtime._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
+    victim = saved if target == "input" else output
+    snapshot = decode(victim.descriptor.continuation_snapshot, SNAPSHOT)
+    document = replace(graph_document(thaw_graph(snapshot.root)), root="missing-root")
+    root = (
+        PREFIX + base64.b64encode(zlib.compress(encode(document, GRAPH).encode(), level=9)).decode()
+    )
+    text = encode(replace(snapshot, root=root), SNAPSHOT)
+    descriptor = replace(
+        victim.descriptor, continuation_snapshot=text, continuation_snapshot_digest=digest(text)
+    )
+    payload = encode(descriptor, DESCRIPTOR)
+    with runtime.store._write() as connection:
+        connection.execute(
+            "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
+            (payload, victim.artifact_ref),
+        )
+        connection.execute(
+            "UPDATE dataset_evidence SET evidence_digest=? WHERE artifact_ref=?",
+            (digest(payload), victim.artifact_ref),
+        )
+    before, opens = _counts(runtime.store), list(case[4])
+    with pytest.raises(IntegrityError, match="root definition reference"):
+        runtime._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
+    assert _counts(runtime.store) == before
+    assert case[4] == opens
+
+
+def test_dag_budget_rejects_before_source_open_or_run_admission(case, monkeypatch):
+    from marivo.analysis.materialization import graph_snapshot
+
+    monkeypatch.setattr(graph_snapshot, "MAX_NODES", 1)
+    with pytest.raises(IntegrityError, match="budget"):
+        _execute(case)
+    assert case[4] == []
+    assert _counts(case[0].store) == (0, 0, 0, 0)

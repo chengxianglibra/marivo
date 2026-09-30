@@ -266,7 +266,6 @@ class CellDerive:
     time_scope: str
     pairing_check_id: CheckId | None = None
     numeric_check_id: CheckId | None = None
-    endpoint_definitions: tuple[str, ...] = ()
     design: Literal["time", "cohort", "period", "ratio"] = "time"
     pairing: Literal["exact", "keep", "metric_empty"] = "exact"
     empty_rules: tuple[Literal["null", "zero", "zero_denominator"], ...] = ()
@@ -289,7 +288,6 @@ class RowState:
     weighting: str = "equal_weight"
     numeric_check_id: CheckId | None = None
     merge: bool = False
-    endpoint_definitions: tuple[str, ...] = ()
     retain_error: bool = False
 
 
@@ -323,7 +321,6 @@ class OriginalReduce:
     ] = "sum"
     coordinates: tuple[Coordinate, ...] = ()
     time_mapping: tuple[tuple[str, str], ...] = ()
-    endpoint_definitions: tuple[str, ...] = ()
 
 
 TransportMode: TypeAlias = Literal["where", "projection", "compare", "view", "materialize"]
@@ -339,7 +336,6 @@ class PartsTransport:
     field_kind: Literal["measure", "dimension", "time_dimension"] | None = None
     external_predicate: bool = False
     classification: Coordinate | None = None
-    endpoint_definitions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

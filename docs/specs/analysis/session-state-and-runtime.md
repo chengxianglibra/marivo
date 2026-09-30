@@ -108,7 +108,7 @@ root for the new generation, not a new Session name inside the old Store.
 | `marivo.analysis.receipt/v1` | A closed primary or part variant binding input, complete ordered keys, physical schema fingerprint, cardinality, exact local file manifest/hash/bytes and Parquet contract v1. A part additionally binds its role, contract ID/version and method-state version. Primary and parts have independent receipts. |
 | `marivo.analysis.exchange/v1` | Schema-carrying `BatchStream` binding, four Cell tags/reasons, ordered keys, required part schemas, method and input binding, and check obligations. This is a transient exchange contract, not a second Store. |
 | `marivo.analysis.method_state/v1` | The versioned, kind-dispatched state envelope and exact required part roles defined in [Dataset Methods and States](operators-and-frames.md#r41-frozen-method-state-and-evidence-target-inactive). Method-specific contract versions remain separate from this envelope version. |
-| `marivo.analysis.continuation/v1` | Frozen graph, entity/dimension facts, semantic and method versions, exact input binding, and receipt/state premises from which the current valid K is derived. It is not a list of unverified advertised actions. |
+| `marivo.analysis.continuation/v2` | Frozen graph, entity/dimension facts, semantic and method versions, exact input binding, and receipt/state premises from which the current valid K is derived. It is not a list of unverified advertised actions. |
 
 The exact top-level field sets are fixed as follows. Each `kind` selects its
 own required fields; no field is silently optional. `local` is the existing
@@ -756,13 +756,41 @@ contract 4. A retained correspondence has separate Boolean presence, original
 ordered coordinate vectors and three float64 error bounds; these are checked
 against endpoint Cells and the frozen policy, including zero-row schemas.
 
-Comparison continuation roots use canonical `comparison-v2:` deflate/base64
-encoding. The persisted snapshot remains bounded by 256 KiB; expansion is bounded
-by 4 MiB, rejects trailing frames, and must round-trip canonically. Endpoint
-snapshots remain explicit typed definitions bound to exact input fingerprints;
-there is no history lookup or recovery from the current Semantic catalog. This
-encoding preserves independently captured equal definitions. Old Difference
-state v1 rejects with a source re-execution repair before fixed cache lookup.
+All graph continuation roots use the canonical `graph-dag-v1:` deflate/base64
+encoding, containing `marivo.analysis.graph_dag/v1`. The continuation envelope is
+`marivo.analysis.continuation/v2`; graph execution keys use
+`marivo.analysis.execution_key/v2`. Store generation remains 7, and physical
+receipts, method versions and state/part versions do not change for this encoding.
+Old recursive JSON roots, `comparison-v2:` roots and continuation v1 are rejected
+with a source re-execution repair; there is no migration or dual reader.
+
+The closed document has `schema`, `root` and an identity-sorted `nodes` table.
+Each node appears once per explicit capture identity. Method records carry
+ordered `(role, node)` input references, ordered source references, and ordered
+`retained_endpoints` references. Source and fixed records retain their exact typed
+definition facts. Different capture identities remain distinct even when their
+structural fingerprints match. Repeated identities must have identical complete
+definitions; decoding interns each identity into one graph object.
+
+Retained endpoints replace the recursive strings formerly embedded in rule
+parameters. They belong to the same definition closure, match the precise input
+definition fingerprints and ownership, and participate in structural fingerprints.
+They are not execution edges: retained source definitions cannot reopen a source,
+add a stage, or promote rollup, share or attribution capability. Template inspection
+and structural hashing use per-call memoization; there is no cross-run value cache,
+history lookup or recovery from the current Semantic catalog.
+
+The full persisted continuation remains bounded by 256 KiB and expanded definition
+JSON by 4 MiB. Additional limits are 4,096 unique nodes, 16,384 input/source/retention
+references (plus the root reference), and 128 nodes along any definition path. The encoder also
+bounds inspected object occurrences by the reference budget plus the root. Both
+producer and reader check these limits. Closed fields, identity conflicts,
+reference kinds, ordered roles, missing references, cycles, unreachable entries,
+noncanonical JSON/base64/deflate and trailing compressed frames reject. Envelope
+and reference validation precede graph-node construction; typed derivation and
+endpoint binding validation precede execution and cache hits. Publication rechecks
+the snapshot and its existing receipt/state bindings. Old Difference state v1
+still rejects independently of the snapshot version.
 
 The affected original mean, weighted mean, ratio and linear implementations use
 contract 4 to retain the float magnitudes needed by comparison error propagation.

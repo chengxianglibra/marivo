@@ -286,6 +286,67 @@ def test_nested_difference_keeps_independent_captures(
         == july_first._node.root.identity
     )
 
+    # The retained nested endpoints must survive a fresh process without any source access.
+    from marivo.analysis.materialization.graph_protocol import freeze_graph
+
+    assert fixed._dataset is not None
+    verified = fixed._dataset.verified()
+    (case.root / "expected-definition.txt").write_text(freeze_graph(fixed._node.definition))
+    for name, table in [
+        ("primary", verified.primary),
+        *((part.role, part.table) for part in verified.parts),
+    ]:
+        with (
+            pa.OSFile(str(case.root / f"expected-{name}.arrow"), "wb") as sink,
+            pa.ipc.new_file(sink, table.schema) as writer,
+        ):
+            writer.write_table(table)
+    source_path = case.root / "source_files" if parquet else case.database_path
+    offline = source_path.with_name(source_path.name + ".offline")
+    source_path.rename(offline)
+    script = """
+import sys
+from pathlib import Path
+import duckdb
+import pyarrow as pa
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.datasource.adapters import SourceSession
+from marivo.analysis.materialization.graph_protocol import freeze_graph
+from marivo.analysis.materialization.graph_composition import comparison_endpoints
+
+def unavailable(*args, **kwargs):
+    raise AssertionError("nested cold recovery cannot reopen sources or Semantic")
+duckdb.connect = unavailable
+ms.load = unavailable
+SourceSession.stage_derived = unavailable
+saved = mv.session.resume(sys.argv[1], by="id").artifact(sys.argv[2])
+assert freeze_graph(saved._node.definition) == Path("expected-definition.txt").read_text()
+first, second = comparison_endpoints(saved._node.definition)
+assert comparison_endpoints(first)[1].identity != comparison_endpoints(second)[0].identity
+checked = saved._dataset.verified()
+for name, table in [("primary", checked.primary), *((part.role, part.table) for part in checked.parts)]:
+    with pa.memory_map(f"expected-{name}.arrow", "r") as source:
+        assert table.equals(pa.ipc.open_file(source).read_all())
+assert not hasattr(saved, "rollup")
+selected = saved.where(saved.value.lt(0)).execute()
+assert selected.to_pandas().set_index("member")["value"].to_dict() == {"A": -140, "B": -80, "C": -100}
+assert selected._dataset.verified().contract.signature.quantity == checked.contract.signature.quantity
+"""
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", script, case.session.id, fixed.state.artifact_ref.ref],
+            cwd=case.root,
+            env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+    finally:
+        offline.rename(source_path)
+    assert completed.returncode == 0, completed.stderr
+
 
 @pytest.mark.runtime
 @pytest.mark.parametrize("physical,parquet", _NUMERIC_SOURCES)

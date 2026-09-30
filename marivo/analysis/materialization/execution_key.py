@@ -35,7 +35,7 @@ from marivo.semantic.runtime_metric import (
 )
 
 _DEFINITION = re.compile(r"ds_[0-9a-f]{64}\Z")
-_GRAPH_PROTOCOL = "marivo.analysis.execution_key/v1"
+_GRAPH_PROTOCOL = "marivo.analysis.execution_key/v2"
 _CanonicalValue: TypeAlias = None | bool | int | float | str | tuple["_CanonicalValue", ...]
 
 _WIRE_TAGS: dict[type[object], str] = {

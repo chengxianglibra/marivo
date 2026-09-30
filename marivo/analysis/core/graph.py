@@ -15,7 +15,9 @@ from marivo.analysis.core.rules import (
     ObserveCount,
     ObserveMetric,
     ObserveWeightedMean,
+    OriginalReduce,
     PartsTransport,
+    RowState,
     RuleDerivation,
     RuleParameters,
 )
@@ -159,6 +161,7 @@ class MethodNode:
     value_type: ValueType
     sources: tuple[SourceLeaf, ...] = ()
     identity: str = field(default_factory=lambda: uuid4().hex)
+    retained_endpoints: tuple[MethodNode, ...] = ()
 
     def __post_init__(self) -> None:
         _validate_method(self, REGISTRY)
@@ -169,16 +172,40 @@ class MethodNode:
 
     @property
     def fingerprint(self) -> str:
-        return _digest(
-            (
-                self.method,
-                self.parameters,
-                tuple((e.role, e.node.fingerprint) for e in self.inputs),
-                self.derivation,
-                self.value_type,
-                tuple(s.fingerprint for s in self.sources),
+        return definition_fingerprints(self)[self.identity]
+
+
+def definition_fingerprints(root: Node) -> dict[str, str]:
+    """Hash each captured definition once per call, never cache across executions."""
+    result: dict[str, str] = {}
+    active: set[str] = set()
+
+    def visit(node: Node) -> str:
+        if node.identity in active:
+            _fail("an acyclic definition closure", node.identity)
+        if node.identity in result:
+            return result[node.identity]
+        active.add(node.identity)
+        if isinstance(node, MethodNode):
+            value = _digest(
+                (
+                    node.method,
+                    node.parameters,
+                    tuple((edge.role, visit(edge.node)) for edge in node.inputs),
+                    node.derivation,
+                    node.value_type,
+                    tuple(visit(source) for source in node.sources),
+                    tuple(visit(endpoint) for endpoint in node.retained_endpoints),
+                )
             )
-        )
+        else:
+            value = node.fingerprint
+        active.remove(node.identity)
+        result[node.identity] = value
+        return value
+
+    visit(root)
+    return result
 
 
 Node: TypeAlias = SourceLeaf | FixedLeaf | MethodNode
@@ -269,6 +296,26 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
             _fail(f"explicit source bindings for {sorted(required)}", repr(sorted(actual)))
     elif node.sources:
         _fail("source dependencies only for source-binding methods", node.identity)
+    if type(node.retained_endpoints) is not tuple or any(
+        type(endpoint) is not MethodNode for endpoint in node.retained_endpoints
+    ):
+        _fail("immutable typed retained endpoint definitions", node.identity)
+    if node.retained_endpoints:
+        if not isinstance(node.parameters, (CellDerive, PartsTransport, OriginalReduce, RowState)):
+            _fail("retained endpoints only for comparison or state transport", node.identity)
+        if len(node.retained_endpoints) != len(node.inputs):
+            _fail("one retained endpoint per ordered input", node.identity)
+        fingerprints = definition_fingerprints(node)
+        for endpoint, edge in zip(node.retained_endpoints, node.inputs, strict=True):
+            endpoint_expected = (
+                edge.node.definition_fingerprint
+                if isinstance(edge.node, FixedLeaf)
+                else fingerprints[edge.node.identity]
+            )
+            if fingerprints[endpoint.identity] != endpoint_expected:
+                _fail("a retained endpoint matching its exact input definition", node.identity)
+            if endpoint.signature.domain.binding != edge.node.signature.domain.binding:
+                _fail("retained endpoints with exact input ownership and scope", node.identity)
     signatures = tuple(e.node.signature for e in node.inputs)
     owners = {(s.domain.binding.session_id, s.domain.binding.owner_id) for s in signatures}
     if len(owners) != 1:
@@ -341,6 +388,7 @@ def method_node(
     value_type: ValueType,
     registry: MethodRegistry = REGISTRY,
     sources: tuple[SourceLeaf, ...] = (),
+    retained_endpoints: tuple[MethodNode, ...] = (),
 ) -> MethodNode:
     """Construct through the sole semantic owner; execution qualification is separate."""
     for edge in inputs:
@@ -352,6 +400,7 @@ def method_node(
         registry.derive(tuple(e.node.signature for e in inputs), parameters),
         value_type,
         sources,
+        retained_endpoints=retained_endpoints,
     )
     topology(node, registry=registry)
     return node
