@@ -8,6 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from marivo.analysis._comparison import window_bucket
 from marivo.analysis.datasets.base import Dataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import (
     _CORE_TOKEN,
@@ -22,22 +23,6 @@ from marivo.analysis.operators.errors import comparison_error
 from marivo.semantic._quantile import ApproximationClass
 
 DELTA_SHAPES = ("entity", "scalar", "dimension", "time", "dimension-time")
-
-
-@dataclass(frozen=True, slots=True)
-class WindowBucketAlignment:
-    """Pair complete observation buckets by their ordinal within each series."""
-
-    kind: Literal["window_bucket"] = field(default="window_bucket", init=False)
-
-
-def window_bucket() -> WindowBucketAlignment:
-    """Return the sole exact Metric comparison alignment; no arguments.
-
-    Returns: Immutable window-bucket policy. Example: ``current.compare(old, alignment=window_bucket())``.
-    Constraints: Corresponding time series must contain equal bucket counts.
-    """
-    return WindowBucketAlignment()
 
 
 DEFAULT_ALIGNMENT = window_bucket()

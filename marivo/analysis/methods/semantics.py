@@ -38,6 +38,7 @@ MethodName: TypeAlias = Literal[
     "metric.linear",
     "map_correspond",
     "cell.difference",
+    "cell.relative_change",
     "cell.ratio",
     "row.sum",
     "row.mean",
@@ -74,6 +75,8 @@ PersistentStateKind: TypeAlias = Literal[
     "original_weighted_mean",
     "original_linear",
     "difference",
+    "relative_change",
+    "relation_ratio",
     "row_sum",
     "row_count",
     "row_count_defined",
@@ -146,6 +149,8 @@ def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     if type(params) is rules.MapCorrespond:
         return MethodKey("map_correspond")
     if type(params) is rules.CellDerive:
+        if params.method == "relative_change":
+            return MethodKey("cell.relative_change")
         if params.method == "difference":
             return MethodKey("cell.difference")
         if params.method == "ratio":
@@ -248,6 +253,8 @@ class MethodSemantics:
             "parts_transport": "none",
             "map_correspond": "none",
             "cell.difference": "difference",
+            "cell.relative_change": "relative_change",
+            "cell.ratio": "relation_ratio",
             "row.sum": "row_sum",
             "row.count": "row_count",
             "row.count_defined": "row_count_defined",
@@ -265,6 +272,24 @@ class MethodSemantics:
         from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
         name = self.key.name
+        if isinstance(params, rules.CellDerive):
+            from marivo.analysis.methods.comparison import output_type
+
+            try:
+                expected_comparison = output_type(params.method, inputs[0], inputs[1])
+            except (ValueError, IndexError) as error:
+                reject(
+                    "two homogeneous comparison operands",
+                    str(error),
+                    "Bind matching numeric types and units.",
+                )
+            if output != expected_comparison:
+                reject(
+                    "the exact comparison output type",
+                    repr(output),
+                    "Preserve the registered result type.",
+                )
+            return
         if name == "time.product":
             if len(inputs) != 1 or inputs[0] != output:
                 reject("unchanged member type", repr(output), "Preserve the member identity type.")
@@ -483,7 +508,7 @@ class MethodSemantics:
     @property
     def rule(self) -> rules.RuleId:
         name = self.key.name
-        if name in ("cell.difference", "cell.ratio"):
+        if name in ("cell.difference", "cell.relative_change", "cell.ratio"):
             return "cell_derive@v1"
         if name in (
             "row.sum",
@@ -558,7 +583,7 @@ class MethodSemantics:
             return "mean"
         if self.key.name == "cell.difference":
             return "difference"
-        if self.key.name == "cell.ratio":
+        if self.key.name in ("cell.ratio", "cell.relative_change"):
             return "ratio"
         if self.key.name == "association.spearman":
             return "coefficient"
@@ -568,6 +593,18 @@ class MethodSemantics:
     def empty_cell_reasons(
         self,
     ) -> tuple[tuple[Literal["null", "undefined", "unknown"], tuple[str, ...]], ...]:
+        if self.key.name == "cell.relative_change":
+            return (
+                ("undefined", ("missing_side", "zero_baseline", "zero_denominator")),
+                ("null", ("empty_contribution",)),
+            )
+        if self.key.name == "cell.ratio":
+            return (("undefined", ("zero_denominator",)),)
+        if self.key.name == "cell.difference":
+            return (
+                ("undefined", ("missing_side", "zero_denominator")),
+                ("null", ("empty_contribution",)),
+            )
         if self.key.name in ("row.mean", "row.min", "row.max"):
             return (("undefined", ("empty_" + self.key.name.removeprefix("row."),)),)
         if self.key.name == "bind_project":
@@ -696,7 +733,7 @@ class MethodSemantics:
         ):
             return ("coverage",)
         if self.rule == "cell_derive@v1":
-            return ("current_endpoint", "baseline_endpoint")
+            return ("current_endpoint", "baseline_endpoint", "correspondence")
         if self.rule == "row_state@v1":
             return ("row_state",)
         if self.key.name in (
@@ -906,6 +943,7 @@ CONNECTED_METHODS = (
     MethodSemantics(MethodKey("bind_project"), "analysis.core.rules"),
     MethodSemantics(MethodKey("map_correspond"), "analysis.core.rules"),
     MethodSemantics(MethodKey("cell.difference"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("cell.relative_change"), "analysis.core.rules"),
     MethodSemantics(MethodKey("cell.ratio"), "analysis.core.rules"),
     MethodSemantics(MethodKey("row.sum"), "analysis.core.rules"),
     MethodSemantics(MethodKey("row.mean"), "analysis.core.rules"),

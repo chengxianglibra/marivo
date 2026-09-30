@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
@@ -18,7 +19,8 @@ from marivo.analysis.compiler.graph_lowering import (
 )
 from marivo.analysis.compiler.graph_plan import CheckRequirement
 from marivo.analysis.core.graph import MethodNode
-from marivo.analysis.core.rules import PartsTransport
+from marivo.analysis.core.model import Defined
+from marivo.analysis.core.rules import CellDerive, PartsTransport
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     CheckedStream,
@@ -31,6 +33,9 @@ from marivo.analysis.materialization.graph_exchange import (
 )
 from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.materialization.graph_spearman_execution import finish_spearman
+from marivo.analysis.methods.comparison import evaluate as evaluate_comparison
+from marivo.analysis.methods.comparison import propagated_error
+from marivo.analysis.methods.physical import arrow_scalar_type
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.datasource.adapters import CompiledRead, SourceSession
 
@@ -247,8 +252,13 @@ def _result(
         state_kind,
         None if state is None else state.schema,
         pending,
-        isinstance(stage.node.parameters, PartsTransport)
-        and stage.node.parameters.mode == "where"
+        (
+            isinstance(stage.node.parameters, CellDerive)
+            or (
+                isinstance(stage.node.parameters, PartsTransport)
+                and stage.node.parameters.mode == "where"
+            )
+        )
         and not key_names,
     )
     return from_arrow(
@@ -271,10 +281,16 @@ def execute_source_graph(
         raise _invalid("prepared and lowered graph identity or input class differs")
     local = tuple(stage for stage in lowered.stages if isinstance(stage, LoweredLocal))
     if local and (
-        len(local) != 1
-        or local[0].stage.output != lowered.primary_output
-        or local[0].stage.node.method.name != "association.spearman"
-        or len(local[0].stage.inputs) != 1
+        any(
+            len(item.stage.inputs) != 1
+            or item.stage.node.method.name
+            not in ("association.spearman", "cell.difference", "cell.relative_change", "cell.ratio")
+            or (
+                item.stage.node.method.name == "association.spearman"
+                and item.stage.output != lowered.primary_output
+            )
+            for item in local
+        )
     ):
         raise _invalid("unqualified source-local successor")
     primary = next(
@@ -291,6 +307,8 @@ def execute_source_graph(
     replacements: dict[ops.Node, ops.Node] = {}
     tables: dict[str, pa.Table] = {}
     owned: list[ir.Table] = []
+    issued_reads: dict[str, CompiledRead] = {}
+    final_local: LoweredRelation | None = None
     try:
         for stage in lowered.stages:
             if isinstance(stage, LoweredLocal):
@@ -303,6 +321,73 @@ def execute_source_graph(
                     ),
                     None,
                 )
+                if predecessor is not None and isinstance(stage.stage.node.parameters, CellDerive):
+                    node = stage.stage.node
+                    params = node.parameters
+                    assert isinstance(params, CellDerive)
+                    table = tables[predecessor.output]
+                    values: list[object] = []
+                    tags: list[str] = []
+                    reasons: list[str | None] = []
+                    errors: list[float] = []
+                    for row in table.to_pylist():
+                        if row["cell_tag"] != "defined":
+                            values.append(None)
+                            tags.append(row["cell_tag"])
+                            reasons.append(row["cell_reason"])
+                            errors.append(0.0)
+                            continue
+                        try:
+                            cell = evaluate_comparison(
+                                params.method,
+                                row["current_endpoint__value"],
+                                row["baseline_endpoint__value"],
+                                node.inputs[0].node.value_type,
+                                node.inputs[1].node.value_type,
+                            )
+                        except (ValueError, OverflowError) as error:
+                            raise _invalid(f"comparison finish failed: {error}") from error
+                        try:
+                            errors.append(
+                                propagated_error(
+                                    params.method,
+                                    row["current_endpoint__value"],
+                                    row["baseline_endpoint__value"],
+                                    cell.value if isinstance(cell, Defined) else None,
+                                    row["correspondence__current_error_bound"],
+                                    row["correspondence__baseline_error_bound"],
+                                )
+                            )
+                        except (ValueError, OverflowError) as error:
+                            raise _invalid(str(error)) from error
+                        values.append(cell.value if isinstance(cell, Defined) else None)
+                        tags.append("defined" if isinstance(cell, Defined) else "undefined")
+                        reasons.append(None if isinstance(cell, Defined) else cell.reason)
+                    for name, data, dtype in (
+                        ("value", values, arrow_scalar_type(node.value_type)),
+                        ("cell_tag", tags, pa.string()),
+                        ("cell_reason", reasons, pa.string()),
+                        ("correspondence__result_error_bound", errors, pa.float64()),
+                    ):
+                        table = table.set_column(
+                            table.schema.get_field_index(name), name, pa.array(data, type=dtype)
+                        )
+                    final_local = replace(predecessor, output=stage.stage.output)
+                    # Validate the finished Cell, endpoint and correspondence exchange before use.
+                    _result(final_local, table, (), ())
+                    staged = source.stage_calculated(issued_reads[predecessor.output], table)
+                    owned.append(staged)
+                    tables[stage.stage.output] = table
+                    replacements[predecessor.expression.op()] = staged.op()
+                    for check in lowered.checks:
+                        if (
+                            isinstance(check, SemanticCheck)
+                            and check.requirement.stage_output == stage.stage.output
+                        ):
+                            proof = _check(source, lowered, check, replacements)
+                            if proof is not None:
+                                completed.append(proof)
+                    continue
                 if predecessor is None or predecessor.layout.extras != (
                     "va",
                     "taga",
@@ -347,6 +432,7 @@ def execute_source_graph(
                 purpose="analysis.graph.stage",
                 replacements=replacements,
             )
+            issued_reads[stage.output] = issued
             staged, table = source.stage_derived(issued)
             owned.append(staged)
             tables[stage.output] = table
@@ -363,6 +449,8 @@ def execute_source_graph(
                     proof = _check(source, lowered, check, replacements)
                     if proof is not None:
                         completed.append(proof)
+        if final_local is not None and final_local.output == lowered.primary_output:
+            primary = final_local
         assert primary is not None
         return _result(
             primary,

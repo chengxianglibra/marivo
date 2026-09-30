@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis import grain, time_scope
+from marivo.analysis import WindowBucketAlignment, grain, time_scope, window_bucket
 from marivo.analysis.datasets.descriptors import (
     _CORE_TOKEN,
     _KeyedCardinality,
@@ -19,10 +19,8 @@ from marivo.analysis.observation.predicates import eq, gt
 from marivo.analysis.operators.contracts import (
     ComparePayload,
     DeltaSemantics,
-    WindowBucketAlignment,
     comparison_basis,
     decode_comparison_basis,
-    window_bucket,
 )
 from marivo.analysis.operators.delta import LogicalDeltaDataset
 from marivo.analysis.operators.registry import admit_local, implementation

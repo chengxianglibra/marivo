@@ -135,6 +135,7 @@ class MethodRegistration:
                         "row.mean",
                         "row.weighted_mean",
                         "cell.ratio",
+                        "cell.relative_change",
                         "metric.ratio",
                         "state_rollup.weighted_mean",
                         "state_rollup.mean",

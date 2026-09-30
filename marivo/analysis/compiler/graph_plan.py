@@ -192,6 +192,15 @@ def plan(
             if (
                 any(edge.node.identity in local for edge in node.inputs)
                 and route != "artifact_python"
+                and not all(
+                    edge.node.identity not in local
+                    or (
+                        isinstance(edge.node, MethodNode)
+                        and edge.node.method.name
+                        in ("cell.difference", "cell.relative_change", "cell.ratio")
+                    )
+                    for edge in node.inputs
+                )
             ):
                 _refuse(
                     "source inputs for Ibis preparation",

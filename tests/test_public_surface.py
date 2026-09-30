@@ -155,6 +155,13 @@ ANALYSIS_PUBLIC = {
     "MaterializedCoefficientRelation",
     "LogicalCoefficientSelectionRelation",
     "MaterializedCoefficientSelectionRelation",
+    "PeriodChange",
+    "UnionKeys",
+    "ExactKeys",
+    "TimeChange",
+    "CohortContrast",
+    "OneToOneCorrespondence",
+    "one_to_one",
     "AnalysisAction",
     "AnalysisContract",
     "GroupedAnalysisDomain",
@@ -301,7 +308,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "6697b2eba747e24f09106e87095fb327c5b047defcb3da4aa582ce66250a51bb"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "3ce9193eefea1fabf9fdcec4dc04e27b4c8b454795c6836301b4bad9ba88774c"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

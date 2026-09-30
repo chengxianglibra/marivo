@@ -119,8 +119,13 @@ may precede Run admission; business reads cannot precede physical qualification.
 String member reads/grouping, int64 or float64 original sums, explicit sum-zero,
 Entity count, int64 absolute Difference, original ratio and paired Spearman use
 one graph execution entry. Other physical variants fail before business reads
-and Run allocation. Public comparison requires int64 endpoints; the historical
-float64 comparison statement below is not a current qualification.
+and Run allocation. The R6.2 work in progress extends that existing absolute
+Entity comparison path to homogeneous float64, same-scale Decimal and same-unit
+Duration operands on DuckDB table/Parquet and fixed artifact_python. It retains
+ordered endpoint Cells and an explicit exact-key correspondence under Difference
+state v2. The broader R6.1 design/Union/relative-change/ordinary-ratio target below
+is not yet public execution qualification. The R6 migration ledger records the
+bounded evidence and remaining work.
 
 Original sum, sum-zero, count and ratio have distinct v1 state contracts and an
 `original_state` part plus coverage. Ratio stores numerator sum/non-null count

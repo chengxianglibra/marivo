@@ -22,8 +22,8 @@ or Run allocation until they gain Store 7 qualification. Old-generation projects
 remain unchanged; create a Session in a fresh project.
 
 Construction may use R1 schema-only preflight to determine exact identity and
-value types, without reading business rows. Member identity is one string/int64
-column and the event axis is a UTC microsecond timestamp; each method still
+value types, without reading business rows. Member identity is the complete declared tuple of string/int64 columns;
+the event axis uses its governed DATE or aware-timestamp interpretation. Each method still
 requires its exact physical qualification.
 
 ## Construct and execute
@@ -53,6 +53,45 @@ change = current.compare(baseline).execute()
 change.show()
 ```
 
+`compare` supports homogeneous int64/float64 values, same-scale Decimal
+absolute differences, and same-unit Duration ticks. The default `TimeChange`
+requires matching recursive quantity definitions and one shared target capture.
+`CohortContrast` compares populations at the same observation time on common
+Group or Singleton coordinates. `PeriodChange(alignment=mv.window_bucket())`
+pairs complete, equal-length original grids; filtering cannot renumber buckets.
+
+```python
+relative = current.compare(baseline, value="relative_change")
+union = current.compare(
+    baseline, design=mv.TimeChange(pairing=mv.UnionKeys(missing="keep"))
+)
+quotient = current.ratio(current, pairing=mv.ExactKeys())
+marivo.help("analysis.dsl.NumericComparison.compare")
+marivo.help("analysis.dsl.one_to_one")
+```
+
+`ExactKeys` requires unique complete typed keys and equal key sets; two empty
+inputs are valid. `UnionKeys(missing="keep")` retains absent coordinates separately
+from Cells and produces `Undefined(missing_side)`. `missing="metric_empty"` requires
+complete original observations and coverage and invokes the concrete Metric's
+empty finish; it cannot fill holes left by filtering. Matched existing operands
+must be finite and Defined.
+
+Relative change divides by `abs(baseline)` and retains `Undefined(zero_baseline)`.
+Ordinary ratio keeps the denominator sign, retains `Undefined(zero_denominator)`,
+and accepts exact keys or `mv.one_to_one(left=..., right=..., via=...)` bound to the
+exact ordered nodes and a declared one-to-one relationship with retained keys.
+Neither ratio nor Difference acquires original Metric rollup, share or attribution.
+Float division rejects a nonzero denominator whose retained error interval spans zero.
+Float temporal folds and quantiles lack a qualified retained comparison error envelope
+and reject during construction.
+
+Both Logical and Materialized receivers construct a Logical result. Fixed
+continuations verify receipts and retained parts and never reopen a source.
+Difference uses state/parts v2; relative change and ordinary ratio use v1.
+Re-execute an old Difference from its source definition before continuing.
+
+
 The example requires an authored, typed `sales.revenue` Metric and an admitted
 reference time axis. Windows are half-open: the end is excluded.
 Date-only bounds use the Session's persisted report timezone, so set
@@ -62,8 +101,8 @@ For the admitted J1–J4 Entity domain on a configured DuckDB source, start with
 `session.members(Entity Ref)`. The member domain owns `read`, `group_by`, and
 `observe`; its returned relations own selection, comparison, rollup, row
 statistics, and association. `marivo.help("analysis.entry")` directs
-Entity-member questions here. The currently qualified Metric observation route requires a UTC
-event Time Dimension; a different or unresolved axis timezone is rejected.
+Entity-member questions here. The Metric observation route requires a declared event Time Dimension with
+an admitted native temporal type; conflicting or unresolved timezone authority is rejected.
 For example:
 
 ```python

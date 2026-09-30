@@ -322,7 +322,7 @@ An undeclared reason rejects the transient result instead of being inferred
 from encountered rows.
 The R4.5 qualifications cover string member reads and grouping,
 windowed direct sum (explicit Null or zero empty policy) and Entity count,
-one- or two-hop to-one contribution paths, ordered int64 Difference, and
+one- or two-hop to-one contribution paths, ordered absolute Difference, and
 same-member Spearman. Original ratios merge independent sum-zero and count
 components before division. A zero denominator yields Undefined, including
 when both original components are zero. Whole-domain and retained-coordinate
@@ -589,8 +589,11 @@ Store 7 execution qualification yet.
 The qualified J1–J4 routes include DuckDB native tables and local Parquet sources,
 string/int64 Entity identity, direct string member reads/grouping, UTC microsecond
 event windows, direct int64/float64 sums, Entity count, one- or two-hop to-one
-paths, ordered int64 comparison, original int64 sum-zero/count ratios, and
-same-member Spearman. Original ratios keep independent component roots. With
+paths, ordered absolute comparison (homogeneous int64/float64, same-scale
+Decimal, or same-unit Duration), original int64 sum-zero/count ratios, and
+same-member Spearman. The widened comparison types are bounded R6.2 incremental
+evidence; they do not enlarge the historical R4.5 J1–J4 acceptance record.
+Original ratios keep independent component roots. With
 contribution coordinates, the complete row key is member plus the ordered string
 coordinate tuple (at most two). Missing numerator contributions are zero; a zero
 denominator is Undefined. Whole and coordinate rollup merge original components;

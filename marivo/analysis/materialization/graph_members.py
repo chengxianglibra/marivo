@@ -277,6 +277,13 @@ class MemberGraph:
                     item.ref.path for item in normalized if item.version is not None
                 ),
                 expression_bodies=expression_bodies,
+                measure_unit=self.registry.measures[dimension.path].unit
+                if dimension.kind is SemanticKind.MEASURE
+                else None,
+                attribute_time=digest(repr(anchors))
+                if dimension.kind is SemanticKind.MEASURE
+                and any(anchor is not None for anchor in anchors)
+                else "untimed",
             ),
             sources=leaves,
             value_type=physical,
@@ -432,7 +439,12 @@ class MemberGraph:
         return self.runtime._execute_graph(
             self.root,
             tuple(
-                RouteChoice(node.identity, "ibis")
+                RouteChoice(
+                    node.identity,
+                    "ibis_python"
+                    if node.method.name in ("cell.relative_change", "cell.ratio")
+                    else "ibis",
+                )
                 for node in topology(self.root)
                 if isinstance(node, MethodNode)
             ),

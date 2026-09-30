@@ -27,7 +27,7 @@ fixed.execute()
 category.where(category.value.eq("west")).execute().members().observe(ms.ref.metric("sales.revenue"))
 observed = members.observe(ms.ref.metric("sales.revenue"), during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=ms.ref.relationship("sales.buyer"))
 assert isinstance(observed, mv.LogicalNumericRelation)
-observed.summarize(mv.mean()).compare(observed)
+observed.summarize(mv.mean()).compare(category)
 observed.compare(observed).rollup()
 observed.correlate(observed, method="pearson")
 mv.route(ms.ref.metric("sales.revenue"), through=(ms.ref.relationship("sales.buyer"),))
@@ -59,7 +59,7 @@ mv.sum("extra")
     assert 'has no attribute "show"' in output
     assert 'has no attribute "execute"' in output
     assert 'LogicalFixedAnalysisDomain" has no attribute "observe"' in output
-    assert 'LogicalStatisticRelation" has no attribute "compare"' in output
+    assert 'Argument 1 to "compare"' in output
     assert 'LogicalDifferenceRelation" has no attribute "rollup"' in output
     assert 'Argument "method" to "correlate"' in output
     assert 'Argument 1 to "route"' in output

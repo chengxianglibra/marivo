@@ -24,6 +24,7 @@ from marivo.analysis.core.model import (
     ObservedQuantity,
     OriginalStatePart,
     RolledQuantity,
+    RowStatePart,
     RowStatisticQuantity,
     SubjectPart,
     part_role,
@@ -47,7 +48,13 @@ from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_composition import combine_observations
+from marivo.analysis.materialization.graph_composition import (
+    combine_observations,
+    comparison_empty_rules,
+    freeze_endpoint,
+    period_mapping,
+    validate_time_comparison,
+)
 from marivo.analysis.materialization.graph_dataset import GraphDataset
 from marivo.analysis.materialization.graph_fields import RootRoutesValue
 from marivo.analysis.materialization.graph_members import MemberGraph, construct_members
@@ -64,6 +71,7 @@ from marivo.analysis.materialization.graph_protocol import (
     fixed_signature,
     validate_descriptor,
 )
+from marivo.analysis.methods.comparison import output_type
 from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType
 from marivo.analysis.refs import ArtifactRef
 from marivo.refs import (
@@ -76,6 +84,7 @@ from marivo.refs import (
     TimeDimensionKind,
 )
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic.ir import TargetRelationshipContract
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from marivo.semantic.validator import Registry
 
@@ -195,6 +204,19 @@ class Relation:
         raise _reject("relation has no typed definition")
 
     def _with(self, root: MethodNode) -> Relation:
+        if (
+            isinstance(self.binding, FrozenBinding)
+            and isinstance(self.root, FixedLeaf)
+            and len(root.inputs) == 1
+            and root.inputs[0].node is self.root
+            and isinstance(root.parameters, (PartsTransport, OriginalReduce, RowState))
+        ):
+            root = replace(
+                root,
+                parameters=replace(
+                    root.parameters, endpoint_definitions=(freeze_endpoint(self.definition),)
+                ),
+            )
         binding: Binding = (
             replace(self.binding, graph=replace(self.binding.graph, root=root))
             if isinstance(self.binding, LiveBinding)
@@ -427,12 +449,48 @@ class Relation:
         )
         return Relation(self.runtime, graph.root, replace(live, graph=graph))
 
-    def combine(self, other: Relation, method: Literal["difference", "spearman"]) -> Relation:
+    @property
+    def comparison_error(self) -> str | None:
+        """Return the static numerical qualification failure, if any."""
+        quantity = self.root.signature.quantity
+        if (
+            self.root.value_type == ScalarType("float64")
+            and quantity is not None
+            and quantity.method_version
+            in (
+                "fold@v1",
+                "median@v1",
+                "percentile@v1",
+                "approx_median@v1",
+                "approx_percentile@v1",
+            )
+        ):
+            return f"{quantity.method_version} has no qualified retained comparison error envelope"
+        return None
+
+    def combine(
+        self,
+        other: Relation,
+        method: Literal["difference", "relative_change", "spearman", "relation_ratio"],
+        *,
+        design: Literal["time", "cohort", "period"] = "time",
+        pairing: Literal["exact", "keep", "metric_empty"] = "exact",
+        relationship: TargetRelationshipContract | None = None,
+    ) -> Relation:
         if (
             self.runtime.session_ref != other.runtime.session_ref
             or self.runtime.store.store_id != other.runtime.store.store_id
         ):
             raise _reject("different Session owners")
+        if method != "spearman":
+            for endpoint in (self, other):
+                if endpoint.comparison_error is not None:
+                    raise DatasetConstructionError(
+                        expected="a retained operand error envelope",
+                        received=endpoint.comparison_error,
+                        repair="Use comparison-qualified sum/mean/ratio/linear operands; keep unqualified folds and quantiles as terminal results.",
+                        location="analysis.graph_relation.comparison",
+                    )
         if method == "spearman" and any(
             isinstance(p, CoordinateStatePart)
             for relation in (self, other)
@@ -442,56 +500,80 @@ class Relation:
                 "Spearman requires one observation per member without contribution coordinates"
             )
         if isinstance(self.binding, LiveBinding) and isinstance(other.binding, LiveBinding):
-            graph = combine_observations(self.binding.graph, other.binding.graph, method)
+            graph = combine_observations(
+                self.binding.graph,
+                other.binding.graph,
+                method,
+                design=design,
+                pairing=pairing,
+                relationship=relationship,
+            )
             return Relation(self.runtime, graph.root, replace(self.binding, graph=graph))
         if isinstance(self.binding, LiveBinding) or isinstance(other.binding, LiveBinding):
             raise _reject("mixed live and materialized dependencies")
         current, baseline = self.definition, other.definition
-        if not isinstance(current.parameters, (ObserveMetric, ObserveCount)) or not isinstance(
-            baseline.parameters, (ObserveMetric, ObserveCount)
-        ):
-            raise _reject("endpoints must retain their exact observation definitions")
-        a, b = current.inputs[0].node, baseline.inputs[0].node
-        if a.identity != b.identity or a.fingerprint != b.fingerprint:
-            raise _reject("endpoints do not share the same frozen member node")
-        if method == "difference" and (
-            current.parameters.path != baseline.parameters.path
-            or current.parameters.coordinates != baseline.parameters.coordinates
-        ):
-            raise _reject("comparison endpoints have different routes or coordinates")
-        if method == "spearman" and (
-            current.parameters.coordinates or baseline.parameters.coordinates
-        ):
-            raise _reject("Spearman requires exactly one observation per member")
         first, second = self.root.signature, other.root.signature
         left, right = first.quantity, second.quantity
-        if (
-            first.domain.binding != second.domain.binding
-            or first.domain.instance_key != second.domain.instance_key
-            or not isinstance(left, ObservedQuantity)
-            or not isinstance(right, ObservedQuantity)
-        ):
-            raise _reject("endpoints lack one exact frozen member binding")
-        definition = digest(method + self.root.fingerprint + other.root.fingerprint)
-        if method == "difference":
-            if (
-                left.metric_ref != right.metric_ref
-                or left.graph_fingerprint != right.graph_fingerprint
-                or left.time_scope == right.time_scope
+        if left is None or right is None:
+            raise _reject("comparison endpoints must retain quantities")
+        if method in ("difference", "relative_change"):
+            validate_time_comparison(current, baseline, design)
+        elif method == "relation_ratio":
+            if design != "period" and left.time_scope != right.time_scope:
+                raise _reject("ordinary ratio requires corresponding time roles")
+        else:
+            if not isinstance(current.parameters, (ObserveMetric, ObserveCount)) or not isinstance(
+                baseline.parameters, (ObserveMetric, ObserveCount)
             ):
-                raise _reject("comparison requires the same Metric and distinct windows")
+                raise _reject("endpoints must retain their exact observation definitions")
+            a, b = current.inputs[0].node, baseline.inputs[0].node
+            if a.identity != b.identity or a.fingerprint != b.fingerprint:
+                raise _reject("endpoints do not share the same frozen member node")
+            if method == "spearman" and (
+                current.parameters.coordinates or baseline.parameters.coordinates
+            ):
+                raise _reject("Spearman requires exactly one observation per member")
+            first, second = self.root.signature, other.root.signature
+            left, right = first.quantity, second.quantity
+            if (
+                first.domain.binding != second.domain.binding
+                or first.domain.instance_key != second.domain.instance_key
+                or not isinstance(left, ObservedQuantity)
+                or not isinstance(right, ObservedQuantity)
+            ):
+                raise _reject("endpoints lack one exact frozen member binding")
+        definition = digest(method + self.root.fingerprint + other.root.fingerprint)
+        if method in ("difference", "relative_change", "relation_ratio"):
+            from marivo.semantic.unit_algebra import ratio_unit
+
+            arithmetic: Literal["difference", "relative_change", "ratio"] = (
+                "ratio" if method == "relation_ratio" else method
+            )
+            try:
+                result_type = output_type(arithmetic, self.root.value_type, other.root.value_type)
+            except ValueError as error:
+                raise _reject(str(error)) from error
             root = method_node(
                 (Edge("current", self.root), Edge("baseline", other.root)),
                 CellDerive(
-                    "difference",
+                    arithmetic,
                     definition,
                     "strict",
-                    left.unit,
+                    ratio_unit(left.unit, right.unit) if arithmetic == "ratio" else left.unit,
                     left.time_scope,
-                    "source.exact_pairing@v1",
+                    "source.exact_pairing@v1" if pairing == "exact" else "source.unique_key@v1",
                     "source.finite_numeric@v1",
+                    (freeze_endpoint(current), freeze_endpoint(baseline)),
+                    "ratio" if method == "relation_ratio" else design,
+                    pairing,
+                    comparison_empty_rules(current, baseline) if pairing == "metric_empty" else (),
+                    time_index=period_mapping(current, baseline)[0] if design == "period" else None,
+                    bucket_mapping=period_mapping(current, baseline)[1]
+                    if design == "period"
+                    else (),
+                    relationship=relationship,
                 ),
-                value_type=self.root.value_type,
+                value_type=result_type,
             )
         else:
             domain = DomainSignature(first.domain.binding, "singleton", (), (), definition)
@@ -642,6 +724,8 @@ class Relation:
                     else "defined_only"
                     if method == "count_defined"
                     else "strict",
+                    retain_error=self.root.value_type == ScalarType("float64")
+                    and method in ("sum", "mean", "min", "max"),
                     numeric_check_id=(
                         None
                         if method == "count"
@@ -697,7 +781,17 @@ class Relation:
         return self._with(
             method_node(
                 (self._edge(),),
-                RowState(method, domain, quantity.definition_id, quantity.value_policy, merge=True),
+                RowState(
+                    method,
+                    domain,
+                    quantity.definition_id,
+                    quantity.value_policy,
+                    merge=True,
+                    retain_error=any(
+                        isinstance(part, RowStatePart) and "error_bound" in part.components
+                        for part in self.root.signature.parts
+                    ),
+                ),
                 value_type=self.root.value_type,
             )
         )

@@ -99,13 +99,16 @@ def merge_original(
     if method == "linear":
         if not all(
             totals[name] > 0 or rule == "zero"
-            for name, rule in zip(components[1::2], empty_rules, strict=True)
+            for name, rule in zip(
+                components[1 : 2 * len(empty_rules) : 2], empty_rules, strict=True
+            )
         ):
             return totals, None, "null", "empty_contribution"
         with localcontext() as context:
             context.prec = 120
             signed = [
-                totals[name] * (1 if name.startswith("plus_") else -1) for name in components[::2]
+                totals[name] * (1 if name.startswith("plus_") else -1)
+                for name in components[: 2 * len(empty_rules) : 2]
             ]
             dtype = (
                 pa.decimal128(output.precision, output.scale)

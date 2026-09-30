@@ -57,7 +57,7 @@ def test_first_round_help_has_receiver_specific_constraints() -> None:
     entry = render(REGISTRY, "entry")
     assert "Entity-member questions" in entry
     assert "start with session.members(Entity Ref)" in entry
-    assert "R6–R9 execution awaits Store 7 qualification" in entry
+    assert "R6.2 comparisons use session.members(...)" in entry
     assert entry.index("analysis.session.members") < entry.index("analysis.observe")
     assert "receiver's contract() actions" in render(REGISTRY, "methods")
     time_scope = render(REGISTRY, "time_scope")
@@ -67,7 +67,7 @@ def test_first_round_help_has_receiver_specific_constraints() -> None:
 
     assert "dsl.GroupedRatioRelation.rollup" in render(REGISTRY, "methods.metric")
     assert "dsl.MaterializedRatioRelation.rollup" in render(REGISTRY, "methods.metric")
-    assert "dsl.MaterializedNumericRelation.compare" in render(REGISTRY, "methods.compare")
+    assert "dsl.NumericComparison.compare" in render(REGISTRY, "methods.compare")
     assert "dsl.MaterializedSelectedDifferenceRelation.members" in render(REGISTRY, "methods.rows")
     assert "dsl.MaterializedCoefficientRelation.where" in render(REGISTRY, "methods.association")
 

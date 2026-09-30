@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from collections.abc import Iterator
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
@@ -13,6 +15,8 @@ import pyarrow as pa
 from marivo.analysis.compiler.graph_plan import CheckRequirement
 from marivo.analysis.core.model import (
     CoordinateStatePart,
+    CorrespondencePart,
+    DerivedQuantity,
     OriginalStatePart,
     RowStatePart,
     Signature,
@@ -120,6 +124,8 @@ class ExchangeContract:
                 "row_max",
                 "ratio",
                 "difference",
+                "relative_change",
+                "relation_ratio",
                 "spearman",
             )
             or (self.state_kind == "none") != (self.state_schema is None)
@@ -128,7 +134,16 @@ class ExchangeContract:
             or type(self.allow_empty_singleton) is not bool
             or (
                 self.allow_empty_singleton
-                and (self.key_fields or self.method.name != "parts_transport")
+                and (
+                    self.key_fields
+                    or self.method.name
+                    not in (
+                        "parts_transport",
+                        "cell.difference",
+                        "cell.relative_change",
+                        "cell.ratio",
+                    )
+                )
             )
         ):
             raise _invalid("invalid method, binding, schema or ordered keys")
@@ -375,6 +390,14 @@ def collect(
                     else (),
                 ):
                     raise _invalid("transported numerical state and primary Cell disagree")
+    if isinstance(
+        contract.signature.quantity, DerivedQuantity
+    ) and contract.signature.quantity.method_version in (
+        "cell.difference@v1",
+        "cell.relative_change@v1",
+        "cell.ratio@v1",
+    ):
+        _verify_difference_parts(contract, parts, primary)
     if contract.state_schema is None:
         if method_state is not None:
             raise _invalid("unexpected method state vector")
@@ -389,28 +412,12 @@ def collect(
             tuple(row[name] for name in contract.key_fields): row["status"]
             for row in method_state.to_pylist()
         }
-        if contract.state_kind == "difference":
-            endpoints = {
-                part.role: {
-                    tuple(row[name] for name in contract.key_fields): row
-                    for row in part.table.to_pylist()
-                }
-                for part in parts
-                if part.role in ("current_endpoint", "baseline_endpoint")
-            }
-            if set(endpoints) != {"current_endpoint", "baseline_endpoint"}:
-                raise _invalid("missing ordered Difference endpoints")
-            for row in numeric_primary(primary).to_pylist():
-                key = tuple(row[name] for name in contract.key_fields)
-                if (
-                    not difference_matches(
-                        row,
-                        endpoints["current_endpoint"][key],
-                        endpoints["baseline_endpoint"][key],
-                    )
-                    or states[key] != row["cell_tag"]
-                ):
-                    raise _invalid("Difference endpoints and primary Cell disagree")
+        if contract.state_kind in ("difference", "relative_change", "relation_ratio"):
+            if any(
+                states[tuple(row[name] for name in contract.key_fields)] != row["cell_tag"]
+                for row in primary.to_pylist()
+            ):
+                raise _invalid("Difference state status differs from its primary Cell")
         else:
             _verify_single_state_part(contract, parts, primary, states)
     if any(
@@ -424,6 +431,222 @@ def collect(
     ):
         raise _invalid("method result retains an uncompleted check")
     return ExchangeResult(contract, primary, parts, completed_checks, method_state)
+
+
+def _verify_difference_parts(
+    contract: ExchangeContract, parts: tuple[ExchangePart, ...], primary: pa.Table
+) -> None:
+    keys = contract.key_fields
+    primary_type = numeric_primary(primary).schema.field("value").type
+    quantity = contract.signature.quantity
+    assert quantity is not None
+    division = quantity.method_version != "cell.difference@v1"
+    for part in parts:
+        if part.role not in ("current_endpoint", "baseline_endpoint"):
+            continue
+        expected_names = (
+            *keys,
+            *(f"{part.role}__{name}" for name in ("value", "cell_tag", "cell_reason")),
+        )
+        if tuple(part.table.column_names) != expected_names:
+            raise _invalid("incomplete ordered Difference endpoint schema")
+        endpoint_type = part.table.schema.field(f"{part.role}__value").type
+        if not (
+            (
+                division
+                and (
+                    pa.types.is_integer(endpoint_type)
+                    or pa.types.is_floating(endpoint_type)
+                    or pa.types.is_decimal(endpoint_type)
+                )
+            )
+            or endpoint_type == primary_type
+            or (
+                pa.types.is_decimal(endpoint_type)
+                and pa.types.is_decimal(primary_type)
+                and endpoint_type.scale == primary_type.scale
+            )
+        ) or any(
+            part.table.schema.field(f"{part.role}__{name}").type != pa.string()
+            for name in ("cell_tag", "cell_reason")
+        ):
+            raise _invalid("Difference endpoint types differ from the numeric contract")
+    endpoints = {
+        part.role: {
+            tuple(row[name] for name in contract.key_fields): row for row in part.table.to_pylist()
+        }
+        for part in parts
+        if part.role in ("current_endpoint", "baseline_endpoint")
+    }
+    if set(endpoints) != {"current_endpoint", "baseline_endpoint"}:
+        raise _invalid("missing ordered Difference endpoints")
+    correspondence = next((part.table for part in parts if part.role == "correspondence"), None)
+    if correspondence is None:
+        raise _invalid("missing complete endpoint correspondence")
+    mapping_fields = (
+        *((key, primary.schema.field(key).type) for key in keys),
+        ("correspondence__current_present", pa.bool_()),
+        ("correspondence__baseline_present", pa.bool_()),
+        *(
+            (f"correspondence__{side}_error_bound", pa.float64())
+            for side in ("current", "baseline", "result")
+        ),
+        *(
+            (f"correspondence__{side}_key_{i}", primary.schema.field(key).type)
+            for side in ("current", "baseline")
+            for i, key in enumerate(keys)
+        ),
+    )
+    if tuple(correspondence.column_names) != tuple(name for name, _ in mapping_fields) or any(
+        correspondence.schema.field(name).type != dtype for name, dtype in mapping_fields
+    ):
+        raise _invalid("incomplete or mistyped endpoint correspondence schema")
+    mapped = {
+        tuple(row[name] for name in contract.key_fields): row for row in correspondence.to_pylist()
+    }
+    for row in numeric_primary(primary).to_pylist():
+        key = tuple(row[name] for name in contract.key_fields)
+        mapping = mapped[key]
+        definition = next(
+            part for part in contract.signature.parts if isinstance(part, CorrespondencePart)
+        )
+        presence = tuple(
+            mapping[f"correspondence__{side}_present"] for side in ("current", "baseline")
+        )
+        if any(type(present) is not bool for present in presence):
+            raise _invalid("correspondence presence must be non-null Boolean")
+        for side, present in zip(("current", "baseline"), presence, strict=True):
+            if not present and mapping[f"correspondence__{side}_error_bound"] != 0.0:
+                raise _invalid("missing coordinates cannot carry an operand error bound")
+        for side in ("current", "baseline", "result"):
+            bound = mapping[f"correspondence__{side}_error_bound"]
+            if type(bound) is not float or not math.isfinite(bound) or bound < 0:
+                raise _invalid("comparison error bounds must be finite and nonnegative")
+        for side, present in zip(("current", "baseline"), presence, strict=True):
+            endpoint = endpoints[f"{side}_endpoint"][key]
+            value = endpoint[f"{side}_endpoint__value"]
+            tag = endpoint[f"{side}_endpoint__cell_tag"]
+            reason = endpoint[f"{side}_endpoint__cell_reason"]
+            if present:
+                valid = (
+                    tag == "defined"
+                    and reason is None
+                    and value is not None
+                    and (not isinstance(value, float) or math.isfinite(value))
+                    and (not isinstance(value, Decimal) or value.is_finite())
+                ) or (
+                    tag in ("null", "undefined", "unknown")
+                    and value is None
+                    and isinstance(reason, str)
+                    and bool(reason)
+                )
+                if not valid:
+                    raise _invalid("present comparison endpoint must retain a valid Cell")
+        if not any(presence) or (definition.policy == "exact" and not all(presence)):
+            raise _invalid(
+                "exact Difference correspondence differs from its complete endpoint keys"
+            )
+        for side, present in zip(("current", "baseline"), presence, strict=True):
+            expected_key = key if present else (None,) * len(key)
+            if present and side == "baseline" and definition.time_index is not None:
+                index = definition.time_index
+                forward = dict(definition.bucket_mapping)
+                token = key[index]
+                if not isinstance(token, str) or token not in forward:
+                    raise _invalid("output bucket absent from its frozen original grid")
+                expected_key = (*key[:index], forward[token], *key[index + 1 :])
+            if (
+                tuple(mapping[f"correspondence__{side}_key_{i}"] for i in range(len(key)))
+                != expected_key
+            ):
+                raise _invalid("correspondence presence and complete endpoint keys disagree")
+        if not all(presence):
+            for index, side in enumerate(("current", "baseline")):
+                endpoint = endpoints[f"{side}_endpoint"][key]
+                if presence[index]:
+                    if (
+                        definition.policy == "metric_empty"
+                        and endpoint[f"{side}_endpoint__cell_tag"] != "defined"
+                    ):
+                        raise _invalid("metric_empty existing operand is not Defined")
+                    continue
+                expected_tag = (
+                    None
+                    if definition.policy == "keep"
+                    else "defined"
+                    if definition.empty_rules[index] == "zero"
+                    else "null"
+                    if definition.empty_rules[index] == "null"
+                    else "undefined"
+                )
+                expected_reason = (
+                    "empty_contribution"
+                    if expected_tag == "null"
+                    else "zero_denominator"
+                    if expected_tag == "undefined"
+                    else None
+                )
+                expected_value = 0 if expected_tag == "defined" else None
+                if (
+                    endpoint[f"{side}_endpoint__cell_tag"] != expected_tag
+                    or endpoint[f"{side}_endpoint__cell_reason"] != expected_reason
+                    or endpoint[f"{side}_endpoint__value"] != expected_value
+                ):
+                    raise _invalid("missing coordinate and retained empty finish disagree")
+            expected_reason = (
+                "missing_side"
+                if definition.policy == "keep"
+                else next(
+                    (
+                        "empty_contribution"
+                        if definition.empty_rules[i] == "null"
+                        else "zero_denominator"
+                        for i in (0, 1)
+                        if not presence[i] and definition.empty_rules[i] != "zero"
+                    ),
+                    None,
+                )
+            )
+            if expected_reason is not None:
+                if mapping["correspondence__result_error_bound"] != 0.0:
+                    raise _invalid("non-numeric missing-side result has a nonzero error bound")
+                if (
+                    row["value"] is not None
+                    or row["cell_tag"]
+                    != ("null" if expected_reason == "empty_contribution" else "undefined")
+                    or row["cell_reason"] != expected_reason
+                ):
+                    raise _invalid("missing-side result and presence disagree")
+                continue
+        from marivo.analysis.methods.comparison import ComparisonMethod, propagated_error
+
+        method: ComparisonMethod = (
+            "relative_change"
+            if quantity.method_version == "cell.relative_change@v1"
+            else "ratio"
+            if quantity.method_version == "cell.ratio@v1"
+            else "difference"
+        )
+        try:
+            expected_error = propagated_error(
+                method,
+                endpoints["current_endpoint"][key]["current_endpoint__value"],
+                endpoints["baseline_endpoint"][key]["baseline_endpoint__value"],
+                row["value"],
+                mapping["correspondence__current_error_bound"],
+                mapping["correspondence__baseline_error_bound"],
+            )
+        except (ValueError, OverflowError, TypeError) as error:
+            raise _invalid("invalid retained comparison error envelope") from error
+        if mapping["correspondence__result_error_bound"] != expected_error:
+            raise _invalid("comparison error envelope and retained operands disagree")
+        if not difference_matches(
+            row,
+            endpoints["current_endpoint"][key],
+            endpoints["baseline_endpoint"][key],
+            method=quantity.method_version,
+        ):
+            raise _invalid("Difference endpoints and primary Cell disagree")
 
 
 def _verify_single_state_part(

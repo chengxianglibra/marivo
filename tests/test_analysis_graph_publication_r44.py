@@ -479,7 +479,7 @@ def test_fixed_shared_difference_filter_sum_is_one_atomic_run(case, monkeypatch)
         PartsTransport(
             "where",
             difference.signature.domain,
-            ("current_endpoint", "baseline_endpoint"),
+            ("current_endpoint", "baseline_endpoint", "correspondence"),
             True,
             (ValuePredicate(difference.signature.domain.binding, "eq", 0, "reject"),),
         ),
@@ -692,6 +692,7 @@ def test_source_difference_retains_both_ordered_endpoint_parts(case):
     assert tuple(part.role for part in actual.parts) == (
         "current_endpoint",
         "baseline_endpoint",
+        "correspondence",
     )
     assert actual.parts[0].table["current_endpoint__value"].to_pylist() == [4, 7, 9]
     assert actual.parts[1].table["baseline_endpoint__value"].to_pylist() == [1, 3, 8]
@@ -707,7 +708,7 @@ def test_source_difference_retains_both_ordered_endpoint_parts(case):
         PartsTransport(
             "where",
             fixed.signature.domain,
-            ("current_endpoint", "baseline_endpoint"),
+            ("current_endpoint", "baseline_endpoint", "correspondence"),
             True,
             (ValuePredicate(fixed.signature.domain.binding, "gt", 2, "drop"),),
         ),

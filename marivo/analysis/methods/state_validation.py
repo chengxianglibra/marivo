@@ -88,25 +88,55 @@ def difference_matches(
     primary: Mapping[str, object],
     current: Mapping[str, object],
     baseline: Mapping[str, object],
+    *,
+    method: str = "cell.difference@v1",
 ) -> bool:
-    """Validate an int64 difference against both exact retained endpoints."""
+    """Verify finite homogeneous endpoints and a once-rounded exact difference."""
     first = current.get("current_endpoint__value")
     second = baseline.get("baseline_endpoint__value")
-    return (
-        type(first) is int
-        and type(second) is int
-        and -(2**63) <= first < 2**63
-        and -(2**63) <= second < 2**63
+    value = primary.get("value")
+    if not (
+        _numeric(first)
+        and _numeric(second)
+        and type(first) is type(second)
         and current.get("current_endpoint__cell_tag") == "defined"
         and baseline.get("baseline_endpoint__cell_tag") == "defined"
         and current.get("current_endpoint__cell_reason") is None
         and baseline.get("baseline_endpoint__cell_reason") is None
-        and -(2**63) <= first - second < 2**63
-        and type(primary.get("value")) is int
-        and primary.get("value") == first - second
-        and primary.get("cell_tag") == "defined"
-        and primary.get("cell_reason") is None
-    )
+    ):
+        return False
+    assert isinstance(first, (int, float, Decimal))
+    assert isinstance(second, (int, float, Decimal))
+    if method != "cell.difference@v1" and second == 0:
+        return (
+            value is None
+            and primary.get("cell_tag") == "undefined"
+            and primary.get("cell_reason")
+            == ("zero_baseline" if method == "cell.relative_change@v1" else "zero_denominator")
+        )
+    if (
+        not _numeric(value)
+        or primary.get("cell_tag") != "defined"
+        or primary.get("cell_reason") is not None
+    ):
+        return False
+    exact = Fraction(first) - Fraction(second)
+    if method == "cell.relative_change@v1":
+        exact /= abs(Fraction(second))
+    elif method == "cell.ratio@v1":
+        exact = Fraction(first) / Fraction(second)
+    if isinstance(value, Decimal) and method != "cell.difference@v1":
+        exponent = value.as_tuple().exponent
+        if not isinstance(exponent, int):
+            return False
+        return Fraction(value) == Fraction(round(exact * 10 ** (-exponent)), 10 ** (-exponent))
+    if type(value) is float:
+        try:
+            return value == float(exact)
+        except OverflowError:
+            return False
+    assert isinstance(value, (int, Decimal))
+    return Fraction(value) == exact
 
 
 def state_matches(
@@ -117,6 +147,10 @@ def state_matches(
     empty_rules: tuple[Literal["null", "zero"], ...] = (),
 ) -> bool:
     """Check one complete-key-associated primary and required state part."""
+    if "row_state__error_bound" in part:
+        bound = part["row_state__error_bound"]
+        if type(bound) is not float or not math.isfinite(bound) or bound < 0:
+            return False
     value = primary.get("value")
     if kind == "original_fold":
         from marivo.analysis.methods.physical import DurationType
@@ -141,7 +175,9 @@ def state_matches(
         terms = sorted(
             name.removeprefix("original_state__").removesuffix("_sum")
             for name in part
-            if name.startswith("original_state__") and name.endswith("_sum")
+            if name.startswith("original_state__")
+            and name.endswith("_sum")
+            and not name.endswith("_absolute_sum")
         )
         if len(terms) < 2 or len(empty_rules) != len(terms):
             return False
@@ -165,6 +201,14 @@ def state_matches(
                 or type(support) is not int
                 or not 0 <= support < 2**63
                 or (support == 0 and magnitude != 0)
+            ):
+                return False
+            if (
+                type(magnitude) is float
+                and f"original_state__{term}_absolute_sum" in part
+                and not _absolute_sum_matches(
+                    magnitude, part[f"original_state__{term}_absolute_sum"], support
+                )
             ):
                 return False
             with localcontext() as context:
@@ -228,6 +272,16 @@ def state_matches(
                 and primary.get("cell_reason") == "empty_contribution"
             )
         numerator, denominator = magnitudes
+        if (
+            type(numerator) is float
+            and "original_state__numerator_absolute_sum" in part
+            and not _absolute_sum_matches(
+                numerator,
+                part["original_state__numerator_absolute_sum"],
+                part.get("original_state__numerator_non_null_count"),
+            )
+        ):
+            return False
         if type(denominator) is float:
             absolute = part.get("original_state__denominator_absolute_sum")
             if (
@@ -267,6 +321,14 @@ def state_matches(
             or (type(weight_total) is int and not -(2**63) <= weight_total < 2**63)
             or not 0 <= pairs <= rows < 2**63
             or (pairs == 0 and (weighted_total != 0 or weight_total != 0))
+        ):
+            return False
+        if (
+            type(weighted_total) is float
+            and "original_state__absolute_weighted_numerator" in part
+            and not _absolute_sum_matches(
+                weighted_total, part["original_state__absolute_weighted_numerator"], pairs
+            )
         ):
             return False
         if type(weight_total) is float:
@@ -341,6 +403,12 @@ def state_matches(
                 and primary.get("cell_tag") == "defined"
                 and primary.get("cell_reason") is None
             )
+        if (
+            type(total) is float
+            and "original_state__absolute_sum" in part
+            and not _absolute_sum_matches(total, part["original_state__absolute_sum"], count)
+        ):
+            return False
         if count == 0:
             return (
                 total == 0
@@ -411,6 +479,12 @@ def state_matches(
             or not 0 <= count <= rows < 2**63
         ):
             return False
+        if (
+            type(total) is float
+            and "original_state__absolute_sum" in part
+            and not _absolute_sum_matches(total, part["original_state__absolute_sum"], count)
+        ):
+            return False
         if count == 0:
             return (
                 total == 0
@@ -433,6 +507,12 @@ def state_matches(
             or not isinstance(total, (int, float, Decimal))
             or type(count) is not int
             or not 0 <= count < 2**63
+        ):
+            return False
+        if (
+            type(total) is float
+            and "original_state__absolute_sum" in part
+            and not _absolute_sum_matches(total, part["original_state__absolute_sum"], count)
         ):
             return False
         if count == 0:
@@ -512,7 +592,9 @@ def coordinate_state_matches(
             *(
                 (name, name.removesuffix("_sum") + "_non_null_count")
                 for name in components
-                if name.startswith(("plus_", "minus_")) and name.endswith("_sum")
+                if name.startswith(("plus_", "minus_"))
+                and name.endswith("_sum")
+                and not name.endswith("_absolute_sum")
             ),
         ]
         for total_name, count_name in pairs:

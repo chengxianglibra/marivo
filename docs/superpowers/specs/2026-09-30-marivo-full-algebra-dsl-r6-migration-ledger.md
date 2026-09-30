@@ -1,7 +1,7 @@
 # R6.1 contract freeze and consumer migration ledger
 
-Date: 2026-09-30. Status: R6.1 contract/static inventory complete; R6.2–R6.7
-implementation and qualification unverified. This ledger indexes the
+Date: 2026-09-30. Status: R6.1 contract/static inventory complete; R6.2 public comparison implementation is connected, with final validation recorded below;
+R6.3–R6.7 remain unimplemented. This ledger indexes the
 [R6 implementation plan](2026-09-30-marivo-full-algebra-dsl-r6-implementation-plan.md)
 and sole contract owners; it is not another method registry or executable API.
 
@@ -213,3 +213,127 @@ above; it reads no business rows.
   R6.1 adds no executable workflow; no skill edit is necessary in this package.
   R6.2–R6.6 reassess upon connecting each capability; required future edits need
   the explicit approval required by AGENTS.md. AGENTS.md remains unchanged.
+
+
+## R6.2 implementation and qualification (2026-09-30)
+
+Implementation entry: `panda`, HEAD `5b4d58da0d3ba369bb4ad8afef91d318e77fe540`.
+Existing R6.1 owner edits are preserved. No commit, push, release-check, MinIO,
+publication, AGENTS.md or packaged skill edit. The separately authored snapshot
+DAG optimization handoff is preserved and is not part of this implementation.
+
+### Connected public and Runtime contracts
+
+- M01/F01–F03: `ExactKeys`, `UnionKeys`, `TimeChange`, `CohortContrast`,
+  `PeriodChange`, `one_to_one`, ordinary `ratio`, and absolute/relative `compare`
+  use the same typed graph path for Logical and Materialized receivers. Numeric
+  Measure reads retain unit/time quantity definitions; nested ordered templates
+  retain independent captures. Full typed keys, not row counts, govern pairing.
+- `window_bucket()` and `WindowBucketAlignment` have one definition in
+  `analysis._comparison`. The old contracts module consumes that definition;
+  it does not define a compatibility constructor. Legacy tests import the public
+  constructor. M03/M04/M10/M11 shared legacy code remains assigned to R7/R8 and
+  final deletion to R6.7; none of those old executors gained source qualification.
+- MissingCoordinate has its own presence/coordinate columns. Union keep retains
+  present Cells and emits `Undefined(missing_side)` only for absent coordinates.
+  Metric-empty admission requires complete raw original definitions and coverage;
+  it invokes the registered concrete empty-state finish, including count zero,
+  sum/mean Null and original-ratio zero-denominator Undefined. Row selection cannot
+  manufacture empty contribution evidence. Existing consumed Cells remain strict.
+- M13/F09: Ibis prepares sources and checks keys/coverage/buckets/numeric premises.
+  Absolute difference retains the qualified Ibis route. Relative change and
+  ordinary ratio select `ibis_python` before execution; fixed operands use
+  `artifact_python`. There is no failed-route retry, handwritten production SQL,
+  source/fixed mixing, family executor, or source access from local arithmetic.
+- Difference state/part v2 and relative-change/relation-ratio v1 retain endpoints,
+  correspondence, presence, error bounds, policies and bucket maps. Old Difference
+  state rejects with a re-execute repair. Canonical bounded compressed definitions
+  retain recursive captured nodes without following Artifact history. Fixed
+  continuations validate exact receipts, versions and actual parts before execution.
+- Float operand envelopes use retained magnitudes, including original sum/mean,
+  ratio, weighted mean and linear components. A nonzero denominator interval crossing
+  zero rejects. I/D/Duration use exact widened arithmetic, checked storage and one
+  final quotient rounding; Decimal uses HALF_EVEN independent of caller context.
+  Bind-project and affected original/row/transport implementations use contract 4.
+- M14/M15: exports, typing, native Help routes/budgets, current contracts, CLI
+  bootstrap regression and identical English/Chinese executable examples are
+  synchronized. Public comparison never grants original rollup/share/attribution.
+  Packaged workflows continue to delegate signatures to Help and capabilities to
+  result contracts; no workflow edit is required or authorized.
+
+### Public-path qualification cells
+
+S-table and S-Parquet below are separately exercised; F is retained
+`artifact_python`. These are observed cells, not whole-backend or installed-wheel
+qualification. DuckDB native elapsed intervals have microsecond storage; the
+Parquet duration carriers preserve s/ms/us/ns individually.
+
+| Method / domain / time | Types and routes with public evidence | Evidence owner |
+| --- | --- | --- |
+| Absolute TimeChange, Entity/string key, UTC window | I, F, D(30,6), T(us): S-table/S-Parquet Ibis + F; T(s/ms/ns): S-Parquet Ibis + F | `test_public_numeric_difference_source_and_fixed` |
+| Relative TimeChange, Entity, UTC window | Same I/F/D/T cells, source Ibis preparation + registered local finish, F; zero baseline reason retained | `test_relative_change_exact_finish_and_zero_baseline` |
+| Ordinary exact ratio, Entity | Same I/F/D/T cells and source-local/F routes; zero denominator; D HALF_EVEN tie cases | `test_ordinary_ratio_numeric_families`, `test_public_decimal_ratio_rounds_once_half_even` |
+| Ordinary ratio, numeric field / NoTime | I source Ibis preparation + registered local finish, F; declared Measure quantity/unit | `test_ordinary_ratio_over_untimed_numeric_read` |
+| Exact full-key pairing, Entity/composite(string,int64), UTC | I S-table/S-Parquet + F; two-empty Exact/Union; equal row counts with wrong key images reject | `test_composite_keys_double_empty_and_wrong_key_images` |
+| CohortContrast, Group/Singleton | I S-table/S-Parquet + F; common coordinates; count-zero and sum-Null Metric-empty; Union keep retains present Null/Undefined | `test_ordinary_ratio_and_cohort_singleton`, `test_cohort_group_metric_empty_preserves_metric_null_policy`, `test_union_keeps_present_nondefined_cell_separate_from_absence` |
+| PeriodChange, Entity×Time | I/count S-table/S-Parquet + F; UTC, native DATE, aware local boundaries; original ordered grids; unequal/filtered buckets reject | `test_period_change_retains_original_buckets_and_rejects_renumbering` |
+| Nested Difference | I S-table/S-Parquet + F; independent July captures and ordered recursive endpoints | `test_nested_difference_keeps_independent_captures` |
+| Declared one-to-one ratio | I S-table/S-Parquet + F; full retained identity-key relationship, exact ordered nodes, many-to-one/reuse reject | `test_one_to_one_binds_exact_ordered_nodes_and_retained_relationship` |
+| Original mean/ratio/linear/weighted mean as comparison operands | F S-table + F; retained magnitude bounds, cancellation/unstable denominator rejection | `test_float_denominator_interval_and_mean_operand_envelope`, `test_comparison_of_float_original_expression_operands` |
+| Widened integer / strict numeric failures | I negative/min-int baseline and overflow through public source/F; independent Fraction/Decimal and nonfinite/type/unit rules | `test_public_relative_negative_and_minimum_integer_baseline`, `test_analysis_comparison_r62.py` |
+
+### Acceptance discriminators and remaining ownership
+
+V01–V03 are exercised through the public comparison tests above and independent
+rule/kernel counterexamples. Unknown has no newly introduced public producer:
+its Cell representation and strict-consumption rejection remain core/exchange
+contracts, not a new R6.3/R7 producer qualification. Many-to-one mappings,
+unretained relationship keys/definitions and mismatched physical units reject.
+
+V10 public evidence covers zero execution reads during composition, static
+independent-target rejection, a shared endpoint staged once per Run, and fresh
+source evaluation at each top-level execute. V11 public evidence produces table
+and Parquet Artifacts, moves sources offline, disables DuckDB and Semantic in a
+new process, then resumes Difference/relative/ratio and fixed composition with
+same values, reasons, versions and capabilities. Correspondence corruption,
+incomplete empty schemas and stale versions reject; the shared publication tests
+own receipt/part swap, cache, resource and atomic-failure cases. V12 retains one
+public Help owner with exact exports and typed signatures; CLI remains bootstrap
+only and directs execution discovery to native Python Help.
+
+Only the explicit cells above are granted. Arbitrary Decimal scales, native
+non-us elapsed carriers, every cross-product of design/domain/type/time, remote
+backends, site builds, installed-wheel and real-Agent journeys are not inferred
+from generic registrations. R6.3–R6.7 remain separate work, including complete
+legacy deletion and same-wheel acceptance. The existing R5 restriction on
+Decimal/Duration current-row reducers is unchanged. Float temporal folds and
+quantiles have no retained comparison error envelope and reject statically;
+`test_float_fold_comparison_without_error_envelope_rejects_statically` guards
+this qualification boundary. Their positive comparison cells remain unverified.
+
+### Verification
+
+- `make runtime-test TESTS='tests/test_analysis_comparison_runtime_r62.py tests/test_analysis_members_r52.py'`: **98 passed**. The final added float-fold admission/action-disclosure regression: **1 passed**. All 72 comparison Runtime cases plus 27 member cases have passing execution evidence; no skips.
+- Focused comparison kernel/Help/bilingual tests: **60 passed**; numeric specialization regression: **18 passed**.
+- `make check-agent`: **5476 passed, 5 skipped**, 409 source files typechecked; formatting/lint/import contracts and API documentation generation passed. The five skips are four SQLite fixtures without Decimal storage and one metadata channel-failure dispatcher case; skips grant no capability.
+- Earlier failing runs remain recorded in the [acceptance entry](2026-09-26-marivo-full-refactor-acceptance.md#r62-corresponding-numeric-relations-2026-09-30), with the corresponding repaired runs. No release check, MinIO, remote-backend, wheel or real-Agent acceptance was run.
+- `git diff --check`: passed. Branch and HEAD remain the implementation baseline; existing R6.1 edits and the separate snapshot-DAG handoff are preserved.
+
+### Review repair follow-up
+
+- Float RowStatistic operands now retain and propagate their error envelopes,
+  including grouped state merge; stable comparisons pass while denominator
+  intervals spanning zero reject on source and fixed paths. Malformed bounds
+  reject through the shared numerical state validator.
+- PeriodChange after `group_by(grid).rollup()` compares normalized time-coordinate
+  templates and still consumes complete original bucket correspondence.
+- Fixed endpoint parts are indexed once per complete key, avoiding per-row Arrow
+  conversion and whole-part scans. A deterministic Runtime regression checks
+  exactly one indexing pass per endpoint.
+- Additional observed cells: float row sum/mean/min/max comparison envelopes on
+  S-Parquet and F; original bucket rollup PeriodChange on S-table/S-Parquet and F.
+  Unlisted combinations remain unqualified.
+- Repair validation: **149 Runtime tests passed**, **38 focused tests passed**;
+  `make check-agent`: **5481 passed, 5 skipped**, typing and API docs passed.
+  Initial execution-key snapshot failures were repaired and rerun. Measured
+  before/after hotspot timings and skip disposition are in the acceptance entry.

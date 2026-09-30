@@ -22,7 +22,7 @@ from marivo.analysis.methods.semantics import MethodKey, MethodName
     [
         ("metric.ratio", (DecimalType(38, 6), DecimalType(38, 2)), True, "exact"),
         ("metric.ratio", (ScalarType("float64"),) * 2, True, "finite_float64"),
-        ("metric.ratio", (DurationType("ns"),) * 2, True, "checked_int64"),
+        ("metric.ratio", (DurationType("ns"),) * 2, True, "finite_float64"),
         ("metric.ratio", (DurationType("ns"), DurationType("us")), False, None),
         ("metric.ratio", (DecimalType(38, 6), ScalarType("int64")), False, None),
         ("metric.ratio", (ScalarType("float64"), ScalarType("int64")), False, None),

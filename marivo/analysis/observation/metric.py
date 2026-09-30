@@ -6,6 +6,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Literal
 
 from marivo._temporal import Grain, TimeScope
+from marivo.analysis._comparison import WindowBucketAlignment
 from marivo.analysis.datasets.actions import construct_operator
 from marivo.analysis.datasets.base import (
     Dataset,
@@ -50,7 +51,7 @@ from marivo.analysis.observation.population import (
 )
 from marivo.analysis.observation.predicates import AnalysisPredicate, bind_predicates
 from marivo.analysis.observation.rollup import rollup as _rollup
-from marivo.analysis.operators.contracts import DEFAULT_ALIGNMENT, WindowBucketAlignment
+from marivo.analysis.operators.contracts import DEFAULT_ALIGNMENT
 from marivo.analysis.operators.forecast_contracts import (
     DEFAULT_MODEL,
     ForecastHorizon,

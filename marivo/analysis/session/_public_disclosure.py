@@ -16,6 +16,8 @@ from marivo.analysis._capabilities.dataset_model import (
 )
 
 _METHOD_GROUPS = {
+    ("_NumericComparison", "compare"): "methods.compare",
+    ("_NumericComparison", "ratio"): "methods.compare",
     ("GroupedRatioRelation", "rollup"): "methods.metric",
     ("LogicalAnalysisDomain", "each"): "methods.metric",
     ("LogicalAnalysisDomain", "read"): "inputs.population",
@@ -24,10 +26,8 @@ _METHOD_GROUPS = {
     ("LogicalNumericRelation", "group_by"): "methods.metric",
     ("LogicalNumericRelation", "rollup"): "methods.metric",
     ("LogicalNumericRelation", "summarize"): "methods.metric",
-    ("LogicalNumericRelation", "compare"): "methods.compare",
     ("LogicalNumericRelation", "correlate"): "methods.association",
     ("MaterializedNumericRelation", "summarize"): "methods.metric",
-    ("MaterializedNumericRelation", "compare"): "methods.compare",
     ("LogicalRatioRelation", "group_by"): "methods.metric",
     ("LogicalRatioRelation", "rollup"): "methods.metric",
     ("LogicalRatioRelation", "summarize"): "methods.metric",
@@ -50,7 +50,10 @@ _INPUT_GUIDANCE = {
     "during": "Use mv.time_scope(start=..., end=...) with absolute bounds.",
     "via": "Use the exact relationship Ref or mv.routes(...) required by this Metric.",
     "coordinates": "Distinct qualified contribution Dimension Refs; complete tuples remain bound together.",
-    "baseline": "Use a distinct observation of the same members and Metric.",
+    "baseline": "Use recursively compatible numeric endpoints under the selected design.",
+    "design": "Use mv.TimeChange(), mv.CohortContrast(), or mv.PeriodChange(alignment=mv.window_bucket()).",
+    "pairing": "Use mv.ExactKeys() or an exact-node-bound mv.one_to_one(...) for ratio; comparison designs also accept mv.UnionKeys(missing=...).",
+    "value": "Choose difference or relative_change; zero baselines remain Undefined.",
     "other": "Use another Metric observation on the same members and time scope.",
     "method": "Use one closed mv.sum/count/count_defined/min/max/mean() value or the stated method literal.",
     "predicate": "Build a predicate from this receiver or an exactly corresponding numeric relation.",
@@ -89,6 +92,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
     types = (
+        dsl.OneToOneCorrespondence,
+        dsl.PeriodChange,
+        dsl.UnionKeys,
+        dsl.ExactKeys,
+        dsl.TimeChange,
+        dsl.CohortContrast,
         dsl.AnalysisAction,
         dsl.AnalysisContract,
         dsl.GroupedAnalysisDomain,
@@ -148,8 +157,18 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             if value not in (dsl.RootRoute, dsl.RootRoutes)
             else ("RootRoute" if value is dsl.RootRoute else "RootRoutes")
         )
+        policy_examples = {
+            dsl.ExactKeys: "mv.ExactKeys()",
+            dsl.UnionKeys: 'mv.UnionKeys(missing="keep")',
+            dsl.TimeChange: "mv.TimeChange()",
+            dsl.CohortContrast: "mv.CohortContrast()",
+            dsl.PeriodChange: "mv.PeriodChange(alignment=mv.window_bucket())",
+            dsl.OneToOneCorrespondence: "mv.one_to_one(left=left, right=right, via=relationship)",
+        }
         acquisition = (
-            "Call mv.time_grid(during=scope, grain=mv.grain('day'))."
+            f"Call {policy_examples[value]}."
+            if value in policy_examples
+            else "Call mv.time_grid(during=scope, grain=mv.grain('day'))."
             if value is dsl.TimeGrid
             else "Read grid.window."
             if value is dsl.GridWindow
@@ -215,6 +234,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 if value is dsl.RootRoutes
                 else ("methods.metric",)
                 if value in (dsl.RowMethod, dsl.CountMethod)
+                else (
+                    "dsl." + name + ".show",
+                    "dsl.NumericComparison.compare",
+                    "dsl.NumericComparison.ratio",
+                )
+                if value in policy_examples
                 else (),
                 constraints=("Exact member, semantic and Artifact bindings govern continuations.",),
             )
@@ -303,9 +328,42 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         )
         exports.append(ExportInput(name, function, "dsl." + name))
 
+    descriptors.append(
+        operation(
+            "dsl.one_to_one",
+            "mv.one_to_one",
+            dsl.one_to_one,
+            summary="Bind an explicit one-to-one relationship to exact ordered numeric endpoints.",
+            discovery_group="methods.compare",
+            parameters=tuple(
+                ParameterInput(
+                    name,
+                    _INPUT_GUIDANCE.get(name, "Use exact ordered numeric endpoint bindings."),
+                    (),
+                )
+                for name in ("left", "right", "via", "time")
+            ),
+            output="OneToOneCorrespondence",
+            constraints=(
+                "Requires complete retained relationship identity keys; no many-to-one, Union or node reuse.",
+            ),
+            effects="Construct a bound correspondence without business reads or Run.",
+            failures=("AnalysisError: follow the exact binding or retained-parts repair.",),
+            example=ExampleInput(
+                "result = mv.one_to_one(left=left, right=right, via=relationship)",
+                ("left", "right", "relationship"),
+                "result",
+                "An exact ordered correspondence.",
+                True,
+            ),
+        )
+    )
+    exports.append(ExportInput("one_to_one", dsl.one_to_one, "dsl.one_to_one"))
+
     owner_methods: tuple[type[object], ...] = (
         dsl._Value,
         dsl._CountRelation,
+        dsl._NumericComparison,
         dsl._OriginalContinuation,
         dsl._StatisticContinuation,
         dsl._MaterializedValue,
@@ -333,7 +391,11 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 ParameterInput(
                     key,
                     _INPUT_GUIDANCE.get(key, "Use the exact bound relation or governed input."),
-                    ("dsl.route", "dsl.routes")
+                    ("TimeChange", "CohortContrast", "PeriodChange")
+                    if key == "design"
+                    else ("ExactKeys", "UnionKeys", "OneToOneCorrespondence")
+                    if key == "pairing"
+                    else ("dsl.route", "dsl.routes")
                     if key == "via"
                     else (
                         "dsl.sum",

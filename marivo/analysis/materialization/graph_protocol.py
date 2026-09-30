@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import zlib
 from dataclasses import dataclass, replace
 from typing import Annotated, Literal, TypeVar, get_args
 
@@ -14,8 +15,14 @@ from pydantic import BeforeValidator, PlainSerializer, TypeAdapter, ValidationEr
 from marivo.analysis.compiler.graph_plan import CheckRequirement, GraphPlan, RouteChoice
 from marivo.analysis.compiler.graph_plan import plan as make_plan
 from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
-from marivo.analysis.core.model import Evidence, PartRole, Signature, part_role
-from marivo.analysis.core.rules import CompleteGroups, MapCorrespond, PartsTransport, TimeProduct
+from marivo.analysis.core.model import CorrespondencePart, Evidence, PartRole, Signature, part_role
+from marivo.analysis.core.rules import (
+    CellDerive,
+    CompleteGroups,
+    MapCorrespond,
+    PartsTransport,
+    TimeProduct,
+)
 from marivo.analysis.materialization.contracts import (
     LocalReceipt,
     canonical_json,
@@ -131,8 +138,8 @@ class PartReceipt:
     local: PhysicalReceipt
     role: str
     contract_id: str
-    contract_version: Literal[1]
-    method_state_version: Literal[1]
+    contract_version: Literal[1, 2]
+    method_state_version: Literal[1, 2]
 
 
 RECEIPT: TypeAdapter[PrimaryReceipt | PartReceipt] = TypeAdapter(PrimaryReceipt | PartReceipt)
@@ -143,7 +150,7 @@ class MethodState:
     schema: Literal["marivo.analysis.method_state/v1"]
     kind: PersistentStateKind
     contract_id: str
-    contract_version: Literal[1]
+    contract_version: Literal[1, 2]
     method_name: MethodName
     method_version: Literal[1]
     input_binding: str
@@ -155,8 +162,8 @@ class MethodState:
             if self.kind == "none"
             else ("pair_counts",)
             if self.kind == "spearman"
-            else ("current_endpoint", "baseline_endpoint")
-            if self.kind == "difference"
+            else ("current_endpoint", "baseline_endpoint", "correspondence")
+            if self.kind in ("difference", "relative_change", "relation_ratio")
             else ("original_state", "coverage")
             if self.kind
             in (
@@ -173,6 +180,21 @@ class MethodState:
             )
             else ("row_state",)
         )
+        allowed_versions = (
+            (1, 2)
+            if self.kind == "none" and "correspondence" in self.ordered_part_roles
+            else (2,)
+            if self.kind == "difference"
+            else (1,)
+        )
+        if self.contract_version not in allowed_versions:
+            raise IntegrityError(
+                expected=f"{self.kind} state and part contract version in {allowed_versions}",
+                received=f"state contract version {self.contract_version}",
+                repair="Re-execute the source comparison to produce its current retained state; old comparison state cannot continue.",
+                stage="graph_protocol",
+                help_target="actions.execute",
+            )
         if (
             self.contract_id != f"marivo.analysis.state.{self.kind}"
             or len(set(self.ordered_part_roles)) != len(self.ordered_part_roles)
@@ -191,8 +213,39 @@ SIGNATURE = TypeAdapter(Signature)
 CHECK = TypeAdapter(CheckRequirement)
 
 
+def freeze_graph(root: Node) -> str:
+    """Bound recursive comparison definitions without duplicating JSON escape overhead."""
+    text = encode(root, NODE)
+    if any(
+        isinstance(node, MethodNode) and isinstance(node.parameters, CellDerive)
+        for node in topology(root)
+    ):
+        if len(text.encode()) > 4 * 1024 * 1024:
+            raise invalid("comparison definition exceeds its 4 MiB expanded bound")
+        return "comparison-v2:" + base64.b64encode(zlib.compress(text.encode(), level=9)).decode(
+            "ascii"
+        )
+    return text
+
+
 def thaw_graph(text: str) -> Node:
-    root = decode(text, NODE)
+    if text.startswith("comparison-v2:"):
+        try:
+            compressed = base64.b64decode(text.removeprefix("comparison-v2:"), validate=True)
+            decoder = zlib.decompressobj()
+            body = decoder.decompress(compressed, 4 * 1024 * 1024 + 1)
+            if len(body) > 4 * 1024 * 1024 or not decoder.eof or decoder.unused_data:
+                raise ValueError("invalid bounded comparison definition")
+            root = decode(body.decode(), NODE)
+            canonical = "comparison-v2:" + base64.b64encode(
+                zlib.compress(encode(root, NODE).encode(), level=9)
+            ).decode("ascii")
+            if canonical != text:
+                raise ValueError("noncanonical comparison definition")
+        except (ValueError, zlib.error, UnicodeError) as error:
+            raise invalid("invalid compressed comparison definition") from error
+    else:
+        root = decode(text, NODE)
     nodes: dict[str, Node] = {}
     bodies: dict[str, str] = {}
 
@@ -216,7 +269,16 @@ def thaw_graph(text: str) -> Node:
         return node
 
     root = intern(root)
-    topology(root)
+    from marivo.analysis.core.rules import CellDerive, OriginalReduce, RowState
+    from marivo.analysis.materialization.graph_composition import comparison_endpoints
+
+    for node in topology(root):
+        if (
+            isinstance(node, MethodNode)
+            and isinstance(node.parameters, (CellDerive, OriginalReduce, RowState, PartsTransport))
+            and node.parameters.endpoint_definitions
+        ):
+            comparison_endpoints(node)
     return root
 
 
@@ -413,6 +475,11 @@ def validate_descriptor(value: Descriptor) -> Node:
         or value.primary_receipt.key_fields != keys
         or tuple(p.role for p in value.parts) != state.ordered_part_roles
         or state.ordered_part_roles != tuple(part_role(p) for p in value.signature.parts)
+        or any(
+            state.contract_version != (2 if part.version == "v2" else 1)
+            for part in value.signature.parts
+            if isinstance(part, CorrespondencePart)
+        )
         or value.primary_receipt.local.schema_fingerprint
         != hashlib.sha256(schema.serialize().to_pybytes()).hexdigest()
         or value.row_set_contract.kind
@@ -420,13 +487,16 @@ def validate_descriptor(value: Descriptor) -> Node:
             "keyed"
             if keys
             else "optional_singleton"
-            if isinstance(root.parameters, PartsTransport) and root.parameters.mode == "where"
+            if isinstance(root.parameters, CellDerive)
+            or (isinstance(root.parameters, PartsTransport) and root.parameters.mode == "where")
             else "singleton"
         )
         or any(
             p.input_binding != state.input_binding
             or p.key_fields != keys
             or p.contract_id != f"marivo.analysis.part.{state.kind}.{p.role}"
+            or p.contract_version != state.contract_version
+            or p.method_state_version != state.contract_version
             for p in value.parts
         )
         or any(
