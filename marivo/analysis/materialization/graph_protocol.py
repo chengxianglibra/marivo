@@ -183,6 +183,8 @@ class MethodState:
         required = (
             ()
             if self.kind == "none"
+            else ("subject", "cohort_decision")
+            if self.kind == "cohort"
             else ("pair_counts",)
             if self.kind == "spearman"
             else ("current_endpoint", "baseline_endpoint", "correspondence")

@@ -6,6 +6,7 @@ import builtins
 from contextlib import redirect_stdout
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
+from decimal import Decimal
 from inspect import Parameter, signature
 from io import StringIO
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, overload
@@ -13,11 +14,18 @@ from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, overload
 import pandas as pd
 
 from marivo._temporal import BeforeEndBoundary, Grain, TimeScope
+from marivo.analysis._cohort import (
+    AllInstances,
+    AnyInstance,
+    AtLeast,
+    CohortRule,
+)
 from marivo.analysis._comparison import CohortContrast as CohortContrast
 from marivo.analysis._comparison import ExactKeys as ExactKeys
 from marivo.analysis._comparison import PeriodChange as PeriodChange
 from marivo.analysis._comparison import TimeChange as TimeChange
 from marivo.analysis._comparison import UnionKeys as UnionKeys
+from marivo.analysis._subject import SubjectBinding, subject_binding
 from marivo.analysis._time_grid import GridEndpoint as GridEndpoint
 from marivo.analysis._time_grid import GridWindow as GridWindow
 from marivo.analysis._time_grid import TimeGrid as TimeGrid
@@ -49,13 +57,16 @@ from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.graph_dataset import GraphDataset
 from marivo.analysis.materialization.graph_fields import (
     BooleanField,
+    BoundPredicate,
     CategoryField,
     CategoryPredicate,
+    CompositePredicate,
     NumericField,
     NumericPredicate,
     RootRoutesValue,
     RootRouteValue,
     ScalarPredicate,
+    StatePredicate,
     TemporalField,
     root_route,
     root_routes,
@@ -383,13 +394,13 @@ class _Value:
             names = ("where", "summarize")
         elif kind == "members":
             names = (
-                ()
+                (("cohort",) if signature.domain.time_grid is None else ())
                 if fixed
-                else ("execute",)
+                else (("cohort", "execute") if signature.domain.time_grid is None else ("execute",))
                 if self._has_fixed()
                 else ("read", "group_by", "observe", "execute")
                 if signature.domain.time_grid is not None
-                else ("each", "read", "group_by", "observe", "execute")
+                else ("each", "cohort", "read", "group_by", "observe", "execute")
             )
         elif kind == "read":
             names = (
@@ -430,6 +441,8 @@ class _Value:
             )
         else:
             names = ()
+        if kind == "where":
+            names = ("where", *names)
         state = next((p for p in signature.parts if isinstance(p, OriginalStatePart)), None)
         if state is not None and state.temporal_policy == "repeated":
             names = tuple(name for name in names if name != "rollup")
@@ -553,51 +566,129 @@ class _Value:
     def _run(self) -> GraphDataset:
         return self._dataset if self._dataset is not None else self._node.execute()
 
-    def _select(
-        self, predicate: CategoryPredicate | NumericPredicate | ScalarPredicate
-    ) -> Relation:
-        if not isinstance(predicate, (CategoryPredicate, NumericPredicate, ScalarPredicate)):
-            raise _reject(
-                "a predicate on this exact relation",
-                "foreign predicate",
-                "Build it from this relation.value.",
-            )
-        if isinstance(predicate, ScalarPredicate):
-            value = ValuePredicate(
-                self._node.root.signature.domain.binding,
-                predicate.operator,
-                TemporalLiteral(
-                    "timestamp" if isinstance(predicate.value, datetime) else "date",
-                    predicate.value.isoformat(),
-                )
-                if isinstance(predicate.value, date)
-                else predicate.value,
-            )
-        elif isinstance(predicate, CategoryPredicate):
-            value = ValuePredicate(self._node.root.signature.domain.binding, "eq", predicate.value)
-        else:
-            operations: dict[str, Literal["lt", "le", "gt", "ge", "eq"]] = {
-                "lt": "lt",
-                "lte": "le",
-                "gt": "gt",
-                "gte": "ge",
-                "eq": "eq",
-            }
-            value = ValuePredicate(
-                self._node.root.signature.domain.binding,
-                operations[predicate.operation],
-                predicate.threshold,
-            )
-        dependency = None
-        if predicate.root is not self._node.root:
-            if not isinstance(predicate, NumericPredicate) or predicate.relation is None:
+    def _bound_predicate(
+        self, predicate: BoundPredicate
+    ) -> tuple[ValuePredicate, tuple[Relation, ...]]:
+        dependencies: list[Relation] = [self._node]
+
+        def index(root: object, relation: Relation | None) -> int:
+            for i, item in enumerate(dependencies):
+                if item.root is root:
+                    return i
+            if relation is None or relation.root is not root:
                 raise _reject(
-                    "a predicate with its exact relation binding",
-                    "foreign predicate without a numeric relation",
-                    "Build the predicate from the corresponding numeric relation.value.",
+                    "an exact bound predicate input",
+                    "missing relation",
+                    "Build predicates from relation.value.",
                 )
-            dependency = predicate.relation
-        return self._node.where(value, dependency)
+            if (
+                relation.runtime is not self._node.runtime
+                or isinstance(relation.binding, FrozenBinding) != self._has_fixed()
+            ):
+                raise _reject(
+                    "one Session and source/fixed mode",
+                    "incompatible predicate input",
+                    "Bind all predicate inputs in the receiver's mode and Session.",
+                )
+            dependencies.append(relation)
+            return len(dependencies) - 1
+
+        def bind(item: BoundPredicate) -> ValuePredicate:
+            binding = self._node.root.signature.domain.binding
+            if isinstance(item, CompositePredicate):
+                return ValuePredicate(
+                    binding,
+                    item.operation,
+                    0,
+                    children=tuple(bind(child) for child in item.children),
+                )
+            if not isinstance(
+                item, (CategoryPredicate, NumericPredicate, ScalarPredicate, StatePredicate)
+            ):
+                raise _reject(
+                    "a closed bound predicate",
+                    type(item).__name__,
+                    "Build a typed predicate from relation.value.",
+                )
+            left = index(item.root, item.relation)
+            if isinstance(item, StatePredicate):
+                return ValuePredicate(binding, "is_defined", 0, input_index=left)
+            value: (
+                int
+                | float
+                | Decimal
+                | str
+                | bool
+                | date
+                | NumericField
+                | CategoryField
+                | BooleanField
+                | TemporalField
+            )
+            operation: Literal["eq", "lt", "le", "gt", "ge"]
+            if isinstance(item, NumericPredicate):
+                operation = (
+                    "le"
+                    if item.operation == "lte"
+                    else "ge"
+                    if item.operation == "gte"
+                    else item.operation
+                )
+                value = item.threshold
+            else:
+                operation = "eq" if isinstance(item, CategoryPredicate) else item.operator
+                value = item.value
+            right = None
+            if isinstance(value, (NumericField, CategoryField, BooleanField, TemporalField)):
+                right = index(value.root, value.relation)
+                literal: int | float | str | bool | TemporalLiteral | Decimal = 0
+            elif isinstance(value, date):
+                literal = TemporalLiteral(
+                    "timestamp" if isinstance(value, datetime) else "date", value.isoformat()
+                )
+            else:
+                literal = value
+            assert operation in ("eq", "ne", "lt", "le", "gt", "ge")
+            return ValuePredicate(binding, operation, literal, input_index=left, right_index=right)
+
+        tree = bind(predicate)
+        return tree, tuple(dependencies[1:])
+
+    @property
+    def subject_binding(self) -> SubjectBinding:
+        """Return the producer-owned complete Subject mapping.
+
+        Args: None.
+        Returns: An immutable SubjectBinding for this exact instance domain.
+        Example: ``binding = values.subject_binding``.
+        Constraints: Requires a retained total Subject map; this property reads no business rows.
+        """
+        part = next(
+            (item for item in self._node.root.signature.parts if isinstance(item, SubjectPart)),
+            None,
+        )
+        if part is None or not part.total:
+            raise _reject(
+                "a retained total Subject map",
+                "missing mapping",
+                "Use an Entity or Entity/time producer retaining its Subject identities.",
+            )
+        return subject_binding(self._node.root.signature.domain, part)
+
+    def _subject_members(self, through: SubjectBinding | None) -> Relation:
+        if through is not None and (
+            type(through) is not SubjectBinding or through != self.subject_binding
+        ):
+            raise _reject(
+                "the exact retained SubjectBinding",
+                "foreign mapping",
+                "Acquire the binding from this relation.subject_binding.",
+            )
+        return self._node.selected_members()
+
+    def _select(self, predicate: BoundPredicate) -> Relation:
+        tree, dependencies = self._bound_predicate(predicate)
+        return self._node.where(tree, dependencies=dependencies)
 
     def _group_nodes(
         self,
@@ -1036,7 +1127,56 @@ class _MaterializedValue(_Value):
         return self._dataset.to_pandas()
 
 
-class LogicalAnalysisDomain(_Value):
+class _CohortDomain(_Value):
+    def cohort(
+        self, predicate: BoundPredicate, *, rule: CohortRule, through: SubjectBinding | None = None
+    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+        """Select exact Subjects using their full retained opportunity domain.
+
+        Args:
+            predicate: Typed conditions over complete Entity or Entity/time opportunities.
+            rule: any_instance, at_least, or all_instances with explicit empty policy.
+            through: Optional exact SubjectBinding acquired from the opportunity producer.
+        Returns: A logical source or fixed AnalysisDomain with decision evidence.
+        Example: ``members.cohort(values.value.gt(0), rule=mv.at_least(3))``.
+        Constraints: Every Subject must be decidable; missing opportunities and Null/Undefined comparisons reject.
+        """
+        if _kind(self._node) != "members" or not isinstance(
+            rule, (AnyInstance, AtLeast, AllInstances)
+        ):
+            raise _reject(
+                "an Entity target and closed cohort rule",
+                type(rule).__name__,
+                "Use original members.cohort(..., rule=mv.any_instance()).",
+            )
+        tree, dependencies = self._bound_predicate(predicate)
+        subject = (
+            next(
+                (
+                    part
+                    for part in dependencies[0].root.signature.parts
+                    if isinstance(part, SubjectPart)
+                ),
+                None,
+            )
+            if dependencies
+            else None
+        )
+        if through is not None and (
+            subject is None
+            or through != subject_binding(dependencies[0].root.signature.domain, subject)
+        ):
+            raise _reject(
+                "the opportunity producer's exact SubjectBinding",
+                "foreign mapping",
+                "Acquire through from the opportunity relation.subject_binding.",
+            )
+        node = self._node.cohort(tree, dependencies, rule)
+        result_type = LogicalFixedAnalysisDomain if self._has_fixed() else LogicalAnalysisDomain
+        return result_type(_TOKEN, node, self._runtime, inputs=(self,))
+
+
+class LogicalAnalysisDomain(_CohortDomain):
     """Unexecuted governed Entity membership and its selected subdomains."""
 
     def each(self, grid: TimeGrid) -> LogicalTimeAnalysisDomain:
@@ -1276,7 +1416,7 @@ class LogicalAnalysisDomain(_Value):
         return LogicalNumericRelation(_TOKEN, observed, self._runtime, inputs=(self,))
 
 
-class MaterializedAnalysisDomain(_MaterializedValue):
+class MaterializedAnalysisDomain(_MaterializedValue, _CohortDomain):
     """Exact fixed Entity membership; it cannot introduce a new live observation."""
 
 
@@ -1300,7 +1440,7 @@ class MaterializedTimeAnalysisDomain(MaterializedAnalysisDomain):
     """Committed member/time product with retained grid identity."""
 
 
-class LogicalFixedAnalysisDomain(_Value):
+class LogicalFixedAnalysisDomain(_CohortDomain):
     """Selected fixed members awaiting a retained local projection."""
 
     def execute(self) -> MaterializedAnalysisDomain:
@@ -1437,15 +1577,17 @@ class GroupedAnalysisDomain(_Value):
 class LogicalCategoryRelation(_CountRelation):
     """Unexecuted categorical member attribute relation."""
 
-    def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    def members(
+        self, *, through: SubjectBinding | None = None
+    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
         """Project complete Subject identities from this relation.
 
-        Args: None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A source member domain or a fixed-only member continuation.
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._node.selected_members()
+        node = self._subject_members(through)
         if self._has_fixed():
             return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
         return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
@@ -1460,16 +1602,16 @@ class LogicalCategoryRelation(_CountRelation):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return CategoryField(self._node.root)
+        return CategoryField(self._node.root, self._node)
 
-    def where(self, predicate: CategoryPredicate) -> LogicalSelectedCategoryRelation:
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedCategoryRelation:
         """Select rows using a predicate bound to this category relation.
 
         Args:
-            predicate: Predicate bound to this relation's exact value field.
+            predicate: Closed typed predicate over exact corresponding inputs.
         Returns: A LogicalSelectedCategoryRelation bound to this exact relation.
         Example: ``result = relation.where(predicate)``.
-        Constraints: The predicate must be bound to this exact relation field.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
         """
         return LogicalSelectedCategoryRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
@@ -1490,16 +1632,16 @@ class LogicalCategoryRelation(_CountRelation):
 class MaterializedCategoryRelation(_MaterializedValue, _CountRelation):
     """Fixed categorical relation retaining admitted member identity."""
 
-    def members(self) -> LogicalFixedAnalysisDomain:
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
         """Project retained complete Subject identities without source access.
 
-        Args: None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A fixed-only logical member continuation.
         Example: ``members = result.members()``.
         Constraints: Requires the exact retained Subject part and cannot read external attributes.
         """
         return LogicalFixedAnalysisDomain(
-            _TOKEN, self._node.selected_members(), self._runtime, inputs=(self,)
+            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
         )
 
     @property
@@ -1512,16 +1654,16 @@ class MaterializedCategoryRelation(_MaterializedValue, _CountRelation):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return CategoryField(self._node.root)
+        return CategoryField(self._node.root, self._node)
 
-    def where(self, predicate: CategoryPredicate) -> LogicalSelectedCategoryRelation:
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedCategoryRelation:
         """Build a fixed-only categorical selection.
 
         Args:
-            predicate: Predicate bound to this relation's exact value field.
+            predicate: Closed typed predicate over exact corresponding inputs.
         Returns: A LogicalSelectedCategoryRelation bound to this exact relation.
         Example: ``result = relation.where(predicate)``.
-        Constraints: The predicate must be bound to this exact relation field.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
         """
         return LogicalSelectedCategoryRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
@@ -1531,15 +1673,42 @@ class MaterializedCategoryRelation(_MaterializedValue, _CountRelation):
 class LogicalSelectedCategoryRelation(_CountRelation):
     """Unexecuted category selection over one exact read relation."""
 
-    def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    @property
+    def value(self) -> CategoryField:
+        """Return this relation's bound categorical field.
+
+        Args:
+            None.
+        Returns: The predicate field bound to this exact relation.
+        Example: ``result = relation.value``.
+        Constraints: Predicates built from this field remain bound to its relation.
+        """
+        return CategoryField(self._node.root, self._node)
+
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedCategoryRelation:
+        """Select rows using a predicate bound to this category relation.
+
+        Args:
+            predicate: Closed typed predicate over exact corresponding inputs.
+        Returns: A LogicalSelectedCategoryRelation bound to this exact relation.
+        Example: ``result = relation.where(predicate)``.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
+        """
+        return LogicalSelectedCategoryRelation(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+    def members(
+        self, *, through: SubjectBinding | None = None
+    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
         """Project complete Subject identities from this relation.
 
-        Args: None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A source member domain or a fixed-only member continuation.
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._node.selected_members()
+        node = self._subject_members(through)
         if self._has_fixed():
             return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
         return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
@@ -1561,7 +1730,32 @@ class LogicalSelectedCategoryRelation(_CountRelation):
 class MaterializedSelectedCategoryRelation(_MaterializedValue, _CountRelation):
     """Fixed categorical selection with an exact retained member projection."""
 
-    def members(self) -> LogicalFixedAnalysisDomain:
+    @property
+    def value(self) -> CategoryField:
+        """Return this relation's bound categorical field.
+
+        Args:
+            None.
+        Returns: The predicate field bound to this exact relation.
+        Example: ``result = relation.value``.
+        Constraints: Predicates built from this field remain bound to its relation.
+        """
+        return CategoryField(self._node.root, self._node)
+
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedCategoryRelation:
+        """Select rows using a predicate bound to this category relation.
+
+        Args:
+            predicate: Closed typed predicate over exact corresponding inputs.
+        Returns: A LogicalSelectedCategoryRelation bound to this exact relation.
+        Example: ``result = relation.where(predicate)``.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
+        """
+        return LogicalSelectedCategoryRelation(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
         """Project selected fixed member identity without a source read.
 
         Args:
@@ -1571,7 +1765,7 @@ class MaterializedSelectedCategoryRelation(_MaterializedValue, _CountRelation):
         Constraints: Projects exact selected keys and cannot introduce a new source into fixed state.
         """
         return LogicalFixedAnalysisDomain(
-            _TOKEN, self._node.selected_members(), self._runtime, inputs=(self,)
+            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
         )
 
 
@@ -1730,15 +1924,17 @@ class GroupedRatioRelation(_Value):
 class LogicalNumericRelation(_NumericComparison):
     """One unexecuted original Metric observation over an Entity domain."""
 
-    def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    def members(
+        self, *, through: SubjectBinding | None = None
+    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
         """Project complete Subject identities from this relation.
 
-        Args: None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A source member domain or a fixed-only member continuation.
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._node.selected_members()
+        node = self._subject_members(through)
         if self._has_fixed():
             return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
         return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
@@ -1755,7 +1951,7 @@ class LogicalNumericRelation(_NumericComparison):
         """
         return NumericField(self._node.root, self._node)
 
-    def where(self, predicate: NumericPredicate) -> LogicalSelectedNumericRelation:
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedNumericRelation:
         """Select current numeric values using their bound predicate.
 
         Args: predicate: A comparison from this or an exactly corresponding numeric relation.value.
@@ -1871,16 +2067,16 @@ class LogicalNumericRelation(_NumericComparison):
 class MaterializedNumericRelation(_MaterializedValue, _NumericComparison):
     """Exact fixed original Metric observation with retained components."""
 
-    def members(self) -> LogicalFixedAnalysisDomain:
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
         """Project retained complete Subject identities without source access.
 
-        Args: None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A fixed-only logical member continuation.
         Example: ``members = result.members()``.
         Constraints: Requires the exact retained Subject part and cannot read external attributes.
         """
         return LogicalFixedAnalysisDomain(
-            _TOKEN, self._node.selected_members(), self._runtime, inputs=(self,)
+            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
         )
 
     @property
@@ -1895,7 +2091,7 @@ class MaterializedNumericRelation(_MaterializedValue, _NumericComparison):
         """
         return NumericField(self._node.root, self._node)
 
-    def where(self, predicate: NumericPredicate) -> LogicalSelectedNumericRelation:
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedNumericRelation:
         """Select current numeric values using their bound predicate.
 
         Args: predicate: A comparison from this or an exactly corresponding numeric relation.value.
@@ -2310,14 +2506,14 @@ class LogicalDifferenceRelation(_NumericComparison):
         """
         return NumericField(self._node.root, self._node)
 
-    def where(self, predicate: NumericPredicate) -> LogicalSelectedDifferenceRelation:
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedDifferenceRelation:
         """Select Defined Difference rows through this exact field.
 
         Args:
-            predicate: Predicate bound to this relation's exact value field.
+            predicate: Closed typed predicate over exact corresponding inputs.
         Returns: A LogicalSelectedDifferenceRelation bound to this exact relation.
         Example: ``result = relation.where(predicate)``.
-        Constraints: The predicate must be bound to this exact relation field.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
         """
         return LogicalSelectedDifferenceRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
@@ -2371,14 +2567,14 @@ class MaterializedDifferenceRelation(_MaterializedValue, _NumericComparison):
         """
         return NumericField(self._node.root, self._node)
 
-    def where(self, predicate: NumericPredicate) -> LogicalSelectedDifferenceRelation:
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedDifferenceRelation:
         """Build a fixed-only Difference selection.
 
         Args:
-            predicate: Predicate bound to this relation's exact value field.
+            predicate: Closed typed predicate over exact corresponding inputs.
         Returns: A LogicalSelectedDifferenceRelation bound to this exact relation.
         Example: ``result = relation.where(predicate)``.
-        Constraints: The predicate must be bound to this exact relation field.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
         """
         return LogicalSelectedDifferenceRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
@@ -2407,15 +2603,42 @@ class MaterializedDifferenceRelation(_MaterializedValue, _NumericComparison):
 class LogicalSelectedDifferenceRelation(_NumericComparison):
     """Unexecuted selected Difference with admitted member projection."""
 
-    def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    @property
+    def value(self) -> NumericField:
+        """Return the Difference-bound strict numeric field.
+
+        Args:
+            None.
+        Returns: The predicate field bound to this exact relation.
+        Example: ``result = relation.value``.
+        Constraints: Predicates built from this field remain bound to its relation.
+        """
+        return NumericField(self._node.root, self._node)
+
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedDifferenceRelation:
+        """Select Defined Difference rows through this exact field.
+
+        Args:
+            predicate: Closed typed predicate over exact corresponding inputs.
+        Returns: A LogicalSelectedDifferenceRelation bound to this exact relation.
+        Example: ``result = relation.where(predicate)``.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
+        """
+        return LogicalSelectedDifferenceRelation(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+    def members(
+        self, *, through: SubjectBinding | None = None
+    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
         """Project complete Subject identities from this relation.
 
-        Args: None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A source member domain or a fixed-only member continuation.
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._node.selected_members()
+        node = self._subject_members(through)
         if self._has_fixed():
             return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
         return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
@@ -2456,7 +2679,32 @@ class LogicalSelectedDifferenceRelation(_NumericComparison):
 class MaterializedSelectedDifferenceRelation(_MaterializedValue, _NumericComparison):
     """Fixed selected Difference with exact member projection."""
 
-    def members(self) -> LogicalFixedAnalysisDomain:
+    @property
+    def value(self) -> NumericField:
+        """Return the Difference-bound strict numeric field.
+
+        Args:
+            None.
+        Returns: The predicate field bound to this exact relation.
+        Example: ``result = relation.value``.
+        Constraints: Predicates built from this field remain bound to its relation.
+        """
+        return NumericField(self._node.root, self._node)
+
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedDifferenceRelation:
+        """Select Defined Difference rows through this exact field.
+
+        Args:
+            predicate: Closed typed predicate over exact corresponding inputs.
+        Returns: A LogicalSelectedDifferenceRelation bound to this exact relation.
+        Example: ``result = relation.where(predicate)``.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
+        """
+        return LogicalSelectedDifferenceRelation(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
         """Project fixed selected members without source access.
 
         Args:
@@ -2466,7 +2714,7 @@ class MaterializedSelectedDifferenceRelation(_MaterializedValue, _NumericCompari
         Constraints: Projects exact selected keys and cannot introduce a new source into fixed state.
         """
         return LogicalFixedAnalysisDomain(
-            _TOKEN, self._node.selected_members(), self._runtime, inputs=(self,)
+            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
         )
 
     def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
@@ -2592,14 +2840,14 @@ class MaterializedCoefficientRelation(_MaterializedValue):
         """
         return NumericField(self._node.root, self._node)
 
-    def where(self, predicate: NumericPredicate) -> LogicalCoefficientSelectionRelation:
+    def where(self, predicate: BoundPredicate) -> LogicalCoefficientSelectionRelation:
         """Select a Defined coefficient on this Association.
 
         Args:
-            predicate: Predicate bound to this relation's exact value field.
+            predicate: Closed typed predicate over exact corresponding inputs.
         Returns: A LogicalCoefficientSelectionRelation bound to this exact relation.
         Example: ``result = relation.where(predicate)``.
-        Constraints: The predicate must be bound to this exact relation field.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
         """
         return LogicalCoefficientSelectionRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
@@ -2784,15 +3032,17 @@ def new_members(node: Relation, runtime: DatasetRuntime) -> LogicalAnalysisDomai
 class LogicalBooleanRelation(_CountRelation):
     """Unexecuted boolean member attribute relation."""
 
-    def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    def members(
+        self, *, through: SubjectBinding | None = None
+    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
         """Project complete Subject identities from this relation.
 
-        Args: None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A source member domain or a fixed-only member continuation.
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._node.selected_members()
+        node = self._subject_members(through)
         if self._has_fixed():
             return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
         return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
@@ -2807,16 +3057,16 @@ class LogicalBooleanRelation(_CountRelation):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return BooleanField(self._node.root)
+        return BooleanField(self._node.root, self._node)
 
-    def where(self, predicate: ScalarPredicate) -> LogicalSelectedBooleanRelation:
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedBooleanRelation:
         """Select rows using a predicate bound to this boolean relation.
 
         Args:
-            predicate: Predicate bound to this relation's exact value field.
+            predicate: Closed typed predicate over exact corresponding inputs.
         Returns: A LogicalSelectedBooleanRelation bound to this exact relation.
         Example: ``result = relation.where(predicate)``.
-        Constraints: The predicate must be bound to this exact relation field.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
         """
         return LogicalSelectedBooleanRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
@@ -2837,16 +3087,16 @@ class LogicalBooleanRelation(_CountRelation):
 class MaterializedBooleanRelation(_MaterializedValue, _CountRelation):
     """Fixed boolean relation retaining admitted member identity."""
 
-    def members(self) -> LogicalFixedAnalysisDomain:
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
         """Project retained complete Subject identities without source access.
 
-        Args: None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A fixed-only logical member continuation.
         Example: ``members = result.members()``.
         Constraints: Requires the exact retained Subject part and cannot read external attributes.
         """
         return LogicalFixedAnalysisDomain(
-            _TOKEN, self._node.selected_members(), self._runtime, inputs=(self,)
+            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
         )
 
     @property
@@ -2859,16 +3109,16 @@ class MaterializedBooleanRelation(_MaterializedValue, _CountRelation):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return BooleanField(self._node.root)
+        return BooleanField(self._node.root, self._node)
 
-    def where(self, predicate: ScalarPredicate) -> LogicalSelectedBooleanRelation:
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedBooleanRelation:
         """Build a fixed-only boolean selection.
 
         Args:
-            predicate: Predicate bound to this relation's exact value field.
+            predicate: Closed typed predicate over exact corresponding inputs.
         Returns: A LogicalSelectedBooleanRelation bound to this exact relation.
         Example: ``result = relation.where(predicate)``.
-        Constraints: The predicate must be bound to this exact relation field.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
         """
         return LogicalSelectedBooleanRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
@@ -2878,15 +3128,42 @@ class MaterializedBooleanRelation(_MaterializedValue, _CountRelation):
 class LogicalSelectedBooleanRelation(_CountRelation):
     """Unexecuted boolean selection over one exact read relation."""
 
-    def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    @property
+    def value(self) -> BooleanField:
+        """Return this relation's bound boolean field.
+
+        Args:
+            None.
+        Returns: The predicate field bound to this exact relation.
+        Example: ``result = relation.value``.
+        Constraints: Predicates built from this field remain bound to its relation.
+        """
+        return BooleanField(self._node.root, self._node)
+
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedBooleanRelation:
+        """Select rows using a predicate bound to this boolean relation.
+
+        Args:
+            predicate: Closed typed predicate over exact corresponding inputs.
+        Returns: A LogicalSelectedBooleanRelation bound to this exact relation.
+        Example: ``result = relation.where(predicate)``.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
+        """
+        return LogicalSelectedBooleanRelation(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+    def members(
+        self, *, through: SubjectBinding | None = None
+    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
         """Project complete Subject identities from this relation.
 
-        Args: None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A source member domain or a fixed-only member continuation.
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._node.selected_members()
+        node = self._subject_members(through)
         if self._has_fixed():
             return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
         return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
@@ -2908,7 +3185,32 @@ class LogicalSelectedBooleanRelation(_CountRelation):
 class MaterializedSelectedBooleanRelation(_MaterializedValue, _CountRelation):
     """Fixed boolean selection with an exact retained member projection."""
 
-    def members(self) -> LogicalFixedAnalysisDomain:
+    @property
+    def value(self) -> BooleanField:
+        """Return this relation's bound boolean field.
+
+        Args:
+            None.
+        Returns: The predicate field bound to this exact relation.
+        Example: ``result = relation.value``.
+        Constraints: Predicates built from this field remain bound to its relation.
+        """
+        return BooleanField(self._node.root, self._node)
+
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedBooleanRelation:
+        """Select rows using a predicate bound to this boolean relation.
+
+        Args:
+            predicate: Closed typed predicate over exact corresponding inputs.
+        Returns: A LogicalSelectedBooleanRelation bound to this exact relation.
+        Example: ``result = relation.where(predicate)``.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
+        """
+        return LogicalSelectedBooleanRelation(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
         """Project selected fixed member identity without a source read.
 
         Args:
@@ -2918,22 +3220,24 @@ class MaterializedSelectedBooleanRelation(_MaterializedValue, _CountRelation):
         Constraints: Projects exact selected keys and cannot introduce a new source into fixed state.
         """
         return LogicalFixedAnalysisDomain(
-            _TOKEN, self._node.selected_members(), self._runtime, inputs=(self,)
+            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
         )
 
 
 class LogicalTemporalRelation(_CountRelation):
     """Unexecuted temporal member attribute relation."""
 
-    def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    def members(
+        self, *, through: SubjectBinding | None = None
+    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
         """Project complete Subject identities from this relation.
 
-        Args: None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A source member domain or a fixed-only member continuation.
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._node.selected_members()
+        node = self._subject_members(through)
         if self._has_fixed():
             return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
         return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
@@ -2948,16 +3252,16 @@ class LogicalTemporalRelation(_CountRelation):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return TemporalField(self._node.root)
+        return TemporalField(self._node.root, self._node)
 
-    def where(self, predicate: ScalarPredicate) -> LogicalSelectedTemporalRelation:
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedTemporalRelation:
         """Select rows using a predicate bound to this temporal relation.
 
         Args:
-            predicate: Predicate bound to this relation's exact value field.
+            predicate: Closed typed predicate over exact corresponding inputs.
         Returns: A LogicalSelectedTemporalRelation bound to this exact relation.
         Example: ``result = relation.where(predicate)``.
-        Constraints: The predicate must be bound to this exact relation field.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
         """
         return LogicalSelectedTemporalRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
@@ -2978,16 +3282,16 @@ class LogicalTemporalRelation(_CountRelation):
 class MaterializedTemporalRelation(_MaterializedValue, _CountRelation):
     """Fixed temporal relation retaining admitted member identity."""
 
-    def members(self) -> LogicalFixedAnalysisDomain:
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
         """Project retained complete Subject identities without source access.
 
-        Args: None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A fixed-only logical member continuation.
         Example: ``members = result.members()``.
         Constraints: Requires the exact retained Subject part and cannot read external attributes.
         """
         return LogicalFixedAnalysisDomain(
-            _TOKEN, self._node.selected_members(), self._runtime, inputs=(self,)
+            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
         )
 
     @property
@@ -3000,16 +3304,16 @@ class MaterializedTemporalRelation(_MaterializedValue, _CountRelation):
         Example: ``result = relation.value``.
         Constraints: Predicates built from this field remain bound to its relation.
         """
-        return TemporalField(self._node.root)
+        return TemporalField(self._node.root, self._node)
 
-    def where(self, predicate: ScalarPredicate) -> LogicalSelectedTemporalRelation:
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedTemporalRelation:
         """Build a fixed-only temporal selection.
 
         Args:
-            predicate: Predicate bound to this relation's exact value field.
+            predicate: Closed typed predicate over exact corresponding inputs.
         Returns: A LogicalSelectedTemporalRelation bound to this exact relation.
         Example: ``result = relation.where(predicate)``.
-        Constraints: The predicate must be bound to this exact relation field.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
         """
         return LogicalSelectedTemporalRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
@@ -3019,15 +3323,42 @@ class MaterializedTemporalRelation(_MaterializedValue, _CountRelation):
 class LogicalSelectedTemporalRelation(_CountRelation):
     """Unexecuted temporal selection over one exact read relation."""
 
-    def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    @property
+    def value(self) -> TemporalField:
+        """Return this relation's bound temporal field.
+
+        Args:
+            None.
+        Returns: The predicate field bound to this exact relation.
+        Example: ``result = relation.value``.
+        Constraints: Predicates built from this field remain bound to its relation.
+        """
+        return TemporalField(self._node.root, self._node)
+
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedTemporalRelation:
+        """Select rows using a predicate bound to this temporal relation.
+
+        Args:
+            predicate: Closed typed predicate over exact corresponding inputs.
+        Returns: A LogicalSelectedTemporalRelation bound to this exact relation.
+        Example: ``result = relation.where(predicate)``.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
+        """
+        return LogicalSelectedTemporalRelation(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+    def members(
+        self, *, through: SubjectBinding | None = None
+    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
         """Project complete Subject identities from this relation.
 
-        Args: None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A source member domain or a fixed-only member continuation.
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._node.selected_members()
+        node = self._subject_members(through)
         if self._has_fixed():
             return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
         return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
@@ -3049,7 +3380,32 @@ class LogicalSelectedTemporalRelation(_CountRelation):
 class MaterializedSelectedTemporalRelation(_MaterializedValue, _CountRelation):
     """Fixed temporal selection with an exact retained member projection."""
 
-    def members(self) -> LogicalFixedAnalysisDomain:
+    @property
+    def value(self) -> TemporalField:
+        """Return this relation's bound temporal field.
+
+        Args:
+            None.
+        Returns: The predicate field bound to this exact relation.
+        Example: ``result = relation.value``.
+        Constraints: Predicates built from this field remain bound to its relation.
+        """
+        return TemporalField(self._node.root, self._node)
+
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedTemporalRelation:
+        """Select rows using a predicate bound to this temporal relation.
+
+        Args:
+            predicate: Closed typed predicate over exact corresponding inputs.
+        Returns: A LogicalSelectedTemporalRelation bound to this exact relation.
+        Example: ``result = relation.where(predicate)``.
+        Constraints: Every referenced input must cover this complete domain; all children are checked.
+        """
+        return LogicalSelectedTemporalRelation(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
         """Project selected fixed member identity without a source read.
 
         Args:
@@ -3059,22 +3415,48 @@ class MaterializedSelectedTemporalRelation(_MaterializedValue, _CountRelation):
         Constraints: Projects exact selected keys and cannot introduce a new source into fixed state.
         """
         return LogicalFixedAnalysisDomain(
-            _TOKEN, self._node.selected_members(), self._runtime, inputs=(self,)
+            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
         )
 
 
 class LogicalSelectedNumericRelation(_OriginalContinuation):
     """Unexecuted numeric selection over one exact read relation."""
 
-    def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    @property
+    def value(self) -> NumericField:
+        """Return the bound numeric field for an admitted strict predicate.
+
+        Args:
+            None.
+        Returns: The predicate field bound to this exact relation.
+        Example: ``result = relation.value``.
+        Constraints: Predicates built from this field remain bound to its relation.
+        """
+        return NumericField(self._node.root, self._node)
+
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedNumericRelation:
+        """Select current numeric values using their bound predicate.
+
+        Args: predicate: A comparison from this or an exactly corresponding numeric relation.value.
+        Returns: A logical numeric selection preserving the Subject part.
+        Example: ``selected = relation.where(relation.value.gt(0))``.
+        Constraints: Numeric dependencies require exact corresponding keys; non-Defined predicates reject.
+        """
+        return LogicalSelectedNumericRelation(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+    def members(
+        self, *, through: SubjectBinding | None = None
+    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
         """Project complete Subject identities from this relation.
 
-        Args: None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A source member domain or a fixed-only member continuation.
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._node.selected_members()
+        node = self._subject_members(through)
         if self._has_fixed():
             return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
         return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
@@ -3096,7 +3478,31 @@ class LogicalSelectedNumericRelation(_OriginalContinuation):
 class MaterializedSelectedNumericRelation(_MaterializedValue, _OriginalContinuation):
     """Fixed numeric selection with an exact retained member projection."""
 
-    def members(self) -> LogicalFixedAnalysisDomain:
+    @property
+    def value(self) -> NumericField:
+        """Return the bound numeric field for an admitted strict predicate.
+
+        Args:
+            None.
+        Returns: The predicate field bound to this exact relation.
+        Example: ``result = relation.value``.
+        Constraints: Predicates built from this field remain bound to its relation.
+        """
+        return NumericField(self._node.root, self._node)
+
+    def where(self, predicate: BoundPredicate) -> LogicalSelectedNumericRelation:
+        """Select current numeric values using their bound predicate.
+
+        Args: predicate: A comparison from this or an exactly corresponding numeric relation.value.
+        Returns: A logical numeric selection preserving the Subject part.
+        Example: ``selected = relation.where(relation.value.gt(0))``.
+        Constraints: Numeric dependencies require exact corresponding keys; non-Defined predicates reject.
+        """
+        return LogicalSelectedNumericRelation(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
         """Project selected fixed member identity without a source read.
 
         Args:
@@ -3106,7 +3512,7 @@ class MaterializedSelectedNumericRelation(_MaterializedValue, _OriginalContinuat
         Constraints: Projects exact selected keys and cannot introduce a new source into fixed state.
         """
         return LogicalFixedAnalysisDomain(
-            _TOKEN, self._node.selected_members(), self._runtime, inputs=(self,)
+            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
         )
 
 

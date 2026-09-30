@@ -175,3 +175,57 @@ rollup needs aligned retained samples. Fixed continuation uses retained state,
 including after source/model files are offline. DuckDB supports governed civil
 dates and explicitly zoned microsecond timestamps; SQLite's required routes use
 UTC timestamps or civil dates. Unqualified routes reject without fallback.
+
+## Select from multiple relations and complete opportunities
+
+Bind conditions from each relation's `value`. Every input must cover the complete
+receiver domain; a retained ancestor may be restricted to an already selected
+receiver. All child consumption checks run before `all_of`, `any_of`, or `not_`.
+
+```python
+members = session.members(ms.ref.entity("sales.customer"))
+region = members.read(ms.ref.dimension("sales.customer.region"))
+revenue = members.observe(
+    ms.ref.metric("sales.revenue"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+)
+defined = revenue.where(revenue.value.is_defined())
+defined.contract().show()
+selected = defined.where(
+    mv.all_of(defined.value.gt(0), region.value.eq("east"))
+)
+```
+
+`is_defined()` is a total label check. Combining it with a numeric comparison
+does not protect that comparison from Null, Undefined, or Unknown. Select first
+when the comparison should consume only Defined values. Numeric comparisons
+also require finite values and compatible types and units.
+Selected logical and fixed relations disclose further `where` calls through
+their `.contract()`.
+
+For cohort selection, keep the complete opportunity grid, including cells with
+no contributions. Count Metrics retain Defined zero for those cells:
+
+```python
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-07-01", end="2026-10-01"),
+    grain=mv.grain("month"),
+)
+activity = members.each(grid).observe(
+    ms.ref.metric("sales.order_count"),
+    during=grid.window,
+    via=ms.ref.relationship("sales.order_buyer"),
+)
+cohort = members.cohort(activity.value.gt(0), rule=mv.at_least(2))
+cohort.contract().show()
+```
+
+`any_instance()` requires one true opportunity; `at_least(k)` requires a positive
+integer excluding bool. `all_instances(empty=mv.empty_opportunity.false())`
+requires an explicit true, false, or undefined empty policy. Existing Unknown
+Cells use three-valued quantification, but every target must be decidable before
+an exact cohort is returned. Null/Undefined comparisons and missing opportunity
+keys reject. Fixed target and predicate Artifacts can continue without sources;
+source-selected members can feed a new observation. `relation.subject_binding`
+provides the producer-owned mapping for an explicit `through=` argument.

@@ -20,7 +20,7 @@ members.read(ms.ref.entity("sales.customer"))
 category = members.read(ms.ref.dimension("sales.customer.region"))
 assert isinstance(category, mv.LogicalCategoryRelation)
 category.compare(category)
-category.where(category.value.eq("west")).where(category.value.eq("west"))
+category.where(category.value.eq("west")).where(True)
 members.show()
 fixed = members.execute()
 fixed.execute()
@@ -55,7 +55,7 @@ mv.sum("extra")
     assert 'Argument 1 to "members"' in output
     assert 'Argument 1 to "read"' in output
     assert 'has no attribute "compare"' in output
-    assert 'LogicalSelectedCategoryRelation" has no attribute "where"' in output
+    assert 'Argument 1 to "where"' in output
     assert 'has no attribute "show"' in output
     assert 'has no attribute "execute"' in output
     assert 'LogicalFixedAnalysisDomain" has no attribute "observe"' in output

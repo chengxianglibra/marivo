@@ -7,6 +7,14 @@ from marivo._temporal import Grain as Grain
 from marivo._temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
 from marivo.analysis import time_scope as time_scope
+from marivo.analysis._cohort import AllInstances as AllInstances
+from marivo.analysis._cohort import AnyInstance as AnyInstance
+from marivo.analysis._cohort import AtLeast as AtLeast
+from marivo.analysis._cohort import EmptyOpportunityPolicy as EmptyOpportunityPolicy
+from marivo.analysis._cohort import all_instances as all_instances
+from marivo.analysis._cohort import any_instance as any_instance
+from marivo.analysis._cohort import at_least as at_least
+from marivo.analysis._cohort import empty_opportunity as empty_opportunity
 from marivo.analysis._comparison import CohortContrast as CohortContrast
 from marivo.analysis._comparison import ExactKeys as ExactKeys
 from marivo.analysis._comparison import PeriodChange as PeriodChange
@@ -14,6 +22,7 @@ from marivo.analysis._comparison import TimeChange as TimeChange
 from marivo.analysis._comparison import UnionKeys as UnionKeys
 from marivo.analysis._comparison import WindowBucketAlignment as WindowBucketAlignment
 from marivo.analysis._comparison import window_bucket as window_bucket
+from marivo.analysis._subject import SubjectBinding as SubjectBinding
 from marivo.analysis.datasets.base import Dataset as Dataset
 from marivo.analysis.datasets.base import LogicalDataset as LogicalDataset
 from marivo.analysis.datasets.base import MaterializedDataset as MaterializedDataset
@@ -71,6 +80,9 @@ from marivo.analysis.funnel import FunnelLossRate as FunnelLossRate
 from marivo.analysis.funnel import funnel_loss_rate as funnel_loss_rate
 from marivo.analysis.lifecycle import FromInception as FromInception
 from marivo.analysis.lifecycle import from_inception as from_inception
+from marivo.analysis.materialization.graph_fields import all_of as all_of
+from marivo.analysis.materialization.graph_fields import any_of as any_of
+from marivo.analysis.materialization.graph_fields import not_ as not_
 from marivo.analysis.observation.metric import LogicalMetricDataset as LogicalMetricDataset
 from marivo.analysis.observation.metric import (
     MaterializedMetricDataset as MaterializedMetricDataset,
@@ -82,8 +94,6 @@ from marivo.analysis.observation.population import (
     MaterializedPopulationDataset as MaterializedPopulationDataset,
 )
 from marivo.analysis.observation.predicates import AnalysisPredicate as AnalysisPredicate
-from marivo.analysis.observation.predicates import all_of as all_of
-from marivo.analysis.observation.predicates import any_of as any_of
 from marivo.analysis.observation.predicates import eq as eq
 from marivo.analysis.observation.predicates import gt as gt
 from marivo.analysis.observation.predicates import gte as gte
@@ -92,7 +102,6 @@ from marivo.analysis.observation.predicates import is_not_null as is_not_null
 from marivo.analysis.observation.predicates import is_null as is_null
 from marivo.analysis.observation.predicates import lt as lt
 from marivo.analysis.observation.predicates import lte as lte
-from marivo.analysis.observation.predicates import not_ as not_
 from marivo.analysis.observation.predicates import not_eq as not_eq
 from marivo.analysis.operators.association import (
     LogicalAssociationDataset as LogicalAssociationDataset,
@@ -241,6 +250,15 @@ from marivo.analysis.subject import DroppedBefore as DroppedBefore
 from marivo.analysis.subject import dropped_before as dropped_before
 
 __all__ = [  # noqa: RUF022 - accepted public export order is contractual
+    "SubjectBinding",
+    "AnyInstance",
+    "AtLeast",
+    "AllInstances",
+    "EmptyOpportunityPolicy",
+    "empty_opportunity",
+    "any_instance",
+    "at_least",
+    "all_instances",
     "Dataset",
     "LogicalDataset",
     "MaterializedDataset",

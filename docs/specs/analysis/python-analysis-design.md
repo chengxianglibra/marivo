@@ -1782,6 +1782,8 @@ of the same temporal kind and authority. No implicit timezone or unit coercion.
 Scalar literals inherit the field's unit; two fields must prove compatible
 units. Composite predicates retain all actually referenced inputs in authored
 order, including inputs from named views. Runtime dependencies are explicit.
+Selected logical and materialized relations disclose their further `where`
+continuation through `.contract()`, including the tag-first selection path.
 
 SubjectBinding is a producer-owned immutable value with exact instance domain,
 Subject Entity, complete typed Subject key and single-valued mapping. It is
@@ -1878,3 +1880,24 @@ static signatures, result contract owns current valid actions and structured
 errors own repairs. R6.2–R6.6 must update native Help, export snapshots, dynamic
 guidance, CLI and latest English/Chinese examples together with each executable
 surface; this target text alone adds none of those promises.
+
+
+### R6.3 connected predicates and Subject cohorts
+
+The closed bound predicate API above is connected through the unified graph,
+Runtime and Store 7. All actually referenced relations have ordered data edges;
+there is no discovery by column name. Selected Numeric, Category, Boolean,
+Temporal and Difference relations expose their own typed `value` and `where`,
+allowing an explicit tag selection before scalar consumption. L1 does not fuse
+a tag selection with ordinary comparison consumption.
+
+Entity targets expose `cohort`; source results can feed new governed observations,
+and fixed results expose retained continuations only. Entity identity and the
+Entity/time projection expose the producer-owned `subject_binding`, accepted by
+`members(through=...)` and the opportunity consumer's `cohort(through=...)`.
+Groups without such a map reject projection. `domain.cohort@v1` retains complete
+target decisions, including false qualifications, and the exact opportunity grid.
+Missing opportunities never become Unknown. Existing Unknown consumption is
+qualified independently; no new public Unknown-producing method is introduced.
+The qualification matrix and remaining R7–R10 boundaries are recorded in the
+[R6 ledger](../../superpowers/specs/2026-09-30-marivo-full-algebra-dsl-r6-migration-ledger.md#r63-predicates-and-full-opportunity-cohorts-2026-09-30).

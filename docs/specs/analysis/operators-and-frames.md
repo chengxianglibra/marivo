@@ -906,3 +906,21 @@ complete Other mapping and selected keys. It unconditionally revokes current
 subdomain completeness, even if selected contributions happen to sum to D.
 No shared helper, legacy registration or residual grants distinct_membership,
 distribution_shapley or a second attribution executor public qualification.
+
+### R6.3 predicate and cohort implementation
+
+Bound relation predicates keep authored input order and exact field dependencies.
+A selected receiver may consume an ancestor only with retained inclusion evidence;
+extra ancestor rows are restricted before Cell checks. Other inputs require equal
+complete keys. No implicit truth conversion or short-circuit consumption exists.
+
+The Entity target cohort consumer constructs the expected complete target×grid
+key image (or one Entity opportunity without a grid), validates every predicate
+input against it, evaluates all scalar/tag leaves, and decides all targets before
+publishing the selected set. `cohort_decision` v1 retains checked int64 t/u/f
+counts and an explicit accepted flag for every target, including rejected targets,
+the complete opportunity-domain authority, quantifier and empty policy. Exchange
+validation requires the primary key image to equal exactly the accepted decision
+keys; missing or inconsistent counts fail recovery.
+The common exchange independently validates accepted decisions and total counts.
+Journey/Interval/Anchor opportunity producers remain R7 work.

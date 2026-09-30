@@ -1315,3 +1315,41 @@ Final validation:
 - `make check-agent`: **5481 passed, 5 skipped**; formatting, lint, import contracts, 409-file typing and API documentation generation passed. The five existing skip reasons remain those recorded above.
 - The first broad repair run had two execution-key snapshot failures after the new bound-state parameter changed graph fingerprints. Both expected snapshots were updated after verifying their binding assertions, and the focused and full gates passed on rerun.
 - `git diff --check`: passed. No release-check, MinIO, commit, push or publication. Existing local changes and the separate snapshot-DAG handoff remain preserved.
+
+
+## R6.3 typed predicates and full-opportunity cohorts (2026-09-30)
+
+R6.3 is complete within the public source/fixed matrix in the
+[R6 ledger](2026-09-30-marivo-full-algebra-dsl-r6-migration-ledger.md#r63-predicates-and-full-opportunity-cohorts-2026-09-30).
+Execution began on clean `panda` at
+`29686cadbd51c4efc3c373c35842b58f04449284`; this task created no commit.
+
+- **Passed / public execution**: typed multi-input where with full keys, total
+  is_defined and explicit sequential selection, closed Boolean composition,
+  SubjectBinding/members, and Entity/Entity×Time cohort any/at_least/all. Native
+  DuckDB table/Parquet and registered fixed execution cover exact int64,
+  float64, Decimal comparisons, Duration field pairs at s/ms/us/ns, Boolean and
+  temporal fields, composite Subject identities, UTC/DATE/local-grid authority.
+- **Passed / consumption and recovery**: controlled existing Unknown decisions,
+  undecidable qualification and Undefined hard rejection, complete opportunity
+  checks, all-target t/u/f and accepted evidence, fixed inclusion proof, source-
+  offline fresh-process where/cohort/members, and decision-part file/receipt/
+  version damage rejection. A dedicated Ibis truth column prevents nested
+  negation from changing Unknown counts during aggregation. L1 preserves the
+  distinction between a tag selection and a composed ordinary predicate.
+- **Passed / gates**: `make check-agent` (413-file typing; **5529 passed, 5 skipped**;
+  lint/import/API docs), the ledger's focused Runtime command (**59 passed,
+  13 deselected**, no failures or skips), `npm --prefix site run build`, and
+  `git diff --check`. The five existing default skip reasons remain those
+  recorded in R6.2; they confer no qualification.
+- **Bounded / deferred**: the three empty-opportunity policies have independent
+  closed count-rule evidence. R6's Entity and finite nonempty-grid producers do
+  not create per-Subject zero opportunities; R7 owns Journey/Interval/Anchor
+  producers and their empty opportunity images. No new Unknown producer,
+  SQLite/remote R6 method, R5 Decimal/Duration row reduction, installed wheel,
+  whole-R6 or real-Agent acceptance is claimed. R6.4–R6.7 remain unimplemented.
+
+Native Help, exports, typed contracts, docstrings and current English/Chinese
+examples are synchronized. The packaged skill's existing Help/contract routing
+remains applicable and was not edited. No AGENTS.md/skill edits, release-check,
+MinIO, push, publication or external message.

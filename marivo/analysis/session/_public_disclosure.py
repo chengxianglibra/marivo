@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from inspect import Parameter, getdoc, isfunction, signature
 
+import marivo.analysis._cohort as cohort
 from marivo.analysis import public_dsl as dsl
 from marivo.analysis._capabilities.dataset_model import (
     Descriptor,
@@ -14,11 +15,14 @@ from marivo.analysis._capabilities.dataset_model import (
     operation,
     value_type,
 )
+from marivo.analysis._subject import SubjectBinding
+from marivo.analysis.materialization import graph_fields as fields
 
 _METHOD_GROUPS = {
     ("_NumericComparison", "compare"): "methods.compare",
     ("_NumericComparison", "ratio"): "methods.compare",
     ("GroupedRatioRelation", "rollup"): "methods.metric",
+    ("_CohortDomain", "cohort"): "methods.rows",
     ("LogicalAnalysisDomain", "each"): "methods.metric",
     ("LogicalAnalysisDomain", "read"): "inputs.population",
     ("LogicalAnalysisDomain", "group_by"): "methods.metric",
@@ -92,6 +96,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
     types = (
+        SubjectBinding,
+        cohort.AnyInstance,
+        cohort.AtLeast,
+        cohort.AllInstances,
+        cohort.EmptyOpportunityPolicy,
+        cohort.empty_opportunity,
         dsl.OneToOneCorrespondence,
         dsl.PeriodChange,
         dsl.UnionKeys,
@@ -151,13 +161,19 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.RootRoute,
         dsl.RootRoutes,
     )
-    for value in types:
+    for type_value in types:
         name = (
-            value.__name__
-            if value not in (dsl.RootRoute, dsl.RootRoutes)
-            else ("RootRoute" if value is dsl.RootRoute else "RootRoutes")
+            type_value.__name__
+            if type_value not in (dsl.RootRoute, dsl.RootRoutes)
+            else ("RootRoute" if type_value is dsl.RootRoute else "RootRoutes")
         )
         policy_examples = {
+            SubjectBinding: "relation.subject_binding",
+            cohort.AnyInstance: "mv.any_instance()",
+            cohort.AtLeast: "mv.at_least(3)",
+            cohort.AllInstances: "mv.all_instances(empty=mv.empty_opportunity.false())",
+            cohort.EmptyOpportunityPolicy: "mv.empty_opportunity.false()",
+            cohort.empty_opportunity: "mv.empty_opportunity",
             dsl.ExactKeys: "mv.ExactKeys()",
             dsl.UnionKeys: 'mv.UnionKeys(missing="keep")',
             dsl.TimeChange: "mv.TimeChange()",
@@ -166,85 +182,107 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             dsl.OneToOneCorrespondence: "mv.one_to_one(left=left, right=right, via=relationship)",
         }
         acquisition = (
-            f"Call {policy_examples[value]}."
-            if value in policy_examples
+            f"Call {policy_examples[type_value]}."
+            if type_value in policy_examples
             else "Call mv.time_grid(during=scope, grain=mv.grain('day'))."
-            if value is dsl.TimeGrid
+            if type_value is dsl.TimeGrid
             else "Read grid.window."
-            if value is dsl.GridWindow
+            if type_value is dsl.GridWindow
             else "Read grid.start, grid.end or grid.before_end."
-            if value is dsl.GridEndpoint
+            if type_value is dsl.GridEndpoint
             else "Read one action from relation.contract().actions."
-            if value is dsl.AnalysisAction
+            if type_value is dsl.AnalysisAction
             else "Call relation.contract()."
-            if value is dsl.AnalysisContract
+            if type_value is dsl.AnalysisContract
             else "Call mv.count() or mv.count_defined()."
-            if value is dsl.CountMethod
+            if type_value is dsl.CountMethod
             else "Call mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean()."
-            if value is dsl.RowMethod
+            if type_value is dsl.RowMethod
             else "Call mv.route(root, through=(...))."
-            if value is dsl.RootRoute
+            if type_value is dsl.RootRoute
             else "Call mv.routes(first_route, second_route)."
-            if value is dsl.RootRoutes
+            if type_value is dsl.RootRoutes
             else "Construct through session.members() or the returned typed relation."
         )
         producers = (
-            ("dsl.time_grid",)
-            if value is dsl.TimeGrid
+            ("dsl.any_instance",)
+            if type_value is cohort.AnyInstance
+            else ("dsl.at_least",)
+            if type_value is cohort.AtLeast
+            else ("dsl.all_instances",)
+            if type_value is cohort.AllInstances
+            else ("empty_opportunity",)
+            if type_value is cohort.EmptyOpportunityPolicy
+            else ("dsl.CohortDomain.cohort",)
+            if type_value is SubjectBinding
+            else ("dsl.time_grid",)
+            if type_value is dsl.TimeGrid
             else ("TimeGrid",)
-            if value in (dsl.GridWindow, dsl.GridEndpoint)
+            if type_value in (dsl.GridWindow, dsl.GridEndpoint)
             else ("dsl.LogicalAnalysisDomain.each",)
-            if value is dsl.LogicalTimeAnalysisDomain
+            if type_value is dsl.LogicalTimeAnalysisDomain
             else ("dsl.Value.contract",)
-            if value is dsl.AnalysisContract
+            if type_value is dsl.AnalysisContract
             else ("AnalysisContract",)
-            if value is dsl.AnalysisAction
+            if type_value is dsl.AnalysisAction
             else ("dsl.count", "dsl.count_defined")
-            if value is dsl.CountMethod
+            if type_value is dsl.CountMethod
             else ("dsl.sum", "dsl.count", "dsl.count_defined", "dsl.min", "dsl.max", "dsl.mean")
-            if value is dsl.RowMethod
+            if type_value is dsl.RowMethod
             else ("dsl.route",)
-            if value is dsl.RootRoute
+            if type_value is dsl.RootRoute
             else ("dsl.routes",)
-            if value is dsl.RootRoutes
+            if type_value is dsl.RootRoutes
             else ("session.members",)
         )
         descriptors.append(
             value_type(
                 name,
-                value,
-                summary=f"First-round governed Analysis {name} value.",
+                type_value,
+                summary=f"Governed Analysis {name} value type.",
                 acquisition=acquisition,
                 producers=("session.artifact",) if name.startswith("Materialized") else producers,
                 consumers=("GridWindow", "GridEndpoint", "dsl.TimeGrid.show")
-                if value is dsl.TimeGrid
+                if type_value is dsl.TimeGrid
                 else (
                     "dsl.LogicalAnalysisDomain.read",
                     "dsl.LogicalAnalysisDomain.observe",
                     "dsl.GridEndpoint.show",
                 )
-                if value is dsl.GridEndpoint
+                if type_value is dsl.GridEndpoint
                 else ("dsl.LogicalAnalysisDomain.observe", "dsl.GridWindow.show")
-                if value is dsl.GridWindow
+                if type_value is dsl.GridWindow
                 else ("AnalysisAction",)
-                if value is dsl.AnalysisContract
+                if type_value is dsl.AnalysisContract
                 else ("dsl.routes",)
-                if value is dsl.RootRoute
+                if type_value is dsl.RootRoute
                 else ("dsl.LogicalAnalysisDomain.observe",)
-                if value is dsl.RootRoutes
+                if type_value is dsl.RootRoutes
                 else ("methods.metric",)
-                if value in (dsl.RowMethod, dsl.CountMethod)
+                if type_value in (dsl.RowMethod, dsl.CountMethod)
                 else (
-                    "dsl." + name + ".show",
+                    "dsl." + name + ".false"
+                    if type_value is cohort.empty_opportunity
+                    else "dsl." + name + ".show",
                     "dsl.NumericComparison.compare",
                     "dsl.NumericComparison.ratio",
+                    *(
+                        ("dsl.empty_opportunity.true", "dsl.empty_opportunity.undefined")
+                        if type_value is cohort.empty_opportunity
+                        else ()
+                    ),
+                    *(
+                        ("EmptyOpportunityPolicy", "empty_opportunity")
+                        if type_value is cohort.AllInstances
+                        else ()
+                    ),
                 )
-                if value in policy_examples
+                if type_value in policy_examples
                 else (),
                 constraints=("Exact member, semantic and Artifact bindings govern continuations.",),
             )
         )
-        exports.append(ExportInput(name, value, name))
+        exports.append(ExportInput(name, type_value, name))
 
     descriptors.append(
         operation(
@@ -360,8 +398,128 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
     )
     exports.append(ExportInput("one_to_one", dsl.one_to_one, "dsl.one_to_one"))
 
+    for quantifier_function, output, example in (
+        (cohort.any_instance, "AnyInstance", "mv.any_instance()"),
+        (cohort.at_least, "AtLeast", "mv.at_least(3)"),
+        (
+            cohort.all_instances,
+            "AllInstances",
+            "mv.all_instances(empty=mv.empty_opportunity.false())",
+        ),
+    ):
+        name = quantifier_function.__name__
+        descriptors.append(
+            operation(
+                "dsl." + name,
+                "mv." + name,
+                quantifier_function,
+                summary=(getdoc(quantifier_function) or name).splitlines()[0],
+                discovery_group="methods.rows",
+                parameters=tuple(
+                    ParameterInput(
+                        key,
+                        "Use a positive integer excluding bool."
+                        if key == "count"
+                        else "Use mv.empty_opportunity.true/false/undefined().",
+                    )
+                    for key in signature(quantifier_function).parameters
+                ),
+                output=output,
+                constraints=(
+                    "Requires complete opportunities and a decidable qualification for every target.",
+                ),
+                effects="Pure construction; no business read or Run.",
+                failures=("AnalysisError: inspect the structured repair.",),
+                example=ExampleInput("result = " + example, (), "result", output, True),
+            )
+        )
+        exports.append(ExportInput(name, quantifier_function, "dsl." + name))
+
+    for composite_function in (fields.all_of, fields.any_of, fields.not_):
+        name = composite_function.__name__
+        descriptors.append(
+            operation(
+                name,
+                "mv." + name,
+                composite_function,
+                summary="Compose typed relation predicates after checking every input.",
+                discovery_group="filters",
+                parameters=(
+                    ParameterInput(
+                        "predicate" if name == "not_" else "predicates",
+                        "Use exact relation.value predicates; conjunction and disjunction need at least two operands.",
+                    ),
+                ),
+                output="closed bound predicate",
+                constraints=(
+                    "Every child consumes the complete receiver domain; there is no short-circuit exemption.",
+                ),
+                effects="Pure construction; no business read or Run.",
+                failures=("AnalysisError: bind exact compatible input fields.",),
+                example=ExampleInput(
+                    "result = mv." + name + "(values.value.gt(0), values.value.lt(10))"
+                    if name != "not_"
+                    else "result = mv.not_(values.value.eq(0))",
+                    ("values",),
+                    "result",
+                    "An immutable predicate.",
+                    True,
+                ),
+            )
+        )
+        exports.append(ExportInput(name, composite_function, name))
+
+    field_types = (
+        fields.NumericField,
+        fields.CategoryField,
+        fields.BooleanField,
+        fields.TemporalField,
+    )
+    predicate_types = (
+        fields.NumericPredicate,
+        fields.CategoryPredicate,
+        fields.ScalarPredicate,
+        fields.StatePredicate,
+        fields.CompositePredicate,
+    )
+    for field_type in (*field_types, *predicate_types):
+        descriptors.append(
+            value_type(
+                "dsl." + field_type.__name__,
+                field_type,
+                summary="An exact bound predicate input.",
+                acquisition="Read relation.value or construct a typed predicate.",
+                producers=("dsl.LogicalNumericRelation.where",),
+                consumers=(
+                    "dsl.LogicalNumericRelation.where",
+                    "dsl.CohortDomain.cohort",
+                    "dsl.BoundValue.show",
+                    *(
+                        "dsl." + field_type.__name__ + "." + method
+                        for method, operation_value in vars(field_type).items()
+                        if not method.startswith("_") and isfunction(operation_value)
+                    ),
+                    *(
+                        (
+                            "dsl.NumericField",
+                            "dsl.CategoryField",
+                            "dsl.BooleanField",
+                            "dsl.TemporalField",
+                            "dsl.StatePredicate",
+                        )
+                        if field_type is fields.CompositePredicate
+                        else ()
+                    ),
+                ),
+                constraints=("Exact binding; no implicit truth or short-circuit exemption.",),
+            )
+        )
+
     owner_methods: tuple[type[object], ...] = (
+        fields._BoundValue,
+        *field_types,
         dsl._Value,
+        dsl._CohortDomain,
         dsl._CountRelation,
         dsl._NumericComparison,
         dsl._OriginalContinuation,
@@ -375,6 +533,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
     )
     for owner in owner_methods:
         for name, value in vars(owner).items():
+            if isinstance(value, staticmethod):
+                value = value.__func__
             if name.startswith("_") or not isfunction(value):
                 continue
             target = "dsl." + owner.__name__.lstrip("_") + "." + name
@@ -395,6 +555,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     if key == "design"
                     else ("ExactKeys", "UnionKeys", "OneToOneCorrespondence")
                     if key == "pairing"
+                    else ("dsl.CompositePredicate",)
+                    if key == "predicate"
+                    else ("AnyInstance", "AtLeast", "AllInstances")
+                    if key == "rule"
+                    else ("SubjectBinding",)
+                    if key == "through" and name in ("cohort", "members")
                     else ("dsl.route", "dsl.routes")
                     if key == "via"
                     else (

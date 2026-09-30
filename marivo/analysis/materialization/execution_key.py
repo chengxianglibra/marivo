@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, fields, is_dataclass
 from datetime import datetime
+from decimal import Decimal
 from typing import TypeAlias
 
 from marivo.analysis.compiler.graph_plan import GraphPlan, LocalMethodStage, SourceMethodStage
@@ -52,6 +53,7 @@ _WIRE_TAGS: dict[type[object], str] = {
     core_model.DerivedQuantity: "derived_quantity",
     core_model.RowStatisticQuantity: "row_statistic_quantity",
     core_model.RolledQuantity: "rolled_quantity",
+    core_model.CohortDecisionPart: "cohort_decision_part",
     core_model.SubjectPart: "subject_part",
     core_model.PairCountsPart: "pair_counts_part",
     core_model.EndpointPart: "endpoint_part",
@@ -120,6 +122,8 @@ def _wire(value: object) -> _CanonicalValue:
         if value.utcoffset() is None:
             raise _key_error("an aware frozen time boundary", "naive datetime")
         return ("instant", value.isoformat())
+    if isinstance(value, Decimal):
+        return ("decimal", str(value))
     if type(value) is Ref:
         return ("semantic_ref", value.kind.value, value.path)
     if type(value) is SemanticKind:

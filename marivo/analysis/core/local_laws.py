@@ -16,6 +16,7 @@ from marivo.analysis.core.model import (
     reject,
     require_part,
 )
+from marivo.analysis.core.predicates import leaves
 from marivo.analysis.core.rules import PartsTransport
 from marivo.analysis.methods.physical import ScalarType
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
@@ -62,6 +63,15 @@ def fuse_selection(node: MethodNode, *, registry: MethodRegistry = REGISTRY) -> 
     ):
         _fail("same-domain selections with identical parts and unknown policy", node.identity)
     assert isinstance(prior, PartsTransport)
+    if any(
+        leaf.operator == "is_defined"
+        for tree in (*prior.predicates, *outer.predicates)
+        for leaf in leaves(tree)
+    ):
+        _fail(
+            "ordinary predicates on a common fully Defined domain",
+            "tag selection changes the consumption domain",
+        )
     combined = method_node(
         (Edge(inner.inputs[0].role, inner.inputs[0].node),),
         replace(outer, predicates=(*prior.predicates, *outer.predicates)),

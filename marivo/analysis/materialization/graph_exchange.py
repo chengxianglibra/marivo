@@ -106,6 +106,7 @@ class ExchangeContract:
             or self.state_kind
             not in (
                 "none",
+                "cohort",
                 "original_min",
                 "original_max",
                 "original_mean",
@@ -331,7 +332,11 @@ def collect(
             for key in declared.key_fields
         ):
             raise _invalid(f"{declared.role} key types differ")
-        if _table_keys(part.table, declared.key_fields) != primary_keys:
+        part_keys = _table_keys(part.table, declared.key_fields)
+        if declared.role == "cohort_decision" and contract.state_kind == "cohort":
+            if not primary_keys <= part_keys:
+                raise _invalid("cohort decision lacks selected target keys")
+        elif part_keys != primary_keys:
             raise _invalid(f"{declared.role} complete keys differ")
     coordinate = next(
         (part for part in contract.signature.parts if isinstance(part, CoordinateStatePart)), None
@@ -418,6 +423,9 @@ def collect(
                 for row in primary.to_pylist()
             ):
                 raise _invalid("Difference state status differs from its primary Cell")
+        elif contract.state_kind == "cohort":
+            if any(value != "accepted" for value in states.values()):
+                raise _invalid("cohort state contains an unaccepted target")
         else:
             _verify_single_state_part(contract, parts, primary, states)
     if any(
@@ -430,6 +438,50 @@ def collect(
         for pending in contract.pending_checks
     ):
         raise _invalid("method result retains an uncompleted check")
+    from marivo.analysis._cohort import decide
+    from marivo.analysis.core.model import CohortDecisionPart
+
+    for signature_part in contract.signature.parts:
+        if isinstance(signature_part, CohortDecisionPart):
+            table = next(part.table for part in parts if part.role == "cohort_decision")
+            columns = (
+                "cohort_decision__true_count",
+                "cohort_decision__unknown_count",
+                "cohort_decision__false_count",
+            )
+            if any(
+                name not in table.column_names or table.schema.field(name).type != pa.int64()
+                for name in columns
+            ):
+                raise _invalid("cohort decision count schema differs")
+            expected = (
+                len(signature_part.opportunity_domain.time_grid.cells)
+                if signature_part.opportunity_domain.time_grid is not None
+                else 1
+            )
+            accepted_column = "cohort_decision__accepted"
+            if (
+                accepted_column not in table.column_names
+                or table.schema.field(accepted_column).type != pa.bool_()
+            ):
+                raise _invalid("cohort decision lacks explicit target qualification")
+            selected_keys = set()
+            for row in table.to_pylist():
+                t, u, f = (row[name] for name in columns)
+                if (
+                    any(type(value) is not int or value < 0 for value in (t, u, f))
+                    or t + u + f != expected
+                    or type(row[accepted_column]) is not bool
+                    or decide(
+                        signature_part.rule, signature_part.count, signature_part.empty, t, u, f
+                    )
+                    is not row[accepted_column]
+                ):
+                    raise _invalid("cohort decision lacks complete, decidable opportunity counts")
+                if row[accepted_column]:
+                    selected_keys.add(tuple(row[key] for key in contract.key_fields))
+            if selected_keys != primary_keys:
+                raise _invalid("cohort selected image differs from complete target decisions")
     return ExchangeResult(contract, primary, parts, completed_checks, method_state)
 
 

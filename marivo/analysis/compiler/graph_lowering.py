@@ -24,6 +24,7 @@ from marivo.analysis.compiler.graph_plan import (
 from marivo.analysis.compiler.member_version import select_version, version_predicate
 from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import (
+    CohortDecisionPart,
     Coordinate,
     CoordinateStatePart,
     CorrespondencePart,
@@ -125,6 +126,8 @@ def components(part: Part) -> tuple[str, ...]:
         return part.components
     if isinstance(part, CoordinateStatePart):
         return ("groups",)
+    if isinstance(part, CohortDecisionPart):
+        return ("true_count", "unknown_count", "false_count", "accepted")
     if isinstance(part, SubjectPart):
         return tuple(f"key_{i}" for i in range(len(part.subject_key)))
     role = part_role(part)
@@ -183,6 +186,7 @@ class LoweredRelation:
     layout: RelationLayout
     source_ids: tuple[str, ...]
     cell_reasons: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    part_expressions: tuple[tuple[str, ir.Table], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,7 +240,16 @@ class LoweredPlan:
         matches = tuple(
             item.source_ids
             for item in (*self.stages, *self.checks)
-            if (isinstance(item, LoweredRelation) and item.expression is expression)
+            if (
+                isinstance(item, LoweredRelation)
+                and (
+                    item.expression is expression
+                    or any(
+                        part_expression is expression
+                        for _, part_expression in item.part_expressions
+                    )
+                )
+            )
             or (
                 isinstance(item, (IntegrityCheck, SemanticCheck, TemporalCheck))
                 and item.violations is expression
@@ -772,58 +785,216 @@ def _transport(
     stage: SourceMethodStage,
     source: LoweredRelation,
     checks: list[LoweredCheck],
-    predicate_source: LoweredRelation | None = None,
+    predicate_sources: tuple[LoweredRelation, ...] = (),
+    part_expressions: list[tuple[str, ir.Table]] | None = None,
 ) -> tuple[ir.Table, RelationLayout]:
     params = stage.node.parameters
     assert isinstance(params, PartsTransport)
     table = source.expression
     cell = source.layout.cell
-    predicate_cell = cell
-    source_ids = source.source_ids
-    if predicate_source is not None:
-        other_cell = predicate_source.layout.cell
+    source_ids = _source_ids(source.source_ids, *(item.source_ids for item in predicate_sources))
+    cohort = params.mode == "cohort"
+    cells = [cell]
+    dependencies = predicate_sources
+    first = None
+    if cohort:
+        first = predicate_sources[0]
+        table = first.expression
+        cells.append(first.layout.cell)
+        dependencies = predicate_sources[1:]
+        keys = tuple(k.column for k in source.layout.keys)
+        grid = first.node.signature.domain.time_grid
+        expected = source.expression.select(*keys)
+        if grid is not None:
+            anchor = f"key_{len(keys)}"
+            branches = tuple(
+                expected.mutate(**{anchor: ibis.literal(item.identity)}) for item in grid.cells
+            )
+            expected = (
+                branches[0].union(*branches[1:], distinct=False)
+                if len(branches) > 1
+                else branches[0]
+            )
+        checks.append(
+            IntegrityCheck(
+                stage.output,
+                "complete opportunity keys",
+                _pair_violations(replace(first, expression=expected), first),
+                source_ids,
+            )
+        )
+    for index, other_input in enumerate(dependencies, 2 if cohort else 1):
+        other_cell = other_input.layout.cell
         if other_cell is None:
             _fail("a Cell-valued predicate dependency", "missing Cell")
-        keys = tuple(k.column for k in source.layout.keys)
-        source_ids = _source_ids(source.source_ids, predicate_source.source_ids)
+        receiver = first if cohort else source
+        assert receiver is not None
+        keys = tuple(k.column for k in receiver.layout.keys)
         checks.append(
             IntegrityCheck(
                 stage.output,
                 "equal complete predicate keys",
-                _pair_violations(source, predicate_source),
+                receiver.expression.select(*keys).anti_join(
+                    other_input.expression.select(*keys), keys
+                )
+                if index in params.inclusion_inputs
+                else _pair_violations(receiver, other_input),
                 source_ids,
             )
         )
-        other = predicate_source.expression.select(
+        names = (
+            f"__predicate_{index}_value",
+            f"__predicate_{index}_tag",
+            f"__predicate_{index}_reason",
+        )
+        other = other_input.expression.select(
             *keys,
-            __predicate_value=predicate_source.expression[other_cell.value],
-            __predicate_tag=predicate_source.expression[other_cell.tag],
-            __predicate_reason=predicate_source.expression[other_cell.reason],
+            **{
+                names[0]: other_input.expression[other_cell.value],
+                names[1]: other_input.expression[other_cell.tag],
+                names[2]: other_input.expression[other_cell.reason],
+            },
         ).view()
         left = table.view()
-        table = left.inner_join(other, keys).select(
-            *[left[name] for name in source.layout.columns],
-            other.__predicate_value,
-            other.__predicate_tag,
-            other.__predicate_reason,
+        table = (left.inner_join(other, keys) if keys else left.cross_join(other)).select(
+            *[left[name] for name in table.columns], *[other[name] for name in names]
         )
-        predicate_cell = CellColumns("__predicate_value", "__predicate_tag", "__predicate_reason")
-    if params.predicates:
-        if predicate_cell is None:
-            _fail("a bound value for selection", "domain without value")
-        for predicate in params.predicates:
-            if predicate.unknown == "reject":
-                checks.append(
-                    IntegrityCheck(
-                        stage.output,
-                        "a Defined predicate input",
-                        table.filter(table[predicate_cell.tag] != "defined"),
-                        source_ids,
-                    )
+        cells.append(CellColumns(*names))
+
+    def leaf_value(predicate: ValuePredicate) -> ir.BooleanValue:
+        selected = cells[predicate.input_index]
+        assert selected is not None
+        left = table[selected.value]
+        if predicate.operator == "is_defined":
+            return table[selected.tag] == "defined"
+        indices = (
+            (predicate.input_index,)
+            if predicate.right_index is None
+            else (predicate.input_index, predicate.right_index)
+        )
+        for index in indices:
+            columns = cells[index]
+            assert columns is not None
+            invalid = (
+                (table[columns.tag] != "defined") & (table[columns.tag] != "unknown")
+                if cohort
+                else table[columns.tag] != "defined"
+            )
+            physical = (source, *predicate_sources)[index].node.value_type
+            if physical == ScalarType("float64"):
+                invalid = invalid | table[columns.value].isnan() | table[columns.value].isinf()
+            checks.append(
+                IntegrityCheck(
+                    stage.output,
+                    "finite Defined predicate operands",
+                    table.filter(invalid),
+                    source_ids,
                 )
-        table = table.filter(
-            reduce(and_, (_predicate(table, predicate_cell, p) for p in params.predicates))
+            )
+        if predicate.right_index is None:
+            right = ibis.literal(predicate.literal)
+            right = right.cast(left.type())
+        else:
+            columns = cells[predicate.right_index]
+            assert columns is not None
+            right = table[columns.value]
+        result = (
+            left == right
+            if predicate.operator == "eq"
+            else left != right
+            if predicate.operator == "ne"
+            else left < right
+            if predicate.operator == "lt"
+            else left <= right
+            if predicate.operator == "le"
+            else left > right
+            if predicate.operator == "gt"
+            else left >= right
         )
+        if cohort:
+            unknown = reduce(
+                or_,
+                (
+                    table[column.tag] == "unknown"
+                    for i in indices
+                    for column in (cells[i],)
+                    if column is not None
+                ),
+            )
+            result = unknown.ifelse(ibis.null().cast("boolean"), result)
+        return result
+
+    def lower_tree(predicate: ValuePredicate) -> ir.BooleanValue:
+        if not predicate.children:
+            return leaf_value(predicate)
+        children = tuple(lower_tree(child) for child in predicate.children)
+        if predicate.operator == "not_":
+            return ~children[0]
+        return reduce(and_ if predicate.operator == "all_of" else or_, children)
+
+    conditions = tuple(lower_tree(tree) for tree in params.predicates)
+    if cohort:
+        keys = tuple(k.column for k in source.layout.keys)
+        table = table.mutate(__cohort_truth=reduce(and_, conditions)).view()
+        truth = table.__cohort_truth
+        counted = table.group_by(*keys).aggregate(
+            __t=truth.fill_null(False).cast("int64").sum(),
+            __u=truth.isnull().cast("int64").sum(),
+            __f=(~truth).fill_null(False).cast("int64").sum(),
+        )
+        left = source.expression.view()
+        counted = counted.view()
+        merged = left.left_join(counted, keys).select(
+            *[left[name] for name in source.expression.columns],
+            *[counted[name].fill_null(0).name(name) for name in ("__t", "__u", "__f")],
+        )
+        t, u, f = merged.__t, merged.__u, merged.__f
+        if params.cohort_rule == "any":
+            decided, accepted = (t > 0) | (u == 0), t > 0
+        elif params.cohort_rule == "at_least":
+            accepted = t >= params.cohort_count
+            decided = accepted | ((t + u) < params.cohort_count)
+        else:
+            total = t + u + f
+            decided = (f > 0) | (u == 0)
+            accepted = (f == 0) & (u == 0)
+            if params.cohort_empty == "undefined":
+                decided = decided & (total > 0)
+            elif params.cohort_empty == "false":
+                accepted = accepted & (total > 0)
+        checks.append(
+            IntegrityCheck(
+                stage.output,
+                "decidable qualification for every target Subject",
+                merged.filter(~decided),
+                source_ids,
+            )
+        )
+        complete = merged.mutate(
+            cohort_decision__true_count=t,
+            cohort_decision__unknown_count=u,
+            cohort_decision__false_count=f,
+            cohort_decision__accepted=accepted,
+        )
+        layout = canonical_layout(stage.node.signature, has_value=False)
+        assert part_expressions is not None
+        part_expressions.append(
+            (
+                "cohort_decision",
+                complete.select(
+                    *keys,
+                    *(
+                        component.column
+                        for part in layout.parts
+                        if part_role(part.part) == "cohort_decision"
+                        for component in part.columns
+                    ),
+                ),
+            )
+        )
+        return complete.filter(complete.cohort_decision__accepted).select(*layout.columns), layout
+    if conditions:
+        table = table.filter(reduce(and_, conditions))
     target = canonical_layout(
         stage.node.signature, has_value=cell is not None and params.keep_quantity
     )
@@ -2847,6 +3018,7 @@ def lower(
     checks: list[LoweredCheck] = []
     layouts: dict[str, RelationLayout] = {}
     for stage in admitted.stages:
+        part_expressions: list[tuple[str, ir.Table]] = []
         if isinstance(stage, ArtifactReadStage):
             layout = canonical_layout(
                 stage.leaf.signature, has_value=stage.leaf.signature.quantity is not None
@@ -2856,8 +3028,10 @@ def lower(
             continue
         if isinstance(stage, LocalMethodStage):
             admit(stage.implementation, stage.node.parameters)
-            if len(stage.inputs) not in (1, 2):
-                _fail("one row input or two Association inputs", repr(stage.inputs))
+            if len(stage.inputs) not in (1, 2) and not isinstance(
+                stage.node.parameters, PartsTransport
+            ):
+                _fail("registered row, Association, or predicate inputs", repr(stage.inputs))
             if len(stage.inputs) == 2 and not (
                 isinstance(
                     stage.node.parameters, (AssociationScore, AttachCategory, CompleteGroups)
@@ -2944,11 +3118,9 @@ def lower(
             params = stage.node.parameters
             source_ids = inputs[0].source_ids
             if isinstance(params, PartsTransport):
-                table, layout = _transport(
-                    stage, inputs[0], checks, inputs[1] if params.external_predicate else None
-                )
+                table, layout = _transport(stage, inputs[0], checks, inputs[1:], part_expressions)
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
-                cell_reasons = inputs[0].cell_reasons
+                cell_reasons = () if params.mode == "cohort" else inputs[0].cell_reasons
             elif isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
                 table, layout, source_ids = _observe(
                     stage, inputs[0], bindings, checks, admitted, tuple(results.values())
@@ -3005,7 +3177,9 @@ def lower(
             else:
                 _fail("a registered source lowerer", str(stage.node.method))
             node = stage.node
-        relation = LoweredRelation(stage.output, node, table, layout, source_ids, cell_reasons)
+        relation = LoweredRelation(
+            stage.output, node, table, layout, source_ids, cell_reasons, tuple(part_expressions)
+        )
         results[stage.output] = relation
         layouts[stage.output] = layout
         stages.append(relation)

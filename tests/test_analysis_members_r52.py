@@ -668,3 +668,92 @@ def test_grid_snapshot_before_end_uses_symbolic_left_period(members_session: Ses
         ]
     with pytest.raises(AnalysisError):
         product.read(field, at=grid.end, via=route).execute()
+
+
+@pytest.mark.runtime
+def test_r63_composite_subject_predicates(members_session: Session) -> None:
+    prefix = _domain(members_session)
+    targets = members_session.members(ms.ref.entity(f"{prefix}.plain"))
+    numeric = targets.read(ms.ref.measure(f"{prefix}.plain.amount"))
+    boolean = targets.read(ms.ref.dimension(f"{prefix}.plain.enabled"))
+    temporal = targets.read(ms.ref.time_dimension(f"{prefix}.plain.moment"))
+    for values, enabled, moments in (
+        (numeric, boolean, temporal),
+        (numeric.execute(), boolean.execute(), temporal.execute()),
+    ):
+        predicate = mv.all_of(
+            enabled.value.eq(True), moments.value.lte(moments.value), values.value.gt(0)
+        )
+        result = values.where(predicate).members(through=values.subject_binding).execute()
+        frame = result.to_pandas()
+        assert list(zip(frame.member, frame.coord_0, strict=True)) == [(1, "A")]
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("reordered", ["primary", "subject"])
+def test_r63_cohort_matches_subject_parts_by_complete_key(
+    members_session: Session, reordered: str
+) -> None:
+    from marivo.analysis.compiler.graph_lowering import LoweredLocal, canonical_layout
+    from marivo.analysis.compiler.graph_plan import LocalMethodStage
+    from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
+    from marivo.analysis.materialization.graph_local_execution import _cohort_stage
+    from marivo.analysis.methods.builtin import implementations
+    from marivo.analysis.methods.semantics import MethodKey
+
+    prefix = _domain(members_session)
+    members = members_session.members(ms.ref.entity(f"{prefix}.plain"))
+    category = members.read(ms.ref.dimension(f"{prefix}.plain.category"))
+    fixed_targets, fixed_values = members.execute(), category.execute()
+    target = fixed_targets._dataset.verified()
+    primary = target.primary.take([1, 0]) if reordered == "primary" else target.primary
+    parts = tuple(
+        ExchangePart(part.role, part.table.take([1, 0]))
+        if reordered == "subject" and part.role == "subject"
+        else part
+        for part in target.parts
+    )
+    supplied = from_arrow(primary, target.contract, parts=parts, method_state=target.method_state)
+    node = fixed_targets.cohort(fixed_values.value.eq("east"), rule=mv.any_instance())._node.root
+    implementation = next(
+        item
+        for item in implementations(MethodKey("domain.cohort"))
+        if item.key.route == "artifact_python"
+    )
+    method = LoweredLocal(
+        LocalMethodStage("cohort", (), node, implementation),
+        (),
+        canonical_layout(node.signature, has_value=False),
+    )
+    result = _cohort_stage(method, supplied, (fixed_values._dataset.verified(),), "controlled")
+    assert result.primary.to_pylist() == [{"key_0": 1, "key_1": "B"}]
+    subject = next(part.table for part in result.parts if part.role == "subject")
+    assert subject.to_pylist() == [
+        {"key_0": 1, "key_1": "B", "subject__key_0": 1, "subject__key_1": "B"}
+    ]
+
+
+@pytest.mark.runtime
+def test_r63_selected_where_is_disclosed_and_resolvable(members_session: Session) -> None:
+    from marivo._help.model import NativeHelpRoute
+    from marivo._help.route import route_help_target
+
+    prefix = _domain(members_session)
+    members = members_session.members(ms.ref.entity(f"{prefix}.plain"))
+    numeric = members.read(ms.ref.measure(f"{prefix}.plain.amount"))
+    for relation in (
+        numeric,
+        members.read(ms.ref.dimension(f"{prefix}.plain.category")),
+        members.read(ms.ref.dimension(f"{prefix}.plain.enabled")),
+        members.read(ms.ref.time_dimension(f"{prefix}.plain.moment")),
+    ):
+        selected = relation.where(relation.value.is_defined())
+        for current in (selected, selected.execute()):
+            action = next(
+                action
+                for action in current.contract().actions
+                if action.call == "relation.where(predicate)"
+            )
+            assert isinstance(route_help_target(action.help_target), NativeHelpRoute)
+            result = current.where(current.value.is_defined()).execute()
+            assert len(result.to_pandas()) == 2

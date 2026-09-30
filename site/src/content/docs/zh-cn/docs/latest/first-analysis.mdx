@@ -152,3 +152,43 @@ first/last/mean/min/max 状态 fold 先在每个采样时点做空间聚合，�
 也可执行。DuckDB 支持 civil date 和具有明确时区权威的微秒 timestamp；SQLite
 本阶段所需路线使用 UTC timestamp 或 civil date。不具备资格的路线明确拒绝，
 不会失败后换路。
+
+## 多输入选择与完整机会域 cohort
+
+从各 Relation 的 `value` 构造条件。全部输入必须覆盖接收者的完整域；已保留的祖先输入可限制到当前选中域。`all_of`、`any_of`、`not_` 组合真值前会检查每个子条件的消费前提。
+
+```python
+members = session.members(ms.ref.entity("sales.customer"))
+region = members.read(ms.ref.dimension("sales.customer.region"))
+revenue = members.observe(
+    ms.ref.metric("sales.revenue"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+)
+defined = revenue.where(revenue.value.is_defined())
+defined.contract().show()
+selected = defined.where(
+    mv.all_of(defined.value.gt(0), region.value.eq("east"))
+)
+```
+
+`is_defined()` 对全部 Cell 标签有定义，但与数值条件合取不能免除数值条件的前提。需要只消费 Defined 时，先筛选标签，再做数值比较。数值还必须有限、类型及单位相容。
+逻辑及固定的筛选结果通过 `.contract()` 披露后续可调用的 `where`。
+
+cohort 保留完整机会网格，包括没有贡献的格子。Count Metric 在这些格子保留 Defined 零：
+
+```python
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-07-01", end="2026-10-01"),
+    grain=mv.grain("month"),
+)
+activity = members.each(grid).observe(
+    ms.ref.metric("sales.order_count"),
+    during=grid.window,
+    via=ms.ref.relationship("sales.order_buyer"),
+)
+cohort = members.cohort(activity.value.gt(0), rule=mv.at_least(2))
+cohort.contract().show()
+```
+
+`any_instance()` 要求至少一个真机会；`at_least(k)` 的 k 是排除 bool 的正整数。`all_instances(empty=mv.empty_opportunity.false())` 必须明确选择 true、false 或 undefined 空机会政策。已存在的 Unknown 可参加三值量化，但输出精确 cohort 前全部主体资格必须可决定。Null/Undefined 普通比较和缺机会键会拒绝。固定目标及谓词 Artifact 可断源续算；来源选择出的成员可继续观察。需要显式 `through=` 时，从 `relation.subject_binding` 获取生产者拥有的映射。

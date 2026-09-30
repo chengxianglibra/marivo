@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Literal, TypeAlias
 
 from marivo._temporal import BeforeEndBoundary, TimeScope
+from marivo.analysis._cohort import AllInstances, AnyInstance, AtLeast, CohortRule
 from marivo.analysis.compiler.graph_plan import RouteChoice
 from marivo.analysis.core.graph import (
     Edge,
@@ -15,6 +16,8 @@ from marivo.analysis.core.graph import (
     Node,
     SourceLeaf,
     method_node,
+    retained_inclusion,
+    retained_nodes,
     topology,
 )
 from marivo.analysis.core.model import (
@@ -108,9 +111,10 @@ def _reject(received: str) -> DatasetConstructionError:
     )
 
 
-def _shared_root(first: Node, second: Node) -> Node:
+def _shared_root(first: Node, second: Node, known: dict[str, Node] | None = None) -> Node:
     """Share exact nodes, including a read's unbound temporal source shape."""
-    known = {node.identity: node for node in topology(first)}
+    if known is None:
+        known = {node.identity: node for node in topology(first)}
     for node in topology(second):
         prior = known.get(node.identity)
         if (
@@ -140,6 +144,44 @@ def _shared_root(first: Node, second: Node) -> Node:
             continue
         known[node.identity] = node
     return known[second.identity]
+
+
+def _retained_definition(root: MethodNode) -> MethodNode:
+    """Isolate an Artifact's metadata closure without altering any definition hash.
+
+    Source shape qualification may differ across snapshots of the same capture.
+    Receipt data edges retain their original identities; this closure is evidence only.
+    """
+    from uuid import uuid4
+
+    known: dict[str, Node] = {}
+    for original in retained_nodes(root):
+        node = original
+        if isinstance(node, MethodNode):
+            node = replace(
+                node,
+                identity=uuid4().hex,
+                inputs=tuple(Edge(edge.role, known[edge.node.identity]) for edge in node.inputs),
+                sources=tuple(
+                    source
+                    for source in (known[source.identity] for source in node.sources)
+                    if isinstance(source, SourceLeaf)
+                ),
+                retained_endpoints=tuple(
+                    endpoint
+                    for endpoint in (
+                        known[endpoint.identity] for endpoint in node.retained_endpoints
+                    )
+                    if isinstance(endpoint, MethodNode)
+                ),
+            )
+        else:
+            node = replace(node, identity=uuid4().hex)
+        # The original capture key is used only while rebuilding this isolated closure.
+        known[original.identity] = node
+    result = known[root.identity]
+    assert isinstance(result, MethodNode) and result.fingerprint == root.fingerprint
+    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,7 +348,13 @@ class Relation:
         root = method_node((self._edge(),), parameters, value_type=self.root.value_type)
         return self._with(root)
 
-    def where(self, predicate: ValuePredicate, dependency: Relation | None = None) -> Relation:
+    def where(
+        self,
+        predicate: ValuePredicate,
+        dependency: Relation | None = None,
+        *,
+        dependencies: tuple[Relation, ...] = (),
+    ) -> Relation:
         if predicate.binding != self.root.signature.domain.binding:
             raise _reject("predicate belongs to a different member realization")
         definition = self.definition.parameters
@@ -321,10 +369,19 @@ class Relation:
                 field_kind = "time_dimension"
         elif isinstance(definition, PartsTransport):
             field_kind = definition.field_kind
+        dependencies = (dependency,) if dependency is not None else dependencies
+        edges = [self._edge()]
+        known = {node.identity: node for node in topology(self.root)}
+        for item in dependencies:
+            edges.append(Edge(item._edge().role, _shared_root(self.root, item.root, known)))
+        inclusions = tuple(
+            i
+            for i, item in enumerate(dependencies, 1)
+            if retained_inclusion(self.root, item.root)
+            or retained_inclusion(self.definition, item.definition)
+        )
         root = method_node(
-            (self._edge(),)
-            if dependency is None
-            else (self._edge(), Edge("quantity", _shared_root(self.root, dependency.root))),
+            tuple(edges),
             PartsTransport(
                 "where",
                 self.root.signature.domain,
@@ -332,13 +389,60 @@ class Relation:
                 True,
                 (predicate,),
                 field_kind,
-                dependency is not None,
-                self.classification_coordinate() if field_kind == "dimension" else None,
+                external_predicate=bool(dependencies),
+                inclusion_inputs=inclusions,
+                classification=self.classification_coordinate()
+                if field_kind == "dimension"
+                else None,
+            ),
+            value_type=self.root.value_type,
+            retained_endpoints=(
+                self.definition,
+                *(_retained_definition(item.definition) for item in dependencies),
+            )
+            if isinstance(self.binding, FrozenBinding) and inclusions
+            else (),
+        )
+        result = self._with(root)
+        for item in dependencies:
+            result = result._with_sources(item)
+        return result
+
+    def cohort(
+        self, predicate: ValuePredicate, dependencies: tuple[Relation, ...], rule: CohortRule
+    ) -> Relation:
+        if not dependencies:
+            raise _reject("cohort needs a complete opportunity predicate")
+        opportunity = dependencies[0].root.signature.domain
+        known = {node.identity: node for node in topology(dependencies[0].root)}
+        target_root = _shared_root(dependencies[0].root, self.root, known)
+        edges = [Edge(self._edge().role, target_root)]
+        for item in dependencies:
+            edges.append(Edge(item._edge().role, _shared_root(target_root, item.root, known)))
+        node = method_node(
+            tuple(edges),
+            PartsTransport(
+                "cohort",
+                self.root.signature.domain,
+                ("subject",),
+                False,
+                (predicate,),
+                external_predicate=True,
+                cohort_rule="any"
+                if isinstance(rule, AnyInstance)
+                else "at_least"
+                if isinstance(rule, AtLeast)
+                else "all",
+                cohort_count=rule.count if isinstance(rule, AtLeast) else 1,
+                cohort_empty=rule.empty.decision if isinstance(rule, AllInstances) else "false",
+                opportunity_domain=opportunity,
             ),
             value_type=self.root.value_type,
         )
-        result = self._with(root)
-        return result._with_sources(dependency) if dependency is not None else result
+        result = self._with(node)
+        for item in dependencies:
+            result = result._with_sources(item)
+        return result
 
     def group_members(self, dimension: Ref[DimensionKind]) -> Relation:
         live = self._live()
