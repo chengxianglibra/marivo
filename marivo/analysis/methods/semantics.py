@@ -58,12 +58,14 @@ MethodName: TypeAlias = Literal[
     "state_rollup.weighted_mean",
     "state_rollup.linear",
     "parts_transport",
+    "domain.cohort",
     "association.spearman",
 ]
 
 
 PersistentStateKind: TypeAlias = Literal[
     "none",
+    "cohort",
     "original_min",
     "original_max",
     "original_sum",
@@ -190,7 +192,7 @@ def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
             else "state_rollup"
         )
     if type(params) is rules.PartsTransport:
-        return MethodKey("parts_transport")
+        return MethodKey("domain.cohort" if params.mode == "cohort" else "parts_transport")
     if type(params) is rules.AssociationScore:
         return MethodKey("association.spearman")
     reject("closed method parameters", repr(params), "Use an exact registered parameter variant.")
@@ -251,6 +253,7 @@ class MethodSemantics:
             "state_rollup.count": "original_count",
             "state_rollup": "original_sum",
             "parts_transport": "none",
+            "domain.cohort": "cohort",
             "map_correspond": "none",
             "cell.difference": "difference",
             "cell.relative_change": "relative_change",
@@ -379,12 +382,12 @@ class MethodSemantics:
                         "Use a Decimal type and verify precision before consumption.",
                     )
             return
+        if name == "domain.cohort":
+            if output != inputs[0]:
+                reject("the target domain physical type", repr(output), "Preserve the target type.")
+            return
         if name in ("parts_transport", "map_correspond"):
-            retained_inputs = (
-                inputs[:1]
-                if isinstance(params, rules.PartsTransport) and params.external_predicate
-                else inputs
-            )
+            retained_inputs = inputs[:1] if isinstance(params, rules.PartsTransport) else inputs
             if any(value != output for value in retained_inputs):
                 reject(
                     "unchanged value type for transport/correspondence",
@@ -557,6 +560,8 @@ class MethodSemantics:
             return "bind_project@v1"
         if name == "map_correspond":
             return "map_correspond@v1"
+        if name == "domain.cohort":
+            return "domain.cohort@v1"
         return "parts_transport@v1"
 
     @property
@@ -954,6 +959,7 @@ CONNECTED_METHODS = (
     MethodSemantics(MethodKey("row.weighted_mean"), "analysis.core.rules"),
     MethodSemantics(MethodKey("state_rollup"), "analysis.core.rules"),
     MethodSemantics(MethodKey("parts_transport"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("domain.cohort"), "analysis.core.rules"),
     MethodSemantics(MethodKey("association.spearman"), "analysis.core.rules"),
 )
 

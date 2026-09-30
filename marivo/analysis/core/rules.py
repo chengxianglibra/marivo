@@ -10,6 +10,7 @@ from marivo.analysis.core.model import (
     Binding,
     Cell,
     CheckId,
+    CohortDecisionPart,
     Coordinate,
     CoordinateStatePart,
     Correspondence,
@@ -43,7 +44,7 @@ from marivo.analysis.core.model import (
     reject,
     require_part,
 )
-from marivo.analysis.core.predicates import ValuePredicate
+from marivo.analysis.core.predicates import ValuePredicate, leaves
 from marivo.analysis.core.time_grid import CumulativeBinding, GridVersionSelection
 from marivo.refs import (
     DimensionKind,
@@ -84,6 +85,7 @@ RuleId: TypeAlias = Literal[
     "original_reduce@v1",
     "occurrence_combine@v1",
     "parts_transport@v1",
+    "domain.cohort@v1",
     "association_score@v1",
 ]
 
@@ -323,7 +325,9 @@ class OriginalReduce:
     time_mapping: tuple[tuple[str, str], ...] = ()
 
 
-TransportMode: TypeAlias = Literal["where", "projection", "compare", "view", "materialize"]
+TransportMode: TypeAlias = Literal[
+    "where", "projection", "compare", "view", "materialize", "cohort"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,7 +339,12 @@ class PartsTransport:
     predicates: tuple[ValuePredicate, ...] = ()
     field_kind: Literal["measure", "dimension", "time_dimension"] | None = None
     external_predicate: bool = False
+    inclusion_inputs: tuple[int, ...] = ()
     classification: Coordinate | None = None
+    cohort_rule: Literal["any", "at_least", "all"] | None = None
+    cohort_count: int = 1
+    cohort_empty: Literal["true", "false", "undefined"] = "false"
+    opportunity_domain: DomainSignature | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -2184,7 +2193,74 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
 
 
 def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> RuleDerivation:
-    if len(inputs) != (2 if params.external_predicate else 1):
+    if params.mode == "cohort":
+        if len(inputs) < 2 or params.opportunity_domain is None or params.cohort_rule is None:
+            reject(
+                "complete target and opportunity inputs",
+                repr(params),
+                "Bind a full Entity opportunity predicate.",
+                "analysis.cohort",
+            )
+        target, opportunity = inputs[0], params.opportunity_domain
+        if (
+            params.keep_quantity
+            or params.output_domain != target.domain
+            or params.retained_roles != ("subject",)
+            or not params.predicates
+            or any(
+                leaf.input_index == 0 or leaf.right_index == 0
+                for tree in params.predicates
+                for leaf in leaves(tree)
+            )
+        ):
+            reject(
+                "a complete opportunity predicate and Subject output",
+                repr(params),
+                "Use the original targets and explicit opportunity inputs.",
+                "analysis.cohort",
+            )
+        subject = require_part(target, "subject")
+        if (
+            not isinstance(subject, SubjectPart)
+            or not subject.total
+            or target.domain.instance_key != subject.subject_key
+            or target.domain.time_grid is not None
+        ):
+            reject(
+                "an Entity target with its complete Subject key",
+                repr(target.domain),
+                "Use the original Entity target for cohort.",
+                "analysis.cohort",
+            )
+        if (
+            any(item.domain != opportunity for item in inputs[1:])
+            or tuple(k for k in opportunity.instance_key if k.role != "anchor")
+            != target.domain.instance_key
+        ):
+            reject(
+                "complete Entity or Entity/time opportunities for this target",
+                repr(opportunity),
+                "Bind all predicate inputs over one complete opportunity domain.",
+                "analysis.cohort",
+            )
+        binding = _binding(inputs, "core.cohort")
+        part = CohortDecisionPart(
+            binding, opportunity, params.cohort_rule, params.cohort_count, params.cohort_empty
+        )
+        return _result(
+            "domain.cohort@v1",
+            inputs,
+            target.domain,
+            None,
+            (subject, part),
+            pre=(),
+            required=("subject",),
+            created=("cohort_decision",),
+            post=(_fact("output_key", binding, target.domain.definition_id),),
+            obligations=(),
+            eval_id="domain.cohort@v1",
+        )
+    if not inputs:
         reject(
             "the exact receiver and optional predicate input",
             str(len(inputs)),
@@ -2194,7 +2270,7 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
     if params.external_predicate and (
         params.mode != "where"
         or not params.predicates
-        or inputs[0].domain.instance_key != inputs[1].domain.instance_key
+        or any(inputs[0].domain.instance_key != item.domain.instance_key for item in inputs[1:])
     ):
         reject(
             "a predicate on corresponding complete keys",

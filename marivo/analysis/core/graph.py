@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import date, datetime
+from dataclasses import dataclass, field, replace
 from hashlib import sha256
 from typing import Literal, TypeAlias
 from uuid import uuid4
@@ -12,6 +11,7 @@ from marivo.analysis.core.model import Signature, reject
 from marivo.analysis.core.rules import (
     BindProject,
     CellDerive,
+    MapCorrespond,
     ObserveCount,
     ObserveMetric,
     ObserveWeightedMean,
@@ -20,8 +20,9 @@ from marivo.analysis.core.rules import (
     RowState,
     RuleDerivation,
     RuleParameters,
+    TimeProduct,
 )
-from marivo.analysis.methods.physical import FixedShape, ScalarType, SourceShape, ValueType
+from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType, SourceShape, ValueType
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 from marivo.analysis.methods.semantics import MethodKey, key_for_parameters
 from marivo.analysis.refs import ArtifactRef
@@ -212,10 +213,100 @@ Node: TypeAlias = SourceLeaf | FixedLeaf | MethodNode
 
 
 def _value_type(value: ValueType) -> None:
-    from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
+    from marivo.analysis.methods.physical import DecimalType, DurationType
 
     if type(value) not in (ScalarType, DecimalType, DurationType):
         _fail("a precise physical value type", repr(value))
+
+
+def retained_nodes(root: Node) -> tuple[Node, ...]:
+    """Traverse definition evidence as well as data edges, without source admission."""
+    ordered: list[Node] = []
+    seen: set[int] = set()
+
+    def visit(node: Node) -> None:
+        if id(node) in seen:
+            return
+        seen.add(id(node))
+        if isinstance(node, MethodNode):
+            for child in (
+                *tuple(edge.node for edge in node.inputs),
+                *node.sources,
+                *node.retained_endpoints,
+            ):
+                visit(child)
+        ordered.append(node)
+
+    visit(root)
+    return tuple(ordered)
+
+
+def retained_inclusion(receiver: Node, dependency: Node) -> bool:
+    """Prove an ancestor or total field/observation map on a retained ancestor."""
+    topology(receiver)
+    nodes = retained_nodes(receiver)
+
+    def captured(candidate: Node) -> bool:
+        return any(
+            node.identity == candidate.identity
+            or (
+                isinstance(node, FixedLeaf)
+                and isinstance(candidate, FixedLeaf)
+                and node.artifact == candidate.artifact
+            )
+            for node in nodes
+        )
+
+    def captured_domain(candidate: Node) -> bool:
+        if captured(candidate):
+            return True
+        if isinstance(candidate, SourceLeaf):
+            return any(
+                isinstance(node, SourceLeaf)
+                and node.signature.domain == candidate.signature.domain
+                and node.definition.ref == candidate.definition.ref
+                and node.definition.datasource == candidate.definition.datasource
+                and node.definition.fingerprint == candidate.definition.fingerprint
+                and replace(node.definition.shape, time=NoTime())
+                == replace(candidate.definition.shape, time=NoTime())
+                for node in nodes
+            )
+        if isinstance(candidate, MethodNode) and isinstance(candidate.parameters, TimeProduct):
+            return any(
+                isinstance(node, MethodNode)
+                and node.parameters == candidate.parameters
+                and node.signature.domain == candidate.signature.domain
+                for node in nodes
+            ) and captured_domain(candidate.inputs[0].node)
+        return (
+            isinstance(candidate, MethodNode)
+            and (
+                (
+                    isinstance(candidate.parameters, MapCorrespond)
+                    and candidate.parameters.mode == "subjects"
+                )
+                or (
+                    isinstance(candidate.parameters, PartsTransport)
+                    and candidate.parameters.mode == "view"
+                    and not candidate.parameters.predicates
+                )
+            )
+            and len(candidate.inputs) == 1
+            and candidate.signature.domain.instance_key
+            == candidate.inputs[0].node.signature.domain.instance_key
+            and captured_domain(candidate.inputs[0].node)
+        )
+
+    if captured(dependency):
+        return True
+    if isinstance(dependency, MethodNode) and isinstance(
+        dependency.parameters, (BindProject, ObserveMetric, ObserveCount, ObserveWeightedMean)
+    ):
+        domain = dependency.inputs[0].node.signature.domain
+        return domain.instance_key == dependency.signature.domain.instance_key and captured_domain(
+            dependency.inputs[0].node
+        )
+    return False
 
 
 def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
@@ -228,38 +319,42 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
     ):
         _fail("ordered immutable data dependencies", node.identity)
     if isinstance(node.parameters, PartsTransport):
-        physical = node.inputs[1 if node.parameters.external_predicate else 0].node.value_type
-        for predicate in node.parameters.predicates:
-            value = predicate.literal
-            if not isinstance(physical, ScalarType) or not (
-                (physical.name == "string" and type(value) is str and predicate.operator == "eq")
-                or (physical.name == "int64" and type(value) is int)
-                or (physical.name == "boolean" and type(value) is bool)
-                or (physical.name == "date" and type(value) is date)
-                or (physical.name == "timestamp" and type(value) is datetime)
-                or (
-                    physical.name == "float64"
-                    and (
-                        type(value) is float or (type(value) is int and -(2**53) <= value <= 2**53)
-                    )
+        from marivo.analysis.core.predicates import leaves
+        from marivo.analysis.methods.predicates import validate_operand
+
+        for tree in node.parameters.predicates:
+            for predicate in leaves(tree):
+                if predicate.binding != node.inputs[0].node.signature.domain.binding:
+                    _fail("predicate binding in the receiver scope", repr(predicate.binding))
+                if not 0 <= predicate.input_index < len(node.inputs) or (
+                    predicate.right_index is not None
+                    and not 0 <= predicate.right_index < len(node.inputs)
+                ):
+                    _fail("predicate references within ordered inputs", repr(predicate))
+                left = node.inputs[predicate.input_index].node
+                right = (
+                    None
+                    if predicate.right_index is None
+                    else node.inputs[predicate.right_index].node
                 )
-            ):
-                predicate_expected = (
-                    physical.name if isinstance(physical, ScalarType) else "precise scalar"
+                validate_operand(
+                    predicate, left.value_type, None if right is None else right.value_type
                 )
-                repair = (
-                    "Use a date literal for this civil-date value."
-                    if predicate_expected == "date"
-                    else "Use an aware datetime literal for this timestamp value."
-                    if predicate_expected == "timestamp"
-                    else f"Use a lossless {predicate_expected} literal for this relation.value predicate."
-                )
-                reject(
-                    f"a lossless {predicate_expected} predicate literal",
-                    f"{predicate.operator} {value!r} ({type(value).__name__})",
-                    repair,
-                    "analysis.graph.predicate",
-                )
+                if right is not None:
+                    lq, rq = left.signature.quantity, right.signature.quantity
+                    if (None if lq is None else lq.unit) != (None if rq is None else rq.unit):
+                        _fail("compatible predicate units", repr((lq, rq)))
+        for index in node.parameters.inclusion_inputs:
+            if type(index) is not int or not 1 <= index < len(node.inputs):
+                _fail("a valid retained inclusion input", repr(index))
+            input_node = node.inputs[index].node
+            if isinstance(input_node, FixedLeaf) and node.retained_endpoints:
+                input_node = node.retained_endpoints[index]
+            receiver = (
+                node.retained_endpoints[0] if node.retained_endpoints else node.inputs[0].node
+            )
+            if not retained_inclusion(receiver, input_node):
+                _fail("a retained ancestor inclusion", input_node.identity)
     if node.method != key_for_parameters(node.parameters):
         _fail("the parameter variant's exact method version", str(node.method))
     roles = tuple(e.role for e in node.inputs)

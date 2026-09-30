@@ -355,7 +355,18 @@ def test_registered_source_count_preserves_cells_and_component_state(source_case
 def test_selection_and_l1_use_independent_original_rows(source_case):
     leaf = _leaf(source_case[1])
     binding = _bind(source_case, leaf)
-    inner = _selection(leaf, threshold=4)
+    defined = method_node(
+        (Edge("quantity", leaf),),
+        PartsTransport(
+            "where",
+            leaf.signature.domain,
+            (),
+            True,
+            (ValuePredicate(leaf.signature.domain.binding, "is_defined", 0),),
+        ),
+        value_type=leaf.value_type,
+    )
+    inner = _selection(defined, threshold=4)
     outer = _selection(inner, threshold=6)
     fused = fuse_selection(outer)
     assert fused.identity != outer.identity
@@ -404,7 +415,18 @@ def test_direct_field_binding_filters_actual_subjects(source_case):
         sources=(leaf,),
         value_type=ScalarType("int64"),
     )
-    selected = _selection(root, threshold=6)
+    defined = method_node(
+        (Edge("quantity" if root.signature.quantity else "subject", root),),
+        PartsTransport(
+            "where",
+            root.signature.domain,
+            (),
+            True,
+            (ValuePredicate(root.signature.domain.binding, "is_defined", 0),),
+        ),
+        value_type=root.value_type,
+    )
+    selected = _selection(defined, threshold=6)
     lowered = lower(_plan(selected), bindings=(binding,))
     for check in lowered.checks:
         assert _read(source_case[0], lowered, (binding,), check.violations) == []
@@ -1240,3 +1262,20 @@ def test_r43_explicit_shared_source_stage_is_physically_reused(source_case):
     ) == len(lowered.stages)
     physical = "facts" if source_case[1] == "table" else "ibis_read_parquet_"
     assert sum(physical in submission.sql for submission in source_case[0].submissions) == 2
+
+
+def test_l1_cannot_fuse_tag_selection_with_numeric_consumption(source_case):
+    leaf = _leaf(source_case[1])
+    defined = method_node(
+        (Edge("quantity", leaf),),
+        PartsTransport(
+            "where",
+            leaf.signature.domain,
+            (),
+            True,
+            (ValuePredicate(leaf.signature.domain.binding, "is_defined", 0),),
+        ),
+        value_type=leaf.value_type,
+    )
+    with pytest.raises(CoreRuleError, match="consumption domain"):
+        fuse_selection(_selection(defined, unknown="reject"))

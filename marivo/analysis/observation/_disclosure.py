@@ -262,9 +262,6 @@ def provider(
         "is_in",
         "is_null",
         "is_not_null",
-        "all_of",
-        "any_of",
-        "not_",
     ):
         field = P(
             "field",
@@ -309,7 +306,9 @@ def provider(
                 summary="Construct a closed typed predicate; binding to rows occurs in where().",
                 discovery_group="filters",
                 parameters=parameters,
-                output="AnalysisPredicate",
+                output="closed bound predicate"
+                if name in ("all_of", "any_of", "not_")
+                else "AnalysisPredicate",
                 constraints=(
                     "No Python truth testing, arbitrary expression, or raw Entity identity literal.",
                 ),
@@ -317,8 +316,8 @@ def provider(
                 failures=CONSTRUCTION_FAILURES,
                 example=ExampleInput(
                     "result = " + call,
-                    (name, "eq", "gt", "region", "revenue")
-                    if name in ("all_of", "any_of")
+                    ("mv", "values")
+                    if name in ("all_of", "any_of", "not_")
                     else ("not_", "eq", "region")
                     if name == "not_"
                     else (name, "region")

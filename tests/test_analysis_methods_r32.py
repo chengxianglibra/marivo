@@ -150,6 +150,7 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "state_rollup.mean@v1": "original_reduce@v1",
         "state_rollup.linear@v1": "original_reduce@v1",
         "parts_transport@v1": "parts_transport@v1",
+        "domain.cohort@v1": "domain.cohort@v1",
         "association.spearman@v1": "association_score@v1",
     }
     assert {
@@ -190,6 +191,7 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "state_rollup.linear",
         "bind_project",
         "parts_transport",
+        "domain.cohort",
         "map_correspond",
         "cell.difference",
         "row.count",

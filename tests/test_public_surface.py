@@ -139,6 +139,15 @@ SEMANTIC_PUBLIC = {
 }
 
 ANALYSIS_PUBLIC = {
+    "SubjectBinding",
+    "AnyInstance",
+    "AtLeast",
+    "AllInstances",
+    "EmptyOpportunityPolicy",
+    "empty_opportunity",
+    "any_instance",
+    "at_least",
+    "all_instances",
     "GroupedRatioRelation",
     "GroupedStatisticRelation",
     "LogicalFixedAnalysisDomain",
@@ -308,7 +317,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "3ce9193eefea1fabf9fdcec4dc04e27b4c8b454795c6836301b4bad9ba88774c"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "2b658a7a1b6fa076188715bc9ca97d708a0e54ed6c7d1d65950a76c109c041e1"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

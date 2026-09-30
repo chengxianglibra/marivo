@@ -817,3 +817,31 @@ nonfinite or negative bounds reject exchange/recovery. Fixed comparison indexes
 all retained operand components once by complete typed keys before pairing.
 PeriodChange normalizes replaceable anchor coordinates in original-reduction
 and row-statistic templates while keeping actual complete bucket maps intact.
+
+### R6.3 transport and cohort state
+
+Predicate trees store exact ordered input positions and authored composition;
+execution keys include the full tree and every input occurrence. Retained
+ancestor inclusion is checked against executable or frozen receiver definitions.
+Decimal predicate literals use an explicit `decimal` kind and exact text in
+frozen metadata; numeric-looking string literals stay strings. Decoding preserves
+the literal type and Decimal scale before validating a frozen graph.
+`domain.cohort@v1` uses the shared graph lowering/local execution and Store 7
+publication protocol. Its state kind is `cohort`, state contract version 1,
+with `subject` and `cohort_decision` parts. The latter retains every target's
+counts and accepted flag, so its complete key image may be larger than the
+selected primary image; all other parts keep their own existing image checks.
+The primary image must equal the accepted decision keys. Counts, complete grid
+authority, quantifier and empty policy survive source-free recovery; wrong schema, counts,
+version or missing parts reject before continuation. Unknown is a consumer state,
+not a newly qualified public producer.
+Primary and Subject part row orders are independent. Cohort restricts the
+Subject part by the accepted complete keys, never by primary row positions.
+
+Fixed predicate inclusion retains independently captured, non-executable producer
+definitions, checked against their original definition fingerprints. Their source
+shape qualification cannot overwrite another Artifact's metadata closure. Actual
+Artifact data edges keep their own capture identity and receipt binding. The
+inclusion proof uses the exact retained Entity realization, semantic source,
+complete key and total projection; execution still verifies key containment.
+No evidence definition adds a source stage to fixed admission.

@@ -200,6 +200,7 @@ with ExitStack() as stack:
     for owner, name, kind in guards:
         stack.enter_context(patch.object(owner, name, reject(kind)))
     os.environ['MARIVO_TELEMETRY'] = 'on'
+    from marivo.analysis.observation.predicates import all_of, any_of, not_
     active = True
     try:
         sources = sources_for(base)

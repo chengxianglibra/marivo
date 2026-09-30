@@ -180,6 +180,7 @@ def _result(
     table: pa.Table,
     completed: tuple[CompletedCheck, ...],
     pending: tuple[CheckRequirement, ...],
+    retained_parts: tuple[ExchangePart, ...] = (),
 ) -> ExchangeResult:
     if not isinstance(stage.node, MethodNode):
         raise _invalid("root must be a registered method node")
@@ -225,7 +226,9 @@ def _result(
     for part in stage.layout.parts:
         role = part_role(part.part)
         names = (*key_names, *(component.column for component in part.columns))
-        selected = table.select(names)
+        selected = next(
+            (item.table for item in retained_parts if item.role == role), table.select(names)
+        )
         part_contracts.append(PartContract(role, selected.schema, key_names))
         parts.append(ExchangePart(role, selected))
     source_ids = ",".join(stage.source_ids)
@@ -235,7 +238,11 @@ def _result(
     state = None
     if state_kind != "none":
         statuses = (
-            primary.column("status") if state_kind == "spearman" else primary.column("cell_tag")
+            pa.array(["accepted"] * len(primary), type=pa.string())
+            if state_kind == "cohort"
+            else primary.column("status")
+            if state_kind == "spearman"
+            else primary.column("cell_tag")
         )
         state = pa.Table.from_arrays(
             [*(primary.column(name) for name in key_names), statuses],
@@ -452,11 +459,25 @@ def execute_source_graph(
         if final_local is not None and final_local.output == lowered.primary_output:
             primary = final_local
         assert primary is not None
+        retained_parts = tuple(
+            ExchangePart(
+                role,
+                _read(
+                    source,
+                    lowered,
+                    expression,
+                    purpose="analysis.graph.part",
+                    replacements=replacements,
+                ),
+            )
+            for role, expression in primary.part_expressions
+        )
         return _result(
             primary,
             tables[primary.output],
             _ordered_checks(completed, lowered.admitted.checks),
             lowered.admitted.checks,
+            retained_parts,
         )
     finally:
         source.release_staged(owned)

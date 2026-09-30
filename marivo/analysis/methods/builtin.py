@@ -66,6 +66,26 @@ NUMERIC_CHECKS: tuple[CheckId, ...] = (
 
 
 def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
+    if method.name == "domain.cohort":
+        return tuple(
+            replace(
+                item,
+                key=replace(item.key, method=method),
+                parts=("subject", "cohort_decision"),
+                contract_version=1,
+                qualification=Qualified(
+                    f"r63.{item.key.route}.domain.cohort.{item.key.shape}@v1",
+                    "analysis.compiler.graph_lowering"
+                    if item.key.route == "ibis"
+                    else "analysis.materialization.graph_local_execution",
+                    "tests/test_analysis_cohort_r63.py",
+                ),
+            )
+            for item in _shape_implementations(MethodKey("parts_transport"))
+            if item.key.input_types == (ScalarType("int64"),)
+            and item.key.input_domains == ("entity",)
+            and (isinstance(item.key.shape, FixedShape) or item.key.shape.backend == "duckdb")
+        )
     declarations = _implementations(method)
     if method.name not in (
         "parts_transport",
@@ -802,7 +822,19 @@ def specialize_arity(implementation: Implementation, arity: int) -> Implementati
 
 
 def specialize_numeric(implementation: Implementation, key: QualificationKey) -> Implementation:
-    """Bind homogeneous precise numeric types to explicitly shared consumers."""
+    """Bind precise numeric families and closed typed predicate inputs."""
+    if (
+        key.method.name in ("parts_transport", "domain.cohort")
+        and implementation.key.input_types == (ScalarType("int64"),)
+        and key.input_domains == (implementation.key.input_domains[0],) * len(key.input_types)
+        and 1 <= len(key.input_types) <= 64
+    ):
+        return replace(
+            implementation,
+            key=replace(
+                implementation.key, input_types=key.input_types, input_domains=key.input_domains
+            ),
+        )
     allowed = (
         "cell.difference",
         "cell.relative_change",
@@ -993,7 +1025,7 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
                 "Bind the ordered comparable endpoints and registered checks.",
             )
     elif isinstance(params, PartsTransport):
-        if params.mode not in ("where", "projection", "view") or (
+        if params.mode not in ("where", "projection", "view", "cohort") or (
             params.mode == "where" and not params.predicates
         ):
             reject(

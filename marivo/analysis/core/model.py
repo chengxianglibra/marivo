@@ -502,8 +502,19 @@ class PairCountsPart:
     version: str
 
 
+@dataclass(frozen=True, slots=True)
+class CohortDecisionPart:
+    binding: Binding
+    opportunity_domain: DomainSignature
+    rule: Literal["any", "at_least", "all"]
+    count: int
+    empty: Literal["true", "false", "undefined"]
+    version: str = "v1"
+
+
 Part: TypeAlias = (
     SubjectPart
+    | CohortDecisionPart
     | EndpointPart
     | CorrespondencePart
     | OriginalStatePart
@@ -526,10 +537,13 @@ PartRole: TypeAlias = Literal[
     "fixed_reference",
     "statistical_weight",
     "pair_counts",
+    "cohort_decision",
 ]
 
 
 def part_role(part: Part) -> PartRole:
+    if isinstance(part, CohortDecisionPart):
+        return "cohort_decision"
     if isinstance(part, CorrespondencePart):
         return "correspondence"
     if isinstance(part, SubjectPart):
@@ -552,6 +566,21 @@ def part_role(part: Part) -> PartRole:
 
 
 def validate_part(part: Part) -> None:
+    if isinstance(part, CohortDecisionPart):
+        if (
+            part.rule not in ("any", "at_least", "all")
+            or type(part.count) is not int
+            or part.count < 1
+            or part.empty not in ("true", "false", "undefined")
+            or part.version != "v1"
+        ):
+            reject(
+                "a closed cohort decision contract",
+                repr(part),
+                "Rebuild the quantifier and complete opportunity domain.",
+                "analysis.cohort",
+            )
+        return
     if isinstance(part, CorrespondencePart):
         if (
             part.version not in ("v1", "v2")

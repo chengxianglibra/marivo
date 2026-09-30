@@ -109,7 +109,12 @@ def read_result(root: Path, descriptor: Descriptor) -> ExchangeResult:
     if state.kind != "none":
         column = "status" if state.kind == "spearman" else "cell_tag"
         statuses = pa.Table.from_arrays(
-            [*(primary.column(key) for key in keys), primary.column(column)],
+            [
+                *(primary.column(key) for key in keys),
+                pa.array(["accepted"] * len(primary), type=pa.string())
+                if descriptor.method_state.kind == "cohort"
+                else primary.column(column),
+            ],
             names=[*keys, "status"],
         )
     contract = ExchangeContract(

@@ -1,7 +1,7 @@
 # R6.1 contract freeze and consumer migration ledger
 
 Date: 2026-09-30. Status: R6.1 contract/static inventory complete; R6.2 public comparison implementation is connected, with final validation recorded below;
-R6.3–R6.7 remain unimplemented. This ledger indexes the
+R6.3 is connected through the bounded qualifications recorded below; R6.4–R6.7 remain unimplemented. This ledger indexes the
 [R6 implementation plan](2026-09-30-marivo-full-algebra-dsl-r6-implementation-plan.md)
 and sole contract owners; it is not another method registry or executable API.
 
@@ -359,3 +359,121 @@ After the exact canonical-record equality guard, 5 affected Runtime journeys pas
 again. These overlapping runs are not summed into a unique-case count. Earlier
 fixture/golden-hash repairs and concurrency-related timeouts are distinguished in
 the evidence record; timeout thresholds were not changed.
+
+
+## R6.3 predicates and full-opportunity cohorts (2026-09-30)
+
+Execution baseline: branch `panda`, clean HEAD
+`29686cadbd51c4efc3c373c35842b58f04449284`. The earlier R6.2 and snapshot-DAG
+changes were already committed at entry. This work adds predicate transport,
+Subject mapping consumption and `domain.cohort@v1` to the existing graph/Runtime/
+Store 7, without a parallel executor. Implementation and validation below are
+checkout evidence, not installed-wheel or whole-R6 acceptance.
+
+### Connected contracts and migration
+
+- Bound numeric/category/Boolean/temporal/state predicates and authored composites
+  retain every input edge. Numeric literals exclude bool; exact Decimal scale,
+  Duration field units, scalar kind, temporal authority and quantity units are
+  checked. Every ordinary leaf is consumed before composition. Sequential tag
+  selection is intentionally different from an is_defined/comparison conjunction;
+  L1 refuses to fuse that domain change.
+- Input full-key images must match, or a retained ancestor/total projection proves
+  restriction to the receiver. Missing consumed keys still fail. Fixed producer
+  evidence closures preserve their original definition hashes independently of
+  their source shape qualifications; they are metadata, never fixed source stages.
+- `SubjectBinding` is producer-owned. Entity and Entity/time mappings are implicit;
+  explicit `through` must match the retained mapping. Members project complete
+  Subject identities without rereading or changing instance multiplicity.
+- A complete Entity target times the retained finite grid defines opportunities,
+  or there is one opportunity per Entity without a grid. Contribution-free cells
+  remain opportunities. `cohort_decision` v1 stores each target's int64 t/u/f and
+  accepted flag, including false targets. The primary must equal exactly the true
+  decision keys. All targets must be decidable before exact publication.
+- Public `all_of`/`any_of`/`not_` now have one bound-relation grammar and Help owner.
+  Internal observation predicate functions still serve explicitly blocked R7/R8
+  chains; the source-construction test imports those private functions explicitly,
+  without claiming a second public grammar. R6.7 retains the final deletion gate.
+  Native Help routes, budgets, export snapshots, typing rejection tests, API
+  docstrings and current English/Chinese site examples are synchronized. The
+  packaged analysis skill already delegates signatures to Help and continuations
+  to contracts; it required no change and was not edited.
+
+### Bounded qualification evidence
+
+| Scope | Evidence and boundary |
+| --- | --- |
+| V04 strict multi-input where | `tests/test_analysis_predicates_r63.py`: DuckDB table/Parquet source and artifact_python fixed; numeric/category composition, cross-relation numeric field pairs and self field comparison, exact int64/float64/Decimal, native Duration us and Parquet s/ms/ns, first-tag versus conjunction/disjunction hard failure, fixed ancestor and sibling projection, cross-Session/mixed rejection before execution |
+| Boolean, temporal, composite Subject keys | `tests/test_analysis_members_r52.py::test_r63_composite_subject_predicates`: table/Parquet source and fixed, full `(tenant,id)` identities and numeric/Boolean/timestamp field composition |
+| V05 full opportunities | `tests/test_analysis_cohort_r63.py::test_full_entity_time_cohort`: table/Parquet, UTC timestamp, civil DATE and explicit America/New_York grid authority, full target×month image and independently counted activity; filtering opportunities before cohort rejects |
+| Quantifiers and Unknown | Public NoTime any/at_least/all, nested negation and all-target decisions; controlled existing-Cell Ibis/local consumption exercises three true plus Unknown, decided false, two true/one false/one Unknown rejection, Undefined hard failure, false AND Unknown and true OR Unknown without hiding hard failure |
+| Empty opportunities | All three closed policies and any/at_least empty rules have independent count-rule tests. R6 Entity/finite nonempty-grid producers do not manufacture per-Subject zero opportunities; Journey/Interval/Anchor producers and their empty opportunity images remain R7. Empty contributions are covered publicly as existing opportunities with zero count. No new Unknown producer is claimed. |
+| V10/V11 and K | New processes restore fixed selection and cohort after the database is renamed offline; both DuckDB connection and Semantic load are forbidden. They actually repeat where/cohort and members continuations. Cohort counts/selected keys are cross-validated; missing/corrupt decision files and foreign receipt/state version revoke contract/recovery. Shared v7 schema, receipt and publication checks remain active. |
+
+Source predicate and quantifier expressions use issued Ibis reads. A dedicated
+truth column precedes count aggregation, preserving nested Boolean truth and
+null detection through backend compilation. Fixed inputs use the registered
+artifact_python consumer of the same rule. The method implementation contract
+for cohort is 1; transported numerical state keeps the existing contract 4.
+This grants no R5 Decimal/Duration row reduction, SQLite/remote R6 method,
+installed-wheel, real-Agent or release qualification.
+
+### Validation
+
+Final gates on the implementation above all exited 0:
+
+- `make check-agent`: formatting/lint/import contracts, typing of **413** source
+  files, **5529 passed / 5 skipped**, and API documentation generation. Four
+  existing SQLite fixtures lack Decimal storage declarations; the existing
+  metadata-owner case delegates a channel failure to dispatcher fallback. Those
+  five skips are not Runtime or backend qualification.
+- `make runtime-test TESTS='tests/test_analysis_predicates_r63.py tests/test_analysis_cohort_r63.py tests/test_analysis_members_r52.py tests/test_analysis_temporal_r55.py::test_public_grid_observation_and_retained_axis tests/test_analysis_comparison_runtime_r62.py::test_composite_keys_double_empty_and_wrong_key_images tests/test_analysis_comparison_runtime_r62.py::test_ordinary_ratio_over_untimed_numeric_read'`:
+  **59 passed / 13 deselected**, no skips or failures; deselected cases are the
+  ordinary tests excluded by the Runtime marker, covered by the broad gate.
+- The final added cross-relation numeric field-pair assertions passed with
+  `make runtime-test TESTS='tests/test_analysis_predicates_r63.py::test_public_multi_input_source_and_fixed'`
+  (**2 passed**, table/Parquet source and fixed). This is supplemental to the
+  59-case gate, with no product-code change after that gate.
+- `npm --prefix site run build`: API prebuild, Astro check/build and install-script
+  verification passed. The checked-in bilingual R6.3 examples are included.
+- `git diff --check`: passed.
+
+Earlier failed iterations exposed export/Help/type/import drift, strict-consumption legacy test
+expectations, the fixed multi-input lowering arity, nested-negation null counting,
+and retained inclusion evidence; each was repaired with a focused regression.
+No failures are counted as passed. Default-test skips remain separate from
+Runtime acceptance. R6.4–R6.7, R9 and R10 remain outside this task. No commit,
+push, publication, release-check, MinIO, AGENTS.md or packaged skill edit.
+
+### R6.3 review repairs
+
+The three confirmed uncommitted-diff findings are repaired within R6.3:
+
+- Decimal literals have an explicit tagged wire value, preserving their type,
+  scale and signed zero without reinterpreting numeric-looking category strings.
+  Independent codec tests cover exact scalar/temporal types and malformed tagged
+  values. Table/Parquet source and fixed category selections persist, restore and
+  continue; existing precise numeric tests also repeat restored Decimal selection.
+- Fixed cohort selects its independently ordered Subject part by complete keys.
+  The consumer regression first verifies valid exchanges with independently
+  reordered primary or Subject rows, then checks the exact composite `(tenant,id)`
+  image and Subject payload for a partially accepted cohort.
+- Selected logical and materialized numeric/category/Boolean/temporal/Difference
+  relations disclose further `where` actions. Independent Runtime assertions
+  resolve the action's native Help target and actually execute the continuation.
+  Current English/Chinese examples show `defined.contract().show()` before the
+  second selection.
+
+The original failures were reproduced before repair. This adds no method,
+backend, wheel, release or later-phase qualification.
+
+Repair validation, all exit 0:
+
+- `make check-agent`: **5544 passed / 5 existing skipped**, typing of **413**
+  source files, lint/import contracts and API documentation generation.
+- `make runtime-test-agent TESTS='tests/test_analysis_predicates_r63.py tests/test_analysis_cohort_r63.py tests/test_analysis_members_r52.py'`:
+  **64 passed**, covering the affected public source/fixed continuations and
+  existing source-offline fresh-process recovery. No skips or failures.
+- `npm --prefix site run build`: API prebuild, Astro check/build and bilingual
+  install-script verification passed.
+- `git diff --check`: passed. Changes remain uncommitted in the same worktree.

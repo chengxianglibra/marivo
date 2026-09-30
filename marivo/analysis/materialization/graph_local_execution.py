@@ -443,44 +443,50 @@ def _transport_stage(
     method: LoweredLocal,
     source: ExchangeResult,
     input_binding: str,
-    predicate_source: ExchangeResult | None = None,
+    predicate_sources: tuple[ExchangeResult, ...] = (),
 ) -> ExchangeResult:
     params = method.stage.node.parameters
     assert isinstance(params, PartsTransport)
+    if params.mode == "cohort":
+        return _cohort_stage(method, source, predicate_sources, input_binding)
     keys = source.contract.key_fields
-    predicate_rows = (
-        {}
-        if predicate_source is None
-        else {
-            tuple(row[k] for k in keys): row
-            for row in numeric_primary(predicate_source.primary).to_pylist()
-        }
-    )
-    if predicate_source is not None and (
-        predicate_source.contract.key_fields != keys
-        or set(predicate_rows)
-        != {tuple(row[k] for k in keys) for row in numeric_primary(source.primary).to_pylist()}
-    ):
-        raise _invalid("predicate dependency lacks equal complete input keys")
+    from marivo.analysis.core.predicates import compose, leaves
+    from marivo.analysis.methods.predicates import evaluate_leaf
+
+    input_rows = [
+        {tuple(row[k] for k in keys): row for row in numeric_primary(item.primary).to_pylist()}
+        for item in (source, *predicate_sources)
+    ]
+    receiver_keys = set(input_rows[0])
+    for index, (item, rows) in enumerate(zip(predicate_sources, input_rows[1:], strict=True), 1):
+        if item.contract.key_fields != keys or (
+            not receiver_keys <= set(rows)
+            if index in params.inclusion_inputs
+            else set(rows) != receiver_keys
+        ):
+            raise _invalid("predicate dependency lacks equal complete input keys")
     selected_keys: set[tuple[object, ...]] = set()
     keep: list[bool] = []
     for row in numeric_primary(source.primary).to_pylist():
-        predicate_row = (
-            row if predicate_source is None else predicate_rows[tuple(row[k] for k in keys)]
+        key = tuple(row[k] for k in keys)
+        truths = tuple(
+            compose(
+                tree,
+                tuple(
+                    evaluate_leaf(
+                        leaf,
+                        input_rows[leaf.input_index][key],
+                        None if leaf.right_index is None else input_rows[leaf.right_index][key],
+                    )
+                    for leaf in leaves(tree)
+                ),
+            )
+            for tree in params.predicates
         )
-        accepted = True
-        for predicate in params.predicates:
-            if predicate_row["cell_tag"] != "defined":
-                if predicate.unknown == "reject":
-                    raise _invalid("fixed predicate received a non-Defined Cell")
-                accepted = False
-                break
-            if not _matches(predicate_row["value"], predicate.operator, predicate.literal):
-                accepted = False
-                break
+        accepted = all(value is True for value in truths)
         keep.append(accepted)
         if accepted:
-            selected_keys.add(tuple(row[key] for key in keys))
+            selected_keys.add(key)
     filtered = source.primary.filter(pa.array(keep, type=pa.bool_()))
     columns = (*keys, "value", "cell_tag", "cell_reason") if params.keep_quantity else keys
     primary = filtered.select(columns)
@@ -1670,9 +1676,8 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
             raise _invalid("fixed schedule contains a source stage")
         name = stage.stage.node.method.name
         arity = (
-            2
+            len(stage.stage.node.inputs)
             if isinstance(stage.stage.node.parameters, PartsTransport)
-            and stage.stage.node.parameters.external_predicate
             else 2
             if name
             in (
@@ -1691,6 +1696,7 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                 "group.complete",
                 "group.attach",
                 "parts_transport",
+                "domain.cohort",
                 "map_correspond",
                 "state_rollup.min",
                 "state_rollup.max",
@@ -1732,7 +1738,7 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
             raise _invalid("fixed rollup lacks frozen completed partition and coverage evidence")
         if (
             arity == 2
-            and name not in ("group.attach", "group.complete")
+            and name not in ("group.attach", "group.complete", "domain.cohort")
             and not isinstance(stage.stage.node.parameters, CellDerive)
         ):
             domains = tuple(edge.node.signature.domain for edge in stage.stage.node.inputs)
@@ -1815,12 +1821,10 @@ def execute_verified_fixed(
                 if params.mode == "group_keys"
                 else _subject_image(stage, values[0], binding)
             )
-        elif name == "parts_transport":
+        elif name in ("parts_transport", "domain.cohort"):
             if checks:
                 raise _invalid("transport carries an unqualified local check")
-            result = _transport_stage(
-                stage, values[0], binding, values[1] if len(values) == 2 else None
-            )
+            result = _transport_stage(stage, values[0], binding, tuple(values[1:]))
         elif name == "state_rollup.fold":
             result = _fold_rollup_stage(stage, values[0], binding)
         elif isinstance(stage.stage.node.parameters, OriginalReduce) and bool(
@@ -2232,3 +2236,124 @@ def _group_domain_stage(
         method.stage.node.signature, method.stage.node.method, binding, schema, keys
     )
     return from_arrow(primary, contract)
+
+
+def _cohort_stage(
+    method: LoweredLocal, target: ExchangeResult, inputs: tuple[ExchangeResult, ...], binding: str
+) -> ExchangeResult:
+    from marivo.analysis._cohort import decide
+    from marivo.analysis.core.predicates import compose, leaves
+    from marivo.analysis.methods.predicates import evaluate_leaf
+
+    params = method.stage.node.parameters
+    assert (
+        isinstance(params, PartsTransport)
+        and params.opportunity_domain is not None
+        and params.cohort_rule is not None
+    )
+    keys = target.contract.key_fields
+    opportunity_keys = inputs[0].contract.key_fields
+    targets = target.primary.to_pylist()
+    grid = params.opportunity_domain.time_grid
+    expected = {
+        (*tuple(row[k] for k in keys), item.identity)
+        if item is not None
+        else tuple(row[k] for k in keys)
+        for row in targets
+        for item in (grid.cells if grid is not None else (None,))
+    }
+    indexed: list[dict[tuple[object, ...], dict[str, object]]] = [{}] + [
+        {
+            tuple(row[k] for k in opportunity_keys): row
+            for row in numeric_primary(item.primary).to_pylist()
+        }
+        for item in inputs
+    ]
+    if any(item.contract.key_fields != opportunity_keys for item in inputs) or any(
+        set(rows) != expected for rows in indexed[1:]
+    ):
+        raise _invalid("missing complete opportunity keys or coverage")
+    counts: dict[tuple[object, ...], list[int]] = {
+        tuple(row[k] for k in keys): [0, 0, 0] for row in targets
+    }
+    for key in expected:
+        truths = tuple(
+            compose(
+                tree,
+                tuple(
+                    evaluate_leaf(
+                        leaf,
+                        indexed[leaf.input_index][key],
+                        None if leaf.right_index is None else indexed[leaf.right_index][key],
+                        cohort=True,
+                    )
+                    for leaf in leaves(tree)
+                ),
+            )
+            for tree in params.predicates
+        )
+        truth = False if False in truths else None if None in truths else True
+        counts[key[: len(keys)]][1 if truth is None else 0 if truth else 2] += 1
+    kept = []
+    selected_keys: set[tuple[object, ...]] = set()
+    decision_rows = []
+    for row in targets:
+        key = tuple(row[k] for k in keys)
+        t, u, f = counts[key]
+        accepted = decide(params.cohort_rule, params.cohort_count, params.cohort_empty, t, u, f)
+        if accepted is None:
+            raise _invalid("undecidable cohort qualification for a target Subject")
+        kept.append(accepted)
+        if accepted:
+            selected_keys.add(key)
+        decision_rows.append(
+            {
+                **dict(zip(keys, key, strict=True)),
+                "cohort_decision__true_count": t,
+                "cohort_decision__unknown_count": u,
+                "cohort_decision__false_count": f,
+                "cohort_decision__accepted": accepted,
+            }
+        )
+    mask = pa.array(kept, type=pa.bool_())
+    primary = target.primary.select(keys).filter(mask)
+    subject = next(part for part in target.parts if part.role == "subject")
+    subject_mask = pa.array(
+        [tuple(row[key] for key in keys) in selected_keys for row in subject.table.to_pylist()],
+        type=pa.bool_(),
+    )
+    decision_schema = pa.schema(
+        [
+            *primary.schema,
+            pa.field("cohort_decision__true_count", pa.int64()),
+            pa.field("cohort_decision__unknown_count", pa.int64()),
+            pa.field("cohort_decision__false_count", pa.int64()),
+            pa.field("cohort_decision__accepted", pa.bool_()),
+        ]
+    )
+    parts = (
+        ExchangePart("subject", subject.table.filter(subject_mask)),
+        ExchangePart(
+            "cohort_decision", pa.Table.from_pylist(decision_rows, schema=decision_schema)
+        ),
+    )
+    status = pa.Table.from_arrays(
+        [
+            *(primary.column(key) for key in keys),
+            pa.array(["accepted"] * len(primary), type=pa.string()),
+        ],
+        names=[*keys, "status"],
+    )
+    contract = ExchangeContract(
+        method.stage.node.signature,
+        method.stage.node.method,
+        binding,
+        primary.schema,
+        keys,
+        tuple(PartContract(part.role, part.table.schema, keys) for part in parts),
+        (),
+        "cohort",
+        status.schema,
+        (),
+    )
+    return from_arrow(primary, contract, parts=parts, method_state=status)
