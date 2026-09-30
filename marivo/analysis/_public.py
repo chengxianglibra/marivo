@@ -7,6 +7,13 @@ from marivo._temporal import Grain as Grain
 from marivo._temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
 from marivo.analysis import time_scope as time_scope
+from marivo.analysis._comparison import CohortContrast as CohortContrast
+from marivo.analysis._comparison import ExactKeys as ExactKeys
+from marivo.analysis._comparison import PeriodChange as PeriodChange
+from marivo.analysis._comparison import TimeChange as TimeChange
+from marivo.analysis._comparison import UnionKeys as UnionKeys
+from marivo.analysis._comparison import WindowBucketAlignment as WindowBucketAlignment
+from marivo.analysis._comparison import window_bucket as window_bucket
 from marivo.analysis.datasets.base import Dataset as Dataset
 from marivo.analysis.datasets.base import LogicalDataset as LogicalDataset
 from marivo.analysis.datasets.base import MaterializedDataset as MaterializedDataset
@@ -105,8 +112,6 @@ from marivo.analysis.operators.candidate_dataset import (
 from marivo.analysis.operators.candidate_dataset import (
     MaterializedCandidateDataset as MaterializedCandidateDataset,
 )
-from marivo.analysis.operators.contracts import WindowBucketAlignment as WindowBucketAlignment
-from marivo.analysis.operators.contracts import window_bucket as window_bucket
 from marivo.analysis.operators.delta import LogicalDeltaDataset as LogicalDeltaDataset
 from marivo.analysis.operators.delta import MaterializedDeltaDataset as MaterializedDeltaDataset
 from marivo.analysis.operators.forecast_contracts import ForecastHorizon as ForecastHorizon
@@ -209,6 +214,7 @@ from marivo.analysis.public_dsl import MaterializedTemporalRelation as Materiali
 from marivo.analysis.public_dsl import (
     MaterializedTimeAnalysisDomain as MaterializedTimeAnalysisDomain,
 )
+from marivo.analysis.public_dsl import OneToOneCorrespondence as OneToOneCorrespondence
 from marivo.analysis.public_dsl import RootRoute as RootRoute
 from marivo.analysis.public_dsl import RootRoutes as RootRoutes
 from marivo.analysis.public_dsl import RowMethod as RowMethod
@@ -218,6 +224,7 @@ from marivo.analysis.public_dsl import count_defined as count_defined
 from marivo.analysis.public_dsl import max as max
 from marivo.analysis.public_dsl import mean as mean
 from marivo.analysis.public_dsl import min as min
+from marivo.analysis.public_dsl import one_to_one as one_to_one
 from marivo.analysis.public_dsl import route as route
 from marivo.analysis.public_dsl import routes as routes
 from marivo.analysis.public_dsl import sum as sum
@@ -310,6 +317,13 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "SessionGraph",
     "SucceededRun",
     "Session",
+    "PeriodChange",
+    "UnionKeys",
+    "ExactKeys",
+    "TimeChange",
+    "CohortContrast",
+    "OneToOneCorrespondence",
+    "one_to_one",
     "AnalysisAction",
     "AnalysisContract",
     "LogicalAnalysisDomain",

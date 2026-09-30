@@ -736,6 +736,16 @@ class SourceSession:
             raise _invalid("an exact local read issued by this session", "unowned stage")
         with closing(self.batches(read, chunk_size=1024)) as stream:
             table = pa.Table.from_batches(stream, schema=stored[1].schema)
+        return self.stage_calculated(read, table), table
+
+    def stage_calculated(self, read: CompiledRead, table: pa.Table) -> ir.Table:
+        """Stage an exact-schema method exchange with its issued source provenance."""
+        self._ensure_open()
+        stored = self._issued.get(id(read))
+        if stored is None or stored[0] is not read or read._owner is not self._token:
+            raise _invalid("an exact read owned by this session", "unowned calculated exchange")
+        if not table.schema.equals(stored[1].schema, check_metadata=False):
+            raise _invalid("the issued exchange schema", str(table.schema))
         name = "mv_graph_" + uuid4().hex
         from marivo.datasource.engines.sqlite import owned_temporary_writes
 
@@ -778,7 +788,7 @@ class SourceSession:
             frozenset(stored[1].source_identity.split("|")),
             name,
         )
-        return relation, table
+        return relation
 
     def release_staged(self, relations: Sequence[ir.Table]) -> None:
         """Drop only the temporary relations owned by this invocation."""

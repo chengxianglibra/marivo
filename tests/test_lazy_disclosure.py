@@ -107,6 +107,13 @@ EXPECTED_EXPORTS = (
     "SessionGraph",
     "SucceededRun",
     "Session",
+    "PeriodChange",
+    "UnionKeys",
+    "ExactKeys",
+    "TimeChange",
+    "CohortContrast",
+    "OneToOneCorrespondence",
+    "one_to_one",
     "AnalysisAction",
     "AnalysisContract",
     "LogicalAnalysisDomain",
@@ -350,7 +357,7 @@ def test_exact_export_bindings_and_required_native_targets(
 ) -> None:
     actual = {e.name: e for p in disclosure.providers for e in p.exports}
     assert set(actual) == set(EXPECTED_EXPORTS)
-    assert len(actual) == 160
+    assert len(actual) == 167
     assert set(disclosure.canonical_ids()) >= REQUIRED_TARGETS
     for name in EXPECTED_EXPORTS:
         entry = actual[name]

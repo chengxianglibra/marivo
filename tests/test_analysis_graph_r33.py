@@ -476,7 +476,7 @@ def test_same_node_emits_one_stage_but_independent_nodes_do_not_merge():
                 "ibis",
             ),
             ("source.exact_pairing@v1", "source.finite_numeric@v1", "source.cell_policy@v1"),
-            ("current_endpoint", "baseline_endpoint"),
+            ("current_endpoint", "baseline_endpoint", "correspondence"),
             "checked_int64",
             ResourceRequirements("stream", "producer", None),
             Qualified("test.difference", "test.consumer", "synthetic-only"),

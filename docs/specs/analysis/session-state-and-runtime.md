@@ -746,3 +746,46 @@ opportunity, reference, rank/view and attribution scope parts. A contract string
 or repeat Artifact ID alone is not L6 evidence. The same non-editable wheel must
 produce, continue and recover the installation journeys; this contract freeze
 does not run or certify those journeys.
+
+### R6.2 comparison encoding and execution
+
+The connected comparison consumers use the existing graph schedule, exchange and
+Store 7 publication transaction. Difference retains state/part v2;
+`relative_change` and `relation_ratio` retain v1. Their implementations use
+contract 4. A retained correspondence has separate Boolean presence, original
+ordered coordinate vectors and three float64 error bounds; these are checked
+against endpoint Cells and the frozen policy, including zero-row schemas.
+
+Comparison continuation roots use canonical `comparison-v2:` deflate/base64
+encoding. The persisted snapshot remains bounded by 256 KiB; expansion is bounded
+by 4 MiB, rejects trailing frames, and must round-trip canonically. Endpoint
+snapshots remain explicit typed definitions bound to exact input fingerprints;
+there is no history lookup or recovery from the current Semantic catalog. This
+encoding preserves independently captured equal definitions. Old Difference
+state v1 rejects with a source re-execution repair before fixed cache lookup.
+
+The affected original mean, weighted mean, ratio and linear implementations use
+contract 4 to retain the float magnitudes needed by comparison error propagation.
+Original float means retain absolute sums; ratios retain both component absolute
+sums; weighted means retain absolute products and absolute weights; linear terms
+retain their own absolute sums. This is sufficient-state transport for the
+existing methods, not a new original Metric capability. Row-state, original-state
+rollup and parts transport contracts carrying explicit endpoint definitions also
+use contract 4. Fixed execution requires these actual versions and parts.
+
+Numeric Measure reads use bind-project implementation contract 4: the frozen
+quantity carries the declared measure unit and exact attribute-time binding.
+Fixed continuation uses those retained facts without consulting Semantic.
+Float fold and quantile state lacks a comparison error envelope; those operands
+reject during composition rather than receiving an assumed zero error.
+
+Float current-row sum/mean/extrema retain `row_state__error_bound` under the
+row implementation contract 4. For sum/mean the stored bound belongs to the
+retained sum, including input envelopes and reduction rounding; mean divides
+that bound by the retained count and adds its finish rounding. State rollup
+merges the bounds with the additional sum rounding, and extrema retain a
+conservative maximum input bound. Missing required bounds reject comparison;
+nonfinite or negative bounds reject exchange/recovery. Fixed comparison indexes
+all retained operand components once by complete typed keys before pairing.
+PeriodChange normalizes replaceable anchor coordinates in original-reduction
+and row-statistic templates while keeping actual complete bucket maps intact.

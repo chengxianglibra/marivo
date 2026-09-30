@@ -17,13 +17,14 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
+from marivo.analysis._comparison import WindowBucketAlignment, window_bucket
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.analysis.domains.event_attribution import FunnelAttributionSemantics
 from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics
 from marivo.analysis.operators.association_contracts import AssociationSemantics
 from marivo.analysis.operators.attribution_contracts import AttributionSemantics
 from marivo.analysis.operators.candidate_contracts import CandidateSemantics
-from marivo.analysis.operators.contracts import DeltaSemantics, WindowBucketAlignment, window_bucket
+from marivo.analysis.operators.contracts import DeltaSemantics
 from marivo.analysis.operators.discovery import DeltaDiscovery, MetricDiscovery
 from marivo.analysis.operators.forecast_contracts import (
     ForecastHorizon,

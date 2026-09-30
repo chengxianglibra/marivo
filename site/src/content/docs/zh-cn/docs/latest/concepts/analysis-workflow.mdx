@@ -46,13 +46,45 @@ change = current.compare(baseline).execute()
 change.show()
 ```
 
+`compare` 接受同类型 int64/float64、同标度 Decimal 绝对差和同单位 Duration。
+默认 `TimeChange` 要求递归量定义一致，并共享同一次目标捕获；`CohortContrast`
+在共同 Group 或 Singleton 坐标上比较同一观察时间的不同人群。
+`PeriodChange(alignment=mv.window_bucket())` 消费完整等长的原始桶映射，筛选不能重新编号。
+
+```python
+relative = current.compare(baseline, value="relative_change")
+union = current.compare(
+    baseline, design=mv.TimeChange(pairing=mv.UnionKeys(missing="keep"))
+)
+quotient = current.ratio(current, pairing=mv.ExactKeys())
+marivo.help("analysis.dsl.NumericComparison.compare")
+marivo.help("analysis.dsl.one_to_one")
+```
+
+`ExactKeys` 要求完整有类型键唯一且键集相等，允许双空。`UnionKeys(missing="keep")`
+独立保存缺失坐标和 Cell，缺侧结果为 `Undefined(missing_side)`。
+`missing="metric_empty"` 只在完整原始观察和覆盖证明下调用具体 Metric 的空状态 finish，
+不能填补筛选留下的缺行。已存在且参与配对的端点必须是有限 Defined 值。
+
+相对变化以 `abs(baseline)` 为分母，零基线保留 `Undefined(zero_baseline)`。
+普通 ratio 保留分母符号，零分母保留 `Undefined(zero_denominator)`；对应可使用完整精确键，
+或以 `mv.one_to_one(left=..., right=..., via=...)` 绑定精确有序节点、已声明的一对一关系和保留键。
+普通 ratio 和 Difference 不自动获得原 Metric 的 rollup、share 或 attribution。
+非零浮点分母的保留误差区间跨零时拒绝执行。
+浮点时间折叠和分位数尚无获资格的比较误差界部件，在构造时拒绝。
+
+Logical 和 Materialized 接口均返回 Logical 结果。固定续算验证 receipt 和保留部件，
+不会回源。Difference 使用 state/part v2，相对变化和普通 ratio 使用 v1；旧 Difference
+必须从源定义重新执行后再续算。
+
+
 示例要求项目已定义具有明确源类型和参考时间轴的 `sales.revenue` 指标。窗口为左闭右开，结束边界不包含在内。仅含日期的边界按 Session 持久化的报告时区解释；应为所需日历显式设置 `report_timezone`。成员筛选与观测窗口相互独立。先读取成员维度、按值筛选，再调用 `.members().observe(...)`。
 
 对于已配置 DuckDB 来源且通过准入的 J1–J4 Entity 域，从
 `session.members(Entity Ref)` 开始。成员域提供 `read`、`group_by` 和
 `observe`；返回的关系提供筛选、比较、rollup、行统计与关联。
 `marivo.help("analysis.entry")` 会将 Entity 成员问题指向此入口；
-当前已获资格的 Metric 观察路径要求事件时间维度的时区为 UTC；其他时区或无法确定时区的时间轴会被拒绝。例如：
+Metric 观察路径要求声明事件时间维度，并使用已获资格的原生 DATE 或带时区时间戳；冲突或无法确定的时区权威会被拒绝。例如：
 
 ```python
 customers = session.members(ms.ref.entity("sales.customer"))

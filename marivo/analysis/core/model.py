@@ -375,7 +375,11 @@ class MissingCoordinate:
     key: tuple[str | int, ...]
 
     def __post_init__(self) -> None:
-        if self.side not in ("current", "baseline") or not self.key:
+        if (
+            self.side not in ("current", "baseline")
+            or type(self.key) is not tuple
+            or any(type(component) not in (str, int) for component in self.key)
+        ):
             reject(
                 "a side and complete missing key",
                 repr(self.key),
@@ -401,6 +405,20 @@ class EndpointPart:
     side: Literal["current", "baseline"]
     quantity_id: str
     version: str
+
+
+@dataclass(frozen=True, slots=True)
+class CorrespondencePart:
+    """Retained ordered endpoint coordinates, independent of endpoint Cell tags."""
+
+    binding: Binding
+    current_key: tuple[Coordinate, ...]
+    baseline_key: tuple[Coordinate, ...]
+    version: str
+    policy: Literal["exact", "keep", "metric_empty"] = "exact"
+    empty_rules: tuple[Literal["null", "zero", "zero_denominator"], ...] = ()
+    time_index: int | None = None
+    bucket_mapping: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -487,6 +505,7 @@ class PairCountsPart:
 Part: TypeAlias = (
     SubjectPart
     | EndpointPart
+    | CorrespondencePart
     | OriginalStatePart
     | CoordinateStatePart
     | RowStatePart
@@ -496,6 +515,7 @@ Part: TypeAlias = (
     | PairCountsPart
 )
 PartRole: TypeAlias = Literal[
+    "correspondence",
     "subject",
     "current_endpoint",
     "baseline_endpoint",
@@ -510,6 +530,8 @@ PartRole: TypeAlias = Literal[
 
 
 def part_role(part: Part) -> PartRole:
+    if isinstance(part, CorrespondencePart):
+        return "correspondence"
     if isinstance(part, SubjectPart):
         return "subject"
     if isinstance(part, EndpointPart):
@@ -530,6 +552,36 @@ def part_role(part: Part) -> PartRole:
 
 
 def validate_part(part: Part) -> None:
+    if isinstance(part, CorrespondencePart):
+        if (
+            part.version not in ("v1", "v2")
+            or part.policy not in ("exact", "keep", "metric_empty")
+            or (len(part.empty_rules) != (2 if part.policy == "metric_empty" else 0))
+            or any(rule not in ("zero", "null", "zero_denominator") for rule in part.empty_rules)
+            or len(part.current_key) != len(part.baseline_key)
+            or (part.time_index is None and bool(part.bucket_mapping))
+            or (
+                part.time_index is not None
+                and (
+                    type(part.time_index) is not int
+                    or not 0 <= part.time_index < len(part.current_key)
+                    or part.current_key[part.time_index].role != "anchor"
+                    or part.baseline_key[part.time_index].role != "anchor"
+                    or not part.bucket_mapping
+                    or any(not left or not right for left, right in part.bucket_mapping)
+                    or len({left for left, _ in part.bucket_mapping}) != len(part.bucket_mapping)
+                    or len({right for _, right in part.bucket_mapping}) != len(part.bucket_mapping)
+                )
+            )
+            or any(type(key) is not Coordinate for key in (*part.current_key, *part.baseline_key))
+        ):
+            reject(
+                "v2 complete typed endpoint coordinates",
+                repr(part),
+                "Retain both ordered endpoint keys.",
+                "core.part.correspondence",
+            )
+        return
     if isinstance(part, SubjectPart):
         if type(part.entity_ref) is not Ref or part.entity_ref.kind is not SemanticKind.ENTITY:
             reject(
@@ -568,7 +620,14 @@ def validate_part(part: Part) -> None:
             or part.dimension.kind is not SemanticKind.DIMENSION
             or part.owner.kind is not SemanticKind.ENTITY
             or (
-                part.components
+                tuple(
+                    name
+                    for name in part.components
+                    if name not in ("numerator_absolute_sum", "absolute_weighted_numerator")
+                    and not (
+                        name.startswith(("plus_", "minus_")) and name.endswith("_absolute_sum")
+                    )
+                )
                 not in (
                     ("sum", "non_null_count"),
                     ("sum", "non_null_count", "absolute_sum"),
@@ -590,6 +649,7 @@ def validate_part(part: Part) -> None:
                     ("max", "non_null_count"),
                     ("count",),
                     ("sum", "non_null_count", "row_count"),
+                    ("sum", "non_null_count", "row_count", "absolute_sum"),
                     ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count"),
                     (
                         "numerator_sum",
@@ -600,14 +660,29 @@ def validate_part(part: Part) -> None:
                 )
                 and not (
                     len(part.components) >= 4
-                    and len(part.components) % 2 == 0
+                    and len(
+                        tuple(
+                            name for name in part.components if not name.endswith("_absolute_sum")
+                        )
+                    )
+                    % 2
+                    == 0
                     and all(
                         part.components[2 * i : 2 * i + 2]
                         in (
                             (f"plus_{i}_sum", f"plus_{i}_non_null_count"),
                             (f"minus_{i}_sum", f"minus_{i}_non_null_count"),
                         )
-                        for i in range(len(part.components) // 2)
+                        for i in range(
+                            len(
+                                tuple(
+                                    name
+                                    for name in part.components
+                                    if not name.endswith("_absolute_sum")
+                                )
+                            )
+                            // 2
+                        )
                     )
                 )
             )
@@ -632,7 +707,10 @@ def validate_part(part: Part) -> None:
             or (part.method_version == "ratio@v1" and len(part.empty_rules) != 2)
             or (
                 part.method_version == "linear@v1"
-                and len(part.empty_rules) * 2 != len(part.components)
+                and len(part.empty_rules) * 2
+                != len(
+                    tuple(name for name in part.components if not name.endswith("_absolute_sum"))
+                )
             )
         ):
             reject(

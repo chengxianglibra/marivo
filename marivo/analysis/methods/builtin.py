@@ -418,6 +418,8 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
     if method.name not in (
         "bind_project",
         "cell.difference",
+        "cell.relative_change",
+        "cell.ratio",
         "parts_transport",
         "map_correspond",
         "row.count",
@@ -459,7 +461,7 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
                             "ibis",
                         ),
                         NUMERIC_CHECKS,
-                        (*PARTS, "current_endpoint", "baseline_endpoint")
+                        (*PARTS, "current_endpoint", "baseline_endpoint", "correspondence")
                         if method.name in ("cell.difference", "parts_transport")
                         else PARTS,
                         "finite_float64"
@@ -529,8 +531,8 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     FixedShape(NoTime()),
                     "artifact_python",
                 ),
-                ("source.exact_pairing@v1", "source.finite_numeric@v1"),
-                ("subject", "current_endpoint", "baseline_endpoint"),
+                ("source.unique_key@v1", "source.exact_pairing@v1", "source.finite_numeric@v1"),
+                ("subject", "current_endpoint", "baseline_endpoint", "correspondence"),
                 "checked_int64",
                 ResourceRequirements("complete", "caller", None),
                 Qualified(
@@ -563,7 +565,13 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         "artifact_python",
                     ),
                     NUMERIC_CHECKS,
-                    (*PARTS, "current_endpoint", "baseline_endpoint", "pair_counts"),
+                    (
+                        *PARTS,
+                        "current_endpoint",
+                        "baseline_endpoint",
+                        "correspondence",
+                        "pair_counts",
+                    ),
                     "exact",
                     ResourceRequirements("complete", "caller", None),
                     Qualified(
@@ -695,8 +703,40 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     """Version typed folds and once-rounded numeric consumers in Store 7."""
+    if method.name in ("cell.relative_change", "cell.ratio"):
+        return tuple(
+            replace(
+                item,
+                key=replace(
+                    item.key,
+                    method=method,
+                    route="ibis_python" if item.key.route == "ibis" else item.key.route,
+                ),
+                precision="finite_float64",
+                qualification=Qualified(
+                    f"r62.{method}.{item.key.shape}@v1",
+                    "analysis.materialization.graph_source_execution"
+                    if item.key.route == "ibis"
+                    else "analysis.materialization.graph_local_execution",
+                    "tests/test_analysis_comparison_runtime_r62.py",
+                ),
+            )
+            for item in implementations(MethodKey("cell.difference"))
+        )
     return tuple(
-        replace(item, contract_version=3)
+        replace(item, contract_version=4)
+        if method.name.startswith("state_rollup")
+        or method.name.startswith("row.")
+        or method.name
+        in (
+            "bind_project",
+            "parts_transport",
+            "metric.mean",
+            "metric.ratio",
+            "metric.linear",
+            "metric.weighted_mean",
+        )
+        else replace(item, contract_version=3)
         if method.name
         in (
             "metric.observe",
@@ -716,8 +756,28 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             "state_rollup.min",
             "state_rollup.max",
         )
+        else replace(
+            item,
+            contract_version=4,
+            qualification=Qualified(
+                f"r62.{item.key.route}.cell.difference.{item.key.shape}@v1",
+                "analysis.compiler.graph_lowering"
+                if item.key.route == "ibis"
+                else "analysis.materialization.graph_local_execution",
+                "tests/test_analysis_comparison_runtime_r62.py",
+            ),
+        )
+        if method.name == "cell.difference"
         else item
-        for item in _shape_implementations(method)
+        for item in (
+            tuple(
+                replace(declaration, key=replace(declaration.key, input_domains=(domain, domain)))
+                for declaration in _shape_implementations(method)
+                for domain in ("entity", "group", "singleton")
+            )
+            if method.name == "cell.difference"
+            else _shape_implementations(method)
+        )
     )
 
 
@@ -744,6 +804,9 @@ def specialize_arity(implementation: Implementation, arity: int) -> Implementati
 def specialize_numeric(implementation: Implementation, key: QualificationKey) -> Implementation:
     """Bind homogeneous precise numeric types to explicitly shared consumers."""
     allowed = (
+        "cell.difference",
+        "cell.relative_change",
+        "cell.ratio",
         "parts_transport",
         "state_rollup",
         "state_rollup.sum_zero",
@@ -769,6 +832,9 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
         and len(set(key.input_types)) == 1
     )
     float_inputs = key.method.name in (
+        "cell.difference",
+        "cell.relative_change",
+        "cell.ratio",
         "metric.ratio",
         "metric.linear",
         "state_rollup.linear",
@@ -788,6 +854,10 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
         if key.method.name in ("row.count", "row.count_defined")
         else "finite_float64"
         if key.input_types[0] == ScalarType("float64")
+        or (
+            duration_inputs
+            and key.method.name in ("cell.ratio", "cell.relative_change", "metric.ratio")
+        )
         else "checked_int64"
         if isinstance(key.input_types[0], DurationType)
         else "exact"
@@ -912,8 +982,9 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
                 "Bind source.group_mapping@v1 for the exact Group projection.",
             )
     elif isinstance(params, CellDerive):
-        if params.method != "difference" or (
-            params.pairing_check_id != "source.exact_pairing@v1"
+        if params.method not in ("difference", "relative_change", "ratio") or (
+            params.pairing_check_id
+            != ("source.exact_pairing@v1" if params.pairing == "exact" else "source.unique_key@v1")
             or params.numeric_check_id != "source.finite_numeric@v1"
         ):
             reject(

@@ -26,6 +26,7 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.rules import (
     AttachCategory,
+    CellDerive,
     MapCorrespond,
     OriginalReduce,
     PartsTransport,
@@ -47,6 +48,8 @@ from marivo.analysis.materialization.graph_exchange import (
 )
 from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.materialization.graph_spearman_execution import finish_spearman
+from marivo.analysis.methods.comparison import evaluate as evaluate_comparison
+from marivo.analysis.methods.comparison import propagated_error, roundoff
 from marivo.analysis.methods.local import arithmetic, count, count_defined
 from marivo.analysis.methods.physical import (
     DecimalType,
@@ -172,6 +175,7 @@ def _row_result(
                 if field == "row_state__min"
                 else (max(operands) if operands else None)
                 if field == "row_state__max"
+                or (field == "row_state__error_bound" and params.method in ("min", "max"))
                 else math.fsum(operands)
                 if floating
                 else sum(operands)
@@ -239,6 +243,32 @@ def _row_result(
         )
     else:
         raise _invalid("unqualified fixed row method")
+    if isinstance(params, RowState) and params.retain_error:
+        if params.merge:
+            bound = state["row_state__error_bound"][0]
+            assert isinstance(bound, float)
+            if params.method in ("sum", "mean"):
+                magnitude = math.fsum(abs(item) for item in retained["row_state__sum"].to_pylist())
+                bound += roundoff(magnitude)
+        else:
+            indexed = _operand_components(verified)
+            rows = verified.primary.to_pylist()
+            bounds = [
+                _fixed_operand_bound(
+                    verified,
+                    row,
+                    indexed.get(tuple(row[key] for key in verified.contract.key_fields), {}),
+                )
+                for row in rows
+            ]
+            bound = (
+                math.fsum(bounds) + roundoff(math.fsum(abs(row["value"]) for row in rows))
+                if params.method in ("sum", "mean")
+                else max(bounds, default=0.0)
+            )
+        if not math.isfinite(bound) or bound < 0:
+            raise _invalid("row statistic error bound is nonfinite or negative")
+        state["row_state__error_bound"] = [bound]
     completed: list[CompletedCheck] = []
     for check in checks:
         if not isinstance(check, CheckRequirement) or check.node_id != method.stage.node.identity:
@@ -269,6 +299,7 @@ def _row_result(
                 field,
                 pa.float64()
                 if (field in ("row_state__min", "row_state__max") and value_type == pa.float64())
+                or field == "row_state__error_bound"
                 or (field == "row_state__sum" and type(values[0]) is float)
                 else pa.int64(),
             )
@@ -564,7 +595,7 @@ def execute_fixed_difference(
     lowered: LoweredPlan,
     selected: tuple[VerifiedFixedInput, VerifiedFixedInput],
 ) -> ExchangeResult:
-    """Subtract ordered int64 endpoint Cells from two exact retained Artifacts."""
+    """Subtract homogeneous numeric endpoints from two exact retained Artifacts."""
     if (
         prepared.admitted is not lowered.admitted
         or lowered.admitted.classification.kind != "artifact"
@@ -591,10 +622,9 @@ def execute_fixed_difference(
             item.artifact_ref != read.leaf.artifact.ref
             or contract.input_binding != item.artifact_ref
             or contract.signature != read.leaf.signature
-            or read.leaf.value_type != ScalarType("int64")
-            or contract.schema.field("value").type != pa.int64()
+            or not matches_arrow_scalar(contract.schema.field("value").type, read.leaf.value_type)
         ):
-            raise _invalid("fixed Difference Artifact, binding, signature or int64 type differs")
+            raise _invalid("fixed Difference Artifact, binding, signature or numeric type differs")
         values.append(item.result)
     return _difference_stage(
         methods[0],
@@ -605,6 +635,123 @@ def execute_fixed_difference(
     )
 
 
+def _operand_components(source: ExchangeResult) -> dict[tuple[object, ...], dict[str, object]]:
+    """Index retained operand components once per endpoint, using complete keys."""
+    result: dict[tuple[object, ...], dict[str, object]] = {}
+    for part in source.parts:
+        for item in part.table.to_pylist():
+            key = tuple(item[name] for name in source.contract.key_fields)
+            result.setdefault(key, {}).update(item)
+    return result
+
+
+def _fixed_operand_bound(
+    source: ExchangeResult,
+    row: dict[str, object] | None,
+    components: dict[str, object],
+) -> float:
+    if row is None or row["cell_tag"] != "defined" or type(row["value"]) is not float:
+        return 0.0
+    for name in ("correspondence__result_error_bound", "original_state__absolute_sum"):
+        value = components.get(name)
+        if type(value) is float:
+            if name.startswith("correspondence"):
+                return value
+            bound = roundoff(value)
+            quantity = source.contract.signature.quantity
+            if quantity is not None and quantity.method_version == "mean@v1":
+                count = components.get("original_state__non_null_count")
+                if type(count) is not int or count <= 0:
+                    raise _invalid("defined mean lacks a positive retained count")
+                result = row["value"]
+                assert isinstance(result, float)
+                return bound / count + roundoff(result)
+            return bound
+    if "row_state__error_bound" in components:
+        row_bound = components["row_state__error_bound"]
+        if type(row_bound) is not float or not math.isfinite(row_bound) or row_bound < 0:
+            raise _invalid("row statistic lacks a finite nonnegative error bound")
+        quantity = source.contract.signature.quantity
+        if quantity is not None and quantity.method_version == "row.mean@v1":
+            count = components.get("row_state__count")
+            value = row["value"]
+            if type(count) is not int or count <= 0 or type(value) is not float:
+                raise _invalid("defined row mean lacks its retained positive count")
+            return row_bound / count + roundoff(value)
+        return row_bound
+    if type(components.get("row_state__sum")) is int:
+        value = row["value"]
+        assert isinstance(value, float)
+        return roundoff(value)
+    quantity = source.contract.signature.quantity
+    if quantity is not None and quantity.method_version in (
+        "mean@v1",
+        "weighted_mean@v1",
+        "ratio@v1",
+    ):
+        component = {
+            "mean@v1": "sum",
+            "weighted_mean@v1": "weighted_numerator",
+            "ratio@v1": "numerator_sum",
+        }[quantity.method_version]
+        if type(components.get("original_state__" + component)) is int:
+            result = row["value"]
+            assert isinstance(result, float)
+            return roundoff(result)
+    if quantity is not None and quantity.method_version in (
+        "ratio@v1",
+        "weighted_mean@v1",
+        "linear@v1",
+    ):
+
+        def magnitude_component(name: str) -> float:
+            value = components.get("original_state__" + name)
+            if type(value) is not float or not math.isfinite(value):
+                raise _invalid("missing finite original error magnitude")
+            return value
+
+        result = row["value"]
+        assert isinstance(result, float)
+        if quantity.method_version == "linear@v1":
+            magnitudes = [
+                name.removeprefix("original_state__")
+                for name in components
+                if name.endswith("_absolute_sum")
+            ]
+            if not magnitudes:
+                raise _invalid("float linear lacks original error magnitudes")
+            return sum(roundoff(magnitude_component(name)) for name in magnitudes) + roundoff(
+                result
+            )
+        weighted = quantity.method_version == "weighted_mean@v1"
+        numerator = magnitude_component(
+            "absolute_weighted_numerator" if weighted else "numerator_absolute_sum"
+        )
+        error_n = roundoff(numerator)
+        if weighted:
+            count = components.get("original_state__non_null_pair_count")
+            if type(count) is not int:
+                raise _invalid("weighted mean lacks original pair count")
+            error_n += 1e-12 * (numerator + count)
+        denominator = magnitude_component("weight_sum" if weighted else "denominator_sum")
+        error_d = roundoff(
+            magnitude_component("absolute_weight_sum" if weighted else "denominator_absolute_sum")
+        )
+        return propagated_error("ratio", None, denominator, result, error_n, error_d)
+    if quantity is not None and quantity.method_version in (
+        "sum@v1",
+        "sum_zero@v1",
+        "mean@v1",
+        "weighted_mean@v1",
+        "ratio@v1",
+        "linear@v1",
+    ):
+        raise _invalid("float aggregate lacks its retained rounding envelope")
+    if "row_state__sum" in components:
+        raise _invalid("float row statistic lacks its retained rounding envelope")
+    return 0.0
+
+
 def _difference_stage(
     method: LoweredLocal,
     values: tuple[ExchangeResult, ExchangeResult],
@@ -612,53 +759,165 @@ def _difference_stage(
     input_binding: str,
     checks: tuple[CheckRequirement, ...],
 ) -> ExchangeResult:
+    params = method.stage.node.parameters
+    assert isinstance(params, CellDerive)
     current, baseline = values
     keys = current.contract.key_fields
-    if not keys or keys != baseline.contract.key_fields:
+    if keys != baseline.contract.key_fields:
         raise _invalid("fixed Difference complete endpoint keys differ")
-    current_rows = {tuple(row[key] for key in keys): row for row in current.primary.to_pylist()}
-    baseline_rows = {tuple(row[key] for key in keys): row for row in baseline.primary.to_pylist()}
-    if current_rows.keys() != baseline_rows.keys():
+    if any(
+        current.primary.schema.field(key).type != baseline.primary.schema.field(key).type
+        for key in keys
+    ):
+        raise _invalid("fixed Difference endpoint key types differ")
+    current_rows = {
+        tuple(row[key] for key in keys): row for row in numeric_primary(current.primary).to_pylist()
+    }
+    baseline_rows = {
+        tuple(row[key] for key in keys): row
+        for row in numeric_primary(baseline.primary).to_pylist()
+    }
+    original_baseline_keys: dict[tuple[object, ...], tuple[object, ...]] = {}
+    if params.time_index is not None:
+        time_index = params.time_index
+        for index, rows in enumerate((current_rows, baseline_rows)):
+            expected = {pair[index] for pair in params.bucket_mapping}
+            groups: dict[tuple[object, ...], set[object]] = {}
+            for key in rows:
+                non_time = (*key[:time_index], *key[time_index + 1 :])
+                groups.setdefault(non_time, set()).add(key[time_index])
+            if any(actual != expected for actual in groups.values()):
+                raise _invalid(
+                    "complete original period buckets required; filtered rows cannot be renumbered"
+                )
+        mapping = {right: left for left, right in params.bucket_mapping}
+        translated: dict[tuple[object, ...], dict[str, object]] = {}
+        for key, row in baseline_rows.items():
+            token = key[time_index]
+            if not isinstance(token, str) or token not in mapping:
+                raise _invalid("baseline bucket is absent from the frozen complete grid")
+            paired_key = (*key[:time_index], mapping[token], *key[time_index + 1 :])
+            translated[paired_key] = row
+            original_baseline_keys[paired_key] = key
+        baseline_rows = translated
+    if (
+        len(current_rows) != current.primary.num_rows
+        or len(baseline_rows) != baseline.primary.num_rows
+    ):
+        raise _invalid("fixed Difference endpoint keys are not injective")
+    if params.pairing == "exact" and current_rows.keys() != baseline_rows.keys():
         raise _invalid("fixed Difference endpoint key sets differ")
+    if params.pairing == "metric_empty":
+        for source in values:
+            coverage = next((part.table for part in source.parts if part.role == "coverage"), None)
+            if coverage is None or any(
+                value is not True for value in coverage["coverage__complete"].to_pylist()
+            ):
+                raise _invalid("metric_empty requires complete retained original coverage")
     primary_rows: list[dict[str, object]] = []
     current_parts: list[dict[str, object]] = []
     baseline_parts: list[dict[str, object]] = []
-    for key, first in current_rows.items():
-        second = baseline_rows[key]
-        left, right = first["value"], second["value"]
-        if (
-            first["cell_tag"] != "defined"
-            or second["cell_tag"] != "defined"
-            or type(left) is not int
-            or type(right) is not int
-            or not -(2**63) <= left - right < 2**63
-        ):
-            raise _invalid("fixed Difference requires finite Defined int64 endpoints")
+    value: object
+    tag: str
+    reason: str | None
+    error_rows: list[tuple[float, float, float]] = []
+    operand_components = (_operand_components(current), _operand_components(baseline))
+    union_keys = tuple(dict.fromkeys((*current_rows, *baseline_rows)))
+    for key in union_keys:
+        first, second = current_rows.get(key), baseline_rows.get(key)
+        both = first is not None and second is not None
+        error_a, error_b = (
+            _fixed_operand_bound(current, first, operand_components[0].get(key, {})),
+            _fixed_operand_bound(
+                baseline,
+                second,
+                operand_components[1].get(original_baseline_keys.get(key, key), {}),
+            ),
+        )
+        endpoints: list[dict[str, object]] = []
         identity = dict(zip(keys, key, strict=True))
-        primary_rows.append(
-            {**identity, "value": left - right, "cell_tag": "defined", "cell_reason": None}
-        )
-        current_parts.append(
-            {
-                **identity,
-                "current_endpoint__value": left,
-                "current_endpoint__cell_tag": "defined",
-                "current_endpoint__cell_reason": None,
-            }
-        )
-        baseline_parts.append(
-            {
-                **identity,
-                "baseline_endpoint__value": right,
-                "baseline_endpoint__cell_tag": "defined",
-                "baseline_endpoint__cell_reason": None,
-            }
-        )
+        for index, row in enumerate((first, second)):
+            if row is None:
+                if params.pairing == "metric_empty":
+                    zero: object = (
+                        Decimal(0)
+                        if isinstance(method.stage.node.inputs[index].node.value_type, DecimalType)
+                        else 0.0
+                        if method.stage.node.inputs[index].node.value_type == ScalarType("float64")
+                        else 0
+                    )
+                    row = {
+                        "value": zero if params.empty_rules[index] == "zero" else None,
+                        "cell_tag": "defined"
+                        if params.empty_rules[index] == "zero"
+                        else "null"
+                        if params.empty_rules[index] == "null"
+                        else "undefined",
+                        "cell_reason": None
+                        if params.empty_rules[index] == "zero"
+                        else "empty_contribution"
+                        if params.empty_rules[index] == "null"
+                        else "zero_denominator",
+                    }
+                else:
+                    row = {"value": None, "cell_tag": None, "cell_reason": None}
+            elif (both or params.pairing == "metric_empty") and row["cell_tag"] != "defined":
+                raise _invalid("comparison requires finite Defined existing operands")
+            endpoints.append(row)
+        left, right = endpoints
+        if not both and params.pairing == "keep":
+            value, tag, reason = None, "undefined", "missing_side"
+        elif left["cell_tag"] != "defined" or right["cell_tag"] != "defined":
+            empty = left if left["cell_tag"] != "defined" else right
+            value = None
+            tag, reason = str(empty["cell_tag"]), str(empty["cell_reason"])
+        else:
+            try:
+                cell = evaluate_comparison(
+                    params.method,
+                    left["value"],
+                    right["value"],
+                    method.stage.node.inputs[0].node.value_type,
+                    method.stage.node.inputs[1].node.value_type,
+                )
+            except (ValueError, OverflowError) as error:
+                raise _invalid(f"comparison numeric input or result is invalid: {error}") from error
+            value, tag, reason = (
+                (cell.value, "defined", None)
+                if isinstance(cell, Defined)
+                else (None, "undefined", cell.reason)
+            )
+        try:
+            error_rows.append(
+                (
+                    error_a,
+                    error_b,
+                    propagated_error(
+                        params.method, left["value"], right["value"], value, error_a, error_b
+                    ),
+                )
+            )
+        except (ValueError, OverflowError) as error:
+            raise _invalid(str(error)) from error
+        primary_rows.append({**identity, "value": value, "cell_tag": tag, "cell_reason": reason})
+        for role, row, output in (
+            ("current_endpoint", left, current_parts),
+            ("baseline_endpoint", right, baseline_parts),
+        ):
+            output.append(
+                {
+                    **identity,
+                    **{
+                        f"{role}__{name}": row[name]
+                        for name in ("value", "cell_tag", "cell_reason")
+                    },
+                }
+            )
     key_schema = tuple(current.primary.schema.field(key) for key in keys)
     primary_schema = pa.schema(
         (
             *key_schema,
-            pa.field("value", pa.int64()),
+            pa.field("value", arrow_scalar_type(method.stage.node.value_type)),
             pa.field("cell_tag", pa.string()),
             pa.field("cell_reason", pa.string()),
         )
@@ -667,12 +926,15 @@ def _difference_stage(
         pa.schema(
             (
                 *key_schema,
-                pa.field(f"{role}__value", pa.int64()),
+                pa.field(
+                    f"{role}__value",
+                    numeric_primary(values[index].primary).schema.field("value").type,
+                ),
                 pa.field(f"{role}__cell_tag", pa.string()),
                 pa.field(f"{role}__cell_reason", pa.string()),
             )
         )
-        for role in ("current_endpoint", "baseline_endpoint")
+        for index, role in enumerate(("current_endpoint", "baseline_endpoint"))
     )
     primary = pa.Table.from_pylist(primary_rows, schema=primary_schema)
     parts: tuple[ExchangePart, ...] = (
@@ -683,6 +945,42 @@ def _difference_stage(
             "baseline_endpoint", pa.Table.from_pylist(baseline_parts, schema=part_schemas[1])
         ),
     )
+    correspondence = primary.select(keys)
+    for side in ("current", "baseline"):
+        correspondence = correspondence.append_column(
+            f"correspondence__{side}_present",
+            pa.array(
+                [
+                    key in (current_rows if side == "current" else baseline_rows)
+                    for key in union_keys
+                ],
+                type=pa.bool_(),
+            ),
+        )
+    for index, side in enumerate(("current", "baseline", "result")):
+        correspondence = correspondence.append_column(
+            f"correspondence__{side}_error_bound",
+            pa.array([row[index] for row in error_rows], type=pa.float64()),
+        )
+    for side in ("current", "baseline"):
+        for index, key_name in enumerate(keys):
+            correspondence = correspondence.append_column(
+                f"correspondence__{side}_key_{index}",
+                pa.array(
+                    [
+                        (
+                            original_baseline_keys.get(key, key)[index]
+                            if side == "baseline"
+                            else key[index]
+                        )
+                        if key in (current_rows if side == "current" else baseline_rows)
+                        else None
+                        for key in union_keys
+                    ],
+                    type=primary.schema.field(key_name).type,
+                ),
+            )
+    parts = (*parts, ExchangePart("correspondence", correspondence))
     if any(isinstance(p, SubjectPart) for p in method.stage.node.signature.parts):
         subject = primary.select(keys)
         for index, key_name in enumerate(keys):
@@ -694,7 +992,7 @@ def _difference_stage(
             not isinstance(check, CheckRequirement)
             or check.node_id != method.stage.node.identity
             or check.obligation.check_id
-            not in ("source.exact_pairing@v1", "source.finite_numeric@v1")
+            not in ("source.unique_key@v1", "source.exact_pairing@v1", "source.finite_numeric@v1")
         ):
             raise _invalid("unmatched fixed Difference check")
         result_digest = hashlib.sha256(
@@ -703,7 +1001,7 @@ def _difference_stage(
         completed.append(CompletedCheck(check, result_digest))
     status_schema = pa.schema((*key_schema, pa.field("status", pa.string())))
     statuses = pa.Table.from_pylist(
-        [{**dict(zip(keys, key, strict=True)), "status": "defined"} for key in current_rows],
+        [{**{key: row[key] for key in keys}, "status": row["cell_tag"]} for row in primary_rows],
         schema=status_schema,
     )
     contract = ExchangeContract(
@@ -713,10 +1011,11 @@ def _difference_stage(
         primary_schema,
         keys,
         tuple(PartContract(part.role, part.table.schema, keys) for part in parts),
-        (),
-        "difference",
+        REGISTRY.lookup(method.stage.node.method).semantics.empty_cell_reasons,
+        REGISTRY.lookup(method.stage.node.method).semantics.persistent_state_kind or "none",
         status_schema,
         checks,
+        not keys,
     )
     return from_arrow(
         primary,
@@ -959,12 +1258,17 @@ def _original_ratio_rollup_stage(
         with localcontext() as context:
             context.prec = 100
             numerator = sum(
-                totals[name] * (1 if name.startswith("plus_") else -1) for name in components[::2]
+                totals[name] * (1 if name.startswith("plus_") else -1)
+                for name in components[: 2 * len(original_contract.empty_rules) : 2]
             )
         denominator = 1
         defined = all(
             totals[name] > 0 or rule == "zero"
-            for name, rule in zip(components[1::2], original_contract.empty_rules, strict=True)
+            for name, rule in zip(
+                components[1 : 2 * len(original_contract.empty_rules) : 2],
+                original_contract.empty_rules,
+                strict=True,
+            )
         )
         tag = "defined" if defined else "null"
         reason = None if defined else "empty_contribution"
@@ -1370,7 +1674,15 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
             if isinstance(stage.stage.node.parameters, PartsTransport)
             and stage.stage.node.parameters.external_predicate
             else 2
-            if name in ("cell.difference", "association.spearman", "group.attach", "group.complete")
+            if name
+            in (
+                "cell.difference",
+                "cell.relative_change",
+                "cell.ratio",
+                "association.spearman",
+                "group.attach",
+                "group.complete",
+            )
             else 1
         )
         if (
@@ -1391,6 +1703,8 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                 "state_rollup.fold",
                 "state_rollup.linear",
                 "cell.difference",
+                "cell.relative_change",
+                "cell.ratio",
                 "association.spearman",
                 "row.count",
                 "row.count_defined",
@@ -1416,7 +1730,11 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
             "state_rollup.linear",
         ) and any(check.node_id == stage.stage.node.identity for check in lowered.admitted.checks):
             raise _invalid("fixed rollup lacks frozen completed partition and coverage evidence")
-        if arity == 2 and name not in ("group.attach", "group.complete"):
+        if (
+            arity == 2
+            and name not in ("group.attach", "group.complete")
+            and not isinstance(stage.stage.node.parameters, CellDerive)
+        ):
             domains = tuple(edge.node.signature.domain for edge in stage.stage.node.inputs)
             if any(
                 domain.binding != domains[0].binding
@@ -1526,7 +1844,7 @@ def execute_verified_fixed(
             "state_rollup.max",
         ):
             result = _original_sum_stage(stage, values[0], binding)
-        elif name == "cell.difference":
+        elif name in ("cell.difference", "cell.relative_change", "cell.ratio"):
             result = _difference_stage(stage, (values[0], values[1]), proof, binding, checks)
         elif name == "association.spearman":
             if values[0].contract.key_fields != values[1].contract.key_fields:

@@ -10,6 +10,7 @@ from functools import cmp_to_key
 import pandas as pd
 import pyarrow as pa
 
+from marivo.analysis._comparison import WindowBucketAlignment
 from marivo.analysis.datasets.actions import construct_operator
 from marivo.analysis.datasets.base import Dataset, _dataset_repr, _validate_input_ownership
 from marivo.analysis.datasets.descriptors import (
@@ -55,7 +56,6 @@ from marivo.analysis.operators.contracts import (
     ComparePayload,
     CompareSpecV1,
     DeltaSemantics,
-    WindowBucketAlignment,
     comparison_basis,
     decode_comparison_basis,
 )

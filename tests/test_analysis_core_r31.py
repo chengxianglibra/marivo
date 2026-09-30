@@ -13,9 +13,11 @@ from marivo.analysis.core.model import (
     Binding,
     Coordinate,
     CoreRuleError,
+    CorrespondencePart,
     CoveragePart,
     Defined,
     DomainSignature,
+    EndpointPart,
     Evidence,
     Fact,
     FactInput,
@@ -353,7 +355,15 @@ def test_cells_are_distinct_from_pairing_and_post_is_conditional() -> None:
     assert result.rule == "cell_derive@v1"
     assert len(result.obligations) == 2
     assert result.post[0] not in available_facts(result.output)
-    assert {part.side for part in result.output.parts} == {"current", "baseline"}
+    assert {part.side for part in result.output.parts if isinstance(part, EndpointPart)} == {
+        "current",
+        "baseline",
+    }
+    assert tuple(part for part in result.output.parts if isinstance(part, CorrespondencePart)) == (
+        CorrespondencePart(
+            current.domain.binding, current.domain.instance_key, baseline.domain.instance_key, "v2"
+        ),
+    )
     assert derive_numeric_cell("difference", Defined(5), Defined(2)) == Defined(3)
     assert derive_numeric_cell("ratio", Defined(5), Defined(0)) == Undefined("zero_denominator")
     for cell in (Null("source_null"), Undefined("empty_mean"), Unknown("coverage")):

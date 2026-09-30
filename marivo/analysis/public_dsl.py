@@ -13,6 +13,11 @@ from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, overload
 import pandas as pd
 
 from marivo._temporal import BeforeEndBoundary, Grain, TimeScope
+from marivo.analysis._comparison import CohortContrast as CohortContrast
+from marivo.analysis._comparison import ExactKeys as ExactKeys
+from marivo.analysis._comparison import PeriodChange as PeriodChange
+from marivo.analysis._comparison import TimeChange as TimeChange
+from marivo.analysis._comparison import UnionKeys as UnionKeys
 from marivo.analysis._time_grid import GridEndpoint as GridEndpoint
 from marivo.analysis._time_grid import GridWindow as GridWindow
 from marivo.analysis._time_grid import TimeGrid as TimeGrid
@@ -55,7 +60,7 @@ from marivo.analysis.materialization.graph_fields import (
     root_route,
     root_routes,
 )
-from marivo.analysis.materialization.graph_relation import FrozenBinding, Relation
+from marivo.analysis.materialization.graph_relation import FrozenBinding, LiveBinding, Relation
 from marivo.analysis.methods.physical import ScalarType
 from marivo.refs import (
     DimensionKind,
@@ -67,6 +72,7 @@ from marivo.refs import (
     SemanticKind,
     TimeDimensionKind,
 )
+from marivo.semantic.ir import TargetRelationshipContract
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from marivo.semantic.validator import normalize_target_relationship
 
@@ -78,6 +84,8 @@ RootRoute: TypeAlias = RootRouteValue
 RootRoutes: TypeAlias = RootRoutesValue
 MetricInputValue: TypeAlias = Ref[MetricKind] | RuntimeMetricExpr
 _TOKEN = object()
+_EXACT_KEYS = ExactKeys()
+_TIME_CHANGE = TimeChange()
 
 
 def _reject(expected: str, received: str, repair: str) -> DatasetConstructionError:
@@ -289,7 +297,7 @@ def _kind(node: Relation) -> str:
     if isinstance(params, AssociationScore):
         return "correlate"
     if isinstance(params, CellDerive):
-        return "compare"
+        return "relation_ratio" if params.method == "ratio" else "compare"
     if isinstance(params, BindProject):
         return "read"
     if isinstance(params, MapCorrespond):
@@ -401,7 +409,7 @@ class _Value:
             names = ("coefficient",) if fixed else ("execute",)
         elif kind == "correlate_where":
             names = ("summarize",)
-        elif kind == "compare":
+        elif kind in ("compare", "relation_ratio"):
             names = ("where", "summarize")
         elif kind == "where":
             names = ("members", "summarize") if signature.quantity is not None else ("members",)
@@ -429,8 +437,11 @@ class _Value:
             names = tuple(dict.fromkeys((*names, "group_by", "summarize")))
         if not fixed and kind not in ("members", "read", "group", "correlate"):
             names = (*names, "execute")
-        if self._node.root.value_type != ScalarType("int64"):
-            names = tuple(name for name in names if name != "compare")
+        if isinstance(self, _NumericComparison):
+            if self._node.comparison_error is None:
+                names = tuple(dict.fromkeys((*names, "compare", "ratio")))
+            else:
+                names = tuple(name for name in names if name not in ("compare", "ratio"))
         if (
             "subject" in roles
             and callable(getattr(type(self), "members", None))
@@ -453,6 +464,8 @@ class _Value:
         signature = self._node.root.signature
         quantity = signature.quantity
         facts: list[tuple[str, str]] = []
+        if self._node.comparison_error is not None:
+            facts.append(("comparison_unavailable", self._node.comparison_error))
         params = self._node.definition.parameters
         if isinstance(params, BindProject):
             facts.extend((("field", params.ref.path), ("field_kind", params.ref.kind.value)))
@@ -706,7 +719,98 @@ class _Value:
         return tuple(actions)
 
 
-class _OriginalContinuation(_Value):
+class _NumericComparison(_Value):
+    """Shared numeric composition without granting original Metric reductions."""
+
+    def compare(
+        self,
+        baseline: NumericRelation,
+        *,
+        design: TimeChange | CohortContrast | PeriodChange = _TIME_CHANGE,
+        value: Literal["difference", "relative_change"] = "difference",
+    ) -> LogicalDifferenceRelation:
+        """Construct an absolute or relative comparison with ordered recursive endpoints.
+
+        Args:
+            baseline: Numeric endpoint with a compatible recursive quantity template.
+            design: TimeChange, common-coordinate CohortContrast, or complete-grid PeriodChange.
+            value: Absolute difference or change divided by the absolute baseline.
+        Returns: A LogicalDifferenceRelation bound to this exact relation.
+        Example: ``result = relation.compare(baseline)``.
+        Constraints: Time/period comparisons share target captures; cohorts share Group/Singleton coordinates and time.
+        Use homogeneous numeric types; absolute Decimal differences need equal scales and Duration units must match.
+        Float folds and quantiles require an error envelope and are not comparison-qualified.
+        Restoring an old Difference requires re-executing its source comparison.
+        """
+        if (
+            not isinstance(baseline, _NumericComparison)
+            or type(design) not in (TimeChange, CohortContrast, PeriodChange)
+            or value not in ("difference", "relative_change")
+        ):
+            raise _reject(
+                "numeric endpoints, a closed comparison design and value choice",
+                repr((type(baseline).__name__, type(design).__name__, value)),
+                "Use typed numeric endpoints and mv.TimeChange(), mv.CohortContrast(), or mv.PeriodChange(alignment=mv.window_bucket()).",
+            )
+        return LogicalDifferenceRelation(
+            _TOKEN,
+            self._node.combine(
+                baseline._node,
+                value,
+                design=design.kind,
+                pairing=design.pairing.missing
+                if isinstance(design.pairing, UnionKeys)
+                else "exact",
+            ),
+            self._runtime,
+            inputs=(self, baseline),
+        )
+
+    def ratio(
+        self, other: NumericRelation, *, pairing: ExactKeys | OneToOneCorrespondence = _EXACT_KEYS
+    ) -> LogicalNumericRelation:
+        """Divide corresponding numeric values, preserving their ordered endpoints.
+
+        Args:
+            other: Denominator relation from the same Session and source/fixed mode.
+            pairing: Unique complete typed-key correspondence.
+        Returns: A LogicalNumericRelation with ordinary quotient semantics.
+        Example: ``quotient = current.ratio(reference, pairing=mv.ExactKeys())``.
+        Constraints: Time roles must match; zero denominators remain Undefined.
+        Ordinary ratios do not acquire original Metric rollup or attribution.
+        Float folds and quantiles without retained error envelopes reject.
+        """
+        if not isinstance(other, _NumericComparison) or type(pairing) not in (
+            ExactKeys,
+            OneToOneCorrespondence,
+        ):
+            raise _reject(
+                "ExactKeys or exact-node one_to_one",
+                type(pairing).__name__,
+                "Bind numeric endpoints and their explicit correspondence.",
+            )
+        if isinstance(pairing, OneToOneCorrespondence):
+            if (
+                pairing._left.root is not self._node.root
+                or pairing._right.root is not other._node.root
+            ):
+                raise _reject(
+                    "the correspondence's exact ordered endpoint nodes",
+                    "correspondence reused for different nodes",
+                    "Build one_to_one(left=this_relation, right=other, via=relationship).",
+                )
+            node = self._node.combine(
+                other._node,
+                "relation_ratio",
+                design="period" if pairing._time is not None else "time",
+                relationship=pairing._relationship,
+            )
+        else:
+            node = self._node.combine(other._node, "relation_ratio")
+        return LogicalNumericRelation(_TOKEN, node, self._runtime, inputs=(self, other))
+
+
+class _OriginalContinuation(_NumericComparison):
     def group_by(
         self,
         *dimensions: Ref[DimensionKind]
@@ -1623,7 +1727,7 @@ class GroupedRatioRelation(_Value):
         return LogicalStatisticRelation(_TOKEN, node, self._runtime, inputs=(self,))
 
 
-class LogicalNumericRelation(_Value):
+class LogicalNumericRelation(_NumericComparison):
     """One unexecuted original Metric observation over an Entity domain."""
 
     def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
@@ -1661,22 +1765,6 @@ class LogicalNumericRelation(_Value):
         """
         return LogicalSelectedNumericRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
-
-    def compare(self, baseline: LogicalNumericRelation) -> LogicalDifferenceRelation:
-        """Construct an exact same-member absolute time difference.
-
-        Args:
-            baseline: Comparison endpoint over the same exact member implementation.
-        Returns: A LogicalDifferenceRelation bound to this exact relation.
-        Example: ``result = relation.compare(baseline)``.
-        Constraints: Endpoints need the same member, Metric, route, and distinct windows.
-        """
-        return LogicalDifferenceRelation(
-            _TOKEN,
-            self._node.combine(baseline._node, "difference"),
-            self._runtime,
-            inputs=(self, baseline),
         )
 
     def correlate(
@@ -1780,7 +1868,7 @@ class LogicalNumericRelation(_Value):
         return MaterializedNumericRelation(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedNumericRelation(_MaterializedValue):
+class MaterializedNumericRelation(_MaterializedValue, _NumericComparison):
     """Exact fixed original Metric observation with retained components."""
 
     def members(self) -> LogicalFixedAnalysisDomain:
@@ -1817,22 +1905,6 @@ class MaterializedNumericRelation(_MaterializedValue):
         """
         return LogicalSelectedNumericRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
-
-    def compare(self, baseline: MaterializedNumericRelation) -> LogicalDifferenceRelation:
-        """Compare exact retained observed endpoints after binding checks.
-
-        Args:
-            baseline: Comparison endpoint over the same exact member implementation.
-        Returns: A LogicalDifferenceRelation bound to this exact relation.
-        Example: ``result = relation.compare(baseline)``.
-        Constraints: Endpoints need the same member, Metric, route, and distinct windows.
-        """
-        return LogicalDifferenceRelation(
-            _TOKEN,
-            self._node.combine(baseline._node, "difference"),
-            self._runtime,
-            inputs=(self, baseline),
         )
 
     def correlate(
@@ -2009,7 +2081,7 @@ class MaterializedRolledNumericRelation(_MaterializedValue, _OriginalContinuatio
         )
 
 
-class LogicalRatioRelation(_Value):
+class LogicalRatioRelation(_NumericComparison):
     """Unexecuted ratio observation with its original component state."""
 
     def group_by(
@@ -2092,7 +2164,7 @@ class LogicalRatioRelation(_Value):
         return MaterializedRatioRelation(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedRatioRelation(_MaterializedValue):
+class MaterializedRatioRelation(_MaterializedValue, _NumericComparison):
     """Fixed ratio observation with retained numerator and denominator parts."""
 
     def group_by(
@@ -2223,7 +2295,7 @@ class MaterializedRolledRatioRelation(_MaterializedValue, _OriginalContinuation)
         )
 
 
-class LogicalDifferenceRelation(_Value):
+class LogicalDifferenceRelation(_NumericComparison):
     """Unexecuted exact same-member absolute Difference."""
 
     @property
@@ -2284,7 +2356,7 @@ class LogicalDifferenceRelation(_Value):
         )
 
 
-class MaterializedDifferenceRelation(_MaterializedValue):
+class MaterializedDifferenceRelation(_MaterializedValue, _NumericComparison):
     """Fixed exact Difference with retained paired endpoints."""
 
     @property
@@ -2332,7 +2404,7 @@ class MaterializedDifferenceRelation(_MaterializedValue):
         )
 
 
-class LogicalSelectedDifferenceRelation(_Value):
+class LogicalSelectedDifferenceRelation(_NumericComparison):
     """Unexecuted selected Difference with admitted member projection."""
 
     def members(self) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
@@ -2381,7 +2453,7 @@ class LogicalSelectedDifferenceRelation(_Value):
         )
 
 
-class MaterializedSelectedDifferenceRelation(_MaterializedValue):
+class MaterializedSelectedDifferenceRelation(_MaterializedValue, _NumericComparison):
     """Fixed selected Difference with exact member projection."""
 
     def members(self) -> LogicalFixedAnalysisDomain:
@@ -2441,7 +2513,7 @@ class GroupedStatisticRelation(_Value):
         return replace(super().contract(), actions=self._action_contract(("rollup",)))
 
 
-class _StatisticContinuation(_Value):
+class _StatisticContinuation(_NumericComparison):
     def group_by(
         self,
         *keys: Ref[DimensionKind] | Ref[EntityKind],
@@ -2675,9 +2747,14 @@ def wrap_materialized(
             if isinstance(params, PartsTransport) and params.field_kind == "measure":
                 return MaterializedSelectedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
             return MaterializedSelectedCategoryRelation(_TOKEN, node, runtime, dataset=dataset)
-        if isinstance(node.root.signature.quantity, (ObservedQuantity, RolledQuantity)):
+        if (
+            isinstance(node.root.signature.quantity, (ObservedQuantity, RolledQuantity))
+            or node.root.signature.quantity.method_version == "cell.ratio@v1"
+        ):
             return MaterializedSelectedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
         return MaterializedSelectedDifferenceRelation(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "relation_ratio":
+        return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
     if kind == "compare":
         return MaterializedDifferenceRelation(_TOKEN, node, runtime, dataset=dataset)
     if kind == "correlate":
@@ -3053,3 +3130,163 @@ PublicMaterialized: TypeAlias = (
     | MaterializedCoefficientSelectionRelation
     | MaterializedAssociationResult
 )
+
+
+NumericRelation: TypeAlias = (
+    LogicalNumericRelation
+    | MaterializedNumericRelation
+    | LogicalRatioRelation
+    | MaterializedRatioRelation
+    | LogicalRolledNumericRelation
+    | MaterializedRolledNumericRelation
+    | LogicalRolledRatioRelation
+    | MaterializedRolledRatioRelation
+    | LogicalDifferenceRelation
+    | MaterializedDifferenceRelation
+    | LogicalSelectedNumericRelation
+    | MaterializedSelectedNumericRelation
+    | LogicalSelectedDifferenceRelation
+    | MaterializedSelectedDifferenceRelation
+    | LogicalStatisticRelation
+    | MaterializedStatisticRelation
+)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class OneToOneCorrespondence:
+    """A declared relationship bound to two exact ordered numeric nodes.
+
+    Obtain this value from one_to_one; it cannot be reused for equivalent new nodes.
+    """
+
+    _left: Relation
+    _right: Relation
+    _relationship: TargetRelationshipContract
+    _time: PeriodChange | None
+
+    def __init__(
+        self,
+        token: object,
+        left: Relation,
+        right: Relation,
+        relationship: TargetRelationshipContract,
+        time: PeriodChange | None,
+    ) -> None:
+        if token is not _TOKEN:
+            raise _reject(
+                "one_to_one producer",
+                "direct correspondence construction",
+                "Call mv.one_to_one(left=..., right=..., via=...).",
+            )
+        object.__setattr__(self, "_left", left)
+        object.__setattr__(self, "_right", right)
+        object.__setattr__(self, "_relationship", relationship)
+        object.__setattr__(self, "_time", time)
+
+    def __repr__(self) -> str:
+        return f"<OneToOneCorrespondence left={self._left.root.identity[:12]} right={self._right.root.identity[:12]}; use .show()>"
+
+    def show(self) -> None:
+        """Print the exact ordered binding and declared relationship.
+
+        Args: None.
+        Returns: None; prints bounded identity facts.
+        Example: ``mv.one_to_one(left=first, right=second, via=relationship).show()``.
+        Constraints: Does not read business rows or execute a Run.
+        """
+        print(
+            f"OneToOneCorrespondence: {self._left.root.identity} -> {self._right.root.identity}; via={self._relationship.ref.path}; time={'window_bucket' if self._time else 'exact'}"
+        )
+
+
+def one_to_one(
+    *,
+    left: NumericRelation,
+    right: NumericRelation,
+    via: Ref[RelationshipKind],
+    time: PeriodChange | None = None,
+) -> OneToOneCorrespondence:
+    """Bind a declared one-to-one relationship to exact ordered numeric endpoints.
+
+    Args:
+        left: Numerator relation from the same Session and mode as right.
+        right: Denominator relation with the complete retained relationship keys.
+        via: Explicit declared one-to-one Relationship Ref.
+        time: Optional complete PeriodChange mapping for different time grids.
+    Returns: An immutable OneToOneCorrespondence for these exact nodes only.
+    Example: ``left.ratio(right, pairing=mv.one_to_one(left=left, right=right, via=relationship))``.
+    Constraints: Rejects many-to-one, UnionKeys, mixed source/fixed modes and unretained relationship keys.
+    """
+    from marivo.analysis.core.graph import MethodNode, topology
+    from marivo.analysis.core.rules import (
+        ObserveCount,
+        ObserveMetric,
+        ObserveWeightedMean,
+        OriginalReduce,
+    )
+    from marivo.analysis.materialization.graph_composition import thaw_endpoint
+
+    if (
+        not isinstance(left, _NumericComparison)
+        or not isinstance(right, _NumericComparison)
+        or not isinstance(via, Ref)
+        or via.kind != SemanticKind.RELATIONSHIP
+        or (
+            time is not None
+            and (type(time) is not PeriodChange or type(time.pairing) is not ExactKeys)
+        )
+    ):
+        raise _reject(
+            "numeric endpoints, a Relationship Ref and optional exact PeriodChange",
+            "invalid correspondence arguments",
+            "Use one_to_one with the exact typed endpoints and declared one-to-one relationship.",
+        )
+    if (
+        type(left._node.binding) is not type(right._node.binding)
+        or left._runtime.session_ref != right._runtime.session_ref
+        or left._runtime.store.store_id != right._runtime.store.store_id
+    ):
+        raise _reject(
+            "one Session and source/fixed mode",
+            "foreign or mixed endpoints",
+            "Use endpoints from the same Session and execution mode.",
+        )
+    if isinstance(left._node.binding, LiveBinding):
+        relationship = normalize_target_relationship(left._node.binding.graph.registry, via.path)
+    else:
+        retained: list[TargetRelationshipContract] = []
+        pending = [left._node.definition, right._node.definition]
+        while pending:
+            for node in topology(pending.pop()):
+                if not isinstance(node, MethodNode):
+                    continue
+                params = node.parameters
+                if isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
+                    retained.extend(item for item in params.path if item.ref.path == via.path)
+                elif isinstance(params, BindProject):
+                    retained.extend(
+                        item for item in params.path_contracts if item.ref.path == via.path
+                    )
+                elif (
+                    isinstance(params, CellDerive)
+                    and params.relationship is not None
+                    and params.relationship.ref.path == via.path
+                ):
+                    retained.append(params.relationship)
+                if isinstance(params, (CellDerive, PartsTransport, RowState, OriginalReduce)):
+                    pending.extend(thaw_endpoint(value) for value in params.endpoint_definitions)
+        if not retained or any(item != retained[0] for item in retained):
+            raise _reject(
+                "one retained exact relationship definition",
+                via.path,
+                "Use Artifacts retaining this declared correspondence; fixed continuations never reload Semantic.",
+            )
+        relationship = retained[0]
+    # Construction checks the same core correspondence rule without executing its graph.
+    left._node.combine(
+        right._node,
+        "relation_ratio",
+        design="period" if time is not None else "time",
+        relationship=relationship,
+    )
+    return OneToOneCorrespondence(_TOKEN, left._node, right._node, relationship, time)

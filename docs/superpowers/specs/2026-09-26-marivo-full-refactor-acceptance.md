@@ -1254,3 +1254,64 @@ Product code/tests, packaged skills and AGENTS.md remain unchanged. Document
 validation evidence is recorded in the ledger; no product tests, Runtime,
 site build, release-check, MinIO, commit, push or publication is claimed.
 R6.1 is complete as a contract-freeze package; R6.2–R6.7 remain to implement.
+
+
+## R6.2 corresponding numeric relations (2026-09-30)
+
+Baseline `panda` / `5b4d58da0d3ba369bb4ad8afef91d318e77fe540`. The three public
+comparison designs, Exact/Union policies, concrete Metric empty finish,
+relative change, recursive Difference and ordinary exact/one-to-one ratio are
+connected through the unified graph, Runtime and Store 7 source/fixed paths.
+The [R6 migration ledger](2026-09-30-marivo-full-algebra-dsl-r6-migration-ledger.md#r62-implementation-and-qualification-2026-09-30)
+records each method/type/time/route cell and its independent public test owner.
+
+Difference retains state/part v2; relative_change and relation_ratio retain v1.
+Changed implementations use contract 4. Recovery is receipt/part/version checked
+and source-free; old Difference state is rejected with a re-execute repair.
+Native Help, export/type snapshots and English/Chinese examples are aligned.
+No original rollup, share or attribution is inferred for derived comparisons.
+
+Validation evidence:
+
+- **Passed / Runtime**: `make runtime-test TESTS='tests/test_analysis_comparison_runtime_r62.py tests/test_analysis_members_r52.py'`: 98 passed. The final additional float-fold static admission/disclosure regression passed separately (1 passed). Together these cover all 72 comparison Runtime cases and 27 member cases; no comparison Runtime case was skipped.
+- **Passed / focused**: comparison kernels, native disclosure and bilingual example regressions: 60 passed; numeric registration precision: 18 passed. Necessary original-state, numeric and graph-publication Runtime regressions were repaired and rerun in the 90-pass repair batch; the one remaining untimed-read failure then passed alone and in the 98-case run.
+- **Passed / broad gate**: `make check-agent`: formatting, lint, import contracts, typing (409 source files), 5476 default tests and API documentation generation. Five default tests were skipped: four SQLite fixtures do not declare Decimal storage, and one metadata-owner test delegates a channel failure to dispatcher fallback. They are not qualification evidence.
+- **Failures resolved**: original linear rollup consuming newly retained magnitude columns; absent quantity metadata on numeric Measure reads; bilingual example block count; stale Duration-ratio precision expectation. Failed runs are not counted as passes. Final checks have no known failing case.
+- **Unverified / outside granted cells**: float fold/quantile comparison error envelopes, arbitrary numerical/time/backend cross-products beyond the ledger, remote backends, site build, installed wheel and real-Agent journeys. Unsupported float fold/quantile comparisons fail during construction and are excluded from dynamic continuation actions. No positive qualification is inferred from that rejection.
+
+The plan and migration ledger grant only the explicit public source/fixed R6.2
+cells. The required I/F/D/T comparison rows have public positive evidence; the
+remaining temporal-fold/distribution combinations are listed separately above.
+
+This is bounded R6.2 evidence, not whole-R6, six-backend, installed-wheel,
+site-build or real-Agent acceptance. R6.3–R6.7 were not implemented. No commit,
+push, publication, release-check, MinIO, AGENTS.md or packaged skill edits.
+
+
+### R6.2 review repairs (2026-09-30)
+
+All three reported defects were reproduced and repaired without changing the
+R6.3–R6.7 boundary or editing AGENTS.md / packaged skills:
+
+1. Float row sum/mean/extrema retain error envelopes. Grouped row-state merge
+   preserves those bounds and accounts for additional summation rounding. Public
+   source/fixed ratios over a cancellation-prone mean now reject a denominator
+   interval crossing zero; stable ratios retain nonzero endpoint bounds. Invalid
+   negative, nonfinite or non-float error state rejects validation.
+2. PeriodChange after original bucket rollup normalizes replaceable anchor
+   coordinates in the template. DuckDB table and Parquet source/fixed comparisons
+   pass while the existing complete-bucket correspondence checks remain active.
+3. Fixed comparison builds one complete-key component index per endpoint. A
+   deterministic public regression checks two indexing passes regardless of the
+   number of paired rows. An isolated single-endpoint lookup probe, including
+   index construction after the repair, measured 200/400/800 rows at
+   0.0005/0.0013/0.0024 seconds, versus 0.0748/0.2630/0.9410 seconds before repair.
+   These are hotspot observations, not end-to-end latency guarantees.
+
+Final validation:
+
+- `make runtime-test TESTS='tests/test_analysis_comparison_runtime_r62.py tests/test_analysis_coordinates_r54.py'`: **149 passed**, no failures or skips (81 comparison and 68 R5.4 cases).
+- `make test TESTS='tests/test_analysis_graph_runtime_r42.py tests/test_analysis_comparison_r62.py'`: **38 passed**.
+- `make check-agent`: **5481 passed, 5 skipped**; formatting, lint, import contracts, 409-file typing and API documentation generation passed. The five existing skip reasons remain those recorded above.
+- The first broad repair run had two execution-key snapshot failures after the new bound-state parameter changed graph fingerprints. Both expected snapshots were updated after verifying their binding assertions, and the focused and full gates passed on rerun.
+- `git diff --check`: passed. No release-check, MinIO, commit, push or publication. Existing local changes and the separate snapshot-DAG handoff remain preserved.

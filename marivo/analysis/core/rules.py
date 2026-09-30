@@ -13,6 +13,7 @@ from marivo.analysis.core.model import (
     Coordinate,
     CoordinateStatePart,
     Correspondence,
+    CorrespondencePart,
     CoveragePart,
     Defined,
     DerivedQuantity,
@@ -98,6 +99,8 @@ class BindProject:
     quantity: ObservedQuantity | None = None
     resolved_versions: tuple[str, ...] = ()
     expression_bodies: tuple[tuple[str, str, str], ...] = ()
+    measure_unit: str | None = None
+    attribute_time: str = "untimed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,13 +259,20 @@ class AttachCategory:
 
 @dataclass(frozen=True, slots=True)
 class CellDerive:
-    method: Literal["difference", "ratio"]
+    method: Literal["difference", "relative_change", "ratio"]
     definition_id: str
     value_policy: str
     unit: str | None
     time_scope: str
     pairing_check_id: CheckId | None = None
     numeric_check_id: CheckId | None = None
+    endpoint_definitions: tuple[str, ...] = ()
+    design: Literal["time", "cohort", "period", "ratio"] = "time"
+    pairing: Literal["exact", "keep", "metric_empty"] = "exact"
+    empty_rules: tuple[Literal["null", "zero", "zero_denominator"], ...] = ()
+    time_index: int | None = None
+    bucket_mapping: tuple[tuple[str, str], ...] = ()
+    relationship: TargetRelationshipContract | None = None
 
 
 RowMethod: TypeAlias = Literal[
@@ -279,6 +289,8 @@ class RowState:
     weighting: str = "equal_weight"
     numeric_check_id: CheckId | None = None
     merge: bool = False
+    endpoint_definitions: tuple[str, ...] = ()
+    retain_error: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,6 +323,7 @@ class OriginalReduce:
     ] = "sum"
     coordinates: tuple[Coordinate, ...] = ()
     time_mapping: tuple[tuple[str, str], ...] = ()
+    endpoint_definitions: tuple[str, ...] = ()
 
 
 TransportMode: TypeAlias = Literal["where", "projection", "compare", "view", "materialize"]
@@ -326,6 +339,7 @@ class PartsTransport:
     field_kind: Literal["measure", "dimension", "time_dimension"] | None = None
     external_predicate: bool = False
     classification: Coordinate | None = None
+    endpoint_definitions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -703,11 +717,29 @@ def _bind_project(inputs: tuple[Signature, ...], params: BindProject) -> RuleDer
         if params.path
         else ()
     )
+    quantity = params.quantity
+    projected_quantity: ObservedQuantity | DerivedQuantity | None = quantity
+    if params.ref.kind is SemanticKind.MEASURE:
+        projected_quantity = DerivedQuantity(
+            f"field:{params.ref.path}:{source.domain.definition_id}:{params.attribute_time}",
+            "bind_project@v1",
+            (params.ref.path,),
+            params.measure_unit,
+            params.attribute_time,
+            "strict",
+        )
+    elif params.measure_unit is not None or params.attribute_time != "untimed":
+        reject(
+            "Measure-only numeric quantity metadata",
+            repr(params.ref),
+            "Bind numeric metadata only for a Measure read.",
+            "core.bind_project.quantity",
+        )
     return _result(
         "bind_project@v1",
         inputs,
         source.domain,
-        params.quantity,
+        projected_quantity,
         source.parts,
         pre=pre,
         required=(),
@@ -992,8 +1024,8 @@ def _observe_metric(
     ):
         extra = (
             ("absolute_sum",)
-            if aggregate_method == "sum"
-            else ("absolute_weight_sum",)
+            if aggregate_method in ("sum", "mean")
+            else ("absolute_weight_sum", "absolute_weighted_numerator")
             if aggregate_method == "weighted_mean"
             else ()
         )
@@ -1255,28 +1287,93 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
     binding = _binding(inputs, "core.cell")
     left, right = inputs
     assert left.quantity is not None and right.quantity is not None
-    if left.domain.instance_key != right.domain.instance_key:
+    equivalent_keys = left.domain.instance_key == right.domain.instance_key
+    if params.bucket_mapping:
+        from dataclasses import replace
+
+        grids = (left.domain.time_grid, right.domain.time_grid)
+        if (
+            grids[0] is None
+            or grids[1] is None
+            or len(grids[0].cells) != len(grids[1].cells)
+            or params.bucket_mapping
+            != tuple(
+                (a.identity, b.identity)
+                for a, b in zip(grids[0].cells, grids[1].cells, strict=True)
+            )
+        ):
+            reject(
+                "complete equal-length frozen bucket correspondence",
+                "invalid period map",
+                "Retain both original grids.",
+                "core.cell.period",
+            )
+        equivalent_keys = tuple(
+            replace(key, field="time") if key.role == "anchor" else key
+            for key in left.domain.instance_key
+        ) == tuple(
+            replace(key, field="time") if key.role == "anchor" else key
+            for key in right.domain.instance_key
+        )
+    if params.relationship is not None:
+        relationship = params.relationship
+        left_keys = tuple(key for key in left.domain.instance_key if key.role != "anchor")
+        right_keys = tuple(key for key in right.domain.instance_key if key.role != "anchor")
+        if (
+            params.method != "ratio"
+            or params.pairing != "exact"
+            or relationship.cardinality != "one_to_one"
+            or not left_keys
+            or not right_keys
+            or len(left_keys) != len(right_keys)
+            or any(key.entity_ref.path != relationship.from_entity_ref.path for key in left_keys)
+            or any(key.entity_ref.path != relationship.to_entity_ref.path for key in right_keys)
+            or relationship.keys
+            != tuple((a.field, b.field) for a, b in zip(left_keys, right_keys, strict=True))
+        ):
+            reject(
+                "declared one-to-one correspondence on complete retained identity keys",
+                repr(relationship.ref),
+                "Bind the exact ordered endpoint identities and relationship.",
+                "core.cell.relationship",
+            )
+        equivalent_keys = len(left.domain.instance_key) == len(right.domain.instance_key)
+    if not equivalent_keys:
         reject(
             "matching typed coordinate keys",
             repr(right.domain.instance_key),
             "Map the two domains explicitly.",
             "core.cell.keys",
         )
-    if left.quantity.unit != right.quantity.unit or left.quantity.unit != params.unit:
+    from marivo.semantic.unit_algebra import ratio_unit
+
+    expected_unit = (
+        ratio_unit(left.quantity.unit, right.quantity.unit)
+        if params.method == "ratio"
+        else left.quantity.unit
+    )
+    if (
+        params.method != "ratio" and left.quantity.unit != right.quantity.unit
+    ) or expected_unit != params.unit:
         reject(
             "matching bound units",
             repr((left.quantity.unit, right.quantity.unit)),
             "Use comparable quantities.",
             "core.cell.unit",
         )
-    if params.method not in ("difference", "ratio"):
+    if params.method not in ("difference", "relative_change", "ratio"):
         reject(
             "difference or ratio",
             str(params.method),
             "Use a closed cell method.",
             "core.cell.method",
         )
-    pair = _fact("key_set_equal", binding, params.definition_id, inputs)
+    pair = _fact(
+        "key_set_equal" if params.pairing == "exact" else "unique_key",
+        binding,
+        params.definition_id,
+        inputs,
+    )
     numeric = _fact("finite_numeric", binding, params.definition_id, inputs)
     obligations = (
         *_premise(inputs, pair, check_id=params.pairing_check_id, before="consume"),
@@ -1286,7 +1383,7 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
         params.definition_id,
         f"cell.{params.method}@v1",
         (left.quantity.definition_id, right.quantity.definition_id),
-        params.unit if params.method == "difference" else "1",
+        params.unit if params.method in ("difference", "ratio") else "1",
         params.time_scope,
         params.value_policy,
     )
@@ -1299,8 +1396,28 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
     )
     parts: tuple[Part, ...] = (
         *subjects,
-        EndpointPart(binding, "current", left.quantity.definition_id, "v1"),
-        EndpointPart(right.domain.binding, "baseline", right.quantity.definition_id, "v1"),
+        EndpointPart(
+            binding,
+            "current",
+            left.quantity.definition_id,
+            "v2" if params.method == "difference" else "v1",
+        ),
+        EndpointPart(
+            right.domain.binding,
+            "baseline",
+            right.quantity.definition_id,
+            "v2" if params.method == "difference" else "v1",
+        ),
+        CorrespondencePart(
+            binding,
+            left.domain.instance_key,
+            right.domain.instance_key,
+            "v2" if params.method == "difference" else "v1",
+            params.pairing,
+            params.empty_rules,
+            params.time_index,
+            params.bucket_mapping,
+        ),
     )
     return _result(
         "cell_derive@v1",
@@ -1310,7 +1427,7 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
         parts,
         pre=(pair, numeric),
         required=(),
-        created=("current_endpoint", "baseline_endpoint"),
+        created=("current_endpoint", "baseline_endpoint", "correspondence"),
         post=(_fact("cell_policy", binding, output.definition_id),),
         obligations=obligations,
         eval_id=f"cell_derive.{params.method}@v1",
@@ -1428,7 +1545,8 @@ def _row_state(inputs: tuple[Signature, ...], params: RowState) -> RuleDerivatio
             or state.method_version != f"row.{params.method}@v1"
             or quantity.method_version != state.method_version
             or state.version != "v1"
-            or state.components != semantics.state_components
+            or state.components
+            != (*semantics.state_components, *(("error_bound",) if params.retain_error else ()))
             or state.input_domain_id != quantity.input_domain_id
             or params.definition_id != quantity.definition_id
         ):
@@ -1520,7 +1638,7 @@ def _row_state(inputs: tuple[Signature, ...], params: RowState) -> RuleDerivatio
         quantity.definition_id,
         method_version,
         source.domain.definition_id,
-        method_semantics.state_components,
+        (*method_semantics.state_components, *(("error_bound",) if params.retain_error else ())),
         "v1",
     )
     return _result(
@@ -1657,10 +1775,11 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
         _component_empty_rules(inputs),
         temporal_policy=_component_temporal_policy(inputs),
     )
-    denominator_state = require_part(right, "original_state")
-    assert isinstance(denominator_state, OriginalStatePart)
-    if "absolute_sum" in denominator_state.components:
-        state = replace(state, components=(*state.components, "denominator_absolute_sum"))
+    for side, source in (("numerator", left), ("denominator", right)):
+        operand = require_part(source, "original_state")
+        assert isinstance(operand, OriginalStatePart)
+        if "absolute_sum" in operand.components:
+            state = replace(state, components=(*state.components, side + "_absolute_sum"))
     first_coordinate = next((p for p in left.parts if isinstance(p, CoordinateStatePart)), None)
     second_coordinate = next((p for p in right.parts if isinstance(p, CoordinateStatePart)), None)
     coordinate_parts: tuple[Part, ...] = ()
@@ -1790,6 +1909,12 @@ def _occurrence_combine(inputs: tuple[Signature, ...], params: OccurrenceCombine
         f"{'plus' if sign > 0 else 'minus'}_{index}_{name}"
         for index, (_source, sign) in enumerate(params.terms)
         for name in ("sum", "non_null_count")
+    )
+    components += tuple(
+        f"{'plus' if sign > 0 else 'minus'}_{index}_absolute_sum"
+        for index, (source, (_, sign)) in enumerate(zip(inputs, params.terms, strict=True))
+        if isinstance((part := require_part(source, "original_state")), OriginalStatePart)
+        and "absolute_sum" in part.components
     )
     state = OriginalStatePart(
         binding,
@@ -1967,9 +2092,24 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
                 method_semantics.state_components,
                 (
                     *method_semantics.state_components,
+                    "numerator_absolute_sum",
+                    "denominator_absolute_sum",
+                )
+                if params.method == "ratio"
+                else (),
+                (
+                    *method_semantics.state_components,
+                    "absolute_weight_sum",
+                    "absolute_weighted_numerator",
+                )
+                if params.method == "weighted_mean"
+                else (),
+                (
+                    *method_semantics.state_components,
                     {
                         "sum": "absolute_sum",
                         "sum_zero": "absolute_sum",
+                        "mean": "absolute_sum",
                         "ratio": "denominator_absolute_sum",
                         "weighted_mean": "absolute_weight_sum",
                     }.get(params.method, ""),
@@ -2120,6 +2260,7 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
             "statistical_weight",
             "current_endpoint",
             "baseline_endpoint",
+            "correspondence",
         )
         for role in params.retained_roles
     ):
@@ -2156,11 +2297,13 @@ def derive(inputs: tuple[Signature, ...], params: RuleParameters) -> RuleDerivat
 Key: TypeAlias = tuple[str | int, ...]
 
 
-def _checked_keys(keys: tuple[Key, ...], location: str) -> int | None:
+def _checked_keys(
+    keys: tuple[Key, ...], location: str, *, allow_singleton: bool = False
+) -> int | None:
     arities = {len(key) for key in keys if type(key) is tuple}
     if (
         len(arities) > 1
-        or (arities and 0 in arities)
+        or (arities and 0 in arities and not allow_singleton)
         or any(
             type(key) is not tuple or any(type(component) not in (str, int) for component in key)
             for key in keys
@@ -2240,13 +2383,20 @@ def pair_coordinates(
     current: tuple[Key, ...], baseline: tuple[Key, ...], *, exact: bool
 ) -> Pairing:
     """Keep missing sides as pairing facts rather than manufacturing Null cells."""
-    left_arity = _checked_keys(current, "core.pair.current")
-    right_arity = _checked_keys(baseline, "core.pair.baseline")
+    left_arity = _checked_keys(current, "core.pair.current", allow_singleton=True)
+    right_arity = _checked_keys(baseline, "core.pair.baseline", allow_singleton=True)
     if left_arity is not None and right_arity is not None and left_arity != right_arity:
         reject(
             "the same typed key arity",
             repr((left_arity, right_arity)),
             "Bind matching coordinate types.",
+            "core.pair",
+        )
+    if len({tuple(type(component) for component in key) for key in (*current, *baseline)}) > 1:
+        reject(
+            "the same concrete type at every complete key position",
+            repr((current, baseline)),
+            "Bind corresponding keys without implicit type conversion.",
             "core.pair",
         )
     if len(set(current)) != len(current) or len(set(baseline)) != len(baseline):
@@ -2271,7 +2421,9 @@ def pair_coordinates(
     return Pairing(frozenset(left & right), missing)
 
 
-def derive_numeric_cell(method: Literal["difference", "ratio"], left: Cell, right: Cell) -> Cell:
+def derive_numeric_cell(
+    method: Literal["difference", "relative_change", "ratio"], left: Cell, right: Cell
+) -> Cell:
     """Apply a strict two-value method; a zero denominator is Undefined."""
     if method not in ("difference", "ratio"):
         reject("difference or ratio", str(method), "Use a closed cell method.", "core.cell.eval")

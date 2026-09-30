@@ -113,3 +113,22 @@ if TYPE_CHECKING:
     assert_type(
         mv.time_scope(start="2026-08-01", end="2026-09-01").before_end, mv.BeforeEndBoundary
     )
+
+    assert_type(
+        observed.compare(
+            observed,
+            value="relative_change",
+            design=mv.TimeChange(pairing=mv.UnionKeys(missing="keep")),
+        ),
+        mv.LogicalDifferenceRelation,
+    )
+    assert_type(fixed.compare(fixed, design=mv.CohortContrast()), mv.LogicalDifferenceRelation)
+    assert_type(difference.compare(difference), mv.LogicalDifferenceRelation)
+    assert_type(observed.ratio(observed, pairing=mv.ExactKeys()), mv.LogicalNumericRelation)
+    assert_type(fixed.ratio(fixed), mv.LogicalNumericRelation)
+    pairing = mv.one_to_one(
+        left=observed, right=observed, via=ms.ref.relationship("sales.identity")
+    )
+    assert_type(pairing, mv.OneToOneCorrespondence)
+    assert_type(observed.ratio(observed, pairing=pairing), mv.LogicalNumericRelation)
+    assert_type(mv.PeriodChange(alignment=mv.window_bucket()), mv.PeriodChange)

@@ -14,7 +14,8 @@ import pyarrow as pa
 from marivo.analysis.compiler.graph_lowering import SourceBinding, lower
 from marivo.analysis.compiler.graph_plan import RouteChoice
 from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
-from marivo.analysis.core.rules import PartsTransport
+from marivo.analysis.core.model import CorrespondencePart
+from marivo.analysis.core.rules import CellDerive, PartsTransport
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization import graph_store
 from marivo.analysis.materialization.contracts import RunFailure, RunFailurePhase, canonical_json
@@ -38,7 +39,6 @@ from marivo.analysis.materialization.graph_local_execution import (
 )
 from marivo.analysis.materialization.graph_protocol import (
     DESCRIPTOR,
-    NODE,
     SNAPSHOT,
     STATE,
     Continuation,
@@ -57,6 +57,7 @@ from marivo.analysis.materialization.graph_protocol import (
     encode,
     evidence_identity,
     fixed_signature,
+    freeze_graph,
     invalid,
     plan_digest,
     receipt_digest,
@@ -351,7 +352,12 @@ def execute(
                 "marivo.analysis.method_state/v1",
                 state_kind,
                 f"marivo.analysis.state.{result.contract.state_kind}",
-                1,
+                2
+                if any(
+                    isinstance(part, CorrespondencePart) and part.version == "v2"
+                    for part in result.contract.signature.parts
+                )
+                else 1,
                 root.method.name,
                 1,
                 result.contract.input_binding,
@@ -389,8 +395,8 @@ def execute(
                         ),
                         part.role,
                         f"marivo.analysis.part.{state.kind}.{part.role}",
-                        1,
-                        1,
+                        state.contract_version,
+                        state.contract_version,
                     )
                 )
                 event("graph_part_written")
@@ -406,7 +412,7 @@ def execute(
             )
             snapshot = Continuation(
                 "marivo.analysis.continuation/v1",
-                encode(root, NODE),
+                freeze_graph(root),
                 tuple(
                     dict.fromkeys(
                         c.entity_ref.path for n in nodes for c in n.signature.domain.instance_key
@@ -438,8 +444,11 @@ def execute(
                     "keyed"
                     if keys
                     else "optional_singleton"
-                    if isinstance(root.parameters, PartsTransport)
-                    and root.parameters.mode == "where"
+                    if isinstance(root.parameters, CellDerive)
+                    or (
+                        isinstance(root.parameters, PartsTransport)
+                        and root.parameters.mode == "where"
+                    )
                     else "singleton",
                     "unordered",
                 ),

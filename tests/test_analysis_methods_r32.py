@@ -123,6 +123,7 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "map_correspond@v1": "map_correspond@v1",
         "cell.difference@v1": "cell_derive@v1",
         "cell.ratio@v1": "cell_derive@v1",
+        "cell.relative_change@v1": "cell_derive@v1",
         "row.sum@v1": "row_state@v1",
         "row.mean@v1": "row_state@v1",
         "row.min@v1": "row_state@v1",
@@ -157,6 +158,8 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
     assert all(item.semantics.owner == "analysis.core.rules" for item in REGISTRY.registrations)
     assert {item.semantics.key.name for item in REGISTRY.registrations if item.implementations} == {
         "time.product",
+        "cell.ratio",
+        "cell.relative_change",
         "group.attach",
         "group.complete",
         "metric.min",
@@ -436,7 +439,7 @@ def test_cell_semantics_are_not_adapter_options() -> None:
         "ratio",
         "ratio",
         "strict",
-        "CNY",
+        "1",
         "september",
         "source.exact_pairing@v1",
         "source.finite_numeric@v1",

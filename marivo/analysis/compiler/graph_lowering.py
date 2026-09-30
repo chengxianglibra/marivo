@@ -26,6 +26,7 @@ from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import (
     Coordinate,
     CoordinateStatePart,
+    CorrespondencePart,
     FactInput,
     Obligation,
     ObservedQuantity,
@@ -110,6 +111,16 @@ class PartColumns:
 
 
 def components(part: Part) -> tuple[str, ...]:
+    if isinstance(part, CorrespondencePart):
+        return (
+            "current_present",
+            "baseline_present",
+            "current_error_bound",
+            "baseline_error_bound",
+            "result_error_bound",
+            *(f"current_key_{i}" for i in range(len(part.current_key))),
+            *(f"baseline_key_{i}" for i in range(len(part.baseline_key))),
+        )
     if isinstance(part, (OriginalStatePart, RowStatePart)):
         return part.components
     if isinstance(part, CoordinateStatePart):
@@ -411,12 +422,101 @@ def _predicate(table: ir.Table, cell: CellColumns, predicate: ValuePredicate) ->
 
 
 def _pair_violations(left: LoweredRelation, right: LoweredRelation) -> ir.Table:
-    a = left.expression.select(*(k.column for k in left.layout.keys)).view()
-    b = right.expression.select(*(k.column for k in right.layout.keys)).view()
     keys = tuple(k.column for k in left.layout.keys)
-    if not keys or keys != tuple(k.column for k in right.layout.keys):
-        _fail("matching nonempty complete keys", repr(keys))
+    if keys != tuple(k.column for k in right.layout.keys):
+        _fail("matching complete keys", repr(keys))
+    if not keys:
+        a = left.expression.aggregate(left_count=left.expression.count()).view()
+        b = right.expression.aggregate(right_count=right.expression.count()).view()
+        counts = a.cross_join(b)
+        return counts.filter(
+            (counts.left_count != counts.right_count)
+            | (counts.left_count > 1)
+            | (counts.right_count > 1)
+        )
+    a = left.expression.select(*keys).view()
+    b = right.expression.select(*keys).view()
     return a.anti_join(b, keys).union(b.anti_join(a, keys), distinct=False)
+
+
+def _operand_bound(source: LoweredRelation, table: ir.Table) -> ir.Value:
+    zero = ibis.literal(0).cast("float64")
+    if source.node.value_type != ScalarType("float64"):
+        return zero
+    if "correspondence__result_error_bound" in table.columns:
+        return table.correspondence__result_error_bound
+    assert source.layout.cell is not None
+    rounding = 1e-12 * (1.0 + table[source.layout.cell.value].abs())
+    state = next(
+        (part for part in source.node.signature.parts if isinstance(part, OriginalStatePart)), None
+    )
+    if "original_state__absolute_sum" in table.columns:
+        error = 1e-12 * (1.0 + table.original_state__absolute_sum)
+        if state is not None and state.method_version == "mean@v1":
+            return (table.original_state__non_null_count > 0).ifelse(
+                error / table.original_state__non_null_count + rounding, zero
+            )
+        return (table[source.layout.cell.tag] == "defined").ifelse(error, zero)
+    if state is not None and state.method_version in ("mean@v1", "weighted_mean@v1", "ratio@v1"):
+        numerator = {
+            "mean@v1": "sum",
+            "weighted_mean@v1": "weighted_numerator",
+            "ratio@v1": "numerator_sum",
+        }[state.method_version]
+        if table["original_state__" + numerator].type().is_integer():
+            return rounding.fill_null(zero)
+        if state.method_version in ("weighted_mean@v1", "ratio@v1"):
+            weighted = state.method_version == "weighted_mean@v1"
+            magnitude = "absolute_weighted_numerator" if weighted else "numerator_absolute_sum"
+            denominator = "weight_sum" if weighted else "denominator_sum"
+            absolute_denominator = "absolute_weight_sum" if weighted else "denominator_absolute_sum"
+            error_n = 1e-12 * (1.0 + table["original_state__" + magnitude])
+            if weighted:
+                error_n += 1e-12 * (
+                    table.original_state__absolute_weighted_numerator
+                    + table.original_state__non_null_pair_count
+                )
+            error_d = 1e-12 * (1.0 + table["original_state__" + absolute_denominator])
+            bound = (error_n + table[source.layout.cell.value].abs() * error_d) / (
+                table["original_state__" + denominator].abs() - error_d
+            ) + rounding
+            return bound.fill_null(zero)
+        _fail("retained operand rounding envelope", "float mean lacks sufficient magnitude state")
+    if state is not None and state.method_version == "linear@v1":
+        errors = [
+            1e-12 * (1.0 + table["original_state__" + name])
+            for name in state.components
+            if name.endswith("_absolute_sum")
+        ]
+        if errors:
+            return (sum(errors, start=zero) + rounding).fill_null(zero)
+    if "row_state__error_bound" in table.columns:
+        bound = table.row_state__error_bound
+        quantity = source.node.signature.quantity
+        if quantity is not None and quantity.method_version == "row.mean@v1":
+            bound = bound / table.row_state__count + rounding
+        return bound.fill_null(zero)
+    if "row_state__sum" in table.columns and table.row_state__sum.type().is_integer():
+        return rounding.fill_null(zero)
+    if state is not None and state.method_version in ("sum@v1", "sum_zero@v1", "linear@v1"):
+        _fail(
+            "retained operand rounding envelope", "float aggregate lacks sufficient magnitude state"
+        )
+    if "row_state__sum" in table.columns:
+        _fail("retained operand rounding envelope", "float row statistic lacks error state")
+    return zero
+
+
+def _mapped_period_input(source: LoweredRelation, params: CellDerive) -> LoweredRelation:
+    if params.time_index is None:
+        return source
+    key = source.layout.keys[params.time_index].column
+    value = source.expression[key]
+    translated = ibis.cases(
+        *((value == right, left) for left, right in params.bucket_mapping),
+        else_=ibis.null().cast("string"),
+    )
+    return replace(source, expression=source.expression.mutate(**{key: translated}))
 
 
 def _difference(
@@ -425,54 +525,242 @@ def _difference(
     checks: list[LoweredCheck],
 ) -> tuple[ir.Table, RelationLayout]:
     left, right = inputs
+    params = stage.node.parameters
+    assert isinstance(params, CellDerive)
     a, b = left.layout.cell, right.layout.cell
     keys = tuple(item.column for item in left.layout.keys)
     if a is None or b is None or keys != tuple(item.column for item in right.layout.keys):
         _fail("two Cell-valued endpoints with the same complete keys", repr(keys))
-    checks.append(
-        IntegrityCheck(
-            stage.output,
-            "equal complete endpoint key sets",
-            _pair_violations(left, right),
-            _source_ids(left.source_ids, right.source_ids),
+    if params.pairing == "exact":
+        checks.append(
+            IntegrityCheck(
+                stage.output,
+                "equal complete endpoint key sets",
+                _pair_violations(left, _mapped_period_input(right, params)),
+                _source_ids(left.source_ids, right.source_ids),
+            )
         )
-    )
+    if params.pairing == "metric_empty":
+        for source in inputs:
+            if "coverage__complete" not in source.expression.columns:
+                _fail("retained original coverage for metric_empty", "missing coverage")
+            checks.append(
+                IntegrityCheck(
+                    stage.output,
+                    "complete original observation coverage",
+                    source.expression.filter(~source.expression.coverage__complete),
+                    source.source_ids,
+                )
+            )
+    if params.time_index is not None:
+        for index, source in enumerate(inputs):
+            time_key = source.layout.keys[params.time_index].column
+            non_time = tuple(
+                item.column for i, item in enumerate(source.layout.keys) if i != params.time_index
+            )
+            expected = tuple(pair[index] for pair in params.bucket_mapping)
+            counts = (
+                source.expression.group_by(*non_time) if non_time else source.expression
+            ).aggregate(
+                bucket_count=source.expression[time_key].nunique(),
+                row_count=source.expression.count(),
+            )
+            checks.append(
+                IntegrityCheck(
+                    stage.output,
+                    "complete original period buckets without renumbering",
+                    counts.filter((counts.row_count > 0) & (counts.bucket_count != len(expected))),
+                    source.source_ids,
+                )
+            )
+            checks.append(
+                IntegrityCheck(
+                    stage.output,
+                    "original bucket coordinates",
+                    source.expression.filter(~source.expression[time_key].isin(expected)),
+                    source.source_ids,
+                )
+            )
     lhs, rhs = left.expression.view(), right.expression.view()
     current = lhs.select(
-        *keys,
+        **{f"current_key_{i}": lhs[key] for i, key in enumerate(keys)},
         current_value=lhs[a.value],
         current_tag=lhs[a.tag],
         current_reason=lhs[a.reason],
+        current_present=ibis.literal(True),
+        current_error_bound=_operand_bound(left, lhs),
     )
     baseline = rhs.select(
-        *keys,
+        **{f"baseline_key_{i}": rhs[key] for i, key in enumerate(keys)},
         baseline_value=rhs[b.value],
         baseline_tag=rhs[b.tag],
         baseline_reason=rhs[b.reason],
+        baseline_present=ibis.literal(True),
+        baseline_error_bound=_operand_bound(right, rhs),
     )
-    paired = current.join(baseline, keys).select(
-        *(current[key] for key in keys),
-        current.current_value,
-        current.current_tag,
-        current.current_reason,
-        baseline.baseline_value,
-        baseline.baseline_tag,
-        baseline.baseline_reason,
+    translated_keys = {
+        i: ibis.cases(
+            *(
+                (baseline[f"baseline_key_{i}"] == right, left)
+                for left, right in params.bucket_mapping
+            ),
+            else_=ibis.null().cast("string"),
+        )
+        if i == params.time_index
+        else baseline[f"baseline_key_{i}"]
+        for i in range(len(keys))
+    }
+    paired = current.join(
+        baseline,
+        [current[f"current_key_{i}"] == translated_keys[i] for i in range(len(keys))],
+        how="inner" if params.pairing == "exact" else "outer",
     )
+    present_a, present_b = (
+        paired.current_present.fill_null(False),
+        paired.baseline_present.fill_null(False),
+    )
+    both = present_a & present_b
+    first, second = paired.current_value, paired.baseline_value
+    tag_a, tag_b = paired.current_tag, paired.baseline_tag
+    reason_a, reason_b = paired.current_reason, paired.baseline_reason
+    if params.pairing == "metric_empty":
+        first = present_a.ifelse(
+            first,
+            ibis.literal(0).cast(first.type())
+            if params.empty_rules[0] == "zero"
+            else ibis.null().cast(first.type()),
+        )
+        second = present_b.ifelse(
+            second,
+            ibis.literal(0).cast(second.type())
+            if params.empty_rules[1] == "zero"
+            else ibis.null().cast(second.type()),
+        )
+        tag_a = present_a.ifelse(
+            tag_a,
+            "defined"
+            if params.empty_rules[0] == "zero"
+            else "null"
+            if params.empty_rules[0] == "null"
+            else "undefined",
+        )
+        tag_b = present_b.ifelse(
+            tag_b,
+            "defined"
+            if params.empty_rules[1] == "zero"
+            else "null"
+            if params.empty_rules[1] == "null"
+            else "undefined",
+        )
+        reason_a = present_a.ifelse(
+            reason_a,
+            ibis.null().cast("string")
+            if params.empty_rules[0] == "zero"
+            else "empty_contribution"
+            if params.empty_rules[0] == "null"
+            else "zero_denominator",
+        )
+        reason_b = present_b.ifelse(
+            reason_b,
+            ibis.null().cast("string")
+            if params.empty_rules[1] == "zero"
+            else "empty_contribution"
+            if params.empty_rules[1] == "null"
+            else "zero_denominator",
+        )
+    defined = ((tag_a == "defined") & (tag_b == "defined")).fill_null(False)
+    value = (
+        first - second
+        if stage.operation == "ibis"
+        else ibis.literal(0).cast(stage.node.value_type.name)
+    )
+    if stage.operation == "ibis" and first.type().is_integer():
+        widened = first.cast("decimal(38,0)") - second.cast("decimal(38,0)")
+        in_range = widened.between(
+            ibis.literal(-(2**63), type="decimal(38,0)"),
+            ibis.literal(2**63 - 1, type="decimal(38,0)"),
+        )
+        value = in_range.ifelse(widened, ibis.literal(0).cast("decimal(38,0)")).cast("int64")
+        checks.append(
+            IntegrityCheck(
+                stage.output,
+                "difference within signed int64 storage",
+                paired.filter(defined & ~in_range),
+                _source_ids(left.source_ids, right.source_ids),
+            )
+        )
+    tag = ibis.ifelse(
+        defined, "defined", ibis.ifelse(~both & (params.pairing == "keep"), "undefined", "null")
+    )
+    reason = ibis.ifelse(
+        defined,
+        ibis.null().cast("string"),
+        ibis.ifelse(~both & (params.pairing == "keep"), "missing_side", "empty_contribution"),
+    )
+    if params.pairing == "metric_empty":
+        missing_tag = (~present_a).ifelse(tag_a, tag_b)
+        missing_reason = (~present_a).ifelse(reason_a, reason_b)
+        tag = defined.ifelse("defined", missing_tag)
+        reason = defined.ifelse(ibis.null().cast("string"), missing_reason)
+    if params.method != "difference" and second.type().is_floating():
+        unstable = (
+            both & (second != 0) & (second.abs() <= paired.baseline_error_bound.fill_null(0.0))
+        )
+        checks.append(
+            IntegrityCheck(
+                stage.output,
+                "nonzero denominator interval excludes zero",
+                paired.filter(unstable),
+                _source_ids(left.source_ids, right.source_ids),
+            )
+        )
     target = canonical_layout(stage.node.signature, has_value=True)
+    identity = {
+        key: ibis.coalesce(
+            paired[f"current_key_{i}"],
+            ibis.cases(
+                *(
+                    (paired[f"baseline_key_{i}"] == right, left)
+                    for left, right in params.bucket_mapping
+                ),
+                else_=ibis.null().cast("string"),
+            )
+            if i == params.time_index
+            else paired[f"baseline_key_{i}"],
+        )
+        for i, key in enumerate(keys)
+    }
     output = paired.select(
-        *(paired[key] for key in keys),
-        value=paired.current_value - paired.baseline_value,
-        cell_tag=ibis.literal("defined"),
-        cell_reason=ibis.null().cast("string"),
-        current_endpoint__value=paired.current_value,
-        current_endpoint__cell_tag=paired.current_tag,
-        current_endpoint__cell_reason=paired.current_reason,
-        baseline_endpoint__value=paired.baseline_value,
-        baseline_endpoint__cell_tag=paired.baseline_tag,
-        baseline_endpoint__cell_reason=paired.baseline_reason,
+        **identity,
+        value=ibis.ifelse(defined, value, ibis.null().cast(value.type())),
+        cell_tag=tag,
+        cell_reason=reason,
+        current_endpoint__value=first,
+        current_endpoint__cell_tag=tag_a,
+        current_endpoint__cell_reason=reason_a,
+        baseline_endpoint__value=second,
+        baseline_endpoint__cell_tag=tag_b,
+        baseline_endpoint__cell_reason=reason_b,
+        correspondence__current_present=present_a,
+        correspondence__baseline_present=present_b,
+        correspondence__current_error_bound=paired.current_error_bound.fill_null(0.0),
+        correspondence__baseline_error_bound=paired.baseline_error_bound.fill_null(0.0),
+        correspondence__result_error_bound=ibis.ifelse(
+            defined,
+            paired.current_error_bound.fill_null(0.0)
+            + paired.baseline_error_bound.fill_null(0.0)
+            + 1e-12 * (1.0 + value.abs()),
+            0.0,
+        )
+        if stage.node.value_type == ScalarType("float64") and stage.operation == "ibis"
+        else ibis.literal(0).cast("float64"),
+        **{
+            f"correspondence__{side}_key_{i}": paired[f"{side}_key_{i}"]
+            for side in ("current", "baseline")
+            for i in range(len(keys))
+        },
         **(
-            {f"subject__key_{i}": paired[key] for i, key in enumerate(keys)}
+            {f"subject__key_{i}": identity[key] for i, key in enumerate(keys)}
             if any(isinstance(p, SubjectPart) for p in stage.node.signature.parts)
             else {}
         ),
@@ -874,10 +1162,22 @@ def _count(stage: SourceMethodStage, source: LoweredRelation) -> tuple[ir.Table,
                 if name == "min"
                 else table[f"row_state__{name}"].max()
                 if name == "max"
+                else table[f"row_state__{name}"].max().fill_null(0)
+                if name == "error_bound" and params.method in ("min", "max")
                 else table[f"row_state__{name}"].sum().fill_null(0)
                 for name in state.components
-            }
+            },
+            **(
+                {"error_magnitude": table.row_state__sum.abs().sum().fill_null(0)}
+                if params.retain_error and params.method in ("sum", "mean")
+                else {}
+            ),
         )
+        if params.retain_error and params.method in ("sum", "mean"):
+            aggregate = aggregate.mutate(
+                row_state__error_bound=aggregate.row_state__error_bound
+                + 1e-12 * (1.0 + aggregate.error_magnitude)
+            )
         target = canonical_layout(stage.node.signature, has_value=True)
         support = (
             aggregate.row_state__count
@@ -902,7 +1202,15 @@ def _count(stage: SourceMethodStage, source: LoweredRelation) -> tuple[ir.Table,
         if cell is None:
             _fail("Cell values for current-row extrema", "missing Cell")
         extremum = table[cell.value].min() if params.method == "min" else table[cell.value].max()
-        aggregate = grouped.aggregate(extremum=extremum, support=table.count())
+        aggregate = grouped.aggregate(
+            extremum=extremum,
+            support=table.count(),
+            **(
+                {"error_bound": _operand_bound(source, table).max().fill_null(0)}
+                if params.retain_error
+                else {}
+            ),
+        )
         target = canonical_layout(stage.node.signature, has_value=True)
         result = aggregate.select(
             *tuple(grouping),
@@ -914,6 +1222,9 @@ def _count(stage: SourceMethodStage, source: LoweredRelation) -> tuple[ir.Table,
             **{
                 f"row_state__{params.method}": aggregate.extremum,
                 "row_state__count": aggregate.support,
+                **(
+                    {"row_state__error_bound": aggregate.error_bound} if params.retain_error else {}
+                ),
             },
         )
         return result.select(*target.columns), target
@@ -924,6 +1235,14 @@ def _count(stage: SourceMethodStage, source: LoweredRelation) -> tuple[ir.Table,
         aggregate = grouped.aggregate(
             state_sum=table[cell.value].sum().fill_null(0),
             state_count=table.count(),
+            **(
+                {
+                    "error_bound": _operand_bound(source, table).sum().fill_null(0)
+                    + 1e-12 * (1.0 + table[cell.value].abs().sum().fill_null(0))
+                }
+                if params.retain_error
+                else {}
+            ),
         )
         if params.method == "sum":
             result = aggregate.select(
@@ -933,6 +1252,9 @@ def _count(stage: SourceMethodStage, source: LoweredRelation) -> tuple[ir.Table,
                 cell_reason=ibis.null().cast("string"),
                 row_state__sum=aggregate.state_sum,
                 row_state__count=aggregate.state_count,
+                **(
+                    {"row_state__error_bound": aggregate.error_bound} if params.retain_error else {}
+                ),
             )
         else:
             result = aggregate.select(
@@ -950,6 +1272,9 @@ def _count(stage: SourceMethodStage, source: LoweredRelation) -> tuple[ir.Table,
                 ),
                 row_state__sum=aggregate.state_sum,
                 row_state__count=aggregate.state_count,
+                **(
+                    {"row_state__error_bound": aggregate.error_bound} if params.retain_error else {}
+                ),
             )
         target = canonical_layout(stage.node.signature, has_value=True)
         return result.select(*target.columns), target
@@ -1113,6 +1438,10 @@ def _occurrence_combine(
         selection: dict[str, ir.Value] = {key: source.expression[key] for key in keys}
         selection[_term_sum_name(index, sign)] = source.expression[magnitude]
         selection[_term_support_name(index, sign)] = source.expression[support]
+        if "absolute_sum" in state.components:
+            selection[_term_sum_name(index, sign).removesuffix("_sum") + "_absolute_sum"] = (
+                source.expression.original_state__absolute_sum
+            )
         for part in source.node.signature.parts:
             if index == 0 and isinstance(part, SubjectPart):
                 selection.update(
@@ -1147,6 +1476,13 @@ def _occurrence_combine(
             branch = branch.select(
                 *keys,
                 **{name: branch.group[name] for name in coordinate.columns},
+                **{
+                    name: branch.group.absolute_sum
+                    if name.split("_")[1] == str(index)
+                    else ibis.literal(0).cast("float64")
+                    for name in coordinate.components
+                    if name.endswith("_absolute_sum")
+                },
                 **{
                     name: branch.group[
                         (magnitude if offset == 0 else support).removeprefix("original_state__")
@@ -1340,8 +1676,11 @@ def _original_ratio(
             "original_state__denominator_non_null_count": b[second_support],
         }
     )
-    if "denominator_absolute_sum" in _original_state(stage.node.signature).components:
-        fields["original_state__denominator_absolute_sum"] = b.original_state__absolute_sum
+    for side, source in (("numerator", a), ("denominator", b)):
+        if side + "_absolute_sum" in _original_state(stage.node.signature).components:
+            fields["original_state__" + side + "_absolute_sum"] = (
+                source.original_state__absolute_sum
+            )
     if any(isinstance(part, SubjectPart) for part in stage.node.signature.parts):
         fields.update({f"subject__key_{i}": a[key] for i, key in enumerate(keys)})
     base = joined.select(**fields)
@@ -1353,6 +1692,11 @@ def _original_ratio(
         first = first.select(
             *keys,
             **{name: first.group[name] for name in coordinate.columns},
+            **(
+                {"numerator_absolute_sum": first.group.absolute_sum}
+                if "numerator_absolute_sum" in coordinate.components
+                else {}
+            ),
             numerator_sum=first.group[first_sum.removeprefix("original_state__")],
             numerator_non_null_count=first.group[first_support.removeprefix("original_state__")],
         )
@@ -1374,6 +1718,11 @@ def _original_ratio(
         merged = paired.select(
             **{key: first[key].coalesce(second[key]) for key in keys},
             **{name: first[name].coalesce(second[name]) for name in coordinate.columns},
+            **(
+                {"numerator_absolute_sum": first.numerator_absolute_sum.fill_null(0)}
+                if "numerator_absolute_sum" in coordinate.components
+                else {}
+            ),
             numerator_sum=first.numerator_sum.fill_null(0),
             numerator_non_null_count=first.numerator_non_null_count.fill_null(0),
             **(
@@ -1645,7 +1994,7 @@ def _original_sum(
                 .sum()
                 .fill_null(0)
                 .cast(table[f"original_state__{name}"].type())
-                for name in ("sum", "non_null_count", "row_count")
+                for name in _original_state(stage.node.signature).components
             }
         )
         target = canonical_layout(stage.node.signature, has_value=True)
@@ -1749,7 +2098,12 @@ def _contribution_rows(
     relations: tuple[LoweredRelation, ...],
     checks: list[LoweredCheck],
 ) -> tuple[ir.Table, tuple[str, ...]]:
-    by_entity = {binding.leaf.definition.ref.path: binding for binding in bindings}
+    owned_sources = {source.identity for source in stage.node.sources}
+    by_entity = {
+        binding.leaf.definition.ref.path: binding
+        for binding in bindings
+        if binding.leaf.identity in owned_sources
+    }
     root_binding = by_entity[params.contribution.path]
     root = _staged_source(root_binding, relations).view()
     if (
@@ -2194,6 +2548,11 @@ def _observe(
         pair = values.amount.notnull() & values.weight.notnull()
         summed = values.group_by(*target_keys).aggregate(
             absolute_weight_sum=pair.ifelse(values.weight.abs(), 0).sum().fill_null(0),
+            absolute_weighted_numerator=pair.ifelse((values.amount * values.weight).abs(), 0)
+            .sum()
+            .fill_null(0)
+            if values.amount.type().is_floating()
+            else ibis.literal(0).cast("int64"),
             weighted_numerator=pair.ifelse(
                 values.amount.cast(weight_type) * values.weight.cast(weight_type), 0
             )
@@ -2214,7 +2573,7 @@ def _observe(
                 .fill_null(0)
                 .cast(
                     product_type
-                    if name == "weighted_numerator"
+                    if name in ("weighted_numerator", "absolute_weighted_numerator")
                     else weight_type
                     if name in ("weight_sum", "absolute_weight_sum")
                     else "int64"
@@ -2232,7 +2591,9 @@ def _observe(
         )
     else:
         summed = values.group_by(*target_keys).aggregate(
-            absolute_sum=values.amount.abs().sum().fill_null(0.0),
+            absolute_sum=values.amount.abs().sum().fill_null(0.0)
+            if values.amount.type().is_floating()
+            else ibis.literal(0).cast("float64"),
             state_sum=values.amount.min()
             if isinstance(params, ObserveMetric) and params.method == "min"
             else values.amount.max()
@@ -2311,6 +2672,11 @@ def _observe(
             pair = values.amount.notnull() & values.weight.notnull()
             grouped = values.group_by(*target_keys, *part.columns).aggregate(
                 absolute_weight_sum=pair.ifelse(values.weight.abs(), 0).sum().fill_null(0),
+                absolute_weighted_numerator=pair.ifelse((values.amount * values.weight).abs(), 0)
+                .sum()
+                .fill_null(0)
+                if values.amount.type().is_floating()
+                else ibis.literal(0).cast("int64"),
                 weighted_numerator=pair.ifelse(values.amount * values.weight, 0)
                 .sum()
                 .fill_null(0)
@@ -2321,7 +2687,9 @@ def _observe(
             )
         else:
             grouped = values.group_by(*target_keys, *part.columns).aggregate(
-                absolute_sum=values.amount.abs().sum().fill_null(0).cast(amount_type),
+                absolute_sum=values.amount.abs().sum().fill_null(0).cast(amount_type)
+                if values.amount.type().is_floating()
+                else ibis.literal(0).cast(amount_type),
                 sum=values.amount.sum().fill_null(0).cast(amount_type),
                 min=values.amount.min().fill_null(0).cast(amount_type),
                 max=values.amount.max().fill_null(0).cast(amount_type),
@@ -2498,10 +2866,7 @@ def lower(
                     isinstance(stage.node.parameters, PartsTransport)
                     and stage.node.parameters.external_predicate
                 )
-                or (
-                    isinstance(stage.node.parameters, CellDerive)
-                    and stage.node.parameters.method == "difference"
-                )
+                or (isinstance(stage.node.parameters, CellDerive))
             ):
                 _fail("a registered two-input local method", repr(stage.inputs))
             output_layout = canonical_layout(
@@ -2520,6 +2885,9 @@ def lower(
                 LoweredLocal(stage, tuple(layouts[item] for item in stage.inputs), output_layout)
             )
             layouts[stage.output] = output_layout
+            if isinstance(stage.node.parameters, CellDerive) and len(stage.inputs) == 1:
+                predecessor = results[stage.inputs[0]]
+                results[stage.output] = replace(predecessor, output=stage.output)
             continue
         if isinstance(stage, SourceInputStage):
             bound = next(b for b in bindings if b.leaf is stage.leaf)
@@ -2630,11 +2998,7 @@ def lower(
                 table, layout = _spearman(stage, (inputs[0], inputs[1]), checks)
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
-            elif (
-                isinstance(params, CellDerive)
-                and params.method == "difference"
-                and len(inputs) == 2
-            ):
+            elif isinstance(params, CellDerive) and len(inputs) == 2:
                 table, layout = _difference(stage, (inputs[0], inputs[1]), checks)
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
@@ -2659,8 +3023,13 @@ def lower(
                         table,
                         layout,
                         allow_empty=isinstance(node, MethodNode)
-                        and isinstance(node.parameters, PartsTransport)
-                        and node.parameters.mode == "where"
+                        and (
+                            isinstance(node.parameters, CellDerive)
+                            or (
+                                isinstance(node.parameters, PartsTransport)
+                                and node.parameters.mode == "where"
+                            )
+                        )
                         and not layout.keys,
                     ),
                     source_ids,
@@ -2705,17 +3074,33 @@ def lower(
             check_id = requirement.obligation.check_id
             source_ids = _source_ids(*(input.source_ids for input in inputs))
             if check_id == "source.unique_key@v1":
-                violations = _key_violations(inputs[0].expression, inputs[0].layout)
+                violations = _key_violations(
+                    inputs[0].expression,
+                    inputs[0].layout,
+                    allow_empty=isinstance(owner, MethodNode)
+                    and isinstance(owner.parameters, CellDerive),
+                )
                 for other in inputs[1:]:
                     violations = violations.union(
-                        _key_violations(other.expression, other.layout), distinct=False
+                        _key_violations(
+                            other.expression,
+                            other.layout,
+                            allow_empty=isinstance(owner, MethodNode)
+                            and isinstance(owner.parameters, CellDerive),
+                        ),
+                        distinct=False,
                     )
             elif check_id == "source.single_value@v1":
                 output = inputs[0]
                 violations = _key_violations(output.expression, output.layout)
                 source_ids = output.source_ids
             elif check_id == "source.exact_pairing@v1" and len(inputs) >= 2:
-                violations = _pair_violations(inputs[0], inputs[1])
+                paired_right = (
+                    _mapped_period_input(inputs[1], owner.parameters)
+                    if isinstance(owner, MethodNode) and isinstance(owner.parameters, CellDerive)
+                    else inputs[1]
+                )
+                violations = _pair_violations(inputs[0], paired_right)
                 for other in inputs[2:]:
                     violations = violations.union(
                         _pair_violations(inputs[0], other), distinct=False
@@ -2742,6 +3127,29 @@ def lower(
                 for current in numeric_inputs:
                     cell = current.layout.cell
                     assert cell is not None
+                    if (
+                        isinstance(owner, MethodNode)
+                        and isinstance(owner.parameters, CellDerive)
+                        and owner.parameters.pairing == "keep"
+                    ):
+                        other = (
+                            numeric_inputs[1] if current is numeric_inputs[0] else numeric_inputs[0]
+                        )
+                        if current is numeric_inputs[1]:
+                            current = _mapped_period_input(current, owner.parameters)
+                        else:
+                            other = _mapped_period_input(other, owner.parameters)
+                        current_keys = tuple(k.column for k in current.layout.keys)
+                        matching = (
+                            current.expression.semi_join(
+                                other.expression.view(), list(current_keys)
+                            )
+                            if current_keys
+                            else current.expression.cross_join(other.expression.view()).select(
+                                current.expression
+                            )
+                        )
+                        current = replace(current, expression=matching)
                     value = current.expression[cell.value]
                     tag = current.expression[cell.tag]
                     if isinstance(owner, MethodNode) and isinstance(
@@ -2774,7 +3182,7 @@ def lower(
                     ):
                         invalid = invalid | (value.abs() > 2**53).fill_null(False)
                     selected = current.expression.filter(invalid.fill_null(True)).select(
-                        *tuple(k.column for k in current.layout.keys)
+                        *(tuple(k.column for k in current.layout.keys) or (cell.tag,))
                     )
                     violations = (
                         selected
