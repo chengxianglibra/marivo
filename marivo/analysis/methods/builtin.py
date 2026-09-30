@@ -20,6 +20,7 @@ from marivo.analysis.core.rules import (
     OriginalRatio,
     OriginalReduce,
     PartsTransport,
+    ReferenceDerive,
     RowState,
     RuleParameters,
     TimeProduct,
@@ -42,6 +43,10 @@ from marivo.analysis.methods.physical import (
 from marivo.analysis.methods.semantics import MethodKey
 
 PARTS: tuple[PartRole, ...] = (
+    "fixed_reference",
+    "reference_proof",
+    "strata",
+    "stratum_values",
     "subject",
     "original_state",
     "row_state",
@@ -66,6 +71,51 @@ NUMERIC_CHECKS: tuple[CheckId, ...] = (
 
 
 def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
+    if method.name.startswith("reference."):
+        shapes: tuple[SourceShape | FixedShape, ...] = (
+            SourceShape("duckdb", "table", "native", NoTime()),
+            SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
+            SourceShape("duckdb", "parquet", "parquet", NoTime()),
+            SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
+            FixedShape(NoTime()),
+            FixedShape(TimeShape("instant", "us", "UTC")),
+        )
+        domains: tuple[tuple[DomainKind, ...], ...] = (
+            (
+                ("entity", "singleton", "entity"),
+                ("group", "singleton", "group"),
+                ("singleton", "singleton", "singleton"),
+            )
+            if method.name == "reference.share"
+            else (("entity", "entity"),)
+            if method.name == "reference.penetration"
+            else (("group", "group"),)
+        )
+        return tuple(
+            Implementation(
+                QualificationKey(
+                    method,
+                    (ScalarType("int64"),) * len(domain),
+                    domain,
+                    shape,
+                    "artifact_python" if isinstance(shape, FixedShape) else "ibis_python",
+                ),
+                NUMERIC_CHECKS,
+                ("fixed_reference", "reference_proof", "stratum_values", "strata"),
+                "exact",
+                ResourceRequirements(
+                    "complete", "caller" if isinstance(shape, FixedShape) else "producer", None
+                ),
+                Qualified(
+                    f"r64.{method}.{shape}.{domain}@v1",
+                    "analysis.materialization.graph_reference",
+                    "tests/test_analysis_references_r64.py",
+                ),
+                contract_version=1,
+            )
+            for shape in shapes
+            for domain in domains
+        )
     if method.name == "domain.cohort":
         return tuple(
             replace(
@@ -750,6 +800,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         or method.name
         in (
             "bind_project",
+            "group.attach",
             "parts_transport",
             "metric.mean",
             "metric.ratio",
@@ -823,6 +874,46 @@ def specialize_arity(implementation: Implementation, arity: int) -> Implementati
 
 def specialize_numeric(implementation: Implementation, key: QualificationKey) -> Implementation:
     """Bind precise numeric families and closed typed predicate inputs."""
+    if key.method.name == "group.attach":
+        if (
+            key.input_domains != implementation.key.input_domains
+            or len(key.input_types) != 2
+            or key.input_types[1] != implementation.key.input_types[1]
+            or not isinstance(key.input_types[0], DecimalType)
+            or implementation.key.input_types[0] != ScalarType("int64")
+        ):
+            return implementation
+        return replace(
+            implementation,
+            key=replace(implementation.key, input_types=key.input_types),
+            contract_version=4,
+            qualification=Qualified(
+                implementation.qualification.implementation_id,
+                implementation.qualification.consumer_id,
+                "tests/test_analysis_references_r64.py",
+            )
+            if isinstance(implementation.qualification, Qualified)
+            else implementation.qualification,
+        )
+    if (
+        key.method.name.startswith("reference.")
+        and key.input_domains == implementation.key.input_domains
+        and len(key.input_types) == len(implementation.key.input_types)
+    ):
+        from marivo.analysis.methods.references import reference_type
+
+        kind = (
+            "share"
+            if key.method.name == "reference.share"
+            else "penetration"
+            if key.method.name == "reference.penetration"
+            else "standardize"
+        )
+        try:
+            reference_type(kind, key.input_types[0], key.input_types[1])
+        except ValueError:
+            return implementation
+        return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
     if (
         key.method.name in ("parts_transport", "domain.cohort")
         and implementation.key.input_types == (ScalarType("int64"),)
@@ -925,7 +1016,7 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             repr(params.coordinates),
             "Omit contribution coordinates; SQLite nested state is not qualified.",
         )
-    if isinstance(params, (AttachCategory, CompleteGroups, TimeProduct)):
+    if isinstance(params, (AttachCategory, CompleteGroups, TimeProduct, ReferenceDerive)):
         return
     if isinstance(params, ObserveWeightedMean):
         if params.amount_type not in ("int64", "float64") and not params.amount_type.startswith(

@@ -1353,3 +1353,56 @@ Native Help, exports, typed contracts, docstrings and current English/Chinese
 examples are synchronized. The packaged skill's existing Help/contract routing
 remains applicable and was not edited. No AGENTS.md/skill edits, release-check,
 MinIO, push, publication or external message.
+
+
+## R6.4 fixed references and standardization (2026-10-01)
+
+R6.4 is complete within the explicit public source/fixed matrix recorded in the
+[R6 ledger](2026-09-30-marivo-full-algebra-dsl-r6-migration-ledger.md#r64-fixed-references-and-standardization-2026-10-01).
+Execution began on clean `panda` at
+`85107a9a49cb6939505b7341167cfcf7df3ed7b0`; this package creates no commit.
+
+- **Passed / public methods**: share_of, penetration_in, factory-only immutable
+  ReferenceWeights and standardize use the existing NumericRelation family and
+  unified graph. DuckDB native table/Parquet and fixed Artifact positives cover
+  I/F/D/T share (T at us), composite/overlapping/empty Entity penetration, and
+  I/F/D standardization. Original Metric/runtime Metric sum/count/linear are
+  explicitly admitted alongside mean/weighted_mean/original ratio, with public
+  int64 receivers and exact integer weights. The frozen statistical Entity is
+  proved from contribution/sample/paired/denominator components; inconsistent
+  linear Entities reject. Ordinary ratio, Difference and quantile gain no
+  original-state standardization or rollup permission.
+- **Passed / strict consumption and fixed state**: complete unique strata,
+  exact I/D weight sum and exact represented F sum with 1e-12 tolerance, no
+  normalization, zero-weight non-Defined retention and strict positive weights;
+  one exact finish and retained numerical bounds. Store remains generation 7
+  with share/penetration/standardized v1 state and independently keyed reference,
+  proof, strata and stratum-value receipts. Where preserves original reference
+  identity, denominator, weights and frozen values.
+- **Passed / actual cold recovery and faults**: all three saved families execute
+  new fixed where continuations in a fresh process after removing table/Parquet
+  sources and forbidding Semantic load and DuckDB import/connection. Missing,
+  modified or incompatible parts/receipts/versions/keys and contradictory
+  arithmetic/error state reject before recovery or cache reuse. Publication
+  fault injection cleans failed artifacts while preserving previous successful
+  artifacts. Shared references realize once, source inputs are freshly evaluated,
+  fixed inputs remain captured and failure does not switch routes.
+- **Passed / disclosure and gates**: native Help, export/type snapshots,
+  structured repairs, bounded show/contract and current English/Chinese examples
+  are aligned. Result cards separately disclose partition/range or intersection
+  proof and standardization weight-sum deviation/error bound. The final focused
+  Runtime file has **33 passed**; the necessary shared-state gate has **375
+  passed** at the earlier R6.4 matrix. `make check-agent` has **5560 passed / 5
+  existing skipped**, 415-file typing, lint/import checks and API docs. Focused
+  typing/lint, site build and `git diff --check` pass. The five skip reasons are
+  unchanged from R6.2/R6.3 and confer no method/backend qualification. Earlier
+  failed iterations were repaired and rerun, not counted as passes.
+- **Unverified / deferred**: Top-K reference invariance and display methods
+  belong to R6.5; allocation to R6.6; installed-wheel closure to R6.7. Untested
+  temporal/type cross-products, SQLite/remote R6 methods, full six-backend and
+  real-Agent journeys remain outside these granted cells. No whole-R6 or
+  wheel qualification is inferred.
+
+No release-check, MinIO, commit, push, publication, AGENTS.md or packaged-skill
+edit was performed. The existing packaged skill's Help/contract delegation
+continues to apply without modification.

@@ -197,7 +197,14 @@ def plan(
                     or (
                         isinstance(edge.node, MethodNode)
                         and edge.node.method.name
-                        in ("cell.difference", "cell.relative_change", "cell.ratio")
+                        in (
+                            "cell.difference",
+                            "cell.relative_change",
+                            "cell.ratio",
+                            "reference.share",
+                            "reference.penetration",
+                            "reference.standardize",
+                        )
                     )
                     for edge in node.inputs
                 )

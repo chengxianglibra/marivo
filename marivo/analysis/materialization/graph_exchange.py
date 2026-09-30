@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 import pyarrow as pa
@@ -22,6 +23,7 @@ from marivo.analysis.core.model import (
     Signature,
     part_role,
 )
+from marivo.analysis.core.rules import ReferenceDerive
 from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
@@ -100,13 +102,21 @@ class ExchangeContract:
             or len({part.role for part in self.parts}) != len(self.parts)
             or not {part_role(part) for part in self.signature.parts}
             <= {part.role for part in self.parts}
-            or any(part.key_fields != self.key_fields for part in self.parts)
+            or any(
+                part.key_fields != self.key_fields
+                for part in self.parts
+                if part.role
+                not in ("fixed_reference", "reference_proof", "strata", "stratum_values")
+            )
             or len({tag for tag, _ in self.cell_reasons}) != len(self.cell_reasons)
             or any(tag not in ("null", "undefined", "unknown") for tag, _ in self.cell_reasons)
             or self.state_kind
             not in (
                 "none",
                 "cohort",
+                "share",
+                "penetration",
+                "standardized",
                 "original_min",
                 "original_max",
                 "original_mean",
@@ -159,7 +169,16 @@ class ExchangeContract:
             raise _invalid("quantity lacks the complete Cell vector")
         if self.state_schema is not None and (
             not isinstance(self.state_schema, pa.Schema)
-            or self.state_schema.names != [*self.key_fields, "status"]
+            or self.state_schema.names
+            != [
+                *self.key_fields,
+                "status",
+                *(
+                    ("error_bound",)
+                    if self.state_kind in ("share", "penetration", "standardized")
+                    else ()
+                ),
+            ]
             or self.state_schema.field("status").type != pa.string()
             or any(
                 self.state_schema.field(key).type != self.schema.field(key).type
@@ -327,6 +346,55 @@ def collect(
     for declared, part in zip(contract.parts, parts, strict=True):
         if not part.table.schema.equals(declared.schema, check_metadata=False):
             raise _invalid(f"{declared.role} schema differs")
+        from marivo.analysis.core.model import ReferenceStatePart
+
+        reference_part = next(
+            (
+                item
+                for item in contract.signature.parts
+                if isinstance(item, ReferenceStatePart) and item.role == part.role
+            ),
+            None,
+        )
+        if reference_part is not None:
+            from marivo.analysis.materialization.graph_reference import (
+                part_keys as reference_key_fields,
+            )
+
+            if declared.key_fields != reference_key_fields(contract.signature, part.role):
+                raise _invalid("reference part keys differ from its frozen input domain")
+            if reference_part.version != "v1":
+                raise _invalid("unsupported reference part version")
+            if "value" in part.table.column_names and (
+                "error_bound" not in part.table.column_names
+                or part.table.schema.field("error_bound").type != pa.float64()
+                or any(
+                    type(value) is not float or not math.isfinite(value) or value < 0
+                    for value in part.table["error_bound"].to_pylist()
+                )
+            ):
+                raise _invalid("reference operands lack finite nonnegative error bounds")
+            if reference_part.original_state is not None:
+                support_state = reference_part.original_state
+                if any(
+                    not state_matches(
+                        "original_" + support_state.method_version.removesuffix("@v1"),
+                        row,
+                        row,
+                        empty_rules=support_state.empty_rules,
+                    )
+                    for row in numeric_primary(part.table).to_pylist()
+                ):
+                    raise _invalid("reference support Cell disagrees with original additive state")
+            checked = CheckedStream(
+                _TableStream(part.table),
+                part.table.schema,
+                declared.key_fields,
+                reference_part.cell_reasons,
+            )
+            tuple(checked)
+            _table_keys(part.table, declared.key_fields)
+            continue
         if any(
             part.table.schema.field(key).type != primary.schema.field(key).type
             for key in declared.key_fields
@@ -403,6 +471,10 @@ def collect(
         "cell.ratio@v1",
     ):
         _verify_difference_parts(contract, parts, primary)
+    if isinstance(
+        contract.signature.quantity, DerivedQuantity
+    ) and contract.signature.quantity.method_version.startswith("reference."):
+        _verify_reference_parts(contract, parts, primary)
     if contract.state_schema is None:
         if method_state is not None:
             raise _invalid("unexpected method state vector")
@@ -417,12 +489,29 @@ def collect(
             tuple(row[name] for name in contract.key_fields): row["status"]
             for row in method_state.to_pylist()
         }
-        if contract.state_kind in ("difference", "relative_change", "relation_ratio"):
+        if contract.state_kind in (
+            "difference",
+            "relative_change",
+            "relation_ratio",
+            "share",
+            "penetration",
+            "standardized",
+        ):
             if any(
                 states[tuple(row[name] for name in contract.key_fields)] != row["cell_tag"]
                 for row in primary.to_pylist()
             ):
                 raise _invalid("Difference state status differs from its primary Cell")
+            if contract.state_kind in ("share", "penetration", "standardized"):
+                from marivo.analysis.materialization.graph_reference import error_bounds
+
+                if (
+                    "error_bound" not in method_state.column_names
+                    or method_state.schema.field("error_bound").type != pa.float64()
+                    or method_state["error_bound"].to_pylist()
+                    != error_bounds(reference_parameters(contract.signature), parts, primary)
+                ):
+                    raise _invalid("reference result error envelope differs from retained operands")
         elif contract.state_kind == "cohort":
             if any(value != "accepted" for value in states.values()):
                 raise _invalid("cohort state contains an unaccepted target")
@@ -888,3 +977,61 @@ def _verified_part_batches(
             raise _invalid("fixed part content or cardinality differs")
     finally:
         parquet.close()
+
+
+def reference_parameters(signature: Signature) -> ReferenceDerive:
+    from marivo.analysis.core.model import ReferenceStatePart
+    from marivo.analysis.core.rules import ReferenceDerive
+
+    quantity = signature.quantity
+    assert isinstance(quantity, DerivedQuantity)
+    kind = quantity.method_version.removeprefix("reference.").removesuffix("@v1")
+    if kind not in ("share", "penetration", "standardize"):
+        raise _invalid("unsupported reference method")
+    proof = next(
+        (
+            part
+            for part in signature.parts
+            if isinstance(part, ReferenceStatePart) and part.role == "reference_proof"
+        ),
+        None,
+    )
+    strata = next(
+        (
+            part
+            for part in signature.parts
+            if isinstance(part, ReferenceStatePart) and part.role == "stratum_values"
+        ),
+        None,
+    )
+    if proof is None or strata is None:
+        raise _invalid("missing reference state declarations")
+    reference_kind: Literal["share", "penetration", "standardize"] = (
+        "share" if kind == "share" else "penetration" if kind == "penetration" else "standardize"
+    )
+    return ReferenceDerive(
+        reference_kind,
+        signature.domain,
+        proof.reference_id,
+        quantity.unit,
+        quantity.time_scope,
+        strata.domain.instance_key if kind == "standardize" else (),
+        share_state=proof.original_state,
+    )
+
+
+def _verify_reference_parts(
+    contract: ExchangeContract, parts: tuple[ExchangePart, ...], primary: pa.Table
+) -> None:
+    from marivo.analysis.materialization.graph_reference import error_bounds, finish, physical_type
+
+    params = reference_parameters(contract.signature)
+    try:
+        expected = finish(params, physical_type(primary.schema.field("value").type), parts)
+        error_bounds(params, parts, primary)
+    except (ValueError, OverflowError) as error:
+        raise _invalid(str(error)) from error
+    names = contract.key_fields
+    rows = {tuple(row[key] for key in names): row for row in expected.to_pylist()}
+    if any(rows.get(tuple(row[key] for key in names)) != row for row in primary.to_pylist()):
+        raise _invalid("reference primary differs from its immutable inputs")

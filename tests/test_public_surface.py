@@ -139,6 +139,8 @@ SEMANTIC_PUBLIC = {
 }
 
 ANALYSIS_PUBLIC = {
+    "ReferenceWeights",
+    "reference_weights",
     "SubjectBinding",
     "AnyInstance",
     "AtLeast",
@@ -317,7 +319,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "2b658a7a1b6fa076188715bc9ca97d708a0e54ed6c7d1d65950a76c109c041e1"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "de227c0c3407770a9024f8c55faa7ffb1434e7dbb2b978c1cfc502fe10725bb6"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

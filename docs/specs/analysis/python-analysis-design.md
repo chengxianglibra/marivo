@@ -1901,3 +1901,29 @@ Missing opportunities never become Unknown. Existing Unknown consumption is
 qualified independently; no new public Unknown-producing method is introduced.
 The qualification matrix and remaining R7–R10 boundaries are recorded in the
 [R6 ledger](../../superpowers/specs/2026-09-30-marivo-full-algebra-dsl-r6-migration-ledger.md#r63-predicates-and-full-opportunity-cohorts-2026-09-30).
+
+### R6.4 public reference qualification
+
+The four reference entry points above are now connected for DuckDB table/Parquet
+and fixed Artifact execution. `ReferenceWeights` is factory-only and immutable;
+its identity freezes ordered values/classification dependencies and the statistical
+Entity. Classification bindings must already be retained through grouping or
+inclusion; matching display column names is not a correspondence. The receiver
+must retain the same ordered axes, frozen time scope and proven statistical Entity.
+The factory has bounded `repr`/`show` and no standalone `execute`.
+
+Original Metric/runtime Metric sum/count/linear join mean/weighted_mean/ratio in
+standardization admission. Mean/weighted mean use their sample/paired contribution
+Entity; ratio uses its denominator component; sum/count use their contribution;
+linear requires a common Entity across every term. Unsupported or unproved methods
+reject before business reads and Run allocation. Standardization preserves the
+measurement unit and describes a weighted stratum value, including weighted
+stratum totals, without an actual-population claim or original-state rollup.
+
+Start reference discovery at `marivo.help("analysis.methods.metric.reference")`,
+then use the exact callable/type targets and current result `.contract()`.
+`where` retains original reference identity, denominator, support/intersection
+proof and all weights/values, including zero-weight non-Defined strata. Fixed
+recovery executes those continuations without current Semantic or DuckDB.
+R6.5 ranking/Top-K invariance and R6.7 installed-wheel acceptance are not qualified
+by this source-checkout implementation.

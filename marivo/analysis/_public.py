@@ -224,6 +224,7 @@ from marivo.analysis.public_dsl import (
     MaterializedTimeAnalysisDomain as MaterializedTimeAnalysisDomain,
 )
 from marivo.analysis.public_dsl import OneToOneCorrespondence as OneToOneCorrespondence
+from marivo.analysis.public_dsl import ReferenceWeights as ReferenceWeights
 from marivo.analysis.public_dsl import RootRoute as RootRoute
 from marivo.analysis.public_dsl import RootRoutes as RootRoutes
 from marivo.analysis.public_dsl import RowMethod as RowMethod
@@ -234,6 +235,7 @@ from marivo.analysis.public_dsl import max as max
 from marivo.analysis.public_dsl import mean as mean
 from marivo.analysis.public_dsl import min as min
 from marivo.analysis.public_dsl import one_to_one as one_to_one
+from marivo.analysis.public_dsl import reference_weights as reference_weights
 from marivo.analysis.public_dsl import route as route
 from marivo.analysis.public_dsl import routes as routes
 from marivo.analysis.public_dsl import sum as sum
@@ -250,6 +252,8 @@ from marivo.analysis.subject import DroppedBefore as DroppedBefore
 from marivo.analysis.subject import dropped_before as dropped_before
 
 __all__ = [  # noqa: RUF022 - accepted public export order is contractual
+    "ReferenceWeights",
+    "reference_weights",
     "SubjectBinding",
     "AnyInstance",
     "AtLeast",

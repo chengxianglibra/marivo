@@ -239,6 +239,7 @@ if TYPE_CHECKING:
         MaterializedTimeAnalysisDomain as MaterializedTimeAnalysisDomain,
     )
     from marivo.analysis.public_dsl import OneToOneCorrespondence as OneToOneCorrespondence
+    from marivo.analysis.public_dsl import ReferenceWeights as ReferenceWeights
     from marivo.analysis.public_dsl import RootRoute as RootRoute
     from marivo.analysis.public_dsl import RootRoutes as RootRoutes
     from marivo.analysis.public_dsl import RowMethod as RowMethod
@@ -249,6 +250,7 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import mean as mean
     from marivo.analysis.public_dsl import min as min
     from marivo.analysis.public_dsl import one_to_one as one_to_one
+    from marivo.analysis.public_dsl import reference_weights as reference_weights
     from marivo.analysis.public_dsl import route as route
     from marivo.analysis.public_dsl import routes as routes
     from marivo.analysis.public_dsl import sum as sum

@@ -717,7 +717,7 @@ Decimal/Duration sum/mean/min/max are not activated by this table.
 | domain.cohort | Full target Subject domain, complete opportunity domain and coverage, SubjectBinding, all predicate inputs | Exact selected Subject set plus quantifier/decision evidence; F, source observation only for source members, no unknown qualification silently dropped |
 | reference.share | Same-measure Singleton reference, support inclusion and additive/allocation proof; full-partition proof only if claimed | Same-key dimensionless share with frozen reference; S/F, no original rollup |
 | reference.penetration | Complete member reference Ω, selected member set B, exact identities and intersection | Singleton intersection-count / reference-count; empty reference Undefined(empty_reference); S/F |
-| reference.standardize | ReferenceWeights, exact complete unique strata, compatible statistical unit, admitted receiver quantity | Singleton weighted standardized value and frozen strata/reference; S/F, no original rollup |
+| reference.standardize | ReferenceWeights, exact complete unique strata, compatible statistical Entity proved from original Metric/runtime Metric sum/count/linear/mean/weighted_mean/ratio | Singleton weighted standardized value and frozen strata/reference; S/F, no original rollup |
 | display.rank | Numeric input and exact Category partition maps, full original ranking domain | Same-key values/ranks plus deterministic order, partition/tie policy; S/F and global limit, no recomputation on selection |
 | display.table | Ordered complete-key Relations, exact input/view bindings and key proof | Terminal table; export/read only, no analysis K |
 | attribution.additive_difference | Absolute Difference with complete endpoint states, additive partition/allocation proof, axes, coverage and target reproduction | C_i−B_i, allocated side views and scope/resolution reconciliation; S/F and ranking views; filtered output loses complete-partition K |
@@ -924,3 +924,49 @@ validation requires the primary key image to equal exactly the accepted decision
 keys; missing or inconsistent counts fail recovery.
 The common exchange independently validates accepted decisions and total counts.
 Journey/Interval/Anchor opportunity producers remain R7 work.
+
+### R6.4 qualified fixed references
+
+`reference.share`, `reference.penetration` and `reference.standardize` version 1
+use the unified graph on DuckDB tables/Parquet (`ibis_python`) and verified
+fixed Artifacts (`artifact_python`). Construction performs no business reads.
+Share consumes an explicit original Singleton rollup of the retained additive
+support; sum/count/linear qualify. It verifies each numerator's inclusion and
+its original additive state independently of the denominator. Complete partition
+means equality of complete support and numerator key images, never a near-one
+sum. The [0,1] claim additionally requires nonnegative support and a positive
+denominator; signed inputs have no such claim. Penetration uses complete Entity
+identities, including composite keys, and set intersection even for overlaps.
+
+Standardization admits original Metric/runtime Metric **sum, count, linear,
+mean, weighted_mean and ratio** after proving the statistical Entity from their
+frozen definitions. Sum/count use the contribution Entity; mean uses its sample
+Entity; weighted_mean uses its paired contribution Entity; ratio uses its
+original denominator component Entity. Every linear term must prove the same
+Entity. Original grouping and retained inclusion preserve this proof. Ordinary
+relation ratio, Difference, quantile, field reads and standardized quantities
+have no original-state standardization permission. Duration remains rejected.
+For totals/counts/linear, the result is the weighted value of stratum totals,
+not an actual population total or a pooled original Metric.
+
+Result cards independently disclose current complete/partial support and the
+nonnegative-range proof for shares, the complete reference/intersection counts
+for penetration, and the represented weight-sum deviation separately from the
+arithmetic error bound for standardization. Selection preserves those original
+reference inputs and the static reference interpretation in `contract()`.
+
+The numeric matrix remains I/F values with I/F weights and D values with D
+weights. Exact Fraction products/sums finish once to finite binary64; Decimal
+finishes once with ties-to-even at Decimal(38,max(s_value,6)), with product scale
+at most 38. Retained operand envelopes propagate through weighted products and
+the final finish.
+For a Defined stratum at zero represented weight, the product envelope still
+includes `abs(value) * weight_error + value_error * weight_error`. Only a
+non-Defined zero-weight stratum skips arithmetic consumption.
+The complete represented weight sum is checked separately: I/D exactly one;
+F within 1e-12, without changing any weight. Zero weights retain
+non-Defined values; positive weights, however small, consume only finite Defined
+values. Malformed Defined values reject even at zero weight. Public source/fixed
+qualification and independent numeric/corruption tests are owned by
+`tests/test_analysis_references_r64.py`. R6.5 ranking/Top-K and R6.7 wheel
+qualification remain separate.

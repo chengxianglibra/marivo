@@ -30,6 +30,7 @@ from marivo.analysis.core.rules import (
     MapCorrespond,
     OriginalReduce,
     PartsTransport,
+    ReferenceDerive,
     RowState,
 )
 from marivo.analysis.materialization.errors import MaterializationError
@@ -495,6 +496,9 @@ def _transport_stage(
         prior = next((part for part in source.parts if part.role == role), None)
         if prior is None:
             raise _invalid("required retained transport part is absent")
+        if role in ("fixed_reference", "reference_proof", "strata", "stratum_values"):
+            parts.append(prior)
+            continue
         mask = pa.array(
             [tuple(row[key] for key in keys) in selected_keys for row in prior.table.to_pylist()],
             type=pa.bool_(),
@@ -506,7 +510,14 @@ def _transport_stage(
         input_binding,
         primary.schema,
         keys,
-        tuple(PartContract(part.role, part.table.schema, keys) for part in parts),
+        tuple(
+            PartContract(
+                part.role,
+                part.table.schema,
+                next(item.key_fields for item in source.contract.parts if item.role == part.role),
+            )
+            for part in parts
+        ),
         source.contract.cell_reasons if params.keep_quantity else (),
         "none",
         None,
@@ -644,6 +655,20 @@ def execute_fixed_difference(
 def _operand_components(source: ExchangeResult) -> dict[tuple[object, ...], dict[str, object]]:
     """Index retained operand components once per endpoint, using complete keys."""
     result: dict[tuple[object, ...], dict[str, object]] = {}
+    quantity = source.contract.signature.quantity
+    if quantity is not None and quantity.method_version.startswith("reference."):
+        from marivo.analysis.materialization.graph_exchange import reference_parameters
+        from marivo.analysis.materialization.graph_reference import error_bounds
+
+        bounds = error_bounds(
+            reference_parameters(source.contract.signature), source.parts, source.primary
+        )
+        return {
+            tuple(row[name] for name in source.contract.key_fields): {
+                "reference_error_bound": bound
+            }
+            for row, bound in zip(source.primary.to_pylist(), bounds, strict=True)
+        }
     for part in source.parts:
         for item in part.table.to_pylist():
             key = tuple(item[name] for name in source.contract.key_fields)
@@ -658,10 +683,14 @@ def _fixed_operand_bound(
 ) -> float:
     if row is None or row["cell_tag"] != "defined" or type(row["value"]) is not float:
         return 0.0
-    for name in ("correspondence__result_error_bound", "original_state__absolute_sum"):
+    for name in (
+        "reference_error_bound",
+        "correspondence__result_error_bound",
+        "original_state__absolute_sum",
+    ):
         value = components.get(name)
         if type(value) is float:
-            if name.startswith("correspondence"):
+            if name.startswith(("correspondence", "reference")):
                 return value
             bound = roundoff(value)
             quantity = source.contract.signature.quantity
@@ -1677,7 +1706,7 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
         name = stage.stage.node.method.name
         arity = (
             len(stage.stage.node.inputs)
-            if isinstance(stage.stage.node.parameters, PartsTransport)
+            if isinstance(stage.stage.node.parameters, (PartsTransport, ReferenceDerive))
             else 2
             if name
             in (
@@ -1697,6 +1726,9 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                 "group.attach",
                 "parts_transport",
                 "domain.cohort",
+                "reference.share",
+                "reference.penetration",
+                "reference.standardize",
                 "map_correspond",
                 "state_rollup.min",
                 "state_rollup.max",
@@ -1739,7 +1771,7 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
         if (
             arity == 2
             and name not in ("group.attach", "group.complete", "domain.cohort")
-            and not isinstance(stage.stage.node.parameters, CellDerive)
+            and not isinstance(stage.stage.node.parameters, (CellDerive, ReferenceDerive))
         ):
             domains = tuple(edge.node.signature.domain for edge in stage.stage.node.inputs)
             if any(
@@ -1804,7 +1836,14 @@ def execute_verified_fixed(
             check for check in lowered.admitted.checks if check.node_id == stage.stage.node.identity
         )
         name = stage.stage.node.method.name
-        if name == "group.complete":
+        if isinstance(stage.stage.node.parameters, ReferenceDerive):
+            from marivo.analysis.materialization.graph_reference import fixed_parts
+            from marivo.analysis.materialization.graph_reference import result as reference_result
+
+            result = reference_result(
+                stage.stage.node, fixed_parts(stage.stage.node, values), binding
+            )
+        elif name == "group.complete":
             result = _complete_groups_stage(stage, values[0], values[1], binding)
         elif name == "group.attach":
             result = _attach_category_stage(stage, values[0], values[1], binding)

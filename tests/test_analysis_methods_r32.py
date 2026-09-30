@@ -151,6 +151,9 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "state_rollup.linear@v1": "original_reduce@v1",
         "parts_transport@v1": "parts_transport@v1",
         "domain.cohort@v1": "domain.cohort@v1",
+        "reference.share@v1": "reference@v1",
+        "reference.penetration@v1": "reference@v1",
+        "reference.standardize@v1": "reference@v1",
         "association.spearman@v1": "association_score@v1",
     }
     assert {
@@ -192,6 +195,9 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "bind_project",
         "parts_transport",
         "domain.cohort",
+        "reference.share",
+        "reference.penetration",
+        "reference.standardize",
         "map_correspond",
         "cell.difference",
         "row.count",

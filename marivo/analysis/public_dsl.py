@@ -30,7 +30,7 @@ from marivo.analysis._time_grid import GridEndpoint as GridEndpoint
 from marivo.analysis._time_grid import GridWindow as GridWindow
 from marivo.analysis._time_grid import TimeGrid as TimeGrid
 from marivo.analysis._time_grid import time_grid as time_grid
-from marivo.analysis.core.graph import FixedLeaf
+from marivo.analysis.core.graph import FixedLeaf, MethodNode, retained_nodes
 from marivo.analysis.core.model import (
     Coordinate,
     DerivedQuantity,
@@ -48,7 +48,11 @@ from marivo.analysis.core.rules import (
     CellDerive,
     CompleteGroups,
     MapCorrespond,
+    ObserveCount,
+    ObserveMetric,
+    OccurrenceCombine,
     PartsTransport,
+    ReferenceDerive,
     RowState,
     TimeProduct,
 )
@@ -72,7 +76,7 @@ from marivo.analysis.materialization.graph_fields import (
     root_routes,
 )
 from marivo.analysis.materialization.graph_relation import FrozenBinding, LiveBinding, Relation
-from marivo.analysis.methods.physical import ScalarType
+from marivo.analysis.methods.physical import DecimalType, ScalarType
 from marivo.refs import (
     DimensionKind,
     EntityKind,
@@ -303,6 +307,8 @@ def _kind(node: Relation) -> str:
             if quantity is not None and quantity.method_version == "ratio@v1"
             else "rollup"
         )
+    if isinstance(params, ReferenceDerive):
+        return "relation_ratio"
     if isinstance(params, RowState):
         return "summarize"
     if isinstance(params, AssociationScore):
@@ -455,6 +461,31 @@ class _Value:
                 names = tuple(dict.fromkeys((*names, "compare", "ratio")))
             else:
                 names = tuple(name for name in names if name not in ("compare", "ratio"))
+            from marivo.analysis.materialization.graph_reference import original, statistical_unit
+
+            try:
+                parameters = original(self._node.definition).parameters
+            except DatasetConstructionError:
+                pass
+            else:
+                if isinstance(parameters, (ObserveCount, OccurrenceCombine)) or (
+                    isinstance(parameters, ObserveMetric)
+                    and parameters.method == "sum"
+                    and parameters.fold is None
+                ):
+                    names = tuple(dict.fromkeys((*names, "share_of")))
+            try:
+                statistical_unit(self._node.definition)
+            except DatasetConstructionError:
+                pass
+            else:
+                if signature.domain.kind == "group" and (
+                    isinstance(self._node.root.value_type, DecimalType)
+                    or self._node.root.value_type in (ScalarType("int64"), ScalarType("float64"))
+                ):
+                    names = tuple(dict.fromkeys((*names, "standardize")))
+        if isinstance(self, _CohortDomain) and signature.domain.kind == "entity":
+            names = tuple(dict.fromkeys((*names, "penetration_in")))
         if (
             "subject" in roles
             and callable(getattr(type(self), "members", None))
@@ -480,6 +511,49 @@ class _Value:
         if self._node.comparison_error is not None:
             facts.append(("comparison_unavailable", self._node.comparison_error))
         params = self._node.definition.parameters
+        reference = next(
+            (
+                node.parameters
+                for node in retained_nodes(self._node.definition)
+                if isinstance(node, MethodNode)
+                and isinstance(node.parameters, ReferenceDerive)
+                and node.signature.quantity == quantity
+            ),
+            None,
+        )
+        if reference is not None:
+            facts.extend(
+                (
+                    ("reference", reference.reference_id),
+                    ("reference_policy", "retained original inputs; where preserves reference"),
+                )
+            )
+            if reference.kind == "standardize":
+                facts.extend(
+                    (
+                        ("interpretation", "weighted stratum value; no actual population claim"),
+                        (
+                            "statistical_entity",
+                            reference.statistical_unit.path
+                            if reference.statistical_unit
+                            else "unproved",
+                        ),
+                        (
+                            "weights",
+                            "complete keys including zero weights; represented sum, no normalization",
+                        ),
+                    )
+                )
+            elif reference.kind == "share":
+                facts.extend(
+                    (
+                        (
+                            "range",
+                            "signed unless nonnegative support and positive denominator proved",
+                        ),
+                        ("partition", "complete only if current keys equal retained support"),
+                    )
+                )
         if isinstance(params, BindProject):
             facts.extend((("field", params.ref.path), ("field_kind", params.ref.kind.value)))
         if self._dataset is not None:
@@ -813,6 +887,53 @@ class _Value:
 class _NumericComparison(_Value):
     """Shared numeric composition without granting original Metric reductions."""
 
+    def share_of(self, reference: NumericRelation) -> LogicalNumericRelation:
+        """Calculate shares against one immutable same-measure Singleton reference.
+
+        Args: reference: An explicit original additive rollup in this Session and mode.
+        Returns: A logical dimensionless numeric relation retaining its reference.
+        Example: ``shares = values.share_of(values.rollup())``.
+        Constraints: Requires proved support inclusion; zero denominators are Undefined.
+        """
+        from marivo.analysis.materialization.graph_reference import bind
+
+        if not isinstance(reference, _NumericComparison):
+            raise _reject("a NumericRelation", type(reference).__name__, "Bind a typed reference.")
+        return LogicalNumericRelation(
+            _TOKEN,
+            bind(self._node, reference._node, "share"),
+            self._runtime,
+            inputs=(self, reference),
+        )
+
+    def standardize(self, *, reference: ReferenceWeights) -> LogicalNumericRelation:
+        """Weight complete stratum values using an independently bound composition.
+
+        Args: reference: ReferenceWeights with the same axes and statistical Entity.
+        Returns: One Singleton standardized quantity preserving the measurement unit.
+        Example: ``result = stratum_values.standardize(reference=weights).execute()``.
+        Constraints: Missing strata reject; weights are never normalized; Duration rejects.
+        """
+        from marivo.analysis.materialization.graph_reference import bind
+
+        if not isinstance(reference, ReferenceWeights):
+            raise _reject("ReferenceWeights", type(reference).__name__, "Use mv.reference_weights.")
+        return LogicalNumericRelation(
+            _TOKEN,
+            bind(
+                self._node,
+                reference._values._node,
+                "standardize",
+                unit=reference._unit,
+                strata_dependencies=tuple(
+                    item._node.definition.fingerprint for item in reference._strata
+                ),
+                reference_id=reference._identity,
+            ),
+            self._runtime,
+            inputs=(self, reference._values, *reference._strata),
+        )
+
     def compare(
         self,
         baseline: NumericRelation,
@@ -1128,6 +1249,25 @@ class _MaterializedValue(_Value):
 
 
 class _CohortDomain(_Value):
+    def penetration_in(self, reference: AnalysisDomain) -> LogicalNumericRelation:
+        """Calculate the exact member intersection divided by a fixed reference count.
+
+        Args: reference: A complete same-Entity member domain in this Session and mode.
+        Returns: One dimensionless Singleton NumericRelation.
+        Example: ``rate = selected.penetration_in(all_members).execute()``.
+        Constraints: Composite identities are complete; empty reference is Undefined.
+        """
+        from marivo.analysis.materialization.graph_reference import bind
+
+        if not isinstance(reference, _CohortDomain):
+            raise _reject("an AnalysisDomain", type(reference).__name__, "Bind complete members.")
+        return LogicalNumericRelation(
+            _TOKEN,
+            bind(self._node, reference._node, "penetration"),
+            self._runtime,
+            inputs=(self, reference),
+        )
+
     def cohort(
         self, predicate: BoundPredicate, *, rule: CohortRule, through: SubjectBinding | None = None
     ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
@@ -2998,6 +3138,7 @@ def wrap_materialized(
         if (
             isinstance(node.root.signature.quantity, (ObservedQuantity, RolledQuantity))
             or node.root.signature.quantity.method_version == "cell.ratio@v1"
+            or node.root.signature.quantity.method_version.startswith("reference.")
         ):
             return MaterializedSelectedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
         return MaterializedSelectedDifferenceRelation(_TOKEN, node, runtime, dataset=dataset)
@@ -3556,6 +3697,133 @@ NumericRelation: TypeAlias = (
     | LogicalStatisticRelation
     | MaterializedStatisticRelation
 )
+
+
+AnalysisDomain: TypeAlias = (
+    LogicalAnalysisDomain | MaterializedAnalysisDomain | LogicalFixedAnalysisDomain
+)
+CategoryRelation: TypeAlias = (
+    LogicalCategoryRelation
+    | MaterializedCategoryRelation
+    | LogicalSelectedCategoryRelation
+    | MaterializedSelectedCategoryRelation
+)
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ReferenceWeights:
+    """A pure binding of complete dimensionless stratum weights and statistical unit."""
+
+    _values: NumericRelation
+    _strata: tuple[CategoryRelation, ...]
+    _unit: Ref[EntityKind]
+    _identity: str
+
+    def __init__(
+        self,
+        token: object,
+        values: NumericRelation,
+        strata: tuple[CategoryRelation, ...],
+        unit: Ref[EntityKind],
+    ) -> None:
+        if token is not _TOKEN:
+            raise _reject(
+                "mv.reference_weights", "direct constructor", "Use the reference factory."
+            )
+        object.__setattr__(self, "_values", values)
+        object.__setattr__(self, "_strata", strata)
+        object.__setattr__(self, "_unit", unit)
+        from marivo.analysis.materialization.graph_protocol import digest
+
+        object.__setattr__(
+            self,
+            "_identity",
+            digest(
+                repr(
+                    (
+                        values._node.root.fingerprint,
+                        tuple(item._node.definition.fingerprint for item in strata),
+                        unit,
+                    )
+                )
+            ),
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ReferenceWeights id={self._identity[:22]} strata={len(self._strata)}; use .show()>"
+        )
+
+    def show(self) -> None:
+        """Show bounded reference identity, axes and statistical unit.
+
+        Args: None.
+        Returns: None; prints the reference binding without reading business rows.
+        Example: ``weights.show()``.
+        Constraints: The factory is a pure binding and has no standalone execute.
+        """
+        print(repr(self))
+        print("Statistical Entity: " + self._unit.path[:180])
+        for index, item in enumerate(self._strata[:8]):
+            print(f"Stratum {index}: {item._node.root.fingerprint[:22]}")
+
+
+def reference_weights(
+    values: NumericRelation, *, strata: tuple[CategoryRelation, ...], unit: Ref[EntityKind]
+) -> ReferenceWeights:
+    """Bind complete stratum weights to their independent fixed reference.
+
+    Args:
+        values: Grouped dimensionless NumericRelation of stratum weights.
+        strata: Nonempty ordered unique classifications used to group these values.
+        unit: Statistical-unit Entity, distinct from the measurement unit.
+    Returns: A ReferenceWeights input for NumericRelation.standardize.
+    Example: ``weights = mv.reference_weights(shares, strata=(region,), unit=orders)``.
+    Constraints: Same Session and source/fixed mode; exact strata, no normalization.
+    """
+    from marivo.analysis.materialization.graph_reference import invalid
+    from marivo.refs import SemanticKind
+
+    if (
+        not isinstance(values, _NumericComparison)
+        or type(strata) is not tuple
+        or not strata
+        or any(not isinstance(item, _CountRelation) for item in strata)
+        or type(unit) is not Ref
+        or unit.kind is not SemanticKind.ENTITY
+    ):
+        raise invalid(
+            "typed values, a nonempty CategoryRelation tuple and an Entity Ref are required"
+        )
+    axes = tuple(item._node.classification_coordinate() for item in strata)
+    quantity = values._node.root.signature.quantity
+    if (
+        len(set(axes)) != len(axes)
+        or axes != values._node.root.signature.domain.instance_key
+        or quantity is None
+        or quantity.unit not in (None, "1")
+    ):
+        raise invalid(
+            "weights must have exactly the ordered unique grouping axes and no measurement unit"
+        )
+    for item in strata:
+        if (
+            item._runtime.session_ref != values._runtime.session_ref
+            or item._runtime.store.store_id != values._runtime.store.store_id
+            or item._has_fixed() != values._has_fixed()
+        ):
+            raise invalid("classification dependencies must share the reference Session and mode")
+        from marivo.analysis.core.graph import retained_nodes
+        from marivo.analysis.materialization.graph_snapshot import same_node_definition
+
+        if not any(
+            same_node_definition(node, item._node.definition)
+            for node in retained_nodes(values._node.definition)
+        ):
+            raise invalid(
+                "classification is not a retained grouping or inclusion dependency of these weights"
+            )
+    return ReferenceWeights(_TOKEN, values, strata, unit)
 
 
 @dataclass(frozen=True, slots=True, init=False)

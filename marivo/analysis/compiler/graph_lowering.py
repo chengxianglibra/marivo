@@ -33,6 +33,7 @@ from marivo.analysis.core.model import (
     ObservedQuantity,
     OriginalStatePart,
     Part,
+    ReferenceStatePart,
     RowStatePart,
     Signature,
     SubjectPart,
@@ -56,6 +57,7 @@ from marivo.analysis.core.rules import (
     OriginalRatio,
     OriginalReduce,
     PartsTransport,
+    ReferenceDerive,
     RowState,
     TimeProduct,
 )
@@ -122,6 +124,8 @@ def components(part: Part) -> tuple[str, ...]:
             *(f"current_key_{i}" for i in range(len(part.current_key))),
             *(f"baseline_key_{i}" for i in range(len(part.baseline_key))),
         )
+    if isinstance(part, ReferenceStatePart):
+        return ("retained",)
     if isinstance(part, (OriginalStatePart, RowStatePart)):
         return part.components
     if isinstance(part, CoordinateStatePart):
@@ -187,6 +191,7 @@ class LoweredRelation:
     source_ids: tuple[str, ...]
     cell_reasons: tuple[tuple[str, tuple[str, ...]], ...] = ()
     part_expressions: tuple[tuple[str, ir.Table], ...] = ()
+    part_source_ids: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,7 +243,19 @@ class LoweredPlan:
     def sources_for(self, expression: ir.Table) -> tuple[SourceBinding, ...]:
         """Resolve an emitted expression's recorded leaf identities, never Ibis equality."""
         matches = tuple(
-            item.source_ids
+            next(
+                (
+                    ids
+                    for role, ids in item.part_source_ids
+                    if any(
+                        name == role and emitted is expression
+                        for name, emitted in item.part_expressions
+                    )
+                ),
+                item.source_ids,
+            )
+            if isinstance(item, LoweredRelation)
+            else item.source_ids
             for item in (*self.stages, *self.checks)
             if (
                 isinstance(item, LoweredRelation)
@@ -372,7 +389,8 @@ def _validate_layout(
                 else "string"
                 if role == "pair_counts" and component.component in ("metric_key_a", "metric_key_b")
                 else "float64"
-                if value_type == "float64" and component.component in ("sum", "weighted_sum")
+                if role == "reference_proof"
+                or (value_type == "float64" and component.component in ("sum", "weighted_sum"))
                 else "int64"
             )
             if str(table[component.column].type()) != dtype:
@@ -458,6 +476,8 @@ def _operand_bound(source: LoweredRelation, table: ir.Table) -> ir.Value:
         return zero
     if "correspondence__result_error_bound" in table.columns:
         return table.correspondence__result_error_bound
+    if "reference_proof__retained" in table.columns:
+        return table.reference_proof__retained
     assert source.layout.cell is not None
     rounding = 1e-12 * (1.0 + table[source.layout.cell.value].abs())
     state = next(
@@ -3019,6 +3039,7 @@ def lower(
     layouts: dict[str, RelationLayout] = {}
     for stage in admitted.stages:
         part_expressions: list[tuple[str, ir.Table]] = []
+        part_source_ids: tuple[tuple[str, tuple[str, ...]], ...] = ()
         if isinstance(stage, ArtifactReadStage):
             layout = canonical_layout(
                 stage.leaf.signature, has_value=stage.leaf.signature.quantity is not None
@@ -3029,7 +3050,7 @@ def lower(
         if isinstance(stage, LocalMethodStage):
             admit(stage.implementation, stage.node.parameters)
             if len(stage.inputs) not in (1, 2) and not isinstance(
-                stage.node.parameters, PartsTransport
+                stage.node.parameters, (PartsTransport, ReferenceDerive)
             ):
                 _fail("registered row, Association, or predicate inputs", repr(stage.inputs))
             if len(stage.inputs) == 2 and not (
@@ -3040,7 +3061,7 @@ def lower(
                     isinstance(stage.node.parameters, PartsTransport)
                     and stage.node.parameters.external_predicate
                 )
-                or (isinstance(stage.node.parameters, CellDerive))
+                or (isinstance(stage.node.parameters, (CellDerive, ReferenceDerive)))
             ):
                 _fail("a registered two-input local method", repr(stage.inputs))
             output_layout = canonical_layout(
@@ -3059,7 +3080,10 @@ def lower(
                 LoweredLocal(stage, tuple(layouts[item] for item in stage.inputs), output_layout)
             )
             layouts[stage.output] = output_layout
-            if isinstance(stage.node.parameters, CellDerive) and len(stage.inputs) == 1:
+            if (
+                isinstance(stage.node.parameters, (CellDerive, ReferenceDerive))
+                and len(stage.inputs) == 1
+            ):
                 predecessor = results[stage.inputs[0]]
                 results[stage.output] = replace(predecessor, output=stage.output)
             continue
@@ -3117,7 +3141,31 @@ def lower(
             inputs = tuple(results[i] for i in stage.inputs[: len(stage.node.inputs)])
             params = stage.node.parameters
             source_ids = inputs[0].source_ids
-            if isinstance(params, PartsTransport):
+            if isinstance(params, ReferenceDerive):
+                table, layout = _reference(stage, inputs, part_expressions)
+                part_source_ids = tuple(
+                    (
+                        part.role,
+                        inputs[
+                            1
+                            if part.role in ("fixed_reference", "strata")
+                            else 2
+                            if part.role == "reference_proof" and params.kind == "share"
+                            else 0
+                        ].source_ids,
+                    )
+                    for part in stage.node.signature.parts
+                    if isinstance(part, ReferenceStatePart)
+                )
+                source_ids = _source_ids(*(item.source_ids for item in inputs))
+                cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
+            elif isinstance(params, PartsTransport):
+                part_source_ids = inputs[0].part_source_ids
+                part_expressions.extend(
+                    (role, expression)
+                    for role, expression in inputs[0].part_expressions
+                    if role in ("fixed_reference", "reference_proof", "strata", "stratum_values")
+                )
                 table, layout = _transport(stage, inputs[0], checks, inputs[1:], part_expressions)
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
                 cell_reasons = () if params.mode == "cohort" else inputs[0].cell_reasons
@@ -3178,7 +3226,14 @@ def lower(
                 _fail("a registered source lowerer", str(stage.node.method))
             node = stage.node
         relation = LoweredRelation(
-            stage.output, node, table, layout, source_ids, cell_reasons, tuple(part_expressions)
+            stage.output,
+            node,
+            table,
+            layout,
+            source_ids,
+            cell_reasons,
+            tuple(part_expressions),
+            part_source_ids,
         )
         results[stage.output] = relation
         layouts[stage.output] = layout
@@ -3557,3 +3612,79 @@ def _time_product(
     )
     layout = canonical_layout(stage.node.signature, has_value=False)
     return expanded.select(*layout.columns), layout
+
+
+def _reference(
+    stage: SourceMethodStage, inputs: tuple[LoweredRelation, ...], parts: list[tuple[str, ir.Table]]
+) -> tuple[ir.Table, RelationLayout]:
+    params = stage.node.parameters
+    assert isinstance(params, ReferenceDerive)
+    layout = canonical_layout(stage.node.signature, has_value=True)
+    for declaration in stage.node.signature.parts:
+        assert isinstance(declaration, ReferenceStatePart)
+        index = (
+            1
+            if declaration.role in ("fixed_reference", "strata")
+            else 2
+            if declaration.role == "reference_proof" and params.kind == "share"
+            else 0
+        )
+        source = inputs[index]
+        names = tuple(key.column for key in source.layout.keys)
+        columns = (
+            names
+            if source.layout.cell is None or declaration.role == "strata"
+            else (
+                *names,
+                source.layout.cell.value,
+                source.layout.cell.tag,
+                source.layout.cell.reason,
+            )
+        )
+        if declaration.role == "reference_proof" and params.share_state is not None:
+            columns = (
+                *columns,
+                *("original_state__" + name for name in params.share_state.components),
+            )
+        parts.append(
+            (
+                declaration.role,
+                source.expression.select(
+                    *columns, error_bound=_operand_bound(source, source.expression)
+                )
+                if source.layout.cell is not None and declaration.role != "strata"
+                else source.expression.select(*columns),
+            )
+        )
+    source = inputs[0].expression
+    table = (
+        source.select(*(key.column for key in inputs[0].layout.keys))
+        if params.kind == "share" and inputs[0].layout.keys
+        else source.aggregate(_reference_count=source.count())
+    )
+    for index, dependency in enumerate(inputs[1:], 1):
+        table = table.cross_join(
+            dependency.expression.aggregate(
+                **{f"_reference_dependency_{index}": dependency.expression.count()}
+            )
+        )
+    dtype = (
+        str(stage.node.value_type.name)
+        if isinstance(stage.node.value_type, ScalarType)
+        else f"decimal({stage.node.value_type.precision},{stage.node.value_type.scale})"
+        if isinstance(stage.node.value_type, DecimalType)
+        else "float64"
+    )
+    table = table.mutate(
+        value=ibis.literal(0).cast(dtype),
+        cell_tag=ibis.literal("defined"),
+        cell_reason=ibis.null().cast("string"),
+        **{
+            column.column: ibis.literal(0).cast(
+                "float64" if part_role(part.part) == "reference_proof" else "int64"
+            )
+            for part in layout.parts
+            for column in part.columns
+        },
+    )
+    return table.select(*layout.columns), layout

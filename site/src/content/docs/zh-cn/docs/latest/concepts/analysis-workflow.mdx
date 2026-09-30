@@ -518,3 +518,38 @@ fixed_targets = selected_regions.group_by(groups=targets).execute()
 
 对已物化的数值分组结果调用 `summarize` 会保留分组轴，并统计当前已物化的分组行：
 每个已存在的组计数为一，不恢复分组前的成员行。合并 Metric 原组件使用原指标的 `rollup()`。
+
+## 固定参照与标准化值
+
+先绑定完整参照。筛选保留原分母与支持证明，普通 `ratio` 不会获得份额语义：
+
+```python
+members = session.members(ms.ref.entity("sales.customer"))
+region = members.read(ms.ref.dimension("sales.customer.region"))
+counts = members.observe(
+    ms.ref.metric("sales.order_count"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+)
+shares = counts.share_of(counts.rollup())
+selected_shares = shares.where(shares.value.gt(0)).execute()
+penetration = counts.where(counts.value.gt(0)).members().penetration_in(members).execute()
+stratum_counts = counts.group_by(region).rollup()
+composition = stratum_counts.share_of(stratum_counts.rollup())
+weights = mv.reference_weights(
+    composition, strata=(region,), unit=ms.ref.entity("sales.order")
+)
+standardized = stratum_counts.standardize(reference=weights).execute()
+standardized.contract().show()
+```
+
+统计单位 Entity 与计量单位分开。原 Metric/runtime Metric 的 sum、count、linear、
+mean、weighted_mean、ratio 在冻结组件能证明统计单位时准入。总量标准化输出加权
+分层总量，不宣称实际总体值。缺层、重复层、负或非有限权重、错轴、错单位、时间
+范围不一致或权重总和错误均拒绝；不归一化。零权重层仍须存在并保留非 Defined
+标签，所有正权重层都严格消费有限 Defined 值。份额覆盖 int64、float64、Decimal
+和 Duration；标准化覆盖 int64/float64 配整数或浮点权重，以及 Decimal 配 Decimal 权重。
+
+fixed 续算须同时使用 fixed 值、分类与权重。恢复后，即使来源断开，`where` 也使用
+原保留参照执行。通过 `marivo.help("analysis.methods.metric.reference")` 发现聚焦入口。
+排名与 Top-K 参照不变验收、安装 wheel 收口属于各自后续阶段。

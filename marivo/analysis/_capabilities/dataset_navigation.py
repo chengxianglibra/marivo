@@ -24,6 +24,16 @@ _GROUPS = (
     ("forecast_models", "inputs.forecast", "Choose naive, drift or seasonal baseline forecasts."),
     ("event_matching", "inputs.events", "Choose first or repeated starts per subject."),
     ("methods.metric", "methods", "Add axes, aggregate, roll up or select a Metric."),
+    (
+        "methods.metric.summary",
+        "methods.metric",
+        "Summarize current finished rows without changing original Metric state.",
+    ),
+    (
+        "methods.metric.reference",
+        "methods.metric",
+        "Bind fixed shares, penetration or complete standardization weights.",
+    ),
     ("methods.compare", "methods", "Compare scopes and attribute Metric or funnel changes."),
     ("methods.rows", "methods", "Filter result rows, rank them or retain an ordered prefix."),
     ("methods.association", "methods", "Measure descriptive association, including time lags."),

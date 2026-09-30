@@ -32,6 +32,7 @@ from marivo.analysis.core.model import (
     Part,
     PartRole,
     Quantity,
+    ReferenceStatePart,
     RolledQuantity,
     RowStatePart,
     RowStatisticQuantity,
@@ -87,6 +88,7 @@ RuleId: TypeAlias = Literal[
     "parts_transport@v1",
     "domain.cohort@v1",
     "association_score@v1",
+    "reference@v1",
 ]
 
 
@@ -355,6 +357,19 @@ class AssociationScore:
     numeric_check_id: CheckId
 
 
+@dataclass(frozen=True, slots=True)
+class ReferenceDerive:
+    kind: Literal["share", "penetration", "standardize"]
+    output_domain: DomainSignature
+    reference_id: str
+    unit: str | None
+    time_scope: str
+    strata: tuple[Coordinate, ...] = ()
+    statistical_unit: Ref[EntityKind] | None = None
+    share_state: OriginalStatePart | None = None
+    strata_dependencies: tuple[str, ...] = ()
+
+
 RuleParameters: TypeAlias = (
     BindProject
     | ObserveMetric
@@ -371,6 +386,7 @@ RuleParameters: TypeAlias = (
     | OccurrenceCombine
     | PartsTransport
     | AssociationScore
+    | ReferenceDerive
 )
 
 
@@ -2732,3 +2748,141 @@ def _component_temporal_policy(
             "core.observe.time",
         )
     return next(iter(policies))
+
+
+def _reference(inputs: tuple[Signature, ...], params: ReferenceDerive) -> RuleDerivation:
+    binding = _binding(inputs, "analysis.reference")
+    if len(inputs) != (3 if params.kind == "share" else 2):
+        reject(
+            "exact ordered values/reference dependencies",
+            str(len(inputs)),
+            "Bind the original inputs.",
+            "analysis.reference",
+        )
+    left, right = inputs[:2]
+    _output_domain(binding, params.output_domain, "analysis.reference")
+    if params.kind == "share":
+        basis = inputs[2]
+        state = next((part for part in basis.parts if isinstance(part, OriginalStatePart)), None)
+        if (
+            state is None
+            or params.share_state != state
+            or state.method_version not in ("sum@v1", "sum_zero@v1", "count@v1", "linear@v1")
+            or basis.domain.instance_key != left.domain.instance_key
+            or params.output_domain.instance_key != left.domain.instance_key
+        ):
+            reject(
+                "the exact additive support and complete output keys",
+                repr(params),
+                "Retain the original additive definition and its state.",
+                "analysis.reference",
+            )
+    elif params.output_domain.kind != "singleton" or params.output_domain.instance_key:
+        reject(
+            "one Singleton reference result",
+            repr(params.output_domain),
+            "Remove axes only through this registered reference method.",
+            "analysis.reference",
+        )
+    if params.kind == "penetration":
+        if (
+            any(item.quantity is not None or item.domain.kind != "entity" for item in (left, right))
+            or left.domain.instance_key != right.domain.instance_key
+        ):
+            reject(
+                "complete compatible Entity member domains",
+                repr(inputs),
+                "Use members of the same Entity and key.",
+                "analysis.reference",
+            )
+    else:
+        if (
+            left.quantity is None
+            or right.quantity is None
+            or left.quantity.time_scope != right.quantity.time_scope
+            or params.time_scope != left.quantity.time_scope
+            or params.unit != (left.quantity.unit if params.kind == "standardize" else None)
+        ):
+            reject(
+                "numeric inputs with identical frozen time scopes",
+                repr(inputs),
+                "Bind matching observation scopes.",
+                "analysis.reference",
+            )
+        if params.kind == "share" and (
+            right.domain.kind != "singleton" or left.quantity.unit != right.quantity.unit
+        ):
+            reject(
+                "a same-measure Singleton reference",
+                repr(right),
+                "Roll up the original additive quantity once.",
+                "analysis.reference",
+            )
+        if params.kind == "standardize" and (
+            left.domain.kind != "group"
+            or right.domain.kind != "group"
+            or not params.strata
+            or left.domain.instance_key != params.strata
+            or right.domain.instance_key != params.strata
+            or len(params.strata_dependencies) != len(params.strata)
+            or right.quantity.unit not in (None, "1")
+            or params.statistical_unit is None
+        ):
+            reject(
+                "complete matching strata, dimensionless weights and a statistical Entity",
+                repr(params),
+                "Bind the same ordered grouping axes and statistical unit.",
+                "analysis.reference",
+            )
+    quantity = DerivedQuantity(
+        params.output_domain.definition_id,
+        "reference." + params.kind + "@v1",
+        tuple(
+            item.quantity.definition_id if item.quantity else item.domain.definition_id
+            for item in inputs
+        ),
+        params.unit,
+        params.time_scope,
+        "fixed_reference",
+    )
+
+    def reasons(signature: Signature) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        from marivo.analysis.methods.semantics import quantity_cell_reasons
+
+        return quantity_cell_reasons(signature.quantity)
+
+    parts: tuple[Part, ...] = (
+        ReferenceStatePart(
+            binding,
+            "fixed_reference",
+            right.domain,
+            params.reference_id,
+            cell_reasons=reasons(right),
+        ),
+        ReferenceStatePart(
+            binding,
+            "reference_proof",
+            inputs[2].domain if params.kind == "share" else left.domain,
+            params.reference_id,
+            params.share_state,
+            reasons(inputs[2] if params.kind == "share" else left),
+        ),
+        ReferenceStatePart(
+            binding, "stratum_values", left.domain, params.reference_id, cell_reasons=reasons(left)
+        ),
+    )
+    if params.kind == "standardize":
+        parts += (ReferenceStatePart(binding, "strata", right.domain, params.reference_id),)
+    return _result(
+        "reference@v1",
+        inputs,
+        params.output_domain,
+        quantity,
+        parts,
+        pre=(),
+        required=(),
+        created=tuple(part_role(part) for part in parts),
+        post=(),
+        obligations=(),
+        eval_id="reference." + params.kind + "@v1",
+    )
