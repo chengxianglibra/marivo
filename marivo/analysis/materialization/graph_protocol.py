@@ -185,6 +185,10 @@ class MethodState:
             if self.kind == "none"
             else ("subject", "cohort_decision")
             if self.kind == "cohort"
+            else ("fixed_reference", "reference_proof", "stratum_values", "strata")
+            if self.kind == "standardized"
+            else ("fixed_reference", "reference_proof", "stratum_values")
+            if self.kind in ("share", "penetration", "standardized")
             else ("pair_counts",)
             if self.kind == "spearman"
             else ("current_endpoint", "baseline_endpoint", "correspondence")
@@ -216,7 +220,11 @@ class MethodState:
             raise IntegrityError(
                 expected=f"{self.kind} state and part contract version in {allowed_versions}",
                 received=f"state contract version {self.contract_version}",
-                repair="Re-execute the source comparison to produce its current retained state; old comparison state cannot continue.",
+                repair=(
+                    "Re-execute the reference from complete verified inputs to produce its current retained state; incompatible reference state cannot continue."
+                    if self.kind in ("share", "penetration", "standardized")
+                    else "Re-execute the source comparison to produce its current retained state; old comparison state cannot continue."
+                ),
                 stage="graph_protocol",
                 help_target="actions.execute",
             )
@@ -448,7 +456,10 @@ def validate_descriptor(value: Descriptor) -> Node:
         )
         or any(
             p.input_binding != state.input_binding
-            or p.key_fields != keys
+            or (
+                p.key_fields != keys
+                and p.role not in ("fixed_reference", "reference_proof", "strata", "stratum_values")
+            )
             or p.contract_id != f"marivo.analysis.part.{state.kind}.{p.role}"
             or p.contract_version != state.contract_version
             or p.method_state_version != state.contract_version

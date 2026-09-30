@@ -1,7 +1,8 @@
 # R6.1 contract freeze and consumer migration ledger
 
 Date: 2026-09-30. Status: R6.1 contract/static inventory complete; R6.2 public comparison implementation is connected, with final validation recorded below;
-R6.3 is connected through the bounded qualifications recorded below; R6.4–R6.7 remain unimplemented. This ledger indexes the
+R6.3 and R6.4 are connected through the bounded qualifications recorded below;
+R6.5–R6.7 remain unimplemented. This ledger indexes the
 [R6 implementation plan](2026-09-30-marivo-full-algebra-dsl-r6-implementation-plan.md)
 and sole contract owners; it is not another method registry or executable API.
 
@@ -72,6 +73,11 @@ R5 Decimal/Duration current-row sum/mean/min/max remain unqualified.
 - Existing mv.window_bucket and all_of/any_of/not_ are public legacy bindings.
   Their unique names migrate in their owning packages; do not export competing
   new constructors or redirect old Help as compatibility.
+- R6.4 accepts the subsequently confirmed sum/count/linear standardization
+  admission alongside mean/weighted_mean/original ratio. This is an explicit
+  receiver-method expansion, including public int64 positives, with the
+  statistical Entity proved from frozen contribution/component definitions.
+  It does not admit ordinary relation ratios, Difference or quantiles.
 
 ## Actual consumer inventory and deletion gates
 
@@ -120,7 +126,7 @@ implementation and checks; broad family-level rows here do not register it.
 | --- | --- | --- | --- |
 | R6.2 map_correspond, cell.difference/relative_change/ratio | S: Ibis key/coverage/endpoint preparation, registered local arithmetic where required by numeric matrix; preserve existing qualified int64 Ibis difference. F: registered local same semantic method | Entity composite keys, Group, Singleton; NoTime ratio/cohort contrast, scoped UTC-us TimeChange, DATE and aware-local PeriodChange grids; I/F/D/T per owner | `tests/test_analysis_comparison_r62.py`, `tests/test_analysis_comparison_runtime_r62.py`; V01–V03/V10/V11 |
 | R6.3 predicate transport, domain.cohort, members | S: Ibis full-domain/key/coverage checks and predicate/quantifier expressions; F: registered local same rules | Entity and complete Entity×Time, four Cells, composite Subject keys; NoTime and R5 grids, empty full opportunity domain | `tests/test_analysis_predicates_r63.py`, `tests/test_analysis_cohort_r63.py`; V04/V05/V10/V11 |
-| R6.4 reference.share/penetration/standardize | S: Ibis governed key/support/strata preparation, registered local numeric method for exact weighted finish; F: same local consumer | NoTime or exactly matching frozen time scopes; Group strata→Singleton; I/F/D standardize, I/F/D/T share; complete member reference | `tests/test_analysis_references_r64.py`; V06/V10/V11 |
+| R6.4 reference.share/penetration/standardize | S: Ibis governed key/support/strata preparation, registered local numeric method for exact weighted finish; F: same local consumer | NoTime or exactly matching frozen time scopes; Group strata→Singleton; original Metric/runtime Metric sum/count/linear/mean/weighted_mean/ratio standardization, I/F/D values; additive I/F/D/T share; complete member reference | `tests/test_analysis_references_r64.py`; V06/V10/V11; actual cells recorded in the R6.4 section below |
 | R6.5 display.rank/table and transport | S: Ibis key/partition preparation plus registered local deterministic order/table assembly; F: same local consumer | Entity/Group/Singleton and preserved time products; I/F/D/T ranks, all scalar Relation kinds in terminal table | `tests/test_analysis_display_r65.py`; V07/V10/V11 |
 | R6.6 attribution.additive_difference/component_mix | S: Ibis explicit observation expansion and complete component/check preparation, registered local allocation; F: retained-state same local consumer | Per complete comparison scope and time correspondence, joint/hierarchy; I/F/D/T additive, I/F/D component_mix | `tests/test_analysis_attribution_r66.py`, `tests/test_analysis_attribution_runtime_r66.py`; V08/V09/V10/V11, AN11/AN12 |
 | R6.7 installed continuations/consumer closure | Same selected methods/qualifications as producing candidate, no fresh backend qualification | Same wheel, produce/continue/recover A02/A06/A07/A08 and J1–J4, table+Parquet | `tests/test_analysis_recovery_r67.py`, `tests/installed_r6_journeys.py`; V10–V12 and cross-package matrix |
@@ -477,3 +483,102 @@ Repair validation, all exit 0:
 - `npm --prefix site run build`: API prebuild, Astro check/build and bilingual
   install-script verification passed.
 - `git diff --check`: passed. Changes remain uncommitted in the same worktree.
+
+## R6.4 fixed references and standardization (2026-10-01)
+
+Baseline: clean `panda`, HEAD `85107a9a49cb6939505b7341167cfcf7df3ed7b0`.
+The accepted R6.4 scope additionally admits original Metric/runtime Metric
+sum/count/linear receivers, with public int64 positives. This package connects
+`NumericRelation.share_of`, `AnalysisDomain.penetration_in`,
+`mv.reference_weights` and `NumericRelation.standardize` to the existing logical
+and materialized NumericRelation family. `ReferenceWeights` is an immutable,
+factory-only input with ordered frozen values/strata/Entity dependencies and
+bounded repr/show; it has no independent execute operation.
+
+### Actual qualified cells
+
+All public positives below execute both source and fixed consumers; table and
+Parquet are separate parameterized cases unless explicitly limited to table.
+Numeric observations use the matching frozen August 2026 scope and UTC-us event
+axis; penetration uses untimed complete Entity domains. This is not a grant for
+every registered time/type/backend cross-product.
+
+| Method / receiver | Actual input/output qualification | Independent public evidence |
+| --- | --- | --- |
+| reference.share / original sum | I=int64 and F=binary64 to binary64; D=Decimal(30,6) to Decimal(38,6); T=microsecond ticks from native INTERVAL or Parquet Duration to binary64 | `test_public_share_numeric_matrix`; Fraction/Decimal raw-amount oracles; source/fixed, table/Parquet |
+| reference.share / count and linear | int64 count; original linear over I/F/D sums; complete support and explicit original Singleton rollup | `test_public_references_source_and_fixed`, `test_original_metric_standardization_matrix`; independent raw count/region totals, source/fixed, table/Parquet |
+| reference.penetration | Complete Entity identities, including composite `(tenant,customer_id)`; checked intersection/reference counts to binary64; overlaps and empty reference | `test_composite_penetration_overlap_and_empty`; independent set/cardinality oracle, source/fixed, table/Parquet |
+| reference.standardize / original sum/count/linear | int64 receivers with I/F weights to binary64; binary64 sum/linear with F weights to binary64; Decimal(30,6) sum/linear with D weights to Decimal(38,6) | `test_public_references_source_and_fixed`, `test_public_exact_integer_reference_weights`, `test_original_metric_standardization_matrix`; source/fixed, table/Parquet |
+| reference.standardize / original mean/weighted_mean/ratio | I/F original inputs produce binary64 stratum values with I/F weights; D original inputs and D weights produce Decimal(38,6); zero-weight Null mean and Undefined ratio strata retained | `test_original_metric_standardization_matrix`, `test_public_exact_integer_reference_weights`; raw-fact Fraction/Decimal oracles, source/fixed, table/Parquet |
+| Independent source origins and statistical Entity | Extra order-line source in weights; original ratio with order-line numerator uses its order-count denominator Entity; linear with inconsistent contribution Entities rejects before business reads | `test_reference_preparation_captures_independent_source_origins`; source/fixed positive ratio and source zero-read rejection; native table only |
+
+Mean uses the sample contribution Entity; weighted mean uses the paired
+contribution Entity; sum/count use their contribution Entity. Original ratio
+uses its denominator component Entity, and linear requires equality across all
+terms. Ordinary relation ratio, Difference, quantile and field reads do not gain
+standardization, share or original-state rollup permission. Standardization
+preserves measurement units and discloses a weighted stratum value, including
+stratum totals/counts, without claiming an actual population value.
+
+### Consumption, recovery and disclosure
+
+| Obligation | Result and owner |
+| --- | --- |
+| Zero-read construction and known early rejection | **Passed**: cross-Session, mixed mode, non-Singleton share, wrong/repeated/reversed/unretained axes, statistical Entity and time mismatch, ordinary ratio and unproved linear reject before business reads; no new Run. `test_static_reference_rejections_are_zero_read` and the independent-origin test. |
+| Complete immutable share / penetration reference | **Passed**: signed shares, zero denominator, inclusion overflow, overlapping composite sets and empty reference; where keeps original reference identity/denominator and all independent parts. A fixed selected original can consume its exact retained full reference Artifact. |
+| Exact represented arithmetic | **Passed**: Fraction widened products/sums and one finish; exact I/D sum=1; F represented-value exact sum within 1e-12 without normalization; order changes, boundary/tolerance rejection, nonfinite/negative/wrong weights, tiny positive weights, zero-weight non-Defined Cells and malformed Defined rejection. Sixteen pure tests supplement the public matrix. |
+| Complete strata consumption | **Passed**: missing/duplicate/wrong keys, weight/value mismatch and invalid error state reject. Zero-weight stratum values and their original tags remain persisted. `test_invalid_public_standardization_rejects_without_normalization`, exchange-corruption and pure kernel cases. |
+| One graph / selected route | **Passed**: registered reference v1 methods use source `ibis_python` preparation/controlled exchange and fixed `artifact_python`; explicit shared reference node realizes once per execution, changed source facts are freshly evaluated, fixed captures retain original inputs, failed source execution does not switch routes. |
+| Store 7 and cold fixed continuation | **Passed**: `share`, `penetration`, `standardized` state v1; independent `fixed_reference`, `reference_proof`, `stratum_values` and standardization `strata` receipts retain their own complete keys. In a fresh process with the table/Parquet source removed, Semantic load forbidden and DuckDB import/connection disabled, all three saved families actually execute where continuations and recover the new Artifact. |
+| Integrity and publication atomicity | **Passed**: deletion and alteration of every retained part, incompatible role versions/keys, bad receipt content and inconsistent arithmetic/error state reject before recovery/cache use. Faults after part writes, file publication and receipt verification clean the failed publication while preserving prior successful Artifacts. No hardware or remote-storage atomicity claim. |
+| Native disclosure | **Passed**: exports/typing/Help, bounded progressive reference/summary routes, factory acquisition/consumption, dynamic actions and repair targets. Duration receivers do not offer standardization; additive linear share permission is independent of statistical-Entity standardization permission. Static reference identity/interpretation survives where. Verified result cards independently disclose complete/partial current partition, nonnegative range, intersection/reference counts, represented weight-sum deviation and arithmetic error bound. API and current English/Chinese examples are aligned. |
+
+### Validation and remaining boundaries
+
+Final package checks, all exit 0:
+
+- `make runtime-test TESTS='tests/test_analysis_references_r64.py'`:
+  **33 passed**, no failures or skips. The same file's **16 pure tests** are
+  included in the broad default gate.
+- After making incompatible reference-state version repairs point to the
+  reference input rather than a comparison, the cold recovery/corruption cases
+  passed again (**2 passed**) with explicit v2-state rejection assertions.
+- Necessary shared-state gate:
+  `make runtime-test TESTS='tests/test_analysis_references_r64.py tests/test_analysis_comparison_runtime_r62.py tests/test_analysis_cohort_r63.py tests/test_analysis_coordinates_r54.py tests/test_analysis_numeric_r56.py tests/test_analysis_graph_publication_r44.py'`:
+  **375 passed**, no failures or skips, at the earlier 29-case R6.4 matrix.
+  Subsequent R6.4 support/origin/disclosure assertions and exact integer weights
+  are included in the final 33-case run above.
+- `make typecheck TYPECHECK_TARGETS='marivo/analysis tests/typing/analysis_dsl_public_contract.py'`:
+  **269 source files passed**; focused lint/import checks passed.
+- `make check-agent`: **5560 passed / 5 skipped**, typing of **415** source
+  files, formatting, lint/import contracts and API documentation generation.
+  Four existing SQLite fixtures lack Decimal storage declarations; the existing
+  metadata-owner case delegates a channel failure to dispatcher fallback. These
+  five skips confer no Runtime or backend qualification.
+- `npm --prefix site run build`: API prebuild, Astro check/build and bilingual
+  install-script verification passed.
+- `git diff --check`: passed.
+
+Earlier failed iterations exposed independent-key row alignment, normalized
+frozen classification identity, retained fixed support and independent source
+origin binding, plus Help/type/export/example drift and test fixture/assertion
+errors. They were repaired and rerun; failed runs are not counted as passes.
+
+**Unverified / deferred**: R6.5 ranking/Top-K reference invariance and terminal
+table views, R6.6 allocation, R6.7 same-wheel continuation/recovery, untested
+time/type combinations (including non-us Duration share), SQLite/remote R6
+methods, full six-backend and real-Agent journeys. Top-K is a handoff, not a
+passed reference test. No release-check, MinIO, commit, push, publication,
+AGENTS.md or packaged-skill edit was performed.
+
+### R6.4 review repair: zero-weight error propagation (2026-10-01)
+
+Confirmed and repaired: a Defined stratum with represented weight zero still
+propagates `abs(value) * weight_error + value_error * weight_error`. Only
+non-Defined zero-weight strata skip numerical consumption. The independent
+Fraction regression failed before the repair and now passes; it also pins the
+Null/Undefined/Unknown exemptions. The owning numerical policy is clarified.
+
+Validation: focused pure tests **20 passed**; R6.4 Runtime **33 passed**;
+`make check-agent` **5564 passed / 5 existing skipped**, including typing,
+lint/import checks and API docs; `git diff --check` passed. No commit or push.

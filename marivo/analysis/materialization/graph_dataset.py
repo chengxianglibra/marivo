@@ -169,11 +169,18 @@ class GraphDataset:
         return frame.copy(deep=True)
 
     def show(self, *, max_output_bytes: int | None = None) -> None:
-        table = self.to_pandas()
+        checked = self.verified()
+        table = _public_table(checked).to_pandas()
         frame = table.head(5).copy()
         hidden = [name for name in frame.columns if str(name).startswith("member")]
         for name in hidden:
             frame[name] = "<identity>"
-        text = f"Artifact {self.artifact.artifact_ref} rows={len(table)}\n{frame.to_string(index=False)}"
+        from marivo.analysis.materialization.graph_reference import disclosure
+
+        facts = "".join(f"\n{name}: {value}" for name, value in disclosure(checked))
+        text = (
+            f"Artifact {self.artifact.artifact_ref} rows={len(table)}{facts}"
+            f"\n{frame.to_string(index=False)}"
+        )
         limit = 8192 if max_output_bytes is None else max(0, min(8192, max_output_bytes))
         print(text.encode()[: max(0, limit - 1)].decode(errors="ignore"))

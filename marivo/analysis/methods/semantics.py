@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, TypeAlias, get_args
 
 from marivo.analysis.core import rules
-from marivo.analysis.core.model import CheckId, PartRole, Signature, StatisticalWeightPart
+from marivo.analysis.core.model import CheckId, PartRole, Quantity, Signature, StatisticalWeightPart
 from marivo.analysis.methods.errors import reject
 
 if TYPE_CHECKING:
@@ -59,6 +59,9 @@ MethodName: TypeAlias = Literal[
     "state_rollup.linear",
     "parts_transport",
     "domain.cohort",
+    "reference.share",
+    "reference.penetration",
+    "reference.standardize",
     "association.spearman",
 ]
 
@@ -66,6 +69,9 @@ MethodName: TypeAlias = Literal[
 PersistentStateKind: TypeAlias = Literal[
     "none",
     "cohort",
+    "share",
+    "penetration",
+    "standardized",
     "original_min",
     "original_max",
     "original_sum",
@@ -112,6 +118,12 @@ class MethodKey:
 
 def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     """Map closed parameter variants to exactly one concrete method identity."""
+    if type(params) is rules.ReferenceDerive:
+        if params.kind == "share":
+            return MethodKey("reference.share")
+        if params.kind == "penetration":
+            return MethodKey("reference.penetration")
+        return MethodKey("reference.standardize")
     if type(params) is rules.TimeProduct:
         return MethodKey("time.product")
     if type(params) is rules.CompleteGroups:
@@ -254,6 +266,9 @@ class MethodSemantics:
             "state_rollup": "original_sum",
             "parts_transport": "none",
             "domain.cohort": "cohort",
+            "reference.share": "share",
+            "reference.penetration": "penetration",
+            "reference.standardize": "standardized",
             "map_correspond": "none",
             "cell.difference": "difference",
             "cell.relative_change": "relative_change",
@@ -275,6 +290,16 @@ class MethodSemantics:
         from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
         name = self.key.name
+        if isinstance(params, rules.ReferenceDerive):
+            from marivo.analysis.methods.references import reference_type
+
+            if output != reference_type(params.kind, inputs[0], inputs[1]):
+                reject(
+                    "the registered reference output type",
+                    repr(output),
+                    "Preserve exact input families and finish once.",
+                )
+            return
         if isinstance(params, rules.CellDerive):
             from marivo.analysis.methods.comparison import output_type
 
@@ -511,6 +536,8 @@ class MethodSemantics:
     @property
     def rule(self) -> rules.RuleId:
         name = self.key.name
+        if name.startswith("reference."):
+            return "reference@v1"
         if name in ("cell.difference", "cell.relative_change", "cell.ratio"):
             return "cell_derive@v1"
         if name in (
@@ -598,6 +625,8 @@ class MethodSemantics:
     def empty_cell_reasons(
         self,
     ) -> tuple[tuple[Literal["null", "undefined", "unknown"], tuple[str, ...]], ...]:
+        if self.key.name.startswith("reference."):
+            return (("undefined", ("zero_denominator", "empty_reference")),)
         if self.key.name == "cell.relative_change":
             return (
                 ("undefined", ("missing_side", "zero_baseline", "zero_denominator")),
@@ -911,6 +940,8 @@ class MethodSemantics:
             return rules._occurrence_combine(inputs, params)
         if type(params) is rules.OriginalReduce:
             return rules._original_reduce(inputs, params)
+        if type(params) is rules.ReferenceDerive:
+            return rules._reference(inputs, params)
         if type(params) is rules.PartsTransport:
             return rules._parts_transport(inputs, params)
         if type(params) is rules.AssociationScore:
@@ -960,8 +991,36 @@ CONNECTED_METHODS = (
     MethodSemantics(MethodKey("state_rollup"), "analysis.core.rules"),
     MethodSemantics(MethodKey("parts_transport"), "analysis.core.rules"),
     MethodSemantics(MethodKey("domain.cohort"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("reference.share"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("reference.penetration"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("reference.standardize"), "analysis.core.rules"),
     MethodSemantics(MethodKey("association.spearman"), "analysis.core.rules"),
 )
+
+
+def quantity_cell_reasons(quantity: Quantity | None) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Retain Cell reasons from the same native method owner as the input quantity."""
+    if quantity is None:
+        return ()
+    method = quantity.method_version.removesuffix("@v1")
+    names = {
+        "sum": "metric.observe",
+        "sum_zero": "metric.sum_zero",
+        "count": "metric.count",
+        "mean": "metric.mean",
+        "weighted_mean": "metric.weighted_mean",
+        "ratio": "metric.ratio",
+        "linear": "metric.linear",
+    }
+    owner = names.get(method, method)
+    semantics = next((item for item in CONNECTED_METHODS if item.key.name == owner), None)
+    if semantics is None:
+        reject(
+            "a quantity with a registered Cell policy",
+            method,
+            "Use the frozen original quantity or registered reference result.",
+        )
+    return semantics.empty_cell_reasons
 
 
 def observation_disclosure(

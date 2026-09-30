@@ -132,3 +132,12 @@ are restored. Adapter tests cover required hooks, memtables, UDFs and temporary
 preparations; backend dispatch tests cover the common registry, retained import
 and unimplemented backend refusal. This supersedes the blanket read-only 1d
 acceptance, without enabling remote methods or new private-state transfer.
+
+R6.4 fixed-reference qualification is owned by
+`tests/test_analysis_references_r64.py`: public DuckDB table/Parquet and fixed
+share I/F/D/T, standardization I/F/D with the six admitted original methods,
+complete/composite/overlapping penetration, exact weight policy, zero-read
+construction, retained inputs, source re-evaluation, shared realization,
+source-offline fresh-process continuations, corruption and publication cleanup.
+This is focused Runtime acceptance. Ranking/Top-K invariance belongs to R6.5;
+installed-wheel closure belongs to R6.7.

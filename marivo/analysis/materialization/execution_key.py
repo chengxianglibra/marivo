@@ -53,6 +53,7 @@ _WIRE_TAGS: dict[type[object], str] = {
     core_model.DerivedQuantity: "derived_quantity",
     core_model.RowStatisticQuantity: "row_statistic_quantity",
     core_model.RolledQuantity: "rolled_quantity",
+    core_model.ReferenceStatePart: "reference_state_part",
     core_model.CohortDecisionPart: "cohort_decision_part",
     core_model.SubjectPart: "subject_part",
     core_model.PairCountsPart: "pair_counts_part",

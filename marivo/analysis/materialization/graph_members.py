@@ -442,7 +442,14 @@ class MemberGraph:
                 RouteChoice(
                     node.identity,
                     "ibis_python"
-                    if node.method.name in ("cell.relative_change", "cell.ratio")
+                    if node.method.name
+                    in (
+                        "cell.relative_change",
+                        "cell.ratio",
+                        "reference.share",
+                        "reference.penetration",
+                        "reference.standardize",
+                    )
                     else "ibis",
                 )
                 for node in topology(self.root)

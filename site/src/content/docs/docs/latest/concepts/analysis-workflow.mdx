@@ -720,3 +720,44 @@ may use another fact source; both source bindings are retained by the graph.
 On a materialized grouped numeric result, `summarize` preserves the group axes
 and uses the materialized group rows: count is one per existing group. It does
 not restore pre-group members. Use original `rollup()` to merge Metric components.
+
+## Fixed references and standardized values
+
+Bind the complete reference once. Selection keeps its original denominator and
+support; an ordinary `ratio` does not acquire share semantics:
+
+```python
+members = session.members(ms.ref.entity("sales.customer"))
+region = members.read(ms.ref.dimension("sales.customer.region"))
+counts = members.observe(
+    ms.ref.metric("sales.order_count"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+)
+shares = counts.share_of(counts.rollup())
+selected_shares = shares.where(shares.value.gt(0)).execute()
+penetration = counts.where(counts.value.gt(0)).members().penetration_in(members).execute()
+stratum_counts = counts.group_by(region).rollup()
+composition = stratum_counts.share_of(stratum_counts.rollup())
+weights = mv.reference_weights(
+    composition, strata=(region,), unit=ms.ref.entity("sales.order")
+)
+standardized = stratum_counts.standardize(reference=weights).execute()
+standardized.contract().show()
+```
+
+The statistical Entity is separate from the measurement unit. Original sum,
+count, linear, mean, weighted_mean and ratio can standardize when their frozen
+components prove that Entity. For totals, the output is a weighted stratum total,
+not the actual population total. Missing/duplicate strata, negative/nonfinite
+weights, incompatible axes/units/time scopes and incorrect weight sums reject.
+Weights are never normalized. Zero-weight strata must remain present and preserve
+their non-Defined Cells; positive weights always require finite Defined values.
+Share supports int64, float64, Decimal and Duration; standardization supports
+int64/float64 with integer/float weights, or Decimal with Decimal weights.
+
+Use fixed values, classifications and weights together for fixed continuation.
+After recovery, `where` executes with the retained reference even when sources
+are offline. Read `marivo.help("analysis.methods.metric.reference")` for the
+focused constructors and methods. Ranking/Top-K reference invariance and
+installed-wheel closure have separate acceptance phases.

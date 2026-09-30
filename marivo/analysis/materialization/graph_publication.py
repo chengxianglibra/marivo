@@ -391,7 +391,10 @@ def execute(
                         "marivo.analysis.receipt/v1",
                         "part",
                         state.input_binding,
-                        keys,
+                        tuple(
+                            (name, str(part.table.schema.field(name).type))
+                            for name in result.contract.parts[len(parts)].key_fields
+                        ),
                         write_table(
                             store.project_root, staging / part.role, final / part.role, part.table
                         ),

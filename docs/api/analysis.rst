@@ -43,6 +43,11 @@ Entity-domain values
 .. autoclass:: AnalysisContract
    :members:
 
+.. autoclass:: ReferenceWeights
+   :members:
+
+.. autofunction:: reference_weights
+
 .. autoclass:: LogicalAnalysisDomain
    :members:
 

@@ -117,13 +117,31 @@ def read_result(root: Path, descriptor: Descriptor) -> ExchangeResult:
             ],
             names=[*keys, "status"],
         )
+        if state.kind in ("share", "penetration", "standardized"):
+            from marivo.analysis.materialization.graph_exchange import reference_parameters
+            from marivo.analysis.materialization.graph_reference import error_bounds
+
+            statuses = statuses.append_column(
+                "error_bound",
+                pa.array(
+                    error_bounds(reference_parameters(node.signature), parts, primary),
+                    type=pa.float64(),
+                ),
+            )
     contract = ExchangeContract(
         node.signature,
         MethodKey(method.name, method.version),
         state.input_binding,
         schema_from(descriptor.realized_schema),
         keys,
-        tuple(PartContract(p.role, p.table.schema, keys) for p in parts),
+        tuple(
+            PartContract(
+                p.role,
+                p.table.schema,
+                tuple(name for name, _ in descriptor.parts[index].key_fields),
+            )
+            for index, p in enumerate(parts)
+        ),
         descriptor.row_contract.cell_reasons,
         state.kind,
         None if statuses is None else statuses.schema,

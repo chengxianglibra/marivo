@@ -193,13 +193,36 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
                     if owner is None:
                         continue
                     target = f"dsl.{owner.__name__.lstrip('_')}.{name}"
-                    registry.by_canonical_id(target)
-                    method_routes.append(target)
+                    callable_descriptor = registry.by_canonical_id(target)
+                    group = (
+                        callable_descriptor.discovery_group
+                        if isinstance(callable_descriptor, CallableInput)
+                        else None
+                    )
+                    parent = (
+                        registry.by_canonical_id(group.rpartition(".")[0])
+                        if group and group.count(".") > 1
+                        else None
+                    )
+                    method_routes.append(
+                        group
+                        if isinstance(parent, NavigationInput)
+                        and group in parent.members
+                        and parent.render_class == "navigation"
+                        else target
+                    )
                 if any(item.name == "coefficient" for item in binding.fields):
                     method_routes.append("MaterializedCoefficientRelation")
             routes = tuple(
                 dict.fromkeys(descriptor.producers + descriptor.consumers + tuple(method_routes))
             )
+            if len(routes) > ANALYSIS_HELP_RENDER_BUDGETS["public_type"].max_outgoing_routes:
+                grouped_routes: list[str] = []
+                for route in routes:
+                    leaf = registry.by_canonical_id(route)
+                    group = leaf.discovery_group if isinstance(leaf, CallableInput) else None
+                    grouped_routes.append(group or route)
+                routes = tuple(dict.fromkeys(grouped_routes))
             lines.extend("Producer: " + t for t in descriptor.producers)
             lines.extend("Consumer: " + t for t in descriptor.consumers)
             lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)

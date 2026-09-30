@@ -19,8 +19,8 @@ from marivo.analysis.compiler.graph_lowering import (
 )
 from marivo.analysis.compiler.graph_plan import CheckRequirement
 from marivo.analysis.core.graph import MethodNode
-from marivo.analysis.core.model import Defined
-from marivo.analysis.core.rules import CellDerive, PartsTransport
+from marivo.analysis.core.model import Defined, DerivedQuantity, ReferenceStatePart
+from marivo.analysis.core.rules import CellDerive, PartsTransport, ReferenceDerive
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     CheckedStream,
@@ -79,11 +79,16 @@ def _read(
     replacements: dict[ops.Node, ops.Node],
     keys: tuple[str, ...] = (),
     validate_cells: bool = True,
+    cell_reasons: tuple[tuple[str, tuple[str, ...]], ...] = (),
 ) -> pa.Table:
     issued = _issue(source, lowered, expression, purpose=purpose, replacements=replacements)
     schema = expression.schema().to_pyarrow()
     stream = CheckedStream(
-        source.batches(issued, chunk_size=1024), schema, keys, validate_cells=validate_cells
+        source.batches(issued, chunk_size=1024),
+        schema,
+        keys,
+        cell_reasons,
+        validate_cells=validate_cells,
     )
     try:
         table = pa.Table.from_batches(tuple(stream), schema=schema)
@@ -229,7 +234,11 @@ def _result(
         selected = next(
             (item.table for item in retained_parts if item.role == role), table.select(names)
         )
-        part_contracts.append(PartContract(role, selected.schema, key_names))
+        from marivo.analysis.materialization.graph_reference import part_keys
+
+        part_contracts.append(
+            PartContract(role, selected.schema, part_keys(stage.node.signature, role))
+        )
         parts.append(ExchangePart(role, selected))
     source_ids = ",".join(stage.source_ids)
     state_kind = REGISTRY.lookup(stage.node.method).semantics.persistent_state_kind
@@ -248,6 +257,19 @@ def _result(
             [*(primary.column(name) for name in key_names), statuses],
             names=[*key_names, "status"],
         )
+        if isinstance(
+            stage.node.signature.quantity, DerivedQuantity
+        ) and stage.node.signature.quantity.method_version.startswith("reference."):
+            from marivo.analysis.materialization.graph_exchange import reference_parameters
+            from marivo.analysis.materialization.graph_reference import error_bounds
+
+            state = state.append_column(
+                "error_bound",
+                pa.array(
+                    error_bounds(reference_parameters(stage.node.signature), tuple(parts), primary),
+                    type=pa.float64(),
+                ),
+            )
     contract = ExchangeContract(
         stage.node.signature,
         stage.node.method,
@@ -291,7 +313,15 @@ def execute_source_graph(
         any(
             len(item.stage.inputs) != 1
             or item.stage.node.method.name
-            not in ("association.spearman", "cell.difference", "cell.relative_change", "cell.ratio")
+            not in (
+                "association.spearman",
+                "cell.difference",
+                "cell.relative_change",
+                "cell.ratio",
+                "reference.share",
+                "reference.penetration",
+                "reference.standardize",
+            )
             or (
                 item.stage.node.method.name == "association.spearman"
                 and item.stage.output != lowered.primary_output
@@ -328,6 +358,79 @@ def execute_source_graph(
                     ),
                     None,
                 )
+                if predecessor is not None and isinstance(
+                    stage.stage.node.parameters, ReferenceDerive
+                ):
+                    from marivo.analysis.materialization.graph_reference import (
+                        result as reference_result,
+                    )
+
+                    parts = tuple(
+                        ExchangePart(
+                            role,
+                            _read(
+                                source,
+                                lowered,
+                                expression,
+                                purpose="analysis.graph.reference",
+                                replacements=replacements,
+                                cell_reasons=next(
+                                    part.cell_reasons
+                                    for part in predecessor.node.signature.parts
+                                    if isinstance(part, ReferenceStatePart) and part.role == role
+                                ),
+                            ),
+                        )
+                        for role, expression in predecessor.part_expressions
+                    )
+                    finished = reference_result(
+                        stage.stage.node, parts, ",".join(predecessor.source_ids)
+                    )
+                    table = tables[predecessor.output]
+                    keys = tuple(key.column for key in predecessor.layout.keys)
+                    rows = {
+                        tuple(row[name] for name in keys): row
+                        for row in finished.primary.to_pylist()
+                    }
+                    for name in ("value", "cell_tag", "cell_reason"):
+                        table = table.set_column(
+                            table.schema.get_field_index(name),
+                            name,
+                            pa.array(
+                                [
+                                    rows[tuple(row[key] for key in keys)][name]
+                                    for row in table.to_pylist()
+                                ],
+                                type=finished.primary.schema.field(name).type,
+                            ),
+                        )
+                    assert finished.method_state is not None
+                    bounds = {
+                        tuple(row[name] for name in keys): row["error_bound"]
+                        for row in finished.method_state.to_pylist()
+                    }
+                    table = table.set_column(
+                        table.schema.get_field_index("reference_proof__retained"),
+                        "reference_proof__retained",
+                        pa.array(
+                            [bounds[tuple(row[key] for key in keys)] for row in table.to_pylist()],
+                            type=pa.float64(),
+                        ),
+                    )
+                    staged = source.stage_calculated(issued_reads[predecessor.output], table)
+                    owned.append(staged)
+                    tables[stage.stage.output] = table
+                    replacements[predecessor.expression.op()] = staged.op()
+                    final_local = replace(predecessor, output=stage.stage.output)
+                    for check in lowered.checks:
+                        if (
+                            isinstance(check, SemanticCheck)
+                            and check.requirement.stage_output == stage.stage.output
+                        ):
+                            proof = _check(source, lowered, check, replacements)
+                            if proof is not None:
+                                completed.append(proof)
+                    continue
                 if predecessor is not None and isinstance(stage.stage.node.parameters, CellDerive):
                     node = stage.stage.node
                     params = node.parameters
@@ -468,6 +571,14 @@ def execute_source_graph(
                     expression,
                     purpose="analysis.graph.part",
                     replacements=replacements,
+                    cell_reasons=next(
+                        (
+                            part.cell_reasons
+                            for part in primary.node.signature.parts
+                            if isinstance(part, ReferenceStatePart) and part.role == role
+                        ),
+                        (),
+                    ),
                 ),
             )
             for role, expression in primary.part_expressions

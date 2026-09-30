@@ -21,6 +21,9 @@ from marivo.analysis.materialization import graph_fields as fields
 _METHOD_GROUPS = {
     ("_NumericComparison", "compare"): "methods.compare",
     ("_NumericComparison", "ratio"): "methods.compare",
+    ("_NumericComparison", "share_of"): "methods.metric.reference",
+    ("_NumericComparison", "standardize"): "methods.metric.reference",
+    ("_CohortDomain", "penetration_in"): "methods.metric.reference",
     ("GroupedRatioRelation", "rollup"): "methods.metric",
     ("_CohortDomain", "cohort"): "methods.rows",
     ("LogicalAnalysisDomain", "each"): "methods.metric",
@@ -29,12 +32,12 @@ _METHOD_GROUPS = {
     ("LogicalAnalysisDomain", "observe"): "methods.metric",
     ("LogicalNumericRelation", "group_by"): "methods.metric",
     ("LogicalNumericRelation", "rollup"): "methods.metric",
-    ("LogicalNumericRelation", "summarize"): "methods.metric",
+    ("LogicalNumericRelation", "summarize"): "methods.metric.summary",
     ("LogicalNumericRelation", "correlate"): "methods.association",
-    ("MaterializedNumericRelation", "summarize"): "methods.metric",
+    ("MaterializedNumericRelation", "summarize"): "methods.metric.summary",
     ("LogicalRatioRelation", "group_by"): "methods.metric",
     ("LogicalRatioRelation", "rollup"): "methods.metric",
-    ("LogicalRatioRelation", "summarize"): "methods.metric",
+    ("LogicalRatioRelation", "summarize"): "methods.metric.summary",
     ("MaterializedRatioRelation", "rollup"): "methods.metric",
     ("LogicalCategoryRelation", "where"): "methods.rows",
     ("LogicalDifferenceRelation", "where"): "methods.rows",
@@ -44,6 +47,10 @@ _METHOD_GROUPS = {
 }
 
 _INPUT_GUIDANCE = {
+    "reference": "Use an exact compatible reference in this Session and source/fixed mode; standardize consumes mv.reference_weights(...).",
+    "values": "Use complete grouped dimensionless stratum values in this Session.",
+    "strata": "Use the ordered CategoryRelation tuple bound through the existing grouping or inclusion mapping.",
+    "unit": "Use the statistical Entity proved by the frozen Metric components, distinct from measurement units.",
     "field": "Use an exact Measure, Dimension or TimeDimension Ref from the current catalog.",
     "at": "Select the attribute version independently with datetime or TimeScope.before_end.",
     "metric": "Use one exact Metric Ref from the current Semantic catalog.",
@@ -103,6 +110,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         cohort.EmptyOpportunityPolicy,
         cohort.empty_opportunity,
         dsl.OneToOneCorrespondence,
+        dsl.ReferenceWeights,
         dsl.PeriodChange,
         dsl.UnionKeys,
         dsl.ExactKeys,
@@ -180,6 +188,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             dsl.CohortContrast: "mv.CohortContrast()",
             dsl.PeriodChange: "mv.PeriodChange(alignment=mv.window_bucket())",
             dsl.OneToOneCorrespondence: "mv.one_to_one(left=left, right=right, via=relationship)",
+            dsl.ReferenceWeights: "mv.reference_weights(values, strata=(category,), unit=entity)",
         }
         acquisition = (
             f"Call {policy_examples[type_value]}."
@@ -205,7 +214,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             else "Construct through session.members() or the returned typed relation."
         )
         producers = (
-            ("dsl.any_instance",)
+            ("dsl.reference_weights",)
+            if type_value is dsl.ReferenceWeights
+            else ("dsl.any_instance",)
             if type_value is cohort.AnyInstance
             else ("dsl.at_least",)
             if type_value is cohort.AtLeast
@@ -242,7 +253,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 summary=f"Governed Analysis {name} value type.",
                 acquisition=acquisition,
                 producers=("session.artifact",) if name.startswith("Materialized") else producers,
-                consumers=("GridWindow", "GridEndpoint", "dsl.TimeGrid.show")
+                consumers=("dsl.NumericComparison.standardize", "dsl.ReferenceWeights.show")
+                if type_value is dsl.ReferenceWeights
+                else ("GridWindow", "GridEndpoint", "dsl.TimeGrid.show")
                 if type_value is dsl.TimeGrid
                 else (
                     "dsl.LogicalAnalysisDomain.read",
@@ -397,6 +410,33 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         )
     )
     exports.append(ExportInput("one_to_one", dsl.one_to_one, "dsl.one_to_one"))
+
+    descriptors.append(
+        operation(
+            "dsl.reference_weights",
+            "mv.reference_weights",
+            dsl.reference_weights,
+            summary="Freeze complete stratum weights and their statistical Entity.",
+            discovery_group="methods.metric.reference",
+            parameters=tuple(
+                ParameterInput(name, _INPUT_GUIDANCE[name]) for name in ("values", "strata", "unit")
+            ),
+            output="ReferenceWeights",
+            constraints=(
+                "Same Session and mode, exact ordered strata; no normalization or standalone execute.",
+            ),
+            effects="Pure construction; no business rows or Run.",
+            failures=("AnalysisError: follow the exact reference binding repair.",),
+            example=ExampleInput(
+                "result = mv.reference_weights(values, strata=(category,), unit=entity)",
+                ("values", "category", "entity"),
+                "result",
+                "A frozen reference composition.",
+                True,
+            ),
+        )
+    )
+    exports.append(ExportInput("reference_weights", dsl.reference_weights, "dsl.reference_weights"))
 
     for quantifier_function, output, example in (
         (cohort.any_instance, "AnyInstance", "mv.any_instance()"),

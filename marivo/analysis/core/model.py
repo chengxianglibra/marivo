@@ -487,6 +487,19 @@ class FixedReferencePart:
 
 
 @dataclass(frozen=True, slots=True)
+class ReferenceStatePart:
+    """An independently keyed immutable input to a reference method."""
+
+    binding: Binding
+    role: Literal["fixed_reference", "reference_proof", "strata", "stratum_values"]
+    domain: DomainSignature
+    reference_id: str
+    original_state: OriginalStatePart | None = None
+    cell_reasons: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
 class StatisticalWeightPart:
     binding: Binding
     role_id: str
@@ -522,10 +535,14 @@ Part: TypeAlias = (
     | RowStatePart
     | CoveragePart
     | FixedReferencePart
+    | ReferenceStatePart
     | StatisticalWeightPart
     | PairCountsPart
 )
 PartRole: TypeAlias = Literal[
+    "reference_proof",
+    "strata",
+    "stratum_values",
     "correspondence",
     "subject",
     "current_endpoint",
@@ -542,6 +559,8 @@ PartRole: TypeAlias = Literal[
 
 
 def part_role(part: Part) -> PartRole:
+    if isinstance(part, ReferenceStatePart):
+        return part.role
     if isinstance(part, CohortDecisionPart):
         return "cohort_decision"
     if isinstance(part, CorrespondencePart):
@@ -566,6 +585,36 @@ def part_role(part: Part) -> PartRole:
 
 
 def validate_part(part: Part) -> None:
+    if isinstance(part, ReferenceStatePart):
+        if (
+            part.role not in ("fixed_reference", "reference_proof", "strata", "stratum_values")
+            or part.version != "v1"
+            or any(
+                tag not in ("null", "undefined", "unknown") or not reasons
+                for tag, reasons in part.cell_reasons
+            )
+            or len({tag for tag, _ in part.cell_reasons}) != len(part.cell_reasons)
+        ):
+            reject(
+                "a closed reference state role at v1",
+                repr(part),
+                "Re-execute the reference method.",
+                "core.reference",
+            )
+        _nonempty(part.reference_id, "core.reference.identity")
+        if part.original_state is not None:
+            validate_part(part.original_state)
+        if (part.binding.session_id, part.binding.owner_id) != (
+            part.domain.binding.session_id,
+            part.domain.binding.owner_id,
+        ):
+            reject(
+                "one reference Session and owner",
+                repr(part.domain),
+                "Bind this Session's reference.",
+                "core.reference",
+            )
+        return
     if isinstance(part, CohortDecisionPart):
         if (
             part.rule not in ("any", "at_least", "all")

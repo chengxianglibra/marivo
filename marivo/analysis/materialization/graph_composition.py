@@ -37,6 +37,7 @@ from marivo.analysis.core.rules import (
     OriginalRatio,
     OriginalReduce,
     PartsTransport,
+    ReferenceDerive,
     RowState,
     TimeProduct,
 )
@@ -241,6 +242,20 @@ def _comparison_template(
     params = node.parameters
     if isinstance(params, PartsTransport) and params.keep_quantity:
         return visit(comparison_endpoints(node)[0])
+    if isinstance(params, ReferenceDerive):
+        return (
+            "reference",
+            params.kind,
+            params.reference_id,
+            params.strata,
+            params.statistical_unit,
+            params.unit,
+            tuple(
+                visit(child)
+                for child in comparison_endpoints(node)
+                if child.signature.quantity is not None
+            ),
+        )
     if isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
         return (
             type(params).__name__,

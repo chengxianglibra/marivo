@@ -23,6 +23,7 @@ from marivo.analysis.core.rules import (
     CellDerive,
     OriginalReduce,
     PartsTransport,
+    ReferenceDerive,
     RowState,
     RuleDerivation,
     RuleParameters,
@@ -176,6 +177,15 @@ def _order(document: GraphDocument) -> tuple[Record, ...]:
                 ("current", "baseline")
                 if isinstance(record.parameters, CellDerive)
                 else tuple(
+                    "reference"
+                    if index == 1
+                    else "subject"
+                    if _signature(records[edge.node]).quantity is None
+                    else "quantity"
+                    for index, edge in enumerate(record.inputs)
+                )
+                if isinstance(record.parameters, ReferenceDerive)
+                else tuple(
                     "subject" if _signature(records[edge.node]).quantity is None else "quantity"
                     for edge in record.inputs
                 )
@@ -184,7 +194,8 @@ def _order(document: GraphDocument) -> tuple[Record, ...]:
                 raise invalid("ordered input roles differ from the method contract")
             if record.retained_endpoints and (
                 not isinstance(
-                    record.parameters, (CellDerive, PartsTransport, OriginalReduce, RowState)
+                    record.parameters,
+                    (CellDerive, PartsTransport, OriginalReduce, RowState, ReferenceDerive),
                 )
                 or len(record.retained_endpoints) != len(record.inputs)
             ):

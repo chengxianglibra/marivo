@@ -17,6 +17,7 @@ from marivo.analysis.core.rules import (
     ObserveWeightedMean,
     OriginalReduce,
     PartsTransport,
+    ReferenceDerive,
     RowState,
     RuleDerivation,
     RuleParameters,
@@ -360,6 +361,15 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
     roles = tuple(e.role for e in node.inputs)
     if isinstance(node.parameters, CellDerive):
         expected: tuple[str, ...] = ("current", "baseline")
+    elif isinstance(node.parameters, ReferenceDerive):
+        expected = tuple(
+            "reference"
+            if index == 1
+            else "subject"
+            if edge.node.signature.quantity is None
+            else "quantity"
+            for index, edge in enumerate(node.inputs)
+        )
     else:
         expected = tuple(
             "subject" if e.node.signature.quantity is None else "quantity" for e in node.inputs
@@ -396,7 +406,9 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
     ):
         _fail("immutable typed retained endpoint definitions", node.identity)
     if node.retained_endpoints:
-        if not isinstance(node.parameters, (CellDerive, PartsTransport, OriginalReduce, RowState)):
+        if not isinstance(
+            node.parameters, (CellDerive, PartsTransport, OriginalReduce, RowState, ReferenceDerive)
+        ):
             _fail("retained endpoints only for comparison or state transport", node.identity)
         if len(node.retained_endpoints) != len(node.inputs):
             _fail("one retained endpoint per ordered input", node.identity)

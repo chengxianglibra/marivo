@@ -716,8 +716,8 @@ not declarations that those codecs already exist.
 | --- | --- |
 | Difference / relative change / ordinary ratio | current_endpoint, baseline_endpoint, correspondence; presence tag independent of Cell; exact endpoint definition and realization, recursive child references, design/pairing, units/policies, original bucket coordinates; endpoint sufficient parts only when actually retained |
 | cohort | target_subjects, opportunities, subject, coverage, predicate_inputs, decisions; complete original opportunity keys, t/u/f and explicit empty policy, selected keys and exact decision scope |
-| share / penetration | fixed_reference and reference_proof; original immutable reference binding/keys/Cells or membership, support/intersection evidence, denominator and independent partition status |
-| standardized | fixed_reference, strata, stratum_values; unit identity, all original weights/values including zero-weight non-Defined tags, sum check and numerical policy |
+| share / penetration | fixed_reference, reference_proof and stratum_values; original immutable reference binding/keys/Cells or membership, support/intersection evidence, denominator and independent partition status |
+| standardized | fixed_reference, reference_proof, strata and stratum_values; unit identity, all original weights/values including zero-weight non-Defined tags, sum check and numerical policy |
 | ranking | values, ranks, ranking_domain, partitions, ordering; full original domain/values or verified immutable part references, tie policy and current selection map |
 | attribution | current_endpoint, baseline_endpoint, basis, allocation, reconciliation, selection_scope; original target/basis/rule and endpoint sufficient state, ordered axes, resolution, typed Other/masks, side terms, original complete scope and current selected keys |
 | terminal table | columns and column_bindings; authored label order, exact immutable view/input identities, full key correspondence, concrete types/Cells; no continuation K |
@@ -845,3 +845,26 @@ Artifact data edges keep their own capture identity and receipt binding. The
 inclusion proof uses the exact retained Entity realization, semantic source,
 complete key and total projection; execution still verifies key containment.
 No evidence definition adds a source stage to fixed admission.
+
+### R6.4 reference state qualification
+
+Store remains generation 7. `share`, `penetration` and `standardized` state and
+part contracts are version 1. The new `ReferenceStatePart` declarations carry
+an immutable reference identity, complete input domain, input-owned Cell reasons
+and, for share support, the exact original additive-state declaration.
+`fixed_reference`, `reference_proof` and `stratum_values` are independently
+keyed; standardized state additionally requires `strata`. A Singleton denominator
+has one row and is never replicated over numerator keys. The proof and complete
+weight/value parts preserve their original row counts through `where`.
+
+Each part expression records its exact governed source dependencies. Shared
+explicit graph nodes realize once per source execution. Reference arithmetic
+consumes controlled Arrow exchange after Ibis preparation; fixed arithmetic uses
+verified Artifact parts. Result error envelopes are reproducible from retained
+operand bounds, including after selection. Recovery verifies receipt hashes,
+contract versions, schema/key images, input Cell policies, support-state/denominator
+consistency, strata and primary arithmetic before cache reuse or continuation.
+It does not load current Semantic, connect a source or depend on DuckDB.
+Publication uses the existing atomic writer and cleans only the failed Run's
+resources. Table/Parquet fresh-process recovery and publication faults are covered
+by `tests/test_analysis_references_r64.py`; installed-wheel closure belongs to R6.7.
