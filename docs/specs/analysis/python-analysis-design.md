@@ -535,8 +535,9 @@ A one-table unscoped Population scan/filter or sum/count Metric aggregate on
 qualified DuckDB or SQLite uses `SourceSession` for its Ibis compilation and
 batch read. Basic Metric aggregation can group by a direct dimension. Other older
 Dataset source routes reject with `MaterializationError` at `source_admission`,
-before creating a Run or opening the source, and identify their R5–R8 migration
-stage. The R1.1 acceptance record tracks the remaining concrete legacy text
+before creating a Run or opening the source. Retired R5 routes point to
+`session.members(...).observe(...)`; remaining domain routes identify their
+R6–R8 migration stage. The R1.1 acceptance record tracks the remaining concrete legacy text
 methods and separately admitted fixed Artifact continuation.
 
 ## R1.2 basic source qualification status

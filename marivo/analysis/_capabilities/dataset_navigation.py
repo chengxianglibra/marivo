@@ -49,7 +49,7 @@ _HUBS = (
         "decision_hub",
         guidance=(
             "Entity-member questions (member totals, attributes, groups, comparisons, ratios, or associations): start with session.members(Entity Ref), then follow the relation's contract() and exact Help targets.",
-            "session.observe retains Dataset construction; R5–R9 execution awaits Store 7 qualification.",
+            "R5 members and observations use session.members(...). session.observe retains legacy Dataset construction; R6–R9 execution awaits Store 7 qualification.",
             "Known handoff: use its exact refs and scope; do not browse the whole catalog again.",
             "Existing work: resume the Session and follow runtime reads; do not replay successful sources.",
         ),

@@ -2,7 +2,7 @@
 
 Date: 2026-09-28
 
-Status: R5.1-R5.6 bounded source-tree acceptance is recorded in evidence/r51-r56, including R5.5 review follow-up and the complete local R5.6 numeric matrix. R5 as a whole is not complete: remaining V11 historical skips/concurrency debt and installed-candidate closure remain in R5.7 and are unverified.
+Status: R5.7 complete within the accepted per-method R5.6 matrix. V01–V12 and D01–D22 are verified on the final local and same-wheel candidate; the closure section and migration ledger record exact scope, fingerprints and R6–R10 handoff. Earlier sections preserve historical bounded acceptance, not current pending status.
 
 R5.1 的具体交付、消费者与逐格债务见[迁移清单](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md)；
 [静态证据](evidence/r51/README.md)不授予执行资格。
@@ -399,3 +399,30 @@ recovery, version/corruption rejection and reproduction commands. Related Runtim
 acceptance totals 315 cases in separate batches; `make check-agent` passes with
 5432 tests and 5 skips. Typing, site build and whitespace checks pass. No wheel,
 release, remote R9 or real Agent qualification is inferred; R5.7 remains open.
+
+## R5.7 closure implementation (2026-09-30)
+
+The implementation uses the existing public graph/Runtime/Store 7 path. It moves
+shared temporal authority to the core owner without an alias, migrates the eight
+concurrency debts and their worker, strengthens three-process state/signature/K
+and exact-hit checks, and extends the same-wheel installation gate with the R5
+and historical debt suites. Reverse-consumer mapping and preserved independent
+oracles are recorded in the migration ledger's R5.7 section.
+
+The historical public-time journey exposed missing native-naive/native-aware and
+strptime admission. The repair freezes driver-reported read timezone at preflight,
+rechecks it before business reads, and validates parsed raw instants against Ibis
+normalization. No new public signature, Store generation or fallback is added.
+Help, structured repair and both latest site editions now distinguish R5 typed
+relations from the remaining R6–R9 legacy Dataset family migration.
+
+R5.7 is complete within the accepted method/type matrix. Final verification:
+447 source Runtime tests; 5451 default tests with five existing non-debt skips;
+407 modules typed; site build (321 pages); release gate (26 outer tests) with
+1110 same-wheel tests, zero skips, and eight J1–J4 three-process journeys.
+Documentation Runtime follow-up passes seven tests. Whitespace checks pass.
+The migration ledger records wheel SHA256, dependencies, source/test fingerprint,
+D01–D22 disposition and remaining method/type qualifications. Decimal/Duration
+current-row arithmetic statistics remain outside the accepted R5.6 matrix; no
+all-methods/all-types, remote backend or real Agent qualification is claimed.
+No push, publication or MinIO service was performed.

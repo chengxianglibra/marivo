@@ -11,12 +11,13 @@ from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import patch
 
+import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.materialization.errors import SessionBusyError
 from marivo.analysis.materialization.store import SessionStore
-from marivo.refs import ref
-from tests.lazy_execution_fixtures import make_execution_registry
+from marivo.analysis.session.core import Session
 
 
 def snapshot(runtime: DatasetRuntime) -> dict[str, int]:
@@ -34,14 +35,25 @@ def snapshot(runtime: DatasetRuntime) -> dict[str, int]:
         }
 
 
+def observation(session: Session, metric: str) -> mv.LogicalNumericRelation:
+    result = session.members(ms.ref.entity("sales.customer")).observe(
+        ms.ref.metric(metric),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+    )
+    assert isinstance(result, mv.LogicalNumericRelation)
+    return result
+
+
 def contend(project: Path, session: str, metric: str, artifact: str) -> dict[str, object]:
-    runtime = DatasetRuntime.open(project, session)
-    registry, sidecar = make_execution_registry(project / "warehouse.duckdb")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
+    os.environ["MARIVO_PROJECT_ROOT"] = str(project)
+    handle = Session._from_runtime(DatasetRuntime.open(project, session, _generation=7))
+    runtime = handle._runtime
+    logical = observation(handle, metric)
     before = snapshot(runtime)
-    retained = runtime.artifact(artifact)
+    retained = handle.artifact(artifact)
     try:
-        sources.observe(ref.metric(metric)).execute()
+        logical.execute()
     except SessionBusyError as error:
         return {
             "pid": os.getpid(),
@@ -71,7 +83,7 @@ def create_race(project: Path) -> dict[str, object]:
 
     with patch.object(SessionStore, "session_by_name", synchronized):
         try:
-            runtime = DatasetRuntime.create(project, "raced")
+            runtime = DatasetRuntime.create(project, "raced", _generation=7)
             return {"pid": os.getpid(), "session": runtime.session_ref, "status": "created"}
         except SessionBusyError as error:
             return {"pid": os.getpid(), "session": error.session_ref, "status": "busy"}

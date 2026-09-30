@@ -112,6 +112,15 @@ def _check(
             raw, actual = row["raw_time"], row["normalized_time"]
             if raw is None and actual is None:
                 continue
+            from marivo.semantic.ir import StrptimeParse
+
+            if isinstance(raw, str) and isinstance(check.axis.parse, StrptimeParse):
+                try:
+                    raw = datetime.strptime(raw, check.axis.parse.format)
+                except ValueError as error:
+                    raise _invalid(
+                        "source value does not match the declared temporal format"
+                    ) from error
             if isinstance(raw, datetime):
                 expected_time: date = instant(raw, check.axis.timezone or "UTC").replace(
                     tzinfo=None

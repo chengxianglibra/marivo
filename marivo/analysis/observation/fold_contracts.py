@@ -19,6 +19,7 @@ from marivo._temporal import (
     ref_factory_period_calendar,
     semantic_grain,
 )
+from marivo.analysis.core.time_authority import ReportTimeAuthority
 from marivo.analysis.datasets.descriptors import (
     _CORE_TOKEN,
     DatasetFieldId,
@@ -27,7 +28,6 @@ from marivo.analysis.datasets.descriptors import (
     _descriptor_payload,
 )
 from marivo.analysis.datasets.handles import CanonicalValue, _LogicalNodePayload
-from marivo.analysis.observation.temporal import ReportTimeAuthority
 from marivo.refs import SemanticKind
 from marivo.semantic._quantile import QuantileMethodV1
 from marivo.semantic.metric_graph import (

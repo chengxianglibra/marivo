@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from marivo.analysis.observation.temporal import TemporalExecution
+from marivo.analysis.core.time_authority import TemporalExecution
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.event_comparison_codec import FunnelEvidenceSummary

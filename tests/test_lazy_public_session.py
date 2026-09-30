@@ -101,7 +101,7 @@ def test_unqualified_dataset_family_rejects_before_business_io_and_run(
         raise AssertionError("unqualified Dataset execution opened a source")
 
     monkeypatch.setattr(DatasourceConnectionService, "use_backend", forbidden)
-    with pytest.raises(DatasetConstructionError, match="R5–R9"):
+    with pytest.raises(DatasetConstructionError, match="R6–R9"):
         logical.execute()
     assert session.runs().items == ()
 
@@ -158,6 +158,6 @@ def test_dataset_help_does_not_advertise_private_harness_execution() -> None:
     for target in ("analysis.actions.execute", "analysis.datasets.dataset.contract"):
         text = render_help_text(target)[0]
         assert "Store 7" in text
-        assert "R5–R9" in text
+        assert "R6–R9" in text
         assert "session.members" in text
         assert "qualified one-table Population" not in text

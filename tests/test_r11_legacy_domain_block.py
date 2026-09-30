@@ -54,9 +54,9 @@ def test_attribution_source_route_rejects_before_run(tmp_path: Path) -> None:
     assert runtime.statistics.submissions == []
 
 
-def test_unmigrated_metric_old_route_rejects_before_run(tmp_path: Path) -> None:
+def test_retired_metric_old_route_rejects_before_run(tmp_path: Path) -> None:
     runtime, metric, _database = setup_distinct(tmp_path)
-    with pytest.raises(MaterializationError, match="R5 migration") as caught:
+    with pytest.raises(MaterializationError, match="R5 route is retired") as caught:
         metric.execute()
     assert caught.value.stage == "source_admission"
     assert runtime.last_run_ref is None

@@ -1,4 +1,4 @@
-"""Immutable report and resolved source time authority for private observations."""
+"""Immutable report and resolved source time authority for graph and remaining domain consumers."""
 
 from datetime import date, datetime, time, tzinfo
 from typing import Literal

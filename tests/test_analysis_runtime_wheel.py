@@ -47,9 +47,30 @@ CONTRACT_TESTS = (
 )
 
 
+R5_TESTS = (
+    "test_analysis_members_r52",
+    "test_analysis_observation_r53",
+    "test_analysis_coordinates_r54",
+    "test_analysis_temporal_r55",
+    "test_analysis_numeric_r56",
+    "test_analysis_numeric_review_r56",
+    "test_analysis_recovery_r57",
+    "test_lazy_temporal_public_runtime",
+    "test_analysis_decimal_e2e",
+    "test_analysis_cumulative_decimal",
+    "test_lazy_runtime_concurrency",
+    "test_lazy_source_algebra",
+    "test_lazy_local_placement",
+    "test_lazy_status_fold_admission",
+    "test_lazy_retained_compiler",
+    "test_sqlite_semantic_integration",
+    "test_public_quantile_input",
+)
+
+
 def _stage_tests(destination: Path) -> None:
     """Copy only selected tests and their statically imported test helpers."""
-    pending = {f"tests.{name}" for name in CONTRACT_TESTS}
+    pending = {f"tests.{name}" for name in (*CONTRACT_TESTS, *R5_TESTS)}
     pending.update(
         ("tests.conftest", "tests.installed_wheel_probe", "tests.graph_publication_runtime_worker")
     )
@@ -273,6 +294,28 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
                     *selected,
                 ],
             )
+        for module in R5_TESTS:
+            environment["MARIVO_INSTALLED_ORIGIN_REPORT"] = str(reports / f"{module}-origins.json")
+            run(
+                module,
+                [
+                    str(interpreter),
+                    "-m",
+                    "pytest",
+                    "-p",
+                    "tests.installed_wheel_probe",
+                    "-c",
+                    str(work / "pytest.ini"),
+                    "--import-mode=importlib",
+                    "-n",
+                    "0",
+                    "-q",
+                    "--tb=short",
+                    "--maxfail=5",
+                    f"--junitxml={reports / (module + '.xml')}",
+                    f"tests/{module}.py",
+                ],
+            )
         console = interpreter.parent / ("marivo.exe" if os.name == "nt" else "marivo")
         module_help = run("module-help", [str(interpreter), "-m", "marivo", "help"])
         console_help = run("console-help", [str(console), "help"])
@@ -310,7 +353,9 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
         (reports / "commands.json").write_text(
             json.dumps(receipts, indent=2, sort_keys=True) + "\n"
         )
-        retained = os.environ.get("MARIVO_R46_EVIDENCE_DIR")
+        retained = os.environ.get("MARIVO_R57_EVIDENCE_DIR") or os.environ.get(
+            "MARIVO_R46_EVIDENCE_DIR"
+        )
         if retained:
             destination = Path(retained) / "installed-wheel"
             destination.mkdir(parents=True, exist_ok=True)

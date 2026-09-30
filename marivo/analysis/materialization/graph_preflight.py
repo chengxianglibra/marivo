@@ -45,6 +45,7 @@ class EntitySchema:
     schema: pa.Schema
     identity_types: tuple[ScalarType, ...]
     shape: SourceShape
+    engine_timezone: str | None = None
 
     @property
     def identity_type(self) -> ScalarType:
@@ -193,6 +194,12 @@ def preflight_entities(
             provider_for(datasource.backend_type), datasource, backend, owns_backend=False
         ) as source,
     ):
+        from marivo.datasource.timezone import probe_engine_timezone
+
+        authority = probe_engine_timezone(backend)
+        engine_timezone = (
+            authority.engine_timezone_name if authority.read_tz_resolution == "engine" else None
+        )
         results = []
         for contract, shape in zip(contracts, shapes, strict=True):
             bound = source.bind(contract.source, source_identity=contract.ref.path)
@@ -217,5 +224,5 @@ def preflight_entities(
                         column,
                         "Bind a qualified native date or timestamp version field.",
                     )
-            results.append(EntitySchema(contract, schema, identity_types, shape))
+            results.append(EntitySchema(contract, schema, identity_types, shape, engine_timezone))
         return tuple(results)

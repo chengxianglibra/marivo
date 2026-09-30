@@ -11,6 +11,7 @@ import pyarrow as pa
 
 from marivo._temporal import Grain, PeriodCalendarSnapshotV1
 from marivo.analysis.compiler.errors import compilation_error
+from marivo.analysis.core.time_authority import civil_bound, time_zone
 from marivo.analysis.datasets.descriptors import DatasetRowContract
 from marivo.analysis.observation.contracts import (
     EntityPresentMetricSemantics,
@@ -26,7 +27,6 @@ from marivo.analysis.observation.fold_contracts import (
     fold_part_role,
     fold_state_names,
 )
-from marivo.analysis.observation.temporal import civil_bound, time_zone
 from marivo.analysis.operators.row import (
     PartFrame,
     RowCall,

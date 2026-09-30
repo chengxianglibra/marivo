@@ -7,6 +7,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, cast
 
 from marivo._temporal import Grain, PeriodCalendarSnapshotV1, TimeScope
+from marivo.analysis.core.time_authority import ReportTimeAuthority
 from marivo.analysis.datasets.base import (
     Dataset,
     DatasetOwner,
@@ -64,7 +65,6 @@ from marivo.analysis.observation.fold_contracts import (
     make_fold_authority,
 )
 from marivo.analysis.observation.predicates import BoundPredicate, PredicateField
-from marivo.analysis.observation.temporal import ReportTimeAuthority
 from marivo.datasource.ir import (
     CsvSourceIR,
     EntitySourceIR,

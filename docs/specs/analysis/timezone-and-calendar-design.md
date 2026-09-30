@@ -190,3 +190,24 @@ oracles, reproduction commands and remaining release boundaries are recorded in
 the [versioned R5.5 summary](../../superpowers/specs/2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md#r55-qualification-summary).
 Detailed run logs under `docs/superpowers/specs/evidence/r55/` are intentionally
 local and ignored; they are not shipped as part of this specification.
+
+
+## R5.7 source-time recovery qualification
+
+The graph observation path admits native microsecond timestamps with declared,
+physical, or driver-reported read timezone, and timestamp strings with an authored
+`strptime` format. The source and report zones are independent. Driver authority
+is captured during schema preflight without business reads, frozen into the
+observation, and checked again when opening the execution source. A changed
+reported timezone rejects before a business batch is submitted; a host-system
+fallback is not accepted as an inferred event read timezone.
+
+The common Ibis temporal normalizer owns parsing and conversion. Governed check
+reads compare raw native/parsed values with the normalized UTC values before
+publication. Malformed strings and engine disagreement cannot silently acquire
+another parser or timezone. `test_lazy_temporal_public_runtime.py` preserves the
+four historical report-day oracles (explicit UTC, native naive, native aware,
+and authored string parsing), with exact UTC grid keys and values `[1, 2]`.
+Fixed continuations preserve their frozen values and authority without reopening
+the source. Shared temporal authority values live in `analysis.core.time_authority`;
+the old observation module is removed without a forwarding alias.

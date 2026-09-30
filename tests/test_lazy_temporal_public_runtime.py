@@ -8,6 +8,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from tests.shared_fixtures import DslCase
 
 pytestmark = pytest.mark.runtime
 
@@ -70,18 +71,47 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
     monkeypatch.chdir(tmp_path)
     # The declared DuckDB source defaults to UTC for naive source timestamps.
     session = mv.session.get_or_create("report-days", report_timezone="Asia/Shanghai")
+    grid = mv.time_grid(
+        during=mv.time_scope(start="2026-07-01", end="2026-07-03"), grain=mv.grain("day")
+    )
     logical = (
-        session.observe(
-            ms.ref.metric("sales.revenue"),
-            time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
-        )
-        .with_time_axis(ms.ref.time_dimension("sales.events.happened_at"), grain=mv.grain("day"))
-        .aggregate()
+        session.members(ms.ref.entity("sales.events"))
+        .each(grid)
+        .observe(ms.ref.metric("sales.revenue"), during=grid.window)
+        .group_by(grid)
+        .rollup()
     )
     assert session.runs().items == ()
     result = logical.execute().to_pandas()
-    observed = {
-        str(day)[:10]: value
-        for day, value in zip(result["happened_at"], result["revenue"], strict=True)
-    }
-    assert observed == {"2026-07-01": 1.0, "2026-07-02": 2.0}
+    assert result["value"].tolist() == [1.0, 2.0]
+    assert result["group"].tolist() == ["2026-06-30T16:00:00+00:00", "2026-07-01T16:00:00+00:00"]
+
+
+def test_changed_driver_timezone_rejects_before_source_read(
+    retained_r54_case: DslCase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    from marivo.analysis.errors import AnalysisError
+    from marivo.datasource import timezone as source_timezone
+    from marivo.datasource.adapters import SourceSession
+
+    case = retained_r54_case
+    logical = case.session.members(ms.ref.entity("sales.customer")).observe(
+        ms.ref.metric("sales.revenue"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+    )
+    probe = source_timezone.probe_engine_timezone
+
+    def changed(backend: object) -> source_timezone.DatasourceEngineTimezone:
+        return replace(probe(backend), engine_timezone_name="Asia/Shanghai")
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("changed timezone submitted a business read")
+
+    monkeypatch.setattr(source_timezone, "probe_engine_timezone", changed)
+    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    with pytest.raises(AnalysisError, match="timezone changed"):
+        logical.execute()
+    assert all(run.lifecycle != "succeeded" for run in case.session.runs().items)

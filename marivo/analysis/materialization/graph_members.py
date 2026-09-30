@@ -373,6 +373,20 @@ class MemberGraph:
                     owns_backend=False,
                 ) as source,
             ):
+                from marivo.datasource.timezone import probe_engine_timezone
+
+                authority = probe_engine_timezone(backend)
+                if any(
+                    schema.engine_timezone is not None
+                    and schema.engine_timezone != authority.engine_timezone_name
+                    for schema, _ in ordered
+                ):
+                    raise DatasetConstructionError(
+                        expected="the frozen driver-reported source timezone",
+                        received="source timezone changed after graph construction",
+                        repair="Rebuild the logical graph against the current datasource configuration.",
+                        location="analysis.graph_members",
+                    )
                 bindings: list[SourceBinding] = []
                 for schema, leaf in ordered:
                     bound = source.bind(schema.contract.source, source_identity=leaf.identity)

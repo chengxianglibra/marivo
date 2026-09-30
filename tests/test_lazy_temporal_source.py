@@ -9,8 +9,8 @@ import pytest
 from marivo.analysis import grain, time_scope
 from marivo.analysis.compiler import compile_dataset
 from marivo.analysis.compiler.errors import DatasetCompilationError
+from marivo.analysis.core.time_authority import ReportTimeAuthority
 from marivo.analysis.observation.metric import LogicalMetricDataset
-from marivo.analysis.observation.temporal import ReportTimeAuthority
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
 from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref

@@ -1,7 +1,8 @@
 # R5.1 contract freeze and consumer migration ledger
 
-Date: 2026-09-28; R5.2 update: 2026-09-29. Status: R5.1 freeze and bounded R5.2
-qualification complete; remaining R5 execution and debt restoration unverified. This ledger accompanies
+Date: 2026-09-28; R5.7 closure: 2026-09-30. Status: R5.7 complete within the
+accepted per-method numeric matrix; final V01–V12 and D01–D22 evidence is below.
+Earlier baseline tables retain their historical status. This ledger accompanies
 [the R5 implementation plan](2026-09-28-marivo-full-algebra-dsl-r5-implementation-plan.md).
 It is an index of owners and work, not another API/method/state registry.
 
@@ -514,3 +515,166 @@ remains Ibis SQL. Independent regressions live in
 - V11 remains a whole-phase R5.7 gate. The plan header explicitly distinguishes
   local R5.6 evidence from whole-R5 completion; already closed debt entries retain
   their own evidence and unresolved entries are not promoted.
+
+## R5.7 completed qualification (2026-09-30)
+
+Baseline: `ea787d116b` on `panda`, initially clean. This section supersedes the
+opening historical unverified labels only for the cells explicitly verified
+below. No push, publication, object service, remote backend qualification
+or real Agent acceptance is part of this candidate. Final source and same-wheel
+acceptance passed for every required cell mapped below; the accepted per-method
+numeric limits and R6–R10 handoff remain explicit.
+
+### Ownership and consumer disposition
+
+| Inventory | Final R5 owner and retained dependencies |
+| --- | --- |
+| M01–M04 | Public `members/read/observe`, the semantic occurrence graph and the five runtime factories feed core/methods and the graph executor. R5 journeys do not use legacy Session observe or source builders. |
+| M05/M06 | The shared private Population/Metric nodes remain prerequisites of `operators/attribute_expansion.py`, comparison/attribution and their tests (R6); `compiler/event_sources.py` and `event_axes.py` consume coordinate relationship helpers (R7). `compiler/normalize.py` and source dependencies share the same helpers. Retaining these prerequisites grants no public v6 or R5 compatibility execution. |
+| M07 | The complete temporal authority value/helper module moves to `analysis.core.time_authority`; all actual callers move with it. `observation/temporal.py` is deleted without a shim. |
+| M08/M09 | `compiler/lowering.py` and `distinct_fold.py` still consume legacy bucket/reset algorithms for private domain/computation harnesses. `materialization/temporal_sql.py` remains the remote adapter/Event lowering dependency. Their domain migration belongs to R6–R8 and remote requalification to R9. No legacy temporal SQL builder was introduced into the public graph. |
+| M10/M11 | The graph method registry remains the sole public method/state owner. Retired R5 legacy routes no longer promise a future R5 migration; they point to the public member observation route. Remaining legacy registrations report R6/R7/R8, and retain their existing denial rather than gaining default admission. |
+| M12 | Exactness remains definition-owned. Direct exact/approximate distributions retain no original rollup state; cold current-row count remains valid. Private distribution/association/forecast inputs remain R6/R8 prerequisites, with remote source harnesses under R9. |
+| M13–M15 | Store 7 graph protocol, exchange, storage and publication own all R5 receipts and continuations. `local_execution.py` still imports retained component batches; `dataset_publication.py` and inspection retain the old generic codec for remaining private domain families. No public dual reader or old-generation migration is added. |
+| M16 | Concurrency worker and all eleven contention/creation/activation/query-overlap tests now use Store 7; source execution uses public members/observe. The three creation tests exercise shared low-level guard ownership, not a v6 source harness. |
+| M17 | Native Help, Dataset repair and both latest site editions distinguish completed R5 relations from remaining R6–R9 Dataset families. CLI uses the same Help owner. Both packaged skills already route through current contracts, preserve exact Artifact identity and prohibit origin replay; no skill edit is needed. |
+
+The local `evidence/r57/consumer-snapshot.json` records actual import names/lines
+and dynamically launched worker strings. It is a static reverse-reference audit,
+not proof of runtime execution. Installed tests and archive inventory provide
+separate dynamic/package evidence. The previous R5 temporal module is absent
+from both the source and installed archive inventories.
+
+### Debt and independent oracle preservation
+
+| Debt | Executable owner and obligations |
+| --- | --- |
+| D01–D02 | Calendar occurrence tests in `test_lazy_source_algebra.py`: both independent `[110,30]` vectors, fixed 140, distinct completed calendar proofs. |
+| D03 | `test_sqlite_semantic_integration.py`: public identity-root revenue 30, daily `[10,20]`, source health/readiness and actual primary submission. |
+| D04 | `test_lazy_local_placement.py`: fixed mean placement performs no source/part read, Run or worker work. |
+| D05–D08 | Same module: missing/unregistered DuckDB/Ibis diagnostic version preserves selected plan and revenue 147. |
+| D09–D13 | `test_lazy_status_fold_admission.py`: SQLite first/last/mean/min/max preserve 110/70/90/50/130, the Null channel, and governed temporal-check publication order. |
+| D14 | `test_lazy_retained_compiler.py`: source-offline selected revenue 140 and mean 140/3, with complete component correspondence and corruption refusal. |
+| D15–D20 | `test_lazy_runtime_concurrency.py`: thread/process/reentrant × same/different key at `graph_primary_written`; contender leaves producer statistics, Run, reads and Store unchanged. Later source execution is fresh; identical fixed continuation hits, and a different fixed selection produces 140 rather than 147 with no source read. |
+| D21 | Same module: actual SessionStore activation barrier, concurrent names and unchanged original handle ownership. |
+| D22 | Same module: two actual DuckDB UDF/query barriers overlap, distinct Session owners, independent totals 147; no global serialization. |
+
+No debt test is skipped, replaced with xfail, or closed by changing its positive
+numerical obligation into a refusal. Existing graph-publication crash, cancellation,
+reader-close and lost-ack tests supplement the eight concurrency debts.
+
+Additional legacy journeys migrated in this candidate:
+
+- `test_lazy_temporal_public_runtime.py`: four representation cases preserve the
+  report-day values `[1,2]` and exact independently listed UTC grid boundaries.
+  This exposed and repaired missing native/strptime admission, driver timezone
+  capture and raw-string temporal validation. A fifth test rejects changed driver
+  authority before a business batch.
+- `test_analysis_decimal_e2e.py`: exact 20.00 and subtraction 80.00 remain. The old
+  implicit float/Decimal ratio is replaced by explicit source Decimal normalization
+  plus a refusal of the raw mixed pair; its positive oracle remains 0.25. This
+  follows the current Decimal-component ratio contract, with Decimal(38,6) finish.
+- `test_analysis_cumulative_decimal.py`: all-history 20/37/62, month-to-date
+  10/27/52, partial-period seeding and trailing 10/27/42 remain. Weighted inputs
+  are explicitly matching Decimal(18,6) source columns as required by the current
+  numeric owner, preserving numerator 2010/3739 and weights 20/37. Expected values
+  are Decimal 100.500000 and independent once-rounded 3739/37, not product finish.
+  The old mixed int/Decimal-to-float representation is not a compatibility promise.
+
+### V01–V12 execution map
+
+| Cell | Required evidence owner |
+| --- | --- |
+| V01/V02 | `test_analysis_members_r52.py`: table/Parquet, full composite keys, exact snapshot/validity/before_end, all four read kinds, computed member reads, coverage, role and Session refusal, typed cold Subject continuation. |
+| V03 | `test_analysis_observation_r53.py`: three roots, separate same-root occurrences, Fraction component oracles, empty branches, default axes, weighted pairing and cold original rollup. |
+| V04/V05 | `test_analysis_coordinates_r54.py`, public R4.5 migration tests and R5.7 recovery: full tuple union, target domains/empty groups, L8/L9, ratio row mean 50.5 versus original 200/101, six row states and four Cell states. |
+| V06/V07 | `test_analysis_temporal_r55.py`, migrated public-time and SQLite/calendar debt journeys: independent 23/25-hour UTC instants, three authorities, endpoint/cumulative/fold order, source/fixed and three-process continuation. |
+| V08 | `test_analysis_numeric_r56.py` and review regressions: int64/float64/Decimal/Duration, exact rounding and cancellation, paired weights, finite/overflow rejection, batch/order/tree variation and original-state recovery. |
+| V09 | Numeric and public quantile suites plus R5.7 cold tests: exact/approximate definition identities, unique keys, interpolation/q boundaries, no silent fallback, absent original K with valid row counts. |
+| V10 | Numeric recovery runs 64 artifacts across four families × table/Parquet × eight methods in separate produce/continue/recover processes; 256 missing/corrupt/receipt/version faults reject. R5.7 adds 24 row/read/distribution artifacts, actual structured contract and frozen signature comparisons, independent values, exact Artifact/Run hits and source/loader/DuckDB guards. Publication/exchange suites own empty, batched, reordered, unfinished and close-failed streams, atomic failure, cancellation and no replay. |
+| V11 | D01–D22 above; actual consumer audit and removed temporal module; graph/publication and installed archive checks. |
+| V12 | Export/typing/Help reachability and budgets, dynamic contracts/errors, CLI, English/Chinese examples, archive inventory and same-wheel isolated R5 module execution. |
+
+The method inventory is a diagnostic snapshot of the existing registry, never a
+second registration owner. Persistent original sum/zero-sum, mean, ratio, linear,
+weighted and fold implementations use contract version 3; count uses version 1;
+row-state methods use version 1. Typed specializations and extrema receipts are
+checked by their actual method selection/descriptor tests. Direct distributions
+carry algorithm identity but no mergeable distribution state. No new Store
+version or compatibility decoder is introduced.
+
+### Reproduction and qualification boundary
+
+Run `make check-agent`, `npm --prefix site run build`, `make release-test`, and
+`git diff --check`. The installed gate builds once, verifies wheel/sdist inventory,
+installs non-editably outside the checkout, pins current dependencies, rejects
+source-tree injection, and checks module origin in every child Python process.
+It runs the R5 module list declared by `R5_TESTS` in
+`tests/test_analysis_runtime_wheel.py`, including the original debt owners.
+For source-tree Runtime acceptance, run that same list with `make runtime-test`
+and additionally include `test_analysis_graph_publication_r44.py` and
+`test_analysis_dsl_exchange.py`. Pure contracts remain in the broad daily gate.
+
+Source forms remain DuckDB native table/local Parquet and the explicitly required
+SQLite routes, with artifact_python fixed continuation. R6 owns remaining
+comparison/reference/attribution families, R7 Event/Lifecycle/domain migration,
+R8 statistical extensions and forecast/discovery, R9 remote backend/source-form
+qualification and old private multi-backend computation harness cutover, and R10
+real Agent qualification. Current-row statistical_weight remains withdrawn.
+
+Qualification uses the accepted R5.6 per-method matrix, not an all-methods ×
+all-types claim. Decimal/Duration current-row count and count_defined are
+qualified; their current-row sum/mean/min/max remain unqualified. Original
+Metric numeric-state qualifications do not imply those row-statistic methods.
+Expanding that accepted boundary requires a separately verified method/type
+matrix. No refusal is counted as one of the required positive debts.
+
+### Final candidate evidence
+
+Candidate base: `ea787d116b6c76bb905a3839ad8e0390ec1b239b`, branch `panda`.
+Package/test content digest:
+`a3d730aaa2d0513555b9464c9531b4b26c326036fc43f662711d71f8eac57ca4`.
+The local manifest records each input SHA256 and hashes its sorted JSON mapping.
+The final wheel is `marivo-0.5.3.dev0-py3-none-any.whl`, SHA256
+`ba64ba6454a5c01770d2212287756a8fb5bac60e23a07aa02ec97b4c5866ea5a`.
+Its non-editable installation is outside the repository under a test-owned
+`installed-check/.venv/lib/python3.12/site-packages/marivo`; `direct_url.json`
+records that exact archive hash. Dependencies include DuckDB 1.5.3, Ibis 12.0.0,
+PyArrow 25.0.1, pandas 2.3.3, NumPy 2.4.6 and pytest 9.0.3. Full pinned dependencies
+and per-process module origins are retained in local installed-wheel reports.
+
+| Gate | Final-candidate result |
+| --- | --- |
+| Source R5 Runtime including historical debts/publication/exchange | 447 passed; no skips |
+| Documentation Runtime follow-up | 7 passed; no skips |
+| `make check-agent` | Passed: 5451 passed, 5 existing skips; lint/import contracts, 407 source modules typed, API docs built |
+| Explicit typing for seven new/migrated test/worker modules | Passed |
+| `npm --prefix site run build` | Passed: 321 pages; standard and Chinese installation scripts verified |
+| Same-wheel `make release-test` | Passed: 26 outer tests; 452 installed contracts + 94 base Runtime + 564 R5/debt tests = 1110 passed, zero skips; eight table/Parquet J1–J4 three-process journeys |
+| `git diff --check` | Passed |
+
+The five default-suite skips are existing metadata-dispatcher ownership (one)
+and SQLite Decimal-storage fixture limitations (four), outside D01–D22. No new
+skip/xfail closes a positive R5 obligation. The first complete installed attempt
+failed only on a stale documentation-test `R5` error assertion; the assertion
+now checks the remaining `R6–R9` boundary, and the full installation gate reruns
+on the final candidate. Interrupted and failed logs are retained separately.
+
+To reproduce the installed gate with retained reports:
+
+```sh
+MARIVO_R57_EVIDENCE_DIR="$PWD/docs/superpowers/specs/evidence/r57" make release-test
+```
+
+Detailed logs/manifests remain ignored under `evidence/r57/`; this versioned
+summary, the coverage tables above and executable test owners define the
+qualification independently of those local files.
+
+Final status: V01–V12 and each D01–D22 cell above **passed** within their
+stated method/type/source routes. There are no failed, blocked or unrun required
+cells in that accepted scope. The explicit unqualified row-statistic types,
+withdrawn statistical-weight role and R6–R10 handoff are not counted as passes.
+The 17 installed R5/debt modules ran on one wheel, with 277 process-origin
+reports and 54 command receipts; the intentionally poisoned source import is
+the sole expected nonzero command. Current source/test and staged input hashes
+were rechecked after completion: no drift. No push or publication.
