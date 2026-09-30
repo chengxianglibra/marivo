@@ -51,7 +51,6 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_composition import (
     combine_observations,
     comparison_empty_rules,
-    freeze_endpoint,
     period_mapping,
     validate_time_comparison,
 )
@@ -65,12 +64,11 @@ from marivo.analysis.materialization.graph_observation import (
     observe_ratio_members,
 )
 from marivo.analysis.materialization.graph_protocol import (
-    NODE,
     digest,
-    encode,
     fixed_signature,
     validate_descriptor,
 )
+from marivo.analysis.materialization.graph_snapshot import same_node_definition
 from marivo.analysis.methods.comparison import output_type
 from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType
 from marivo.analysis.refs import ArtifactRef
@@ -137,7 +135,7 @@ def _shared_root(first: Node, second: Node) -> Node:
                 sources=tuple(source for source in sources if isinstance(source, SourceLeaf)),
             )
         if prior is not None:
-            if encode(prior, NODE) != encode(node, NODE):
+            if not same_node_definition(prior, node):
                 raise _reject("shared node identity has conflicting frozen definitions")
             continue
         known[node.identity] = node
@@ -213,9 +211,7 @@ class Relation:
         ):
             root = replace(
                 root,
-                parameters=replace(
-                    root.parameters, endpoint_definitions=(freeze_endpoint(self.definition),)
-                ),
+                retained_endpoints=(self.definition,),
             )
         binding: Binding = (
             replace(self.binding, graph=replace(self.binding.graph, root=root))
@@ -563,7 +559,6 @@ class Relation:
                     left.time_scope,
                     "source.exact_pairing@v1" if pairing == "exact" else "source.unique_key@v1",
                     "source.finite_numeric@v1",
-                    (freeze_endpoint(current), freeze_endpoint(baseline)),
                     "ratio" if method == "relation_ratio" else design,
                     pairing,
                     comparison_empty_rules(current, baseline) if pairing == "metric_empty" else (),
@@ -574,6 +569,7 @@ class Relation:
                     relationship=relationship,
                 ),
                 value_type=result_type,
+                retained_endpoints=(current, baseline),
             )
         else:
             domain = DomainSignature(first.domain.binding, "singleton", (), (), definition)

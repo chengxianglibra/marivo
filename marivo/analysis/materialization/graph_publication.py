@@ -180,6 +180,8 @@ def execute(
 ) -> graph_store.GraphArtifact:
     store, session, event = runtime.store, runtime.session_ref, runtime._event
     store._require_generation(7)
+    # Admit the complete bounded definition closure before source I/O or cache lookup.
+    freeze_graph(root)
     prepared = prepare_graph(root, session_ref=session, routes=routes)
     plan = prepared.admitted
     if not isinstance(root, MethodNode):
@@ -411,7 +413,7 @@ def execute(
                 if isinstance(item.implementation.qualification, Qualified)
             )
             snapshot = Continuation(
-                "marivo.analysis.continuation/v1",
+                "marivo.analysis.continuation/v2",
                 freeze_graph(root),
                 tuple(
                     dict.fromkeys(

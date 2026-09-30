@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import base64
-import zlib
+from collections.abc import Callable
 from dataclasses import fields, replace
+from functools import cache
 from typing import Literal
 
 import pyarrow as pa
@@ -15,6 +15,7 @@ from marivo.analysis.core.graph import (
     MethodNode,
     Node,
     SourceLeaf,
+    definition_fingerprints,
     method_node,
     topology,
 )
@@ -41,7 +42,8 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.graph_members import MemberGraph
-from marivo.analysis.materialization.graph_protocol import NODE, decode, digest, encode
+from marivo.analysis.materialization.graph_protocol import digest
+from marivo.analysis.materialization.graph_snapshot import same_node_definition
 from marivo.analysis.methods.comparison import output_type
 from marivo.analysis.methods.numeric_state import merge_original
 from marivo.analysis.methods.physical import DecimalType, ScalarType, arrow_scalar_type
@@ -65,7 +67,7 @@ def combine_linear_occurrences(
         for node in topology(following.root):
             prior = known.get(node.identity)
             if prior is not None:
-                if encode(prior, NODE) != encode(node, NODE):
+                if not same_node_definition(prior, node):
                     raise _invalid_composition("one node identity has different frozen definitions")
                 continue
             if isinstance(node, MethodNode):
@@ -220,32 +222,25 @@ def comparison_empty_rules(
     return tuple(result)
 
 
-def freeze_endpoint(node: MethodNode) -> str:
-    """Encode one explicit typed endpoint definition within the metadata budget."""
-    return base64.b64encode(zlib.compress(encode(node, NODE).encode(), level=9)).decode("ascii")
-
-
-def thaw_endpoint(value: str) -> MethodNode:
-    """Decode only a bounded canonical endpoint; never load an origin Artifact."""
-    try:
-        encoded = base64.b64decode(value, validate=True)
-        decoder = zlib.decompressobj()
-        raw = decoder.decompress(encoded, 262145)
-        if len(raw) > 262144 or not decoder.eof or decoder.unused_data:
-            raise ValueError("endpoint definition exceeds its bounded frame")
-        node = decode(raw.decode("utf-8"), NODE)
-        if not isinstance(node, MethodNode) or freeze_endpoint(node) != value:
-            raise ValueError("noncanonical typed endpoint definition")
-        return node
-    except (ValueError, zlib.error, UnicodeError) as error:
-        raise _invalid_composition("invalid frozen comparison endpoint") from error
-
-
 def comparison_template(node: MethodNode, *, period: bool = False) -> tuple[object, ...]:
-    """Inspect only the retained typed definition, preserving ordered child roles."""
+    """Inspect each captured template once, preserving ordered child roles."""
+
+    @cache
+    def visit(current: MethodNode) -> tuple[object, ...]:
+        return _comparison_template(current, period=period, visit=visit)
+
+    return visit(node)
+
+
+def _comparison_template(
+    node: MethodNode,
+    *,
+    period: bool,
+    visit: Callable[[MethodNode], tuple[object, ...]],
+) -> tuple[object, ...]:
     params = node.parameters
     if isinstance(params, PartsTransport) and params.keep_quantity:
-        return comparison_template(comparison_endpoints(node)[0], period=period)
+        return visit(comparison_endpoints(node)[0])
     if isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
         return (
             type(params).__name__,
@@ -271,15 +266,13 @@ def comparison_template(node: MethodNode, *, period: bool = False) -> tuple[obje
             params.empty_rules,
             params.value_policy,
             params.unit,
-            tuple(
-                comparison_template(child, period=period) for child in comparison_endpoints(node)
-            ),
+            tuple(visit(child) for child in comparison_endpoints(node)),
         )
     if isinstance(params, AttachCategory):
         return (
             "classification",
             params.coordinate,
-            comparison_template(comparison_endpoints(node)[0], period=period),
+            visit(comparison_endpoints(node)[0]),
         )
     if isinstance(params, BindProject):
         return (
@@ -313,16 +306,13 @@ def comparison_template(node: MethodNode, *, period: bool = False) -> tuple[obje
                 not in (
                     "output_domain",
                     "definition_id",
-                    "endpoint_definitions",
                     "partition_check_id",
                     "coverage_check_id",
                     "numeric_check_id",
                 )
             ),
             coordinate_template(params.output_domain.instance_key),
-            tuple(
-                comparison_template(child, period=period) for child in comparison_endpoints(node)
-            ),
+            tuple(visit(child) for child in comparison_endpoints(node)),
         )
     if isinstance(params, (OriginalRatio, OccurrenceCombine)):
         return (
@@ -334,40 +324,31 @@ def comparison_template(node: MethodNode, *, period: bool = False) -> tuple[obje
             tuple(sign for _, sign in params.terms)
             if isinstance(params, OccurrenceCombine)
             else (),
-            tuple(
-                comparison_template(child, period=period) for child in comparison_endpoints(node)
-            ),
+            tuple(visit(child) for child in comparison_endpoints(node)),
         )
     raise _invalid_composition("quantity template has no registered comparison rule")
 
 
 def comparison_endpoints(node: MethodNode) -> tuple[MethodNode, ...]:
     """Recover explicit endpoint definitions without following Artifact history."""
-    params = node.parameters
-    snapshots = (
-        params.endpoint_definitions
-        if isinstance(params, (CellDerive, PartsTransport, OriginalReduce, RowState))
-        else ()
-    )
-    children: tuple[Node, ...] = (
-        tuple(thaw_endpoint(value) for value in snapshots)
-        if snapshots
-        else tuple(edge.node for edge in node.inputs)
-    )
+    children: tuple[Node, ...] = node.retained_endpoints or tuple(edge.node for edge in node.inputs)
     if len(children) != len(node.inputs) or any(
         not isinstance(child, MethodNode) for child in children
     ):
         raise _invalid_composition("comparison lacks two complete frozen endpoint definitions")
-    for child, edge in zip(children, node.inputs, strict=True):
-        expected = (
-            edge.node.definition_fingerprint
-            if isinstance(edge.node, FixedLeaf)
-            else edge.node.fingerprint
-        )
-        if child.fingerprint != expected:
-            raise _invalid_composition(
-                "retained endpoint does not match its exact input receipt definition"
+    if node.retained_endpoints:
+        fingerprints = definition_fingerprints(node)
+        for child, edge in zip(children, node.inputs, strict=True):
+            expected = (
+                edge.node.definition_fingerprint
+                if isinstance(edge.node, FixedLeaf)
+                else fingerprints[edge.node.identity]
             )
+            if fingerprints[child.identity] != expected:
+                raise _invalid_composition(
+                    "retained endpoint does not match its exact input receipt definition"
+                )
+
     return tuple(child for child in children if isinstance(child, MethodNode))
 
 
@@ -447,7 +428,7 @@ def combine_observations(
     for node in topology(baseline.root):
         prior = known.get(node.identity)
         if prior is not None:
-            if encode(prior, NODE) != encode(node, NODE):
+            if not same_node_definition(prior, node):
                 raise invalid("one node identity has different frozen definitions")
             continue
         if isinstance(node, MethodNode):
@@ -527,7 +508,6 @@ def combine_observations(
                 quantity.time_scope,
                 "source.exact_pairing@v1" if pairing == "exact" else "source.unique_key@v1",
                 "source.finite_numeric@v1",
-                (),
                 "ratio" if method == "relation_ratio" else design,
                 pairing,
                 comparison_empty_rules(first, second) if pairing == "metric_empty" else (),

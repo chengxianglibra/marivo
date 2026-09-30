@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import zlib
 from dataclasses import dataclass, replace
 from typing import Annotated, Literal, TypeVar, get_args
 
@@ -31,6 +30,18 @@ from marivo.analysis.materialization.contracts import (
 )
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.execution_key import FixedPartKey, _ordered_plan
+from marivo.analysis.materialization.graph_snapshot import (
+    GRAPH as GRAPH,
+)
+from marivo.analysis.materialization.graph_snapshot import (
+    freeze_graph as freeze_graph,
+)
+from marivo.analysis.materialization.graph_snapshot import (
+    graph_document as graph_document,
+)
+from marivo.analysis.materialization.graph_snapshot import (
+    thaw_graph as thaw_graph,
+)
 from marivo.analysis.methods.physical import Qualified
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.analysis.methods.semantics import MethodKey, MethodName, PersistentStateKind
@@ -67,7 +78,19 @@ def decode(text: str, adapter: TypeAdapter[T]) -> T:
         if encode(value, adapter) != text:
             raise invalid("noncanonical, missing or extra metadata fields")
         return value
-    except (ValidationError, ValueError, TypeError) as error:
+    except ValidationError as error:
+        if adapter in (GRAPH, SNAPSHOT) and any(
+            item["loc"] == ("schema",) for item in error.errors()
+        ):
+            raise IntegrityError(
+                expected="the current graph DAG and continuation schema versions",
+                received="obsolete, absent or unknown snapshot schema version",
+                repair="Re-execute the source analysis to produce a current snapshot; old snapshots cannot continue.",
+                stage="graph_protocol",
+                help_target="actions.execute",
+            ) from error
+        raise invalid(f"invalid closed metadata: {type(error).__name__}") from error
+    except (ValueError, TypeError) as error:
         raise invalid(f"invalid closed metadata: {type(error).__name__}") from error
 
 
@@ -208,83 +231,13 @@ class MethodState:
 
 
 STATE = TypeAdapter(MethodState)
-NODE: TypeAdapter[Node] = TypeAdapter(Node)
 SIGNATURE = TypeAdapter(Signature)
 CHECK = TypeAdapter(CheckRequirement)
 
 
-def freeze_graph(root: Node) -> str:
-    """Bound recursive comparison definitions without duplicating JSON escape overhead."""
-    text = encode(root, NODE)
-    if any(
-        isinstance(node, MethodNode) and isinstance(node.parameters, CellDerive)
-        for node in topology(root)
-    ):
-        if len(text.encode()) > 4 * 1024 * 1024:
-            raise invalid("comparison definition exceeds its 4 MiB expanded bound")
-        return "comparison-v2:" + base64.b64encode(zlib.compress(text.encode(), level=9)).decode(
-            "ascii"
-        )
-    return text
-
-
-def thaw_graph(text: str) -> Node:
-    if text.startswith("comparison-v2:"):
-        try:
-            compressed = base64.b64decode(text.removeprefix("comparison-v2:"), validate=True)
-            decoder = zlib.decompressobj()
-            body = decoder.decompress(compressed, 4 * 1024 * 1024 + 1)
-            if len(body) > 4 * 1024 * 1024 or not decoder.eof or decoder.unused_data:
-                raise ValueError("invalid bounded comparison definition")
-            root = decode(body.decode(), NODE)
-            canonical = "comparison-v2:" + base64.b64encode(
-                zlib.compress(encode(root, NODE).encode(), level=9)
-            ).decode("ascii")
-            if canonical != text:
-                raise ValueError("noncanonical comparison definition")
-        except (ValueError, zlib.error, UnicodeError) as error:
-            raise invalid("invalid compressed comparison definition") from error
-    else:
-        root = decode(text, NODE)
-    nodes: dict[str, Node] = {}
-    bodies: dict[str, str] = {}
-
-    def intern(node: Node) -> Node:
-        body = encode(node, NODE)
-        if node.identity in nodes:
-            if bodies[node.identity] != body:
-                raise invalid("one node identity has different frozen definitions")
-            return nodes[node.identity]
-        if isinstance(node, MethodNode):
-            sources = tuple(intern(source) for source in node.sources)
-            if any(not isinstance(source, SourceLeaf) for source in sources):
-                raise invalid("invalid frozen source edge")
-            node = replace(
-                node,
-                inputs=tuple(replace(e, node=intern(e.node)) for e in node.inputs),
-                sources=tuple(s for s in sources if isinstance(s, SourceLeaf)),
-            )
-        nodes[node.identity] = node
-        bodies[node.identity] = body
-        return node
-
-    root = intern(root)
-    from marivo.analysis.core.rules import CellDerive, OriginalReduce, RowState
-    from marivo.analysis.materialization.graph_composition import comparison_endpoints
-
-    for node in topology(root):
-        if (
-            isinstance(node, MethodNode)
-            and isinstance(node.parameters, (CellDerive, OriginalReduce, RowState, PartsTransport))
-            and node.parameters.endpoint_definitions
-        ):
-            comparison_endpoints(node)
-    return root
-
-
 @dataclass(frozen=True, slots=True)
 class Continuation:
-    schema: Literal["marivo.analysis.continuation/v1"]
+    schema: Literal["marivo.analysis.continuation/v2"]
     root: str
     entity_facts: tuple[str, ...]
     dimension_facts: tuple[str, ...]

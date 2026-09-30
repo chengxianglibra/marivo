@@ -337,3 +337,25 @@ this qualification boundary. Their positive comparison cells remain unverified.
   `make check-agent`: **5481 passed, 5 skipped**, typing and API docs passed.
   Initial execution-key snapshot failures were repaired and rerun. Measured
   before/after hotspot timings and skip disposition are in the acceptance entry.
+
+
+## Unified snapshot DAG follow-up (2026-09-30)
+
+The R6.2 baseline is commit `377bc341f8`. All graph snapshots now use one
+capture-identity DAG codec; retained endpoint definitions share its node table
+without becoming executable dependencies. Continuation and graph execution-key
+versions advance to v2; Store 7 and numeric state/part versions are unchanged.
+Old snapshots require source re-execution, without migration or dual reading.
+This does not qualify R6.3–R6.7 or installed-wheel/remote-backend journeys.
+
+Measurements, reproduction commands and validation outcomes are recorded in
+[the snapshot DAG evidence](2026-09-30-marivo-snapshot-dag-evidence.md).
+
+Final gate: `make check-agent PYTEST_FLAGS='-q --tb=short --maxfail=5 -n 2'`
+exited 0: lint/import contracts, typing (410 modules), default tests (5,514 passed,
+5 skipped), and API docs. Comparison Runtime: 81 passed; supplemental publication
+and relationship Runtime: 20 passed; strengthened nested cold recovery: 2 passed.
+After the exact canonical-record equality guard, 5 affected Runtime journeys passed
+again. These overlapping runs are not summed into a unique-case count. Earlier
+fixture/golden-hash repairs and concurrency-related timeouts are distinguished in
+the evidence record; timeout thresholds were not changed.
