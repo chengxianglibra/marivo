@@ -652,3 +652,97 @@ separate processes for both source forms and all three state families.
 Zero-row fold results retain explicit string status/sample/kind columns and
 boolean coverage columns. Fixed grouped reductions preserve that schema even
 with no members, and whole-domain reduction produces the declared empty Cell.
+
+## R6.1 composition state and recovery
+
+Status: frozen implementation target, no new Runtime qualification. R6 extends
+core/rules, analysis.methods, GraphPlan/LoweredPlan and the existing graph
+executor/exchange/publication path. It must not wrap legacy comparison or
+attribution publication as another executor. The [method owner](operators-and-frames.md#r61-method-rules-and-qualification-target)
+owns arithmetic/RequiredParts/K, and [Analysis](python-analysis-design.md#r61-frozen-relation-composition-target)
+owns user-visible variants.
+
+Each operation's ordered graph edges retain semantic roles: current/baseline,
+left/right, values/reference, target/opportunities/predicate inputs, ranked
+values/partition inputs, or ordered table columns. Shared explicit node identity
+means one realization per invocation, not one transaction over independent
+sources. Predicate/view and requested Logical attribution expansion dependencies
+are included in topology before planning; no hidden query may be introduced
+while consuming a row. Source top-level execution remains a new evaluation.
+Fixed keys include every ordered Artifact occurrence and all consumed part
+receipts, versions, reference and scope identities. Swapping two roles, a
+reference, or a nested endpoint changes identity even when displayed values
+are equal.
+
+Static kind, Session, mode, known domain/unit/template and retained-part checks
+precede business reads and Run allocation. Schema-only preflight may refine
+physical facts under R1. Dynamic injectivity, complete key images, bucket maps,
+coverage, weight sums, partition and endpoint checks are bound obligations of
+the selected plan and must complete before publish. Source preparation and
+source-side checks use Ibis; registered local methods consume only controlled
+exchange. A plan selects its route before execution and never retries another
+route after failure. Fixed-only execution uses verified Arrow/Parquet→pandas;
+no DuckDB, current Catalog/Semantic reload or source access is required.
+
+### R6 state envelopes and versions
+
+The existing Store generation remains 7. MethodKey semantic versions stay 1
+for existing rules whose meanings are preserved (cell.difference, cell.ratio,
+map_correspond and parts_transport); new closed variants are parameters in
+those rules, not aliases for a second implementation. New R6 methods start at
+semantic/implementation version 1. Expanding an existing implementation's
+accepted inputs/parts changes its implementation contract to **4** on the
+changed registration, above R5's version 3. Unchanged R5 registrations keep
+their versions. Registry keys continue to name exact type/unit/time/domain/
+source/route qualifications; a global version bump is not a qualification.
+
+The current difference state/part contract at version 1 stores two endpoints
+and cannot express general missing-side, recursive endpoint, design and mapping
+facts. Its R6 replacement uses `marivo.analysis.state.difference` contract
+version **2**, with corresponding difference part contracts/method-state
+version **2**. Old difference state does not acquire the new meaning or continue
+through that consumer; reject with a concrete re-execute repair. No v1/v2 dual
+reader or migration shim is added. Existing unaffected R5 original/row state
+remains version 1 with its currently accepted implementation contract.
+New R6 state kinds `relative_change`, `relation_ratio`, `cohort`, `share`,
+`penetration`, `standardized`, `ranking`, `table`, `attribution_additive` and
+`attribution_component_mix` use `marivo.analysis.state.<kind>` contract version
+1. Their new role contracts use `marivo.analysis.part.<kind>.<role>` version 1.
+Transport preserves the source state version and includes selected scope;
+it cannot relabel an older layout. These are frozen target discriminants,
+not declarations that those codecs already exist.
+
+| State family | Ordered retained facts beyond primary full keys/Cells |
+| --- | --- |
+| Difference / relative change / ordinary ratio | current_endpoint, baseline_endpoint, correspondence; presence tag independent of Cell; exact endpoint definition and realization, recursive child references, design/pairing, units/policies, original bucket coordinates; endpoint sufficient parts only when actually retained |
+| cohort | target_subjects, opportunities, subject, coverage, predicate_inputs, decisions; complete original opportunity keys, t/u/f and explicit empty policy, selected keys and exact decision scope |
+| share / penetration | fixed_reference and reference_proof; original immutable reference binding/keys/Cells or membership, support/intersection evidence, denominator and independent partition status |
+| standardized | fixed_reference, strata, stratum_values; unit identity, all original weights/values including zero-weight non-Defined tags, sum check and numerical policy |
+| ranking | values, ranks, ranking_domain, partitions, ordering; full original domain/values or verified immutable part references, tie policy and current selection map |
+| attribution | current_endpoint, baseline_endpoint, basis, allocation, reconciliation, selection_scope; original target/basis/rule and endpoint sufficient state, ordered axes, resolution, typed Other/masks, side terms, original complete scope and current selected keys |
+| terminal table | columns and column_bindings; authored label order, exact immutable view/input identities, full key correspondence, concrete types/Cells; no continuation K |
+
+Roles may reference verified shared immutable parts under the common protocol;
+they cannot point at an unverified path or recover data by replaying lineage.
+Every role has a registered schema, exact key/mapping contract, input binding,
+version and receipt. Distinct parts need not have identical row counts (a fixed
+Singleton denominator is not expanded into an unowned same-row copy); their
+explicit mappings must reproduce the consuming primary. The protocol's closed
+Part/PartRole/state unions and validation must be extended together. No generic
+JSON bag or name-based dynamic lookup replaces these typed roles.
+
+All primary and required parts publish atomically under the existing writer
+protocol. Missing, swapped, duplicate, truncated, malformed or wrong-version
+parts reject before a fixed cache hit or new publication. Validation separately
+checks values, frozen definitions, input realizations, correspondence, coverage
+and promised K. Existing Artifact receipts do not authorize requalification
+from current Semantic declarations. Failed validation closes exchange resources,
+cleans partial publication and does not replay source nodes.
+
+R6.7 recovery tests must run in a fresh process with source/Semantic access and
+DuckDB disabled. They compare definitions/parts as well as values, actually call
+each promised fixed continuation, and inject corruption into endpoint,
+opportunity, reference, rank/view and attribution scope parts. A contract string
+or repeat Artifact ID alone is not L6 evidence. The same non-editable wheel must
+produce, continue and recover the installation journeys; this contract freeze
+does not run or certify those journeys.

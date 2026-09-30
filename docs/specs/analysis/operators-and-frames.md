@@ -681,3 +681,223 @@ contract version 3 in Store 7. Earlier implementation versions cannot continue a
 not migrated or reconstructed. Public result state exposes `decimal:p:s` and
 `duration:unit` physical identifiers. This qualification does not extend the R5.5
 SQLite matrix or remote R9 backend coverage.
+
+## R6.1 method rules and qualification target
+
+Status: frozen C07–C09 target, not execution evidence. Public shapes are owned by
+[Analysis](python-analysis-design.md#r61-frozen-relation-composition-target);
+state encoding and version transitions by [Runtime](session-state-and-runtime.md#r61-composition-state-and-recovery).
+The following are required semantic methods, not a parallel registry. Existing
+method names are extended under analysis.methods; new names below are their
+frozen target identities. New methods start at semantic version 1. Changed
+existing definitions use the version transition described by Runtime.
+
+### Method, parts and continuation matrix
+
+All methods require exact ordered input bindings, full typed keys, input Cell
+policies, units, and actual physical qualification. Every transported part is
+restricted by the same key mapping as its primary; a value-only result cannot
+claim a continuation that requires a missing part. In this table S means strict
+selection and admitted current-row statistics; F means source-free fixed
+continuation with all required parts. Statistics retain R5's actual type matrix:
+Decimal/Duration sum/mean/min/max are not activated by this table.
+
+| Method identity | RequiredParts and consumption | Output / permitted K |
+| --- | --- | --- |
+| map_correspond (ExactKeys, UnionKeys, one-to-one, period variants) | Complete ordered typed keys; design and target binding; one-to-one relation/time evidence or complete bucket map as applicable | Exact matched/missing-side map and original endpoints; correspondence is not original-state rollup |
+| cell.difference | Correspondence, ordered endpoint Cells and recursively frozen quantity templates; matched values Defined/finite | current−baseline; endpoints, presence and policies retained; S/F, members only with Subject map, attribute only under its separate rule |
+| cell.relative_change | Same as difference | (current−baseline)/abs(baseline); dimensionless; zero baseline Undefined(zero_baseline); S/F, no automatic attribution |
+| cell.ratio | Exact or bound one-to-one correspondence; ordered endpoints and quotient-unit proof | Zero denominator Undefined(zero_denominator); explicit missing-side yields Undefined(missing_side); S/F, never original rollup/share |
+| parts_transport (where/view/limit/member projection) | Every referenced predicate input, exact same-domain or retained inclusion mapping, Subject when requested | Same quantity and precisely restricted parts; membership retains selection basis, no reread/reselection; K recomputed from retained proof |
+| domain.cohort | Full target Subject domain, complete opportunity domain and coverage, SubjectBinding, all predicate inputs | Exact selected Subject set plus quantifier/decision evidence; F, source observation only for source members, no unknown qualification silently dropped |
+| reference.share | Same-measure Singleton reference, support inclusion and additive/allocation proof; full-partition proof only if claimed | Same-key dimensionless share with frozen reference; S/F, no original rollup |
+| reference.penetration | Complete member reference Ω, selected member set B, exact identities and intersection | Singleton intersection-count / reference-count; empty reference Undefined(empty_reference); S/F |
+| reference.standardize | ReferenceWeights, exact complete unique strata, compatible statistical unit, admitted receiver quantity | Singleton weighted standardized value and frozen strata/reference; S/F, no original rollup |
+| display.rank | Numeric input and exact Category partition maps, full original ranking domain | Same-key values/ranks plus deterministic order, partition/tie policy; S/F and global limit, no recomputation on selection |
+| display.table | Ordered complete-key Relations, exact input/view bindings and key proof | Terminal table; export/read only, no analysis K |
+| attribution.additive_difference | Absolute Difference with complete endpoint states, additive partition/allocation proof, axes, coverage and target reproduction | C_i−B_i, allocated side views and scope/resolution reconciliation; S/F and ranking views; filtered output loses complete-partition K |
+| attribution.component_mix | Absolute Difference over original mean/weighted_mean/ratio; per-side additive N/W, complete partition, valid totals and original policies | N_i/W_total side terms, their difference, independent scope/resolution checks; same K restrictions as additive attribution |
+
+Reference-weight construction is a pure binding operation, not a second
+arithmetic method. Predicate methods are closed tag/scalar/composite variants
+consumed by parts_transport or domain.cohort. Their result is a predicate, not
+an independently published Relation. Logical attribution axis expansion adds
+explicit observation dependencies; Materialized expansion uses retained parts
+only. Relative or nested Difference, ordinary ratio, standardized quantities,
+distinct and quantile do not receive attribution merely because endpoints exist.
+Additive original linear components may qualify only with complete additive
+partition and endpoint reproduction; no general FormulaBasis is introduced.
+
+ExactKeys requires injective full typed keys and equal images; double empty is
+valid. UnionKeys also checks injectivity. Keep preserves MissingCoordinate
+separately from Present(Null/Undefined/Unknown) and does no arithmetic on a
+missing row. metric_empty requires complete original observation/coverage and
+the concrete Metric's empty finish; filtered/ranked/limited or missing-version
+rows are not empty contributions. It never overwrites a Present non-Defined
+Cell. A synthesized Defined endpoint participates normally; a synthesized
+Null/Undefined retains that tag and original reason in the result (no arithmetic).
+Unknown coverage cannot authorize synthesis. The existing side still must pass
+strict numeric consumption. This explicit Null case follows R5 sum/mean empty
+policies; historical prose mentioning only Undefined is not a fill-zero rule.
+
+### Predicate and cohort consumption
+
+Before selection, every actual input must correspond to the receiver's complete
+consumption domain; a retained inclusion may restrict an ancestor input but
+cannot supply missing rows. All child checks run before truth composition.
+where's ordinary numeric predicates require Defined finite values. Category,
+Boolean and Temporal comparisons require Defined values of the stated type;
+there is no implicit truth conversion. is_defined is total on the four Cell tags
+and returns false for Null/Undefined/Unknown. No tag check masks another child's
+consumption error. Thus all_of(x.is_defined(), x.gt(0)) fails on Undefined while
+an explicit first selection followed by a comparison on the selected view can
+succeed. L1 applies only to the common fully defined domain.
+
+cohort uses the same type/finite/unit checks over the full opportunity domain.
+Ordinary scalar comparisons may produce unknown for an existing Unknown Cell;
+Null/Undefined remain hard errors. State predicates remain total. Missing keys,
+opportunities or coverage are errors, not new Unknown Cells. AllOf is false if
+any child is false, true if all are true, otherwise unknown; AnyOf is true if
+any is true, false if all are false, otherwise unknown; Not preserves unknown.
+These rules apply after every child passes its consumption checks.
+
+For each target Subject let t/u/f count all true/unknown/false opportunities.
+any_instance is true if t>0, false if t=u=0, otherwise unknown. at_least(k) is
+true if t>=k, false if t+u<k, otherwise unknown. Both are false on complete empty
+opportunity domains. Nonempty all_instances is false if f>0, true if f=u=0,
+otherwise unknown. Empty all_instances follows its explicit true/false/undefined
+policy. Every target Subject must have decidable qualification before producing
+an exact AnalysisDomain; unknown or undefined rejects the whole result. Retain
+targets with zero opportunities to evaluate that policy. These truth rules do
+not grant global arithmetic on Unknown Cells or relax where.
+
+### R6 numerical target and reference policy
+
+R6 required source cells are DuckDB native table and local Parquet, with fixed
+artifact_python counterparts. A required cell below remains unverified until
+its source/fixed tests pass; it cannot be closed by rejection. I=int64, F=finite
+float64, D=Decimal(p,s), T=fixed Duration(s/ms/us/ns). Homogeneous operand families
+are required unless explicitly stated. Boolean/date/timestamp are not numeric.
+Decimal and Duration physical facts, exact state arithmetic and one-rounding
+rules remain those of R5. No cross-family coercion, Decimal rescaling or Duration
+unit conversion is implicit.
+
+| Method | I | F | D | T |
+| --- | --- | --- | --- | --- |
+| absolute difference / additive attribution | Checked int64 difference and published state | Finite float64 difference | Same-scale inputs; exact Decimal(38,s) result/state | Same-unit exact checked ticks, unit preserved |
+| relative change / ordinary ratio / share | Exact integer numerator/denominator until one float64 finish | Finite float64 finish with denominator stability check | Decimal(38,max(s_left,s_right,6)), one HALF_EVEN finish | Same-unit tick ratio, exact until float64 finish; relative change likewise dimensionless |
+| scalar/state predicates | Exact comparisons; bool excluded | Finite exact binary64 comparison | Exact equal-scale comparison | Exact same-unit ticks |
+| ranking | Exact ordering, int64 defined ranks | Finite value ordering, int64 ranks | Exact decimal ordering, int64 ranks | Exact tick ordering, int64 ranks |
+| standardize | I values with I/F dimensionless weights, float64 finish | F values with I/F weights, float64 finish | D values with same-scale D weights within weight input; Decimal(38,max(s_value,6)) finish | Rejected in R6: no standardized Duration quantity method |
+| component_mix | Exact N/W until float64 side finish, float64 contributions | Finite float64 side/contribution | Exact Decimal components; Decimal(38,max(s_N,s_W,6)) side/contribution | Rejected in R6: no tick-rounded component allocation method |
+| penetration / cohort counts | Checked exact int64 identity counts; penetration finishes float64 once | Not a numeric-input algorithm | Not a numeric-input algorithm | Not a numeric-input algorithm |
+| table / transport | Preserve | Preserve (reject malformed nonfinite Defined payload) | Preserve | Preserve |
+
+These restrictions do not withdraw R5 Metric mean/weighted-mean/ratio over
+Duration. They deny only the new standardization/allocation methods above;
+Duration difference, ratio, predicates, rank and additive attribution have
+required positive cells. Current-row numeric reducers remain R5-qualified only.
+
+Integer/Decimal/tick intermediates must not pass through float. Mathematical
+intermediate numerator/difference/score may use exact widened arithmetic; each
+stored int64/tick state or output and every declared Decimal precision is range
+checked. In particular abs(-2**63) for a score or denominator must not wrap.
+Overflow, nonfinite values, unsupported scale and incompatible units reject
+before publication. Negative baseline uses abs(baseline) only for relative
+change; ordinary ratio keeps denominator sign. Zero policies precede division.
+Float results use the R5 error model: propagate operand bounds through
+subtraction, plus R(r); for division use its denominator-interval bound. Exact
+integer operands enter with zero error and finish once. Float comparison/rank
+operate on represented values without epsilon ties. Numeric qualification tests
+use independent Fraction/Decimal or raw-fact oracles and vary row order/batching.
+
+share requires support inclusion and compatible additive measure or admitted
+allocated side terms. It promises [0,1] only with nonnegative terms and positive
+reference; signed shares otherwise remain signed and make no such promise.
+Zero denominator is Undefined(zero_denominator). Complete partition is an
+independent proof, not inferred from a sum close to one. penetration counts
+B∩Ω using complete identities, not overlapping category sums.
+
+Standardization freezes the following choices. Every stratum key must exist
+exactly once on both sides, including zero-weight strata. Weights must all be
+Defined, finite, nonnegative and dimensionless. I/D weights sum to exactly one
+using exact arithmetic. F weights use an order-independent exact sum of their
+binary64 values for validation, accepted iff abs(sum−1)<=1e-12; the represented
+weights are used unchanged, never normalized. The unit is the statistical-unit
+Entity, distinct from measurement units. Empty strata and zero total reject.
+Every positive-weight value must be Defined and finite. At exactly zero weight,
+Null/Undefined/Unknown values remain retained but are not multiplied or consumed
+as numbers; malformed/nonfinite Defined values still reject. Positive weights,
+however small, get no epsilon exemption. The receiver quantity must explicitly
+admit averaging comparable stratum values with one common measurement unit;
+it cannot smuggle unlike denominators/units into a mean.
+
+Products/sums for I/D use exact widened arithmetic until the single result
+finish; checked stored D state preserves s_value+s_weight (<=38). F products
+and sums propagate the R5 sum/product bounds and the weight-sum acceptance
+error is disclosed separately, not corrected. The result retains all weights,
+values, zero-weight statuses, keys and fixed reference identity. It is a new
+standardized quantity; no original Metric merge or actual-population claim.
+
+### Rank, attribution arithmetic and reconciliation
+
+Ranking partitions by complete Category tuples; empty tuple means one partition.
+Within a partition Defined finite values sort by requested order, exact ties by
+canonical typed instance key. ordinal assigns 1..n; dense increments by one per
+distinct value; min/max use the first/last occupied ordinal of each tied block.
+Non-Defined values/ranks retain their tag and reason, sort after Defined values,
+and tie-break by instance key (no artificial ordering of missingness severity).
+Global output order is canonical partition tuple, Defined before non-Defined,
+numeric rank, instance key. This is display order, not business event order.
+limit takes its global prefix, integer 1..100000 excluding bool. Each partition's
+Top-K requires explicit defined-rank filtering then rank<=k; dense/min/max may
+retain more than k rows. Neither operation recomputes ranks or fixed references.
+Canonical keys compare typed components in declared order, native exact numeric/
+temporal order and Unicode codepoint string order; no repr/hash order. Typed
+real-null and Other have separate tags; Other sorts after ordinary coordinates.
+
+Attribution accepts nonempty unique ordered axes; hierarchy requires >=2 axes.
+joint emits full tuples; hierarchy emits every authored prefix with resolution
+in the key. Each scope/resolution is separately complete and reconciled. Both
+endpoint quantities must reproduce from retained complete components before
+allocation. Unknown coverage, overlapping contributions, illegal folds or
+missing states reject independently of residual. Relative/nested changes do
+not inherit these methods automatically.
+
+additive_difference publishes C_i−B_i. component_mix publishes N_i/W_total on
+each side, then their difference; it never subtracts unallocated group ratios.
+Both overall endpoints must be Defined and totals valid under original policies.
+Zero W_total rejects, including 0/0; for float a denominator error interval
+spanning zero also rejects. A structural N_i=W_i=0 contributes zero; W_i=0 with
+nonzero N_i rejects as contradictory, preserving the accepted typed-operators
+rule rather than broadening it from algebraic cancellation. Negative basis is
+permitted only where the original component policy admits it. Endpoint/partition
+proof is independent of this numerical check.
+
+top_k is None or integer 1..1000 excluding bool. Before arithmetic, select once
+on the union of both sides' full basis using descending abs(C_i)+abs(B_i) for
+additive, abs(W_i,current)+abs(W_i,baseline) for component_mix; typed coordinates
+break ties. Multi-axis mapping follows authored order within each mapped parent,
+including Other. A typed Other tag and mask distinguish a mapped remainder from
+a real string "Other" or null category. Hierarchy reuses the same mapping;
+never independently select each side or resolution.
+
+For complete scope/resolution let D be the independently computed input target
+and S the sum of published contributions. Additive I/D/T must reconcile exactly
+in their exact carrier, without float conversion. Float arithmetic retains the
+accepted threshold abs(D−S)<=max(1e-12,1e-9*max(abs(D),abs(S),1)); numerical-oracle
+bounds above must also pass, so reconciliation is not a substitute for precision
+qualification. Decimal component_mix checks exact rational component identities
+before finish and applies that same threshold using exact Decimal arithmetic
+to rounded published side differences; it does not widen the tolerance or cast
+to float. Each side is rounded once at its declared scale, its contribution is
+the exact difference of published side terms, and D is the reproduced endpoint
+difference at that scale. Excess rounding residual rejects; no balancing row or
+residual redistribution is allowed. Tests must include high-precision and
+many-small-partition examples at this bound.
+
+Selection transports original target/basis/rule, original reconciliation scope,
+complete Other mapping and selected keys. It unconditionally revokes current
+subdomain completeness, even if selected contributions happen to sum to D.
+No shared helper, legacy registration or residual grants distinct_membership,
+distribution_shapley or a second attribution executor public qualification.

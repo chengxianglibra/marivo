@@ -1215,3 +1215,42 @@ current-row sum/mean/min/max remain unqualified; count/count_defined are qualifi
 This does not qualify R9 backends, R10 real Agents, release/publication, or a
 second/legacy execution route. Packaged skills and AGENTS.md are unchanged.
 No push, publication or MinIO service was performed.
+
+## R6.1 contract freeze completed (2026-09-30)
+
+Baseline: `panda`, `44ff8478a740c60b23fc1566a52523acaa476851`; staged/unstaged
+tracked diffs empty, only the R6 implementation plan untracked. This supersedes
+the plan's historical draft baseline; R5.7 qualification above is retained
+without rerunning or enlarging it. During the task HEAD advanced to
+`41e2a69126b73eca0f0973e6c4f7e434420ca076` through an external plan-only commit;
+its blob matches the original untracked plan. No product baseline changed and
+this task neither created nor reverted that commit.
+
+[R6 migration ledger](2026-09-30-marivo-full-algebra-dsl-r6-migration-ledger.md)
+records F01–F11 owner decisions, M01–M15 real consumers/deletion conditions,
+V01–V12 test ownership, physical-route targets and local evidence hashes.
+Current Analysis/operator/Runtime/temporal/Semantic owners now freeze the three
+comparison designs, recursive quantity templates, strict multi-input predicates,
+complete-opportunity cohort, fixed references, weight tolerance/zero-weight
+policy, named views/terminal table, ranking, two attribution methods, exact
+numeric/reconciliation rules and Store 7 state/version transitions.
+
+Status distinctions:
+
+- **Completed / static**: contract decisions and migration inventory, including
+  253 source/test files, 419 import statements and 538 direct alias calls;
+  public export probe confirms surviving legacy Delta/Attribution names.
+- **Not deleted**: old R6 comparison/attribution dispatch, codec and AN11/AN12
+  SQL paths; specific R7/R8 shared consumers are assigned before removal.
+- **Planned / unverified**: all new R6 method/type/time/source/fixed qualifications,
+  positive and negative Runtime cases, source-free cold continuation, installed
+  wheel journeys, public Help/export/site cutover and final consumer deletion.
+- **Excluded / unchanged**: withdrawn statistical-weight role/current-row
+  weighted mean; distinct/distribution attribution; R5 Decimal/Duration row
+  reduction qualification; R7–R10 scope. No new backend or release acceptance.
+
+Only owner documents, plan status, this record and the new ledger change.
+Product code/tests, packaged skills and AGENTS.md remain unchanged. Document
+validation evidence is recorded in the ledger; no product tests, Runtime,
+site build, release-check, MinIO, commit, push or publication is claimed.
+R6.1 is complete as a contract-freeze package; R6.2–R6.7 remain to implement.
