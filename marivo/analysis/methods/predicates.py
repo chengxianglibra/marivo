@@ -7,8 +7,8 @@ from decimal import Decimal
 from math import isfinite
 
 from marivo.analysis.core.model import reject
-from marivo.analysis.core.predicates import ValuePredicate
-from marivo.analysis.methods.physical import DecimalType, ScalarType, ValueType
+from marivo.analysis.core.predicates import DurationLiteral, ValuePredicate
+from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType, ValueType
 
 
 def invalid(received: str) -> None:
@@ -40,7 +40,11 @@ def validate_operand(predicate: ValuePredicate, left: ValueType, right: ValueTyp
         return
     value = predicate.literal
     accepted = False
-    if isinstance(left, DecimalType):
+    if isinstance(left, DurationType):
+        accepted = (
+            isinstance(predicate.value, DurationLiteral) and left.unit == predicate.value.unit
+        )
+    elif isinstance(left, DecimalType):
         if type(value) is Decimal and value.is_finite():
             exponent = value.as_tuple().exponent
             accepted = (

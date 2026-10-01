@@ -5,7 +5,7 @@ from __future__ import annotations
 import builtins
 from contextlib import redirect_stdout
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from inspect import Parameter, signature
 from io import StringIO
@@ -30,12 +30,13 @@ from marivo.analysis._time_grid import GridEndpoint as GridEndpoint
 from marivo.analysis._time_grid import GridWindow as GridWindow
 from marivo.analysis._time_grid import TimeGrid as TimeGrid
 from marivo.analysis._time_grid import time_grid as time_grid
-from marivo.analysis.core.graph import FixedLeaf, MethodNode, retained_nodes
+from marivo.analysis.core.graph import FixedLeaf, MethodNode, method_node, retained_nodes
 from marivo.analysis.core.model import (
     AttributionPart,
     Coordinate,
     DerivedQuantity,
     DisplayPart,
+    JourneyPart,
     ObservedQuantity,
     OriginalStatePart,
     RolledQuantity,
@@ -43,7 +44,7 @@ from marivo.analysis.core.model import (
     SubjectPart,
     part_role,
 )
-from marivo.analysis.core.predicates import TemporalLiteral, ValuePredicate
+from marivo.analysis.core.predicates import DurationLiteral, TemporalLiteral, ValuePredicate
 from marivo.analysis.core.rules import (
     AssociationScore,
     BindProject,
@@ -51,17 +52,23 @@ from marivo.analysis.core.rules import (
     CompleteGroups,
     DisplayRank,
     DisplayTable,
+    JourneyCompleted,
+    JourneyDuration,
+    JourneyMatch,
+    JourneyRead,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
     OccurrenceCombine,
     PartsTransport,
+    PreparedObservation,
     ReferenceDerive,
     RowState,
     TimeProduct,
 )
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint, bind_grid
 from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.event import PatternStep
 from marivo.analysis.materialization.graph_dataset import GraphDataset
 from marivo.analysis.materialization.graph_fields import (
     BooleanField,
@@ -80,8 +87,9 @@ from marivo.analysis.materialization.graph_fields import (
     root_routes,
 )
 from marivo.analysis.materialization.graph_relation import FrozenBinding, LiveBinding, Relation
-from marivo.analysis.methods.physical import DecimalType, ScalarType
+from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 from marivo.analysis.refs import ArtifactRef
+from marivo.analysis.subject import DroppedBefore
 from marivo.refs import (
     DimensionKind,
     EntityKind,
@@ -92,6 +100,7 @@ from marivo.refs import (
     SemanticKind,
     TimeDimensionKind,
 )
+from marivo.semantic.event import ParticipantRoleHandle
 from marivo.semantic.ir import TargetRelationshipContract
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from marivo.semantic.validator import normalize_target_relationship
@@ -298,6 +307,14 @@ class AnalysisContract:
 
 def _kind(node: Relation) -> str:
     definition = node.definition
+    if isinstance(definition.parameters, JourneyMatch):
+        return "journey"
+    if isinstance(definition.parameters, JourneyDuration):
+        return "event_duration"
+    if isinstance(definition.parameters, JourneyCompleted):
+        return "completed_journeys"
+    if isinstance(definition.parameters, JourneyRead):
+        return "journey_read"
     params, quantity = definition.parameters, definition.signature.quantity
     attribution = next(
         (
@@ -425,6 +442,19 @@ class _Value:
             else Relation.restore(dataset)
         )
 
+    def _materialize_before_continuing(self) -> bool:
+        return (
+            self._dataset is None
+            and isinstance(self._node.binding, LiveBinding)
+            and (
+                isinstance(self._node.definition.parameters, PreparedObservation)
+                or (
+                    isinstance(self._node.root.value_type, DurationType)
+                    and isinstance(self._node.root.signature.quantity, RowStatisticQuantity)
+                )
+            )
+        )
+
     def contract(self) -> AnalysisContract:
         """Return the verified relation state and its mechanically valid next calls.
 
@@ -439,7 +469,37 @@ class _Value:
         kind, fixed = _kind(self._node), self._dataset is not None
         roles = tuple(part_role(part) for part in signature.parts)
         names: tuple[str, ...]
-        if kind == "attribution":
+        if kind == "journey":
+            names = (
+                "time_to_event",
+                "subjects",
+                *(
+                    ("read",)
+                    if next(p for p in signature.parts if isinstance(p, JourneyPart)).policy
+                    == "first_per_subject"
+                    else ()
+                ),
+            )
+        elif kind in ("event_duration", "completed_journeys"):
+            names = (
+                "status",
+                "started_at",
+                "completed_at",
+                "duration",
+                "observed_duration",
+                "followup_until",
+                "completed",
+                "subjects",
+            )
+        elif kind == "journey_read":
+            names = ("where", "members")
+            params = self._node.definition.parameters
+            if isinstance(params, JourneyRead) and params.field in (
+                "duration",
+                "observed_duration",
+            ):
+                names = (*names, "summarize")
+        elif kind == "attribution":
             names = ("contribution", "current", "baseline", "where")
         elif kind == "attribution_view":
             names = ("where", "summarize")
@@ -553,6 +613,13 @@ class _Value:
             and "members" not in names
         ):
             names = (*names, "members")
+        if isinstance(self._node.root.value_type, DurationType) and (
+            any(isinstance(part, JourneyPart) for part in signature.parts)
+            or isinstance(signature.quantity, RowStatisticQuantity)
+        ):
+            names = tuple(name for name in names if name not in ("rank", "compare", "ratio"))
+        if self._materialize_before_continuing():
+            names = ("execute",)
         required = tuple(role for role in roles if role != "subject")
         return AnalysisContract(
             kind,
@@ -569,6 +636,35 @@ class _Value:
         signature = self._node.root.signature
         quantity = signature.quantity
         facts: list[tuple[str, str]] = []
+        if self._materialize_before_continuing():
+            facts.append(
+                (
+                    "continuation_boundary",
+                    "Execute this local result first; use the materialized result for further operations.",
+                )
+            )
+        journey = next((p for p in signature.parts if isinstance(p, JourneyPart)), None)
+        if journey is not None:
+            facts.extend(
+                (
+                    ("statistical_unit", "Journey"),
+                    ("matching", journey.policy),
+                    ("complete_opportunities", str(journey.complete)),
+                    (
+                        "time_precision",
+                        "captured microseconds; native conversion may lose finer source precision",
+                    ),
+                )
+            )
+            if self._dataset is not None:
+                metadata = self._dataset.verified().primary.schema.metadata or {}
+                facts.append(
+                    (
+                        "captured_precision",
+                        metadata.get(b"r7.precision", b"unavailable").decode()[:2048],
+                    )
+                )
+
         if self._node.comparison_error is not None:
             facts.append(("comparison_unavailable", self._node.comparison_error))
         params = self._node.definition.parameters
@@ -763,6 +859,7 @@ class _Value:
                 | str
                 | bool
                 | date
+                | timedelta
                 | NumericField
                 | CategoryField
                 | BooleanField
@@ -784,7 +881,11 @@ class _Value:
             right = None
             if isinstance(value, (NumericField, CategoryField, BooleanField, TemporalField)):
                 right = index(value.root, value.relation)
-                literal: int | float | str | bool | TemporalLiteral | Decimal = 0
+                literal: int | float | str | bool | TemporalLiteral | DurationLiteral | Decimal = 0
+            elif isinstance(value, timedelta):
+                literal = DurationLiteral(
+                    (value.days * 86400 + value.seconds) * 1000000 + value.microseconds
+                )
             elif isinstance(value, date):
                 literal = TemporalLiteral(
                     "timestamp" if isinstance(value, datetime) else "date", value.isoformat()
@@ -924,7 +1025,19 @@ class _Value:
         for name in names:
             member = getattr(type(self), name, None)
             if isinstance(member, property):
-                if name in ("values", "ranks", "contribution", "current", "baseline"):
+                if name in (
+                    "values",
+                    "ranks",
+                    "contribution",
+                    "current",
+                    "baseline",
+                    "status",
+                    "started_at",
+                    "completed_at",
+                    "duration",
+                    "observed_duration",
+                    "followup_until",
+                ):
                     actions.append(
                         AnalysisAction("relation." + name, "analysis." + type(self).__name__)
                     )
@@ -1201,6 +1314,7 @@ class _OriginalContinuation(_NumericComparison):
         Returns: A logical original numeric or ratio total.
         Example: ``total = relation.rollup().execute()``.
         Constraints: Requires complete original state and coverage; no finished-value averaging.
+        Execute a prepared observation after local Subject selection before rolling it up.
         """
         node = self._node.rollup()
         quantity = node.root.signature.quantity
@@ -3076,6 +3190,7 @@ class _StatisticContinuation(_NumericComparison):
         Returns: A grouped statistic awaiting rollup.
         Example: ``result = statistic.group_by(dimension).rollup().execute()``.
         Constraints: Merges this statistic's state; does not summarize finished values.
+        Execute source Duration statistics before selecting merge axes.
         """
         node = self._node.rollup_statistic(*keys)
         if groups is not None:
@@ -3093,6 +3208,7 @@ class LogicalStatisticRelation(_StatisticContinuation):
         Returns: A logical statistic preserving its row-contribution identity.
         Example: ``total = statistic.rollup().execute()``.
         Constraints: Requires the exact row state; never averages finished subgroup means.
+        Execute source Duration statistics before merging their retained states.
         """
         return LogicalStatisticRelation(
             _TOKEN, self._node.rollup_statistic(), self._runtime, inputs=(self,)
@@ -3271,6 +3387,22 @@ def wrap_materialized(
 ) -> PublicMaterialized:
     """Restore the existing public result variant from its checked typed graph."""
     kind = _kind(node)
+    if kind == "journey":
+        return MaterializedJourneyResult(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "event_duration":
+        return MaterializedEventDurationResult(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "completed_journeys":
+        return MaterializedCompletedJourneys(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "journey_read":
+        params = node.definition.parameters
+        assert isinstance(params, JourneyRead)
+        if params.field == "dropout":
+            return MaterializedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
+        if params.field == "status":
+            return MaterializedCategoryRelation(_TOKEN, node, runtime, dataset=dataset)
+        if params.field in ("duration", "observed_duration"):
+            return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
+        return MaterializedTemporalRelation(_TOKEN, node, runtime, dataset=dataset)
     if kind == "attribution":
         return MaterializedAttributionResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "attribution_view":
@@ -3294,6 +3426,10 @@ def wrap_materialized(
             return MaterializedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
         return MaterializedCategoryRelation(_TOKEN, node, runtime, dataset=dataset)
     if kind == "where":
+        if any(isinstance(p, JourneyPart) for p in node.root.signature.parts) and isinstance(
+            node.root.value_type, DurationType
+        ):
+            return MaterializedSelectedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
         if node.root.signature.quantity is None:
             scalar = node.root.value_type
             if scalar == ScalarType("boolean"):
@@ -4150,8 +4286,276 @@ class MaterializedAttributionResult(_MaterializedValue, _Attribution):
         )
 
 
+class _Journey(_Value):
+    def _journey_part(self) -> JourneyPart:
+        return next(p for p in self._node.root.signature.parts if isinstance(p, JourneyPart))
+
+    def _step_index(self, step: PatternStep) -> int:
+        if type(step) is not PatternStep or step.fingerprint not in self._journey_part().steps:
+            raise _reject(
+                "an exact retained PatternStep", repr(step), "Use a step from this Journey pattern."
+            )
+        return self._journey_part().steps.index(step.fingerprint)
+
+    def subjects(self, role: ParticipantRoleHandle) -> SubjectBinding:
+        """Return the retained Subject map for an exact participant role.
+
+        Args: role: Participant handle from this retained pattern.
+        Returns: The Journey-domain SubjectBinding.
+        Example: ``binding = journeys.subjects(buyer)``.
+        Constraints: Foreign Events or roles reject; no source rows are read.
+        """
+        if type(role) is not ParticipantRoleHandle or not any(
+            role.event == event.ref and role.name == event.participant
+            for event in self._journey_part().preparation.events
+        ):
+            raise _reject(
+                "a retained participant role", repr(role), "Use the exact pattern participant."
+            )
+        return self.subject_binding
+
+    def time_to_event(
+        self, *, from_step: PatternStep, to_step: PatternStep
+    ) -> LogicalEventDurationResult:
+        """Project elapsed observations for a retained ordered step pair.
+
+        Args: from_step: Exact starting step. to_step: Exact later step.
+        Returns: Six typed relations over the original Journey domain.
+        Example: ``elapsed = journeys.time_to_event(from_step=start, to_step=finish)``.
+        Constraints: Uses canonical assignment; never rematches or reads a new Event source.
+        """
+        params = JourneyDuration(self._step_index(from_step), self._step_index(to_step))
+        node = self._node._with(
+            method_node((self._node._edge(),), params, value_type=ScalarType("int64"))
+        )
+        return LogicalEventDurationResult(_TOKEN, node, self._runtime, inputs=(self,))
+
+    def read(self, field: DroppedBefore) -> LogicalBooleanRelation:
+        """Read first-per-subject dropout with coverage Unknown preserved.
+
+        Args: field: dropped_before descriptor with an exact noninitial step.
+        Returns: A BooleanRelation over retained Journeys.
+        Example: ``dropout = journeys.read(mv.dropped_before(step=finish))``.
+        Constraints: every_start does not produce dropout; Unknown is not False.
+        """
+        if type(field) is not DroppedBefore:
+            raise _reject(
+                "mv.dropped_before(step=...)", repr(field), "Read a retained dropout descriptor."
+            )
+        params = JourneyRead(0, self._step_index(field.step), "dropout")
+        node = self._node._with(
+            method_node((self._node._edge(),), params, value_type=ScalarType("boolean"))
+        )
+        return LogicalBooleanRelation(_TOKEN, node, self._runtime, inputs=(self,))
+
+
+class LogicalJourneyResult(_Journey):
+    """Unexecuted canonical Journey matching in the governed graph."""
+
+    def execute(self) -> MaterializedJourneyResult:
+        """Evaluate and publish canonical Journey assignments.
+
+        Args: None.
+        Returns: An immutable MaterializedJourneyResult.
+        Example: ``fixed = journeys.execute()``.
+        Constraints: Source evaluation captures inputs before local matching.
+        """
+        return MaterializedJourneyResult(_TOKEN, self._node, self._runtime, dataset=self._run())
+
+
+class MaterializedJourneyResult(_Journey, _MaterializedValue):
+    """Fixed Journey assignments with source-free continuations."""
+
+
+class _Duration(_Value):
+    def subjects(self, role: ParticipantRoleHandle) -> SubjectBinding:
+        """Return the bound Journey-to-Subject map for a retained role.
+
+        Args: role: An exact participant handle in the saved pattern.
+        Returns: The SubjectBinding of this elapsed or completed domain.
+        Example: ``binding = completed.subjects(buyer)``.
+        Constraints: Complete Journey keys survive projection; this reads no source rows.
+        """
+        part = next(p for p in self._node.root.signature.parts if isinstance(p, JourneyPart))
+        if type(role) is not ParticipantRoleHandle or not any(
+            role.event == event.ref and role.name == event.participant
+            for event in part.preparation.events
+        ):
+            raise _reject(
+                "a retained participant role", repr(role), "Use the exact pattern participant."
+            )
+        return self.subject_binding
+
+    def _view(
+        self,
+        field: Literal[
+            "status",
+            "started_at",
+            "completed_at",
+            "duration",
+            "observed_duration",
+            "followup_until",
+        ],
+    ) -> Relation:
+        params = self._node.definition.parameters
+        assert isinstance(params, (JourneyDuration, JourneyCompleted))
+        from marivo.analysis.methods.physical import DurationType
+
+        scalar = (
+            DurationType("us")
+            if field in ("duration", "observed_duration")
+            else ScalarType("string" if field == "status" else "timestamp")
+        )
+        return self._node._with(
+            method_node(
+                (self._node._edge(),),
+                JourneyRead(params.from_step, params.to_step, field),
+                value_type=scalar,
+            )
+        )
+
+    @property
+    def status(self) -> LogicalCategoryRelation:
+        """Read completion status for the bound step pair.
+
+        Args: None.
+        Returns: CategoryRelation with five distinct statuses.
+        Example: ``statuses = elapsed.status``.
+        Constraints: Retains complete, incomplete, censored, absent and unknown entry.
+        """
+        return LogicalCategoryRelation(_TOKEN, self._view("status"), self._runtime, inputs=(self,))
+
+    @property
+    def started_at(self) -> LogicalTemporalRelation:
+        """Read entry instants for the bound starting step.
+
+        Args: None.
+        Returns: TemporalRelation with absent and unknown entry Cells.
+        Example: ``starts = elapsed.started_at``.
+        Constraints: Uses only retained assignment.
+        """
+        return LogicalTemporalRelation(
+            _TOKEN, self._view("started_at"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def completed_at(self) -> LogicalTemporalRelation:
+        """Read known completion instants.
+
+        Args: None.
+        Returns: TemporalRelation with Undefined for uncompleted pairs.
+        Example: ``ends = elapsed.completed_at``.
+        Constraints: Completion uses the retained canonical assignment.
+        """
+        return LogicalTemporalRelation(
+            _TOKEN, self._view("completed_at"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def duration(self) -> LogicalNumericRelation:
+        """Read exact elapsed Duration for completed pairs.
+
+        Args: None.
+        Returns: NumericRelation carrying integer microsecond Duration.
+        Example: ``values = elapsed.completed().duration``.
+        Constraints: Uncompleted pairs have Undefined duration.
+        """
+        return LogicalNumericRelation(_TOKEN, self._view("duration"), self._runtime, inputs=(self,))
+
+    @property
+    def observed_duration(self) -> LogicalNumericRelation:
+        """Read elapsed observation time through the supported follow-up bound.
+
+        Args: None.
+        Returns: NumericRelation with captured Duration or a non-Defined Cell.
+        Example: ``observed = elapsed.observed_duration``.
+        Constraints: Coverage gaps never become completed durations.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._view("observed_duration"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def followup_until(self) -> LogicalTemporalRelation:
+        """Read the supported observation endpoint.
+
+        Args: None.
+        Returns: TemporalRelation retaining unresolved coverage.
+        Example: ``bounds = elapsed.followup_until``.
+        Constraints: Never extends beyond the captured exclusive follow-up limit.
+        """
+        return LogicalTemporalRelation(
+            _TOKEN, self._view("followup_until"), self._runtime, inputs=(self,)
+        )
+
+    def completed(self) -> LogicalCompletedJourneys:
+        """Select known completed pairs, retaining Journey statistical units.
+
+        Args: None.
+        Returns: A CompletedJourneys subdomain.
+        Example: ``completed = elapsed.completed()``.
+        Constraints: Selection consumes saved assignment; no rematching.
+        """
+        params = self._node.definition.parameters
+        assert isinstance(params, (JourneyDuration, JourneyCompleted))
+        node = self._node._with(
+            method_node(
+                (self._node._edge(),),
+                JourneyCompleted(params.from_step, params.to_step),
+                value_type=ScalarType("int64"),
+            )
+        )
+        return LogicalCompletedJourneys(_TOKEN, node, self._runtime, inputs=(self,))
+
+
+class LogicalEventDurationResult(_Duration):
+    """Six elapsed-observation relations over one canonical Journey domain."""
+
+    def execute(self) -> MaterializedEventDurationResult:
+        """Publish the bound elapsed-observation view.
+
+        Args: None.
+        Returns: A fixed EventDurationResult.
+        Example: ``fixed = elapsed.execute()``.
+        Constraints: Retains assignment, coverage and exact step pair.
+        """
+        return MaterializedEventDurationResult(
+            _TOKEN, self._node, self._runtime, dataset=self._run()
+        )
+
+
+class MaterializedEventDurationResult(_Duration, _MaterializedValue):
+    """Fixed elapsed-observation view over retained Journey assignments."""
+
+
+class LogicalCompletedJourneys(_Duration):
+    """Known completed step pairs retaining Journey multiplicity."""
+
+    def execute(self) -> MaterializedCompletedJourneys:
+        """Publish the known-completed Journey subdomain.
+
+        Args: None.
+        Returns: A fixed CompletedJourneys view.
+        Example: ``fixed = elapsed.completed().execute()``.
+        Constraints: Distinct Journey rows remain distinct for statistics.
+        """
+        return MaterializedCompletedJourneys(_TOKEN, self._node, self._runtime, dataset=self._run())
+
+
+class MaterializedCompletedJourneys(_Duration, _MaterializedValue):
+    """Fixed known-completed Journey subdomain."""
+
+
+def new_journeys(node: Relation, runtime: DatasetRuntime) -> LogicalJourneyResult:
+    """Bind the public Journey receiver to its governed graph."""
+    return LogicalJourneyResult(_TOKEN, node, runtime)
+
+
 PublicMaterialized: TypeAlias = (
-    MaterializedBooleanRelation
+    MaterializedJourneyResult
+    | MaterializedEventDurationResult
+    | MaterializedCompletedJourneys
+    | MaterializedBooleanRelation
     | MaterializedTemporalRelation
     | MaterializedSelectedBooleanRelation
     | MaterializedSelectedTemporalRelation

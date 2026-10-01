@@ -28,6 +28,9 @@ from marivo.analysis.core.rules import (
     CompleteGroups,
     DisplayRank,
     DisplayTable,
+    JourneyCompleted,
+    JourneyDuration,
+    JourneyMatch,
     MapCorrespond,
     OccurrencePrepare,
     PartsTransport,
@@ -195,6 +198,8 @@ class MethodState:
         required = (
             ()
             if self.kind == "none"
+            else ("subject", "journey")
+            if self.kind == "journey_assignment"
             else ("subject", "occurrences")
             if self.kind == "occurrence_inputs"
             else ("subject", "cohort_decision")
@@ -473,7 +478,17 @@ def validate_descriptor(value: Descriptor) -> Node:
         params = root.parameters
         expects_value = (
             False
-            if isinstance(params, (TimeProduct, DisplayTable, OccurrencePrepare))
+            if isinstance(
+                params,
+                (
+                    TimeProduct,
+                    DisplayTable,
+                    OccurrencePrepare,
+                    JourneyMatch,
+                    JourneyDuration,
+                    JourneyCompleted,
+                ),
+            )
             else params.keep_quantity
             if isinstance(params, PartsTransport)
             else root.signature.quantity is not None

@@ -257,6 +257,9 @@ class GraphDataset:
         from marivo.analysis.materialization.graph_reference import disclosure
 
         facts = "".join(f"\n{name}: {value}" for name, value in disclosure(checked))
+        precision = (checked.primary.schema.metadata or {}).get(b"r7.precision")
+        if precision is not None:
+            facts += "\nCaptured precision: " + precision.decode()[:2048]
         ranking = next(
             (
                 p

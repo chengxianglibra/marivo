@@ -24,10 +24,16 @@ from marivo.analysis.core.domain_captures import fail
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import CoordinateStatePart, OriginalStatePart
 from marivo.analysis.core.rules import (
+    JourneyCompleted,
+    JourneyDuration,
+    JourneyMatch,
+    JourneyRead,
     MapCorrespond,
     ObserveCount,
     OccurrencePrepare,
+    PartsTransport,
     PreparedObservation,
+    RowState,
 )
 from marivo.analysis.domains.completeness import EventCoverageRequestV1
 from marivo.analysis.materialization.domain_preparation import validate_rows
@@ -259,7 +265,11 @@ def _observation(
 
 
 def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession) -> ExchangeResult:
-    from marivo.analysis.materialization.graph_local_execution import _subject_image
+    from marivo.analysis.materialization.graph_local_execution import (
+        _row_result,
+        _subject_image,
+        _transport_stage,
+    )
     from marivo.analysis.materialization.graph_source_execution import (
         _check,
         _ordered_checks,
@@ -270,11 +280,25 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
     locals_ = tuple(item for item in lowered.stages if isinstance(item, LoweredLocal))
     if any(
         not (
-            isinstance(item.stage.node.parameters, PreparedObservation)
+            isinstance(
+                item.stage.node.parameters,
+                (PreparedObservation, JourneyMatch, JourneyDuration, JourneyCompleted, JourneyRead),
+            )
+            or (
+                isinstance(item.stage.node.parameters, PartsTransport)
+                and item.stage.node.parameters.mode == "cohort"
+                and item.stage.node.parameters.opportunity_domain is not None
+                and item.stage.node.parameters.opportunity_domain.kind == "journey"
+            )
+            or (
+                item.stage.node.inputs[0].node.signature.domain.kind == "journey"
+                and isinstance(item.stage.node.parameters, (PartsTransport, RowState))
+            )
             or (
                 isinstance(item.stage.node.parameters, MapCorrespond)
                 and item.stage.node.parameters.mode == "subjects"
-                and item.stage.node.inputs[0].node.signature.domain.kind == "occurrence"
+                and item.stage.node.inputs[0].node.signature.domain.kind
+                in ("occurrence", "journey")
             )
         )
         for item in locals_
@@ -295,6 +319,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
         for item in locals_
         if isinstance(item.stage.node.parameters, PreparedObservation)
     }
+    local_source_inputs = {key for item in locals_ for key in item.stage.inputs if key in relations}
     # Complete all source reads before the first local consumer.
     for stage in relations.values():
         check()
@@ -302,6 +327,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
         if (
             not isinstance(params, (OccurrencePrepare, PreparedObservation))
             and stage.node.identity not in originals
+            and stage.output not in local_source_inputs
         ):
             continue
         table = _read(
@@ -327,15 +353,55 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                     ).encode()
                 }
             )
+        if (
+            isinstance(stage.node, MethodNode)
+            and not isinstance(params, PreparedObservation)
+            and stage.output not in results
+        ):
+            results[stage.output] = _result(stage, table, (), ())
         tables[stage.output] = table
     for item in locals_:
         check()
         params = item.stage.node.parameters
-        if isinstance(params, MapCorrespond):
+        if isinstance(params, (JourneyDuration, JourneyCompleted, JourneyRead)):
+            from marivo.analysis.materialization.journey_views import execute as journey_view
+
+            results[item.stage.output] = journey_view(
+                item.stage.node, results[item.stage.inputs[0]], item.stage.node.identity
+            )
+        elif isinstance(params, JourneyMatch):
+            from marivo.analysis.materialization.journey_execution import execute as match_journeys
+
+            results[item.stage.output] = match_journeys(
+                item.stage.node, results[item.stage.inputs[0]], item.stage.node.identity
+            )
+        elif isinstance(params, PartsTransport):
+            results[item.stage.output] = _transport_stage(
+                item,
+                results[item.stage.inputs[0]],
+                item.stage.node.identity,
+                tuple(results[key] for key in item.stage.inputs[1:]),
+            )
+        elif isinstance(params, RowState):
+            result = _row_result(
+                item,
+                results[item.stage.inputs[0]],
+                item.stage.node.identity,
+                item.stage.node.identity,
+                tuple(
+                    c
+                    for c in prepared.admitted.checks
+                    if c.node_id == item.stage.node.identity
+                    and c.obligation.check_id == "source.finite_numeric@v1"
+                ),
+            )
+            completed.extend(result.completed_checks)
+            results[item.stage.output] = result
+        elif isinstance(params, MapCorrespond):
             results[item.stage.output] = _subject_image(
                 item,
                 results[item.stage.inputs[0]],
-                ",".join(relations[item.stage.inputs[0]].source_ids),
+                item.stage.node.identity,
             )
         else:
             assert isinstance(params, PreparedObservation)
@@ -370,4 +436,13 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 prepared.admitted.checks,
             )
     check()
-    return results[lowered.primary_output]
+    result = results[lowered.primary_output]
+    from marivo.analysis.materialization.graph_exchange import from_arrow
+
+    return from_arrow(
+        result.primary,
+        replace(result.contract, pending_checks=prepared.admitted.checks),
+        parts=result.parts,
+        method_state=result.method_state,
+        completed_checks=_ordered_checks(completed, prepared.admitted.checks),
+    )

@@ -23,13 +23,14 @@ from marivo.analysis.session._lazy_read_model import (
     RunRecord,
     SessionGraph,
 )
-from marivo.analysis.session._lazy_sources import LazyEvents, LazyLifecycle, LazySources
+from marivo.analysis.session._lazy_sources import LazyLifecycle, LazySources
 from marivo.refs import EntityKind, Ref
 from marivo.semantic.catalog import SemanticCatalog
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.public_dsl import LogicalAnalysisDomain, PublicMaterialized
+    from marivo.analysis.session._journey_events import JourneyEvents
 
 
 class Session:
@@ -152,9 +153,11 @@ class Session:
         return self._catalog_value
 
     @property
-    def events(self) -> LazyEvents:
+    def events(self) -> JourneyEvents:
         """Return Event source construction bound to this Session."""
-        return self._sources().events
+        from marivo.analysis.session._journey_events import JourneyEvents
+
+        return JourneyEvents(self._sources()._owner)
 
     @property
     def lifecycle(self) -> LazyLifecycle:

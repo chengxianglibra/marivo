@@ -43,7 +43,8 @@ from marivo.analysis.event import (
 )
 from marivo.analysis.funnel import FunnelLossRate, funnel_loss_rate
 from marivo.analysis.lifecycle import FromInception, from_inception
-from marivo.analysis.session._lazy_sources import LazyEvents, LazyLifecycle
+from marivo.analysis.session._journey_events import JourneyEvents
+from marivo.analysis.session._lazy_sources import LazyLifecycle
 from marivo.analysis.subject import DroppedBefore, dropped_before
 from marivo.refs import SemanticKind
 
@@ -74,7 +75,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
         (
             "event",
             (EventJourneySemantics, EventFunnelSemantics, EventTimeToEventSemantics),
-            "Dense subject journeys and their funnel or time-to-event projections.",
+            "Legacy Event results retained for consumers awaiting R7 migration.",
         ),
         (
             "lifecycle",
@@ -91,7 +92,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 summary=summary,
                 variants=variants,
                 acquisition=(
-                    "Construct via session.events.match(...)."
+                    "Retained legacy Event results; new matching returns JourneyResult."
                     if fid == "event"
                     else "Construct via session.lifecycle.replay(...)."
                 )
@@ -110,13 +111,18 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
     for target, value, entry, parameters, output, code, requires, constraint, registrations in (
         (
             "events.match",
-            LazyEvents.match,
+            JourneyEvents.match,
             "session.events.match",
             (
                 P(
                     "pattern",
                     "Build an ordered sequence of exact participant-role steps.",
                     ("sequence",),
+                ),
+                P(
+                    "population",
+                    "Use the current logical same-Session AnalysisDomain.",
+                    ("session.members",),
                 ),
                 P("cohort_window", "Choose the explicit anchor cohort window.", ("time_scope",)),
                 P("completion_through", "Choose an aware exclusive follow-up endpoint."),
@@ -125,21 +131,25 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                     "Choose first-per-subject or every-start matching explicitly.",
                     ("event_matching",),
                 ),
-                P(
-                    "population",
-                    "Use an admitted exact same-Session membership input.",
-                    ("population",),
-                ),
+                P("business_order", "Use a declared business order for tied Event instants."),
                 P(
                     "completeness",
                     "Supply explicit bounded/source-origin declarations; declarations do not prove source coverage.",
                     ("BoundedCompletenessDeclarationV1", "SourceOriginCompletenessDeclarationV1"),
                 ),
             ),
-            "LogicalEventDataset",
-            "result = session.events.match(pattern, cohort_window=window, completion_through=end, matching=first_per_subject(), completeness=event_completeness)",
-            ("session", "pattern", "window", "end", "first_per_subject", "event_completeness"),
-            "Exact unversioned int64 journeys: PostgreSQL supports two/three steps; ClickHouse and Trino support two. Matching, anchor scope, follow-up and coverage remain separate choices.",
+            "LogicalJourneyResult",
+            "result = session.events.match(pattern, population=members, cohort_window=window, completion_through=end, matching=first_per_subject(), completeness=event_completeness)",
+            (
+                "session",
+                "pattern",
+                "members",
+                "window",
+                "end",
+                "first_per_subject",
+                "event_completeness",
+            ),
+            "DuckDB native tables and local Parquet prepare captured occurrences before canonical local matching. Fixed continuations consume assignment, reach and coverage without rematching. Execute a prepared Metric observation or Duration statistic before further operations. No remote backend qualification.",
             ("session.events.match",),
         ),
         (
@@ -200,7 +210,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "LogicalEventDataset",
             "result = events.funnel()",
             ("events",),
-            "Reduce dense journeys with fixed denominators and separate censoring counts. Qualified direct sources include PostgreSQL and ungrouped Trino funnels.",
+            "Legacy Event funnel with fixed denominators and censoring counts. Its PostgreSQL/Trino qualification does not grant new JourneyResult funnels.",
         ),
         (
             "event",
@@ -214,7 +224,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "LogicalEventDataset",
             "result = events.time_to_event(from_step=start_step, to_step=finish_step)",
             ("events", "start_step", "finish_step"),
-            "Pair-local entry classification preserves completed versus observed durations. Direct sources include PostgreSQL and first-per-subject Trino journeys.",
+            "Legacy pair-local duration consumer. New JourneyResult uses its typed time_to_event; old backend qualifications do not transfer.",
         ),
         (
             "event",
@@ -231,7 +241,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "LogicalPopulationDataset",
             "result = events.select_subjects(dropped_before(step=finish_step))",
             ("events", "dropped_before", "finish_step"),
-            "Select resolved losses with proven complete membership. Qualified direct sources include PostgreSQL and Trino.",
+            "Legacy Event membership consumer. New Journeys use read(dropped_before(...)), where and members; old backend qualifications do not transfer.",
         ),
         (
             "event",

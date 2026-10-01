@@ -438,7 +438,10 @@ def lower_candidates(
         TemporalCheck(
             stage.output,
             selected.select(
-                raw_time=selected.__raw_event_time, normalized_time=selected.event_time
+                raw_time=selected.__raw_event_time,
+                normalized_time=selected.event_time.cast("date")
+                if isinstance(selected.__raw_event_time, ir.DateValue)
+                else selected.event_time,
             ).distinct(),
             ids,
             observation.event,

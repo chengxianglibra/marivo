@@ -153,7 +153,11 @@ negative = coefficient.where(coefficient.value.lt(0)).execute()
 
 字段选择器属于取得它的那个 Dataset。使用类型化谓词、投影、排序和显式坐标聚合。对持久化结果调用方法时，计算从其保留行及必要的私有贡献状态开始，保持身份和合法聚合语义。均值不能作为可加值直接求和；筛选后的比率和 distinct 集合保留真实组成状态。
 
-比较、归因、相关性、预测和发现属于 Dataset 方法。Event 匹配从 `session.events.match(...)` 开始，Lifecycle 回放从 `session.lifecycle.replay(...)` 开始。它们的下游方法属于返回的 Dataset，并消费已保留的匹配或历史。不同 Session 的输入不能混用。
+比较、归因、相关性、预测和发现属于 Dataset 方法。Event 匹配从
+`session.events.match(..., population=members)` 开始，返回类型化 JourneyResult；
+耗时与选人消费保留的 assignment。Lifecycle 仍使用既有 Dataset 入口。
+不同 Session 的输入不能混用。以下漏斗规则属于等待 R7.4 迁移的旧消费者，
+不是新 JourneyResult 的后续操作。
 Event 漏斗比较要求队列窗口时长、时间域和后续跟踪偏移一致。漏斗归因需要从完整旅程或通过 `session.artifact(ref)` 打开的旅程检查点逻辑构建两侧漏斗；已物化的漏斗汇总或漏斗 Delta 不能替代这些旅程输入。
 
 当前源端执行支持 DuckDB 和下述 PostgreSQL 标量子集；数据源建模支持某个后端，不代表 Dataset 已能在该后端执行。不支持的方法会报告后端与输入形状。保留结果不会被隐式上传到其他来源，同一 Session 的执行键命中不需要连接来源。
@@ -257,7 +261,7 @@ Parquet 保留四种 Arrow Duration 单位。原状态上卷和时间 fold 在�
 自动替换。这些 R5 资格不扩展远程后端执行范围，完整矩阵由 R9 验证。percentile
 status-time fold 仍未准入。相关性消费者保留其独立资格边界。
 
-PostgreSQL、SQLite、Trino 与 ClickHouse 支持基于完整非 Entity 状态的隐藏轴展开加性与组件归因。MySQL 的组合查询在实测中超过验收服务的内存限制，因此仍拒绝；Trino 的展开 Top-K 查询超过服务的 stage 上限，也保持拒绝。PostgreSQL 支持精确的两步或三步 `session.events.match(...)` 旅程，以及包含两个触发 Event 的 `session.lifecycle.replay(...)` 历史；要求未版本化表源和 `int64` 主体、事件身份。直接 Event 漏斗、耗时和主体选择，以及 Lifecycle 状态分布、转移、停留、违规和主体选择均已验收。完整 PostgreSQL 漏斗可通过既有保留结果路径继续比较和归因。
+PostgreSQL、SQLite、Trino 与 ClickHouse 支持基于完整非 Entity 状态的隐藏轴展开加性与组件归因。MySQL 的组合查询在实测中超过验收服务的内存限制，因此仍拒绝；Trino 的展开 Top-K 查询超过服务的 stage 上限，也保持拒绝。以下 Event 后端记录属于保留的旧实现，不构成 R7.3 新公共入口资格。PostgreSQL 支持精确的两步或三步旧旅程，以及包含两个触发 Event 的 `session.lifecycle.replay(...)` 历史；要求未版本化表源和 `int64` 主体、事件身份。直接 Event 漏斗、耗时和主体选择，以及 Lifecycle 状态分布、转移、停留、违规和主体选择均已验收。完整 PostgreSQL 漏斗可通过既有保留结果路径继续比较和归因。
 
 ClickHouse 和 Trino 支持相同表源与身份条件下的两步旅程，匹配策略包括 `first_per_subject()` 和 `every_start()` 的共享／独占完成分配。Trino 的真实验收使用 Iceberg；ClickHouse 要求只读账户获准设置 `enable_materialized_cte=1`。空输出也执行源端断言，只有契约允许的完整结果进入既有本地续算。Trino 还支持直接无分组漏斗、first-per-subject 耗时、主体选择和完整无分组漏斗比较。Trino 分组漏斗的核对查询超过验收服务的 stage 上限，因此分组漏斗和依赖它的归因保持拒绝。ClickHouse 的直接 Event 派生方法与主体选择仍因计划或内存限制保持拒绝。Trino（Iceberg）和 ClickHouse（MergeTree）还支持相同表源条件下的双触发 Event Lifecycle history，主体与事件身份各限定为一个 `int64` 分量：使用源端数组折叠完成全量重放，并验证并列顺序是否有歧义。先执行 history，再从完整保留结果继续状态分布、转移、停留、违规和主体选择；这两个后端的直接源端 Lifecycle 派生方法仍未开放。SQLite、MySQL 的 Event/Lifecycle 仍未开放。
 
@@ -642,10 +646,66 @@ distinct/distribution/extrema 与未经证明的重叠状态没有分配方法�
 MaterializedRolledNumericRelation。冷恢复保留同一类型及后续操作契约。
 
 
-## R7 occurrence 准备状态
+## R7.3 Journey 匹配与耗时
 
-R7.2 已实现私有 occurrence 准备，以及本地选择和观察之前的来源依赖准备。
-公共 matching、replay 和新领域结果仍归后续阶段。捕获时间接受来源原生精度损失，
-包括纳秒转微秒；原始及实际单位、转换说明会保留到 fixed 续算和冷恢复。
-时间边界及顺序检查均使用实际捕获时间，精度下降形成的同刻事件仍需业务顺序。
-后续公共领域结果接通时，结果卡会披露这些精度信息。
+本地 Subject 选人产生的 Metric 观察需要先 `execute()`，再进行 rollup 等后续操作。
+Duration 当前行统计也需要先执行，再合并其状态。逻辑态 contract 仅推荐 `execute()`，
+物化态 contract 再展示已获资格的 retained-state 后续操作。
+
+
+`session.events.match` 现在要求显式逻辑 AnalysisDomain population，返回
+LogicalJourneyResult。DuckDB 原生表与本地 Parquet 先经 Ibis 准备 occurrence，
+再执行已注册的本地匹配。同 Run 的后续 Metric 贡献也在本地选人前准备完毕，
+来源失败不会切换引擎。
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.refs import ref
+from datetime import datetime, timezone
+
+members = session.members(ref.entity("sales.customers"))
+start = mv.step(participant=ms.participant_role(
+    event=ref.event("sales.started"), name="buyer"), key="start")
+finish = mv.step(participant=ms.participant_role(
+    event=ref.event("sales.finished"), name="buyer"), key="finish")
+window = mv.time_scope(start="2026-02-01T00:00:00Z", end="2026-02-02T00:00:00Z")
+end = datetime(2026, 2, 3, tzinfo=timezone.utc)
+journeys = session.events.match(
+    mv.sequence(start, finish), population=members, cohort_window=window,
+    completion_through=end, matching=mv.first_per_subject(),
+    completeness=(mv.BoundedCompletenessDeclarationV1(
+        inputs=(start.event, finish.event), complete_from=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        complete_through=end, rationale="Verified source coverage"),),
+)
+elapsed = journeys.time_to_event(from_step=start, to_step=finish)
+mean = elapsed.completed().duration.summarize(mv.mean()).execute()
+dropped = journeys.read(mv.dropped_before(step=finish))
+selected = dropped.where(dropped.value.eq(True)).members(
+    through=journeys.subjects(start.participant))
+revenue = selected.observe(
+    ref.metric("sales.revenue"), during=window,
+    via=ref.relationship("sales.order_customer"),
+).execute()
+```
+
+示例要求已声明对应语义对象，并已验证所声明的覆盖区间。first-per-subject、
+every-start shared/exclusive 均保留 canonical assignment、完整 Journey 身份和
+逐步 reach 真值。没有开始 occurrence 就没有 Journey。开始窗口左闭右开，随访上界
+排他；同刻事件必须有已证明的业务顺序。只有 first-per-subject 开放 dropout。
+覆盖 Unknown 不会变成 False，普通筛选遇到未决真值会拒绝；完整 Journey 机会域
+可以交给既有的显式 Subject cohort 规则。
+
+EventDurationResult 提供 `status`、`started_at`、`completed_at`、`duration`、
+`observed_duration`、`followup_until` 六个关系。状态精确区分 complete、incomplete、
+coverage_censored、not_entered、entry_unknown。只有已完成步骤对有 duration，
+`completed()` 返回 CompletedJourneys。Duration 谓词使用 `datetime.timedelta`。
+当前行 Duration `mean` 保留 Journey 分母：10、30、100 秒的均值为 140/3 秒，
+仅在微秒输出时舍入一次到 46.666667 秒；先按主体得到 20、100 秒再平均则为
+60 秒。选人不会替换原 Journey 分母。
+
+Store 7 保存 assignment、reach、覆盖、映射、精度和归约状态。fixed read、归约、
+筛选和断源新进程恢复均消费保留部件，不重新匹配。显式 fixed population 不能与
+新来源匹配或观察混合。结果卡披露原始及捕获单位与潜在精度损失（包括原生纳秒转
+微秒）；边界与顺序使用捕获时间，精度下降造成的同刻仍需业务顺序。整个执行共享
+600 秒期限。本阶段不授予 funnel、Lifecycle、Anchor、远端后端或同 wheel 完整 R7 资格。

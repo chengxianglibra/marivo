@@ -27,6 +27,7 @@ from marivo.analysis.core.model import (
     Fact,
     FactInput,
     FactKind,
+    JourneyPart,
     MissingCoordinate,
     Obligation,
     ObservedQuantity,
@@ -84,6 +85,8 @@ from marivo.semantic.metric_graph import (
 from marivo.semantic.runtime_metric import RuntimeMetricExpr, SliceValue
 
 RuleId: TypeAlias = Literal[
+    "journey_match@v1",
+    "journey_view@v1",
     "occurrence_prepare@v1",
     "attribution@v1",
     "bind_project@v1",
@@ -425,8 +428,52 @@ class PreparedObservation:
     observation: ObserveMetric | ObserveCount
 
 
+@dataclass(frozen=True, slots=True)
+class JourneyMatch:
+    output: DomainSignature
+    steps: tuple[str, ...]
+    events: tuple[str, ...]
+    policy: Literal["first_per_subject", "exclusive", "shared"]
+    cohort_start: str
+    cohort_end: str
+    completion_through: str
+
+
+@dataclass(frozen=True, slots=True)
+class JourneyDuration:
+    from_step: int
+    to_step: int
+    kind: Literal["duration"] = "duration"
+
+
+@dataclass(frozen=True, slots=True)
+class JourneyCompleted:
+    from_step: int
+    to_step: int
+    kind: Literal["completed"] = "completed"
+
+
+@dataclass(frozen=True, slots=True)
+class JourneyRead:
+    from_step: int
+    to_step: int
+    field: Literal[
+        "dropout",
+        "status",
+        "started_at",
+        "completed_at",
+        "duration",
+        "observed_duration",
+        "followup_until",
+    ]
+
+
 RuleParameters: TypeAlias = (
-    OccurrencePrepare
+    JourneyMatch
+    | JourneyDuration
+    | JourneyCompleted
+    | JourneyRead
+    | OccurrencePrepare
     | PreparedObservation
     | AttributionDerive
     | BindProject
@@ -2335,9 +2382,23 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
                 "Use the original Entity target for cohort.",
                 "analysis.cohort",
             )
+        journey = next((p for p in inputs[1].parts if isinstance(p, JourneyPart)), None)
+        opportunity_subject = require_part(inputs[1], "subject")
+        assert isinstance(opportunity_subject, SubjectPart)
+        if journey is not None and not journey.complete:
+            reject(
+                "a complete Journey opportunity domain",
+                "selected journeys",
+                "Use the unfiltered matching result.",
+                "analysis.cohort",
+            )
         if (
             any(item.domain != opportunity for item in inputs[1:])
-            or tuple(k for k in opportunity.instance_key if k.role != "anchor")
+            or (
+                opportunity_subject.subject_key
+                if journey is not None
+                else tuple(k for k in opportunity.instance_key if k.role != "anchor")
+            )
             != target.domain.instance_key
         ):
             reject(
@@ -2425,7 +2486,12 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
             "Preserve the domain; changed inputs or selections require a registered transport mapping.",
             "core.parts_transport.domain",
         )
-    parts = tuple(require_part(source, role) for role in params.retained_roles)
+    parts = tuple(
+        replace(part, complete=False)
+        if isinstance(part, JourneyPart) and params.mode == "where"
+        else part
+        for part in (require_part(source, role) for role in params.retained_roles)
+    )
     if any(isinstance(p, AttributionPart) for p in parts):
         parts = tuple(
             replace(
@@ -3440,3 +3506,116 @@ def _prepared_observation(
             "prepared grid/cumulative/fold and nonnumeric state is not qualified",
         )
     return _observe_metric((inputs[0],), observation, prepared=True)
+
+
+def _journey_match(inputs: tuple[Signature, ...], params: JourneyMatch) -> RuleDerivation:
+    from marivo.analysis.core.domain_captures import fail
+    from marivo.analysis.core.model import validate_part
+
+    binding = _binding(inputs, "r7.journey_binding")
+    _output_domain(binding, params.output, "r7.journey_binding")
+    if len(inputs) != 1 or inputs[0].domain.kind != "occurrence" or params.output.kind != "journey":
+        fail(
+            "journey_binding", "matching requires one captured occurrence input and Journey output"
+        )
+    capture = require_part(inputs[0], "occurrences")
+    subject = require_part(inputs[0], "subject")
+    assert isinstance(capture, OccurrencePart) and isinstance(subject, SubjectPart)
+    if params.output.instance_key != (*subject.subject_key, *inputs[0].domain.instance_key):
+        fail("journey_binding", "Journey identity must contain the complete Subject and start keys")
+    if capture.start != params.cohort_start or capture.end != params.completion_through:
+        fail("journey_binding", "matching bounds differ from captured input")
+    if capture.order_use != "ordered" and not (
+        capture.order_use == "one_step_every_start"
+        and len(params.events) == 1
+        and params.policy != "first_per_subject"
+    ):
+        fail("business_order", "matching requires proved order or one-step every-start invariant")
+    state = JourneyPart(
+        binding,
+        capture,
+        params.steps,
+        params.events,
+        params.policy,
+        params.cohort_start,
+        params.cohort_end,
+        params.completion_through,
+    )
+    validate_part(state)
+    mapping = replace(
+        subject,
+        source_key=params.output.instance_key,
+        injective=params.policy == "first_per_subject",
+    )
+    return _result(
+        "journey_match@v1",
+        inputs,
+        params.output,
+        None,
+        (mapping, state),
+        pre=(),
+        required=("subject", "occurrences"),
+        created=("subject", "journey"),
+        post=(),
+        obligations=(),
+        eval_id=params.output.definition_id,
+    )
+
+
+def _journey_view(
+    inputs: tuple[Signature, ...], params: JourneyDuration | JourneyCompleted | JourneyRead
+) -> RuleDerivation:
+    from hashlib import sha256
+
+    from marivo.analysis.core.domain_captures import fail
+
+    _binding(inputs, "r7.journey_binding")
+    if len(inputs) != 1 or inputs[0].domain.kind != "journey":
+        fail("journey_binding", "retained Journey input required")
+    source = inputs[0]
+    part = require_part(source, "journey")
+    assert isinstance(part, JourneyPart)
+    if not 0 <= params.from_step < params.to_step < len(part.steps):
+        fail("journey_binding", "duration and dropout require an increasing retained step pair")
+    if (
+        isinstance(params, JourneyRead)
+        and params.field == "dropout"
+        and part.policy != "first_per_subject"
+    ):
+        fail("journey_binding", "dropout requires first_per_subject matching")
+    identity = sha256(repr((source.domain.definition_id, params)).encode()).hexdigest()
+    domain = (
+        replace(source.domain, definition_id=identity)
+        if isinstance(params, JourneyCompleted)
+        else source.domain
+    )
+    quantity = (
+        DerivedQuantity(
+            identity,
+            "journey.read@v1",
+            (source.domain.definition_id, part.steps[params.from_step], part.steps[params.to_step]),
+            "us",
+            source.domain.binding.scope_id,
+            "completed_only",
+        )
+        if isinstance(params, JourneyRead) and params.field in ("duration", "observed_duration")
+        else None
+    )
+    return _result(
+        "journey_view@v1",
+        inputs,
+        domain,
+        quantity,
+        tuple(
+            replace(p, complete=False)
+            if isinstance(p, JourneyPart) and isinstance(params, JourneyCompleted)
+            else p
+            for p in source.parts
+        ),
+        pre=(),
+        required=("subject", "journey"),
+        created=(),
+        post=(),
+        obligations=(),
+        eval_id=identity,
+    )

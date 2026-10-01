@@ -32,6 +32,7 @@ from marivo.analysis.core.model import (
     DisplayPart,
     EndpointPart,
     FactInput,
+    JourneyPart,
     Obligation,
     ObservedQuantity,
     OccurrencePart,
@@ -55,6 +56,9 @@ from marivo.analysis.core.rules import (
     DisplayRank,
     DisplayTable,
     GroupObservationTarget,
+    JourneyCompleted,
+    JourneyDuration,
+    JourneyMatch,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
@@ -123,6 +127,8 @@ class PartColumns:
 
 
 def components(part: Part) -> tuple[str, ...]:
+    if isinstance(part, JourneyPart):
+        return ("assignment",)
     if isinstance(part, OccurrencePart):
         return part.components
     if isinstance(part, AttributionPart):
@@ -161,7 +167,13 @@ def components(part: Part) -> tuple[str, ...]:
     if isinstance(part, CoordinateStatePart):
         return ("groups",)
     if isinstance(part, CohortDecisionPart):
-        return ("true_count", "unknown_count", "false_count", "accepted")
+        return (
+            "true_count",
+            "unknown_count",
+            "false_count",
+            "accepted",
+            *(("opportunity_count",) if part.opportunity_domain.kind == "journey" else ()),
+        )
     if isinstance(part, SubjectPart):
         return tuple(f"key_{i}" for i in range(len(part.subject_key)))
     role = part_role(part)
@@ -2637,7 +2649,11 @@ def _contribution_rows(
     from marivo.analysis.compiler.domain_preparation import capture_time
     from marivo.analysis.compiler.source_time import source_time
 
-    raw_time = capture_time(rows.event_time) if prepared else rows.event_time
+    raw_time = (
+        capture_time(rows.event_time)
+        if prepared and isinstance(rows.event_time, ir.TimestampValue)
+        else rows.event_time
+    )
     normalized, _authority = source_time(
         raw_time,
         params.event,
@@ -3318,7 +3334,10 @@ def lower(
                 and stage.node.signature.quantity is None
             ):
                 output_layout = canonical_layout(stage.node.signature, has_value=False)
-            if isinstance(stage.node.parameters, OccurrencePrepare):
+            if isinstance(
+                stage.node.parameters,
+                (OccurrencePrepare, JourneyMatch, JourneyDuration, JourneyCompleted),
+            ):
                 output_layout = canonical_layout(stage.node.signature, has_value=False)
             if (
                 isinstance(stage.node.parameters, MapCorrespond)
@@ -3657,8 +3676,17 @@ def lower(
         if admitted.classification.kind == "artifact":
             checks.append(requirement)
             continue
-        owner = next(r.node for r in results.values() if r.node.identity == requirement.node_id)
-        if isinstance(owner, MethodNode) and isinstance(owner.parameters, PreparedObservation):
+        owner = next(
+            node for node in topology(admitted.root) if node.identity == requirement.node_id
+        )
+        if isinstance(owner, MethodNode) and (
+            isinstance(owner.parameters, PreparedObservation)
+            or (
+                isinstance(owner.parameters, RowState)
+                and owner.inputs[0].node.signature.domain.kind == "journey"
+                and requirement.obligation.check_id == "source.finite_numeric@v1"
+            )
+        ):
             checks.append(requirement)
             continue
         for inputs in _fact_relations(owner, requirement.obligation, tuple(results.values())):

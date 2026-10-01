@@ -129,6 +129,7 @@ class ExchangeContract:
             not in (
                 "none",
                 "occurrence_inputs",
+                "journey_assignment",
                 "attribution_additive",
                 "attribution_component_mix",
                 "ranking",
@@ -512,6 +513,10 @@ def collect(
             )
         ):
             raise _invalid("retained fold kind differs from the declared original quantity")
+    if any(part.role == "journey" for part in parts):
+        from marivo.analysis.materialization.journey_execution import validate as validate_journey
+
+        validate_journey(contract, primary, parts)
     if contract.state_kind == "none":
         # Transport preserves the owning state invariant even without a new method vector.
         for declaration in contract.signature.parts:
@@ -598,6 +603,12 @@ def collect(
                 states[tuple(row[k] for k in contract.key_fields)] for row in primary.to_pylist()
             ] != expected_status:
                 raise _invalid("display method status differs")
+        elif contract.state_kind == "journey_assignment":
+            from marivo.analysis.materialization.journey_execution import validate
+
+            validate(contract, primary, parts)
+            if any(value != "accepted" for value in states.values()):
+                raise _invalid("Journey state contains unaccepted assignments")
         elif contract.state_kind == "occurrence_inputs":
             from marivo.analysis.materialization.domain_preparation import validate_exchange
 
@@ -649,6 +660,10 @@ def collect(
             selected_keys = set()
             for row in table.to_pylist():
                 t, u, f = (row[name] for name in columns)
+                if signature_part.opportunity_domain.kind == "journey":
+                    expected = row.get("cohort_decision__opportunity_count")
+                    if type(expected) is not int or expected < 0:
+                        raise _invalid("Journey cohort lacks the complete opportunity count")
                 if (
                     any(type(value) is not int or value < 0 for value in (t, u, f))
                     or t + u + f != expected

@@ -39,6 +39,7 @@ from marivo.analysis.core.rules import (
     BindProject,
     CellDerive,
     CompleteGroups,
+    JourneyRead,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
@@ -73,7 +74,7 @@ from marivo.analysis.materialization.graph_protocol import (
 )
 from marivo.analysis.materialization.graph_snapshot import same_node_definition
 from marivo.analysis.methods.comparison import output_type
-from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType
+from marivo.analysis.methods.physical import DurationType, FixedShape, NoTime, ScalarType
 from marivo.analysis.refs import ArtifactRef
 from marivo.refs import (
     DimensionKind,
@@ -367,6 +368,10 @@ class Relation:
                 field_kind = "dimension"
             elif kind == "time_dimension":
                 field_kind = "time_dimension"
+        elif isinstance(definition, JourneyRead):
+            field_kind = (
+                "measure" if definition.field in ("duration", "observed_duration") else None
+            )
         elif isinstance(definition, PartsTransport):
             field_kind = definition.field_kind
         dependencies = (dependency,) if dependency is not None else dependencies
@@ -556,6 +561,10 @@ class Relation:
     def comparison_error(self) -> str | None:
         """Return the static numerical qualification failure, if any."""
         quantity = self.root.signature.quantity
+        if isinstance(self.root.value_type, DurationType) and isinstance(
+            quantity, RowStatisticQuantity
+        ):
+            return "Duration row statistics currently qualify retained mean reduction only"
         if (
             self.root.value_type == ScalarType("float64")
             and quantity is not None
@@ -816,6 +825,8 @@ class Relation:
         value_type = (
             ScalarType("int64")
             if method in ("count", "count_defined")
+            else self.root.value_type
+            if method == "mean" and isinstance(self.root.value_type, DurationType)
             else ScalarType("float64")
             if method == "mean"
             else self.root.value_type
@@ -832,7 +843,10 @@ class Relation:
                     else "defined_only"
                     if method == "count_defined"
                     else "strict",
-                    retain_error=self.root.value_type == ScalarType("float64")
+                    retain_error=(
+                        self.root.value_type == ScalarType("float64")
+                        or isinstance(self.root.value_type, DurationType)
+                    )
                     and method in ("sum", "mean", "min", "max"),
                     numeric_check_id=(
                         None

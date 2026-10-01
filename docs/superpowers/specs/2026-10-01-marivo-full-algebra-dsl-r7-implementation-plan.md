@@ -2,8 +2,8 @@
 
 Date: 2026-10-01
 
-Status: R7.1 documentation/static contract freeze complete; R7.2 private preparation implemented; R7.3-R7.9 remain
-unimplemented. This plan grants no new product or Runtime qualification.
+Status: R7.1 documentation/static contract freeze complete; R7.2 private preparation implemented;
+R7.3 public Journey integration implemented with bounded evidence below; R7.4-R7.9 remain unimplemented. This plan grants no new product or Runtime qualification.
 
 The [R7.1 migration ledger](2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md),
 [consumer snapshot](2026-10-01-marivo-r71-consumer-snapshot.json) and
@@ -413,7 +413,7 @@ records deterministic AST/text/import evidence and mandatory source/fixed/cold
 targets, all planned. Static presence, source admission blockage, unverified
 dynamic unreachability and future deletion are distinct. See the
 [R7.1 acceptance record](2026-09-26-marivo-full-refactor-acceptance.md#r71-documentation-and-static-freeze-completed-acceptance-2026-10-01)
-for validation and excluded execution gates. R7.2 preparation implementation is recorded below; R7.3-R7.9 remain pending.
+for validation and excluded execution gates. R7.2 preparation and R7.3 Journey implementation are recorded below; R7.4-R7.9 remain pending.
 
 ### R7.2 — Ibis occurrence 准备、覆盖与业务顺序消费
 
@@ -451,6 +451,12 @@ F13 的准备计划/交换正例与无界准备、隐式回传、source-after-lo
 不以准备成功声称 matching/replay 或新后端已通过。
 
 ### R7.3 — Journey matching、耗时、真值与主体映射
+
+**Implementation evidence:** the [R7.3 evidence index](2026-10-01-marivo-r73-evidence-index.md)
+records the public Journey/Duration/Completed graph path, three assignment policies,
+retained publication and cold continuation, and A09 prepared Metric observation.
+It owns the exact validation results, repaired failures and excluded qualification.
+This implementation does not grant R7.4-R7.9, remote or full same-wheel acceptance.
 
 实现三种 matching、canonical assignment/reach、JourneyResult、EventDurationResult、
 CompletedJourneys、dropout read 与 subjects。接通普通 where/members、必要 Duration

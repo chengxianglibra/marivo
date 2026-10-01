@@ -63,7 +63,7 @@ def relationship_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
     return tmp_path
 
 
-def _journey(session: mv.Session) -> mv.LogicalEventDataset:
+def _legacy_journey(session: mv.Session) -> mv.LogicalEventDataset:
     created = mv.step(
         participant=ms.participant_role(event=ms.ref.event("sales.created"), name="order"),
         key="created",
@@ -71,7 +71,7 @@ def _journey(session: mv.Session) -> mv.LogicalEventDataset:
     paid = mv.step(
         participant=ms.participant_role(event=ms.ref.event("sales.paid"), name="order"), key="paid"
     )
-    return session.events.match(
+    return session._sources().events.match(
         mv.sequence(created, paid),
         cohort_window=mv.time_scope(
             start=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -97,7 +97,7 @@ def test_authored_relationship_keys_construct_without_source_io(
         ms.ref.dimension("sales.orders.region")
     )
     assert isinstance(metric, mv.LogicalMetricDataset)
-    assert isinstance(_journey(session), mv.LogicalEventDataset)
+    assert isinstance(_legacy_journey(session), mv.LogicalEventDataset)
     assert session.runs().items == ()
     assert not (relationship_project / "warehouse.duckdb").exists()
 
@@ -125,7 +125,7 @@ def test_authored_relationship_keys_execute_metric_and_event(relationship_projec
         .to_pandas()
     )
     assert dict(zip(metric["region"], metric["event_count"], strict=True)) == {"east": 2, "west": 1}
-    rows = _journey(session).execute().to_pandas()
+    rows = _legacy_journey(session).execute().to_pandas()
     assert len(rows) == 4
     assert rows["step_key"].tolist().count("created") == 2
     assert rows["step_key"].tolist().count("paid") == 2

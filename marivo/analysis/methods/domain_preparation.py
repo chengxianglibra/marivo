@@ -6,6 +6,7 @@ from dataclasses import replace
 from typing import Literal
 
 from marivo.analysis.methods.physical import (
+    DurationType,
     FixedShape,
     Implementation,
     QualificationKey,
@@ -19,6 +20,8 @@ from marivo.analysis.methods.semantics import MethodKey
 
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
+    from marivo.analysis.methods.builtin import NUMERIC_CHECKS
+
     shapes: list[SourceShape | FixedShape] = []
     units: tuple[Literal["s", "ms", "us", "ns"], ...] = ("s", "ms", "us", "ns")
     for form in ("table", "parquet"):
@@ -39,12 +42,12 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         Implementation(
             QualificationKey(
                 method,
-                (ScalarType("int64"),),
+                (key_type,),
                 ("occurrence" if isinstance(shape, FixedShape) else "entity",),
                 shape,
                 "artifact_python" if isinstance(shape, FixedShape) else "ibis",
             ),
-            (),
+            NUMERIC_CHECKS,
             ("subject", "occurrences"),
             "exact",
             ResourceRequirements(
@@ -58,11 +61,20 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             contract_version=1,
         )
         for shape in shapes
+        for key_type in (
+            (ScalarType("int64"),)
+            if isinstance(shape, FixedShape)
+            else (ScalarType("int64"), ScalarType("string"))
+        )
     )
 
 
 def consumers(method: MethodKey) -> tuple[Implementation, ...]:
-    bases = implementations(MethodKey("occurrence.prepare"))
+    bases = tuple(
+        item
+        for item in implementations(MethodKey("occurrence.prepare"))
+        if item.key.input_types == (ScalarType("int64"),)
+    )
     if method.name == "map_correspond":
         return tuple(
             replace(
@@ -91,11 +103,11 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
                 key=replace(
                     item.key,
                     method=method,
-                    input_types=(ScalarType("int64"),) * 2,
+                    input_types=(selected_type, original_type),
                     input_domains=("entity",) * 2,
                     route="ibis_python",
                 ),
-                checks=("source.contribution_partition@v1", "source.complete_coverage@v1"),
+                checks=item.checks,
                 parts=("subject", "original_state", "coverage", "coordinate_state"),
                 precision="finite_float64" if method.name == "metric.mean" else "checked_int64",
                 contract_version=4 if method.name == "metric.mean" else 3,
@@ -106,6 +118,14 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
                 ),
             )
             for item in bases
+            for original_type in (ScalarType("int64"), ScalarType("string"))
+            for selected_type in (
+                ScalarType("int64"),
+                ScalarType("boolean"),
+                ScalarType("string"),
+                ScalarType("timestamp"),
+                DurationType("us"),
+            )
             if isinstance(item.key.shape, SourceShape)
         )
     return ()

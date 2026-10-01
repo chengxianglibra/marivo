@@ -159,6 +159,10 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "attribution.additive_difference@v1": "attribution@v1",
         "attribution.component_mix@v1": "attribution@v1",
         "association.spearman@v1": "association_score@v1",
+        "journey.match@v1": "journey_match@v1",
+        "journey.duration@v1": "journey_view@v1",
+        "journey.completed@v1": "journey_view@v1",
+        "journey.read@v1": "journey_view@v1",
         "occurrence.prepare@v1": "occurrence_prepare@v1",
     }
     assert {
@@ -166,6 +170,10 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
     } == expected
     assert all(item.semantics.owner == "analysis.core.rules" for item in REGISTRY.registrations)
     assert {item.semantics.key.name for item in REGISTRY.registrations if item.implementations} == {
+        "journey.match",
+        "journey.duration",
+        "journey.completed",
+        "journey.read",
         "occurrence.prepare",
         "time.product",
         "cell.ratio",

@@ -14,6 +14,7 @@ from marivo.analysis.compiler.graph_plan import GraphPlan, LocalMethodStage, Sou
 from marivo.analysis.core import model as core_model
 from marivo.analysis.core.domain_captures import EventCapture, OrderCapture, StateModelCapture
 from marivo.analysis.core.graph import FixedLeaf, MethodNode, Node, SourceLeaf
+from marivo.analysis.core.predicates import DurationLiteral
 from marivo.analysis.core.time_grid import (
     BoundTimeGrid,
     CumulativeBinding,
@@ -53,6 +54,8 @@ _CAPTURE_WIRE: TypeAdapter[EventCapture | OrderCapture | StateModelCapture] = Ty
 _WIRE_TAGS: dict[type[object], str] = {
     BoundedCompletenessDeclarationV1: "bounded_completeness",
     SourceOriginCompletenessDeclarationV1: "origin_completeness",
+    DurationLiteral: "duration_literal",
+    core_model.JourneyPart: "journey_part",
     core_model.OccurrencePart: "occurrence_part",
     core_model.AttributionPart: "attribution_part",
     BoundTimeGrid: "time_grid",

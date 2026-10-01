@@ -149,8 +149,11 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import (
         LogicalCoefficientSelectionRelation as LogicalCoefficientSelectionRelation,
     )
+    from marivo.analysis.public_dsl import LogicalCompletedJourneys as LogicalCompletedJourneys
     from marivo.analysis.public_dsl import LogicalDifferenceRelation as LogicalDifferenceRelation
+    from marivo.analysis.public_dsl import LogicalEventDurationResult as LogicalEventDurationResult
     from marivo.analysis.public_dsl import LogicalFixedAnalysisDomain as LogicalFixedAnalysisDomain
+    from marivo.analysis.public_dsl import LogicalJourneyResult as LogicalJourneyResult
     from marivo.analysis.public_dsl import LogicalNumericRelation as LogicalNumericRelation
     from marivo.analysis.public_dsl import LogicalRankingResult as LogicalRankingResult
     from marivo.analysis.public_dsl import LogicalRatioRelation as LogicalRatioRelation
@@ -197,11 +200,18 @@ if TYPE_CHECKING:
         MaterializedCoefficientSelectionRelation as MaterializedCoefficientSelectionRelation,
     )
     from marivo.analysis.public_dsl import (
+        MaterializedCompletedJourneys as MaterializedCompletedJourneys,
+    )
+    from marivo.analysis.public_dsl import (
         MaterializedDifferenceRelation as MaterializedDifferenceRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedEventDurationResult as MaterializedEventDurationResult,
     )
     from marivo.analysis.public_dsl import (
         MaterializedGroupedNumericRelation as MaterializedGroupedNumericRelation,
     )
+    from marivo.analysis.public_dsl import MaterializedJourneyResult as MaterializedJourneyResult
     from marivo.analysis.public_dsl import (
         MaterializedNumericRelation as MaterializedNumericRelation,
     )

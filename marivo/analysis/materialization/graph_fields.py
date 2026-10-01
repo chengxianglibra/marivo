@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
@@ -103,7 +103,7 @@ class CategoryField(_BoundValue):
 class NumericPredicate(_BoundValue):
     root: Node
     operation: Literal["lt", "lte", "gt", "gte", "eq"]
-    threshold: int | float | Decimal | NumericField
+    threshold: int | float | Decimal | timedelta | NumericField
     relation: Relation | None = None
 
     def __bool__(self) -> bool:
@@ -128,18 +128,18 @@ class NumericField(_BoundValue):
     def _predicate(
         self,
         operation: Literal["lt", "lte", "gt", "gte", "eq"],
-        threshold: int | float | Decimal | NumericField,
+        threshold: int | float | Decimal | timedelta | NumericField,
     ) -> NumericPredicate:
         if not (
             (type(threshold) is int and -(2**63) <= threshold < 2**63)
             or (type(threshold) is float and math.isfinite(threshold))
             or (type(threshold) is Decimal and threshold.is_finite())
-            or isinstance(threshold, NumericField)
+            or isinstance(threshold, (NumericField, timedelta))
         ):
             raise _invalid("numeric threshold is not a finite int64 or float64")
         return NumericPredicate(self.root, operation, threshold, self.relation)
 
-    def lt(self, threshold: int | float | Decimal | NumericField) -> NumericPredicate:
+    def lt(self, threshold: int | float | Decimal | timedelta | NumericField) -> NumericPredicate:
         """Build a bound lt comparison for this field.
 
         Args: threshold: A compatible typed literal or field.
@@ -149,7 +149,7 @@ class NumericField(_BoundValue):
         """
         return self._predicate("lt", threshold)
 
-    def lte(self, threshold: int | float | Decimal | NumericField) -> NumericPredicate:
+    def lte(self, threshold: int | float | Decimal | timedelta | NumericField) -> NumericPredicate:
         """Build a bound lte comparison for this field.
 
         Args: threshold: A compatible typed literal or field.
@@ -159,7 +159,7 @@ class NumericField(_BoundValue):
         """
         return self._predicate("lte", threshold)
 
-    def gt(self, threshold: int | float | Decimal | NumericField) -> NumericPredicate:
+    def gt(self, threshold: int | float | Decimal | timedelta | NumericField) -> NumericPredicate:
         """Build a bound gt comparison for this field.
 
         Args: threshold: A compatible typed literal or field.
@@ -169,7 +169,7 @@ class NumericField(_BoundValue):
         """
         return self._predicate("gt", threshold)
 
-    def gte(self, threshold: int | float | Decimal | NumericField) -> NumericPredicate:
+    def gte(self, threshold: int | float | Decimal | timedelta | NumericField) -> NumericPredicate:
         """Build a bound gte comparison for this field.
 
         Args: threshold: A compatible typed literal or field.
@@ -179,7 +179,7 @@ class NumericField(_BoundValue):
         """
         return self._predicate("gte", threshold)
 
-    def eq(self, threshold: int | float | Decimal | NumericField) -> NumericPredicate:
+    def eq(self, threshold: int | float | Decimal | timedelta | NumericField) -> NumericPredicate:
         """Build a bound eq comparison for this field.
 
         Args: threshold: A compatible typed literal or field.

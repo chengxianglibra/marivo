@@ -131,6 +131,12 @@ EXPECTED_EXPORTS = (
     "AnalysisAction",
     "AnalysisContract",
     "LogicalAnalysisDomain",
+    "LogicalJourneyResult",
+    "MaterializedJourneyResult",
+    "LogicalEventDurationResult",
+    "MaterializedEventDurationResult",
+    "LogicalCompletedJourneys",
+    "MaterializedCompletedJourneys",
     "MaterializedAnalysisDomain",
     "LogicalCategoryRelation",
     "LogicalBooleanRelation",
@@ -367,7 +373,7 @@ def test_exact_export_bindings_and_required_native_targets(
 ) -> None:
     actual = {e.name: e for p in disclosure.providers for e in p.exports}
     assert set(actual) == set(EXPECTED_EXPORTS)
-    assert len(actual) == 181
+    assert len(actual) == 187
     assert set(disclosure.canonical_ids()) >= REQUIRED_TARGETS
     for name in EXPECTED_EXPORTS:
         entry = actual[name]
@@ -646,10 +652,11 @@ def test_expected_parameter_acquisition_and_default_contracts(
         "metric_dataset.rollup": ("drop_dimensions", "grain", "drop_time"),
         "events.match": (
             "pattern",
+            "population",
             "cohort_window",
             "completion_through",
             "matching",
-            "population",
+            "business_order",
             "completeness",
         ),
         "lifecycle.replay": ("model", "window", "seed", "population", "completeness"),

@@ -27,6 +27,7 @@ from marivo.analysis.methods.builtin import (
 from marivo.analysis.methods.errors import reject
 from marivo.analysis.methods.physical import (
     DecimalType,
+    DurationType,
     Implementation,
     QualificationKey,
     ScalarType,
@@ -139,7 +140,10 @@ class MethodRegistration:
                     )
                 method = self.semantics.key.name
                 input_types = implementation.key.input_types
-                if method in ("row.count", "row.count_defined"):
+                if method in ("row.count", "row.count_defined") or (
+                    method == "row.mean"
+                    and all(isinstance(item, DurationType) for item in input_types)
+                ):
                     precision = "checked_int64"
                 elif any(
                     item.name == "float64" for item in input_types if isinstance(item, ScalarType)
