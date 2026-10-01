@@ -2166,3 +2166,19 @@ Construction/admission handles statically known failures; execution handles
 actual captured values; recovery validates before exposing K or returning a hit.
 Repairs name the exact offending binding/part/order/window or qualified route.
 Insufficient coverage remains method-owned Unknown/censoring, not these errors.
+
+
+## R7.2 private preparation status
+
+The private occurrence preparation and F13 execution foundation are implemented
+in the single typed graph/Runtime/Store 7 path. No public exports, Help targets,
+matching/replay constructors or new domain result families connect in R7.2.
+Source, fixed and cold P01 preparation evidence grants only captured occurrence
+inputs, full Subject maps and preparation/order/coverage checks. Its ns source
+profiles pass under the explicit 2026-10-01 possibly-lossy precision amendment,
+not the earlier lossless-source claim. Future public result `.show()` must expose
+the retained unit/conversion disclosure. The
+[Runtime owner](session-state-and-runtime.md#r72-occurrence-preparation-and-f13-foundation)
+owns actual placement, schemas and qualification limits; the
+[time owner](timezone-and-calendar-design.md#r71-frozen-occurrence-and-relative-window-time)
+owns conversion policy. Packaged skills stay unchanged in this private phase.

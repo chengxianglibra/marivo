@@ -1022,8 +1022,8 @@ derive the same K from validated parts, not a serialized capability claim.
 ### Exchange schemas and source consistency
 
 The typed Arrow schemas have the following fixed roles. Each scalar preserves
-its declared physical type; temporal values use int64 ticks plus exact unit/time
-authority, counts are checked int64, and every nullable Cell has its own tag and
+its declared physical type; temporal values use their actual captured unit/time
+authority, governed by the R7.2 precision amendment, counts are checked int64, and every nullable Cell has its own tag and
 reason. Definition/capture metadata is immutable and receipt-bound, not repeated
 untyped JSON inside value columns.
 
@@ -1171,3 +1171,61 @@ exact hit share this validation. Missing/body-corrupt/swapped/foreign/version-wr
 Findings, wrong digest/count/cap and falsely empty sets reject before returning
 rows, K or a cached result. No skipping malformed records, second Evidence store,
 Dataset codec read or origin replay is admitted.
+
+
+## R7.2 occurrence preparation and F13 foundation
+
+Accepted implementation boundary, 2026-10-01: private `occurrence.prepare@v1`
+and registered preparation/Subject-image/observation stages use the existing
+single graph, method registry, snapshot codec, exchange, Runtime and Store 7.
+Event/StateModel/BusinessOrder captures bind full immutable definitions,
+fingerprints, participant paths, version/time/order/coverage and source node
+identities. Repeated model triggers share one explicit Event capture; independent
+MethodNode construction retains independent realization. Constructing and
+planning these nodes reads no business rows and allocates no Run.
+
+Native DuckDB tables use one native transaction on the same connection for all
+checks and reads. Exact local Parquet files are copied, hashed and held read-only
+before submission; capture manifests bind path/content/source identities. A
+file replacement after capture cannot alter consumption. No remote, glob or
+multi-file qualification follows. Driver-owned transaction/control calls do not
+author SQL. Every analytical statement is compiled by Ibis and submitted unchanged.
+Occurrence rows preserve full typed occurrence and Subject keys, captured time,
+conditional sequence columns and exact declaration/observed coverage facts.
+Insufficient coverage is recorded as unknown; it is not proved by row counts or
+max timestamps. Contradictory/malformed bindings fail with structured R7 errors.
+
+The source prefix prepares all explicit downstream contribution, time, path and
+historical coordinate dependencies inside the original member/time envelope.
+The registered local consumer restricts keyed sufficient contribution rows to
+the actual Subject image. Its restriction primitive also verifies full Anchor
+keys and overlapping half-open windows; public Anchor production belongs to
+R7.7. Count and int64/float64 sum/mean retain complete components, null support,
+original scope and coordinate partitions. Other Metric/expression families have
+no R7.2 local qualification. The later relative Metric matrix remains mandatory
+in R7.7; this foundation does not pass those cells. Unbounded envelopes, local
+result uploads, source-after-local reads, implicit reselection and scalar
+preaggregation lacking exact support are refused. Source submissions finish
+before the first local consumer, including for empty selections.
+
+A shared private monotonic 600-second budget begins at execute entry and covers
+source capture/query/batches, local checks, fixed reads and publication/return
+checks. The source adapter interrupts its native DuckDB query on expiry; resource
+closure and Store 7 failure prevent partial precommit publication. There is no
+row or memory quota. Durable commit acknowledgement continues to use the existing
+Store 7 original-Run recovery protocol. Once the transaction has durably committed,
+acknowledgement and exact original-Run read-back preserve that success even when
+the deadline expires; an outer return check cannot relabel it as an ordinary
+timeout failure. All precommit work remains subject to the shared deadline.
+Native query cancellation, early stream
+close, cross-batch key validation and below/at/above deadline boundaries are
+phase-specific R7.2 evidence, not R7.9's full closeout.
+
+Precision loss is accepted by the
+[time owner](timezone-and-calendar-design.md#r71-frozen-occurrence-and-relative-window-time).
+`r7.capture_authority`, `r7.precision` and `r7.coverage` schema metadata are retained
+in artifact receipts; the Evidence descriptor digest binds the schema/parts and
+capture definitions. Reads, exact hits and fixed/cold continuation revalidate
+these closed facts. Public matching, replay and domain results remain disconnected;
+future `.show()` owns precision disclosure when those public results connect.
+See the [R7.2 evidence index](../../superpowers/specs/2026-10-01-marivo-r72-evidence-index.md).

@@ -1830,6 +1830,7 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
         if (
             name
             not in (
+                "occurrence.prepare",
                 "group.complete",
                 "group.attach",
                 "parts_transport",
@@ -1951,7 +1952,13 @@ def execute_verified_fixed(
             check for check in lowered.admitted.checks if check.node_id == stage.stage.node.identity
         )
         name = stage.stage.node.method.name
-        if isinstance(stage.stage.node.parameters, AttributionDerive):
+        if name == "occurrence.prepare":
+            from marivo.analysis.materialization.domain_preparation import (
+                fixed as fixed_occurrences,
+            )
+
+            result = fixed_occurrences(stage.stage.node, values[0], binding)
+        elif isinstance(stage.stage.node.parameters, AttributionDerive):
             from marivo.analysis.materialization.graph_attribution import fixed
 
             result = fixed(stage.stage.node, values, binding)
@@ -2048,6 +2055,7 @@ def execute_verified_fixed(
 def _subject_image(method: LoweredLocal, source: ExchangeResult, binding: str) -> ExchangeResult:
     """Project complete retained Subject tuples using local set-image semantics."""
     from marivo.analysis.core.model import SubjectPart
+    from marivo.analysis.materialization.execute_deadline import check
 
     subject = next(
         part for part in source.contract.signature.parts if isinstance(part, SubjectPart)
@@ -2059,6 +2067,7 @@ def _subject_image(method: LoweredLocal, source: ExchangeResult, binding: str) -
     seen: set[tuple[object, ...]] = set()
     indices: list[int] = []
     for index, row in enumerate(rows):
+        check()
         identity = tuple(row[name] for name in fields)
         if identity in seen:
             if subject.injective:
@@ -2069,6 +2078,8 @@ def _subject_image(method: LoweredLocal, source: ExchangeResult, binding: str) -
         seen.add(identity)
         indices.append(index)
     primary = retained.select(fields).take(pa.array(indices, type=pa.int64())).rename_columns(keys)
+    if b"r7.precision" in (source.primary.schema.metadata or {}):
+        primary = primary.replace_schema_metadata(source.primary.schema.metadata)
     part_table = primary
     for key, name in zip(keys, fields, strict=True):
         part_table = part_table.append_column(name, primary[key])

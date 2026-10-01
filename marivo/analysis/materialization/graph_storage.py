@@ -71,6 +71,9 @@ def write_table(root: Path, staging: Path, final: Path, table: pa.Table) -> Loca
 
 
 def read_table(root: Path, receipt: LocalReceipt) -> pa.Table:
+    from marivo.analysis.materialization.execute_deadline import check
+
+    check()
     parquet, path = _open_payload(root, receipt)
     try:
         schema = parquet.schema_arrow
@@ -79,13 +82,18 @@ def read_table(root: Path, receipt: LocalReceipt) -> pa.Table:
             != receipt.schema_fingerprint
         ):
             raise invalid("Parquet schema differs from its receipt")
-        table = pa.Table.from_batches(tuple(parquet.iter_batches(batch_size=1024)), schema=schema)
+        batches = []
+        for batch in parquet.iter_batches(batch_size=1024):
+            check()
+            batches.append(batch)
+        table = pa.Table.from_batches(batches, schema=schema)
         if (
             table.num_rows != receipt.realized_row_count
             or _hash_file(path) != receipt.bytes_hash
             or receipt.file_manifest[0].sha256 != receipt.bytes_hash
         ):
             raise invalid("Parquet rows or bytes differ from receipt")
+        check()
         return table
     except (OSError, pa.ArrowException):
         raise invalid("committed Parquet could not be read completely") from None
@@ -112,7 +120,7 @@ def read_result(root: Path, descriptor: Descriptor) -> ExchangeResult:
             [
                 *(primary.column(key) for key in keys),
                 pa.array(["accepted"] * len(primary), type=pa.string())
-                if descriptor.method_state.kind in ("cohort", "table")
+                if descriptor.method_state.kind in ("cohort", "table", "occurrence_inputs")
                 else primary.column(column),
             ],
             names=[*keys, "status"],

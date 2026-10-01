@@ -18,6 +18,7 @@ from marivo.analysis.core.model import (
     AttributionPart,
     CorrespondencePart,
     Evidence,
+    OccurrencePart,
     PartRole,
     Signature,
     part_role,
@@ -28,7 +29,9 @@ from marivo.analysis.core.rules import (
     DisplayRank,
     DisplayTable,
     MapCorrespond,
+    OccurrencePrepare,
     PartsTransport,
+    PreparedObservation,
     TimeProduct,
 )
 from marivo.analysis.materialization.contracts import (
@@ -192,6 +195,8 @@ class MethodState:
         required = (
             ()
             if self.kind == "none"
+            else ("subject", "occurrences")
+            if self.kind == "occurrence_inputs"
             else ("subject", "cohort_decision")
             if self.kind == "cohort"
             else ("fixed_reference", "reference_proof", "stratum_values", "strata")
@@ -358,6 +363,44 @@ def fixed_signature(value: Descriptor) -> Signature:
 DESCRIPTOR = TypeAdapter(Descriptor)
 
 
+def semantic_versions(root: Node) -> tuple[tuple[str, str], ...]:
+    nodes = topology(root)
+    versions = [
+        (node.definition.ref.path, node.definition.fingerprint)
+        for node in nodes
+        if isinstance(node, SourceLeaf)
+    ]
+    for node in nodes:
+        captures = tuple(part for part in node.signature.parts if isinstance(part, OccurrencePart))
+        for capture in captures:
+            versions.extend((event.ref.path, event.fingerprint) for event in capture.events)
+            versions.extend(
+                (event.source.ref.path, event.source.dependency_fingerprint)
+                for event in capture.events
+            )
+            if capture.order is not None:
+                versions.append((capture.order.ref.path, capture.order.fingerprint))
+                versions.extend(capture.order.dependencies)
+            if capture.model is not None:
+                versions.append((capture.model.ref.path, capture.model.fingerprint))
+                versions.extend(capture.model.dependencies)
+        if isinstance(node, MethodNode) and isinstance(node.parameters, PreparedObservation):
+            metric = node.parameters.observation.metric
+            versions.append(
+                (node.parameters.observation.quantity.definition_id, metric.dependency_fingerprint)
+            )
+    # Preserve the original source-only sequence for already connected methods.
+    return (
+        tuple(dict.fromkeys(versions))
+        if any(isinstance(part, OccurrencePart) for node in nodes for part in node.signature.parts)
+        or any(
+            isinstance(node, MethodNode) and isinstance(node.parameters, PreparedObservation)
+            for node in nodes
+        )
+        else tuple(versions)
+    )
+
+
 def plan_digest(plan: GraphPlan) -> str:
     return digest(canonical_json(_ordered_plan(plan)))
 
@@ -430,7 +473,7 @@ def validate_descriptor(value: Descriptor) -> Node:
         params = root.parameters
         expects_value = (
             False
-            if isinstance(params, (TimeProduct, DisplayTable))
+            if isinstance(params, (TimeProduct, DisplayTable, OccurrencePrepare))
             else params.keep_quantity
             if isinstance(params, PartsTransport)
             else root.signature.quantity is not None
@@ -521,12 +564,7 @@ def validate_descriptor(value: Descriptor) -> Node:
         )
         or snapshot.dimension_facts
         != tuple(dict.fromkeys(c.field for n in nodes for c in n.signature.domain.instance_key))
-        or snapshot.semantic_versions
-        != tuple(
-            (n.definition.ref.path, n.definition.fingerprint)
-            for n in nodes
-            if isinstance(n, SourceLeaf)
-        )
+        or snapshot.semantic_versions != semantic_versions(root)
         or snapshot.method_versions != tuple(n.method for n in nodes if isinstance(n, MethodNode))
         or value.semantic_dependency_digest != digest(canonical_json(snapshot.semantic_versions))
     ):

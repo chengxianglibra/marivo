@@ -34,6 +34,7 @@ from marivo.analysis.core.model import (
     FactInput,
     Obligation,
     ObservedQuantity,
+    OccurrencePart,
     OriginalStatePart,
     Part,
     ReferenceStatePart,
@@ -60,9 +61,11 @@ from marivo.analysis.core.rules import (
     ObserveWeightedMean,
     OccurrenceCombine,
     OccurrenceFilter,
+    OccurrencePrepare,
     OriginalRatio,
     OriginalReduce,
     PartsTransport,
+    PreparedObservation,
     ReferenceDerive,
     RowState,
     TimeProduct,
@@ -120,6 +123,8 @@ class PartColumns:
 
 
 def components(part: Part) -> tuple[str, ...]:
+    if isinstance(part, OccurrencePart):
+        return part.components
     if isinstance(part, AttributionPart):
         from marivo.analysis.methods.attribution import columns
 
@@ -1120,6 +1125,8 @@ def _source_fields(admitted: GraphPlan, binding: SourceBinding) -> tuple[str, ..
         if not isinstance(node, MethodNode) or binding.leaf not in node.sources:
             continue
         params = node.parameters
+        if isinstance(params, PreparedObservation):
+            params = params.observation
         if isinstance(params, BindProject) and params.field_contract is not None:
             if params.field_owner.path == binding.leaf.definition.ref.path:
                 if params.expression_bodies:
@@ -2418,6 +2425,8 @@ def _contribution_rows(
     bindings: tuple[SourceBinding, ...],
     relations: tuple[LoweredRelation, ...],
     checks: list[LoweredCheck],
+    *,
+    prepared: bool = False,
 ) -> tuple[ir.Table, tuple[str, ...]]:
     owned_sources = {source.identity for source in stage.node.sources}
     by_entity = {
@@ -2426,7 +2435,9 @@ def _contribution_rows(
         if binding.leaf.identity in owned_sources
     }
     root_binding = by_entity[params.contribution.path]
-    root = _staged_source(root_binding, relations).view()
+    root = (
+        root_binding.source.relation if prepared else _staged_source(root_binding, relations)
+    ).view()
     if (
         isinstance(params, (ObserveMetric, ObserveWeightedMean))
         and root[params.amount_column].type().copy(nullable=True) != dt.dtype(params.amount_type)
@@ -2436,10 +2447,56 @@ def _contribution_rows(
         )
     ):
         _fail("the exact contribution amount type", str(root[params.amount_column].type()))
+    if prepared:
+        from marivo.analysis.compiler.domain_preparation import version_checks
+
+        version_checks(
+            root,
+            root_binding,
+            tuple(key.coordinate.field for key in root_binding.layout.keys),
+            stage.output,
+            (root_binding.leaf.identity,),
+            checks,
+        )
     root_filters = _owner_predicate(root, params.filters, params.contribution.path)
     if root_filters is not None:
         root = root.filter(root_filters)
+    if prepared and root_binding.leaf.definition.version is not None:
+        from marivo.analysis.compiler.domain_preparation import _version, capture_time
+        from marivo.analysis.compiler.source_time import source_time
+        from marivo.analysis.core.domain_captures import fail
+
+        if params.event.entity_ref.path != params.contribution.path:
+            fail(
+                "physical_qualification",
+                "versioned contribution needs its own captured event time",
+                stage="lowering",
+            )
+        instant, _ = source_time(
+            capture_time(root[params.event.source_column]),
+            params.event,
+            boundary_timezone="UTC",
+            read_timezone=params.event.timezone,
+            engine="duckdb",
+        )
+        instant = instant.cast("timestamp('UTC')")
+        checks.append(
+            IntegrityCheck(
+                stage.output,
+                "r7.input_binding: contribution version at captured time",
+                root.filter(~_version(root, root_binding, instant).fill_null(False)),
+                (root_binding.leaf.identity,),
+            )
+        )
     fields: dict[str, ir.Value] = {
+        **(
+            {
+                f"candidate__key_{i}": root[key.coordinate.field]
+                for i, key in enumerate(root_binding.layout.keys)
+            }
+            if prepared
+            else {}
+        ),
         "amount": root[params.amount_column]
         if isinstance(params, (ObserveMetric, ObserveWeightedMean))
         else ibis.literal(1, type="int64"),
@@ -2494,11 +2551,49 @@ def _contribution_rows(
     source_ids: tuple[str, ...] = (root_binding.leaf.identity,)
     for index, relationship in enumerate(params.path):
         binding = by_entity[relationship.to_entity_ref.path]
-        destination = _staged_source(binding, relations).view()
+        destination = (
+            binding.source.relation if prepared else _staged_source(binding, relations)
+        ).view()
         destination_keys = tuple(key for _, key in relationship.keys)
+        if prepared:
+            from marivo.analysis.compiler.domain_preparation import version_checks
+
+            version_checks(
+                destination,
+                binding,
+                destination_keys,
+                stage.output,
+                _source_ids(source_ids, (binding.leaf.identity,)),
+                checks,
+            )
+        predicates = [
+            rows[f"next_key_{i}"] == destination[key] for i, key in enumerate(destination_keys)
+        ]
+        if prepared and binding.leaf.definition.version is not None:
+            from marivo.analysis.compiler.domain_preparation import _version
+
+            if "event_time" not in rows.columns:
+                from marivo.analysis.core.domain_captures import fail
+
+                fail(
+                    "physical_qualification",
+                    "versioned path before its event-time dependency is not qualified",
+                    stage="lowering",
+                )
+            from marivo.analysis.compiler.domain_preparation import capture_time
+            from marivo.analysis.compiler.source_time import source_time
+
+            point, _ = source_time(
+                capture_time(rows.event_time),
+                params.event,
+                boundary_timezone="UTC",
+                read_timezone=params.event.timezone,
+                engine="duckdb",
+            )
+            predicates.append(_version(destination, binding, point.cast("timestamp('UTC')")))
         joined = rows.left_join(
             destination,
-            [rows[f"next_key_{i}"] == destination[key] for i, key in enumerate(destination_keys)],
+            predicates,
         )
         source_ids = _source_ids(source_ids, (binding.leaf.identity,))
         checks.append(
@@ -2526,29 +2621,41 @@ def _contribution_rows(
             )
         else:
             selected.update(
-                {f"member_{i}": destination[key] for i, key in enumerate(destination_keys)}
+                {
+                    f"member_{i}": destination[key]
+                    for i, key in enumerate(
+                        tuple(key.coordinate.field for key in binding.layout.keys)
+                        if prepared
+                        else destination_keys
+                    )
+                }
             )
         hop_filters = _owner_predicate(destination, params.filters, relationship.to_entity_ref.path)
         if hop_filters is not None:
             joined = joined.filter(hop_filters)
         rows = joined.select(**selected)
+    from marivo.analysis.compiler.domain_preparation import capture_time
     from marivo.analysis.compiler.source_time import source_time
 
+    raw_time = capture_time(rows.event_time) if prepared else rows.event_time
     normalized, _authority = source_time(
-        rows.event_time,
+        raw_time,
         params.event,
         boundary_timezone="UTC",
         read_timezone=params.event.timezone,
         engine=root_binding.leaf.definition.shape.backend,
     )
-    checks.append(
-        TemporalCheck(
-            stage.output,
-            rows.select(raw_time=rows.event_time, normalized_time=normalized).distinct(),
-            source_ids,
-            params.event,
+    if prepared:
+        rows = rows.mutate(__raw_event_time=raw_time)
+    else:
+        checks.append(
+            TemporalCheck(
+                stage.output,
+                rows.select(raw_time=raw_time, normalized_time=normalized).distinct(),
+                source_ids,
+                params.event,
+            )
         )
-    )
     rows = rows.mutate(event_time=normalized)
     return rows, source_ids
 
@@ -3186,7 +3293,8 @@ def lower(
                 _fail("registered row, Association, or predicate inputs", repr(stage.inputs))
             if len(stage.inputs) == 2 and not (
                 isinstance(
-                    stage.node.parameters, (AssociationScore, AttachCategory, CompleteGroups)
+                    stage.node.parameters,
+                    (AssociationScore, AttachCategory, CompleteGroups, PreparedObservation),
                 )
                 or (
                     isinstance(stage.node.parameters, PartsTransport)
@@ -3208,6 +3316,13 @@ def lower(
             if (
                 isinstance(stage.node.parameters, CompleteGroups)
                 and stage.node.signature.quantity is None
+            ):
+                output_layout = canonical_layout(stage.node.signature, has_value=False)
+            if isinstance(stage.node.parameters, OccurrencePrepare):
+                output_layout = canonical_layout(stage.node.signature, has_value=False)
+            if (
+                isinstance(stage.node.parameters, MapCorrespond)
+                and stage.node.parameters.mode == "subjects"
             ):
                 output_layout = canonical_layout(stage.node.signature, has_value=False)
             if isinstance(stage.node.parameters, DisplayTable):
@@ -3257,10 +3372,27 @@ def lower(
                 stage.leaf.value_type.name,
             )
             layout = canonical_layout(stage.leaf.signature, has_value=bound.layout.cell is not None)
-            raw = select_version(
-                bound.source.relation,
-                stage.leaf.definition.version,
-                stage.leaf.signature.domain.version_selection,
+            captured_dependency = any(
+                isinstance(node, MethodNode)
+                and isinstance(node.parameters, (OccurrencePrepare, PreparedObservation))
+                and stage.leaf in node.sources
+                for node in topology(admitted.root)
+            )
+            population_input = any(
+                isinstance(node, MethodNode)
+                and any(edge.node is stage.leaf for edge in node.inputs)
+                for node in topology(admitted.root)
+            )
+            raw = (
+                bound.source.relation
+                if captured_dependency
+                and not population_input
+                and stage.leaf.signature.domain.version_selection is None
+                else select_version(
+                    bound.source.relation,
+                    stage.leaf.definition.version,
+                    stage.leaf.signature.domain.version_selection,
+                )
             )
             raw_fields = _source_fields(admitted, bound)
             extras = tuple(f"source__{raw.columns.index(column)}" for column in raw_fields)
@@ -3287,10 +3419,27 @@ def lower(
             admit(stage.implementation, stage.node.parameters)
             if stage.operation not in ("ibis", "prepare"):
                 _fail("a qualified preparation consumer", stage.operation)
-            inputs = tuple(results[i] for i in stage.inputs[: len(stage.node.inputs)])
             params = stage.node.parameters
+            inputs = tuple(
+                results[i]
+                for i in stage.inputs[
+                    : 1 if isinstance(params, PreparedObservation) else len(stage.node.inputs)
+                ]
+            )
             source_ids = inputs[0].source_ids
-            if isinstance(params, AttributionDerive):
+            if isinstance(params, OccurrencePrepare):
+                from marivo.analysis.compiler.domain_preparation import lower_occurrences
+
+                table, layout, source_ids = lower_occurrences(stage, inputs[0], bindings, checks)
+                cell_reasons = ()
+            elif isinstance(params, PreparedObservation):
+                from marivo.analysis.compiler.domain_preparation import lower_candidates
+
+                table, layout, source_ids = lower_candidates(
+                    stage, inputs[0], bindings, tuple(results.values()), checks
+                )
+                cell_reasons = ()
+            elif isinstance(params, AttributionDerive):
                 from marivo.analysis.compiler.graph_attribution import (
                     prepare as prepare_attribution,
                 )
@@ -3509,6 +3658,9 @@ def lower(
             checks.append(requirement)
             continue
         owner = next(r.node for r in results.values() if r.node.identity == requirement.node_id)
+        if isinstance(owner, MethodNode) and isinstance(owner.parameters, PreparedObservation):
+            checks.append(requirement)
+            continue
         for inputs in _fact_relations(owner, requirement.obligation, tuple(results.values())):
             check_id = requirement.obligation.check_id
             source_ids = _source_ids(*(input.source_ids for input in inputs))

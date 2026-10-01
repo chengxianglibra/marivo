@@ -2,7 +2,7 @@
 
 Date: 2026-10-01
 
-Status: R7.1 documentation/static contract freeze complete; R7.2-R7.9 remain
+Status: R7.1 documentation/static contract freeze complete; R7.2 private preparation implemented; R7.3-R7.9 remain
 unimplemented. This plan grants no new product or Runtime qualification.
 
 The [R7.1 migration ledger](2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md),
@@ -413,9 +413,23 @@ records deterministic AST/text/import evidence and mandatory source/fixed/cold
 targets, all planned. Static presence, source admission blockage, unverified
 dynamic unreachability and future deletion are distinct. See the
 [R7.1 acceptance record](2026-09-26-marivo-full-refactor-acceptance.md#r71-documentation-and-static-freeze-completed-acceptance-2026-10-01)
-for validation and excluded execution gates. R7.2-R7.9 remain pending.
+for validation and excluded execution gates. R7.2 preparation implementation is recorded below; R7.3-R7.9 remain pending.
 
 ### R7.2 — Ibis occurrence 准备、覆盖与业务顺序消费
+
+**2026-10-01 precision amendment:** native source/Ibis/driver time precision loss,
+including ns→us, is accepted and disclosed. This overrides prior lossless-source
+requirements without changing historical R7.1 snapshot or requirement IDs.
+Checks/consumption use captured units; ties retain the closed business-order rules.
+Receipt/Evidence/fixed/cold qualification retain declared, actual and captured
+units plus native truncation/rounding or a possibly-lossy statement. No extra
+lossless ticks extractor is required. Future public `.show()` must disclose it.
+
+**Implementation record:** private captures, occurrence.prepare@v1, source-prefix
+F13 and local count/int64/float64 sum/mean consumers are implemented. The
+[R7.2 evidence index](2026-10-01-marivo-r72-evidence-index.md) owns executed
+qualification and limits. Matching/replay/public domain integration and remaining
+relative Metric expression/type cells stay with their connecting phases.
 
 迁入 exact Event/StateModel/order 依赖、完整键/participant/time/version 准备和检查。
 Assess source-native lowering first and record full-semantic feasibility,

@@ -640,3 +640,12 @@ distinct/distribution/extrema 与未经证明的重叠状态没有分配方法�
 
 保留组键的原状态归约返回 MaterializedGroupedNumericRelation；Singleton 返回
 MaterializedRolledNumericRelation。冷恢复保留同一类型及后续操作契约。
+
+
+## R7 occurrence 准备状态
+
+R7.2 已实现私有 occurrence 准备，以及本地选择和观察之前的来源依赖准备。
+公共 matching、replay 和新领域结果仍归后续阶段。捕获时间接受来源原生精度损失，
+包括纳秒转微秒；原始及实际单位、转换说明会保留到 fixed 续算和冷恢复。
+时间边界及顺序检查均使用实际捕获时间，精度下降形成的同刻事件仍需业务顺序。
+后续公共领域结果接通时，结果卡会披露这些精度信息。

@@ -7,6 +7,7 @@ from typing import Literal, TypeAlias
 
 from marivo.analysis.core.graph import FixedLeaf, MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import Obligation, reject
+from marivo.analysis.core.rules import MapCorrespond, PreparedObservation
 from marivo.analysis.methods.physical import (
     FixedShape,
     Implementation,
@@ -192,6 +193,7 @@ def plan(
             if (
                 any(edge.node.identity in local for edge in node.inputs)
                 and route != "artifact_python"
+                and not isinstance(node.parameters, PreparedObservation)
                 and not all(
                     edge.node.identity not in local
                     or (
@@ -238,22 +240,47 @@ def plan(
             inputs = tuple(outputs[e.node.identity] for e in node.inputs) + tuple(
                 outputs[s.identity] for s in node.sources
             )
+            subject_image = (
+                isinstance(node.parameters, MapCorrespond)
+                and node.parameters.mode == "subjects"
+                and node.inputs[0].node.signature.domain.kind == "occurrence"
+            )
+            prepared_observation = isinstance(node.parameters, PreparedObservation)
+            if prepared_observation and node.inputs[1].node.identity in local:
+                _refuse(
+                    "a source original member envelope",
+                    "local candidate envelope",
+                    "Bind the original members before local selection.",
+                )
             physical.append(
                 PhysicalRequirement(node.identity, key, node.value_type, implementation)
             )
             consume_output = output
-            if route in ("ibis", "ibis_python"):
+            if route in ("ibis", "ibis_python") and not subject_image:
                 stages.append(
                     SourceMethodStage(
                         output,
-                        inputs,
+                        (
+                            outputs[node.inputs[1].node.identity],
+                            *(outputs[s.identity] for s in node.sources),
+                        )
+                        if prepared_observation
+                        else inputs,
                         node,
                         implementation,
                         "ibis" if route == "ibis" else "prepare",
                     )
                 )
             if route != "ibis":
-                local_inputs = (output,) if route == "ibis_python" else inputs
+                local_inputs = (
+                    (outputs[node.inputs[0].node.identity], output)
+                    if prepared_observation
+                    else inputs
+                    if subject_image
+                    else (output,)
+                    if route == "ibis_python"
+                    else inputs
+                )
                 output = f"stage:{len(stages)}"
                 stages.append(LocalMethodStage(output, local_inputs, node, implementation))
                 local.add(node.identity)
@@ -268,6 +295,11 @@ def plan(
                 or not any(prior.obligation == obligation for prior in checks)
             )
         outputs[node.identity] = output
+    if any(isinstance(node.parameters, PreparedObservation) for node in methods):
+        stages = [
+            *(stage for stage in stages if not isinstance(stage, LocalMethodStage)),
+            *(stage for stage in stages if isinstance(stage, LocalMethodStage)),
+        ]
     return GraphPlan(
         root, classification, tuple(stages), tuple(checks), tuple(physical), outputs[root.identity]
     )

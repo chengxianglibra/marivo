@@ -7,7 +7,9 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, NoReturn, TypeAlias
 
+from marivo.analysis.core.domain_captures import EventCapture, OrderCapture, StateModelCapture
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridVersionSelection
+from marivo.analysis.domains.completeness import CompletenessDeclaration
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import DimensionKind, EntityKind, MetricKind, Ref, SemanticKind
@@ -101,7 +103,9 @@ class Coordinate:
             )
 
 
-DomainKind: TypeAlias = Literal["entity", "group", "singleton", "journey", "interval", "anchor"]
+DomainKind: TypeAlias = Literal[
+    "entity", "group", "singleton", "journey", "interval", "anchor", "occurrence"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,7 +170,15 @@ class DomainSignature:
 
     def __post_init__(self) -> None:
         _nonempty(self.definition_id, "core.domain.definition")
-        if self.kind not in ("entity", "group", "singleton", "journey", "interval", "anchor"):
+        if self.kind not in (
+            "entity",
+            "group",
+            "singleton",
+            "journey",
+            "interval",
+            "anchor",
+            "occurrence",
+        ):
             reject(
                 "a closed instance kind",
                 str(self.kind),
@@ -569,8 +581,25 @@ class CohortDecisionPart:
     version: str = "v1"
 
 
+@dataclass(frozen=True, slots=True)
+class OccurrencePart:
+    binding: Binding
+    events: tuple[EventCapture, ...]
+    order: OrderCapture | None
+    model: StateModelCapture | None
+    components: tuple[str, ...]
+    preparation_id: str
+    start: str | None
+    end: str
+    completeness: tuple[CompletenessDeclaration, ...]
+    order_use: Literal["prepare", "ordered", "one_step_every_start", "after_terminal"]
+    terminal_state: str | None
+    version: str = "v1"
+
+
 Part: TypeAlias = (
-    AttributionPart
+    OccurrencePart
+    | AttributionPart
     | SubjectPart
     | CohortDecisionPart
     | EndpointPart
@@ -586,6 +615,7 @@ Part: TypeAlias = (
     | PairCountsPart
 )
 PartRole: TypeAlias = Literal[
+    "occurrences",
     "basis",
     "allocation",
     "reconciliation",
@@ -617,6 +647,8 @@ PartRole: TypeAlias = Literal[
 
 
 def part_role(part: Part) -> PartRole:
+    if isinstance(part, OccurrencePart):
+        return "occurrences"
     if isinstance(part, AttributionPart):
         return part.role
     if isinstance(part, DisplayPart):
@@ -647,6 +679,47 @@ def part_role(part: Part) -> PartRole:
 
 
 def validate_part(part: Part) -> None:
+    if isinstance(part, OccurrencePart):
+        from hashlib import sha256
+
+        components = (
+            "occurred_at",
+            *(
+                ("sequence_int",)
+                if part.order is not None
+                and any(item.order == "integer" for item in part.order.definition.sequences)
+                else ("sequence_enum",)
+                if part.order is not None and part.order.definition.sequences
+                else ()
+            ),
+        )
+        expected = sha256(
+            repr(
+                (
+                    part.events,
+                    part.start,
+                    part.end,
+                    part.order,
+                    part.model,
+                    part.completeness,
+                    part.order_use,
+                    part.terminal_state,
+                )
+            ).encode()
+        ).hexdigest()
+        if (
+            not part.events
+            or part.components != components
+            or part.version != "v1"
+            or part.preparation_id != expected
+        ):
+            reject(
+                "complete occurrence inputs at v1",
+                repr(part),
+                "Rebuild the captures.",
+                "core.occurrence",
+            )
+        return
     if isinstance(part, AttributionPart):
         if (
             not part.axes

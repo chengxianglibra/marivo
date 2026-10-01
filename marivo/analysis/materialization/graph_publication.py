@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import replace
@@ -13,7 +14,7 @@ import pyarrow as pa
 
 from marivo.analysis.compiler.graph_lowering import SourceBinding, lower
 from marivo.analysis.compiler.graph_plan import RouteChoice
-from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
+from marivo.analysis.core.graph import MethodNode, Node, topology
 from marivo.analysis.core.model import CorrespondencePart
 from marivo.analysis.core.rules import CellDerive, DisplayRank, DisplayTable, PartsTransport
 from marivo.analysis.errors import AnalysisRepair
@@ -62,6 +63,7 @@ from marivo.analysis.materialization.graph_protocol import (
     plan_digest,
     receipt_digest,
     schema_text,
+    semantic_versions,
 )
 from marivo.analysis.materialization.graph_source_execution import execute_source_graph
 from marivo.analysis.materialization.graph_storage import read_result, write_table
@@ -169,7 +171,7 @@ def _read_artifact(store: SessionStore, ref: str) -> graph_store.GraphArtifact:
     return result
 
 
-def execute(
+def _execute(
     runtime: DatasetRuntime,
     root: Node,
     routes: tuple[RouteChoice, ...],
@@ -333,8 +335,31 @@ def execute(
                         for schema, bound in zip(source_schemas, bindings, strict=True)
                     ):
                         raise invalid("opened physical schema differs from selected preflight")
-                    lowered = lower(plan, bindings=bindings)
-                    result = execute_source_graph(prepared, lowered, source)
+                    from contextlib import nullcontext
+
+                    from marivo.analysis.core.rules import OccurrencePrepare, PreparedObservation
+                    from marivo.datasource.domain_snapshot import capture
+
+                    uses_preparation = any(
+                        isinstance(node, MethodNode)
+                        and isinstance(node.parameters, (OccurrencePrepare, PreparedObservation))
+                        for node in topology(root)
+                    )
+                    from marivo.analysis.materialization.execute_deadline import check, guard
+
+                    with (
+                        capture(source, checkpoint=check, guard=guard)
+                        if uses_preparation
+                        else nullcontext() as authority
+                    ):
+                        if uses_preparation:
+                            source.domain_authority = authority
+                            bindings = tuple(
+                                replace(binding, source=source.binding_for(binding.leaf.identity))
+                                for binding in bindings
+                            )
+                        lowered = lower(plan, bindings=bindings)
+                        result = execute_source_graph(prepared, lowered, source)
             else:
                 assert fixed_lowered is not None
                 values = tuple(fixed[leaf.identity] for leaf in _fixed_input_occurrences(root))
@@ -426,11 +451,7 @@ def execute(
                 tuple(
                     dict.fromkeys(c.field for n in nodes for c in n.signature.domain.instance_key)
                 ),
-                tuple(
-                    (n.definition.ref.path, n.definition.fingerprint)
-                    for n in nodes
-                    if isinstance(n, SourceLeaf)
-                ),
+                semantic_versions(root),
                 tuple(n.method for n in nodes if isinstance(n, MethodNode)),
                 state.input_binding,
                 receipt_digest(primary),
@@ -486,6 +507,9 @@ def execute(
             read_result(store.project_root, descriptor)
             event("graph_receipts_verified")
             phase = "publication"
+            from marivo.analysis.materialization.execute_deadline import check
+
+            check()
             committing = True
             return graph_store.publish(store, artifact_ref, descriptor, resources, event)
         except BaseException as failure:
@@ -549,3 +573,38 @@ def execute(
             except BaseException as cleanup_error:
                 raise failure from cleanup_error
             raise
+
+
+def execute(
+    runtime: DatasetRuntime,
+    root: Node,
+    routes: tuple[RouteChoice, ...],
+    *,
+    source_bindings: tuple[SourceKeyBinding, ...] = (),
+    source_factory: SourceFactory | None = None,
+    source_schemas: tuple[pa.Schema, ...] = (),
+) -> graph_store.GraphArtifact:
+    entered = time.monotonic()
+    from contextlib import nullcontext
+
+    from marivo.analysis.core.model import OccurrencePart
+    from marivo.analysis.core.rules import OccurrencePrepare, PreparedObservation
+    from marivo.analysis.materialization.execute_deadline import execution_budget
+
+    uses_r7 = any(
+        (
+            isinstance(node, MethodNode)
+            and isinstance(node.parameters, (OccurrencePrepare, PreparedObservation))
+        )
+        or any(isinstance(part, OccurrencePart) for part in node.signature.parts)
+        for node in topology(root)
+    )
+    with execution_budget(start=entered) if uses_r7 else nullcontext():
+        return _execute(
+            runtime,
+            root,
+            routes,
+            source_bindings=source_bindings,
+            source_factory=source_factory,
+            source_schemas=source_schemas,
+        )

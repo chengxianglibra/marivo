@@ -128,6 +128,7 @@ class ExchangeContract:
             or self.state_kind
             not in (
                 "none",
+                "occurrence_inputs",
                 "attribution_additive",
                 "attribution_component_mix",
                 "ranking",
@@ -267,15 +268,19 @@ class CheckedStream:
         return self._batches()
 
     def _batches(self) -> Iterator[pa.RecordBatch]:
+        from marivo.analysis.materialization.execute_deadline import check
+
         seen_keys: set[tuple[object, ...]] = set()
         exhausted = False
         try:
             for batch in self._source:
+                check()
                 if not batch.schema.equals(self.schema, check_metadata=False):
                     raise _invalid("batch schema changed")
                 if self._keys:
                     columns = tuple(batch.column(name) for name in self._keys)
                     for index in range(batch.num_rows):
+                        check()
                         key = tuple(column[index].as_py() for column in columns)
                         if (
                             any(
@@ -291,6 +296,7 @@ class CheckedStream:
                 ):
                     self._validate_cells(batch)
                 yield batch
+            check()
             exhausted = True
         finally:
             self._closed = True
@@ -592,6 +598,12 @@ def collect(
                 states[tuple(row[k] for k in contract.key_fields)] for row in primary.to_pylist()
             ] != expected_status:
                 raise _invalid("display method status differs")
+        elif contract.state_kind == "occurrence_inputs":
+            from marivo.analysis.materialization.domain_preparation import validate_exchange
+
+            validate_exchange(contract, primary, parts)
+            if any(value != "accepted" for value in states.values()):
+                raise _invalid("occurrence state contains unaccepted inputs")
         elif contract.state_kind == "cohort":
             if any(value != "accepted" for value in states.values()):
                 raise _invalid("cohort state contains an unaccepted target")
@@ -946,9 +958,12 @@ def _verify_single_state_part(
 def _table_keys(
     table: pa.Table, fields: tuple[str, ...], nullable: frozenset[str] = frozenset()
 ) -> set[tuple[object, ...]]:
+    from marivo.analysis.materialization.execute_deadline import check
+
     columns = tuple(table.column(name) for name in fields)
     result: set[tuple[object, ...]] = set()
     for index in range(table.num_rows):
+        check()
         key = tuple(column[index].as_py() for column in columns)
         if (
             any(

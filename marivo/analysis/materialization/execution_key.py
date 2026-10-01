@@ -8,8 +8,11 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TypeAlias
 
+from pydantic import TypeAdapter
+
 from marivo.analysis.compiler.graph_plan import GraphPlan, LocalMethodStage, SourceMethodStage
 from marivo.analysis.core import model as core_model
+from marivo.analysis.core.domain_captures import EventCapture, OrderCapture, StateModelCapture
 from marivo.analysis.core.graph import FixedLeaf, MethodNode, Node, SourceLeaf
 from marivo.analysis.core.time_grid import (
     BoundTimeGrid,
@@ -19,6 +22,10 @@ from marivo.analysis.core.time_grid import (
     TimeCell,
 )
 from marivo.analysis.datasets.descriptors import _canonical_digest, _is_stable_identifier
+from marivo.analysis.domains.completeness import (
+    BoundedCompletenessDeclarationV1,
+    SourceOriginCompletenessDeclarationV1,
+)
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.methods import physical as method_physical
 from marivo.analysis.methods.semantics import MethodKey
@@ -39,7 +46,14 @@ _DEFINITION = re.compile(r"ds_[0-9a-f]{64}\Z")
 _GRAPH_PROTOCOL = "marivo.analysis.execution_key/v2"
 _CanonicalValue: TypeAlias = None | bool | int | float | str | tuple["_CanonicalValue", ...]
 
+_CAPTURE_WIRE: TypeAdapter[EventCapture | OrderCapture | StateModelCapture] = TypeAdapter(
+    EventCapture | OrderCapture | StateModelCapture
+)
+
 _WIRE_TAGS: dict[type[object], str] = {
+    BoundedCompletenessDeclarationV1: "bounded_completeness",
+    SourceOriginCompletenessDeclarationV1: "origin_completeness",
+    core_model.OccurrencePart: "occurrence_part",
     core_model.AttributionPart: "attribution_part",
     BoundTimeGrid: "time_grid",
     CumulativeBinding: "cumulative_binding",
@@ -135,6 +149,8 @@ def _wire(value: object) -> _CanonicalValue:
         return value
     if type(value) is tuple:
         return tuple(_wire(item) for item in value)
+    if isinstance(value, (EventCapture, OrderCapture, StateModelCapture)):
+        return ("r7_capture", type(value).__name__, _CAPTURE_WIRE.dump_json(value).decode())
     tag = _WIRE_TAGS.get(type(value))
     if tag is None or not is_dataclass(value):
         raise _key_error("a closed canonical graph contract value", type(value).__name__)

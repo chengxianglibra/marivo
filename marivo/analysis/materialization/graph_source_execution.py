@@ -25,7 +25,9 @@ from marivo.analysis.core.rules import (
     CellDerive,
     DisplayRank,
     DisplayTable,
+    OccurrencePrepare,
     PartsTransport,
+    PreparedObservation,
     ReferenceDerive,
 )
 from marivo.analysis.materialization.errors import MaterializationError
@@ -124,8 +126,10 @@ def _check(
         from datetime import date, datetime, timezone
 
         from marivo.analysis.core.time_grid import instant
+        from marivo.analysis.materialization.execute_deadline import check as check_deadline
 
         for row in table.to_pylist():
+            check_deadline()
             raw, actual = row["raw_time"], row["normalized_time"]
             if raw is None and actual is None:
                 continue
@@ -157,6 +161,16 @@ def _check(
             if isinstance(check, IntegrityCheck)
             else str(check.requirement.obligation.fact.kind)
         )
+        if expected.startswith("r7."):
+            from marivo.analysis.core.domain_captures import DomainPreparationError
+
+            raise DomainPreparationError(
+                expected.split(":", 1)[0],
+                "prepare",
+                expected,
+                f"{table.num_rows} violating captured rows",
+                "Correct the named occurrence keys, participant or version before retrying.",
+            )
         raise MaterializationError(
             expected=expected,
             received=f"{table.num_rows} violating rows",
@@ -291,7 +305,7 @@ def _result(
     if state_kind != "none":
         statuses = (
             pa.array(["accepted"] * len(primary), type=pa.string())
-            if state_kind in ("cohort", "table")
+            if state_kind in ("cohort", "table", "occurrence_inputs")
             else primary.column("status")
             if state_kind == "spearman"
             else primary.column("cell_tag")
@@ -357,6 +371,15 @@ def execute_source_graph(
         or lowered.admitted.classification.kind != "source"
     ):
         raise _invalid("prepared and lowered graph identity or input class differs")
+    if any(
+        isinstance(stage.node, MethodNode)
+        and isinstance(stage.node.parameters, (OccurrencePrepare, PreparedObservation))
+        for stage in lowered.stages
+        if isinstance(stage, LoweredRelation)
+    ):
+        from marivo.analysis.materialization.graph_preparation import execute as execute_preparation
+
+        return execute_preparation(prepared, lowered, source)
     local = tuple(stage for stage in lowered.stages if isinstance(stage, LoweredLocal))
     if local and (
         any(

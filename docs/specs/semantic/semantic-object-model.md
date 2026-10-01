@@ -1094,3 +1094,18 @@ SourceOriginCompletenessDeclarationV1 retain their exact bindings and rationale;
 observed coverage never writes back to the Catalog. The Domain/DAG carries
 every Event, StateModel, order and coverage dependency needed by one invocation.
 Named statistical_weight and other withdrawn APIs remain withdrawn.
+
+
+## R7.2 immutable domain captures
+
+The private unified graph now freezes complete Event, StateModel and BusinessOrder
+IR with exact definition/version/dependency fingerprints, role and source input
+identity. Repeated StateModel trigger occurrences share the explicit Event capture;
+no live callable, current catalog reload or occurrence-ID order repairs a frozen
+binding. Actual participant joins must be single-valued at the captured occurrence
+time and complete typed Subject key. Historical validity/snapshot selection uses
+that same captured time. The 2026-10-01 precision amendment accepts native time
+conversion loss and supersedes the earlier lossless-source requirement; its sole
+owner is [occurrence time](../analysis/timezone-and-calendar-design.md#r71-frozen-occurrence-and-relative-window-time).
+Semantic definitions are not themselves coverage receipts or Runtime passes.
+Public domain constructors and model execution remain later-phase work.

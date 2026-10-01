@@ -1263,3 +1263,21 @@ Status views/selection retain their original Omega and bounds; unknown members
 selection refuses. Overlapping windows preserve every (Anchor, occurrence) use,
 without disjointness or scalar-bound rollup. All fixed K requires the exact
 retained definition, instance domain, mapping and method parts, not display values.
+
+
+## R7.2 captured order and precision amendment
+
+The 2026-10-01 accepted precision policy supersedes source-lossless timestamps in
+the R7.1 target. Exact keys, order and arithmetic refer to the actual captured
+time carrier. Preparation accepts occurrence sets; ordered consumers reject ties
+without sequence/precedence authority. Integer/enum uniqueness is checked across
+a Subject's captured Events; contradictory precedence cycles and unknown/null
+sequence values fail. The one-step every_start invariant is closed and accepts
+only one Event without a replay model. Preparation cannot assert an already-known
+terminal prefix: after_terminal remains refused until qualified replay supplies
+that proof. Equal final states or occurrence-ID sorting supply no invariant.
+Precision-created ties obey these same rules. Preparation qualification does not
+grant Journey assignment or History replay semantics. The
+[time owner](timezone-and-calendar-design.md#r71-frozen-occurrence-and-relative-window-time)
+owns the retained precision disclosure; duration arithmetic remains exact in the
+actual captured tick unit when later producers connect.

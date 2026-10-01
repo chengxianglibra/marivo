@@ -20,9 +20,11 @@ from marivo.analysis.core.rules import (
     ObserveMetric,
     ObserveWeightedMean,
     OccurrenceCombine,
+    OccurrencePrepare,
     OriginalRatio,
     OriginalReduce,
     PartsTransport,
+    PreparedObservation,
     ReferenceDerive,
     RowState,
     RuleParameters,
@@ -46,6 +48,7 @@ from marivo.analysis.methods.physical import (
 from marivo.analysis.methods.semantics import MethodKey
 
 PARTS: tuple[PartRole, ...] = (
+    "occurrences",
     "basis",
     "allocation",
     "reconciliation",
@@ -850,6 +853,12 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     """Version typed folds and once-rounded numeric consumers in Store 7."""
+    if method.name == "occurrence.prepare":
+        from marivo.analysis.methods.domain_preparation import (
+            implementations as domain_implementations,
+        )
+
+        return domain_implementations(method)
     if method.name in ("cell.relative_change", "cell.ratio"):
         return tuple(
             replace(
@@ -870,62 +879,69 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             )
             for item in implementations(MethodKey("cell.difference"))
         )
-    return tuple(
-        replace(item, contract_version=4)
-        if method.name.startswith("state_rollup")
-        or method.name.startswith("row.")
-        or method.name
-        in (
-            "bind_project",
-            "group.attach",
-            "parts_transport",
-            "metric.mean",
-            "metric.ratio",
-            "metric.linear",
-            "metric.weighted_mean",
-        )
-        else replace(item, contract_version=3)
-        if method.name
-        in (
-            "metric.observe",
-            "metric.sum_zero",
-            "state_rollup",
-            "state_rollup.sum_zero",
-            "metric.fold",
-            "state_rollup.fold",
-            "metric.mean",
-            "metric.weighted_mean",
-            "metric.ratio",
-            "metric.linear",
-            "state_rollup.mean",
-            "state_rollup.weighted_mean",
-            "state_rollup.ratio",
-            "state_rollup.linear",
-            "state_rollup.min",
-            "state_rollup.max",
-        )
-        else replace(
-            item,
-            contract_version=4,
-            qualification=Qualified(
-                f"r62.{item.key.route}.cell.difference.{item.key.shape}@v1",
-                "analysis.compiler.graph_lowering"
-                if item.key.route == "ibis"
-                else "analysis.materialization.graph_local_execution",
-                "tests/test_analysis_comparison_runtime_r62.py",
-            ),
-        )
-        if method.name == "cell.difference"
-        else item
-        for item in (
-            tuple(
-                replace(declaration, key=replace(declaration.key, input_domains=(domain, domain)))
-                for declaration in _shape_implementations(method)
-                for domain in ("entity", "group", "singleton")
+    from marivo.analysis.methods.domain_preparation import consumers
+
+    return (
+        *consumers(method),
+        *tuple(
+            replace(item, contract_version=4)
+            if method.name.startswith("state_rollup")
+            or method.name.startswith("row.")
+            or method.name
+            in (
+                "bind_project",
+                "group.attach",
+                "parts_transport",
+                "metric.mean",
+                "metric.ratio",
+                "metric.linear",
+                "metric.weighted_mean",
+            )
+            else replace(item, contract_version=3)
+            if method.name
+            in (
+                "metric.observe",
+                "metric.sum_zero",
+                "state_rollup",
+                "state_rollup.sum_zero",
+                "metric.fold",
+                "state_rollup.fold",
+                "metric.mean",
+                "metric.weighted_mean",
+                "metric.ratio",
+                "metric.linear",
+                "state_rollup.mean",
+                "state_rollup.weighted_mean",
+                "state_rollup.ratio",
+                "state_rollup.linear",
+                "state_rollup.min",
+                "state_rollup.max",
+            )
+            else replace(
+                item,
+                contract_version=4,
+                qualification=Qualified(
+                    f"r62.{item.key.route}.cell.difference.{item.key.shape}@v1",
+                    "analysis.compiler.graph_lowering"
+                    if item.key.route == "ibis"
+                    else "analysis.materialization.graph_local_execution",
+                    "tests/test_analysis_comparison_runtime_r62.py",
+                ),
             )
             if method.name == "cell.difference"
-            else _shape_implementations(method)
-        )
+            else item
+            for item in (
+                tuple(
+                    replace(
+                        declaration, key=replace(declaration.key, input_domains=(domain, domain))
+                    )
+                    for declaration in _shape_implementations(method)
+                    for domain in ("entity", "group", "singleton")
+                )
+                if method.name == "cell.difference"
+                else _shape_implementations(method)
+            )
+        ),
     )
 
 
@@ -1106,6 +1122,8 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             repr(implementation.key),
             "Qualify a real lowerer and all required checkers for this exact key.",
         )
+    if isinstance(params, (OccurrencePrepare, PreparedObservation)):
+        return
     if (
         isinstance(implementation.key.shape, SourceShape)
         and implementation.key.shape.backend == "sqlite"
