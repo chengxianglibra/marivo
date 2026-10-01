@@ -48,6 +48,43 @@ def fail(constraint: str, received: str, *, stage: str = "construction") -> NoRe
 
 
 @dataclass(frozen=True, slots=True)
+class EntryAxisCapture:
+    """Exact historical Dimension path prepared before local Journey matching."""
+
+    dimension: TargetDimensionContract
+    subject: TargetEntityContract
+    path: tuple[TargetRelationshipContract, ...]
+    entities: tuple[TargetEntityContract, ...]
+    source_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            self.dimension.is_time_dimension
+            or self.dimension.parse is not None
+            or self.dimension.logical_type not in ("string", "int64")
+            or len(self.entities) != len(self.path) + 1
+            or len(self.source_ids) != len(self.entities)
+            or self.entities[0].ref != self.subject.ref
+            or self.entities[-1].ref != self.dimension.entity_ref
+        ):
+            fail("funnel_axes", "a complete governed string/int64 entry-axis path is required")
+        for left, hop, right in zip(self.entities[:-1], self.path, self.entities[1:], strict=True):
+            if not (
+                (
+                    hop.from_entity_ref == left.ref
+                    and hop.to_entity_ref == right.ref
+                    and hop.cardinality in ("many_to_one", "one_to_one")
+                )
+                or (
+                    hop.to_entity_ref == left.ref
+                    and hop.from_entity_ref == right.ref
+                    and hop.cardinality in ("one_to_many", "one_to_one")
+                )
+            ):
+                fail("funnel_axes", "entry-axis paths must be directed and to-one")
+
+
+@dataclass(frozen=True, slots=True)
 class EventCapture:
     __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
     ref: Ref[EventKind]

@@ -768,6 +768,10 @@ def view(relation: Relation, name: Literal["contribution", "current", "baseline"
 def project(
     source: ExchangeResult, name: Literal["contribution", "current", "baseline"]
 ) -> ExchangeResult:
+    if any(p.role == "funnel_state" for p in source.parts):
+        from marivo.analysis.materialization.funnel_execution import project as funnel_project
+
+        return funnel_project(source, name)
     from marivo.analysis.core.model import part_role
     from marivo.analysis.methods.registry import REGISTRY
 

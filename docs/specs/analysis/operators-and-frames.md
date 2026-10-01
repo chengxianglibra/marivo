@@ -1281,3 +1281,16 @@ grant Journey assignment or History replay semantics. The
 [time owner](timezone-and-calendar-design.md#r71-frozen-occurrence-and-relative-window-time)
 owns the retained precision disclosure; duration arithmetic remains exact in the
 actual captured tick unit when later producers connect.
+
+
+### R7.4 implementation boundary (2026-10-02)
+
+The public first-per-subject funnel, exact owned reads, compatible period compare,
+and funnel_ratio_mix allocation now use the unified graph, registry, Runtime and
+Store 7. The Ibis prefix captures entry-time axes before local consumers; fixed
+continuations use retained state. Nonempty frozen Findings publish atomically and
+share full collection validation across first read, recovery and exact hit.
+Private funnel Delta/Attribution registrations, dispatch, extractor consumers and
+exclusive codecs are physically removed. Remaining Event/Lifecycle shared code
+awaits its owning phase. Detailed validation and physical requirement statuses are
+in the R7.4 evidence index; later phases, same-wheel and remote qualification remain separate.

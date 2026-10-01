@@ -36,6 +36,9 @@ from marivo.analysis.core.model import (
     Coordinate,
     DerivedQuantity,
     DisplayPart,
+    FunnelAllocationPart,
+    FunnelComparisonPart,
+    FunnelPart,
     JourneyPart,
     ObservedQuantity,
     OriginalStatePart,
@@ -52,6 +55,11 @@ from marivo.analysis.core.rules import (
     CompleteGroups,
     DisplayRank,
     DisplayTable,
+    FunnelAttribute,
+    FunnelCompare,
+    FunnelField,
+    FunnelRead,
+    FunnelReduce,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -69,6 +77,8 @@ from marivo.analysis.core.rules import (
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint, bind_grid
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.event import PatternStep
+from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
+from marivo.analysis.funnel import FunnelLossRate
 from marivo.analysis.materialization.graph_dataset import GraphDataset
 from marivo.analysis.materialization.graph_fields import (
     BooleanField,
@@ -307,6 +317,14 @@ class AnalysisContract:
 
 def _kind(node: Relation) -> str:
     definition = node.definition
+    if isinstance(definition.parameters, FunnelReduce):
+        return "funnel"
+    if isinstance(definition.parameters, FunnelCompare):
+        return "funnel_comparison"
+    if isinstance(definition.parameters, FunnelRead):
+        return "funnel_read"
+    if isinstance(definition.parameters, FunnelAttribute):
+        return "attribution"
     if isinstance(definition.parameters, JourneyMatch):
         return "journey"
     if isinstance(definition.parameters, JourneyDuration):
@@ -345,6 +363,12 @@ def _kind(node: Relation) -> str:
                     )
             return "relation_ratio"
         return "ranking"
+    if any(isinstance(p, FunnelAllocationPart) for p in definition.signature.parts):
+        return (
+            "attribution_view"
+            if isinstance(params, PartsTransport) and params.attribution_view is not None
+            else "attribution"
+        )
     if attribution is not None:
         return (
             "attribution_view"
@@ -474,7 +498,7 @@ class _Value:
                 "time_to_event",
                 "subjects",
                 *(
-                    ("read",)
+                    ("read", "funnel")
                     if next(p for p in signature.parts if isinstance(p, JourneyPart)).policy
                     == "first_per_subject"
                     else ()
@@ -499,6 +523,13 @@ class _Value:
                 "observed_duration",
             ):
                 names = (*names, "summarize")
+        elif kind == "funnel":
+            part = next(p for p in signature.parts if isinstance(p, FunnelPart))
+            names = ("read", *(("compare",) if part.complete else ()))
+        elif kind == "funnel_comparison":
+            names = ("read", "attribute")
+        elif kind == "funnel_read":
+            names = ("where", "summarize", "rank")
         elif kind == "attribution":
             names = ("contribution", "current", "baseline", "where")
         elif kind == "attribution_view":
@@ -662,6 +693,56 @@ class _Value:
                     (
                         "captured_precision",
                         metadata.get(b"r7.precision", b"unavailable").decode()[:2048],
+                    )
+                )
+
+        funnel = next(
+            (
+                p
+                for p in signature.parts
+                if isinstance(p, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart))
+            ),
+            None,
+        )
+        if funnel is not None:
+            original = (
+                funnel
+                if isinstance(funnel, FunnelPart)
+                else funnel.current
+                if isinstance(funnel, FunnelComparisonPart)
+                else funnel.comparison.current
+            )
+            facts.extend(
+                (
+                    ("assignment", "retained canonical first_per_subject"),
+                    (
+                        "entry_axes",
+                        ", ".join(a.dimension.ref.path for a in original.axes) or "none",
+                    ),
+                    ("component_scope", original.capture_scope),
+                    ("complete_partition", str(funnel.complete)),
+                    (
+                        "source_route",
+                        "ibis_python preparation before local consumption; fixed artifact_python",
+                    ),
+                )
+            )
+            if isinstance(funnel, FunnelAllocationPart):
+                facts.extend(
+                    (
+                        ("allocation_method", "funnel_ratio_mix@v1"),
+                        (
+                            "reconciliation_scope",
+                            funnel.original.current.capture_scope
+                            + ":"
+                            + funnel.original.baseline.capture_scope
+                            + ":"
+                            + str(funnel.target_step),
+                        ),
+                        (
+                            "side_terms",
+                            "allocated original components; separate loss and denominator_mix",
+                        ),
                     )
                 )
 
@@ -1463,6 +1544,39 @@ class _MaterializedValue(_Value):
             .encode("utf-8")[: builtins.max(0, limit - 1)]
             .decode("utf-8", errors="ignore")
         )
+
+    def evidence_digest(self) -> ArtifactDigest:
+        """Read the checked Evidence authority of this committed Artifact.
+
+        Args: None.
+        Returns: The exact ArtifactDigest including Finding count and extractor versions.
+        Example: ``digest = result.evidence_digest()``.
+        Constraints: All receipts and the complete Finding collection must validate.
+        """
+        assert self._dataset is not None
+        return self._dataset.evidence_digest()
+
+    def findings(self, limit: int = 20, cursor: str | None = None) -> FindingPage:
+        """Read one bounded page from this Artifact's frozen Finding collection.
+
+        Args: limit: Exact integer 1..100. cursor: This Artifact's previous page cursor.
+        Returns: A FindingPage in frozen extractor order.
+        Example: ``page = result.findings(limit=20)``.
+        Constraints: Collection integrity is checked before any page is exposed.
+        """
+        assert self._dataset is not None
+        return self._dataset.findings(limit, cursor)
+
+    def finding(self, finding_id: str) -> Finding:
+        """Read one exact Finding owned by this committed Artifact.
+
+        Args: finding_id: Identity obtained from this Artifact's FindingPage.
+        Returns: The checked immutable Finding.
+        Example: ``item = result.finding(page.items[0].finding_id)``.
+        Constraints: Foreign or missing identities reject without skipping corrupt rows.
+        """
+        assert self._dataset is not None
+        return self._dataset.finding(finding_id)
 
     def to_pandas(self) -> pd.DataFrame:
         """Return an isolated complete DataFrame under governed read checks.
@@ -3387,6 +3501,12 @@ def wrap_materialized(
 ) -> PublicMaterialized:
     """Restore the existing public result variant from its checked typed graph."""
     kind = _kind(node)
+    if kind == "funnel":
+        return MaterializedFunnelResult(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "funnel_comparison":
+        return MaterializedFunnelComparisonResult(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "funnel_read":
+        return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
     if kind == "journey":
         return MaterializedJourneyResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "event_duration":
@@ -4297,6 +4417,18 @@ class _Journey(_Value):
             )
         return self._journey_part().steps.index(step.fingerprint)
 
+    def funnel(self, *, axes: tuple[Ref[DimensionKind], ...] = ()) -> LogicalFunnelResult:
+        """Reduce this canonical assignment into exact funnel components.
+
+        Args: axes: Unique ordered governed Dimensions captured at each entry instant.
+        Returns: A LogicalFunnelResult over dense steps and actual complete axis tuples.
+        Example: ``funnel = journeys.funnel(axes=(channel,))``.
+        Constraints: Requires first_per_subject; fixed inputs cannot supply missing axes.
+        """
+        from marivo.analysis.materialization.graph_funnel import reduce
+
+        return LogicalFunnelResult(_TOKEN, reduce(self._node, axes), self._runtime, inputs=(self,))
+
     def subjects(self, role: ParticipantRoleHandle) -> SubjectBinding:
         """Return the retained Subject map for an exact participant role.
 
@@ -4546,13 +4678,460 @@ class MaterializedCompletedJourneys(_Duration, _MaterializedValue):
     """Fixed known-completed Journey subdomain."""
 
 
+@dataclass(frozen=True, slots=True)
+class _FunnelHandle:
+    owner: str
+    field: FunnelField
+
+    def __repr__(self) -> str:
+        return f"<FunnelField field={self.field} owner={self.owner}>"
+
+
+class _Funnel(_Value):
+    def _funnel_part(self) -> FunnelPart | FunnelComparisonPart:
+        return next(
+            p
+            for p in self._node.root.signature.parts
+            if isinstance(p, (FunnelPart, FunnelComparisonPart))
+        )
+
+    def _target_step(self, target: FunnelLossRate) -> int:
+        part = self._funnel_part()
+        journey = part.journey if isinstance(part, FunnelPart) else part.current.journey
+        if type(target) is not FunnelLossRate or target.step.fingerprint not in journey.steps[1:]:
+            raise _reject(
+                "an exact noninitial retained PatternStep",
+                repr(target),
+                "Use mv.funnel_loss_rate(step=...) from this pattern.",
+            )
+        return journey.steps.index(target.step.fingerprint)
+
+    def read(self, handle: _FunnelHandle | FunnelLossRate) -> LogicalNumericRelation:
+        """Read an owned component or the loss into one exact retained step.
+
+        Args: handle: A field handle owned by this receiver, or mv.funnel_loss_rate(step=...).
+        Returns: A NumericRelation retaining original components and endpoint evidence.
+        Example: ``lost = funnel.read(funnel.lost_count)``.
+        Constraints: Foreign handles and initial-step loss targets reject.
+        """
+        from marivo.analysis.materialization.graph_funnel import read
+
+        if isinstance(handle, FunnelLossRate):
+            step = self._target_step(handle)
+            field: FunnelField = (
+                "loss_rate_from_previous"
+                if isinstance(self._funnel_part(), FunnelPart)
+                else "loss_rate_delta"
+            )
+        elif type(handle) is _FunnelHandle and handle.owner == self._node.root.identity:
+            step, field = None, handle.field
+        else:
+            raise _reject(
+                "a handle owned by this exact receiver",
+                repr(handle),
+                "Read a field property from this FunnelResult.",
+            )
+        return LogicalNumericRelation(
+            _TOKEN, read(self._node, field, step), self._runtime, inputs=(self,)
+        )
+
+
+class _FunnelResult(_Funnel):
+    def compare(
+        self, baseline: LogicalFunnelResult | MaterializedFunnelResult
+    ) -> LogicalFunnelComparisonResult:
+        """Pair two exact compatible funnel periods over the complete outer axis domain.
+
+        Args: baseline: FunnelResult in this Session with the same explicit population.
+        Returns: A LogicalFunnelComparisonResult with exact counts and loss-rate changes.
+        Example: ``change = current.compare(baseline)``.
+        Constraints: Definitions, axes, elapsed windows, follow-up and complete coverage must agree.
+        """
+        from marivo.analysis.materialization.graph_funnel import compare
+
+        if not isinstance(baseline, (LogicalFunnelResult, MaterializedFunnelResult)):
+            raise _reject(
+                "a compatible FunnelResult",
+                repr(baseline),
+                "Build both endpoints from the same explicit population.",
+            )
+        return LogicalFunnelComparisonResult(
+            _TOKEN, compare(self._node, baseline._node), self._runtime, inputs=(self, baseline)
+        )
+
+    @property
+    def cohort_count(self) -> _FunnelHandle:
+        """Return this receiver's exact cohort_count handle.
+
+        Args: None.
+        Returns: An immutable owned field handle.
+        Example: ``values = funnel.read(funnel.cohort_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "cohort_count")
+
+    @property
+    def resolved_cohort_count(self) -> _FunnelHandle:
+        """Return this receiver's exact resolved_cohort_count handle.
+
+        Args: None.
+        Returns: An immutable owned field handle.
+        Example: ``values = funnel.read(funnel.resolved_cohort_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "resolved_cohort_count")
+
+    @property
+    def entry_count(self) -> _FunnelHandle:
+        """Return this receiver's exact entry_count handle.
+
+        Args: None.
+        Returns: An immutable owned field handle.
+        Example: ``values = funnel.read(funnel.entry_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "entry_count")
+
+    @property
+    def resolved_entry_count(self) -> _FunnelHandle:
+        """Return this receiver's exact resolved_entry_count handle.
+
+        Args: None.
+        Returns: An immutable owned field handle.
+        Example: ``values = funnel.read(funnel.resolved_entry_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "resolved_entry_count")
+
+    @property
+    def reached_count(self) -> _FunnelHandle:
+        """Return this receiver's exact reached_count handle.
+
+        Args: None.
+        Returns: An immutable owned field handle.
+        Example: ``values = funnel.read(funnel.reached_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "reached_count")
+
+    @property
+    def lost_count(self) -> _FunnelHandle:
+        """Return this receiver's exact lost_count handle.
+
+        Args: None.
+        Returns: An immutable owned field handle.
+        Example: ``values = funnel.read(funnel.lost_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "lost_count")
+
+    @property
+    def coverage_censored_count(self) -> _FunnelHandle:
+        """Return this receiver's exact coverage_censored_count handle.
+
+        Args: None.
+        Returns: An immutable owned field handle.
+        Example: ``values = funnel.read(funnel.coverage_censored_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "coverage_censored_count")
+
+    @property
+    def conversion_from_first(self) -> _FunnelHandle:
+        """Return this receiver's exact conversion_from_first handle.
+
+        Args: None.
+        Returns: An immutable owned field handle.
+        Example: ``values = funnel.read(funnel.conversion_from_first)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "conversion_from_first")
+
+    @property
+    def conversion_from_previous(self) -> _FunnelHandle:
+        """Return this receiver's exact conversion_from_previous handle.
+
+        Args: None.
+        Returns: An immutable owned field handle.
+        Example: ``values = funnel.read(funnel.conversion_from_previous)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "conversion_from_previous")
+
+    @property
+    def loss_rate_from_previous(self) -> _FunnelHandle:
+        """Return this receiver's exact loss_rate_from_previous handle.
+
+        Args: None.
+        Returns: An immutable owned field handle.
+        Example: ``values = funnel.read(funnel.loss_rate_from_previous)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "loss_rate_from_previous")
+
+
+class LogicalFunnelResult(_FunnelResult):
+    """Logical exact first-per-subject funnel over original assignments."""
+
+    def execute(self) -> MaterializedFunnelResult:
+        """Publish exact funnel components and their frozen original assignment scope.
+
+        Args: None.
+        Returns: A MaterializedFunnelResult.
+        Example: ``result = journeys.funnel().execute()``.
+        Constraints: Source axes are prepared before all local consumers.
+        """
+        return MaterializedFunnelResult(_TOKEN, self._node, self._runtime, dataset=self._run())
+
+
+class MaterializedFunnelResult(_FunnelResult, _MaterializedValue):
+    """Fixed funnel components with source-free reads and comparisons."""
+
+
+class _FunnelComparison(_Funnel):
+    def attribute(
+        self,
+        *,
+        target: FunnelLossRate,
+        axes: tuple[Ref[DimensionKind], ...],
+        mode: Literal["joint", "hierarchy"] = "joint",
+        top_k: int | None = None,
+    ) -> LogicalAttributionResult:
+        """Allocate one loss-rate change using the exact shared ratio-mix basis.
+
+        Args: target: Exact noninitial loss step. axes: Unique ordered Dimensions. mode: joint or hierarchy. top_k: Common resolved-entry basis limit 1..1000 or None.
+        Returns: An AttributionResult with allocated current, baseline and contribution views.
+        Example: ``parts = change.attribute(target=mv.funnel_loss_rate(step=paid), axes=(channel,))``.
+        Constraints: Logical missing axes consume the same assignment; fixed missing axes reject.
+        """
+        from marivo.analysis.materialization.graph_funnel import attribute
+
+        return LogicalAttributionResult(
+            _TOKEN,
+            attribute(
+                self._node, axes=axes, target_step=self._target_step(target), mode=mode, top_k=top_k
+            ),
+            self._runtime,
+            inputs=(self,),
+        )
+
+    @property
+    def current_cohort_count(self) -> _FunnelHandle:
+        """Return this receiver's exact current_cohort_count handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.current_cohort_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "current_cohort_count")
+
+    @property
+    def current_resolved_cohort_count(self) -> _FunnelHandle:
+        """Return this receiver's exact current_resolved_cohort_count handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.current_resolved_cohort_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "current_resolved_cohort_count")
+
+    @property
+    def current_entry_count(self) -> _FunnelHandle:
+        """Return this receiver's exact current_entry_count handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.current_entry_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "current_entry_count")
+
+    @property
+    def current_resolved_entry_count(self) -> _FunnelHandle:
+        """Return this receiver's exact current_resolved_entry_count handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.current_resolved_entry_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "current_resolved_entry_count")
+
+    @property
+    def current_reached_count(self) -> _FunnelHandle:
+        """Return this receiver's exact current_reached_count handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.current_reached_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "current_reached_count")
+
+    @property
+    def current_lost_count(self) -> _FunnelHandle:
+        """Return this receiver's exact current_lost_count handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.current_lost_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "current_lost_count")
+
+    @property
+    def current_coverage_censored_count(self) -> _FunnelHandle:
+        """Return this receiver's exact current_coverage_censored_count handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.current_coverage_censored_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "current_coverage_censored_count")
+
+    @property
+    def baseline_cohort_count(self) -> _FunnelHandle:
+        """Return this receiver's exact baseline_cohort_count handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.baseline_cohort_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "baseline_cohort_count")
+
+    @property
+    def baseline_resolved_cohort_count(self) -> _FunnelHandle:
+        """Return this receiver's exact baseline_resolved_cohort_count handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.baseline_resolved_cohort_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "baseline_resolved_cohort_count")
+
+    @property
+    def baseline_entry_count(self) -> _FunnelHandle:
+        """Return this receiver's exact baseline_entry_count handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.baseline_entry_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "baseline_entry_count")
+
+    @property
+    def baseline_resolved_entry_count(self) -> _FunnelHandle:
+        """Return this receiver's exact baseline_resolved_entry_count handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.baseline_resolved_entry_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "baseline_resolved_entry_count")
+
+    @property
+    def baseline_reached_count(self) -> _FunnelHandle:
+        """Return this receiver's exact baseline_reached_count handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.baseline_reached_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "baseline_reached_count")
+
+    @property
+    def baseline_lost_count(self) -> _FunnelHandle:
+        """Return this receiver's exact baseline_lost_count handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.baseline_lost_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "baseline_lost_count")
+
+    @property
+    def baseline_coverage_censored_count(self) -> _FunnelHandle:
+        """Return this receiver's exact baseline_coverage_censored_count handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.baseline_coverage_censored_count)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "baseline_coverage_censored_count")
+
+    @property
+    def current_loss_rate_from_previous(self) -> _FunnelHandle:
+        """Return this receiver's exact current_loss_rate_from_previous handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.current_loss_rate_from_previous)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "current_loss_rate_from_previous")
+
+    @property
+    def baseline_loss_rate_from_previous(self) -> _FunnelHandle:
+        """Return this receiver's exact baseline_loss_rate_from_previous handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.baseline_loss_rate_from_previous)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "baseline_loss_rate_from_previous")
+
+    @property
+    def loss_rate_delta(self) -> _FunnelHandle:
+        """Return this receiver's exact loss_rate_delta handle.
+
+        Args: None.
+        Returns: An immutable owned comparison field handle.
+        Example: ``values = change.read(change.loss_rate_delta)``.
+        Constraints: Only this exact receiver accepts the handle.
+        """
+        return _FunnelHandle(self._node.root.identity, "loss_rate_delta")
+
+
+class LogicalFunnelComparisonResult(_FunnelComparison):
+    """Logical complete funnel-period pairing with a frozen Finding extractor."""
+
+    def execute(self) -> MaterializedFunnelComparisonResult:
+        """Publish the comparison and bounded nonempty eligible Finding collection.
+
+        Args: None.
+        Returns: A MaterializedFunnelComparisonResult.
+        Example: ``result = current.compare(baseline).execute()``.
+        Constraints: Artifact, Evidence, Findings and terminal publish in one transaction.
+        """
+        return MaterializedFunnelComparisonResult(
+            _TOKEN, self._node, self._runtime, dataset=self._run()
+        )
+
+
+class MaterializedFunnelComparisonResult(_FunnelComparison, _MaterializedValue):
+    """Fixed period comparison with original counts and source-free attribution."""
+
+
 def new_journeys(node: Relation, runtime: DatasetRuntime) -> LogicalJourneyResult:
     """Bind the public Journey receiver to its governed graph."""
     return LogicalJourneyResult(_TOKEN, node, runtime)
 
 
 PublicMaterialized: TypeAlias = (
-    MaterializedJourneyResult
+    MaterializedFunnelResult
+    | MaterializedFunnelComparisonResult
+    | MaterializedJourneyResult
     | MaterializedEventDurationResult
     | MaterializedCompletedJourneys
     | MaterializedBooleanRelation

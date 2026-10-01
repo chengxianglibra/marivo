@@ -22,7 +22,6 @@ from tests.lazy_disclosure_fixtures import example_inputs
         "metric",
         "dimensioned",
         "time_metric",
-        "funnel_delta",
         "events",
         "lifecycle",
         "population",

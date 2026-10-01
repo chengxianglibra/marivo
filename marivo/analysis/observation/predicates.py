@@ -566,7 +566,6 @@ def bind_predicates(
         if item.operand is None:
             _error("complete field predicate", "corrupt predicate")
         resolved = resolver(item.operand)
-        from marivo.analysis.domains.event_comparison import filterable_field as funnel_delta_field
         from marivo.analysis.domains.event_reducers import event_filterable_field
         from marivo.analysis.domains.lifecycle_reducers import (
             filterable_field as lifecycle_filterable_field,
@@ -580,7 +579,6 @@ def bind_predicates(
             and not association_filterable_field(resolved)
             and not forecast_filterable_field(resolved)
             and not candidate_filterable_field(resolved)
-            and not funnel_delta_field(resolved)
             and not event_filterable_field(resolved)
             and not lifecycle_filterable_field(resolved)
         ):

@@ -24,6 +24,9 @@ from marivo.analysis.core.rules import (
     CellDerive,
     DisplayRank,
     DisplayTable,
+    FunnelAttribute,
+    FunnelCompare,
+    FunnelRead,
     OriginalReduce,
     PartsTransport,
     ReferenceDerive,
@@ -178,7 +181,7 @@ def _order(document: GraphDocument) -> tuple[Record, ...]:
                 raise invalid("invalid ordered input role")
             expected_roles = (
                 ("current", "baseline")
-                if isinstance(record.parameters, CellDerive)
+                if isinstance(record.parameters, (CellDerive, FunnelCompare))
                 else tuple(
                     "reference"
                     if index == 1
@@ -199,6 +202,9 @@ def _order(document: GraphDocument) -> tuple[Record, ...]:
                 not isinstance(
                     record.parameters,
                     (
+                        FunnelCompare,
+                        FunnelRead,
+                        FunnelAttribute,
                         AttributionDerive,
                         CellDerive,
                         PartsTransport,

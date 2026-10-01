@@ -6,7 +6,12 @@ import math
 from dataclasses import dataclass, replace
 from typing import Literal, TypeAlias
 
-from marivo.analysis.core.domain_captures import EventCapture, OrderCapture, StateModelCapture
+from marivo.analysis.core.domain_captures import (
+    EntryAxisCapture,
+    EventCapture,
+    OrderCapture,
+    StateModelCapture,
+)
 from marivo.analysis.core.model import (
     AttributionPart,
     Binding,
@@ -27,6 +32,10 @@ from marivo.analysis.core.model import (
     Fact,
     FactInput,
     FactKind,
+    FindingPolicyPart,
+    FunnelAllocationPart,
+    FunnelComparisonPart,
+    FunnelPart,
     JourneyPart,
     MissingCoordinate,
     Obligation,
@@ -85,6 +94,7 @@ from marivo.semantic.metric_graph import (
 from marivo.semantic.runtime_metric import RuntimeMetricExpr, SliceValue
 
 RuleId: TypeAlias = Literal[
+    "funnel@v1",
     "journey_match@v1",
     "journey_view@v1",
     "occurrence_prepare@v1",
@@ -468,8 +478,85 @@ class JourneyRead:
     ]
 
 
+FunnelField: TypeAlias = Literal[
+    "cohort_count",
+    "resolved_cohort_count",
+    "entry_count",
+    "resolved_entry_count",
+    "reached_count",
+    "lost_count",
+    "coverage_censored_count",
+    "conversion_from_first",
+    "conversion_from_previous",
+    "loss_rate_from_previous",
+    "current_cohort_count",
+    "baseline_cohort_count",
+    "current_resolved_cohort_count",
+    "baseline_resolved_cohort_count",
+    "current_entry_count",
+    "baseline_entry_count",
+    "current_resolved_entry_count",
+    "baseline_resolved_entry_count",
+    "current_reached_count",
+    "baseline_reached_count",
+    "current_lost_count",
+    "baseline_lost_count",
+    "current_coverage_censored_count",
+    "baseline_coverage_censored_count",
+    "current_loss_rate_from_previous",
+    "baseline_loss_rate_from_previous",
+    "loss_rate_delta",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class FunnelAxesPrepare:
+    cohort_start: str
+    cohort_end: str
+    axes: tuple[EntryAxisCapture, ...]
+    first_event: str
+    kind: Literal["funnel_axes"] = "funnel_axes"
+
+
+@dataclass(frozen=True, slots=True)
+class FunnelReduce:
+    output: DomainSignature
+    capture_scope: str
+    axes: tuple[EntryAxisCapture, ...]
+    population_id: str
+    kind: Literal["funnel_reduce"] = "funnel_reduce"
+
+
+@dataclass(frozen=True, slots=True)
+class FunnelCompare:
+    output: DomainSignature
+    kind: Literal["funnel_compare"] = "funnel_compare"
+
+
+@dataclass(frozen=True, slots=True)
+class FunnelRead:
+    field: FunnelField
+    step: int | None = None
+    kind: Literal["funnel_read"] = "funnel_read"
+
+
+@dataclass(frozen=True, slots=True)
+class FunnelAttribute:
+    output: DomainSignature
+    axes: tuple[Ref[DimensionKind], ...]
+    target_step: int
+    mode: Literal["joint", "hierarchy"]
+    top_k: int | None
+    kind: Literal["funnel_attribute"] = "funnel_attribute"
+
+
 RuleParameters: TypeAlias = (
-    JourneyMatch
+    FunnelAxesPrepare
+    | FunnelReduce
+    | FunnelCompare
+    | FunnelRead
+    | FunnelAttribute
+    | JourneyMatch
     | JourneyDuration
     | JourneyCompleted
     | JourneyRead
@@ -2488,18 +2575,20 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
         )
     parts = tuple(
         replace(part, complete=False)
-        if isinstance(part, JourneyPart) and params.mode == "where"
+        if isinstance(part, (JourneyPart, FunnelPart, FunnelComparisonPart, FunnelAllocationPart))
+        and params.mode in ("where", "limit")
         else part
         for part in (require_part(source, role) for role in params.retained_roles)
+        if not isinstance(part, FindingPolicyPart)
     )
-    if any(isinstance(p, AttributionPart) for p in parts):
+    if any(isinstance(p, (AttributionPart, FunnelAllocationPart)) for p in parts):
         parts = tuple(
             replace(
                 p,
                 complete=False if params.mode == "where" else p.complete,
                 view=params.attribution_view or p.view,
             )
-            if isinstance(p, AttributionPart)
+            if isinstance(p, (AttributionPart, FunnelAllocationPart))
             else p
             for p in parts
         )
@@ -3158,7 +3247,7 @@ def _display(inputs: tuple[Signature, ...], params: DisplayRank | DisplayTable) 
             ("ordering", ("position",), ("int64",), True),
         )
         parts = (
-            *tuple(p for p in first.parts if not isinstance(p, DisplayPart)),
+            *tuple(p for p in first.parts if not isinstance(p, (DisplayPart, FindingPolicyPart))),
             *(
                 DisplayPart(
                     binding, role, columns, types, identity, independent, params.order, params.ties

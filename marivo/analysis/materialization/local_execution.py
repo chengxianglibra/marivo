@@ -10,8 +10,6 @@ import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
-from marivo.analysis.domains.event_attribution import FunnelAttributeSpec
-from marivo.analysis.domains.event_comparison import FunnelCompareSpec
 from marivo.analysis.materialization.contracts import LocalReceipt, RetainedPart
 from marivo.analysis.materialization.local import (
     PartCollector,
@@ -138,15 +136,7 @@ class LocalBoundary:
 class LocalStage:
     output: int
     inputs: tuple[int, ...]
-    call: (
-        RowCall
-        | FunnelCompareSpec
-        | FunnelAttributeSpec
-        | CorrelateSpecV1
-        | ForecastSpecV1
-        | CandidateSpecV1
-        | DriverCandidateSpecV1
-    )
+    call: RowCall | CorrelateSpecV1 | ForecastSpecV1 | CandidateSpecV1 | DriverCandidateSpecV1
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -453,25 +443,6 @@ def _execute_graph(
             handoffs.append((id(source.frame), id(result)))
             output_row = call.output_row
             del source
-        elif isinstance(call, (FunnelCompareSpec, FunnelAttributeSpec)):
-            from marivo.analysis.domains.event_attribution_values import (
-                execute_attribute_with_parts as attribute_funnel,
-            )
-            from marivo.analysis.domains.event_comparison_values import (
-                execute_compare as compare_funnel,
-            )
-
-            if isinstance(call, FunnelCompareSpec):
-                result = compare_funnel(incoming[0].frame, incoming[1].frame, call)
-                parts = ()
-            else:
-                result, parts = attribute_funnel(
-                    incoming[0].frame, incoming[1].frame, incoming[2].frame, call
-                )
-            validate_frame(result, call.output_row, call.output_rows)
-            schema = pa.Schema.from_pandas(result, preserve_index=False)
-            value = _Frames(result, parts, schema)
-            output_row = call.output_row
         else:
             fail("a registered Event or R8 local method", "retired R6 local method")
         values[stage.output] = value

@@ -163,6 +163,11 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "journey.duration@v1": "journey_view@v1",
         "journey.completed@v1": "journey_view@v1",
         "journey.read@v1": "journey_view@v1",
+        "funnel.entry_axes@v1": "funnel@v1",
+        "funnel.reduce@v1": "funnel@v1",
+        "funnel.compare@v1": "funnel@v1",
+        "funnel.read@v1": "funnel@v1",
+        "funnel_ratio_mix@v1": "funnel@v1",
         "occurrence.prepare@v1": "occurrence_prepare@v1",
     }
     assert {
@@ -174,6 +179,11 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "journey.duration",
         "journey.completed",
         "journey.read",
+        "funnel.entry_axes",
+        "funnel.reduce",
+        "funnel.compare",
+        "funnel.read",
+        "funnel_ratio_mix",
         "occurrence.prepare",
         "time.product",
         "cell.ratio",

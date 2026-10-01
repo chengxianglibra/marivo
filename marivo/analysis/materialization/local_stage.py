@@ -20,8 +20,6 @@ from marivo.analysis.compiler.placement import (
 )
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.domains.event_attribution import FunnelAttributePayload, FunnelAttributeSpec
-from marivo.analysis.domains.event_comparison import FunnelComparePayload, FunnelCompareSpec
 from marivo.analysis.materialization import dataset_publication, source_stage
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
@@ -173,20 +171,10 @@ def run_local_graph(
         if not isinstance(root, LogicalRootHandle):
             raise _error("implementation_registration", run_ref)
         payload = root.payload
-        call: (
-            RowCall
-            | FunnelCompareSpec
-            | FunnelAttributeSpec
-            | CorrelateSpecV1
-            | ForecastSpecV1
-            | CandidateSpecV1
-            | DriverCandidateSpecV1
-        )
+        call: RowCall | CorrelateSpecV1 | ForecastSpecV1 | CandidateSpecV1 | DriverCandidateSpecV1
         if isinstance(
             payload,
             (
-                FunnelComparePayload,
-                FunnelAttributePayload,
                 CorrelatePayload,
                 ForecastPayload,
                 CandidatePayload,

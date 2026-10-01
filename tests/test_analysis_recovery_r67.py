@@ -72,10 +72,7 @@ def test_retired_r6_consumers_have_no_export_registration_or_runtime_dispatch() 
     for cls in (LogicalMetricDataset, MaterializedMetricDataset):
         assert not hasattr(cls, "compare")
     registry = make_family_registry(make_ids(()))
-    for family, shapes in (("delta", ("funnel",)), ("attribution", ("funnel-loss-rate",))):
-        registration = registry.get(family)
-        assert registration.owner_id.startswith("domains.event_")
-        assert tuple(shape.local_shape_id for shape in registration.shape_ids) == shapes
+    assert not {"delta", "attribution"} & {f.family_id for f in registry.registrations}
     for operator in (
         "metric.compare",
         "delta.attribute",
@@ -105,11 +102,11 @@ def test_retired_r6_consumers_have_no_export_registration_or_runtime_dispatch() 
         "operators/attribution.py",
     ):
         assert not (Path(marivo.__file__).parent / "analysis" / relative).exists()
-    assert legacy_source_migration_stage("event.compare") == 7
+    assert legacy_source_migration_stage("event.compare") is None
     assert legacy_source_migration_stage("discover.driver_axes") == 8
     assert legacy_source_migration_stage("metric.compare") is None
     assert legacy_source_migration_stage("delta.attribute") is None
-    assert legacy_source_migration_stage("funnel_delta.attribute") == 7
+    assert legacy_source_migration_stage("funnel_delta.attribute") is None
 
 
 @pytest.mark.runtime

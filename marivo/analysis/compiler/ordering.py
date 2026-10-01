@@ -18,20 +18,7 @@ def ordered_relation(
     row: DatasetRowContract,
     rows: DatasetRowSetContract,
 ) -> ir.Table:
-    from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics
 
-    if isinstance(row.family_semantics, FunnelDeltaSemantics):
-        from marivo.analysis.compiler.event_reducers import canonical_funnel_rows
-
-        return canonical_funnel_rows(
-            table,
-            step_keys=tuple(
-                step.key for step in row.family_semantics.current.journey.pattern.steps
-            ),
-            axis_columns=tuple(
-                f.name for f in row.schema.columns[: len(row.family_semantics.current.axis_refs)]
-            ),
-        )
     if row.shape_id.family_id == "lifecycle":
         from marivo.analysis.compiler.lifecycle_reducers import canonical_rows
 

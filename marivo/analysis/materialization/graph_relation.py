@@ -39,10 +39,12 @@ from marivo.analysis.core.rules import (
     BindProject,
     CellDerive,
     CompleteGroups,
+    FunnelAxesPrepare,
     JourneyRead,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
+    OccurrencePrepare,
     OriginalReduce,
     PartsTransport,
     RowState,
@@ -155,6 +157,13 @@ def _retained_definition(root: MethodNode) -> MethodNode:
     """
     from uuid import uuid4
 
+    # Capture source identities are part of the frozen R7 authority and cannot be renamed.
+    if any(
+        isinstance(node, MethodNode)
+        and isinstance(node.parameters, (OccurrencePrepare, FunnelAxesPrepare))
+        for node in retained_nodes(root)
+    ):
+        return root
     known: dict[str, Node] = {}
     for original in retained_nodes(root):
         node = original

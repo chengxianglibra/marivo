@@ -7,7 +7,12 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, NoReturn, TypeAlias
 
-from marivo.analysis.core.domain_captures import EventCapture, OrderCapture, StateModelCapture
+from marivo.analysis.core.domain_captures import (
+    EntryAxisCapture,
+    EventCapture,
+    OrderCapture,
+    StateModelCapture,
+)
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridVersionSelection
 from marivo.analysis.domains.completeness import CompletenessDeclaration
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
@@ -611,8 +616,67 @@ class JourneyPart:
     version: str = "v1"
 
 
+@dataclass(frozen=True, slots=True)
+class EntryAxesPart:
+    binding: Binding
+    cohort_start: str
+    cohort_end: str
+    occurrence: OccurrencePart
+    axes: tuple[EntryAxisCapture, ...]
+    first_event: str
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class FunnelPart:
+    binding: Binding
+    capture_scope: str
+    journey: JourneyPart
+    axes: tuple[EntryAxisCapture, ...]
+    population_id: str
+    complete: bool = True
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class FunnelComparisonPart:
+    binding: Binding
+    current: FunnelPart
+    baseline: FunnelPart
+    complete: bool = True
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class FunnelAllocationPart:
+    binding: Binding
+    comparison: FunnelComparisonPart
+    original: FunnelComparisonPart
+    axes: tuple[Ref[DimensionKind], ...]
+    target_step: int
+    mode: Literal["joint", "hierarchy"]
+    top_k: int | None
+    complete: bool = True
+    view: Literal["contribution", "current", "baseline"] = "contribution"
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class FindingPolicyPart:
+    binding: Binding
+    producer: Literal["funnel.compare", "funnel_ratio_mix"]
+    extractor: Literal["graph.funnel_delta_findings@v1", "graph.funnel_contribution_findings@v1"]
+    policy: Literal["bounded_algebraic_findings@v1"] = "bounded_algebraic_findings@v1"
+    version: Literal["v1"] = "v1"
+
+
 Part: TypeAlias = (
-    JourneyPart
+    EntryAxesPart
+    | FunnelPart
+    | FunnelComparisonPart
+    | FunnelAllocationPart
+    | FindingPolicyPart
+    | JourneyPart
     | OccurrencePart
     | AttributionPart
     | SubjectPart
@@ -630,6 +694,9 @@ Part: TypeAlias = (
     | PairCountsPart
 )
 PartRole: TypeAlias = Literal[
+    "entry_axes",
+    "funnel_state",
+    "finding_policy",
     "journey",
     "occurrences",
     "basis",
@@ -663,6 +730,12 @@ PartRole: TypeAlias = Literal[
 
 
 def part_role(part: Part) -> PartRole:
+    if isinstance(part, EntryAxesPart):
+        return "entry_axes"
+    if isinstance(part, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart)):
+        return "funnel_state"
+    if isinstance(part, FindingPolicyPart):
+        return "finding_policy"
     if isinstance(part, JourneyPart):
         return "journey"
     if isinstance(part, OccurrencePart):
@@ -697,6 +770,14 @@ def part_role(part: Part) -> PartRole:
 
 
 def validate_part(part: Part) -> None:
+    if isinstance(
+        part,
+        (EntryAxesPart, FunnelPart, FunnelComparisonPart, FunnelAllocationPart, FindingPolicyPart),
+    ):
+        from marivo.analysis.core.funnel_rules import validate
+
+        validate(part)
+        return
     if isinstance(part, JourneyPart):
         from datetime import datetime
 

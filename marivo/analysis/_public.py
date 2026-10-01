@@ -148,6 +148,10 @@ from marivo.analysis.public_dsl import LogicalCompletedJourneys as LogicalComple
 from marivo.analysis.public_dsl import LogicalDifferenceRelation as LogicalDifferenceRelation
 from marivo.analysis.public_dsl import LogicalEventDurationResult as LogicalEventDurationResult
 from marivo.analysis.public_dsl import LogicalFixedAnalysisDomain as LogicalFixedAnalysisDomain
+from marivo.analysis.public_dsl import (
+    LogicalFunnelComparisonResult as LogicalFunnelComparisonResult,
+)
+from marivo.analysis.public_dsl import LogicalFunnelResult as LogicalFunnelResult
 from marivo.analysis.public_dsl import LogicalJourneyResult as LogicalJourneyResult
 from marivo.analysis.public_dsl import LogicalNumericRelation as LogicalNumericRelation
 from marivo.analysis.public_dsl import LogicalRankingResult as LogicalRankingResult
@@ -197,6 +201,10 @@ from marivo.analysis.public_dsl import (
 from marivo.analysis.public_dsl import (
     MaterializedEventDurationResult as MaterializedEventDurationResult,
 )
+from marivo.analysis.public_dsl import (
+    MaterializedFunnelComparisonResult as MaterializedFunnelComparisonResult,
+)
+from marivo.analysis.public_dsl import MaterializedFunnelResult as MaterializedFunnelResult
 from marivo.analysis.public_dsl import (
     MaterializedGroupedNumericRelation as MaterializedGroupedNumericRelation,
 )
@@ -363,6 +371,10 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "AnalysisAction",
     "AnalysisContract",
     "LogicalAnalysisDomain",
+    "LogicalFunnelResult",
+    "MaterializedFunnelResult",
+    "LogicalFunnelComparisonResult",
+    "MaterializedFunnelComparisonResult",
     "LogicalJourneyResult",
     "MaterializedJourneyResult",
     "LogicalEventDurationResult",

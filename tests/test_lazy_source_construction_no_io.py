@@ -23,7 +23,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from ibis.backends.duckdb import Backend
 import marivo.analysis as mv
-import marivo.analysis.domains.funnel_registry
 import marivo.semantic.runtime_metric_lowering
 import marivo.analysis.compiler as compiler
 import marivo.analysis.compiler.lowering as lowering
@@ -161,7 +160,6 @@ guards = (
     (DatasetRuntime, 'open', 'session'),
     (DatasetRuntime, 'execute_metric', 'run'),
     (DatasetRuntime, 'execute_population', 'run'),
-    (DatasetRuntime, 'execute_delta', 'run'),
     (SessionStore, '__init__', 'store'),
     (SessionStore, '_connection', 'store'),
     (SessionStore, 'admit', 'run'),
@@ -323,7 +321,7 @@ def test_complete_source_construction_has_no_io() -> None:
     assert evidence["aggregates"] == 8
     assert evidence["ties"] == 4
     assert evidence["guarded_negative_failures"] == 6
-    assert evidence["guarded_entrypoints"] == 59
+    assert evidence["guarded_entrypoints"] == 58
     assert evidence["checked_definitions"] == 44
     assert evidence["telemetry_enabled"] is True
     assert set(evidence["attempts"]) == {

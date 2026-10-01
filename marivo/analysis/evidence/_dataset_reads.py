@@ -188,6 +188,8 @@ def _validate(
     finding: t.Finding, record: ArtifactRecord, registration: FindingRegistration
 ) -> None:
     derivation = finding.derivation
+    if not isinstance(derivation, t.FindingDerivationV1):
+        raise invalid("legacy Finding reads require their exact derivation variant")
     if (
         finding.finding_id != finding_identity(finding)
         or finding.canonical_item_key != registration.canonical_item_key(finding)

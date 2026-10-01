@@ -156,9 +156,10 @@ negative = coefficient.where(coefficient.value.lt(0)).execute()
 比较、归因、相关性、预测和发现属于 Dataset 方法。Event 匹配从
 `session.events.match(..., population=members)` 开始，返回类型化 JourneyResult；
 耗时与选人消费保留的 assignment。Lifecycle 仍使用既有 Dataset 入口。
-不同 Session 的输入不能混用。以下漏斗规则属于等待 R7.4 迁移的旧消费者，
-不是新 JourneyResult 的后续操作。
-Event 漏斗比较要求队列窗口时长、时间域和后续跟踪偏移一致。漏斗归因需要从完整旅程或通过 `session.artifact(ref)` 打开的旅程检查点逻辑构建两侧漏斗；已物化的漏斗汇总或漏斗 Delta 不能替代这些旅程输入。
+不同 Session 的输入不能混用。first-per-subject Journey 提供 `funnel(axes=())`。
+漏斗比较要求完全一致的 pattern、population、时间依据、队列窗口时长、随访偏移
+和完整覆盖。Logical 归因可以按同一 assignment 准备入口轴；fixed 归因要求
+已经保留这些轴及原组件。下方可执行示例展示 owned read、比较和 Findings。
 
 当前源端执行支持 DuckDB 和下述 PostgreSQL 标量子集；数据源建模支持某个后端，不代表 Dataset 已能在该后端执行。不支持的方法会报告后端与输入形状。保留结果不会被隐式上传到其他来源，同一 Session 的执行键命中不需要连接来源。
 
@@ -261,9 +262,9 @@ Parquet 保留四种 Arrow Duration 单位。原状态上卷和时间 fold 在�
 自动替换。这些 R5 资格不扩展远程后端执行范围，完整矩阵由 R9 验证。percentile
 status-time fold 仍未准入。相关性消费者保留其独立资格边界。
 
-PostgreSQL、SQLite、Trino 与 ClickHouse 支持基于完整非 Entity 状态的隐藏轴展开加性与组件归因。MySQL 的组合查询在实测中超过验收服务的内存限制，因此仍拒绝；Trino 的展开 Top-K 查询超过服务的 stage 上限，也保持拒绝。以下 Event 后端记录属于保留的旧实现，不构成 R7.3 新公共入口资格。PostgreSQL 支持精确的两步或三步旧旅程，以及包含两个触发 Event 的 `session.lifecycle.replay(...)` 历史；要求未版本化表源和 `int64` 主体、事件身份。直接 Event 漏斗、耗时和主体选择，以及 Lifecycle 状态分布、转移、停留、违规和主体选择均已验收。完整 PostgreSQL 漏斗可通过既有保留结果路径继续比较和归因。
+PostgreSQL、SQLite、Trino 与 ClickHouse 支持基于完整非 Entity 状态的隐藏轴展开加性与组件归因。MySQL 的组合查询在实测中超过验收服务的内存限制，因此仍拒绝；Trino 的展开 Top-K 查询超过服务的 stage 上限，也保持拒绝。以下 Event 后端记录属于保留的旧实现，不构成 R7.3 新公共入口资格。PostgreSQL 支持精确的两步或三步旧旅程，以及包含两个触发 Event 的 `session.lifecycle.replay(...)` 历史；要求未版本化表源和 `int64` 主体、事件身份。直接 Event 漏斗、耗时和主体选择，以及 Lifecycle 状态分布、转移、停留、违规和主体选择均已验收。旧 PostgreSQL 私有漏斗比较和归因消费者已退出；历史后端证据不授予新 R7.4 路线资格。
 
-ClickHouse 和 Trino 支持相同表源与身份条件下的两步旅程，匹配策略包括 `first_per_subject()` 和 `every_start()` 的共享／独占完成分配。Trino 的真实验收使用 Iceberg；ClickHouse 要求只读账户获准设置 `enable_materialized_cte=1`。空输出也执行源端断言，只有契约允许的完整结果进入既有本地续算。Trino 还支持直接无分组漏斗、first-per-subject 耗时、主体选择和完整无分组漏斗比较。Trino 分组漏斗的核对查询超过验收服务的 stage 上限，因此分组漏斗和依赖它的归因保持拒绝。ClickHouse 的直接 Event 派生方法与主体选择仍因计划或内存限制保持拒绝。Trino（Iceberg）和 ClickHouse（MergeTree）还支持相同表源条件下的双触发 Event Lifecycle history，主体与事件身份各限定为一个 `int64` 分量：使用源端数组折叠完成全量重放，并验证并列顺序是否有歧义。先执行 history，再从完整保留结果继续状态分布、转移、停留、违规和主体选择；这两个后端的直接源端 Lifecycle 派生方法仍未开放。SQLite、MySQL 的 Event/Lifecycle 仍未开放。
+ClickHouse 和 Trino 支持相同表源与身份条件下的两步旅程，匹配策略包括 `first_per_subject()` 和 `every_start()` 的共享／独占完成分配。Trino 的真实验收使用 Iceberg；ClickHouse 要求只读账户获准设置 `enable_materialized_cte=1`。空输出也执行源端断言，只有契约允许的完整结果进入既有本地续算。Trino 还支持直接无分组漏斗、first-per-subject 耗时、主体选择。其旧私有无分组漏斗比较消费者已退出，不授予新 R7.4 路线资格。Trino 分组漏斗的核对查询超过验收服务的 stage 上限，因此分组漏斗和依赖它的归因保持拒绝。ClickHouse 的直接 Event 派生方法与主体选择仍因计划或内存限制保持拒绝。Trino（Iceberg）和 ClickHouse（MergeTree）还支持相同表源条件下的双触发 Event Lifecycle history，主体与事件身份各限定为一个 `int64` 分量：使用源端数组折叠完成全量重放，并验证并列顺序是否有歧义。先执行 history，再从完整保留结果继续状态分布、转移、停留、违规和主体选择；这两个后端的直接源端 Lifecycle 派生方法仍未开放。SQLite、MySQL 的 Event/Lifecycle 仍未开放。
 
 对于已验收的 PostgreSQL、Trino 或 ClickHouse 模型，先执行 history，再从保留结果继续：
 
@@ -639,7 +640,8 @@ distinct/distribution/extrema 与未经证明的重叠状态没有分配方法�
 用 `session.artifact(ref)` 恢复，并读取结果的 `contract()`。fixed 命中或续算前
 校验完整部件；恢复不会沿 lineage 重新读取来源。`mv.table(...)` 保持终端边界。
 旧 Metric Dataset 比较、Delta/Attribution Dataset 公共导出及 Help target 已删除，
-不提供重定向。Event funnel 消费者仍归 R7 私有契约；R7/R8 来源准入、R9 后端
+不提供重定向。R7.4 以公共 graph 结果替换私有 funnel Delta 和 Attribution
+消费者；R7/R8 来源准入、R9 后端
 资格及 R10 真实 Agent 验收各自交接。
 
 保留组键的原状态归约返回 MaterializedGroupedNumericRelation；Singleton 返回
@@ -709,3 +711,40 @@ Store 7 保存 assignment、reach、覆盖、映射、精度和归约状态。fi
 新来源匹配或观察混合。结果卡披露原始及捕获单位与潜在精度损失（包括原生纳秒转
 微秒）；边界与顺序使用捕获时间，精度下降造成的同刻仍需业务顺序。整个执行共享
 600 秒期限。本阶段不授予 funnel、Lifecycle、Anchor、远端后端或同 wheel 完整 R7 资格。
+
+## 精确漏斗比较与证据
+
+两期使用同一显式总体上的 first-per-subject Journey。pattern、matching 和定义必须
+一致，开始窗口及随访长度相同，并具有完整覆盖。下面继续已有的 `journeys`、
+`baseline_journeys`，以及其 pattern 中精确的 `finish_step`。
+
+```python
+funnel = journeys.funnel()
+fixed_funnel = funnel.execute()
+lost = fixed_funnel.read(fixed_funnel.lost_count).execute()
+change = funnel.compare(baseline_journeys.funnel())
+allocation = change.attribute(
+    target=mv.funnel_loss_rate(step=finish_step),
+    axes=(ms.ref.dimension("sales.customers.region"),),
+    mode="joint",
+    top_k=5,
+).execute()
+allocation.contract().show()
+page = allocation.findings(limit=20)
+if page.items:
+    finding = allocation.finding(page.items[0].finding_id)
+```
+
+漏斗轴在本地 matching 前，按全部合格开始 occurrence 的入口时点准备；计算消费同一
+canonical assignment。snapshot/validity 版本和完整轴元组保留真实 Null 类别。
+七项计数使用精确 int64；零分母和初始步骤流失率为 Undefined。字段 handle 绑定 receiver。
+
+归因分别计算 loss 和 denominator mix，以两期 resolved-entry 合计建立统一 Top-K，
+保留 typed Other 与 masks。joint/hierarchy 的每个 resolution 都核对两侧项和目标差值。
+筛选保留原 reconciliation scope，并撤销完整分区承诺。fixed 必须具有 retained 轴及
+组件，不读取当前 Semantic、不连接来源，也不重新 matching。
+
+物化结果提供 Evidence、分页 Findings 和单条读取；每次读取都验证整个冻结集合。
+compare/归因的发射上限为 1000，保留 eligible/emitted/truncated 权威。
+来源路线为显式 Ibis 准备后本地消费，固定续算为 `artifact_python`。
+此处不授予 native funnel、远端、same-wheel 或完整 R7 资格。

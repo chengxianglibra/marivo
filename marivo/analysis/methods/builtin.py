@@ -15,6 +15,11 @@ from marivo.analysis.core.rules import (
     CompleteGroups,
     DisplayRank,
     DisplayTable,
+    FunnelAttribute,
+    FunnelAxesPrepare,
+    FunnelCompare,
+    FunnelRead,
+    FunnelReduce,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -52,6 +57,8 @@ from marivo.analysis.methods.physical import (
 from marivo.analysis.methods.semantics import MethodKey
 
 PARTS: tuple[PartRole, ...] = (
+    "funnel_state",
+    "finding_policy",
     "occurrences",
     "basis",
     "allocation",
@@ -857,6 +864,12 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     """Version typed folds and once-rounded numeric consumers in Store 7."""
+    if method.name.startswith("funnel.") or method.name == "funnel_ratio_mix":
+        from marivo.analysis.methods.funnel_physical import (
+            implementations as funnel_implementations,
+        )
+
+        return funnel_implementations(method)
     if method.name.startswith("journey."):
         from marivo.analysis.methods.journey_physical import (
             implementations as journey_implementations,
@@ -1181,6 +1194,11 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
         (
             OccurrencePrepare,
             PreparedObservation,
+            FunnelAxesPrepare,
+            FunnelReduce,
+            FunnelCompare,
+            FunnelRead,
+            FunnelAttribute,
             JourneyMatch,
             JourneyDuration,
             JourneyCompleted,

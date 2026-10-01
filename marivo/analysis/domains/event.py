@@ -42,7 +42,6 @@ from marivo.analysis.domains.contracts import (
 )
 from marivo.analysis.domains.errors import EventConstructionError, event_error
 from marivo.analysis.domains.event_reducers import validate_reducer
-from marivo.analysis.domains.funnel_delta import LogicalFunnelDeltaDataset
 from marivo.analysis.domains.subject import PopulationInput, admit_population
 from marivo.analysis.event import EventPattern, EveryStart, FirstPerSubject, PatternStep
 from marivo.analysis.observation import coordinates
@@ -75,19 +74,6 @@ class LogicalEventDataset(LogicalDataset, _token=d._CORE_TOKEN, family_id="event
     """Dense logical journey assignments with immutable source authority."""
 
     __slots__ = ()
-
-    def compare(
-        self, baseline: LogicalEventDataset | MaterializedEventDataset
-    ) -> LogicalFunnelDeltaDataset:
-        """Compare compatible funnel cells against baseline.
-
-        Args: baseline: Logical or materialized Event funnel with compatible axes and follow-up.
-        Returns: Logical Event Delta. Example: ``current.compare(baseline)``.
-        Constraints: Exact funnel contracts and complete follow-up are required.
-        """
-        from marivo.analysis.domains.event_comparison import compare
-
-        return compare(self, baseline)
 
     def funnel(
         self, *, axes: list[DimensionInput] | tuple[DimensionInput, ...] = ()
@@ -149,19 +135,6 @@ class MaterializedEventDataset(MaterializedDataset, _token=d._CORE_TOKEN, family
     """Committed exact journey rows, independent of their source catalog."""
 
     __slots__ = ()
-
-    def compare(
-        self, baseline: LogicalEventDataset | MaterializedEventDataset
-    ) -> LogicalFunnelDeltaDataset:
-        """Compare compatible funnel cells against baseline.
-
-        Args: baseline: Logical or materialized Event funnel with compatible axes and follow-up.
-        Returns: Logical Event Delta. Example: ``current.compare(baseline)``.
-        Constraints: Exact funnel contracts and complete follow-up are required.
-        """
-        from marivo.analysis.domains.event_comparison import compare
-
-        return compare(self, baseline)
 
     def funnel(
         self, *, axes: list[DimensionInput] | tuple[DimensionInput, ...] = ()
@@ -726,13 +699,6 @@ def register_event(registry: DatasetFamilyRegistry, ids: d._StableIdRegistry) ->
             ids=ids,
             row_validator=_validate_event,
             consumers=(
-                ConsumerRegistration(
-                    "event.compare",
-                    ("current", "baseline"),
-                    "delta",
-                    (d._make_shape_id("event", "funnel", 1, ids=ids),),
-                    ("event.complete_funnel@v1",),
-                ),
                 *(
                     ConsumerRegistration(
                         f"event.{method}",

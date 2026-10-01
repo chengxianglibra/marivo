@@ -12,7 +12,12 @@ from pydantic import TypeAdapter
 
 from marivo.analysis.compiler.graph_plan import GraphPlan, LocalMethodStage, SourceMethodStage
 from marivo.analysis.core import model as core_model
-from marivo.analysis.core.domain_captures import EventCapture, OrderCapture, StateModelCapture
+from marivo.analysis.core.domain_captures import (
+    EntryAxisCapture,
+    EventCapture,
+    OrderCapture,
+    StateModelCapture,
+)
 from marivo.analysis.core.graph import FixedLeaf, MethodNode, Node, SourceLeaf
 from marivo.analysis.core.predicates import DurationLiteral
 from marivo.analysis.core.time_grid import (
@@ -47,14 +52,19 @@ _DEFINITION = re.compile(r"ds_[0-9a-f]{64}\Z")
 _GRAPH_PROTOCOL = "marivo.analysis.execution_key/v2"
 _CanonicalValue: TypeAlias = None | bool | int | float | str | tuple["_CanonicalValue", ...]
 
-_CAPTURE_WIRE: TypeAdapter[EventCapture | OrderCapture | StateModelCapture] = TypeAdapter(
-    EventCapture | OrderCapture | StateModelCapture
+_CAPTURE_WIRE: TypeAdapter[EntryAxisCapture | EventCapture | OrderCapture | StateModelCapture] = (
+    TypeAdapter(EntryAxisCapture | EventCapture | OrderCapture | StateModelCapture)
 )
 
 _WIRE_TAGS: dict[type[object], str] = {
     BoundedCompletenessDeclarationV1: "bounded_completeness",
     SourceOriginCompletenessDeclarationV1: "origin_completeness",
     DurationLiteral: "duration_literal",
+    core_model.EntryAxesPart: "entry_axes_part",
+    core_model.FunnelPart: "funnel_part",
+    core_model.FunnelComparisonPart: "funnel_comparison_part",
+    core_model.FunnelAllocationPart: "funnel_allocation_part",
+    core_model.FindingPolicyPart: "finding_policy_part",
     core_model.JourneyPart: "journey_part",
     core_model.OccurrencePart: "occurrence_part",
     core_model.AttributionPart: "attribution_part",
@@ -152,7 +162,7 @@ def _wire(value: object) -> _CanonicalValue:
         return value
     if type(value) is tuple:
         return tuple(_wire(item) for item in value)
-    if isinstance(value, (EventCapture, OrderCapture, StateModelCapture)):
+    if isinstance(value, (EntryAxisCapture, EventCapture, OrderCapture, StateModelCapture)):
         return ("r7_capture", type(value).__name__, _CAPTURE_WIRE.dump_json(value).decode())
     tag = _WIRE_TAGS.get(type(value))
     if tag is None or not is_dataclass(value):

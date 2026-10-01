@@ -463,4 +463,41 @@ terminal. Original reductions with group keys publish
 
 The old Metric Dataset ``compare`` and public Delta/Attribution Dataset types
 are removed. Their Help targets are unresolved, with no compatibility redirect.
-Private Event funnel results belong to R7 and confer no new source qualification.
+The private Event funnel Delta/Attribution families and their exclusive codecs
+are removed. The public Journey funnel chain below uses registered graph methods
+and Store 7; fixed continuations never reopen the source or rerun matching.
+
+R7.4 funnel results and frozen Findings
+---------------------------------------
+
+``journeys.funnel(axes=())`` consumes the canonical first-per-subject assignment.
+Seven exact int64 counts and three rates retain their original components.
+Receiver-owned field handles feed ``read(handle)``; ``funnel_loss_rate(step=...)``
+requires an exact noninitial step. Historical axes use the entry-time version,
+complete governed paths and true Null categories.
+
+``current.compare(baseline)`` requires the same explicit population, exact
+pattern/matching/definitions, equal windows/follow-up lengths and complete
+coverage. It pairs complete outer support. ``change.attribute(target=..., axes=...)``
+uses exact Fraction ratio-mix allocation, common Top-K and typed Other; logical
+axis expansion depends on the same assignment, while fixed missing axes reject.
+Filtering retains original reconciliation scope and drops complete partition claims.
+
+Materialized graph results expose ``evidence_digest()``, ``findings(limit=20,
+cursor=None)`` and ``finding(finding_id)``. Compare and allocation use frozen
+extractors capped at 1000, preserving eligible/emitted/truncated authority.
+Every read validates the full collection, bodies, bindings, versions and receipts.
+Artifact, Evidence, Findings and successful terminal publish atomically in Store 7.
+Other producers use the explicit zero-Finding policy.
+
+.. autoclass:: LogicalFunnelResult
+   :members:
+
+.. autoclass:: MaterializedFunnelResult
+   :members:
+
+.. autoclass:: LogicalFunnelComparisonResult
+   :members:
+
+.. autoclass:: MaterializedFunnelComparisonResult
+   :members:

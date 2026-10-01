@@ -18,14 +18,6 @@ from marivo.analysis.domains.completeness import (
     EventCoverageProvider,
 )
 from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
-from marivo.analysis.domains.funnel_attribution import (
-    LogicalFunnelAttributionDataset,
-    MaterializedFunnelAttributionDataset,
-)
-from marivo.analysis.domains.funnel_delta import (
-    LogicalFunnelDeltaDataset,
-    MaterializedFunnelDeltaDataset,
-)
 from marivo.analysis.domains.lifecycle import (
     LogicalLifecycleDataset,
     MaterializedLifecycleDataset,
@@ -455,20 +447,6 @@ class DatasetRuntime:
         result = self._execute(dataset)
         if not isinstance(result, MaterializedAssociationDataset):
             raise _error("publication", None)
-        return result
-
-    def execute_delta(self, dataset: LogicalFunnelDeltaDataset) -> MaterializedFunnelDeltaDataset:
-        result = self._execute(dataset)
-        if not isinstance(result, MaterializedFunnelDeltaDataset):
-            raise _error("presentation")
-        return result
-
-    def execute_attribution(
-        self, dataset: LogicalFunnelAttributionDataset
-    ) -> MaterializedFunnelAttributionDataset:
-        result = self._execute(dataset)
-        if not isinstance(result, MaterializedFunnelAttributionDataset):
-            raise _error("presentation")
         return result
 
     def execute_metric(self, dataset: LogicalMetricDataset) -> MaterializedMetricDataset:
