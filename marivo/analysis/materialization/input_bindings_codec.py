@@ -7,10 +7,8 @@ from dataclasses import replace
 
 from marivo.analysis.materialization.contracts import (
     ComparisonInputAuthority,
-    DeltaEvidenceSummary,
     PopulationAuthority,
     _array,
-    _hash,
     _int,
     _obj,
     _scope,
@@ -127,25 +125,6 @@ def comparison_basis_text(value: object) -> str:
     return value
 
 
-def delta_evidence_payload(value: DeltaEvidenceSummary | None) -> object:
-    if value is None:
-        return None
-    return {
-        "schema": "marivo.delta_evidence/v1",
-        "coordinate_presence_counts": value.coordinate_presence_counts,
-        "calculation_status_counts": value.calculation_status_counts,
-        "relative_status_counts": value.relative_status_counts,
-        "matched_count": value.matched_count,
-        "unpaired_count": value.unpaired_count,
-        "numeric_promotion_id": value.numeric_promotion_id,
-        "approximate": value.approximate,
-        "eligible_finding_count": value.eligible_finding_count,
-        "emitted_finding_count": value.emitted_finding_count,
-        "finding_truncated": value.finding_truncated,
-        "finding_set_digest": value.finding_set_digest,
-    }
-
-
 def _counts(value: object, names: tuple[str, ...]) -> tuple[tuple[str, int], ...]:
     pairs = tuple(_array(item) for item in _array(value))
     if len(pairs) != len(names) or any(len(pair) != 2 for pair in pairs):
@@ -153,49 +132,3 @@ def _counts(value: object, names: tuple[str, ...]) -> tuple[tuple[str, int], ...
     if tuple(pair[0] for pair in pairs) != names:
         raise invalid("unregistered Delta Evidence status")
     return tuple((name, _int(pair[1])) for name, pair in zip(names, pairs, strict=True))
-
-
-def decode_delta_evidence(value: object) -> DeltaEvidenceSummary | None:
-    if value is None:
-        return None
-    obj = _obj(
-        value,
-        "schema coordinate_presence_counts calculation_status_counts relative_status_counts matched_count unpaired_count numeric_promotion_id approximate eligible_finding_count emitted_finding_count finding_truncated finding_set_digest",
-    )
-    if obj["schema"] != "marivo.delta_evidence/v1":
-        raise invalid("unregistered Delta Evidence schema")
-    presence = _counts(
-        obj["coordinate_presence_counts"], ("matched", "current_only", "baseline_only")
-    )
-    calculation = _counts(obj["calculation_status_counts"], ("ok", "null_input", "missing_side"))
-    relative = _counts(obj["relative_status_counts"], ("ok", "baseline_zero", "delta_unavailable"))
-    approximate = obj["approximate"]
-    truncated = obj["finding_truncated"]
-    if type(approximate) is not bool or type(truncated) is not bool:
-        raise invalid("invalid Delta Evidence boolean")
-    result = DeltaEvidenceSummary(
-        presence,
-        calculation,
-        relative,
-        _int(obj["matched_count"]),
-        _int(obj["unpaired_count"]),
-        _text(obj["numeric_promotion_id"]),
-        approximate,
-        _int(obj["eligible_finding_count"]),
-        _int(obj["emitted_finding_count"]),
-        truncated,
-        _text(obj["finding_set_digest"]),
-    )
-    _hash(result.finding_set_digest)
-    total = sum(count for _, count in presence)
-    if (
-        total != sum(count for _, count in calculation)
-        or total != sum(count for _, count in relative)
-        or result.matched_count != presence[0][1]
-        or result.unpaired_count != presence[1][1] + presence[2][1]
-        or result.eligible_finding_count > calculation[0][1]
-        or result.emitted_finding_count != min(result.eligible_finding_count, 1000)
-        or result.finding_truncated != (result.eligible_finding_count > 1000)
-    ):
-        raise invalid("inconsistent Delta Evidence counts")
-    return result

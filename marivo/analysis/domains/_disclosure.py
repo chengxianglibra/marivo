@@ -27,6 +27,8 @@ from marivo.analysis.domains.contracts import (
     EventJourneySemantics,
     EventTimeToEventSemantics,
 )
+from marivo.analysis.domains.event_attribution import FunnelAttributionSemantics
+from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics
 from marivo.analysis.domains.lifecycle import LifecycleSemantics
 from marivo.analysis.domains.lifecycle_reducers import REDUCER_TYPES, InState, in_state
 from marivo.analysis.event import (
@@ -54,6 +56,20 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
     value: object
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
+    for fid, target, variant in (
+        ("delta", "funnel_delta_dataset", FunnelDeltaSemantics),
+        ("attribution", "funnel_attribution_dataset", FunnelAttributionSemantics),
+    ):
+        descriptors.append(
+            family(
+                target,
+                registry.get(fid),
+                summary="Private Event funnel result; source migration remains owned by R7.",
+                variants=(variant,),
+                acquisition="Construct through the Event funnel's typed operation.",
+                constraints=("No Metric comparison or attribution variant is registered.",),
+            )
+        )
     for fid, variants, summary in (
         (
             "event",
@@ -228,7 +244,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                     "Use a complete-journey funnel with compatible matching, pattern and axes; cohort duration, temporal domain and follow-up offset must match.",
                 ),
             ),
-            "LogicalDeltaDataset",
+            "LogicalFunnelDeltaDataset",
             "result = events.funnel().compare(events.funnel())",
             ("events",),
             "Compare compatible complete funnel partitions without rematching journeys.",
@@ -237,7 +253,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "delta",
             "attribute",
             "funnel_delta_dataset.attribute",
-            ("delta.funnel_attribute",),
+            ("funnel_delta.attribute",),
             (
                 P("axes", "Choose scoped stable Dimensions for complete journey partitions."),
                 P("mode", "Use joint, or hierarchy with at least two ordered axes."),
@@ -248,7 +264,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                     ("funnel_loss_rate",),
                 ),
             ),
-            "LogicalAttributionDataset",
+            "LogicalFunnelAttributionDataset",
             "result = funnel_delta.attribute(axes=(region,), target=funnel_loss_rate(step=finish_step))",
             ("funnel_delta", "region", "funnel_loss_rate", "finish_step"),
             "Reconcile scoped funnel loss rates from logical funnels over complete journeys or recovered journey checkpoints; materialized funnel summaries and Deltas cannot supply attribution inputs.",

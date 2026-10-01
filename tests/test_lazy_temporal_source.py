@@ -1,7 +1,6 @@
 """Independent numeric and boundary oracles for private temporal compilation."""
 
 from dataclasses import replace
-from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -60,43 +59,6 @@ def test_report_days(representation: str, tmp_path: Path) -> None:
         assert compiled.temporal_execution is not None
         assert compiled.temporal_execution.axes[0].read_timezone == "UTC"
         assert compiled.temporal_execution.report.timezone == "Asia/Shanghai"
-
-
-@pytest.mark.parametrize("partial,expected", [(False, 84), (True, 85)])
-def test_hour_partition_endpoints(tmp_path: Path, partial: bool, expected: int) -> None:
-    start = datetime(2024, 10, 11)
-    with temporal_fixture(
-        tmp_path,
-        physical="VARCHAR",
-        report_zone="UTC",
-        parse=StrptimeParse("%Y%m%d%H"),
-        granularity="hour",
-        values=tuple((start + timedelta(hours=i)).strftime("%Y%m%d%H") for i in range(85)),
-    ) as fixture:
-        logical = (
-            fixture.sources.observe(
-                ref.metric("sales.revenue"),
-                time_scope=time_scope(
-                    start=start.isoformat(),
-                    end=(start + timedelta(hours=84, minutes=30 if partial else 0)).isoformat(),
-                ),
-            )
-            .with_time_axis(ref.time_dimension(AXIS), grain=grain("hour"))
-            .aggregate()
-        )
-        compiled = compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
-        rows = compiled.expression.to_pyarrow().to_pylist()
-        assert len(rows) == expected
-        comparison = logical.compare(logical)
-        delta = compile_dataset(comparison, fixture.tables(comparison), read_timezone="UTC")
-        paired = delta.expression.to_pyarrow().to_pylist()
-        assert len(paired) == expected
-        assert {row["coordinate_presence"] for row in paired} == {"matched"}
-        assert all(
-            row["current_value"] == row["baseline_value"] and row["delta"] == 0 for row in paired
-        )
-        assert {row["comparison_ordinal"] for row in paired} == set(range(expected))
-        assert sum(row["revenue"] for row in rows) == expected * (expected + 1) / 2
 
 
 def test_native_dst_hour_buckets(tmp_path: Path) -> None:

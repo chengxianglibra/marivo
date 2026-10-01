@@ -4,10 +4,10 @@ from dataclasses import replace
 
 from marivo.analysis import grain
 from marivo.analysis.datasets.descriptors import _CORE_TOKEN, _deferred_type, _make_schema
-from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.operators.contracts import ComparePayload, CompareSpecV1
+from marivo.analysis.operators.contracts import CompareSpecV1
 from marivo.refs import ref
 from tests.lazy_observation_fixtures import make_sources
+from tests.r8_arithmetic_fixtures import comparison_for_metric
 
 REVENUE = ref.metric("sales.revenue")
 REGION = ref.dimension("sales.customers.region")
@@ -24,11 +24,7 @@ def comparison_spec(
     if "time" in shape:
         metric = metric.with_time_axis(DAY, grain=grain("day"))
     metric = metric.aggregate()
-    delta = metric.compare(metric)
-    assert isinstance(delta._root, LogicalRootHandle) and isinstance(
-        delta._root.payload, ComparePayload
-    )
-    spec = delta._root.payload.spec
+    spec = comparison_for_metric(metric)
     fields = tuple(
         replace(
             field,

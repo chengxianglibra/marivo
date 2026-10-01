@@ -88,7 +88,7 @@ def _session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Session:
     return mv.session.get_or_create("cum_decimal", report_timezone="UTC")
 
 
-def _by_day(frame: mv.MaterializedRolledNumericRelation) -> dict[str, Decimal | float | int]:
+def _by_day(frame: mv.MaterializedGroupedNumericRelation) -> dict[str, Decimal | float | int]:
     rows = frame.to_pandas()
     value_type = next(
         column.logical_type_id
@@ -102,7 +102,7 @@ def _by_day(frame: mv.MaterializedRolledNumericRelation) -> dict[str, Decimal | 
 
 def _observe(
     session: mv.Session, metric: str, start: str = "2026-07-01", end: str = "2026-07-04"
-) -> mv.MaterializedRolledNumericRelation:
+) -> mv.MaterializedGroupedNumericRelation:
     grid = mv.time_grid(during=mv.time_scope(start=start, end=end), grain=mv.grain("day"))
     result = (
         session.members(ms.ref.entity("sales.orders"))
@@ -113,7 +113,7 @@ def _observe(
         .execute()
     )
 
-    assert isinstance(result, mv.MaterializedRolledNumericRelation)
+    assert isinstance(result, mv.MaterializedGroupedNumericRelation)
     return result
 
 

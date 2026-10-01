@@ -13,7 +13,6 @@ from marivo.analysis.compiler.normalize import (
     artifact_inputs,
 )
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
-from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.domains.contracts import (
     EventFunnelSemantics,
     EventTimeToEventSemantics,
@@ -162,10 +161,6 @@ def prepare_publication(
         "attribution/funnel-loss-rate@v1",
     ):
         return _funnel_publication(self, stage, descriptor, policy)
-    if dataset.kind == "delta":
-        return _delta_publication(self, stage, descriptor, policy)
-    if dataset.kind == "attribution":
-        return _attribution_publication(self, plan, stage, evidence, descriptor, policy)
     return descriptor, ()
 
 
@@ -409,65 +404,4 @@ def _funnel_publication(
         _audit_batches(self, descriptor, policy),
         artifact_ref=stage.artifact_ref,
         session_ref=self.session_ref,
-    )
-
-
-def _delta_publication(
-    self: DatasetRuntime,
-    stage: StageResult,
-    descriptor: ArtifactDescriptor,
-    policy: ReadPolicy,
-) -> tuple[ArtifactDescriptor, tuple[Finding, ...]]:
-    from marivo.analysis.materialization.comparison_publication import build_delta_publication
-
-    return build_delta_publication(
-        descriptor,
-        _audit_batches(self, descriptor, policy),
-        artifact_ref=stage.artifact_ref,
-        session_ref=self.session_ref,
-    )
-
-
-def _attribution_publication(
-    self: DatasetRuntime,
-    plan: ExecutionPlan,
-    stage: StageResult,
-    evidence: ExecutionEvidence,
-    descriptor: ArtifactDescriptor,
-    policy: ReadPolicy,
-) -> tuple[ArtifactDescriptor, tuple[Finding, ...]]:
-    from marivo.analysis.materialization.attribution_publication import (
-        build_attribution_publication,
-    )
-    from marivo.analysis.operators.attribution_contracts import AttributePayload
-
-    dataset = plan.dataset
-    entity = any(field.role_id == "entity_identity" for field in dataset.schema.columns)
-    payload = dataset._root.payload if isinstance(dataset._root, LogicalRootHandle) else None
-    continuation = not isinstance(payload, AttributePayload)
-    proof_definition = next(
-        (
-            root.definition_fingerprint
-            for root in reversed(plan.roots)
-            if isinstance(root.payload, AttributePayload)
-        ),
-        None,
-    )
-    top_k = next(
-        (
-            root.payload.spec.top_k
-            for root in reversed(plan.roots)
-            if isinstance(root.payload, AttributePayload)
-        ),
-        None,
-    )
-    return build_attribution_publication(
-        descriptor,
-        None if entity or continuation else _audit_batches(self, descriptor, policy),
-        artifact_ref=stage.artifact_ref,
-        session_ref=self.session_ref,
-        top_k=top_k,
-        source_summary=evidence.attribution_summary,
-        continuation=continuation,
-        proof_definition_fingerprint=proof_definition,
     )

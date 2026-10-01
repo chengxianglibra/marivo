@@ -75,10 +75,6 @@ EXPECTED_EXPORTS = (
     "MaterializedPopulationDataset",
     "LogicalMetricDataset",
     "MaterializedMetricDataset",
-    "LogicalDeltaDataset",
-    "MaterializedDeltaDataset",
-    "LogicalAttributionDataset",
-    "MaterializedAttributionDataset",
     "LogicalAssociationDataset",
     "MaterializedAssociationDataset",
     "LogicalForecastDataset",
@@ -230,8 +226,8 @@ EXPECTED_SHAPES = {
         "time",
         "dimension-time",
     ),
-    "delta": ("entity", "scalar", "dimension", "time", "dimension-time", "funnel"),
-    "attribution": ("joint", "hierarchy", "funnel-loss-rate"),
+    "delta": ("funnel",),
+    "attribution": ("funnel-loss-rate",),
     "association": ("entity", "dimension", "time-lag", "dimension-time-lag"),
     "forecast": ("time", "dimension-time"),
     "candidate": (
@@ -274,8 +270,6 @@ REQUIRED_TARGETS = frozenset(
         "metric_dataset.correlate",
         "datasets.rank",
         "datasets.limit",
-        "metric_dataset.compare",
-        "delta_dataset.attribute",
         "metric_dataset.forecast",
         "ForecastHorizon",
         "ForecastModel",
@@ -290,8 +284,6 @@ REQUIRED_TARGETS = frozenset(
         "discovery.point_anomalies",
         "discovery.interesting_windows",
         "discovery.entity_outliers",
-        "discovery.period_shifts",
-        "discovery.driver_axes",
         "event_dataset",
         "lifecycle_dataset",
         "events.match",
@@ -375,7 +367,7 @@ def test_exact_export_bindings_and_required_native_targets(
 ) -> None:
     actual = {e.name: e for p in disclosure.providers for e in p.exports}
     assert set(actual) == set(EXPECTED_EXPORTS)
-    assert len(actual) == 185
+    assert len(actual) == 181
     assert set(disclosure.canonical_ids()) >= REQUIRED_TARGETS
     for name in EXPECTED_EXPORTS:
         entry = actual[name]
@@ -507,10 +499,7 @@ def test_bound_funnel_overload_uses_exact_registered_shape(
     disclosure: DatasetDisclosureRegistry,
 ) -> None:
     environment = example_inputs(disclosure)
-    for key, target in (
-        ("delta", "delta_dataset.attribute"),
-        ("funnel_delta", "funnel_delta_dataset.attribute"),
-    ):
+    for key, target in (("funnel_delta", "funnel_delta_dataset.attribute"),):
         value = environment[key]
         assert isinstance(value, Dataset)
         assert disclosure.by_callable(value.attribute).canonical_id == target
@@ -551,33 +540,6 @@ EXPECTED_VARIANT_FIELDS = {
         "metric_bindings",
         "reduced_entity_ref",
         "reduced_identity_signature",
-    ),
-    "DeltaSemantics": (
-        "approximation_class",
-        "baseline_fold_authority",
-        "baseline_time_field_name",
-        "current_fold_authority",
-        "current_time_field_name",
-        "exact_empty_zero",
-        "kind",
-        "metric_ref",
-        "metric_unit",
-        "numeric_type",
-    ),
-    "AttributionSemantics": (
-        "approximation_class",
-        "axis_field_ids",
-        "baseline_time_field_name",
-        "current_time_field_name",
-        "kind",
-        "method",
-        "metric_ref",
-        "metric_unit",
-        "numeric_type",
-        "resolution_prefixes",
-        "resolution_semantics",
-        "rollup_safe",
-        "scope_field_ids",
     ),
     "AssociationSemantics": (
         "approximations",
@@ -691,7 +653,6 @@ def test_expected_parameter_acquisition_and_default_contracts(
             "completeness",
         ),
         "lifecycle.replay": ("model", "window", "seed", "population", "completeness"),
-        "discovery.driver_axes": ("search_space", "limit"),
     }
     for target, parameters in expected.items():
         descriptor = disclosure.by_canonical_id(target)
@@ -836,46 +797,50 @@ def test_invalid_callable_ownership_and_export_links_fail_during_assembly(
             p, exports=(replace(p.exports[0], target="nonexistent"), *p.exports[1:])
         )
     else:
-        index = 2 if fault == "missing_default" else 3
+        index = next(i for i, provider in enumerate(providers) if provider.owner == "operators")
         p = providers[index]
-        target = (
-            "delta_dataset.attribute"
-            if fault == "missing_default"
-            else "funnel_delta_dataset.attribute"
+        original = next(
+            d
+            for d in p.descriptors
+            if isinstance(d, CallableInput) and d.canonical_id == "metric_dataset.correlate"
         )
         providers[index] = replace(
             p,
-            descriptors=tuple(
-                replace(d, unbound_default=fault == "duplicate_default")
-                if isinstance(d, CallableInput) and d.canonical_id == target
-                else d
-                for d in p.descriptors
+            descriptors=(
+                *tuple(
+                    replace(d, unbound_default=fault == "duplicate_default") if d is original else d
+                    for d in p.descriptors
+                ),
+                replace(
+                    original,
+                    canonical_id="fault.second_correlate",
+                    unbound_default=fault == "duplicate_default",
+                ),
             ),
         )
     with pytest.raises(DatasetRegistrationError):
         assemble(disclosure.families, tuple(providers))
 
 
-def test_callable_specialization_uses_registration_scope_not_target_spelling(
+def test_private_funnel_help_resolves_after_metric_variant_retirement(
     disclosure: DatasetDisclosureRegistry,
 ) -> None:
     inputs = example_inputs(disclosure)
-    renamed = {
-        "delta_dataset.attribute": "renamed.general",
-        "funnel_delta_dataset.attribute": "renamed.specialized",
-    }
     candidate = replace(
         disclosure,
         descriptors=tuple(
-            replace(d, canonical_id=renamed[d.canonical_id]) if d.canonical_id in renamed else d
+            replace(d, canonical_id="renamed.funnel")
+            if d.canonical_id == "funnel_delta_dataset.attribute"
+            else d
             for d in reversed(disclosure.descriptors)
         ),
     )
-    for key, target in (("delta", "renamed.general"), ("funnel_delta", "renamed.specialized")):
-        value = inputs[key]
-        assert isinstance(value, Dataset)
-        assert candidate.by_callable(value.attribute).canonical_id == target
-        assert candidate.by_callable(type(value).attribute).canonical_id == "renamed.general"
+    value = inputs["funnel_delta"]
+    assert isinstance(value, Dataset)
+    assert candidate.by_callable(value.attribute).canonical_id == "renamed.funnel"
+    assert candidate.by_callable(type(value).attribute).canonical_id == "renamed.funnel"
+    with pytest.raises(HelpTargetError):
+        disclosure.resolve("delta_dataset.attribute")
 
 
 @pytest.mark.parametrize("name", ["sum", "count", "count_defined", "min", "max", "mean"])

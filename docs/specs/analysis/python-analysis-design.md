@@ -1231,8 +1231,10 @@ captured during construction and are not reread at execution.
 
 ## Row meaning and ownership
 
-Dataset families are Population, Metric, Delta, Attribution, Association,
-Forecast, Candidate, Event and Lifecycle. Each admitted shape has paired Logical
+Remaining legacy Dataset families are Population, Metric, Association, Forecast,
+Candidate, Event and Lifecycle. R6 uses typed Relation/Difference/AttributionResult
+variants. The private R7 funnel comparison/allocation shapes have their own owner
+and are not public Delta/Attribution Dataset exports. Each admitted shape has paired Logical
 and Materialized classes. Shape, schema, coordinate/key fields, row cardinality,
 ordering, authority and definition identity are explicit immutable contracts.
 
@@ -1990,3 +1992,13 @@ selects all three views together and unconditionally revokes current completenes
 Views use existing predicate, rank and table consumers and do not gain original
 Metric merge state. Native Help owns static facts and contract() owns current
 continuations; existing packaged workflow guidance remains applicable unchanged.
+
+### R6.7 canonical recovered variants
+
+LogicalRolledNumericRelation.execute returns MaterializedGroupedNumericRelation
+when the reduction retains group keys, otherwise MaterializedRolledNumericRelation.
+The return annotation is that closed union. Execution and Store 7 recovery now
+agree on the public variant and its actual continuation contract; original
+state, definitions, DAG identities and state encoding are unchanged. Numeric
+tables over attribution views preserve typed Other axis nulls under the declared
+complete key, without permitting null Entity identities.

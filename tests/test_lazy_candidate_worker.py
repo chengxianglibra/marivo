@@ -35,8 +35,6 @@ from marivo.analysis.operators.candidate_contracts import (
     CandidateSpecV1,
 )
 from marivo.analysis.operators.candidate_dataset import LogicalCandidateDataset
-from marivo.analysis.operators.compare import execute_compare
-from marivo.analysis.operators.contracts import ComparePayload
 from marivo.analysis.operators.row import RowCall
 from tests.lazy_candidate_fixtures import VALUES, candidate_input, discover, setup_candidate
 from tests.lazy_forecast_fixtures import history_frame
@@ -61,13 +59,6 @@ def _case(objective: CandidateObjective) -> tuple[LogicalCandidateDataset, pa.Ta
         ],
         ignore_index=True,
     )
-    if objective == "period_shifts":
-        assert isinstance(source._root, LogicalRootHandle)
-        assert isinstance(source._root.payload, ComparePayload)
-        baseline = frame.copy(deep=True)
-        baseline["revenue"] = 1.0
-        baseline["order_time"] = [value.replace(month=1) for value in baseline.order_time]
-        frame = execute_compare(frame, baseline, source._root.payload.spec)
     frame = frame.loc[:, [field.name for field in spec.input_row.schema.columns]]
     return candidate, pa.Table.from_pandas(frame, preserve_index=False)
 
@@ -89,7 +80,7 @@ def _row_call(value: LogicalCandidateDataset) -> RowCall:
     )
 
 
-@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows", "period_shifts"])
+@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows"])
 @pytest.mark.parametrize(
     "guard",
     [None, "duplicate_key"],
@@ -138,7 +129,7 @@ def test_complete_panel_and_budgets_precede_one_discovery_invocation(
             assert output.summaries.candidate.evaluation.evaluated_series_count == 2
 
 
-@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows", "period_shifts"])
+@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows"])
 def test_candidate_successors_reuse_private_frames_without_reconversion(
     monkeypatch: pytest.MonkeyPatch, objective: CandidateObjective
 ) -> None:

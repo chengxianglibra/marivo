@@ -11,7 +11,6 @@ import pytest
 
 from marivo._temporal import builtin_grain, time_scope
 from marivo.analysis.datasets import descriptors as d
-from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.evidence._dataset_codec import finding_set_digest
 from marivo.analysis.materialization.candidate_codec import (
     CandidateEvidenceSummary,
@@ -27,32 +26,40 @@ from marivo.analysis.materialization.candidate_publication import (
 )
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
+    MaterializationContract,
     canonical_json,
     decode_descriptor,
     encode_descriptor,
+    finding_extractor,
+    finding_policy,
     parse_json,
+    required_retained_contracts,
     schema_fingerprint,
 )
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.publication import make_descriptor, materialization_contract
-from marivo.analysis.materialization.storage import DatasetWriteResult
+from marivo.analysis.observation.contracts import producer_contract
 from marivo.analysis.operators.candidate_values import candidate_item_id
+from marivo.analysis.operators.contracts import comparison_basis
 from marivo.analysis.operators.driver_contracts import (
     DriverCandidateDefinition,
     DriverCandidateEvaluationSummary,
-    DriverCandidatePayload,
     DriverCandidateSpecV1,
 )
 from marivo.refs import ref
 from tests.lazy_attribute_fixtures import CHANNEL, REGION
 from tests.lazy_materialization_fixtures import descriptor as base_descriptor
 from tests.lazy_observation_fixtures import make_sources
+from tests.r8_arithmetic_fixtures import comparison_for_metric, driver_for_spec
 
 
 def _value(
     *, temporal: bool = False, entity: bool = False, limit: int = 50
 ) -> tuple[
     ArtifactDescriptor,
+    MaterializationContract,
+    finding_extractor,
+    finding_policy,
+    required_retained_contracts,
     list[dict[str, object]],
     DriverCandidateSpecV1,
     DriverCandidateEvaluationSummary,
@@ -69,10 +76,7 @@ def _value(
                 ref.time_dimension("sales.orders.order_time"), grain=builtin_grain("day")
             )
         metric = metric.aggregate()
-    logical = metric.compare(metric).discover.driver_axes(search_space=[REGION], limit=limit)
-    assert isinstance(logical._root, LogicalRootHandle)
-    assert isinstance(logical._root.payload, DriverCandidatePayload)
-    spec = logical._root.payload.spec
+    spec = driver_for_spec(comparison_for_metric(metric), metric, (REGION,), limit=limit)
     # Authored independently: four members concentrate 75% in one or two members.
     records: list[dict[str, object]] = []
     if not entity:
@@ -114,10 +118,10 @@ def _value(
                 field,
                 _token=d._CORE_TOKEN,
                 physical_type_state=d._resolved_type(
-                    field.logical_type_id, ids=logical._registration.ids
+                    field.logical_type_id, ids=metric._registration.ids
                 ),
             )
-            for field in logical.schema.columns
+            for field in spec.output_row.schema.columns
         )
     )
     receipt = replace(
@@ -125,11 +129,49 @@ def _value(
         schema_fingerprint=schema_fingerprint(realized),
         realized_row_count=min(limit, count),
     )
-    descriptor = make_descriptor(
-        logical,
-        materialization_contract(logical),
-        DatasetWriteResult(receipt, (), realized, min(limit, count)),
-        (("dataset.final_row_key_unique", 0), ("candidate.driver_output", 0)),
+    base = base_descriptor(metric=True)
+    registration = producer_contract("discover.driver_axes")
+    contract = MaterializationContract(
+        registration.producer_id,
+        1,
+        spec.output_row.shape_id,
+        registration.quality_id,
+        1,
+        registration.evidence_id,
+        1,
+        finding_extractor(spec.output_row, registration.producer_id),
+        1,
+        (registration.validation_id,),
+        required_retained_contracts(spec.output_row, registration.retained_contract_ids),
+        finding_policy(spec.output_row, registration.producer_id),
+    )
+    descriptor = replace(
+        base,
+        definition_fingerprint=metric.definition_fingerprint,
+        row_contract=spec.output_row,
+        row_set_contract=spec.output_rows,
+        realized_schema=realized,
+        storage_receipt=receipt,
+        retained_parts=(),
+        dataset_materialization_contract=contract,
+        operator_implementation_versions=((registration.producer_id, 1),),
+        comparison_basis=comparison_basis(metric),
+        population_authority=replace(
+            base.population_authority,
+            identity_signature=(
+                next(
+                    field.identity.identity_signature
+                    for field in spec.output_row.schema.columns
+                    if isinstance(field.identity, d._EntityFieldIdentity)
+                )
+                if entity
+                else base.population_authority.identity_signature
+            ),
+            validation_results=(
+                ("dataset.final_row_key_unique", 0),
+                ("candidate.driver_output", 0),
+            ),
+        ),
     )
     return descriptor, records, spec, evaluation
 
@@ -325,80 +367,6 @@ def test_driver_positive_scope_axes_require_actual_contributing_rows(input_rows:
         validate_descriptor(replace(descriptor, candidate_evidence=changed))
     with pytest.raises(MaterializationError):
         decode_evidence(parse_json(canonical_json(evidence_payload(changed))))
-
-
-def test_driver_multiple_axes_can_share_one_contributing_member_row() -> None:
-    metric = (
-        make_sources()
-        .observe(ref.metric("sales.revenue"))
-        .with_dimensions(REGION, CHANNEL)
-        .aggregate()
-    )
-    logical = metric.compare(metric).discover.driver_axes(search_space=[REGION, CHANNEL])
-    assert isinstance(logical._root, LogicalRootHandle)
-    assert isinstance(logical._root.payload, DriverCandidatePayload)
-    definition = logical._root.payload.spec.definition
-    # A single joint partition contributes nonzero Delta to both searched axes.
-    score = 1.0 / 1.001
-    evidence = CandidateEvidenceSummary(
-        row_count=2,
-        emitted_finding_count=0,
-        finding_set_digest=finding_set_digest(()),
-        definition=definition,
-        evaluation=DriverCandidateEvaluationSummary(
-            input_row_count=1,
-            scope_count=1,
-            searched_axis_count=2,
-            evaluated_axis_count=2,
-            zero_contribution_axis_count=0,
-            pre_limit_candidate_count=2,
-            emitted_candidate_count=2,
-            score_range=(score, score),
-            reason_counts=(("axis_concentration", 2),),
-        ),
-    )
-    validate_evidence(evidence)
-    assert decode_evidence(parse_json(canonical_json(evidence_payload(evidence)))) == evidence
-
-
-def test_driver_empty_expanded_count_has_one_evaluated_scalar_scope() -> None:
-    metric = make_sources().observe(ref.metric("sales.order_count")).aggregate()
-    logical = metric.compare(metric).discover.driver_axes(search_space=[REGION])
-    assert isinstance(logical._root, LogicalRootHandle)
-    assert isinstance(logical._root.payload, DriverCandidatePayload)
-    definition = logical._root.payload.spec.definition
-    evidence = CandidateEvidenceSummary(
-        row_count=0,
-        emitted_finding_count=0,
-        finding_set_digest=finding_set_digest(()),
-        definition=definition,
-        evaluation=DriverCandidateEvaluationSummary(
-            input_row_count=0,
-            scope_count=1,
-            searched_axis_count=1,
-            evaluated_axis_count=1,
-            zero_contribution_axis_count=1,
-            pre_limit_candidate_count=0,
-            emitted_candidate_count=0,
-            score_range=None,
-            reason_counts=(("axis_concentration", 0),),
-        ),
-    )
-    validate_evidence(evidence)
-    assert decode_evidence(parse_json(canonical_json(evidence_payload(evidence)))) == evidence
-    assert isinstance(evidence.evaluation, DriverCandidateEvaluationSummary)
-    forged = replace(
-        evidence,
-        evaluation=replace(
-            evidence.evaluation,
-            scope_count=2,
-            searched_axis_count=2,
-            evaluated_axis_count=2,
-            zero_contribution_axis_count=2,
-        ),
-    )
-    with pytest.raises(MaterializationError):
-        validate_evidence(forged)
 
 
 def test_driver_materialized_scopes_require_retained_primary_rows() -> None:

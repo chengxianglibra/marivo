@@ -235,7 +235,8 @@ catalog.preview(
 
 campaigns = catalog.temporal_sets.get("sales.campaigns")
 launch = campaigns.occurrence("spring-2026")
-dataset = session.observe(revenue, time_scope=launch).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('day')).aggregate()
+members = session.members(ms.ref.entity("sales.customer"))
+dataset = members.observe(revenue, during=launch, via=ms.ref.relationship("sales.order_buyer"))
 ```
 `mv.grain("day")` is always bounded in the session report timezone. When the
 occurrence uses another boundary timezone, configure the session with the same
@@ -246,8 +247,8 @@ reinterprets a bare built-in day grain from the occurrence timezone.
 bounded and filters half-open interval overlap without reading the datasource
 again. Temporal sets do not infer recurrence or match similarly named occurrences
 across years. Each selected occurrence supplies an explicit source scope.
-Use the Metric Dataset contract and `marivo.help("analysis.metric_dataset.compare")`
-for the supported comparison and explicit window alignment.
+Use the typed NumericRelation contract and `marivo.help("analysis.dsl.LogicalNumericRelation.compare")`
+for TimeChange, CohortContrast and explicit PeriodChange alignment.
 Use `marivo.help("analysis.temporal_set.occurrence")` for exact lookup and
 `marivo.help("analysis.temporal_set.occurrences")` for bounded filtered paging;
 snapshot errors route through `marivo.help(error)` to `semantic.preview`.

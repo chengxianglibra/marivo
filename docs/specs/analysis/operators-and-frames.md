@@ -1,6 +1,6 @@
 # Dataset Methods and States
 
-For R5 migration, the final R5.1 section below owns frozen target methods and
+For R5/R6 migration, the final R5.1 and R6 sections below own frozen target methods and
 states. Earlier Dataset-family routes describe legacy consumers and do not
 authorize parallel public R5 APIs or transfer their physical qualifications.
 
@@ -41,8 +41,8 @@ blocks the attempted retained read.
 | --- | --- | --- |
 | Population | `session.population(...)` | Exact governed Entity membership |
 | Metric | `session.observe(...)` | Contributions over membership and independent observation scope |
-| Delta | `metric.compare(baseline)` | Exact current/baseline pairing and arithmetic |
-| Attribution | `delta.attribute(...)` | Contributions under admitted additive/component authority |
+| Private funnel comparison | `event.funnel().compare(...)` | R7-owned complete journey contract; source admission remains blocked |
+| Private funnel allocation | `funnel_delta.attribute(...)` | R7-owned loss-rate allocation; no Metric Delta variants |
 | Association | `metric.correlate(...)` | Declared descriptive association method |
 | Forecast | `metric.forecast(...)` | Explicit model and horizon over admitted history |
 | Candidate | `dataset.discover.<objective>(...)` | Evaluated candidate rows and reasons |
@@ -1038,3 +1038,19 @@ rounding. Numeric views consume their own retained bound in both source and
 fixed arithmetic, including after selection/recovery. Exchange independently
 reproduces these bounds with the allocation, so a damaged bound cannot authorize
 later division or a current-row statistic.
+
+## R6.7 consumer and recovery closure
+
+The public R6 path is the typed NumericRelation/Difference/AttributionResult
+graph. Metric Dataset comparison and the old general Delta/Attribution families,
+registrations, compiler/runtime/publication dispatch, descriptor codecs and workers
+are retired. Event's exact funnel shapes alone retain private R7 family
+registrations. Shared R8 arithmetic, state checks, ordered input binding and
+Finding scalar encoding retain their actual consumers, with no R6 producer or
+recovery eligibility. Old Help targets do not redirect.
+
+Original reductions retaining group keys publish MaterializedGroupedNumericRelation
+in both live execution and recovery; Singleton reductions retain
+MaterializedRolledNumericRelation. The group receiver preserves its current
+group axes in summarize, as required by the R5.4 contract. Tables validate typed
+Other coordinates with the same declared axis-null policy as the numeric views.

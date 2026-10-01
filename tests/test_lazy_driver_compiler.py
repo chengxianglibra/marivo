@@ -11,7 +11,6 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from marivo.analysis.compiler import compile_dataset
 from marivo.analysis.compiler.driver_candidate import (
     _coordinate,
     decode_driver_candidate_proof,
@@ -19,19 +18,17 @@ from marivo.analysis.compiler.driver_candidate import (
     lower_driver_candidate,
 )
 from marivo.analysis.compiler.driver_numeric import install_driver_numeric_functions
-from marivo.analysis.compiler.nodes import CompiledRelationFence, CompiledValidation
-from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.operators.driver_contracts import (
     DriverCandidateEvaluationSummary,
-    DriverCandidatePayload,
     DriverCandidateSpecV1,
 )
 from marivo.analysis.operators.row import PartFrame
 from marivo.analysis.operators.row_values import frame_keys, row_key_names
 from marivo.refs import ref
 from tests.lazy_attribute_fixtures import CHANNEL, REGION, inputs
-from tests.lazy_execution_fixtures import assert_compiled_validations, execution_fixture
+from tests.lazy_execution_fixtures import assert_compiled_validations
 from tests.lazy_observation_fixtures import make_sources
+from tests.r8_arithmetic_fixtures import comparison_for_metric, driver_for_spec
 
 
 def _spec(
@@ -41,12 +38,9 @@ def _spec(
     metric = (
         make_sources().observe(ref.metric(f"sales.{name}")).with_dimensions(*dimensions).aggregate()
     )
-    candidate = metric.compare(metric).discover.driver_axes(
-        search_space=dimensions if search_all else (REGION,), limit=limit
+    return driver_for_spec(
+        comparison_for_metric(metric), metric, dimensions if search_all else (REGION,), limit=limit
     )
-    assert isinstance(candidate._root, LogicalRootHandle)
-    assert isinstance(candidate._root.payload, DriverCandidatePayload)
-    return candidate._root.payload.spec
 
 
 def _wide(
@@ -212,32 +206,6 @@ def test_native_keys_and_digest_checked_before_limit(
         backend.disconnect()
 
 
-def test_native_scoring_and_proof_use_frozen_delta(tmp_path: Path) -> None:
-    with execution_fixture(tmp_path) as fixture:
-        install_driver_numeric_functions(fixture.backend)
-        metric = (
-            fixture.sources.observe(ref.metric("sales.revenue")).with_dimensions(REGION).aggregate()
-        )
-        candidate = metric.compare(metric).discover.driver_axes(search_space=(REGION,))
-        compiled = compile_dataset(candidate, fixture.tables(candidate))
-        fences = [step for step in compiled.preparations if isinstance(step, CompiledRelationFence)]
-        assert len(fences) == 1
-        for preparation in compiled.preparations:
-            if isinstance(preparation, CompiledRelationFence):
-                fixture.backend.create_table(
-                    preparation.relation_name, preparation.expression, temp=True
-                )
-            else:
-                assert isinstance(preparation, CompiledValidation)
-                assert fixture.backend.execute(preparation.expression).iloc[0, 0] == 0
-        assert compiled.candidate_proof is not None
-        assert all("identity" not in name for name in compiled.candidate_proof.columns)
-        before = fixture.backend.execute(compiled.expression)
-        fixture.backend.raw_sql("DROP TABLE orders")
-        assert fixture.backend.execute(compiled.expression).equals(before)
-        assert fixture.backend.execute(compiled.candidate_proof).iloc[0].evaluated_axis_count == 1
-
-
 def test_native_integer_half_mass_boundary_above_float_precision() -> None:
     n = 2**53
     frame, _, parts = inputs(
@@ -255,74 +223,6 @@ def test_native_integer_half_mass_boundary_above_float_precision() -> None:
         result = backend.execute(output)
         assert result.concentration_member_count.tolist() == [2]
         assert result.score.tolist() == pytest.approx([1 / 2.003])
-    finally:
-        backend.disconnect()
-
-
-def test_native_driver_entity_digest_is_source_only_and_tampering_fails() -> None:
-    from marivo.analysis.datasets import descriptors as d
-    from marivo.analysis.operators.driver_values import driver_item_id as local_item_id
-
-    metric = make_sources().observe(ref.metric("sales.revenue"))
-    candidate = metric.compare(metric).discover.driver_axes(search_space=(REGION,))
-    assert isinstance(candidate._root, LogicalRootHandle)
-    assert isinstance(candidate._root.payload, DriverCandidatePayload)
-    spec = candidate._root.payload.spec
-    backend = ibis.duckdb.connect()
-    install_driver_numeric_functions(backend)
-    try:
-        raw = backend.create_table("ids", {"id": [123], "axis_ref": [REGION.path]})
-        table = raw.select(
-            entity_identity=ibis.struct({"id": raw.id}),
-            axis_ref=raw.axis_ref,
-            score=ibis.literal(1.0 / 1.001),
-            reason_codes=ibis.literal(["axis_concentration"]),
-            axis_cardinality=ibis.literal(1, type="int64"),
-            concentration_member_count=ibis.literal(1, type="int64"),
-            concentration_share=ibis.literal(1.0),
-        )
-        from marivo.analysis.compiler.driver_candidate import driver_item_id
-
-        table = table.mutate(item_id=driver_item_id(table, spec.output_row, spec.definition))
-        row = backend.to_pyarrow(table).to_pylist()[0]
-        from marivo.analysis.operators.errors import CandidateError
-
-        with pytest.raises(CandidateError, match="local identity computation is not admitted"):
-            local_item_id(spec.definition, spec.output_row, row)
-        from marivo.analysis.compiler.driver_candidate import _observed_type_id
-
-        signature = tuple(
-            (
-                field.field_id.value,
-                field.logical_type_id
-                if field.logical_type_id != "unknown"
-                else _observed_type_id(table[field.name]),
-            )
-            for field in spec.output_row.schema.columns
-            if field.field_id in spec.output_row.key_field_ids
-        )
-        import hashlib
-
-        encoded = "S[V313233]|V" + REGION.path.encode().hex().upper()
-        preimage = (
-            "candidate_driver_item@v1:"
-            + d._canonical_digest(spec.definition.identity_payload())
-            + ":"
-            + d._canonical_digest(signature)
-            + ":"
-            + encoded
-        )
-        assert row["item_id"] == "sha256:" + hashlib.sha256(preimage.encode()).hexdigest()
-        proof = driver_candidate_output_proof(table, spec.output_row, spec.definition)
-        assert proof.columns == ("violations",)
-        assert backend.execute(proof).iloc[0, 0] == 0
-        corrupt = table.mutate(entity_identity=ibis.struct({"id": ibis.literal(456, type="int64")}))
-        assert (
-            backend.execute(
-                driver_candidate_output_proof(corrupt, spec.output_row, spec.definition)
-            ).iloc[0, 0]
-            == 1
-        )
     finally:
         backend.disconnect()
 
@@ -364,30 +264,6 @@ def test_native_unavailable_partition_and_no_evaluation_never_become_zero() -> N
         assert backend.execute(finite.expression).iloc[0, 0] == 2
     finally:
         backend.disconnect()
-
-
-def test_native_expansion_rejects_unavailable_original_entity_endpoint(tmp_path: Path) -> None:
-    with execution_fixture(tmp_path) as fixture:
-        install_driver_numeric_functions(fixture.backend)
-        metric = fixture.sources.observe(
-            ref.metric("sales.revenue"),
-            population=fixture.sources.population(ref.entity("sales.customers")),
-        )
-        candidate = metric.compare(metric).discover.driver_axes(search_space=(CHANNEL,))
-        compiled = compile_dataset(candidate, fixture.tables(candidate))
-        violations: dict[str, int] = {}
-        for preparation in compiled.preparations:
-            if isinstance(preparation, CompiledRelationFence):
-                fixture.backend.create_table(
-                    preparation.relation_name, preparation.expression, temp=True
-                )
-            else:
-                assert isinstance(preparation, CompiledValidation)
-                violations[preparation.name] = int(
-                    fixture.backend.execute(preparation.expression).iloc[0, 0]
-                )
-        assert violations["attribution.expanded_current_endpoint"] == 1
-        assert violations["attribution.expanded_baseline_endpoint"] == 1
 
 
 @pytest.mark.parametrize(

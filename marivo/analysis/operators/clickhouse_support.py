@@ -52,5 +52,4 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         status_folds=frozenset({"first", "last", "mean", "min", "max"}),
         distinct_memberships=frozenset({"measure", "entity"}),
         distributions=frozenset({"linear_interpolation"}),
-        expanded_attribution=True,
     )

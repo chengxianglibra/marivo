@@ -67,12 +67,29 @@ R5_TESTS = (
     "test_public_quantile_input",
 )
 
+R6_TESTS = (
+    "test_analysis_comparison_r62",
+    "test_analysis_comparison_runtime_r62",
+    "test_analysis_predicates_r63",
+    "test_analysis_cohort_r63",
+    "test_analysis_references_r64",
+    "test_analysis_display_r65",
+    "test_analysis_attribution_r66",
+    "test_analysis_attribution_runtime_r66",
+    "test_analysis_recovery_r67",
+)
+
 
 def _stage_tests(destination: Path) -> None:
     """Copy only selected tests and their statically imported test helpers."""
-    pending = {f"tests.{name}" for name in (*CONTRACT_TESTS, *R5_TESTS)}
+    pending = {f"tests.{name}" for name in (*CONTRACT_TESTS, *R5_TESTS, *R6_TESTS)}
     pending.update(
-        ("tests.conftest", "tests.installed_wheel_probe", "tests.graph_publication_runtime_worker")
+        (
+            "tests.conftest",
+            "tests.installed_wheel_probe",
+            "tests.graph_publication_runtime_worker",
+            "tests.installed_r6_journeys",
+        )
     )
     copied: set[str] = set()
     while pending:
@@ -294,7 +311,7 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
                     *selected,
                 ],
             )
-        for module in R5_TESTS:
+        for module in (*R5_TESTS, *R6_TESTS):
             environment["MARIVO_INSTALLED_ORIGIN_REPORT"] = str(reports / f"{module}-origins.json")
             run(
                 module,
@@ -308,7 +325,7 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
                     str(work / "pytest.ini"),
                     "--import-mode=importlib",
                     "-n",
-                    "0",
+                    "4",
                     "-q",
                     "--tb=short",
                     "--maxfail=5",
@@ -321,7 +338,7 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
         console_help = run("console-help", [str(console), "help"])
         assert console_help == module_help
         for source in ("table", "parquet"):
-            for scenario in ("j1", "j2", "j3", "j4"):
+            for scenario in ("j1", "j2", "j3", "j4", "a02", "a06", "a07", "a08"):
                 project = work / f"{source}-{scenario}"
                 phases = []
                 for phase in ("produce", "continue", "recover"):
@@ -332,15 +349,27 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
                     )
                     phases.append(json.loads(report.read_text()))
                 assert len({item["pid"] for item in phases}) == 3
-                for key in (
-                    "session",
-                    "artifact",
-                    "run",
-                    "rows",
-                    "contract",
-                    "descriptor",
-                    "facts_sha256",
-                ):
+                fields = (
+                    (
+                        "session",
+                        "snapshots",
+                        "oracle",
+                        "facts_sha256",
+                        "edge_checks",
+                        "shared_nodes",
+                    )
+                    if scenario.startswith("a")
+                    else (
+                        "session",
+                        "artifact",
+                        "run",
+                        "rows",
+                        "contract",
+                        "descriptor",
+                        "facts_sha256",
+                    )
+                )
+                for key in fields:
                     assert all(item[key] == phases[0][key] for item in phases)
                 assert phases[1]["continuations"] == phases[2]["continuations"]
                 assert phases[1]["run_count"] > phases[0]["run_count"]
@@ -353,8 +382,10 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
         (reports / "commands.json").write_text(
             json.dumps(receipts, indent=2, sort_keys=True) + "\n"
         )
-        retained = os.environ.get("MARIVO_R57_EVIDENCE_DIR") or os.environ.get(
-            "MARIVO_R46_EVIDENCE_DIR"
+        retained = (
+            os.environ.get("MARIVO_R67_EVIDENCE_DIR")
+            or os.environ.get("MARIVO_R57_EVIDENCE_DIR")
+            or os.environ.get("MARIVO_R46_EVIDENCE_DIR")
         )
         if retained:
             destination = Path(retained) / "installed-wheel"

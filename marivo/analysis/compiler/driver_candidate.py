@@ -172,7 +172,6 @@ def lower_driver_candidate(
     prepared = prepare_exact_partition(
         table,
         spec,
-        method="additive_difference@v1",
         empty_scope_allowed=True,
         exact_floating=True,
         original=original,

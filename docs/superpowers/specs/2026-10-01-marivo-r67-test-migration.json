@@ -1,0 +1,2863 @@
+{
+  "baseline": "909f4bdcf4a9a9d9caf3beb99c591c34d9a60ddf",
+  "schema": "marivo.r67.test_migration/v1",
+  "scope": "Every changed/removed legacy test node, plus retained numerical helper oracles. Replacement node names include all parameter variants. Obsolete wire shapes, private families and unqualified R8 source routes are withdrawn explicitly rather than claimed equivalent.",
+  "tests": [
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_agent_api_drift.py::test_analysis_public_exports_are_ordered_default_workflow_surface",
+      "replacements": [
+        "tests/test_agent_api_drift.py::test_analysis_public_exports_are_ordered_default_workflow_surface"
+      ],
+      "source_sha256": "7ae42c83e8acc8dc706abce76c37aaf2f754d4c55dd6dc4b75e43630725e61ce"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion"
+      ],
+      "source_sha256": "2b70e30a13cc07471eff54916bca078841fe446e5a0ea43b3233c0a6e7eede1e"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_cumulative_decimal.py::test_decimal_all_history_cumulative_succeeds",
+      "replacements": [
+        "tests/test_analysis_cumulative_decimal.py::test_decimal_all_history_cumulative_succeeds"
+      ],
+      "source_sha256": "58c492700d12dab160b0220ec627e80568a5e5d10881f67b040953b832f6ba58"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_cumulative_decimal.py::test_decimal_grain_to_date_cumulative_succeeds",
+      "replacements": [
+        "tests/test_analysis_cumulative_decimal.py::test_decimal_grain_to_date_cumulative_succeeds"
+      ],
+      "source_sha256": "58c492700d12dab160b0220ec627e80568a5e5d10881f67b040953b832f6ba58"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_cumulative_decimal.py::test_decimal_grain_to_date_seeds_partial_first_period",
+      "replacements": [
+        "tests/test_analysis_cumulative_decimal.py::test_decimal_grain_to_date_seeds_partial_first_period"
+      ],
+      "source_sha256": "58c492700d12dab160b0220ec627e80568a5e5d10881f67b040953b832f6ba58"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_cumulative_decimal.py::test_decimal_trailing_cumulative_succeeds",
+      "replacements": [
+        "tests/test_analysis_cumulative_decimal.py::test_decimal_trailing_cumulative_succeeds"
+      ],
+      "source_sha256": "58c492700d12dab160b0220ec627e80568a5e5d10881f67b040953b832f6ba58"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_cumulative_decimal.py::test_decimal_weighted_mean_cumulative_succeeds",
+      "replacements": [
+        "tests/test_analysis_cumulative_decimal.py::test_decimal_weighted_mean_cumulative_succeeds"
+      ],
+      "source_sha256": "58c492700d12dab160b0220ec627e80568a5e5d10881f67b040953b832f6ba58"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_disclosure_journeys.py::test_current_continuation_registry_resolves_to_the_actual_bound_method",
+      "replacements": [
+        "tests/test_analysis_disclosure_journeys.py::test_current_continuation_registry_resolves_to_the_actual_bound_method"
+      ],
+      "source_sha256": "3e36f810dad751b2f7aa6c8c811faf66de9397ae8fc8b6e2a844e2a4b66d2dfe"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_display_r65.py::test_display_precision_matrix",
+      "replacements": [
+        "tests/test_analysis_display_r65.py::test_display_precision_matrix"
+      ],
+      "source_sha256": "27b71138827a796ce3764d50daa3ad823825f49a6bffbf2d8a21159652b58f10"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_display_r65.py::test_complete_composite_keys_scalar_columns_and_nulls",
+      "replacements": [
+        "tests/test_analysis_display_r65.py::test_complete_composite_keys_scalar_columns_and_nulls"
+      ],
+      "source_sha256": "27b71138827a796ce3764d50daa3ad823825f49a6bffbf2d8a21159652b58f10"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_dsl_public.py::test_public_p2_empty_and_undefined_cards",
+      "replacements": [
+        "tests/test_analysis_dsl_public.py::test_public_p2_empty_and_undefined_cards"
+      ],
+      "source_sha256": "1c37fd5182415d43d18edf25fe9dd62141d4e44339eb7993a8f051aa30014a78"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_dsl_public.py::test_public_member_read_and_category_selection",
+      "replacements": [
+        "tests/test_analysis_dsl_public.py::test_public_member_read_and_category_selection"
+      ],
+      "source_sha256": "1c37fd5182415d43d18edf25fe9dd62141d4e44339eb7993a8f051aa30014a78"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_dsl_public.py::test_public_j3_ratio_rollup_differs_from_current_row_mean",
+      "replacements": [
+        "tests/test_analysis_dsl_public.py::test_public_j3_ratio_rollup_differs_from_current_row_mean"
+      ],
+      "source_sha256": "1c37fd5182415d43d18edf25fe9dd62141d4e44339eb7993a8f051aa30014a78"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_dsl_public.py::test_public_snapshot_mismatch_rejects_exact_artifact",
+      "replacements": [
+        "tests/test_analysis_dsl_public.py::test_public_snapshot_mismatch_rejects_exact_artifact"
+      ],
+      "source_sha256": "1c37fd5182415d43d18edf25fe9dd62141d4e44339eb7993a8f051aa30014a78"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_graph_preflight_r45.py::test_window_composition_matches_independent_oracle_and_reads_shared_sources_once",
+      "replacements": [
+        "tests/test_analysis_graph_preflight_r45.py::test_window_composition_matches_independent_oracle_and_reads_shared_sources_once"
+      ],
+      "source_sha256": "804cbd13eb2eb03398073bdeb077a359c67f6d796c5167e0dafacd0fe587e4b2"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_imports.py::test_session_class_exposes_sources_and_dataset_owned_operators",
+      "replacements": [
+        "tests/test_analysis_imports.py::test_session_class_exposes_sources_and_dataset_owned_operators"
+      ],
+      "source_sha256": "f0712a05ec776ad07d418c14786072732806542e8c98d91d9fccc35141dc448b"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_predicates_r63.py::test_public_precise_field_comparisons",
+      "replacements": [
+        "tests/test_analysis_predicates_r63.py::test_public_precise_field_comparisons"
+      ],
+      "source_sha256": "9ea8e7bbe931bc921ad47978aa3947ebce322413e188255358f387502c11e9ab"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_predicates_r63.py::test_public_duration_field_comparison",
+      "replacements": [
+        "tests/test_analysis_predicates_r63.py::test_public_duration_field_comparison"
+      ],
+      "source_sha256": "9ea8e7bbe931bc921ad47978aa3947ebce322413e188255358f387502c11e9ab"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_references_r64.py::test_public_share_numeric_matrix",
+      "replacements": [
+        "tests/test_analysis_references_r64.py::test_public_share_numeric_matrix"
+      ],
+      "source_sha256": "06d773594d197d7f058e04cd169ca3089d565e976fb0b6de8df4b8fef3e09964"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_analysis_runtime_wheel.py::test_installed_graph_journeys_and_three_process_recovery",
+      "replacements": [
+        "tests/test_analysis_runtime_wheel.py::test_installed_graph_journeys_and_three_process_recovery"
+      ],
+      "source_sha256": "0ef0f8d77fd117ba3ca0737ac07fd2f10dc5b992eaac459ee4cf6a57d432caa0"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_datasource_raw_sql.py::test_raw_sql_result_cannot_reenter_typed_analysis",
+      "replacements": [
+        "tests/test_datasource_raw_sql.py::test_raw_sql_result_cannot_reenter_typed_analysis"
+      ],
+      "source_sha256": "f9f3280205683be4f5614311de48aae7ffe0005335f7ce419d75c688693d50ae"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_compiler.py::test_complete_source_mapping_matches_local_and_independent_endpoint",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "9635f18c94421a6a7770bc7aada385465e03e0dce165c66c6b2f9d5c3daa3539"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_compiler.py::test_source_top_k_scores_folded_members_before_absolute_value",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_common_other_mapping_each_parent_and_resolution",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "9635f18c94421a6a7770bc7aada385465e03e0dce165c66c6b2f9d5c3daa3539"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_compiler.py::test_source_top_k_respects_one_sided_empty_result_authority",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_common_other_mapping_each_parent_and_resolution",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "9635f18c94421a6a7770bc7aada385465e03e0dce165c66c6b2f9d5c3daa3539"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_compiler.py::test_source_top_k_uses_absolute_signed_basis_and_exact_side_terms",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_common_other_mapping_each_parent_and_resolution",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "9635f18c94421a6a7770bc7aada385465e03e0dce165c66c6b2f9d5c3daa3539"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_compiler.py::test_source_rejects_raw_zero_basis_before_other_can_hide_it",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_common_other_mapping_each_parent_and_resolution",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "9635f18c94421a6a7770bc7aada385465e03e0dce165c66c6b2f9d5c3daa3539"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_compiler.py::test_source_scope_and_zero_total_shares_match_local",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "9635f18c94421a6a7770bc7aada385465e03e0dce165c66c6b2f9d5c3daa3539"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_compiler.py::test_source_rejects_overflowing_signed_pools_even_when_total_reconciles",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "9635f18c94421a6a7770bc7aada385465e03e0dce165c66c6b2f9d5c3daa3539"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_compiler.py::test_source_structural_empty_mean_is_zero_term",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "9635f18c94421a6a7770bc7aada385465e03e0dce165c66c6b2f9d5c3daa3539"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_compiler.py::test_source_rejects_presence_corruption_before_other_can_hide_state",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_common_other_mapping_each_parent_and_resolution",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "9635f18c94421a6a7770bc7aada385465e03e0dce165c66c6b2f9d5c3daa3539"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_compiler.py::test_empty_inputs_require_defined_global_endpoints_but_do_not_invent_scopes",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "9635f18c94421a6a7770bc7aada385465e03e0dce165c66c6b2f9d5c3daa3539"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_compiler.py::test_logical_expansion_preserves_original_reduced_selection",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "9635f18c94421a6a7770bc7aada385465e03e0dce165c66c6b2f9d5c3daa3539"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_compiler.py::test_logical_expansion_uses_original_selected_time_ordinal",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "9635f18c94421a6a7770bc7aada385465e03e0dce165c66c6b2f9d5c3daa3539"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_contracts.py::test_retained_missing_axis_rejects_before_any_action",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "e919b77251a0db053038ca2822d93d25292a590f5f489328a3c11ba906cb81f7"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_contracts.py::test_joint_and_hierarchy_preserve_exact_axis_order_masks_and_scope",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_common_other_mapping_each_parent_and_resolution",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "e919b77251a0db053038ca2822d93d25292a590f5f489328a3c11ba906cb81f7"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_contracts.py::test_exact_aggregation_selects_one_method",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "e919b77251a0db053038ca2822d93d25292a590f5f489328a3c11ba906cb81f7"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_contracts.py::test_invalid_axes_mode_topk_and_overlapping_partition_fail_before_io",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_common_other_mapping_each_parent_and_resolution",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "e919b77251a0db053038ca2822d93d25292a590f5f489328a3c11ba906cb81f7"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_contracts.py::test_row_contract_rejects_inactive_axis_nullability_and_invalid_resolution",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "e919b77251a0db053038ca2822d93d25292a590f5f489328a3c11ba906cb81f7"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_finite_exact_binary_fold_survives_intermediate_floating_overflow",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_additive_signed_pools_zero_total_and_typed_tie_order",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_component_mix_publishes_side_terms_and_exact_scope_endpoint",
+      "replacements": [
+        "tests/test_analysis_attribution_r66.py::test_component_side_terms_and_hierarchy",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_hierarchy_reuses_mapping_including_other_parent_and_real_null",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_common_other_mapping_each_parent_and_resolution",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_missing_corrupt_and_undefined_component_states_fail_closed",
+      "replacements": [
+        "tests/test_analysis_attribution_r66.py::test_component_side_terms_and_hierarchy",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_unrequested_dimension_remains_an_independent_scope",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_zero_contributions_keep_both_empty_pools_undefined",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_scope_integer_overflow_fails_before_output",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_topk_scores_the_folded_member_before_absolute_value",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_common_other_mapping_each_parent_and_resolution",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_one_sided_partitions_use_only_the_declared_exact_empty_value",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_component_mix_admits_signed_basis_with_defined_total_and_positive_support",
+      "replacements": [
+        "tests/test_analysis_attribution_r66.py::test_component_side_terms_and_hierarchy",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_structurally_empty_mean_partition_has_zero_side_term",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_fixed_bool_mask_equality_and_membership_use_tuple_identity",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_delta_selection_selects_both_side_parts_by_original_keys",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_decimal_topk_and_rank_preserve_more_than_28_significant_digits",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_common_other_mapping_each_parent_and_resolution",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_numeric.py::test_empty_selection_validates_only_existing_comparison_scopes",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1e9250fb4a79810a08850ad0420d44610943749a7019df28031dc7a1e236f556"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_operand_runtime.py::test_all_metric_operand_authorities_feed_exact_attribution",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "a9d88ba32dd5e52f1f216fafbd9eecc2737221f75c5bd94e6af84500f424d9a2"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_operand_runtime.py::test_independent_equal_argument_sources_continue_from_local_compare_into_attribution",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "a9d88ba32dd5e52f1f216fafbd9eecc2737221f75c5bd94e6af84500f424d9a2"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_source_runtime.py::test_daily_hidden_axis_attribution_fits_native_validation_memory",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "f1f95a0602a27909cf0d8049db3077002edcd67f520b8d9972c6e6a10d0b197e"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_source_runtime.py::test_entity_expansion_reduces_only_global_proof_in_source",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "f1f95a0602a27909cf0d8049db3077002edcd67f520b8d9972c6e6a10d0b197e"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_source_runtime.py::test_all_logical_where_keeps_complete_unsliced_attribution_proof",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "f1f95a0602a27909cf0d8049db3077002edcd67f520b8d9972c6e6a10d0b197e"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_source_runtime.py::test_decimal_source_summary_preserves_exact_attribution_values",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "f1f95a0602a27909cf0d8049db3077002edcd67f520b8d9972c6e6a10d0b197e"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribute_source_runtime.py::test_component_hierarchy_keeps_validation_memory_bounded",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_common_other_mapping_each_parent_and_resolution",
+        "tests/test_analysis_attribution_r66.py::test_component_side_terms_and_hierarchy",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "f1f95a0602a27909cf0d8049db3077002edcd67f520b8d9972c6e6a10d0b197e"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribution_masks.py::test_scalar_source_mask_decode_rejects_wrong_width_or_bits",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1704202650d13878d0bc24033d54023d92ba804666a39745fb79f3fac3685317"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribution_masks.py::test_scalar_source_mask_decode_preserves_empty_schema",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1704202650d13878d0bc24033d54023d92ba804666a39745fb79f3fac3685317"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribution_masks.py::test_local_mask_validation_checks_complete_arrow_keys_and_exact_values",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "1704202650d13878d0bc24033d54023d92ba804666a39745fb79f3fac3685317"
+    },
+    {
+      "disposition": "withdrawn legacy Metric Finding/relative-unavailable policy; typed R6 Cells and allocation parts replace that surface",
+      "old": "tests/test_lazy_attribution_publication.py::test_complete_proof_findings_and_cold_descriptor_are_independent",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribution_publication.py::test_publication_rejects_numeric_and_mask_contradictions",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribution_publication.py::test_each_hierarchy_scope_requires_every_authored_resolution",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_common_other_mapping_each_parent_and_resolution",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "withdrawn legacy Metric Finding/relative-unavailable policy; typed R6 Cells and allocation parts replace that surface",
+      "old": "tests/test_lazy_attribution_publication.py::test_selected_continuation_keeps_full_proof_and_emits_no_findings",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribution_publication.py::test_logical_row_suffix_uses_complete_intermediate_proof",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribution_publication.py::test_cold_evidence_corruption_fails_closed",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "withdrawn legacy Metric Finding/relative-unavailable policy; typed R6 Cells and allocation parts replace that surface",
+      "old": "tests/test_lazy_attribution_publication.py::test_cold_finding_rejects_unregistered_active_prefix",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribution_publication.py::test_mask_physical_type_and_values_preserve_exact_tuple_identity",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribution_publication.py::test_storage_checks_each_later_batch_against_its_hierarchy_mask_contract",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_common_other_mapping_each_parent_and_resolution",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "withdrawn legacy Metric Finding/relative-unavailable policy; typed R6 Cells and allocation parts replace that surface",
+      "old": "tests/test_lazy_attribution_publication.py::test_finding_cap_uses_complete_deterministic_global_magnitude_order",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribution_publication.py::test_delta_retained_parts_validate_exact_side_state_and_presence",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "withdrawn legacy Metric Finding/relative-unavailable policy; typed R6 Cells and allocation parts replace that surface",
+      "old": "tests/test_lazy_attribution_publication.py::test_attribution_findings_publish_and_roll_back_in_the_existing_store",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribution_publication.py::test_entity_publication_accepts_only_bounded_source_proof_and_no_identity_rows",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribution_publication.py::test_cold_attribution_requires_exact_side_fold_and_partition_authority",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribution_publication.py::test_source_proof_publication_streams_rows_without_regrouping",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribution_publication.py::test_native_unordered_contract_read_enforces_exact_hierarchy_key_order",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_common_other_mapping_each_parent_and_resolution",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "withdrawn legacy Metric Finding/relative-unavailable policy; typed R6 Cells and allocation parts replace that surface",
+      "old": "tests/test_lazy_attribution_publication.py::test_finding_magnitude_order_preserves_decimal_digits_above_ambient_precision",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "cddce89c6e3e1db74cda4ace375773d94146a1dfbdaae171bb3c30f34d63b9f3"
+    },
+    {
+      "disposition": "retired old Attribute producer/compiler/codec contract; accepted allocation rules migrated to public R6",
+      "old": "tests/test_lazy_attribution_runtime_acceptance.py::test_retained_attribution_without_origin_and_cold_binding",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_analysis_attribution_runtime_r66.py::test_offline_cold_parts_and_selected_views",
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation"
+      ],
+      "source_sha256": "097d969f863b6cfbf68d8f1d9f45092cbb494b10fc243790263730aed59e10ab"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_backend_dispatch.py::test_distribution_uses_explicit_preparation_without_full_source_registration",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "0735302b2b8a08139eff412729a852adb672ee72233976284694cd87977508f2"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_backend_dispatch.py::test_unplaceable_distribution_keeps_preparation_repair",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "0735302b2b8a08139eff412729a852adb672ee72233976284694cd87977508f2"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_backend_dispatch.py::test_retained_input_inherits_only_admitted_duckdb_source",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "0735302b2b8a08139eff412729a852adb672ee72233976284694cd87977508f2"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_c9_admission.py::test_trino_grouped_funnel_and_attribution_reject_before_source_access",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "b0a3d1ebd9b71486961c45ba75a842d7f3716aed7cffe8c25ae0916619e1101f"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_candidate_contracts.py::test_exact_objective_schema_keys_identity_and_order",
+      "replacements": [
+        "tests/test_lazy_candidate_contracts.py::test_exact_objective_schema_keys_identity_and_order"
+      ],
+      "source_sha256": "c1e29c4b90435543dc347502d1941ff45b7642893a932bf9692406a821e2fbc2"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_candidate_contracts.py::test_namespace_and_definition_identity_are_pure_and_private",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "c1e29c4b90435543dc347502d1941ff45b7642893a932bf9692406a821e2fbc2"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_candidate_contracts.py::test_shape_admission_and_normalized_parameters",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "c1e29c4b90435543dc347502d1941ff45b7642893a932bf9692406a821e2fbc2"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_candidate_contracts.py::test_candidate_continuations_and_selector_ownership",
+      "replacements": [
+        "tests/test_lazy_candidate_contracts.py::test_candidate_continuations_and_selector_ownership"
+      ],
+      "source_sha256": "c1e29c4b90435543dc347502d1941ff45b7642893a932bf9692406a821e2fbc2"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_candidate_failures.py::test_unevaluable_or_overflowed_discovery_never_publishes",
+      "replacements": [
+        "tests/test_lazy_candidate_failures.py::test_unevaluable_or_overflowed_discovery_never_publishes"
+      ],
+      "source_sha256": "c059b7a739c5beac19483d61b6abfb3ed4ee72dbbc67f89b527e36b14f6531d8"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_candidate_failures.py::test_evaluated_empty_publishes_evidence_and_zero_findings",
+      "replacements": [
+        "tests/test_lazy_candidate_failures.py::test_evaluated_empty_publishes_evidence_and_zero_findings"
+      ],
+      "source_sha256": "c059b7a739c5beac19483d61b6abfb3ed4ee72dbbc67f89b527e36b14f6531d8"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_candidate_failures.py::test_candidate_lost_ack_recovers_exact_zero_finding_bundle",
+      "replacements": [
+        "tests/test_lazy_candidate_failures.py::test_candidate_lost_ack_recovers_exact_zero_finding_bundle"
+      ],
+      "source_sha256": "c059b7a739c5beac19483d61b6abfb3ed4ee72dbbc67f89b527e36b14f6531d8"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_point_scores_use_independent_population_reference",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_point_scores_use_independent_population_reference"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_threshold_equality_and_evaluated_empty_have_exact_schema",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_threshold_equality_and_evaluated_empty_have_exact_schema"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_window_runs_break_at_missing_and_null_buckets_keep_global_baseline",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_window_runs_break_at_missing_and_null_buckets_keep_global_baseline"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_missing_bucket_alone_breaks_an_unusual_run",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_missing_bucket_alone_breaks_an_unusual_run"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_window_exact_opposite_peak_tie_uses_earliest_time",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_window_exact_opposite_peak_tie_uses_earliest_time"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_panel_status_counts_and_null_dimensions_are_independent",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_panel_status_counts_and_null_dimensions_are_independent"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_no_evaluable_series_is_not_an_empty_result",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_no_evaluable_series_is_not_an_empty_result"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_constant_fractional_baselines_cannot_create_rounding_candidates",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_constant_fractional_baselines_cannot_create_rounding_candidates"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_nonfinite_overflow_and_lost_precision_are_typed_failures",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_nonfinite_overflow_and_lost_precision_are_typed_failures"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_custom_calendar_uses_captured_period_adjacency_without_forecast_completeness",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_custom_calendar_uses_captured_period_adjacency_without_forecast_completeness"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_period_scores_and_paired_endpoints_match_independent_sliding_reference",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_period_scores_and_paired_endpoints_match_independent_sliding_reference"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_period_minimum_two_complete_means_and_constant_status",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_period_minimum_two_complete_means_and_constant_status"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_period_exact_opposite_peak_tie_uses_earliest_comparison_ordinal",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_period_exact_opposite_peak_tie_uses_earliest_comparison_ordinal"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_window_evaluated_empty_preserves_exact_typed_schema",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_window_evaluated_empty_preserves_exact_typed_schema"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_period_unavailable_panel_does_not_erase_an_evaluated_panel",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_period_unavailable_panel_does_not_erase_an_evaluated_panel"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_identity_order_limit_and_complete_digest_validation",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_identity_order_limit_and_complete_digest_validation"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_duplicate_period_candidate_keys_fail_before_discovery_limit",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_duplicate_period_candidate_keys_fail_before_discovery_limit"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_candidate_numeric.py::test_cooperative_checkpoint_prevents_an_output",
+      "replacements": [
+        "tests/test_lazy_candidate_numeric.py::test_cooperative_checkpoint_prevents_an_output"
+      ],
+      "source_sha256": "122229100fb04a96b059d46abdeab4683cf9b748072fe2e92fc995d9497a4164"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_candidate_publication.py::test_closed_candidate_evidence_round_trip_without_source",
+      "replacements": [
+        "tests/test_lazy_candidate_publication.py::test_closed_candidate_evidence_round_trip_without_source"
+      ],
+      "source_sha256": "d9335d0a8ad677d0d694ee209cc96920ac64cc488a3c2e25d18d6b1c9301a9f5"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_candidate_publication.py::test_window_endpoint_and_peak_corruption_is_rejected",
+      "replacements": [
+        "tests/test_lazy_candidate_publication.py::test_window_endpoint_and_peak_corruption_is_rejected"
+      ],
+      "source_sha256": "d9335d0a8ad677d0d694ee209cc96920ac64cc488a3c2e25d18d6b1c9301a9f5"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_candidate_runtime.py::test_real_candidate_authorities",
+      "replacements": [
+        "tests/test_lazy_candidate_runtime.py::test_real_candidate_authorities"
+      ],
+      "source_sha256": "9bd9d250c24ad02cc9bacaf4e56704543af3c899f03a96b0ce8cc19570338007"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_candidate_runtime.py::test_direct_local_successors_and_empty_selection",
+      "replacements": [
+        "tests/test_lazy_candidate_runtime.py::test_direct_local_successors_and_empty_selection"
+      ],
+      "source_sha256": "9bd9d250c24ad02cc9bacaf4e56704543af3c899f03a96b0ce8cc19570338007"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_candidate_runtime_acceptance.py::test_three_process_candidate",
+      "replacements": [
+        "tests/test_lazy_candidate_runtime_acceptance.py::test_three_process_candidate"
+      ],
+      "source_sha256": "87a4d2a5a2ecb0930d96a21a989bc7cf138cb096504f21bb5c69698ddbf298b3"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_candidate_worker.py::test_complete_panel_and_budgets_precede_one_discovery_invocation",
+      "replacements": [
+        "tests/test_lazy_candidate_worker.py::test_complete_panel_and_budgets_precede_one_discovery_invocation"
+      ],
+      "source_sha256": "65b86a3780c09184dfa50abf77c51554f0b1ccf117c77e52521ed65fc10c917b"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_candidate_worker.py::test_candidate_successors_reuse_private_frames_without_reconversion",
+      "replacements": [
+        "tests/test_lazy_candidate_worker.py::test_candidate_successors_reuse_private_frames_without_reconversion"
+      ],
+      "source_sha256": "65b86a3780c09184dfa50abf77c51554f0b1ccf117c77e52521ed65fc10c917b"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_clickhouse_methods.py::test_hidden_axis_attribution",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "0f44e7b0a50b64854cb765779edaabcf7e5247d9ad9b7a57ec3d9af7392af791"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_clickhouse_methods.py::test_hidden_axis_attribution_complete_contributions",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "0f44e7b0a50b64854cb765779edaabcf7e5247d9ad9b7a57ec3d9af7392af791"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_clickhouse_methods.py::test_dimension_comparison_alignment",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "0f44e7b0a50b64854cb765779edaabcf7e5247d9ad9b7a57ec3d9af7392af791"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_clickhouse_methods.py::test_retained_axis_attribution",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "0f44e7b0a50b64854cb765779edaabcf7e5247d9ad9b7a57ec3d9af7392af791"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_compare_compiler.py::test_source_numeric_exactness_matches_independent_reference",
+      "replacements": [
+        "tests/test_lazy_compare_compiler.py::test_source_numeric_exactness_matches_independent_reference"
+      ],
+      "source_sha256": "0e6de7b4c5d87ddff07d4ab4ba83ab2cf1af0b9442f25e0e01b54f714042f0df"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_compare_compiler.py::test_source_rejects_nonfinite_input_and_promoted_difference",
+      "replacements": [
+        "tests/test_lazy_compare_compiler.py::test_source_rejects_nonfinite_input_and_promoted_difference"
+      ],
+      "source_sha256": "0e6de7b4c5d87ddff07d4ab4ba83ab2cf1af0b9442f25e0e01b54f714042f0df"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_compare_compiler.py::test_source_relative_overflow_retains_the_valid_delta",
+      "replacements": [
+        "tests/test_lazy_compare_compiler.py::test_source_relative_overflow_retains_the_valid_delta"
+      ],
+      "source_sha256": "0e6de7b4c5d87ddff07d4ab4ba83ab2cf1af0b9442f25e0e01b54f714042f0df"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_compare_compiler.py::test_source_integer_overflow_rejects_before_narrow_output",
+      "replacements": [
+        "tests/test_lazy_compare_compiler.py::test_source_integer_overflow_rejects_before_narrow_output"
+      ],
+      "source_sha256": "0e6de7b4c5d87ddff07d4ab4ba83ab2cf1af0b9442f25e0e01b54f714042f0df"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_compare_compiler.py::test_source_decimal_overflow_rejects_complete_calculation",
+      "replacements": [
+        "tests/test_lazy_compare_compiler.py::test_source_decimal_overflow_rejects_complete_calculation"
+      ],
+      "source_sha256": "0e6de7b4c5d87ddff07d4ab4ba83ab2cf1af0b9442f25e0e01b54f714042f0df"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_compare_compiler.py::test_source_coordinate_alignment_uses_field_identity_after_display_alias",
+      "replacements": [
+        "tests/test_lazy_compare_compiler.py::test_source_coordinate_alignment_uses_field_identity_after_display_alias"
+      ],
+      "source_sha256": "0e6de7b4c5d87ddff07d4ab4ba83ab2cf1af0b9442f25e0e01b54f714042f0df"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_contracts.py::test_all_five_shapes_are_private_paired_delta_contracts_without_io",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "98793872c5373267ac676e6ba4bb72097aa205f43fc613155561ff748383cc4c"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_contracts.py::test_only_metric_observation_windows_may_differ",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "98793872c5373267ac676e6ba4bb72097aa205f43fc613155561ff748383cc4c"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_contracts.py::test_metric_binding_and_shape_admission_teaches_exact_projection",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "98793872c5373267ac676e6ba4bb72097aa205f43fc613155561ff748383cc4c"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_contracts.py::test_scope_and_sampling_definition_do_not_enter_delta_row_semantics",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "98793872c5373267ac676e6ba4bb72097aa205f43fc613155561ff748383cc4c"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_contracts.py::test_delta_row_continuations_are_registered_and_scalar_rejected",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "98793872c5373267ac676e6ba4bb72097aa205f43fc613155561ff748383cc4c"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_contracts.py::test_compare_rejects_unregistered_alignment_even_with_the_same_discriminator",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "98793872c5373267ac676e6ba4bb72097aa205f43fc613155561ff748383cc4c"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_contracts.py::test_compare_rejects_cross_store_materialized_operands_in_both_directions",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "98793872c5373267ac676e6ba4bb72097aa205f43fc613155561ff748383cc4c"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_compare_numeric.py::test_presence_null_zero_and_negative_baseline_have_independent_reference",
+      "replacements": [
+        "tests/test_lazy_compare_numeric.py::test_presence_null_zero_and_negative_baseline_have_independent_reference"
+      ],
+      "source_sha256": "cd7edac86da49d200b36d4e21697a98417724950d7ad0c86713669f3aa5d3c3b"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_compare_numeric.py::test_time_ordinals_are_per_series_and_preserve_both_exact_bucket_values",
+      "replacements": [
+        "tests/test_lazy_compare_numeric.py::test_time_ordinals_are_per_series_and_preserve_both_exact_bucket_values"
+      ],
+      "source_sha256": "cd7edac86da49d200b36d4e21697a98417724950d7ad0c86713669f3aa5d3c3b"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_compare_numeric.py::test_scalar_null_and_nonfinite_are_distinct_and_duplicate_keys_fail",
+      "replacements": [
+        "tests/test_lazy_compare_numeric.py::test_scalar_null_and_nonfinite_are_distinct_and_duplicate_keys_fail"
+      ],
+      "source_sha256": "cd7edac86da49d200b36d4e21697a98417724950d7ad0c86713669f3aa5d3c3b"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_compare_numeric.py::test_integer_and_decimal_promotions_reject_whole_action_overflow",
+      "replacements": [
+        "tests/test_lazy_compare_numeric.py::test_integer_and_decimal_promotions_reject_whole_action_overflow"
+      ],
+      "source_sha256": "cd7edac86da49d200b36d4e21697a98417724950d7ad0c86713669f3aa5d3c3b"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_compare_numeric.py::test_empty_inputs_and_null_dimension_preserve_exact_key_meaning",
+      "replacements": [
+        "tests/test_lazy_compare_numeric.py::test_empty_inputs_and_null_dimension_preserve_exact_key_meaning"
+      ],
+      "source_sha256": "cd7edac86da49d200b36d4e21697a98417724950d7ad0c86713669f3aa5d3c3b"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_runtime.py::test_all_admitted_shapes_and_operand_states",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "0e0d8508b69020538d785daf982d29827d3e208599bba33ffe5bef3bf876d804"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_runtime.py::test_repeated_checkpoint_keeps_two_operand_occurrences_and_immutable_rows",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "0e0d8508b69020538d785daf982d29827d3e208599bba33ffe5bef3bf876d804"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_runtime.py::test_delta_row_operations_preserve_source_and_retained_numerical_results",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "0e0d8508b69020538d785daf982d29827d3e208599bba33ffe5bef3bf876d804"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_runtime.py::test_independent_equal_argument_connections_feed_one_local_comparison",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "0e0d8508b69020538d785daf982d29827d3e208599bba33ffe5bef3bf876d804"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_runtime.py::test_independent_entity_comparison_is_rejected_before_source_work",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "0e0d8508b69020538d785daf982d29827d3e208599bba33ffe5bef3bf876d804"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_runtime.py::test_cross_session_selected_checkpoint_preserves_original_owner",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "0e0d8508b69020538d785daf982d29827d3e208599bba33ffe5bef3bf876d804"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_runtime.py::test_later_complete_operand_failure_prevents_worker_consumer_invocation",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "0e0d8508b69020538d785daf982d29827d3e208599bba33ffe5bef3bf876d804"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_runtime.py::test_registered_numeric_source_and_local_comparison_are_lossless",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "0e0d8508b69020538d785daf982d29827d3e208599bba33ffe5bef3bf876d804"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_runtime.py::test_finite_delta_with_unavailable_relative_value_publishes_finding",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_relative_change_exact_finish_and_zero_baseline",
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "0e0d8508b69020538d785daf982d29827d3e208599bba33ffe5bef3bf876d804"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_runtime_acceptance.py::test_fresh_delta_publication_continuation_and_cold_binding",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "1846cec966e1e8e44ebe43a733e5a35a03bb4038ea2a07cf787ee6625a93f7c0"
+    },
+    {
+      "disposition": "retired old Metric Delta shape/producer contract; accepted comparison behavior migrated to public R6",
+      "old": "tests/test_lazy_compare_time_runtime.py::test_repeated_dimension_members_keep_exact_paired_time_rows_in_both_routes",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_period_change_retains_original_buckets_and_rejects_renumbering",
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_comparison_runtime_r62.py::test_comparison_v2_cold_continuation_and_correspondence_integrity",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "df43317db1ae8a5acf4b9a986eed72d87313ae47ba402a6a81902159b70b9fed"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_delta_publication.py::test_production_extractor_caps_1001_rows_and_cold_reads_exact_order",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "e235abc91639b5232b214b6cbe89ef48ecd13fa3c389db8aecf4208dbfe02317"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_delta_publication.py::test_selected_finding_page_does_not_decode_corrupt_unselected_body",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "e235abc91639b5232b214b6cbe89ef48ecd13fa3c389db8aecf4208dbfe02317"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_delta_publication.py::test_nonzero_findings_share_one_atomic_publication",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "e235abc91639b5232b214b6cbe89ef48ecd13fa3c389db8aecf4208dbfe02317"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_delta_publication.py::test_entity_delta_exposes_only_bounded_aggregate_evidence",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "e235abc91639b5232b214b6cbe89ef48ecd13fa3c389db8aecf4208dbfe02317"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_delta_publication.py::test_corrupt_operand_order_and_incomplete_evidence_fail_cold_decode",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "e235abc91639b5232b214b6cbe89ef48ecd13fa3c389db8aecf4208dbfe02317"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_delta_publication.py::test_complete_stream_required_before_publication_evidence_is_valid",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "e235abc91639b5232b214b6cbe89ef48ecd13fa3c389db8aecf4208dbfe02317"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_delta_publication.py::test_time_findings_keep_paired_times_without_changing_canonical_row_key",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "e235abc91639b5232b214b6cbe89ef48ecd13fa3c389db8aecf4208dbfe02317"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_delta_publication.py::test_quality_rejects_arithmetic_and_status_contradictions",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "e235abc91639b5232b214b6cbe89ef48ecd13fa3c389db8aecf4208dbfe02317"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_delta_publication.py::test_equal_magnitude_findings_follow_typed_numeric_row_key_order",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "e235abc91639b5232b214b6cbe89ef48ecd13fa3c389db8aecf4208dbfe02317"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_delta_publication.py::test_operand_population_authority_cannot_be_forged_independently_of_basis",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "e235abc91639b5232b214b6cbe89ef48ecd13fa3c389db8aecf4208dbfe02317"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_delta_publication.py::test_decimal_finding_magnitude_preserves_all_digits_and_signed_ties",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "e235abc91639b5232b214b6cbe89ef48ecd13fa3c389db8aecf4208dbfe02317"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_delta_publication.py::test_decimal_finding_cap_selects_exact_largest_negative_magnitudes",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "e235abc91639b5232b214b6cbe89ef48ecd13fa3c389db8aecf4208dbfe02317"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_disclosure.py::test_exact_export_bindings_and_required_native_targets",
+      "replacements": [
+        "tests/test_lazy_disclosure.py::test_exact_export_bindings_and_required_native_targets"
+      ],
+      "source_sha256": "8cca4499c7b27e730427f48ec0ed44d2dd4b4fc9a734d24ccfc90b834fbc0abd"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_disclosure.py::test_bound_funnel_overload_uses_exact_registered_shape",
+      "replacements": [
+        "tests/test_lazy_disclosure.py::test_bound_funnel_overload_uses_exact_registered_shape"
+      ],
+      "source_sha256": "8cca4499c7b27e730427f48ec0ed44d2dd4b4fc9a734d24ccfc90b834fbc0abd"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_disclosure.py::test_expected_parameter_acquisition_and_default_contracts",
+      "replacements": [
+        "tests/test_lazy_disclosure.py::test_expected_parameter_acquisition_and_default_contracts"
+      ],
+      "source_sha256": "8cca4499c7b27e730427f48ec0ed44d2dd4b4fc9a734d24ccfc90b834fbc0abd"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_disclosure.py::test_invalid_callable_ownership_and_export_links_fail_during_assembly",
+      "replacements": [
+        "tests/test_lazy_disclosure.py::test_invalid_callable_ownership_and_export_links_fail_during_assembly"
+      ],
+      "source_sha256": "8cca4499c7b27e730427f48ec0ed44d2dd4b4fc9a734d24ccfc90b834fbc0abd"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_disclosure.py::test_callable_specialization_uses_registration_scope_not_target_spelling",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "8cca4499c7b27e730427f48ec0ed44d2dd4b4fc9a734d24ccfc90b834fbc0abd"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_distinct_alignment.py::test_membership_uses_selected_time_pairs_with_null_dimensions_and_side_aliases",
+      "replacements": [
+        "tests/test_lazy_distinct_alignment.py::test_membership_uses_selected_time_pairs_with_null_dimensions_and_side_aliases"
+      ],
+      "source_sha256": "7f20a1a697cf7ab7ad24c7e5e0395661ade6535e0bc7a3e73d4fb5136e6043f1"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_distinct_alignment.py::test_preassigned_noncontiguous_ordinals_and_selection_remain_comparison_authority",
+      "replacements": [
+        "tests/test_lazy_distinct_alignment.py::test_preassigned_noncontiguous_ordinals_and_selection_remain_comparison_authority"
+      ],
+      "source_sha256": "7f20a1a697cf7ab7ad24c7e5e0395661ade6535e0bc7a3e73d4fb5136e6043f1"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_distinct_alignment.py::test_memberships_keep_one_sided_coordinates_without_inventing_absent_support",
+      "replacements": [
+        "tests/test_lazy_distinct_alignment.py::test_memberships_keep_one_sided_coordinates_without_inventing_absent_support"
+      ],
+      "source_sha256": "7f20a1a697cf7ab7ad24c7e5e0395661ade6535e0bc7a3e73d4fb5136e6043f1"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_distinct_alignment.py::test_expanded_paired_time_does_not_recover_membership_for_an_absent_side",
+      "replacements": [
+        "tests/test_lazy_distinct_alignment.py::test_expanded_paired_time_does_not_recover_membership_for_an_absent_side"
+      ],
+      "source_sha256": "7f20a1a697cf7ab7ad24c7e5e0395661ade6535e0bc7a3e73d4fb5136e6043f1"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_distinct_alignment.py::test_scalar_comparison_selection_keeps_or_removes_membership_without_coordinates",
+      "replacements": [
+        "tests/test_lazy_distinct_alignment.py::test_scalar_comparison_selection_keeps_or_removes_membership_without_coordinates"
+      ],
+      "source_sha256": "7f20a1a697cf7ab7ad24c7e5e0395661ade6535e0bc7a3e73d4fb5136e6043f1"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_compiler.py::test_source_scalar_entity_and_filtered_memberships_reconcile_independently",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "0979eb0f1f248dac8563e71da2079faffe6f92e4cc932be503e9bf6bef28a47f"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_compiler.py::test_distinct_logical_selection_then_axis_expansion_keeps_selected_support",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "0979eb0f1f248dac8563e71da2079faffe6f92e4cc932be503e9bf6bef28a47f"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_compiler.py::test_selected_daily_comparison_expansion_keeps_ordinal_and_fractional_membership",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "0979eb0f1f248dac8563e71da2079faffe6f92e4cc932be503e9bf6bef28a47f"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_compiler.py::test_cumulative_distinct_with_selected_time_ordinal_expands_without_losing_anchor",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "0979eb0f1f248dac8563e71da2079faffe6f92e4cc932be503e9bf6bef28a47f"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_compiler.py::test_empty_selected_distinct_has_no_invented_partitions_or_scopes",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "0979eb0f1f248dac8563e71da2079faffe6f92e4cc932be503e9bf6bef28a47f"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_contracts.py::test_exact_membership_selects_independent_float_allocation",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "356041d96d9512ef54a556c776f6939c302837bcbfe2ed6c6f2ab4325ddc92e9"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_contracts.py::test_distinct_composition_does_not_enter_component_mix_or_generic_rollup",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "356041d96d9512ef54a556c776f6939c302837bcbfe2ed6c6f2ab4325ddc92e9"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_contracts.py::test_closed_membership_rejects_inconsistent_root_and_resolution",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "356041d96d9512ef54a556c776f6939c302837bcbfe2ed6c6f2ab4325ddc92e9"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_contracts.py::test_membership_capability_inventory_does_not_require_state_on_ordinary_rows",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "356041d96d9512ef54a556c776f6939c302837bcbfe2ed6c6f2ab4325ddc92e9"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_expansion_windows.py::test_expansion_keeps_prior_partitions_and_clips_the_selected_partial_bucket",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "e3649b46113b641300de16ac12170e9ab47a423c1d4f0688236137690451302a"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_numeric.py::test_overlap_duplicates_null_and_other_match_independent_rational_reference",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "6acfd25ef6f113195c95b336e146e24e54032ab5a8db2d137c3923a9bc7afa04"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_numeric.py::test_topk_uses_cross_side_union_not_sum_of_side_distinct_counts",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "6acfd25ef6f113195c95b336e146e24e54032ab5a8db2d137c3923a9bc7afa04"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_numeric.py::test_other_merge_recomputes_degree_and_parent_allocation_is_independent",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "6acfd25ef6f113195c95b336e146e24e54032ab5a8db2d137c3923a9bc7afa04"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_numeric.py::test_all_null_and_empty_membership_keeps_zero_coordinate_spine",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "6acfd25ef6f113195c95b336e146e24e54032ab5a8db2d137c3923a9bc7afa04"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_numeric.py::test_unrequested_coordinate_keeps_independent_scope_and_pools",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "6acfd25ef6f113195c95b336e146e24e54032ab5a8db2d137c3923a9bc7afa04"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_numeric.py::test_endpoint_membership_and_expansion_contradictions_fail_without_key_values",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "6acfd25ef6f113195c95b336e146e24e54032ab5a8db2d137c3923a9bc7afa04"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_publication.py::test_source_proof_publishes_independent_hierarchy_and_cold_findings",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "e4d2f9698c276cbfe563342b58f04298b9039a52354e739a86aac427434fe64a"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_publication.py::test_cold_distinct_rejects_incompatible_method_resolution_facts",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "e4d2f9698c276cbfe563342b58f04298b9039a52354e739a86aac427434fe64a"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_publication.py::test_distinct_publication_requires_source_proof_before_consuming_rows",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "e4d2f9698c276cbfe563342b58f04298b9039a52354e739a86aac427434fe64a"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_publication.py::test_distinct_selected_continuation_keeps_complete_proof_without_new_findings",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "e4d2f9698c276cbfe563342b58f04298b9039a52354e739a86aac427434fe64a"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_runtime.py::test_damaged_delta_membership_keeps_primary_readable_but_blocks_consumption",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "cdcbdb155cbd889a3dfa94862b60a8471efe576f28d2ebb62d38a6f05dca176d"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_runtime.py::test_distinct_foreign_domain_contracts_fail_before_data_work",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "cdcbdb155cbd889a3dfa94862b60a8471efe576f28d2ebb62d38a6f05dca176d"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_runtime.py::test_distinct_local_frontier_rejects_separate_source_owners_before_run",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "cdcbdb155cbd889a3dfa94862b60a8471efe576f28d2ebb62d38a6f05dca176d"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_runtime.py::test_mixed_source_input_membership_is_rechecked_before_publication",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "cdcbdb155cbd889a3dfa94862b60a8471efe576f28d2ebb62d38a6f05dca176d"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_runtime.py::test_distinct_external_failure_preserves_traceback_and_has_no_publication",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "cdcbdb155cbd889a3dfa94862b60a8471efe576f28d2ebb62d38a6f05dca176d"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_runtime_acceptance.py::test_three_process_distinct_recovery_without_origin",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "df41cd0a7b4af3bab9488434cbed3b124d7e749978ba38ad7c772e6261c78425"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distinct_source_runtime.py::test_every_operand_order_keeps_membership_inside_engine",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "feb6434dc0820660f31a2d49f0bb230b046ccbec7454cbbdf24fb031d2d97eac"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distribution_compiler.py::test_complete_source_coalitions",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "bcb25e63aaa378c6a54fc5ac4874b37dcbbec8350a0924b49694fc2fb524edda"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distribution_compiler.py::test_logical_axis_expansion_and_original_selection",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "bcb25e63aaa378c6a54fc5ac4874b37dcbbec8350a0924b49694fc2fb524edda"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distribution_contracts.py::test_exact_and_approximate_definitions_are_distinct_and_do_not_mix",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "0c58bab73a1aaa115dd9191fd5110ea6be2cf06526525d2267a7ab6acc8210e6"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distribution_contracts.py::test_entity_scope_has_no_distribution_local_preparation",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "0c58bab73a1aaa115dd9191fd5110ea6be2cf06526525d2267a7ab6acc8210e6"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distribution_failures.py::test_distribution_receipt_mutation_after_output_rename_rolls_back",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "8bf6f8379df3edf995c3373386efa78bc8e02f97ea428cf0e1e24b5f83125ed4"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distribution_failures.py::test_one_sided_distribution_and_undefined_games",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "8bf6f8379df3edf995c3373386efa78bc8e02f97ea428cf0e1e24b5f83125ed4"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_distribution_numeric.py::test_all_coalitions_match_independent_permutations",
+      "replacements": [
+        "tests/test_lazy_distribution_numeric.py::test_all_coalitions_match_independent_permutations"
+      ],
+      "source_sha256": "c2e88485c86a86c9c6c5dee90901f8723f745c2d4add04712590a4e6f2aa4bd9"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_distribution_numeric.py::test_corrupt_complete_game_fails_without_output",
+      "replacements": [
+        "tests/test_lazy_distribution_numeric.py::test_corrupt_complete_game_fails_without_output"
+      ],
+      "source_sha256": "c2e88485c86a86c9c6c5dee90901f8723f745c2d4add04712590a4e6f2aa4bd9"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distribution_runtime.py::test_distribution_runtime_preserves_method_authority",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "efac1e49fb17c04d02e97730bfe56d90e68c5390d26a765b0fd141f73e5aa7cd"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distribution_runtime.py::test_metric_operand_orders_and_no_raw_distribution_transfer",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "efac1e49fb17c04d02e97730bfe56d90e68c5390d26a765b0fd141f73e5aa7cd"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distribution_runtime.py::test_retained_distribution_corruption_blocks_consumption_but_not_primary_reads",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "efac1e49fb17c04d02e97730bfe56d90e68c5390d26a765b0fd141f73e5aa7cd"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distribution_runtime.py::test_complete_players_and_other_survive_mapping_above_former_cap",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "efac1e49fb17c04d02e97730bfe56d90e68c5390d26a765b0fd141f73e5aa7cd"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distribution_runtime.py::test_numeric_source_types_replay_the_declared_float64_percentile",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "efac1e49fb17c04d02e97730bfe56d90e68c5390d26a765b0fd141f73e5aa7cd"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distribution_runtime.py::test_projection_preserves_method_and_preview_preserves_authored_order",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "efac1e49fb17c04d02e97730bfe56d90e68c5390d26a765b0fd141f73e5aa7cd"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distribution_runtime_acceptance.py::test_three_process_distribution_recovery",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "afcf2aa7170071a4651a636eea7eb9051f9461a90c563de654019e50526c3ff0"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_distribution_topk.py::test_null_other_and_independent_prefix_games",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "838c3a8e47215e99bf3d4c7fbae38e7b70fa34e182ccd33b8a104358e03aa3d2"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_native_minimal_half_mass_includes_zero_and_null_members",
+      "replacements": [
+        "tests/test_lazy_driver_compiler.py::test_native_minimal_half_mass_includes_zero_and_null_members"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_native_folds_other_search_axes_before_absolute_contribution",
+      "replacements": [
+        "tests/test_lazy_driver_compiler.py::test_native_folds_other_search_axes_before_absolute_contribution"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_native_zero_partition_evaluates_without_emitting_candidate",
+      "replacements": [
+        "tests/test_lazy_driver_compiler.py::test_native_zero_partition_evaluates_without_emitting_candidate"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_native_digest_encoding_has_independent_scalar_vectors",
+      "replacements": [
+        "tests/test_lazy_driver_compiler.py::test_native_digest_encoding_has_independent_scalar_vectors"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_native_keys_and_digest_checked_before_limit",
+      "replacements": [
+        "tests/test_lazy_driver_compiler.py::test_native_keys_and_digest_checked_before_limit"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_native_scoring_and_proof_use_frozen_delta",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_native_integer_half_mass_boundary_above_float_precision",
+      "replacements": [
+        "tests/test_lazy_driver_compiler.py::test_native_integer_half_mass_boundary_above_float_precision"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_native_driver_entity_digest_is_source_only_and_tampering_fails",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_exact_native_endpoint_reconciliation_does_not_round_large_integers",
+      "replacements": [
+        "tests/test_lazy_driver_compiler.py::test_exact_native_endpoint_reconciliation_does_not_round_large_integers"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_native_unavailable_partition_and_no_evaluation_never_become_zero",
+      "replacements": [
+        "tests/test_lazy_driver_compiler.py::test_native_unavailable_partition_and_no_evaluation_never_become_zero"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_native_expansion_rejects_unavailable_original_entity_endpoint",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_native_exact_float_sum_and_window_match_fsum",
+      "replacements": [
+        "tests/test_lazy_driver_compiler.py::test_native_exact_float_sum_and_window_match_fsum"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_native_cancellation_concentration_matches_independent_and_local_results",
+      "replacements": [
+        "tests/test_lazy_driver_compiler.py::test_native_cancellation_concentration_matches_independent_and_local_results"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_native_decimal_fraction_half_boundary_matches_local",
+      "replacements": [
+        "tests/test_lazy_driver_compiler.py::test_native_decimal_fraction_half_boundary_matches_local"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_exact_native_sum_macros_follow_connection_lifetime",
+      "replacements": [
+        "tests/test_lazy_driver_compiler.py::test_exact_native_sum_macros_follow_connection_lifetime"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_native_numeric_dimension_keys_reject_nonfinite_but_keep_legal_null",
+      "replacements": [
+        "tests/test_lazy_driver_compiler.py::test_native_numeric_dimension_keys_reject_nonfinite_but_keep_legal_null"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_native_and_local_exact_sum_survive_finite_intermediate_overflow",
+      "replacements": [
+        "tests/test_lazy_driver_compiler.py::test_native_and_local_exact_sum_survive_finite_intermediate_overflow"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_compiler.py::test_driver_finite_overflowing_partitions_preserve_native_local_parity",
+      "replacements": [
+        "tests/test_lazy_driver_compiler.py::test_driver_finite_overflowing_partitions_preserve_native_local_parity"
+      ],
+      "source_sha256": "302c533e2e7a6ab1275ba3a8e253c3007a193a468376b07454703f75ca17a42a"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_contracts.py::test_each_delta_shape_builds_one_shared_scope_without_io",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "22fd98e8687a56ab2a782836ecd321141ce1fc55690451954caaff325b6d27cb"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_contracts.py::test_component_mix_is_not_admitted",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "22fd98e8687a56ab2a782836ecd321141ce1fc55690451954caaff325b6d27cb"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_contracts.py::test_driver_scope_never_grants_population_input",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "22fd98e8687a56ab2a782836ecd321141ce1fc55690451954caaff325b6d27cb"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_contracts.py::test_driver_invalid_limits_fail_before_io",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "22fd98e8687a56ab2a782836ecd321141ce1fc55690451954caaff325b6d27cb"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_contracts.py::test_invalid_search_space",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "22fd98e8687a56ab2a782836ecd321141ce1fc55690451954caaff325b6d27cb"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_contracts.py::test_search_space_order_uniqueness_and_closed_schema",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "22fd98e8687a56ab2a782836ecd321141ce1fc55690451954caaff325b6d27cb"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_contracts.py::test_materialized_delta_retained_axes_are_pure_and_missing_axis_is_a_barrier",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "22fd98e8687a56ab2a782836ecd321141ce1fc55690451954caaff325b6d27cb"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_contracts.py::test_logical_delta_expansion_stops_at_materialized_metric_operands",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "22fd98e8687a56ab2a782836ecd321141ce1fc55690451954caaff325b6d27cb"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_failures.py::test_driver_publication_fault_rolls_back_every_authority",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "71fdf8c966dff509ba01af06f73f620086425774a00183a15adc427250c495e5"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_failures.py::test_driver_cancellation_keeps_no_partial_output",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "71fdf8c966dff509ba01af06f73f620086425774a00183a15adc427250c495e5"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_failures.py::test_driver_lost_ack_reuses_the_committed_zero_finding_bundle",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "71fdf8c966dff509ba01af06f73f620086425774a00183a15adc427250c495e5"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_numeric.py::test_signed_cancellation_zero_and_null_members_count_in_cardinality",
+      "replacements": [
+        "tests/test_lazy_driver_numeric.py::test_signed_cancellation_zero_and_null_members_count_in_cardinality"
+      ],
+      "source_sha256": "93a03fcea0b940ebfca3c6489a35f8d370ccaa1c6edc4d1b4b1472ea46f83c54"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_numeric.py::test_axes_share_scope_and_fold_signed_components_before_absolute_value",
+      "replacements": [
+        "tests/test_lazy_driver_numeric.py::test_axes_share_scope_and_fold_signed_components_before_absolute_value"
+      ],
+      "source_sha256": "93a03fcea0b940ebfca3c6489a35f8d370ccaa1c6edc4d1b4b1472ea46f83c54"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_numeric.py::test_unsearched_dimensions_scope_limit_and_input_order_independence",
+      "replacements": [
+        "tests/test_lazy_driver_numeric.py::test_unsearched_dimensions_scope_limit_and_input_order_independence"
+      ],
+      "source_sha256": "93a03fcea0b940ebfca3c6489a35f8d370ccaa1c6edc4d1b4b1472ea46f83c54"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_numeric.py::test_complete_zero_evaluates_but_empty_input_does_not",
+      "replacements": [
+        "tests/test_lazy_driver_numeric.py::test_complete_zero_evaluates_but_empty_input_does_not"
+      ],
+      "source_sha256": "93a03fcea0b940ebfca3c6489a35f8d370ccaa1c6edc4d1b4b1472ea46f83c54"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_numeric.py::test_missing_corrupt_unavailable_and_nonfinite_state_never_score_as_zero",
+      "replacements": [
+        "tests/test_lazy_driver_numeric.py::test_missing_corrupt_unavailable_and_nonfinite_state_never_score_as_zero"
+      ],
+      "source_sha256": "93a03fcea0b940ebfca3c6489a35f8d370ccaa1c6edc4d1b4b1472ea46f83c54"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_numeric.py::test_concentration_does_not_divide_by_tiny_net_delta",
+      "replacements": [
+        "tests/test_lazy_driver_numeric.py::test_concentration_does_not_divide_by_tiny_net_delta"
+      ],
+      "source_sha256": "93a03fcea0b940ebfca3c6489a35f8d370ccaa1c6edc4d1b4b1472ea46f83c54"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_numeric.py::test_deadline_callback_interrupts_before_result",
+      "replacements": [
+        "tests/test_lazy_driver_numeric.py::test_deadline_callback_interrupts_before_result"
+      ],
+      "source_sha256": "93a03fcea0b940ebfca3c6489a35f8d370ccaa1c6edc4d1b4b1472ea46f83c54"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_numeric.py::test_digest_coordinate_encoding_has_one_representation",
+      "replacements": [
+        "tests/test_lazy_driver_numeric.py::test_digest_coordinate_encoding_has_one_representation"
+      ],
+      "source_sha256": "93a03fcea0b940ebfca3c6489a35f8d370ccaa1c6edc4d1b4b1472ea46f83c54"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_numeric.py::test_decimal_folds_keep_more_than_28_significant_digits_before_concentration",
+      "replacements": [
+        "tests/test_lazy_driver_numeric.py::test_decimal_folds_keep_more_than_28_significant_digits_before_concentration"
+      ],
+      "source_sha256": "93a03fcea0b940ebfca3c6489a35f8d370ccaa1c6edc4d1b4b1472ea46f83c54"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_numeric.py::test_expanded_partition_checks_independent_fold_of_multiple_original_rows",
+      "replacements": [
+        "tests/test_lazy_driver_numeric.py::test_expanded_partition_checks_independent_fold_of_multiple_original_rows"
+      ],
+      "source_sha256": "93a03fcea0b940ebfca3c6489a35f8d370ccaa1c6edc4d1b4b1472ea46f83c54"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_numeric.py::test_subnormal_float_digest_vectors_match_source_c99_hex",
+      "replacements": [
+        "tests/test_lazy_driver_numeric.py::test_subnormal_float_digest_vectors_match_source_c99_hex"
+      ],
+      "source_sha256": "93a03fcea0b940ebfca3c6489a35f8d370ccaa1c6edc4d1b4b1472ea46f83c54"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_numeric.py::test_minimal_half_boundary_uses_once_rounded_binary_prefixes",
+      "replacements": [
+        "tests/test_lazy_driver_numeric.py::test_minimal_half_boundary_uses_once_rounded_binary_prefixes"
+      ],
+      "source_sha256": "93a03fcea0b940ebfca3c6489a35f8d370ccaa1c6edc4d1b4b1472ea46f83c54"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_numeric.py::test_exact_fold_cancellation_and_half_boundary_are_input_order_independent",
+      "replacements": [
+        "tests/test_lazy_driver_numeric.py::test_exact_fold_cancellation_and_half_boundary_are_input_order_independent"
+      ],
+      "source_sha256": "93a03fcea0b940ebfca3c6489a35f8d370ccaa1c6edc4d1b4b1472ea46f83c54"
+    },
+    {
+      "disposition": "preserved independent arithmetic oracle for an actual R7/R8 helper; no R6 Runtime or R8 source qualification",
+      "old": "tests/test_lazy_driver_numeric.py::test_extreme_finite_fold_cancellation_preserves_both_axes_and_order",
+      "replacements": [
+        "tests/test_lazy_driver_numeric.py::test_extreme_finite_fold_cancellation_preserves_both_axes_and_order"
+      ],
+      "source_sha256": "93a03fcea0b940ebfca3c6489a35f8d370ccaa1c6edc4d1b4b1472ea46f83c54"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_publication.py::test_driver_multiple_axes_can_share_one_contributing_member_row",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "fcdf4fb72d0f73f57d529e124de8e54893becfd13279f5e1f3ab5045856212fb"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_publication.py::test_driver_empty_expanded_count_has_one_evaluated_scalar_scope",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "fcdf4fb72d0f73f57d529e124de8e54893becfd13279f5e1f3ab5045856212fb"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_runtime.py::test_driver_all_metric_operand_authorities",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "277e70ed294ffd22053540f89bbe8cc480491b4584fb0c1b026a83f773187cfc"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_runtime.py::test_scoped_days_survive_driver_and_local_row_continuations",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "277e70ed294ffd22053540f89bbe8cc480491b4584fb0c1b026a83f773187cfc"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_runtime.py::test_missing_axis_expansion_preserves_selected_original_ordinal",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "277e70ed294ffd22053540f89bbe8cc480491b4584fb0c1b026a83f773187cfc"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_runtime.py::test_independent_sources_use_exact_local_driver_frontier",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "277e70ed294ffd22053540f89bbe8cc480491b4584fb0c1b026a83f773187cfc"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_runtime.py::test_independent_source_expansion_preserves_original_time_ordinals",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "277e70ed294ffd22053540f89bbe8cc480491b4584fb0c1b026a83f773187cfc"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_runtime.py::test_entity_driver_scope_privacy_and_retained_permission",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "277e70ed294ffd22053540f89bbe8cc480491b4584fb0c1b026a83f773187cfc"
+    },
+    {
+      "disposition": "withdrawn old comparison-dependent R8 source/private attribution route; no replacement execution qualification",
+      "old": "tests/test_lazy_driver_runtime_acceptance.py::test_three_process_driver_candidate",
+      "replacements": [
+        "tests/test_analysis_attribution_runtime_r66.py::test_static_refusals_and_shared_compiled_submissions"
+      ],
+      "source_sha256": "145153254d2fbde04870754f23baa8e7f39428980233ebc2c7092f620bc4bc4d"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_entity_candidate_membership.py::test_other_candidate_shapes_never_gain_membership_from_limit",
+      "replacements": [
+        "tests/test_lazy_entity_candidate_membership.py::test_other_candidate_shapes_never_gain_membership_from_limit"
+      ],
+      "source_sha256": "f8b06d40fb71a825626b1b7d5b9386a91cb097b77a9fc439e9bb427d9c644155"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_event_comparison_contracts.py::test_shared_families_expose_only_event_continuations",
+      "replacements": [
+        "tests/test_lazy_event_comparison_contracts.py::test_shared_families_expose_only_event_continuations"
+      ],
+      "source_sha256": "d9fdab06ac0370627891b68ef939fedae9d44fa656a45c1bde30c80ee14df142"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_event_comparison_contracts.py::test_attribution_admission_is_event_owned",
+      "replacements": [
+        "tests/test_lazy_event_comparison_contracts.py::test_attribution_admission_is_event_owned"
+      ],
+      "source_sha256": "d9fdab06ac0370627891b68ef939fedae9d44fa656a45c1bde30c80ee14df142"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_event_comparison_runtime.py::test_comparison_and_attribute",
+      "replacements": [
+        "tests/test_lazy_event_comparison_runtime.py::test_comparison_and_attribute"
+      ],
+      "source_sha256": "6f80ffbbdef321e195fdf06da004d89a82083c4c7b3467f5dab10d1e9d27252a"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_finding_reads.py::test_registered_dimension_null_states_are_derived_from_contribution_masks",
+      "replacements": [
+        "tests/test_lazy_finding_reads.py::test_registered_dimension_null_states_are_derived_from_contribution_masks"
+      ],
+      "source_sha256": "aa4f7e7f689f3199cf44666b049509f31d76c0b6115cd51515de74e4b2eacf74"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_finding_reads.py::test_full_finding_set_streams_beyond_per_record_metadata_byte_bound",
+      "replacements": [
+        "tests/test_lazy_finding_reads.py::test_full_finding_set_streams_beyond_per_record_metadata_byte_bound"
+      ],
+      "source_sha256": "aa4f7e7f689f3199cf44666b049509f31d76c0b6115cd51515de74e4b2eacf74"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_finding_types.py::test_corrupt_finding_body_discards_native_exception_context",
+      "replacements": [
+        "tests/test_lazy_finding_types.py::test_corrupt_finding_body_discards_native_exception_context"
+      ],
+      "source_sha256": "97fa375728e484e6521c011edff7b113f6c9797cf9990c1d1ad10e29978fadd4"
+    },
+    {
+      "disposition": "withdrawn old Metric Delta Finding policy; no equivalent finite-Delta Finding surface is promised by R6",
+      "old": "tests/test_lazy_finding_types.py::test_finite_delta_remains_eligible_when_relative_arithmetic_is_unavailable",
+      "replacements": [
+        "tests/test_lazy_finding_types.py::test_body_codec_rejects_unknown_and_duplicated_ownership",
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed"
+      ],
+      "source_sha256": "97fa375728e484e6521c011edff7b113f6c9797cf9990c1d1ad10e29978fadd4"
+    },
+    {
+      "disposition": "four actual R7/R8 Finding variants retained; obsolete Metric Delta variant explicitly rejected",
+      "old": "tests/test_lazy_finding_types.py::test_five_closed_variants_round_trip_and_exclude_store_envelope",
+      "replacements": [
+        "tests/test_lazy_finding_types.py::test_four_closed_variants_round_trip_and_exclude_store_envelope"
+      ],
+      "source_sha256": "97fa375728e484e6521c011edff7b113f6c9797cf9990c1d1ad10e29978fadd4"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_finding_types.py::test_coordinate_scalar_type_and_value_are_lossless",
+      "replacements": [
+        "tests/test_lazy_finding_types.py::test_coordinate_scalar_type_and_value_are_lossless"
+      ],
+      "source_sha256": "97fa375728e484e6521c011edff7b113f6c9797cf9990c1d1ad10e29978fadd4"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_finding_types.py::test_body_codec_rejects_unknown_and_duplicated_ownership",
+      "replacements": [
+        "tests/test_lazy_finding_types.py::test_body_codec_rejects_unknown_and_duplicated_ownership"
+      ],
+      "source_sha256": "97fa375728e484e6521c011edff7b113f6c9797cf9990c1d1ad10e29978fadd4"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_finding_types.py::test_typed_values_reject_unknown_kind_nonfinite_counts_masks_and_mixed_numeric_types",
+      "replacements": [
+        "tests/test_lazy_finding_types.py::test_typed_values_reject_unknown_kind_nonfinite_counts_masks_and_mixed_numeric_types"
+      ],
+      "source_sha256": "97fa375728e484e6521c011edff7b113f6c9797cf9990c1d1ad10e29978fadd4"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_group_b_admission.py::test_mysql_expanded_attribution_reports_resource_rejection_without_source_io",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "435f9a147eb85757e40ca3f6fe7c586c15635c3240b0400756bda50e28268fca"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_local_graph_lifetime.py::test_comparison_releases_row_method_parts_before_next_stage",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "50d5a624c32c424855725e054f31d5407942f42ddc186204570fab4987ee8289"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_local_placement.py::test_semantic_observation_keeps_its_owner_while_comparison_federates_inputs",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "1658071ab8e4b97f7ff1b030466cd2a8b528c50721af6c8c6c7d0fda54fbf765"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_mysql_methods.py::test_hidden_axis_attribution",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "3fb661374fcad76bcc3a75be022a111ad73111982ce17a91d3232198089c539c"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_mysql_methods.py::test_dimension_comparison_alignment",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "3fb661374fcad76bcc3a75be022a111ad73111982ce17a91d3232198089c539c"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_mysql_methods.py::test_retained_axis_attribution",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "3fb661374fcad76bcc3a75be022a111ad73111982ce17a91d3232198089c539c"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_native_part_schema.py::test_pandas_delta_parts_support_native_rank_without_origin",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "4abcb6d97eecb535b150d5e5a0f805b81a482563ce42cdc2a2447358fc13b0b4"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_native_part_schema.py::test_native_part_scan_rejects_wrong_physical_schema_fingerprint",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "4abcb6d97eecb535b150d5e5a0f805b81a482563ce42cdc2a2447358fc13b0b4"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_observation_runtime_no_io.py::test_actual_private_observation_chain_is_pure",
+      "replacements": [
+        "tests/test_lazy_observation_runtime_no_io.py::test_actual_private_observation_chain_is_pure"
+      ],
+      "source_sha256": "527789eb8027ebb294949efda123858ee640203b407e77cc9eb4b13d1e92cfb2"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_parquet_private_state.py::test_private_parquet_cold_continuation_preserves_native_result",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "777d75727860fdcdcfa6fd2ac500aaee9821c97bca96edee8bb6354155bc002f"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_parquet_private_state.py::test_private_part_damage_does_not_poison_primary_or_replay_sources",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "777d75727860fdcdcfa6fd2ac500aaee9821c97bca96edee8bb6354155bc002f"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_postgres_methods.py::test_hidden_axis_attribution",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "455d4dfea3fd2c1b7d1ec5c8857bd1cf9e5d7491a5f7c4678e6f9c9f2551a441"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_postgres_methods.py::test_hidden_axis_attribution_complete_contributions",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "455d4dfea3fd2c1b7d1ec5c8857bd1cf9e5d7491a5f7c4678e6f9c9f2551a441"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_postgres_methods.py::test_hidden_axis_attribution_null_key_uses_null_safe_alignment",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "455d4dfea3fd2c1b7d1ec5c8857bd1cf9e5d7491a5f7c4678e6f9c9f2551a441"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_postgres_methods.py::test_grouped_compare_and_attribution",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "455d4dfea3fd2c1b7d1ec5c8857bd1cf9e5d7491a5f7c4678e6f9c9f2551a441"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_public_read_acceptance.py::test_public_findings_cross_session_and_scoped_cold_reads",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "5967e591a0fecb557b21522f4f96eb08001e24f066ba1e875d7b6c07dd4a761f"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_public_read_acceptance.py::test_public_failure_has_one_run_and_no_partial_findings",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "5967e591a0fecb557b21522f4f96eb08001e24f066ba1e875d7b6c07dd4a761f"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_public_session.py::test_public_construction_has_no_datasource_io_and_rejects_cross_session",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "f210398c07dc3511e1d861a0611064f1c74f478551681cc9e7e18b0f574323ec"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_retained_roles.py::test_compare_demands_each_selected_operand_state_without_sibling_roles",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "7d92cfaf1a8b14528630f1c1d9762ad863dd5c674a0f5cd854d8943e3f1ff3ed"
+    },
+    {
+      "disposition": "retired old R6 family storage/consumer assertion; complete typed exchange and source-free recovery replacement",
+      "old": "tests/test_lazy_retained_roles.py::test_attribution_demands_complete_delta_sides_through_result_continuations",
+      "replacements": [
+        "tests/test_analysis_recovery_r67.py::test_every_r6_required_part_revokes_recovery_and_cached_continuation",
+        "tests/test_analysis_recovery_r67.py::test_public_r6_journeys_recover_in_three_processes"
+      ],
+      "source_sha256": "7d92cfaf1a8b14528630f1c1d9762ad863dd5c674a0f5cd854d8943e3f1ff3ed"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_runtime_metric.py::test_runtime_graph_executes_and_folds_selected_rows_without_source",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "d26d373879e117d57400144b24ee3512562489b5c8d9fe56099ee1440218bce1"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_runtime_metric.py::test_runtime_identity_reaches_existing_operator_constructors",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "d26d373879e117d57400144b24ee3512562489b5c8d9fe56099ee1440218bce1"
+    },
+    {
+      "disposition": "preserved at the same test node; fixture/disclosure migrated to the current owner",
+      "old": "tests/test_lazy_source_construction_no_io.py::test_complete_source_construction_has_no_io",
+      "replacements": [
+        "tests/test_lazy_source_construction_no_io.py::test_complete_source_construction_has_no_io"
+      ],
+      "source_sha256": "ab91d40f8948ea37c9efd12fbf7f5295cf8804e61b9b429601dd86fa42092dff"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_sqlite_methods.py::test_hidden_axis_attribution",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "538794336928264c3c4ef55d6032476f678e5d0eccd86bc63f6cb11c87589205"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_sqlite_methods.py::test_hidden_axis_attribution_matches_complete_source_sides",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "538794336928264c3c4ef55d6032476f678e5d0eccd86bc63f6cb11c87589205"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_sqlite_methods.py::test_hidden_axis_attribution_invalid_source_does_not_publish",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "538794336928264c3c4ef55d6032476f678e5d0eccd86bc63f6cb11c87589205"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_sqlite_methods.py::test_hidden_axis_attribution_failure_after_source_preparation_cleans_up",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "538794336928264c3c4ef55d6032476f678e5d0eccd86bc63f6cb11c87589205"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_sqlite_methods.py::test_exact_distribution",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "538794336928264c3c4ef55d6032476f678e5d0eccd86bc63f6cb11c87589205"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_sqlite_methods.py::test_dimension_comparison_alignment",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "538794336928264c3c4ef55d6032476f678e5d0eccd86bc63f6cb11c87589205"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_sqlite_methods.py::test_retained_axis_attribution",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "538794336928264c3c4ef55d6032476f678e5d0eccd86bc63f6cb11c87589205"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_temporal_source.py::test_hour_partition_endpoints",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "bffb35c40babf217f3d0495cb304778a4e4d4fb386db7126098265719e4931be"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_trino_methods.py::test_hidden_axis_attribution",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "39a57a406a04e59668be98cce7b86a8e5fc25a6d14d4fe56c3a03fe14df930e9"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_trino_methods.py::test_hidden_axis_attribution_complete_contributions",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "39a57a406a04e59668be98cce7b86a8e5fc25a6d14d4fe56c3a03fe14df930e9"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_trino_methods.py::test_hidden_axis_top_k_rejected_before_source_query",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "39a57a406a04e59668be98cce7b86a8e5fc25a6d14d4fe56c3a03fe14df930e9"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_trino_methods.py::test_grouped_compare_and_attribution",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "39a57a406a04e59668be98cce7b86a8e5fc25a6d14d4fe56c3a03fe14df930e9"
+    },
+    {
+      "disposition": "removed old Metric comparison assertion from mixed coverage; remaining non-R6 assertions preserved",
+      "old": "tests/test_lazy_trino_methods.py::test_retained_axis_attribution_without_source",
+      "replacements": [
+        "tests/test_analysis_comparison_runtime_r62.py::test_public_numeric_difference_source_and_fixed",
+        "tests/test_analysis_attribution_runtime_r66.py::test_numeric_source_fixed_and_axis_expansion",
+        "tests/test_lazy_disclosure.py::test_private_funnel_help_resolves_after_metric_variant_retirement"
+      ],
+      "source_sha256": "39a57a406a04e59668be98cce7b86a8e5fc25a6d14d4fe56c3a03fe14df930e9"
+    }
+  ],
+  "workers": [
+    {
+      "disposition": "retired worker for the removed comparison/attribution route; retained scalar worker helpers moved without execution eligibility",
+      "old": "tests/lazy_attribution_runtime_worker.py",
+      "replacements": [
+        "tests/installed_r6_journeys.py",
+        "tests/lazy_result_fixtures.py"
+      ],
+      "source_sha256": "3bebb3678eb0739f989f55ca1ccf4cadb8ccdd2df5e19cd144a2de8990887969"
+    },
+    {
+      "disposition": "retired worker for the removed comparison/attribution route; retained scalar worker helpers moved without execution eligibility",
+      "old": "tests/lazy_compare_runtime_worker.py",
+      "replacements": [
+        "tests/installed_r6_journeys.py",
+        "tests/lazy_result_fixtures.py"
+      ],
+      "source_sha256": "74090d8534d33f18056ad85cc2e33ac459ce81fc2763038367e4ac359936e9fb"
+    },
+    {
+      "disposition": "retired worker for the removed comparison/attribution route; retained scalar worker helpers moved without execution eligibility",
+      "old": "tests/lazy_distinct_runtime_worker.py",
+      "replacements": [
+        "tests/installed_r6_journeys.py",
+        "tests/lazy_result_fixtures.py"
+      ],
+      "source_sha256": "6b21da0956c65595aa73d957dc1c49bbddae23d0f0962a886dcf18a6bb5c247d"
+    },
+    {
+      "disposition": "retired worker for the removed comparison/attribution route; retained scalar worker helpers moved without execution eligibility",
+      "old": "tests/lazy_distribution_runtime_worker.py",
+      "replacements": [
+        "tests/installed_r6_journeys.py",
+        "tests/lazy_result_fixtures.py"
+      ],
+      "source_sha256": "c99d2c0de74d77fa9b0ccaf4474bdd75c63c4d112c90e6cd9866b8522a5570ce"
+    },
+    {
+      "disposition": "retired worker for the removed comparison/attribution route; retained scalar worker helpers moved without execution eligibility",
+      "old": "tests/lazy_driver_runtime_worker.py",
+      "replacements": [
+        "tests/installed_r6_journeys.py",
+        "tests/lazy_result_fixtures.py"
+      ],
+      "source_sha256": "7ab7295bad8231d7a64ec1e184af528aeced6bdc066e69a476507701b57e4ae5"
+    },
+    {
+      "disposition": "retired worker for the removed comparison/attribution route; retained scalar worker helpers moved without execution eligibility",
+      "old": "tests/lazy_public_read_worker.py",
+      "replacements": [
+        "tests/installed_r6_journeys.py",
+        "tests/lazy_result_fixtures.py"
+      ],
+      "source_sha256": "270d68d4823bd42e1cb6c1d95ee10e4ef948691670b69d20194e3318d5d8546c"
+    }
+  ]
+}

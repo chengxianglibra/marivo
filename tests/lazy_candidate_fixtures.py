@@ -13,8 +13,7 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.metric import LogicalMetricDataset
 from marivo.analysis.operators.candidate_contracts import CandidateObjective
 from marivo.analysis.operators.candidate_dataset import LogicalCandidateDataset
-from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
-from marivo.analysis.operators.discovery import DeltaDiscovery, MetricDiscovery
+from marivo.analysis.operators.discovery import MetricDiscovery
 from marivo.analysis.session._lazy_sources import LazySources
 from marivo.refs import ref
 from tests.lazy_local_fixtures import setup_local
@@ -60,23 +59,16 @@ def time_series(
 
 def candidate_input(
     source: LazySources, objective: CandidateObjective, *, panel: bool = False
-) -> LogicalMetricDataset | LogicalDeltaDataset:
+) -> LogicalMetricDataset:
     if objective == "entity_outliers":
         return source.observe(ref.metric("sales.mean_amount"))
     current = time_series(source, panel=panel)
-    return (
-        current.compare(time_series(source, baseline=True, panel=panel))
-        if objective == "period_shifts"
-        else current
-    )
+    return current
 
 
 def discover(
     dataset: Dataset, objective: CandidateObjective, *, threshold: float = 1.0, limit: int = 50
 ) -> LogicalCandidateDataset:
-    if objective == "period_shifts":
-        assert isinstance(dataset, (LogicalDeltaDataset, MaterializedDeltaDataset))
-        return DeltaDiscovery(dataset).period_shifts(threshold=threshold, limit=limit)
     namespace = MetricDiscovery(dataset)
     if objective == "entity_outliers":
         return namespace.entity_outliers(threshold=threshold, limit=limit)

@@ -78,7 +78,7 @@ def test_candidate_cancellation_rolls_back(tmp_path: Path, point: str) -> None:
     _unchanged(before, snapshot(runtime))
 
 
-@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows", "period_shifts"])
+@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows"])
 @pytest.mark.parametrize("values", [(1.0,), (1.0,) * 14, (1e308, -1e308) * 7])
 def test_unevaluable_or_overflowed_discovery_never_publishes(
     tmp_path: Path, objective: CandidateObjective, values: tuple[float, ...]
@@ -90,7 +90,7 @@ def test_unevaluable_or_overflowed_discovery_never_publishes(
     _unchanged(before, snapshot(runtime))
 
 
-@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows", "period_shifts"])
+@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows"])
 def test_evaluated_empty_publishes_evidence_and_zero_findings(
     tmp_path: Path, objective: CandidateObjective
 ) -> None:
@@ -107,7 +107,7 @@ def test_evaluated_empty_publishes_evidence_and_zero_findings(
     assert evidence.evaluation.evaluated_unit_count > 0
 
 
-@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows", "period_shifts"])
+@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows"])
 @pytest.mark.parametrize("point", ["after_commit", "delivery"])
 def test_candidate_lost_ack_recovers_exact_zero_finding_bundle(
     tmp_path: Path, objective: CandidateObjective, point: str

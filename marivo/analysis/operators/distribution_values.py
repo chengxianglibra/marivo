@@ -8,14 +8,6 @@ from functools import cmp_to_key
 import pandas as pd
 import pyarrow as pa
 
-from marivo.analysis.compiler.distribution_attribution import (
-    BASELINE,
-    COALITION,
-    COALITION_VALUE,
-    CURRENT,
-    PLAYER_COUNT,
-    PLAYERS,
-)
 from marivo.analysis.datasets.descriptors import _bool_tuple_arity
 from marivo.analysis.materialization.storage import _matches_type
 from marivo.analysis.operators.attribute_values import reconciles
@@ -23,6 +15,13 @@ from marivo.analysis.operators.attribution_contracts import AttributeSpecV1
 from marivo.analysis.operators.errors import attribution_error
 from marivo.analysis.operators.row import ordered
 from marivo.analysis.operators.row_values import compare_value
+
+COALITION = "__mv_coalition"
+PLAYERS = "__mv_players"
+PLAYER_COUNT = "__mv_player_count"
+COALITION_VALUE = "__mv_coalition_value"
+CURRENT = "__mv_current_endpoint"
+BASELINE = "__mv_baseline_endpoint"
 
 
 def validate_coalition_schema(schema: pa.Schema, spec: AttributeSpecV1) -> None:

@@ -124,8 +124,15 @@ def test_public_rank_table_source_and_fixed(
 
 
 @pytest.mark.runtime
-@pytest.mark.parametrize("physical", ["BIGINT", "DOUBLE", "DECIMAL(30,6)", "duration"])
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize(
+    "physical,parquet",
+    [
+        (physical, parquet)
+        for physical in ("BIGINT", "DOUBLE", "DECIMAL(30,6)", "duration")
+        for parquet in (False, True)
+    ]
+    + [("duration_" + unit, True) for unit in ("s", "ms", "ns")],
+)
 def test_display_precision_matrix(
     analysis_dsl_case_factory: DslCaseFactory, physical: str, parquet: bool
 ) -> None:
@@ -136,24 +143,24 @@ def test_display_precision_matrix(
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
-        if physical == "duration" and not parquet:
+        if physical.startswith("duration") and not parquet:
             db.execute(
                 'ALTER TABLE "order" ALTER amount TYPE INTERVAL USING to_microseconds(amount)'
             )
-        elif physical != "duration":
+        elif not physical.startswith("duration"):
             db.execute(f'ALTER TABLE "order" ALTER amount TYPE {physical}')
         if physical == "BIGINT":
             db.execute('UPDATE "order" SET amount = 9007199254740993 WHERE order_id = ?', ["j2_aa"])
     if parquet:
         export_dsl_parquet_models(case, case.root)
-        if physical == "duration":
+        if physical.startswith("duration"):
             path = case.root / "source_files/order.parquet"
             raw = pq.read_table(path)
             pq.write_table(
                 raw.set_column(
                     raw.schema.get_field_index("amount"),
                     "amount",
-                    raw["amount"].cast(pa.duration("us")),
+                    raw["amount"].cast(pa.duration(physical.partition("_")[2] or "us")),
                 ),
                 path,
             )
@@ -169,8 +176,11 @@ def test_display_precision_matrix(
         expected = {
             key: Decimal(value).quantize(Decimal("0.000001")) for key, value in expected.items()
         }
-    elif physical == "duration":
-        expected = {key: pd.Timedelta(value, unit="us") for key, value in expected.items()}
+    elif physical.startswith("duration"):
+        expected = {
+            key: pd.Timedelta(value, unit=physical.partition("_")[2] or "us")
+            for key, value in expected.items()
+        }
     for current in (values, values.execute()):
         ranking = current.rank(order="descending", ties="min").execute()
         frame = ranking.values.to_pandas()
@@ -541,6 +551,9 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
         db.execute(
             "INSERT INTO r65 VALUES (2,'A',NULL,'west',true,'2026-08-01 00:00:00+00'), (1,'B',9007199254740993,'east',false,'2026-08-02 00:00:00+00'), (1,'A',9007199254740993,'east',true,'2026-08-03 00:00:00+00'), (2,'B',9007199254740994,NULL,NULL,NULL)"
         )
+    with duckdb.connect(str(case.database_path)) as db:
+        db.execute("ALTER TABLE r65 ADD COLUMN day DATE")
+        db.execute("UPDATE r65 SET day = CAST(moment AS DATE)")
     source = "md.table('r65')"
     if parquet:
         backend = ibis.duckdb.connect(case.database_path)
@@ -554,7 +567,7 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     model.write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         + f"display = ms.entity(name='display', datasource=ms.ref.datasource('warehouse'), source={source}, primary_key=['tenant','id'])\n"
-        + "amount = ms.measure_column(name='amount', entity=display, column='amount', additivity=ms.additive_all())\nregion = ms.dimension_column(name='region', entity=display, column='region')\nenabled = ms.dimension_column(name='enabled', entity=display, column='enabled')\nmoment = ms.time_dimension_column(name='moment', entity=display, column='moment', granularity='second', parse=ms.timestamp(timezone='UTC'))\n"
+        + "amount = ms.measure_column(name='amount', entity=display, column='amount', additivity=ms.additive_all())\nregion = ms.dimension_column(name='region', entity=display, column='region')\nenabled = ms.dimension_column(name='enabled', entity=display, column='enabled')\nmoment = ms.time_dimension_column(name='moment', entity=display, column='moment', granularity='second', parse=ms.timestamp(timezone='UTC'))\nday = ms.time_dimension_column(name='day', entity=display, column='day', granularity='day')\n"
     )
     ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.display"))
@@ -562,17 +575,21 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     category = members.read(ms.ref.dimension("sales.display.region"))
     boolean = members.read(ms.ref.dimension("sales.display.enabled"))
     temporal = members.read(ms.ref.time_dimension("sales.display.moment"))
+    day_value = members.read(ms.ref.time_dimension("sales.display.day"))
     for columns in (
-        (numeric, category, boolean, temporal),
-        tuple(c.execute() for c in (numeric, category, boolean, temporal)),
+        (numeric, category, boolean, temporal, day_value),
+        tuple(c.execute() for c in (numeric, category, boolean, temporal, day_value)),
     ):
-        amount, region, enabled, moment = columns
-        terminal = mv.table(moment=moment, region=region, amount=amount, enabled=enabled).execute()
+        amount, region, enabled, moment, day = columns
+        terminal = mv.table(
+            moment=moment, day=day, region=region, amount=amount, enabled=enabled
+        ).execute()
         exported = terminal.to_pandas()
         assert exported.columns.tolist() == [
             "member",
             "coord_0",
             "moment",
+            "day",
             "region",
             "amount",
             "enabled",
@@ -583,6 +600,12 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
             (2, "A"),
             (2, "B"),
         ]
+        from datetime import date
+
+        assert exported.day.tolist()[:3] == [date(2026, 8, 3), date(2026, 8, 2), date(2026, 8, 1)]
+        assert exported.day.isna().tolist() == [False, False, False, True]
+        recovered = case.session.artifact(terminal.artifact_ref)
+        assert recovered.to_pandas().equals(exported)
         assert exported.amount.tolist()[:2] == [9007199254740993, 9007199254740993]
         assert exported.amount.isna().tolist() == [False, False, True, False]
         terminal.show()

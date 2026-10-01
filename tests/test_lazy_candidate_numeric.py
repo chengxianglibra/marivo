@@ -27,6 +27,7 @@ from marivo.analysis.operators.errors import CandidateError
 from marivo.refs import ref
 from tests.lazy_forecast_fixtures import history
 from tests.lazy_observation_fixtures import make_sources
+from tests.r8_arithmetic_fixtures import period_candidate_for_metric
 
 
 def _spec(
@@ -37,12 +38,12 @@ def _spec(
     panel: bool = False,
 ) -> CandidateSpecV1:
     metric = history(make_sources(), panel=panel)
+    if objective == "period_shifts":
+        return period_candidate_for_metric(metric, threshold=threshold, limit=limit)
     result = (
         metric.discover.point_anomalies(threshold=threshold, limit=limit)
         if objective == "point_anomalies"
         else metric.discover.interesting_windows(threshold=threshold, limit=limit)
-        if objective == "interesting_windows"
-        else metric.compare(metric).discover.period_shifts(threshold=threshold, limit=limit)
     )
     assert isinstance(result._root, LogicalRootHandle)
     assert isinstance(result._root.payload, CandidatePayload)

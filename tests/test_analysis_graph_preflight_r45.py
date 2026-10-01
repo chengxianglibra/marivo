@@ -908,13 +908,14 @@ def test_window_composition_matches_independent_oracle_and_reads_shared_sources_
             "subject",
             "current_endpoint",
             "baseline_endpoint",
+            "correspondence",
         )
         selected = method_node(
             (Edge("quantity", composed.root),),
             PartsTransport(
                 "where",
                 composed.root.signature.domain,
-                ("subject", "current_endpoint", "baseline_endpoint"),
+                ("subject", "current_endpoint", "baseline_endpoint", "correspondence"),
                 True,
                 (ValuePredicate(composed.root.signature.domain.binding, "lt", 0),),
             ),

@@ -10,16 +10,12 @@ import pytest
 
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.placement import (
-    ExecutionBinding,
-    ParquetBinding,
-    PhysicalStageGraph,
-    SourceBinding,
     SourceStep,
     place,
     source_binding,
     source_eligible,
 )
-from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
+from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.operators import registry
@@ -188,30 +184,6 @@ def test_source_and_preparation_are_independent_capabilities(method: Correlation
     assert step.implementation.source and step.implementation.preparation == "correlation"
 
 
-def test_distribution_uses_explicit_preparation_without_full_source_registration() -> None:
-    from tests.lazy_distribution_fixtures import CHANNEL, METRIC, make_distribution_registry
-
-    semantic, sidecar = make_distribution_registry()
-    sources = make_lazy_sources(
-        semantic_registry=semantic,
-        sidecar=sidecar,
-        session_id="distribution-dispatch",
-        store_id="distribution-dispatch",
-        action_port=NoIoActionPort(),
-    )
-    metric = sources.observe(METRIC).with_dimensions(CHANNEL).aggregate()
-    logical = metric.compare(metric).attribute(axes=(CHANNEL,))
-    registered = registry.implementation(logical)
-    binding = source_binding(logical)
-    assert not source_eligible(registered, (binding,), binding)
-    assert source_eligible(registered, (binding,), binding, preparation=True)
-    graph = place(logical)
-    assert len(graph.steps) == 2
-    step = graph.steps[0]
-    assert isinstance(step, SourceStep) and step.operation == "distribution"
-    assert graph.local_steps[0].implementation.local_method == "delta.attribute"
-
-
 def test_backend_collection_does_not_expand_local_shape_permission(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -262,84 +234,6 @@ def test_execute_continuation_resolves_for_each_backend(backend: BackendName) ->
     bound = resolve_live_target(logical.execute, ANALYSIS_LIVE_SURFACE)
     assert bound.descriptor is routed.descriptor
     assert bound.canonical_id == "actions.execute"
-
-
-@pytest.mark.runtime
-def test_unplaceable_distribution_keeps_preparation_repair(tmp_path: Path) -> None:
-    from marivo.analysis.materialization.admission import DatasetRuntime
-    from tests.lazy_distribution_fixtures import (
-        CHANNEL,
-        METRIC,
-        make_distribution_registry,
-        seed_distribution_database,
-    )
-
-    database = tmp_path / "warehouse.duckdb"
-    seed_distribution_database(database)
-    semantic, sidecar = make_distribution_registry(database)
-    runtime = DatasetRuntime.create(tmp_path, "distribution-repair")
-    sources = runtime.sources(semantic_registry=semantic, sidecar=sidecar)
-    metric = sources.observe(METRIC).with_dimensions(CHANNEL).aggregate()
-    retained_delta = metric.compare(metric).execute()
-    logical = retained_delta.attribute(axes=(CHANNEL,))
-    # Without an admitted retained-reader binding, the input is local-only.
-    with pytest.raises(DatasetCompilationError) as caught:
-        place(logical)
-    error = caught.value
-    assert error.expected == "the registered source-produced coalition preparation input"
-    assert (
-        error.received is not None and "source-required distribution preparation" in error.received
-    )
-    assert error.repair is not None
-    assert "duckdb distribution preparation" in error.repair.action
-    assert "one matching domain" in error.repair.action
-    assert isinstance(error.__cause__, DatasetCompilationError)
-
-
-@pytest.mark.parametrize(
-    "backend", ["duckdb", "postgres", "mysql", "sqlite", "trino", "clickhouse"]
-)
-@pytest.mark.runtime
-def test_retained_input_inherits_only_admitted_duckdb_source(
-    tmp_path: Path, backend: BackendName, monkeypatch: pytest.MonkeyPatch
-) -> None:
-
-    runtime, sources, _ = setup_local(tmp_path)
-    retained = sources.observe(REVENUE).aggregate().execute()
-    logical = retained.compare(sources.observe(REVENUE).aggregate())
-    # Isolate physical reader admission from semantic Metric compatibility.
-    # Remote execution remains disabled; inspect the callback before placement.
-    original_binding = source_binding
-
-    def candidate(value: LogicalDataset) -> SourceBinding:
-        return replace(original_binding(value), adapter=backend)
-
-    monkeypatch.setattr(runtime_patch_owner("source_binding"), "source_binding", candidate)
-    observed: list[ExecutionBinding | None] = []
-
-    class InspectedError(Exception):
-        pass
-
-    def inspect(
-        value: LogicalDataset,
-        *,
-        artifact_binding: Callable[[MaterializedDataset], ExecutionBinding | None] | None = None,
-    ) -> PhysicalStageGraph:
-        assert value is logical and artifact_binding is not None
-        observed.append(artifact_binding(retained))
-        raise InspectedError
-
-    monkeypatch.setattr(runtime_patch_owner("place"), "place", inspect)
-    with pytest.raises(InspectedError):
-        logical.execute()
-    assert len(observed) == 1
-    binding = observed[0]
-    if backend == "duckdb":
-        assert isinstance(binding, SourceBinding) and binding.adapter == "duckdb"
-    else:
-        assert isinstance(binding, ParquetBinding) and binding.adapter == "duckdb"
-    assert runtime.last_run_ref is None
-    assert runtime.statistics.events.get("profile_resolution", 0) == 0
 
 
 def test_retained_import_reads_the_execution_declaration(monkeypatch: pytest.MonkeyPatch) -> None:

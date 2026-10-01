@@ -14,13 +14,13 @@ import pytest
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.domains.contracts import EventJourneySemantics
 from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
+from marivo.analysis.domains.funnel_delta import MaterializedFunnelDeltaDataset
 from marivo.analysis.funnel import funnel_loss_rate
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.observation.predicates import eq
 from marivo.analysis.operators import registry
-from marivo.analysis.operators.delta import MaterializedDeltaDataset
 from marivo.refs import ref
 from tests.lazy_adapter_runtime_worker import snapshot
 from tests.lazy_event_fixtures import make_event_registry
@@ -98,7 +98,7 @@ def test_comparison_and_attribute(tmp_path: Path, local: bool, retained: bool) -
     else:
         assert runtime.statistics.events.get("local_execution_started", 0) > 0
     checkpoint = cold.artifact(result.state.artifact_ref)
-    assert isinstance(checkpoint, MaterializedDeltaDataset)
+    assert isinstance(checkpoint, MaterializedFunnelDeltaDataset)
     with pytest.raises(Exception, match=r"checkpoint|journey"):
         checkpoint.attribute(
             target=funnel_loss_rate(step=meaning.pattern.steps[1]),

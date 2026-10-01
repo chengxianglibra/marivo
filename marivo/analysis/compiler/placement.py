@@ -29,9 +29,7 @@ from marivo.analysis.observation.contracts import (
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.operators import registry
 from marivo.analysis.operators.association_contracts import CorrelatePayload
-from marivo.analysis.operators.attribution_contracts import AttributePayload
 from marivo.analysis.operators.candidate_contracts import CandidatePayload
-from marivo.analysis.operators.contracts import ComparePayload
 from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
 from marivo.analysis.operators.forecast_contracts import ForecastPayload
 from marivo.analysis.operators.registry import BackendRegistration, ImplementationRegistration
@@ -197,10 +195,8 @@ def place(
                         LifecycleReducerPayload,
                         RetainedRowsPayload,
                         RetainedFoldPayload,
-                        ComparePayload,
                         FunnelComparePayload,
                         FunnelAttributePayload,
-                        AttributePayload,
                         CorrelatePayload,
                         ForecastPayload,
                         CandidatePayload,

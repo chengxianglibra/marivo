@@ -104,7 +104,10 @@ if TYPE_CHECKING:
     assert_type(grouped_values.standardize(reference=weights), mv.LogicalNumericRelation)
     assert_type(fixed.share_of(fixed.rollup()), mv.LogicalNumericRelation)
     assert_type(fixed, mv.MaterializedNumericRelation)
-    assert_type(fixed.rollup().execute(), mv.MaterializedRolledNumericRelation)
+    assert_type(
+        fixed.rollup().execute(),
+        mv.MaterializedRolledNumericRelation | mv.MaterializedGroupedNumericRelation,
+    )
     assert_type(fixed.contract(), mv.AnalysisContract)
     recovered = session.artifact(fixed.state.artifact_ref)
     if isinstance(recovered, mv.MaterializedNumericRelation):

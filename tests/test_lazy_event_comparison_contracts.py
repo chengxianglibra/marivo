@@ -13,7 +13,6 @@ from marivo.analysis.domains.event_attribution import FunnelAttributionSemantics
 from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics, compatible
 from marivo.analysis.funnel import funnel_loss_rate
 from marivo.analysis.materialization.contracts import _semantics, _semantics_payload
-from marivo.analysis.observation.predicates import eq
 from marivo.refs import ref
 from tests.lazy_event_fixtures import make_event_sources
 from tests.lazy_event_runtime_fixtures import journey
@@ -86,10 +85,9 @@ def test_shared_families_expose_only_event_continuations() -> None:
     assert isinstance(delta.row_contract.family_semantics, FunnelDeltaSemantics)
     # The kernel admits the shared consumer; public Help specializes its call
     # to the Funnel leaf rather than exposing the generic Metric contract.
-    assert any(c.id == "delta.attribute" for c in delta._registry.consumers_for(delta))
+    assert any(c.id == "funnel_delta.attribute" for c in delta._registry.consumers_for(delta))
     assert "delta.rank" not in delta.contract().render()
-    with pytest.raises(DatasetConstructionError):
-        delta.rank(delta.fields.get("loss_rate_delta"))
+    assert not hasattr(delta, "rank")
     result = delta.attribute(
         target=funnel_loss_rate(step=meaning.pattern.steps[-1]),
         axes=[ref.dimension("sales.customers.region")],
@@ -100,8 +98,7 @@ def test_shared_families_expose_only_event_continuations() -> None:
         assert fields[name].role_id == "method_identity"
         assert fields[name].field_id.value == f"generated.attribute.{name}@v1"
     assert "attribution.where" not in result.contract().render()
-    with pytest.raises(DatasetConstructionError):
-        result.where(eq(result.fields.get("status"), "ok"))
+    assert not hasattr(result, "where")
     for value in (delta, result):
         payload = _semantics_payload(value.row_contract.family_semantics)
         assert _semantics(payload) == value.row_contract.family_semantics
@@ -139,7 +136,7 @@ def test_attribution_admission_is_event_owned(option: str) -> None:
     f = j.funnel(axes=axes if option == "grouped" else [])
     delta = f.compare(f)
     target = funnel_loss_rate(step=meaning.pattern.steps[0 if option == "initial" else -1])
-    with pytest.raises(DatasetConstructionError):
+    with pytest.raises(TypeError if option == "missing" else DatasetConstructionError):
         if option == "missing":
             delta.attribute(axes=axes)
         elif option == "bool_top_k":

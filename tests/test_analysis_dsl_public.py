@@ -133,7 +133,10 @@ def test_public_p2_empty_and_undefined_cards(
     empty_card = capsys.readouterr().out
     assert "rows=0" in empty_card
     assert "<identity>" not in empty_card
-    assert empty_members.contract().actions == ()
+    assert tuple(action.call for action in empty_members.contract().actions) == (
+        "relation.cohort(predicate, rule=rule)",
+        "relation.penetration_in(reference)",
+    )
 
     case = analysis_dsl_case_factory("zero_denominator")
     names = case.names
@@ -198,6 +201,7 @@ def test_public_member_read_and_category_selection(
     assert isinstance(selected, mv.MaterializedSelectedCategoryRelation)
     actions = selected.contract().actions
     assert tuple(action.call for action in actions) == (
+        "relation.where(predicate)",
         "relation.members()",
         "relation.group_by(*keys)",
         "relation.summarize(method)",
@@ -374,7 +378,11 @@ def test_public_j3_ratio_rollup_differs_from_current_row_mean(
     restored = case.session.artifact(by_channel.state.artifact_ref)
     assert isinstance(restored, mv.MaterializedRolledRatioRelation)
     assert restored.to_pandas().equals(by_channel.to_pandas())
-    assert set(overall.contract().required_parts) == {"original_state", "coverage"}
+    assert set(overall.contract().required_parts) == {
+        "original_state",
+        "coverage",
+        "allocation_state",
+    }
     assert set(overall.contract().retained_parts) == set(overall.contract().required_parts)
     overall.contract().show()
     assert "weighting=original numerator and denominator components" in capsys.readouterr().out
@@ -504,7 +512,7 @@ def test_public_snapshot_mismatch_rejects_exact_artifact(
         case.session.artifact(result.state.artifact_ref)
     assert mismatch.value.expected and mismatch.value.received
     assert mismatch.value.repair is not None
-    assert mismatch.value.repair.help_target.canonical_id == "session.artifact"
+    assert mismatch.value.repair.help_target.canonical_id == "actions.execute"
 
 
 @pytest.mark.runtime

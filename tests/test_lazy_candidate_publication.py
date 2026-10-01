@@ -65,7 +65,7 @@ def _value(
     elif objective == "interesting_windows":
         logical = metric.discover.interesting_windows(threshold=1.0, limit=limit)
     else:
-        logical = metric.compare(metric).discover.period_shifts(threshold=1.0, limit=limit)
+        raise AssertionError("Period Candidate has no admitted source publication route")
     assert isinstance(logical._root, LogicalRootHandle)
     assert isinstance(logical._root.payload, CandidatePayload)
     spec = logical._root.payload.spec
@@ -164,7 +164,7 @@ def _published(
     return published, records
 
 
-@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows", "period_shifts"])
+@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows"])
 def test_closed_candidate_evidence_round_trip_without_source(
     objective: CandidateObjective, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -272,7 +272,7 @@ def test_forged_point_rows_are_rejected(field: str, replacement: object) -> None
         validate_row(descriptor, forged)
 
 
-@pytest.mark.parametrize("objective", ["interesting_windows", "period_shifts"])
+@pytest.mark.parametrize("objective", ["interesting_windows"])
 @pytest.mark.parametrize("field", ["window_start", "baseline_end", "peak_absolute_zscore"])
 def test_window_endpoint_and_peak_corruption_is_rejected(
     objective: CandidateObjective, field: str

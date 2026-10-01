@@ -37,29 +37,3 @@ def test_fold_consumed_before_projection_requires_all_its_input_states() -> None
     expected = {fold_part_role(part) for part in metric_parts(metric.row_contract)}
     assert len(expected) == 2
     assert required_part_roles(selected, input_dataset=metric) == expected
-
-
-def test_compare_demands_each_selected_operand_state_without_sibling_roles() -> None:
-    sources = make_sources()
-    current = sources.observe((REVENUE, MEAN))
-    baseline = sources.observe((REVENUE, MEAN))
-    selected = current.metric(REVENUE).aggregate()
-    delta = selected.compare(baseline.metric(REVENUE).aggregate())
-    expected = {fold_part_role(part) for part in metric_parts(selected.row_contract)}
-    assert len(expected) == 1
-    assert required_part_roles(delta, input_dataset=current) == expected
-    assert required_part_roles(delta, input_dataset=baseline) == expected
-    assert required_part_roles(delta, input_dataset=sources.observe(MEAN)) == set()
-
-
-def test_attribution_demands_complete_delta_sides_through_result_continuations() -> None:
-    metric = make_sources().observe(REVENUE).with_dimensions(REGION).aggregate()
-    delta = metric.compare(metric)
-    attributed = delta.attribute(axes=(REGION,))
-    selected = attributed.rank(attributed.fields.get("contribution")).limit(1)
-    selected_delta = delta.rank(delta.fields.get("delta")).limit(1)
-    expected = {"delta_components.current", "delta_components.baseline"}
-    assert required_part_roles(attributed, input_dataset=delta) == expected
-    assert required_part_roles(selected, input_dataset=delta) == expected
-    assert required_part_roles(selected_delta, input_dataset=delta) == expected
-    assert required_part_roles(selected, input_dataset=attributed) == set()

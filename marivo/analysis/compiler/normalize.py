@@ -41,9 +41,7 @@ from marivo.analysis.observation.coordinates import functional_path, governed_pa
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.observation.source_bindings import BoundSourceParametersV1
 from marivo.analysis.operators.association_contracts import CorrelatePayload
-from marivo.analysis.operators.attribution_contracts import AttributePayload
 from marivo.analysis.operators.candidate_contracts import CandidatePayload
-from marivo.analysis.operators.contracts import ComparePayload
 from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
 from marivo.analysis.operators.forecast_contracts import ForecastPayload
 from marivo.semantic.ir import TargetEntityContract
@@ -105,10 +103,8 @@ _INPUT_ONLY_PAYLOADS = (
     LifecycleSelectionPayload,
     RetainedRowsPayload,
     RetainedFoldPayload,
-    ComparePayload,
     FunnelComparePayload,
     FunnelAttributePayload,
-    AttributePayload,
     CorrelatePayload,
     ForecastPayload,
     CandidatePayload,
@@ -304,10 +300,8 @@ def _required_entities(
                 LifecycleSelectionPayload,
                 RetainedRowsPayload,
                 RetainedFoldPayload,
-                ComparePayload,
                 FunnelComparePayload,
                 FunnelAttributePayload,
-                AttributePayload,
                 CorrelatePayload,
                 ForecastPayload,
                 CandidatePayload,

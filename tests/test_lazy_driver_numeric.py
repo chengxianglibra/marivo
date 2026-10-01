@@ -10,15 +10,14 @@ import pytest
 
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.errors import DatasetConstructionError
-from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.observation.contracts import make_ids
 from marivo.analysis.operators.contracts import DeltaSemantics
-from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
 from marivo.analysis.operators.driver_values import _scalar_encoding, execute_driver
 from marivo.refs import ref
 from tests.lazy_attribute_fixtures import CHANNEL, REGION
 from tests.lazy_driver_fixtures import driver_inputs
 from tests.lazy_observation_fixtures import make_sources
+from tests.r8_arithmetic_fixtures import comparison_for_metric, driver_for_spec
 
 
 def test_signed_cancellation_zero_and_null_members_count_in_cardinality() -> None:
@@ -197,11 +196,20 @@ def test_expanded_partition_checks_independent_fold_of_multiple_original_rows() 
         [("a",), ("b",)], [(8, 2), (2, 2)], [(2, 2), (2, 2)]
     )
     metric = make_sources().observe(ref.metric("sales.revenue")).with_dimensions(REGION).aggregate()
-    candidate = metric.compare(metric).discover.driver_axes(search_space=[REGION, CHANNEL])
-    assert isinstance(candidate._root, LogicalRootHandle) and isinstance(
-        candidate._root.payload, DriverCandidatePayload
+    expanded = (
+        make_sources()
+        .observe(ref.metric("sales.revenue"))
+        .with_dimensions(REGION, CHANNEL)
+        .aggregate()
     )
-    spec = candidate._root.payload.spec
+    original_spec = comparison_for_metric(metric)
+    expanded_spec = comparison_for_metric(expanded)
+    spec = replace(
+        driver_for_spec(expanded_spec, expanded, (REGION, CHANNEL)),
+        expanded_compare=expanded_spec,
+        original_input_row=original_spec.output_row,
+        original_input_rows=original_spec.output_rows,
+    )
     result, summary = execute_driver(
         frame, spec, parts=parts, original=original, original_parts=original_parts
     )

@@ -169,24 +169,6 @@ def test_event_match_compiler_probe_requires_backend_work(
         backend.compile(rows)
 
 
-def test_trino_grouped_funnel_and_attribution_reject_before_source_access() -> None:
-    from marivo.analysis.funnel import funnel_loss_rate
-    from marivo.refs import ref
-
-    event = journey(_sources("trino", lifecycle=False))
-    assert isinstance(event._root, LogicalRootHandle)
-    assert isinstance(event._root.payload, EventPayload)
-    finish = event._root.payload.definition.pattern.steps[-1]
-    axis = ref.dimension("sales.customers.region")
-    funnel = event.funnel()
-    for dataset in (
-        event.funnel(axes=(axis,)),
-        funnel.compare(funnel).attribute(target=funnel_loss_rate(step=finish), axes=(axis,)),
-    ):
-        with pytest.raises(DatasetCompilationError, match="stage budget"):
-            place(dataset)
-
-
 def test_trino_direct_repeated_time_to_event_is_not_qualified() -> None:
     event = journey(
         _sources("trino", lifecycle=False),

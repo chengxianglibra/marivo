@@ -2498,18 +2498,21 @@ class LogicalRolledNumericRelation(_OriginalContinuation):
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
         )
 
-    def execute(self) -> MaterializedRolledNumericRelation:
-        """Evaluate and publish this original-state Singleton.
+    def execute(self) -> MaterializedRolledNumericRelation | MaterializedGroupedNumericRelation:
+        """Evaluate and publish this original-state group or Singleton.
 
         Args:
             None.
-        Returns: A MaterializedRolledNumericRelation bound to this exact relation.
+        Returns: A MaterializedGroupedNumericRelation for retained group keys, otherwise a MaterializedRolledNumericRelation.
         Example: ``result = relation.execute()``.
         Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
         """
-        return MaterializedRolledNumericRelation(
-            _TOKEN, self._node, self._runtime, dataset=self._run()
+        result = (
+            MaterializedGroupedNumericRelation
+            if self._node.root.signature.domain.kind == "group"
+            else MaterializedRolledNumericRelation
         )
+        return result(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
 class MaterializedRolledNumericRelation(_MaterializedValue, _OriginalContinuation):

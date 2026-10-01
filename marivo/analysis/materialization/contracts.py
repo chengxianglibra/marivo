@@ -16,7 +16,7 @@ import json
 import math
 import re
 from contextlib import suppress
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Literal, TypeAlias, cast, get_args
@@ -28,9 +28,7 @@ from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.datasets.handles import BoundedLineage, CanonicalValue
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization.errors import IntegrityError
-from marivo.analysis.observation.distribution_contracts import semantic_approximation
 from marivo.render import Card, RenderableResult
-from marivo.semantic._quantile import approximation_class, decode_approximation
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.association_codec import AssociationEvidenceSummary
@@ -662,44 +660,6 @@ class ComparisonInputAuthority:
     comparison_basis: str
 
 
-@dataclass(frozen=True, slots=True)
-class DeltaEvidenceSummary:
-    """Complete bounded comparison evidence committed with its exact Finding set."""
-
-    coordinate_presence_counts: tuple[tuple[str, int], ...]
-    calculation_status_counts: tuple[tuple[str, int], ...]
-    relative_status_counts: tuple[tuple[str, int], ...]
-    matched_count: int
-    unpaired_count: int
-    numeric_promotion_id: str
-    approximate: bool
-    eligible_finding_count: int
-    emitted_finding_count: int
-    finding_truncated: bool
-    finding_set_digest: str
-
-
-@dataclass(frozen=True, slots=True)
-class AttributionEvidenceSummary:
-    """Bounded complete-resolution proof retained through result-only selection."""
-
-    method: str
-    origin_definition_fingerprint: str
-    complete_row_count: int
-    scope_count: int
-    resolution_count: int
-    mapped_membership_digest: str
-    max_reconciliation_error: float
-    status_counts: tuple[tuple[str, int], ...]
-    approximate: bool
-    complete: bool
-    top_k: int | None
-    eligible_finding_count: int
-    emitted_finding_count: int
-    finding_truncated: bool
-    finding_set_digest: str
-
-
 def _scope(value: object) -> CanonicalValue:
     if value is None:
         return None
@@ -838,13 +798,6 @@ def finding_extractor(row: d.DatasetRowContract, producer_id: str) -> str:
         return "forecast_point_finding"
     if row.shape_id.family_id == "association":
         return "association_finding"
-    if row.shape_id.family_id == "delta":
-        return "delta_finding"
-    if row.shape_id.family_id == "attribution" and producer_id in (
-        "delta.attribute",
-        "delta.attribute_expanded",
-    ):
-        return "contribution_finding"
     return "none"
 
 
@@ -855,14 +808,6 @@ def finding_policy(row: d.DatasetRowContract, producer_id: str) -> str:
         return "forecast_point_findings@v1"
     if row.shape_id.family_id == "association":
         return "association_findings@v1"
-    if row.shape_id.family_id == "delta" and row.shape_id.local_shape_id != "entity":
-        return "delta_findings@v1"
-    if (
-        row.shape_id.family_id == "attribution"
-        and producer_id in ("delta.attribute", "delta.attribute_expanded")
-        and not any(field.identity.kind == "entity_identity" for field in row.schema.columns)
-    ):
-        return "contribution_findings@v1"
     return "zero_findings@v1"
 
 
@@ -884,9 +829,6 @@ class ArtifactDescriptor:
     typed_issues: tuple[MaterializationIssue, ...] = ()
     comparison_basis: str | None = None
     comparison_inputs: tuple[ComparisonInputAuthority, ...] = ()
-    delta_evidence: DeltaEvidenceSummary | None = None
-    attribution_evidence: AttributionEvidenceSummary | None = None
-    attribution_fold_authority: tuple[str, str] | None = None
     association_evidence: AssociationEvidenceSummary | None = None
     forecast_evidence: ForecastEvidenceSummary | None = None
     candidate_evidence: CandidateEvidenceSummary | None = None
@@ -1075,9 +1017,7 @@ def _semantics_payload(value: d.DatasetFamilyRowSemantics) -> dict[str, object]:
         EventTimeToEventSemantics,
     )
     from marivo.analysis.operators.association_contracts import AssociationSemantics
-    from marivo.analysis.operators.attribution_contracts import AttributionSemantics
     from marivo.analysis.operators.candidate_contracts import CandidateSemantics
-    from marivo.analysis.operators.contracts import DeltaSemantics
     from marivo.analysis.operators.forecast_contracts import ForecastSemantics
 
     if isinstance(value, (EventFunnelSemantics, EventTimeToEventSemantics)):
@@ -1107,24 +1047,7 @@ def _semantics_payload(value: d.DatasetFamilyRowSemantics) -> dict[str, object]:
         from marivo.analysis.materialization.association_codec import semantics_payload
 
         return semantics_payload(value)
-    if isinstance(value, AttributionSemantics):
-        from marivo.analysis.materialization.attribution_codec import attribution_semantics_payload
 
-        return attribution_semantics_payload(value)
-
-    if isinstance(value, DeltaSemantics):
-        return {
-            "kind": value.kind,
-            "metric_ref": value.metric_ref,
-            "metric_unit": value.metric_unit,
-            "numeric_type": value.numeric_type,
-            "exact_empty_zero": value.exact_empty_zero,
-            "current_time_field_name": value.current_time_field_name,
-            "baseline_time_field_name": value.baseline_time_field_name,
-            "current_fold_authority": value.current_fold_authority,
-            "baseline_fold_authority": value.baseline_fold_authority,
-            "approximation_class": value.approximation_class,
-        }
     from marivo.analysis.observation.contracts import (
         EntityPresentMetricSemantics,
         EntityReducedMetricSemantics,
@@ -1163,15 +1086,6 @@ def _retained_fold_payload(value: object) -> str:
     except (ValueError, TypeError, RecursionError) as exc:
         raise invalid("invalid retained fold authority") from exc
     return value
-
-
-def _attribution_fold_pair(value: object) -> tuple[str, str] | None:
-    if value is None:
-        return None
-    pair = _array(value)
-    if len(pair) != 2:
-        raise invalid("Attribution requires two exact side fold authorities")
-    return (_retained_fold_payload(pair[0]), _retained_fold_payload(pair[1]))
 
 
 def _semantics(value: object) -> d.DatasetFamilyRowSemantics:
@@ -1234,43 +1148,6 @@ def _semantics(value: object) -> d.DatasetFamilyRowSemantics:
         from marivo.analysis.materialization.association_codec import decode_semantics
 
         return decode_semantics(value)
-    if kind == "attribution/metric@v1":
-        from marivo.analysis.materialization.attribution_codec import decode_attribution_semantics
-
-        return decode_attribution_semantics(value)
-    if kind == "delta/metric@v1":
-        from marivo.analysis.operators.contracts import DeltaSemantics
-
-        obj = _obj(
-            value,
-            "kind metric_ref metric_unit numeric_type exact_empty_zero current_time_field_name baseline_time_field_name current_fold_authority baseline_fold_authority approximation_class",
-        )
-        exact_empty_zero = obj["exact_empty_zero"]
-        if type(exact_empty_zero) is not bool:
-            raise invalid("invalid Delta empty-set policy")
-        if obj["approximation_class"] not in (
-            "exact",
-            "sampled_population",
-            "semantic_percentile",
-            "sampled_semantic_percentile",
-        ):
-            raise invalid("invalid Delta approximation class")
-        return DeltaSemantics(
-            _token=d._CORE_TOKEN,
-            metric_ref=_text(obj["metric_ref"]),
-            metric_unit=None if obj["metric_unit"] is None else _text(obj["metric_unit"]),
-            numeric_type=_text(obj["numeric_type"]),
-            exact_empty_zero=exact_empty_zero,
-            current_time_field_name=None
-            if obj["current_time_field_name"] is None
-            else _text(obj["current_time_field_name"]),
-            baseline_time_field_name=None
-            if obj["baseline_time_field_name"] is None
-            else _text(obj["baseline_time_field_name"]),
-            current_fold_authority=_retained_fold_payload(obj["current_fold_authority"]),
-            baseline_fold_authority=_retained_fold_payload(obj["baseline_fold_authority"]),
-            approximation_class=decode_approximation(obj["approximation_class"]),
-        )
     if kind == "complete_from_schema":
         _obj(value, "kind")
         return d._complete_from_schema()
@@ -1500,13 +1377,8 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
     from marivo.analysis.materialization.association_codec import (
         evidence_payload as association_evidence_payload,
     )
-    from marivo.analysis.materialization.attribution_codec import attribution_evidence_payload
     from marivo.analysis.materialization.candidate_codec import (
         evidence_payload as candidate_evidence_payload,
-    )
-    from marivo.analysis.materialization.comparison_codec import (
-        comparison_inputs_payload,
-        delta_evidence_payload,
     )
     from marivo.analysis.materialization.event_codec import (
         evidence_payload as event_evidence_payload,
@@ -1517,6 +1389,9 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
     from marivo.analysis.materialization.event_reducer_codec import selection_evidence_payload
     from marivo.analysis.materialization.forecast_codec import (
         evidence_payload as forecast_evidence_payload,
+    )
+    from marivo.analysis.materialization.input_bindings_codec import (
+        comparison_inputs_payload,
     )
     from marivo.analysis.materialization.lifecycle_codec import (
         evidence_payload as lifecycle_evidence_payload,
@@ -1565,9 +1440,6 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
         "comparison_basis": value.comparison_basis,
         "funnel_evidence": funnel_evidence_payload(value.funnel_evidence),
         "comparison_inputs": comparison_inputs_payload(value.comparison_inputs),
-        "delta_evidence": delta_evidence_payload(value.delta_evidence),
-        "attribution_evidence": attribution_evidence_payload(value.attribution_evidence),
-        "attribution_fold_authority": value.attribution_fold_authority,
         "association_evidence": association_evidence_payload(value.association_evidence),
         "forecast_evidence": forecast_evidence_payload(value.forecast_evidence),
         "candidate_evidence": candidate_evidence_payload(value.candidate_evidence),
@@ -1586,14 +1458,8 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     from marivo.analysis.materialization.association_codec import (
         decode_evidence as decode_association_evidence,
     )
-    from marivo.analysis.materialization.attribution_codec import decode_attribution_evidence
     from marivo.analysis.materialization.candidate_codec import (
         decode_evidence as decode_candidate_evidence,
-    )
-    from marivo.analysis.materialization.comparison_codec import (
-        comparison_basis_text,
-        decode_comparison_inputs,
-        decode_delta_evidence,
     )
     from marivo.analysis.materialization.event_codec import decode_evidence as decode_event_evidence
     from marivo.analysis.materialization.event_comparison_codec import (
@@ -1602,6 +1468,10 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     from marivo.analysis.materialization.event_reducer_codec import decode_selection_evidence
     from marivo.analysis.materialization.forecast_codec import (
         decode_evidence as decode_forecast_evidence,
+    )
+    from marivo.analysis.materialization.input_bindings_codec import (
+        comparison_basis_text,
+        decode_comparison_inputs,
     )
     from marivo.analysis.materialization.lifecycle_codec import (
         decode_evidence as decode_lifecycle_evidence,
@@ -1617,7 +1487,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     raw = parse_json(text)
     if not isinstance(raw, dict):
         raise invalid("invalid Artifact descriptor")
-    names = "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues comparison_basis comparison_inputs delta_evidence attribution_evidence attribution_fold_authority association_evidence forecast_evidence candidate_evidence event_evidence subject_selection_evidence funnel_evidence lifecycle_evidence temporal_execution"
+    names = "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues comparison_basis comparison_inputs association_evidence forecast_evidence candidate_evidence event_evidence subject_selection_evidence funnel_evidence lifecycle_evidence temporal_execution"
     obj = _obj(raw, names)
     if obj["schema"] not in ("marivo.dataset_artifact_descriptor/v1",):
         raise invalid("unsupported Artifact descriptor or sampling contract")
@@ -1706,9 +1576,6 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         tuple(issues),
         None if obj["comparison_basis"] is None else comparison_basis_text(obj["comparison_basis"]),
         decode_comparison_inputs(obj["comparison_inputs"]),
-        decode_delta_evidence(obj["delta_evidence"]),
-        decode_attribution_evidence(obj["attribution_evidence"]),
-        _attribution_fold_pair(obj["attribution_fold_authority"]),
         decode_association_evidence(obj["association_evidence"]),
         decode_forecast_evidence(obj["forecast_evidence"]),
         decode_candidate_evidence(obj["candidate_evidence"]),
@@ -1838,56 +1705,8 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         )
 
         validate_funnel_descriptor(result)
-    elif row.shape_id.family_id == "delta":
-        from marivo.analysis.operators.contracts import DeltaSemantics
-
-        if len(result.comparison_inputs) != 2 or result.delta_evidence is None:
-            raise invalid("missing complete comparison authority or Evidence")
-        evidence = result.delta_evidence
-        semantics = row.family_semantics
-        if (
-            not isinstance(semantics, DeltaSemantics)
-            or evidence.numeric_promotion_id != "lossless_signed:" + semantics.numeric_type + "@v1"
-        ):
-            raise invalid("Delta Evidence numeric promotion mismatch")
-        expected_approximation = approximation_class(
-            sampled=any(item.sampling_execution is not None for item in result.comparison_inputs),
-            semantic=semantic_approximation(
-                (semantics.current_fold_authority, semantics.baseline_fold_authority)
-            ),
-        )
-        if evidence.approximate != (expected_approximation != "exact"):
-            raise invalid("Delta Evidence approximation binding mismatch")
-        if semantics.approximation_class != expected_approximation:
-            raise invalid("Delta row interpretation differs from retained approximation authority")
-        operand_sampling = {
-            digest(sampling_payload((replace(receipt, ordinal=0),)))
-            for operand in result.comparison_inputs
-            for receipt in operand.sampling_execution or ()
-        }
-        retained_sampling = {
-            digest(sampling_payload((replace(receipt, ordinal=0),)))
-            for receipt in result.sampling_execution or ()
-        }
-        if operand_sampling != retained_sampling:
-            raise invalid("comparison operand realizations differ from retained sampling authority")
-        if (
-            sum(count for _, count in evidence.calculation_status_counts)
-            != result.storage_receipt.realized_row_count
-        ):
-            raise invalid("Delta Evidence row count mismatch")
-        if row.shape_id.local_shape_id == "entity" and evidence.eligible_finding_count:
-            raise invalid("identity-bearing Delta cannot emit Findings")
-    elif row.shape_id.family_id == "attribution":
-        from marivo.analysis.materialization.attribution_publication import validate_descriptor
-
-        validate_descriptor(result)
-    elif result.comparison_inputs or result.delta_evidence is not None:
-        raise invalid("comparison authority outside Delta family")
-    if row.shape_id.family_id != "attribution" and (
-        result.attribution_evidence is not None or result.attribution_fold_authority is not None
-    ):
-        raise invalid("Attribution Evidence outside Attribution family")
+    elif result.comparison_inputs:
+        raise invalid("comparison authority outside Event funnel family")
     if len({item.role for item in parts}) != len(parts):
         raise invalid("duplicate retained role")
     registered_parts = tuple(
@@ -2300,11 +2119,9 @@ def evidence_for(descriptor: ArtifactDescriptor) -> EvidenceRecord:
     from marivo.analysis.materialization.association_codec import (
         evidence_payload as association_evidence_payload,
     )
-    from marivo.analysis.materialization.attribution_codec import attribution_evidence_payload
     from marivo.analysis.materialization.candidate_codec import (
         evidence_payload as candidate_evidence_payload,
     )
-    from marivo.analysis.materialization.comparison_codec import delta_evidence_payload
     from marivo.analysis.materialization.event_codec import (
         evidence_payload as event_evidence_payload,
     )
@@ -2325,8 +2142,6 @@ def evidence_for(descriptor: ArtifactDescriptor) -> EvidenceRecord:
     )
     summary = (
         descriptor.funnel_evidence
-        or descriptor.delta_evidence
-        or descriptor.attribution_evidence
         or descriptor.association_evidence
         or descriptor.forecast_evidence
         or descriptor.candidate_evidence
@@ -2368,15 +2183,6 @@ def evidence_for(descriptor: ArtifactDescriptor) -> EvidenceRecord:
         )
         value["association_semantics"] = _semantics_payload(
             descriptor.row_contract.family_semantics
-        )
-    if descriptor.delta_evidence is not None:
-        value["delta_evidence"] = delta_evidence_payload(descriptor.delta_evidence)
-        value["comparison_sampling"] = [
-            sampling_payload(item.sampling_execution) for item in descriptor.comparison_inputs
-        ]
-    if descriptor.attribution_evidence is not None:
-        value["attribution_evidence"] = attribution_evidence_payload(
-            descriptor.attribution_evidence
         )
     return EvidenceRecord(digest(value), count, empty, versions, quality, issues)
 

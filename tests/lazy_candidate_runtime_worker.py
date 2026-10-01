@@ -15,10 +15,9 @@ from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.observation.predicates import gt
 from marivo.analysis.operators.candidate_contracts import CandidateObjective
 from marivo.analysis.operators.candidate_dataset import MaterializedCandidateDataset
-from marivo.analysis.operators.delta import MaterializedDeltaDataset
 from tests.lazy_candidate_fixtures import candidate_input, discover, setup_candidate
-from tests.lazy_distinct_runtime_worker import frame_rows
 from tests.lazy_materialization_crash_worker import record_evidence, snapshot, statistics, versions
+from tests.lazy_result_fixtures import frame_rows
 from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
@@ -50,7 +49,7 @@ def run(
     selected_evidence: object = None
     if mode != "produce":
         recovered_source = runtime.artifact(refs["input"])
-        assert isinstance(recovered_source, (MaterializedMetricDataset, MaterializedDeltaDataset))
+        assert isinstance(recovered_source, MaterializedMetricDataset)
         source_rows = recovered_source
         with ExitStack() as guards:
             if mode == "cold":

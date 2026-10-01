@@ -535,7 +535,16 @@ def validate(
                 (*keys, *(f"column_{i}__{f}" for f in ("value", "cell_tag", "cell_reason")))
             ).rename_columns([*keys, "value", "cell_tag", "cell_reason"])
             reasons = contract.column_reasons[i]
-            tuple(CheckedStream(_TableStream(column), column.schema, keys, reasons))
+            nullable = frozenset(
+                f"key_{i}"
+                for i, coordinate in enumerate(contract.signature.domain.instance_key)
+                if coordinate.field.startswith("attribution:axis:")
+            )
+            tuple(
+                CheckedStream(
+                    _TableStream(column), column.schema, keys, reasons, nullable_keys=nullable
+                )
+            )
         if (
             by_role["columns"].rename_columns(primary.column_names).to_pylist()
             != primary.to_pylist()

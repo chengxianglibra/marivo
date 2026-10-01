@@ -10,13 +10,13 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.operators.attribution_contracts import AttributePayload, AttributeSpecV1
+from marivo.analysis.operators.attribution_contracts import AttributeSpecV1
 from marivo.analysis.operators.distribution_values import execute_distribution
 from marivo.analysis.operators.errors import AttributionError
 from marivo.analysis.session._lazy_sources import make_lazy_sources
 from tests.lazy_distribution_fixtures import CHANNEL, METRIC, make_distribution_registry
 from tests.lazy_observation_fixtures import NoIoActionPort
+from tests.r8_arithmetic_fixtures import attribution_for_spec, comparison_for_metric
 
 
 def percentile(values: list[int], q: Fraction) -> Fraction:
@@ -36,11 +36,7 @@ def spec() -> AttributeSpecV1:
         store_id="numeric",
     )
     metric = source.observe(METRIC).with_dimensions(CHANNEL).aggregate()
-    output = metric.compare(metric).attribute(axes=(CHANNEL,))
-    assert isinstance(output._root, LogicalRootHandle) and isinstance(
-        output._root.payload, AttributePayload
-    )
-    return output._root.payload.spec
+    return attribution_for_spec(comparison_for_metric(metric), metric, (CHANNEL,))
 
 
 def game(count: int) -> tuple[list[dict[str, object]], list[Fraction]]:

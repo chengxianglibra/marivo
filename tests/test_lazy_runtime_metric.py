@@ -85,44 +85,6 @@ def test_invalid_runtime_labels_fail_without_execution(label: str) -> None:
 
 
 @pytest.mark.runtime
-def test_runtime_graph_executes_and_folds_selected_rows_without_source(tmp_path: Path) -> None:
-    fixture = setup_retained(tmp_path)
-    roots = expressions()
-    source = fixture.sources.observe(list(roots), population=fixture.sources.population(CUSTOMERS))
-    output = source.execute()
-    rows = output.to_pandas()
-    assert rows["total"].fillna(-1).tolist() == [40, 100, 7, -1]
-    assert rows["average"].fillna(-1).tolist() == [20, 100, 3.5, -1]
-    assert rows["europe"].fillna(-1).tolist() == [40, -1, 7, -1]
-    assert rows["weighted"].fillna(-1).tolist() == [25, 100, -1, -1]
-    assert rows["ratio"].fillna(-1).tolist() == [2, 1, 2, -1]
-    assert rows["share"].fillna(-1).tolist() == [1, -1, 1, -1]
-    assert rows["weighted_europe"].fillna(-1).tolist() == [25, -1, -1, -1]
-    assert rows["linear"].fillna(-1).tolist() == [60, 100, 10.5, -1]
-    fixture.database.rename(tmp_path / "offline.duckdb")
-    selected = output.where(gt(output.fields.metric(roots[0]), 10))
-    folded = selected.aggregate().execute()
-    result = folded.to_pandas()
-    assert result["total"].tolist() == [140]
-    assert result["average"].tolist() == pytest.approx([140 / 3])
-    assert result["weighted"].tolist() == pytest.approx([50])
-    assert result["ratio"].tolist() == pytest.approx([3])
-    assert result["share"].tolist() == pytest.approx([40 / 140])
-    assert result["weighted_europe"].tolist() == [25]
-    assert result["linear"].tolist() == pytest.approx([280 - 140 / 3])
-    projected = folded.metric(roots[-1]).execute()
-    assert projected.to_pandas()["linear"].tolist() == result["linear"].tolist()
-    delta = projected.compare(projected).execute()
-    assert delta.to_pandas()["delta"].tolist() == [0]
-    finding = delta.findings().items[0]
-    assert finding.subject.kind == "metric"
-    assert isinstance(finding.subject.metric, _RuntimeMetricFieldIdentity)
-    assert selected.aggregate().execute().state.artifact_ref == folded.state.artifact_ref
-    assert fixture.runtime.statistics.primary_queries == 0
-    assert fixture.runtime.store.resources(fixture.runtime.session_ref) == ()
-
-
-@pytest.mark.runtime
 def test_runtime_forest_three_process_source_offline_and_cold_binding(tmp_path: Path) -> None:
     import json
     import os
@@ -457,25 +419,6 @@ def test_invalid_slice_type_fails_before_source_data_query(tmp_path: Path) -> No
     ):
         assert after[name] == before[name]
     assert fixture.runtime.statistics.primary_queries == 0
-
-
-def test_runtime_identity_reaches_existing_operator_constructors() -> None:
-    from marivo.analysis import grain, time_scope
-    from marivo.analysis.operators.forecast_contracts import periods
-
-    sources = make_sources()
-    roots = expressions()
-    metrics = sources.observe(list(roots[:2]))
-    one = metrics.metric(roots[0])
-    assert one.compare(one).kind == "delta"
-    assert metrics.correlate().kind == "association"
-    assert one.discover.entity_outliers().kind == "candidate"
-    history = (
-        sources.observe(roots[0], time_scope=time_scope(start="2026-02-01", end="2026-03-01"))
-        .with_time_axis(ref.time_dimension("sales.orders.order_time"), grain=grain("day"))
-        .aggregate()
-    )
-    assert history.forecast(horizon=periods(2)).kind == "forecast"
 
 
 @pytest.mark.runtime

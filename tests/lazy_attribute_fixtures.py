@@ -6,16 +6,15 @@ from typing import Literal
 import pandas as pd
 import pyarrow as pa
 
-from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.observation.contracts import EntityReducedMetricSemantics
 from marivo.analysis.observation.fold_contracts import fold_part_role
-from marivo.analysis.operators.attribution_contracts import AttributePayload, AttributeSpecV1
+from marivo.analysis.operators.attribution_contracts import AttributeSpecV1
 from marivo.analysis.operators.compare import execute_compare
-from marivo.analysis.operators.contracts import ComparePayload
 from marivo.analysis.operators.delta_state import execute_compare_parts
 from marivo.analysis.operators.row import PartFrame
 from marivo.refs import ref
 from tests.lazy_observation_fixtures import make_sources
+from tests.r8_arithmetic_fixtures import attribution_for_spec, comparison_for_metric
 
 REGION = ref.dimension("sales.customers.region")
 CHANNEL = ref.dimension("sales.orders.channel")
@@ -35,17 +34,10 @@ def inputs(
 ) -> tuple[pd.DataFrame, AttributeSpecV1, tuple[PartFrame, ...]]:
     axes = (REGION,) if len(keys[0]) == 1 else (REGION, CHANNEL)
     metric = make_sources().observe(ref.metric(f"sales.{name}")).with_dimensions(*axes).aggregate()
-    delta = metric.compare(metric)
-    attribution = delta.attribute(
-        axes=axes if decompose == "all" else (REGION,), mode=mode, top_k=top_k
+    compare_spec = comparison_for_metric(metric)
+    spec = attribution_for_spec(
+        compare_spec, metric, axes if decompose == "all" else (REGION,), mode=mode, top_k=top_k
     )
-    assert isinstance(delta._root, LogicalRootHandle) and isinstance(
-        delta._root.payload, ComparePayload
-    )
-    assert isinstance(attribution._root, LogicalRootHandle) and isinstance(
-        attribution._root.payload, AttributePayload
-    )
-    compare_spec = delta._root.payload.spec
     semantics = metric.row_contract.family_semantics
     assert isinstance(semantics, EntityReducedMetricSemantics)
     authority = semantics.metric_folds[0]
@@ -104,7 +96,7 @@ def inputs(
     parts = execute_compare_parts(
         sides[0][0], sides[1][0], compare_spec, sides[0][1], sides[1][1], output
     )
-    return output, attribution._root.payload.spec, parts
+    return output, spec, parts
 
 
 def signed_basis_inputs() -> tuple[pd.DataFrame, AttributeSpecV1, tuple[PartFrame, ...]]:

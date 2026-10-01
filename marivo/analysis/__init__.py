@@ -114,20 +114,12 @@ if TYPE_CHECKING:
     from marivo.analysis.operators.association import (
         MaterializedAssociationDataset as MaterializedAssociationDataset,
     )
-    from marivo.analysis.operators.attribution import (
-        LogicalAttributionDataset as LogicalAttributionDataset,
-    )
-    from marivo.analysis.operators.attribution import (
-        MaterializedAttributionDataset as MaterializedAttributionDataset,
-    )
     from marivo.analysis.operators.candidate_dataset import (
         LogicalCandidateDataset as LogicalCandidateDataset,
     )
     from marivo.analysis.operators.candidate_dataset import (
         MaterializedCandidateDataset as MaterializedCandidateDataset,
     )
-    from marivo.analysis.operators.delta import LogicalDeltaDataset as LogicalDeltaDataset
-    from marivo.analysis.operators.delta import MaterializedDeltaDataset as MaterializedDeltaDataset
     from marivo.analysis.operators.forecast_contracts import ForecastHorizon as ForecastHorizon
     from marivo.analysis.operators.forecast_contracts import ForecastModel as ForecastModel
     from marivo.analysis.operators.forecast_contracts import drift as drift

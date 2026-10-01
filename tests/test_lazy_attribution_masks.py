@@ -12,7 +12,6 @@ from marivo.analysis.datasets.errors import DatasetConstructionError, DatasetReg
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.scalar_sql_execution import _cell
-from marivo.analysis.materialization.source_stage import _decode_scalar_masks
 from tests.lazy_dataset_fixtures import (
     TEST_IDS,
     make_logical_dataset,
@@ -68,26 +67,6 @@ def test_boolean_tuple_arity_refines_only_to_the_same_registered_physical_type()
     for invalid in ("bool_tuple:0", "bool_tuple:-1", "bool_tuple:02", "bool_tuple:two"):
         with pytest.raises(DatasetConstructionError):
             d._deferred_type(invalid, ids=ids)
-
-
-@pytest.mark.parametrize("invalid", ["1", "10x", "2", None])
-def test_scalar_source_mask_decode_rejects_wrong_width_or_bits(invalid: str | None) -> None:
-    batch = pa.record_batch(
-        [pa.array(["10"]), pa.array([invalid])],
-        names=["active_axis_mask", "other_mask"],
-    )
-    with pytest.raises(MaterializationError, match="source Attribution mask"):
-        tuple(_decode_scalar_masks((batch,), 2, "test-run"))
-
-
-def test_scalar_source_mask_decode_preserves_empty_schema() -> None:
-    batch = pa.record_batch(
-        [pa.array([], type=pa.string()), pa.array([], type=pa.string())],
-        names=["active_axis_mask", "other_mask"],
-    )
-    decoded = tuple(_decode_scalar_masks((batch,), 2, "test-run"))
-    assert len(decoded) == 1 and decoded[0].num_rows == 0
-    assert decoded[0].schema.field("active_axis_mask").type == pa.list_(pa.bool_())
 
 
 def test_source_boolean_array_accepts_only_exact_driver_bits() -> None:
@@ -154,30 +133,3 @@ def test_internal_operands_admit_only_the_shape_registered_for_their_role() -> N
     for invalid in (((scalar,),), ((scalar,), ()), ((entity,), (scalar,))):
         with pytest.raises(DatasetRegistrationError):
             replace(preparation, operand_shape_ids=invalid)
-
-
-def test_local_mask_validation_checks_complete_arrow_keys_and_exact_values() -> None:
-    import pandas as pd
-
-    from marivo.analysis.materialization.errors import MaterializationError
-    from marivo.analysis.materialization.local import validate_frame
-    from marivo.analysis.operators.attribute_values import execute_attribute
-    from tests.lazy_attribute_fixtures import inputs
-
-    primary, spec, parts = inputs(
-        "order_count",
-        [("a", "x"), ("a", "y")],
-        [(4, 1), (2, 1)],
-        [(1, 1), (1, 1)],
-        mode="hierarchy",
-    )
-    result = execute_attribute(primary, spec, parts)
-    validate_frame(result, spec.output_row, spec.output_rows)
-    duplicate = pd.concat([result, result.iloc[:1]], ignore_index=True)
-    with pytest.raises(MaterializationError, match="duplicate local key"):
-        validate_frame(duplicate, spec.output_row, spec.output_rows)
-    for invalid in ((True,), (True, 0), None):
-        malformed = result.copy()
-        malformed["other_mask"] = pd.Series([invalid] * len(result), dtype=object)
-        with pytest.raises(MaterializationError, match="invalid local mask"):
-            validate_frame(malformed, spec.output_row, spec.output_rows)

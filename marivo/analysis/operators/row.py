@@ -369,7 +369,6 @@ def execute_row(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
         in (
             "metric.where",
             "delta.where",
-            "attribution.where",
             "association.where",
             "forecast.where",
             "candidate.where",
@@ -385,8 +384,6 @@ def execute_row(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
         )
     elif call.method in (
         "metric.rank",
-        "delta.rank",
-        "attribution.rank",
         "association.rank",
         "forecast.rank",
         "candidate.rank",
@@ -396,8 +393,6 @@ def execute_row(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
         call.method
         in (
             "metric.limit",
-            "delta.limit",
-            "attribution.limit",
             "association.limit",
             "forecast.limit",
             "candidate.limit",

@@ -1,13 +1,8 @@
-"""Private additive Attribution construction and family registration."""
+"""Frozen partition method and schema facts consumed by R7/R8 helpers."""
 
 from __future__ import annotations
 
-from dataclasses import replace
-
-from marivo.analysis.datasets.actions import construct_operator
-from marivo.analysis.datasets.base import Dataset, MaterializedDataset, _dataset_repr
 from marivo.analysis.datasets.descriptors import (
-    _CORE_TOKEN,
     DatasetField,
     DatasetRowContract,
     DatasetRowSetContract,
@@ -15,44 +10,19 @@ from marivo.analysis.datasets.descriptors import (
     _deferred_type,
     _generated_identity,
     _GeneratedFieldIdentity,
-    _keyed_cardinality,
     _make_field,
     _make_field_id,
-    _make_row_contract,
-    _make_row_set_contract,
-    _make_schema,
-    _make_shape_id,
     _StableIdRegistry,
-    _unknown_row_bound,
-    _unordered_ordering,
 )
-from marivo.analysis.datasets.registry import (
-    ConsumerRegistration,
-    DatasetFamilyRegistration,
-    DatasetFamilyRegistry,
-)
-from marivo.analysis.datasets.state import MaterializedDatasetState, _validate_materialized_state
 from marivo.analysis.observation.contracts import (
     DimensionInput,
-    RetainedRowsPayload,
-    owner_of,
-    producer_contract,
 )
 from marivo.analysis.observation.fold_contracts import MetricFoldAuthorityV1
-from marivo.analysis.operators.attribution import (
-    LogicalAttributionDataset,
-    MaterializedAttributionDataset,
-)
 from marivo.analysis.operators.attribution_contracts import (
     INDEPENDENT_RESOLUTION_METHODS,
-    AttributePayload,
-    AttributeSpecV1,
     AttributionMethod,
-    AttributionMode,
     AttributionSemantics,
-    delta_part_authorities,
 )
-from marivo.analysis.operators.contracts import DeltaSemantics
 from marivo.analysis.operators.errors import attribution_error
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 
@@ -178,178 +148,6 @@ def _generated(
     )
 
 
-def attribute(
-    dataset: Dataset,
-    *,
-    axes: tuple[DimensionInput, ...] | list[DimensionInput],
-    mode: AttributionMode = "joint",
-    top_k: int | None = None,
-) -> LogicalAttributionDataset:
-    """Construct one exact private Attribution without reading source data."""
-    if dataset.kind != "delta" or not isinstance(
-        dataset.row_contract.family_semantics, DeltaSemantics
-    ):
-        raise attribution_error("one Metric Delta", "unsupported receiver")
-    if not isinstance(axes, (tuple, list)) or not axes or mode not in ("joint", "hierarchy"):
-        raise attribution_error(
-            "nonempty ordered axes and joint or hierarchy mode", "invalid attribution arguments"
-        )
-    axes = tuple(axes)
-    refs = tuple(_axis_ref(axis) for axis in axes)
-    if len({axis.path for axis in refs}) != len(refs) or (mode == "hierarchy" and len(axes) < 2):
-        raise attribution_error(
-            "unique axes and at least two for hierarchy", "duplicate axes or meaningless hierarchy"
-        )
-    if top_k is not None and (type(top_k) is not int or not 1 <= top_k <= 1000):
-        raise attribution_error("top_k integer in [1, 1000]", "invalid Top-K bound")
-    known = {
-        field.identity.identity_id.split(":", 1)[1]: field
-        for field in dataset.schema.columns
-        if field.role_id == "dimension" and isinstance(field.identity, _CatalogFieldIdentity)
-    }
-    expanded_compare = None
-    original_input_row = None
-    inputs: tuple[Dataset, ...] = (dataset,)
-    operator_id = "delta.attribute"
-    input_row, input_rows = dataset.row_contract, dataset.row_set_contract
-    if any(axis.path not in known for axis in refs):
-        if isinstance(dataset, MaterializedDataset):
-            raise attribution_error(
-                "all requested axes in retained Delta",
-                "materialized missing-axis barrier",
-                repair="Reconstruct logical current and baseline with .with_dimensions(*axes) before .aggregate().compare(...).attribute(axes=axes).",
-            )
-        from marivo.analysis.operators.attribute_expansion import expand_attribute_inputs
-
-        current, baseline, expanded_compare = expand_attribute_inputs(dataset, axes)
-        inputs = (dataset, current, baseline)
-        operator_id = "delta.attribute_expanded"
-        original_input_row = dataset.row_contract
-        input_row, input_rows = expanded_compare.output_row, expanded_compare.output_rows
-        known = {
-            field.identity.identity_id.split(":", 1)[1]: field
-            for field in input_row.schema.columns
-            if field.role_id == "dimension" and isinstance(field.identity, _CatalogFieldIdentity)
-        }
-    semantics = input_row.family_semantics
-    if not isinstance(semantics, DeltaSemantics):
-        raise attribution_error("exact expanded Delta semantics", "invalid expansion")
-    axis_fields = tuple(known[axis.path] for axis in refs)
-    authority_pairs = delta_part_authorities(input_row)
-    methods = tuple(
-        attribute_method(authority, tuple(axis.path for axis in refs))
-        for _, authority in authority_pairs
-    )
-    if len(set(methods)) != 1:
-        raise attribution_error("same method on both comparison sides", "incompatible side folds")
-    method = methods[0]
-    if method == "distribution_shapley@v1":
-        if authority_pairs[0][1].distribution != authority_pairs[1][1].distribution:
-            raise attribution_error(
-                "identical percentile methods and parameters", "incompatible distribution sides"
-            )
-        if any(field.role_id == "entity_identity" for field in input_row.schema.columns):
-            raise attribution_error(
-                "non-identity distribution Attribution", "source-required Entity scope"
-            )
-    axis_ids = tuple(field.field_id for field in axis_fields)
-    scope = tuple(
-        field
-        for field in input_row.schema.columns
-        if field.field_id in input_row.coordinate_field_ids and field.field_id not in axis_ids
-    )
-    ids = dataset._registration.ids
-    numeric_type = semantics.numeric_type if method == "additive_difference@v1" else "float64"
-    output_axes = tuple(replace(field, _token=_CORE_TOKEN, nullable=True) for field in axis_fields)
-    times = tuple(field for field in input_row.schema.columns if field.role_id == "comparison_time")
-    generated = tuple(
-        _generated(
-            name,
-            role,
-            f"bool_tuple:{len(axes)}"
-            if kind == "mask"
-            else numeric_type
-            if kind == "numeric"
-            else kind,
-            nullable,
-            ids,
-        )
-        for name, role, kind, nullable in GENERATED
-    )
-    columns = (*scope, *output_axes, *times, *generated)
-    if len({field.name for field in columns}) != len(columns):
-        raise attribution_error(
-            "unambiguous scope, axes and generated field names", "attribution field collision"
-        )
-    active_id, other_id = generated[0].field_id, generated[1].field_id
-    scope_ids = tuple(field.field_id for field in scope)
-    output_semantics = AttributionSemantics(
-        _token=_CORE_TOKEN,
-        metric_ref=semantics.metric_ref,
-        metric_unit=semantics.metric_unit,
-        numeric_type=numeric_type,
-        scope_field_ids=scope_ids,
-        axis_field_ids=axis_ids,
-        resolution_prefixes=(axis_ids,)
-        if mode == "joint"
-        else tuple(axis_ids[:index] for index in range(1, len(axes) + 1)),
-        current_time_field_name=semantics.current_time_field_name,
-        baseline_time_field_name=semantics.baseline_time_field_name,
-        method=method,
-        approximation_class=semantics.approximation_class,
-        resolution_semantics="independent"
-        if method in INDEPENDENT_RESOLUTION_METHODS
-        else "rollup",
-        rollup_safe=method not in INDEPENDENT_RESOLUTION_METHODS,
-    )
-    row = _make_row_contract(
-        schema_version=1,
-        shape_id=_make_shape_id("attribution", mode, 1, ids=ids),
-        schema=_make_schema(columns),
-        coordinate_field_ids=(*scope_ids, active_id, *axis_ids, other_id),
-        key_field_ids=(
-            *scope_ids,
-            *((active_id,) if mode == "hierarchy" else ()),
-            *axis_ids,
-            other_id,
-        ),
-        family_semantics=output_semantics,
-    )
-    rows = _make_row_set_contract(
-        schema_version=1,
-        cardinality=_keyed_cardinality(_unknown_row_bound()),
-        ordering=_unordered_ordering(),
-    )
-    spec = AttributeSpecV1(
-        input_row,
-        input_rows,
-        row,
-        rows,
-        axis_fields,
-        scope,
-        method,
-        mode,
-        top_k,
-        semantics.current_fold_authority,
-        semantics.baseline_fold_authority,
-        expanded_compare,
-        original_input_row,
-    )
-    result = construct_operator(
-        owner=owner_of(dataset),
-        registry=dataset._registry,
-        operator_id=operator_id,
-        contract_versions=producer_contract(operator_id).versions,
-        inputs=inputs,
-        row_contract=row,
-        row_set_contract=rows,
-        payload=AttributePayload(_token=_CORE_TOKEN, spec=spec),
-    )
-    if not isinstance(result, LogicalAttributionDataset):
-        raise attribution_error("paired Logical Attribution", "invalid family registration")
-    return result
-
-
 def validate_attribution(row: DatasetRowContract, rows: DatasetRowSetContract) -> None:
     semantics = row.family_semantics
     if not isinstance(semantics, AttributionSemantics) or row.shape_id.local_shape_id not in (
@@ -464,56 +262,3 @@ def validate_attribution(row: DatasetRowContract, rows: DatasetRowSetContract) -
         expected_names = (*expected_names, "rank")
     if tuple(fields) != expected_names:
         raise attribution_error("ordered scoped Attribution fields", "invalid schema order")
-
-
-def register_attribution(registry: DatasetFamilyRegistry, ids: _StableIdRegistry) -> None:
-    from marivo.analysis.domains.event_attribution import (
-        FunnelAttributePayload,
-        FunnelAttributionSemantics,
-    )
-    from marivo.analysis.domains.event_attribution import (
-        validate_attribution as validate_funnel_attribution,
-    )
-
-    def decode(state: MaterializedDatasetState) -> MaterializedDatasetState:
-        _validate_materialized_state(state, ids=ids)
-        return state
-
-    shapes = tuple(
-        _make_shape_id("attribution", shape, 1, ids=ids) for shape in ("joint", "hierarchy")
-    )
-    registry.register(
-        DatasetFamilyRegistration(
-            family_id="attribution",
-            logical_type=LogicalAttributionDataset,
-            materialized_type=MaterializedAttributionDataset,
-            shape_ids=(*shapes, _make_shape_id("attribution", "funnel-loss-rate", 1, ids=ids)),
-            owner_id="operators.attribute",
-            ids=ids,
-            row_validator=lambda row, rows: (
-                validate_funnel_attribution(row, rows, ids)
-                if isinstance(row.family_semantics, FunnelAttributionSemantics)
-                else validate_attribution(row, rows)
-            ),
-            consumers=tuple(
-                ConsumerRegistration(
-                    f"attribution.{method}",
-                    ("input",),
-                    "attribution",
-                    shapes,
-                    ("attribution.current_rows@v1",),
-                )
-                for method in ("where", "rank", "limit")
-            ),
-            repr_renderer=_dataset_repr,
-            materialized_state_decoder=decode,
-            node_payload_types=(AttributePayload, FunnelAttributePayload, RetainedRowsPayload),
-            consumer_admission=lambda dataset, method: (
-                not any(field.name == "rank" for field in dataset.schema.columns)
-                if method == "attribution.rank"
-                else dataset.row_set_contract.ordering.kind == "ordered"
-                if method == "attribution.limit"
-                else True
-            ),
-        )
-    )

@@ -921,3 +921,14 @@ The public replacement has native driver submission evidence, independent raw
 fact oracles and three-process source-offline continuation/recovery tests.
 Legacy family dispatch/helper deletion and installed-wheel closure remain R6.7;
 remote backend qualification remains R9.
+
+## R6.7 retired recovery branches
+
+R6 recovery uses the existing graph descriptor/continuation codec in Store 7.
+General Metric Delta/Attribution descriptor semantics, evidence codecs and
+publication/recovery branches are removed, without dual reads or lineage
+reconstruction. Only actual Event funnel comparison/allocation shapes remain
+under private R7 owners; source admission remains blocked. Neutral ordered-input
+bindings and scalar Finding values remain for their actual Event/R8 consumers.
+Original group reductions restore the same MaterializedGroupedNumericRelation
+variant and K as execution; Singleton reductions restore MaterializedRolledNumericRelation.

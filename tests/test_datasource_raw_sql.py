@@ -10,6 +10,7 @@ import ibis
 import pytest
 from ibis.backends import BaseBackend
 
+import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
@@ -22,7 +23,7 @@ from marivo.datasource.errors import (
     DatasourceRawSqlError,
     DatasourceSourceCapabilityError,
 )
-from tests.lazy_observation_fixtures import make_sources
+from tests.shared_fixtures import DslCaseFactory
 
 
 def _register_raw_sql_fixture(project_root: Path) -> None:
@@ -100,7 +101,9 @@ def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
     assert "expensive" in rendered
 
 
-def test_raw_sql_result_cannot_reenter_typed_analysis(tmp_path: Path) -> None:
+def test_raw_sql_result_cannot_reenter_typed_analysis(
+    tmp_path: Path, analysis_dsl_case_factory: DslCaseFactory
+) -> None:
     _register_raw_sql_fixture(tmp_path)
     result = md.raw_sql(
         ms.ref.datasource("warehouse"),
@@ -110,7 +113,12 @@ def test_raw_sql_result_cannot_reenter_typed_analysis(tmp_path: Path) -> None:
         project_root=tmp_path,
     )
 
-    metric = make_sources().observe(ms.ref.metric("sales.revenue"))
+    case = analysis_dsl_case_factory("j2")
+    metric = case.session.members(ms.ref.entity("sales.customer")).observe(
+        ms.ref.metric("sales.revenue"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+    )
     with pytest.raises(AnalysisError, match="RawSqlResult"):
         metric.compare(result)
     from marivo.datasource.adapters import provider_for

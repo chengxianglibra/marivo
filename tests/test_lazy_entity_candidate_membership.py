@@ -41,7 +41,7 @@ def test_logical_entity_candidate_admits_exact_selected_authority_without_io() -
     assert str(selected.row_contract.shape_id) == "candidate/entity-outlier@v1"
 
 
-@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows", "period_shifts"])
+@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows"])
 def test_other_candidate_shapes_never_gain_membership_from_limit(
     objective: CandidateObjective,
 ) -> None:
