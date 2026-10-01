@@ -361,11 +361,13 @@ product continuation K.
 
 ### Relative Anchor observation and retention (C18)
 
-The single public entry shape is
-`session.anchors(source: ParticipantRoleHandle | JourneyResult, *,
-population: AnalysisDomain, during: TimeScope) -> LogicalAnchorDomain`.
+The single public entry is `session.anchors`, with the exact source/fixed
+overloads in [the R7.1 API target](#r71-frozen-domain-api-target).
+Event-role source construction takes an explicit `AnalysisDomain` population,
+`during: TimeScope`, and `business_order: Ref[BusinessOrderKind] | None = None`.
+Journey construction inherits its retained order and has no override parameter.
 The source is a closed union of an exact `ParticipantRoleHandle` on an Event and
-an exact `JourneyResult` start view. The former uses the Event occurrence key;
+an exact Logical or Materialized Journey start view. The former uses the Event occurrence key;
 the latter uses the retained journey start occurrence and exact pattern/matching
 identity. `population` is an `AnalysisDomain` of the role's exact Subject
 Entity; `during` is a `TimeScope` selecting starts, not a follow-up limit.
@@ -2002,3 +2004,165 @@ agree on the public variant and its actual continuation contract; original
 state, definitions, DAG identities and state encoding are unchanged. Numeric
 tables over attribution views preserve typed Other axis nulls under the declared
 complete key, without permitting null Entity identities.
+
+## R7.1 frozen domain API target
+
+Status: accepted target, 2026-10-01; documentation/static freeze only. None of
+the new symbols below is made importable by R7.1. Existing Event/Lifecycle
+Dataset APIs remain migration consumers, not implementations of this target.
+The [R7 migration ledger](../../superpowers/specs/2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md)
+owns status and test responsibility. This section owns F01/F02 and public
+handles; operators own domain truth/arithmetic, Runtime owns retained schemas
+and placement, and timezone owns instant/window conversion.
+
+### Domain identities and concrete result families
+
+Every key includes its exact definition and this realization's binding. Subject
+K is the Entity's complete primary key; version rows never become Subject K.
+Occurrence K is `(Event definition/version, complete occurrence Entity K)`.
+Different Events with the same physical ID have different occurrence identity.
+
+| Domain kind | Complete key beyond the realization binding | Public result stems |
+| --- | --- | --- |
+| entity | complete Subject K | existing AnalysisDomain and BooleanRelation |
+| occurrence | exact Event binding and complete occurrence K | ViolationResult; trigger/time/state/kind relations |
+| journey | Subject K, start occurrence K, exact pattern/matching binding | JourneyResult, EventDurationResult, CompletedJourneys |
+| interval | Subject K, canonical interval ordinal bound to full History trace | StateIntervalResult |
+| checkpoint_state | exact checkpoint instant, ModelState K, complete axis tuple | StateDistributionResult |
+| model_state | exact StateModel definition/version and declared state key | DwellSummary |
+| transition_pair | exact StateModel binding and declared from/to state keys | TransitionSummary |
+| anchor | Subject K, source Event binding and occurrence K; Journey source also binds its assignment | AnchorDomain, RetentionResult |
+| group | exact pattern step and complete retained axis tuple | FunnelResult, FunnelComparisonResult |
+
+Each new stem has exactly `Logical<stem>` and `Materialized<stem>` public
+variants. `LogicalSubjectRetentionResult` / `MaterializedSubjectRetentionResult`
+use the Entity domain. `JourneyResult`, `HistoryResult` and similar unsuffixed
+names in prose denote these families, not additional public aliases. History
+has `LogicalHistoryResult` / `MaterializedHistoryResult`; its primary domain is
+the complete input Subject domain, including Subjects with no intervals.
+Attribution reuses existing LogicalAttributionResult/MaterializedAttributionResult.
+Scalar reads use the existing concrete Numeric/Boolean/Category/TemporalRelation
+families; a Duration-valued NumericRelation is not another exported alias.
+No terminal table or summary can recreate an instance domain or Subject map.
+
+### Construction and fixed overloads
+
+The exact source-only signatures are:
+
+```text
+session.events.match(pattern: EventPattern, *, population: LogicalAnalysisDomain,
+    cohort_window: TimeScope, completion_through: datetime,
+    matching: FirstPerSubject | EveryStart,
+    business_order: Ref[BusinessOrderKind] | None = None,
+    completeness: tuple[CompletenessDeclaration, ...] = ()) -> LogicalJourneyResult
+session.lifecycle.replay(model: Ref[StateModelKind], *,
+    population: LogicalAnalysisDomain, window: TimeScope, seed: FromInception,
+    completeness: tuple[CompletenessDeclaration, ...] = ()) -> LogicalHistoryResult
+session.anchors(source: ParticipantRoleHandle, *, population: LogicalAnalysisDomain,
+    during: TimeScope, business_order: Ref[BusinessOrderKind] | None = None)
+    -> LogicalAnchorDomain
+session.anchors(source: LogicalJourneyResult, *, population: LogicalAnalysisDomain,
+    during: TimeScope) -> LogicalAnchorDomain
+```
+
+AnalysisDomain includes its existing governed temporal/version variants, with
+one exact Subject image and compatible membership authority. An explicit
+Materialized/fixed domain plus live Event/model refs is mixed, rejected before
+business reads and Run admission; there is no fixed replay or rematching entry.
+Model entries, old PopulationInput, omitted population and implicit root
+inference are not alternate accepted inputs. `seed` is required and only
+`from_inception()` is accepted. Replay consumes the StateModel's business_order;
+it has no call-level order override. Match and Event-role anchors have the sole
+explicit order parameter above. Journey anchors inherit their original order
+and reject a separately supplied order parameter.
+
+The fixed Journey overload accepts MaterializedJourneyResult and a compatible
+MaterializedAnalysisDomain or LogicalFixedAnalysisDomain, returning a
+LogicalAnchorDomain with fixed leaves. A Logical Journey backed entirely by
+fixed leaves obeys the same mode rule. A logical receiver's mode comes from
+reachable DAG inputs, not its class name. `execute()` returns the matching
+Materialized variant. Every materialized reducer below similarly returns the
+paired Logical result over verified fixed leaves, never an already executed
+object or a live source leaf.
+
+### Owned operations and fields
+
+`journeys.funnel(axes: tuple[Ref[DimensionKind], ...] = ()) -> LogicalFunnelResult`
+is first_per_subject only. `time_to_event(from_step: PatternStep,
+to_step: PatternStep) -> LogicalEventDurationResult` requires exact retained
+steps with strictly increasing indexes. `completed() -> LogicalCompletedJourneys`
+selects known completed rows without changing their Journey unit.
+EventDurationResult owns status, started_at, completed_at, duration,
+observed_duration and followup_until relations. CompletedJourneys.duration is
+the existing NumericRelation with exact Duration physical type and step-pair
+quantity. `subjects(role: ParticipantRoleHandle) -> SubjectBinding` binds the
+exact Journey domain; where transports that map and members takes its set image.
+`read(mv.dropped_before(step=...))` returns BooleanRelation and is
+first_per_subject only. Unknown is not silently removed by ordinary where.
+
+FunnelResult owns handles named cohort_count, resolved_cohort_count, entry_count,
+resolved_entry_count, reached_count, lost_count, coverage_censored_count,
+conversion_from_first, conversion_from_previous and loss_rate_from_previous.
+Its `read(handle)` returns NumericRelation bound to that result and exact step
+domain. `read(mv.funnel_loss_rate(step=...))` returns the same loss quantity for
+one noninitial exact step. A same-named handle from another result is foreign.
+FunnelComparisonResult owns current/baseline handles for all seven counts,
+current_loss_rate_from_previous, baseline_loss_rate_from_previous and
+loss_rate_delta; the endpoint components survive reads. `compare(baseline)`
+returns LogicalFunnelComparisonResult; `attribute(target=..., axes=...,
+mode="joint" | "hierarchy", top_k: int | None = None)` returns the existing
+LogicalAttributionResult, with scope and numeric view protocols retained.
+No counts()/values()/loss_rate() aliases or string column lookup are added.
+
+History exposes `read(mv.in_state(state, at=...)) -> LogicalBooleanRelation`,
+`distribution(at: tuple[datetime, ...], axes: tuple[Ref[DimensionKind], ...] = ())
+-> LogicalStateDistributionResult`, `transitions() -> LogicalTransitionSummary`,
+`violations() -> LogicalViolationResult`, `intervals() -> LogicalStateIntervalResult`
+and `dwell() -> LogicalDwellSummary`. Distribution owns known_state_count,
+seeded_subject_count, coverage_censored_count and share_among_seeded. Transitions
+owns count and share_of_modeled_transitions. Dwell owns interval_count,
+completed_count, right_censored_count, coverage_censored_count,
+left_clipped_completed_count, mean_duration, median_duration and p90_duration.
+All are concrete bound relations, never dynamic columns. Interval/violation
+subjects() binds the sole exact model Subject; selected members require through
+that retained binding. Subject-level in_state needs no through. Summary state
+and transition-pair rows have no default Subject map.
+
+### Anchor and retention consumption
+
+Anchor.observe takes the existing Metric Ref/RuntimeMetricExpr and RootRoutes
+contract, a required ElapsedWindow/CalendarWindow and returns LogicalNumericRelation
+on the full Anchor domain. Anchor.retention takes an exact returning
+ParticipantRoleHandle, required relative window and completeness tuple, returning
+LogicalRetentionResult. Fixed versions use only matching captured Metric/return
+input parts and frozen definitions. Missing parts reject; a new live input is
+mixed, even when passed as a Ref to a Session-named constructor.
+
+Retention owns `status: BooleanRelation` on its original full Omega: Defined true,
+Defined false or Unknown(insufficient_followup). Its `known_true()`,
+`known_false()` and `unknown()` are views retaining the original Omega, counts and
+bounds; they do not establish a new population. Only a selected known-true
+relation can yield members, using the retained Anchor SubjectBinding. Subject
+retention status has Entity keys and does not require through.
+`by_subject(rule: AnyAnchor | EveryAnchor)` explicitly builds the Subject image
+as new Omega, with no default rule. No additional bound relation arithmetic or
+scalar rollup is introduced. Relative-window/quantifier constructors retain the
+single C18 names elapsed, calendar_days, any_anchor and every_anchor.
+
+All these targets require bounded repr/show, actual conditional K, exact public
+typing, one native Help route per symbol, structured expected/received/repair
+errors and coordinated English/Chinese executable examples in their connecting
+package. R7.1 changes neither exports nor live Help/examples; M15 records that
+later responsibility and the separate approval requirement for packaged skills.
+
+Domain failures use AnalysisError's structured `constraint_id`, `stage`,
+`expected`, `received` and `repair` fields. The frozen constraint groups are
+`r7.input_binding` (foreign Session/definition/role), `r7.input_mode` (mixed or
+implicit population), `r7.required_parts`, `r7.physical_qualification`,
+`r7.occurrence_identity`, `r7.business_order`, `r7.coverage_binding`,
+`r7.inception`, `r7.duration_overflow`, `r7.calendar_deadline`,
+`r7.preparation_bounds`, `r7.execute_timeout` and `r7.finding_binding`.
+Construction/admission handles statically known failures; execution handles
+actual captured values; recovery validates before exposing K or returning a hit.
+Repairs name the exact offending binding/part/order/window or qualified route.
+Insufficient coverage remains method-owned Unknown/censoring, not these errors.

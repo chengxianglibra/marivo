@@ -1563,3 +1563,63 @@ remain excluded. R7 owns domain/Event/Lifecycle and private funnel migration; R8
 owns statistical producers/helper cutover; R9 owns remote/six-backend and physical
 form qualification; R10 owns real Agent journeys and release acceptance. This
 record does not qualify any of those remaining responsibilities.
+
+## R7.1 documentation and static freeze completed acceptance (2026-10-01)
+
+Baseline: clean-entry `panda`, full HEAD
+`10724b1d5c54019e175a3a1c3e12a19ec9c4a118`; staged/unstaged tracked diff and
+untracked status were empty. Branch/HEAD remain unchanged. R6.7 is read as the
+accepted handoff and is not rerun or expanded by this package.
+
+R7.1 is complete as a **documentation/static contract freeze**. The
+[migration ledger](2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md)
+closes F01-F14 in the Analysis, operators, Semantic, Runtime and timezone sole
+owners, records M01-M16 actual consumers and replacement/deletion conditions,
+and assigns V01-V18 independent acceptance responsibilities. All required
+decisions are closed. Exact domain keys/types, explicit population/order inputs,
+canonical assignments and History parts, Duration tick/rounding rules, funnel
+allocation and retention truth, method/part versions, conditional K, exchange,
+the unified execute time budget and producer-bound Findings are frozen targets.
+
+The [consumer snapshot](2026-10-01-marivo-r71-consumer-snapshot.json) records
+221 source files, 251 test/worker/fixture files and 51 current disclosure files
+with hashes, 513 relevant imports, 1015 call candidates, 308 SQL-text candidates
+and 2313 actual AST test definitions. Its 236 legacy dispositions retain
+independent counterexamples and require public replacements before retirement.
+Static existence, blocked source admission, unverified dynamic unreachability
+and physical deletion are separately stated. No legacy product/test is deleted.
+
+The snapshot assigns 13,500 mandatory method/type/key/source/time/route/version
+source/fixed/cold targets plus three execute-time-boundary requirements. Every new target
+is **planned**; the named implementation blockers retain exact recovery
+conditions. Existing tests are baseline anchors, future files are planned owners,
+and no related earlier pass grants a new R7 Runtime cell. DuckDB native table,
+local Parquet and artifact_python/fresh-process recovery have separate duties.
+
+The user's source-pushdown instruction supersedes the draft Python-first route.
+The Runtime owner prefers qualified source-side methods and minimal exchange;
+every local remainder must have a documented necessity and bounded input.
+ClickHouse sequence/funnel operators are assessed as candidates. The local Ibis
+12.0.0 probe compiles expressions only and records a parametric binding gap;
+neither semantic parity, performance nor real backend execution is qualified.
+R9 owns ClickHouse/remote physical acceptance.
+
+The later user instruction simplifies R7's execution budget to one private
+600-second execute deadline, shared across stages and source/fixed routes from
+call entry through successful return. All proposed row/count/step/memory quotas
+are removed. Timeout atomicity/cancellation remains required; typed overflow,
+schema/completeness, Finding cap and protocol limits keep their own owners.
+
+The [R7.1 evidence index](2026-10-01-marivo-r71-evidence-index.md) records input
+hashes, portable collector/validation reproduction and the final static receipts:
+F/M/V coverage, local links/anchors/tables, file hashes, actual test-definition
+existence, immutable planned IDs, allowed tracked scope and `git diff --check`.
+Only the five owners, R7 plan, this acceptance record and three requested new
+artifacts change. All new artifact content is English and none is ignored.
+
+No product code, tests, AGENTS.md or packaged skills change. Runtime/default
+tests, wheel, typecheck/lint gates, site build, release-check and MinIO are not
+run; no commit, push, publication or external message occurs. These are excluded
+gates, not passes. R7.2-R7.9 remain **pending implementation and qualification**;
+R8 statistical consumers, R9 backends and R10 real-Agent/release responsibilities
+remain outside this static acceptance.

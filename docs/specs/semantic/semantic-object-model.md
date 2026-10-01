@@ -1051,3 +1051,46 @@ Dimension identities as strata; it does not add a named statistical-weight role.
 The withdrawn ms.statistical_weight, mv.statistical_weight and dependent
 current-row weighted mean remain excluded. R6 does not reinterpret direct
 distinct/quantile display values as membership/distribution sufficient state.
+
+## R7.1 frozen Event and StateModel handoff
+
+Status: accepted consumption target, 2026-10-01; no new declaration or Runtime
+qualification. This section owns F03's authored facts. The
+[Analysis domain API](../analysis/python-analysis-design.md#r71-frozen-domain-api-target)
+owns invocation binding; the
+[operator rules](../analysis/operators-and-frames.md#r71-frozen-domain-method-rules)
+own the closed admissible tie methods and actual-value checks.
+
+An Event capture binds its Ref/fingerprint, occurrence Entity definition/version
+and complete K, occurred_at field/time authority, datasource/source definition,
+exact participant role and governed to-one path to complete Subject K. Snapshot
+or validity representations are selected under the consuming temporal authority;
+overlapping versions, missing participants and to-many mappings reject. Repeated
+Event references in a pattern use one explicit input leaf per distinct capture;
+step identity does not create another source read.
+
+`business_order` is supplied only to Analysis match and Event-role anchors;
+Journey anchors inherit their assignment's authority. Replay consumes the
+StateModel's authored `business_order` and has no override parameter. Captures
+retain the order Ref/fingerprint, Subject, exact covered Events/roles, ordered
+sequence fields and enum/integer contract, precedence edges and transitive
+dependency fingerprints. None of these refs is stored solely in a Python
+closure or descriptive lineage. StateModel captures additionally preserve
+ordered declared states, terminal states, inception triggers and legal transitions.
+
+Different instants order by occurrence time. Sequence values order only within
+the declared simultaneous-event authority: integer excludes bool; ordered enums
+must occur in the declared tuple; sequence values must be unique/comparable
+across captured occurrences of each Subject in the covered Events. Precedence
+and sequence facts must agree; contradiction,
+cycle or an actual unknown enum is an error. Occurrence IDs, names, physical row
+order and declaration order never fill missing business evidence. Runtime
+validates exact Event/participant/source/version binding before consumption.
+Static readiness remains an advisory until those values are checked.
+
+Completeness is an Analysis invocation/source fact, not an Event or StateModel
+field. Existing BoundedCompletenessDeclarationV1 and
+SourceOriginCompletenessDeclarationV1 retain their exact bindings and rationale;
+observed coverage never writes back to the Catalog. The Domain/DAG carries
+every Event, StateModel, order and coverage dependency needed by one invocation.
+Named statistical_weight and other withdrawn APIs remain withdrawn.

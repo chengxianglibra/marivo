@@ -238,3 +238,55 @@ equal-length different-month pairing, and a DST-local day-grid case preserving
 both sides' distinct instants/durations. Fixed continuation uses those retained
 bindings with no calendar/Catalog reload. No new elapsed/calendar coercion,
 SQLite numeric expansion or six-backend qualification follows from R6.
+
+## R7.1 frozen occurrence and relative-window time
+
+Status: accepted target, 2026-10-01; no Event/History/Anchor Runtime qualification.
+This section owns F06/F08/F10 time meaning and calendar refusal. Duration
+arithmetic/rounding belongs to the
+[operator owner](operators-and-frames.md#r71-frozen-domain-method-rules).
+
+Occurrence time is an absolute aware instant with exact source precision and
+parser/timezone fingerprint. Required cells are native UTC/report-local aware
+microseconds and Parquet s/ms/us/ns, each preserving int64 ticks on exchange and
+fixed recovery. DATE and unresolved naive occurrence time are refused. Required
+report-local aware DST cells do not permit ambiguous naive wall clocks. Exact
+submicrosecond data never passes through datetime.to_pydatetime() or a float
+second representation. If a boundary/zone conversion cannot preserve the admitted
+unit, that invocation refuses; it is not a lower-precision passing cell.
+
+Start selection is [cohort_window.start, cohort_window.end). completion_through
+is an exclusive absolute bound, independent of membership and start windows.
+History window clips reporting, not inception lookup. Checkpoints include end as
+an end-left-limit query; triggers at end are excluded without subtracting a tick
+or epsilon. Known follow-up boundaries preserve their observed/declared authority;
+the last event timestamp proves no absence. Historical axes bind at Journey entry
+or each History checkpoint according to the consuming method.
+
+ElapsedWindow adds positive exact Duration ticks to the Anchor instant.
+CalendarWindow adds positive whole local calendar days in the supplied named
+IANA ZoneInfo while preserving the local wall time, then converts the deadline
+to an instant. The candidate local deadline is round-trip checked through UTC
+under both folds: zero valid instants is nonexistent and two distinct valid
+instants is ambiguous. Both cases reject with a structured r7.calendar_deadline
+constraint and repair to an explicit elapsed window or a business-approved
+unambiguous local boundary. No shift-forward, inherited fold or host timezone
+repairs it. A unique valid instant is used; an already aware Anchor instant in
+a repeated hour remains exact. Deadline conversion must also preserve the
+declared tick unit and reject overflow.
+
+The window is [anchor, deadline); the Anchor occurrence itself is excluded by
+its full Event/occurrence identity. A different occurrence at the same instant
+counts as later only with the captured business_order fact. Event/Journey names,
+occurrence ID and display order do not establish this. Shared overlap is the
+accepted policy: return/contribution occurrences may serve several Anchors, each
+use bound separately. Seven New York calendar days across spring/fall DST differ
+from 168 elapsed hours and require independent deadline and exclusion oracles.
+
+Candidate preparation for Journey Anchors uses the start-window upper boundary
+and requested relative window to derive a bounded envelope, with exact per-Anchor
+windows applied locally. Calendar envelopes evaluate relevant IANA offset changes
+and both start boundaries; an unproved envelope or ambiguous deadline blocks the
+precise route, not a silently widened all-history read. Source time authority,
+Anchor time, exact deadline/window and conversion version remain in execution
+identity, parts and cold K. Recovery never recomputes them from current host facts.

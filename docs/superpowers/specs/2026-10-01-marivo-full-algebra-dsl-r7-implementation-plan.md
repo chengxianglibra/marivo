@@ -2,7 +2,13 @@
 
 Date: 2026-10-01
 
-Status: implementation plan；R7 尚未实施或验收。本文记录实施范围、迁移责任与验收门槛，不代表任何产品资格已通过。
+Status: R7.1 documentation/static contract freeze complete; R7.2-R7.9 remain
+unimplemented. This plan grants no new product or Runtime qualification.
+
+The [R7.1 migration ledger](2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md),
+[consumer snapshot](2026-10-01-marivo-r71-consumer-snapshot.json) and
+[evidence index](2026-10-01-marivo-r71-evidence-index.md) bind the completed freeze
+to its actual baseline, sole owners, consumers and mandatory planned requirements.
 
 ## 1. 目标、前置交接与文档权威
 
@@ -100,7 +106,7 @@ R0 已在[Analysis C18 owner](../../specs/analysis/python-analysis-design.md#rel
 ### 2.2 canonical Journey、步骤耗时与 dropout
 
 唯一入口仍为 `session.events.match(pattern, population=members, cohort_window=...,
-completion_through=..., matching=..., completeness=...)`；`population` 使用新 AnalysisDomain，
+completion_through=..., matching=..., business_order=..., completeness=...)`；`population` 使用新 AnalysisDomain，
 不接受旧 PopulationInput 或 Dataset 投影模式。成员时间、开始窗口与随访独立。
 开始窗口为半开区间；`completion_through` 是排他绝对上界，不是每个开始的相对窗口。
 
@@ -217,7 +223,10 @@ Duration mean/median/p90 的 tick、单位、插值、舍入、溢出及空状�
 沿用 R0 的唯一目标入口：
 
 ```text
-session.anchors(source: ParticipantRoleHandle | JourneyResult, *,
+session.anchors(source: ParticipantRoleHandle, *,
+                population: AnalysisDomain, during: TimeScope,
+                business_order: Ref[BusinessOrderKind] | None = None)
+session.anchors(source: JourneyResult, *,
                 population: AnalysisDomain, during: TimeScope)
 AnchorDomain.observe(metric: Ref[MetricKind] | RuntimeMetricExpr, *,
                      within: ElapsedWindow | CalendarWindow,
@@ -276,11 +285,25 @@ Insufficient follow-up 是 K? 而非执行失败；损坏、重复身份和矛�
 当前 SourceDefinition 只直接承载 Entity/Metric，领域 Ref、顺序和覆盖要在 R7.1 明确进入
 同一 DAG 的 exact 定义/参数及依赖，不能藏入运行 closure 或仅写 lineage。
 
-首版选择已注册的 Ibis 准备→Python matcher/replayer；只有独立资格的完整 Ibis 算法才
-下推。准备含成员限制、occurrence/participant、必要历史属性、时间/顺序与完整性检查，
-均用 Ibis 表达并经 SourceSession 签发编译产物。失败不换引擎、不拉全表重试，不保留
-Event 私有 visitor、SQL AST/字符串改写、packet CTE、递归宏或手写校验查询。
-已批准的 datasource metadata/control 例外保持自己的精确范围，不覆盖 R7 算法 SQL。
+Prefer qualified source-side Ibis implementations for occurrence, matching,
+funnel and other domain calculations; apply member/time restrictions, joins,
+checks and sufficient-state reduction at the source to minimize transferred
+rows and bytes. Assess efficient backend-native operators, including ClickHouse
+parametric sequence/funnel functions, against the complete method contract and
+exact server/source-form/precision qualification before selecting them. Native
+depth, existence or counts alone cannot replace canonical assignments and parts.
+The [R7.1 feasibility evidence](2026-10-01-marivo-r71-evidence-index.md#source-pushdown-and-clickhouse-feasibility)
+records candidates and the current supported-Ibis binding gap; actual remote
+qualification remains R9.
+
+Select bounded `ibis_python` only for a documented irreducible operation after
+source feasibility is assessed. Its Ibis preparation includes all governed
+membership, occurrence/participant, historical attributes, time/order and
+completeness inputs and uses SourceSession-issued compiled artifacts. Engine
+failure cannot trigger another engine or a full-table Python retry. Private
+Event visitors, SQL AST/string patching, packet CTEs, recursive macros and
+handwritten algorithm/check queries are retired. Existing datasource
+metadata/control exceptions keep their exact scope.
 
 本地 matching/replay 选人后的新 Metric 观察，以及 Journey Anchor 的相对观察，采用
 同一 source Run 内的“先准备全部 source 依赖，再本地选择/限制与归约”。计划从完整
@@ -305,11 +328,15 @@ mixed、错 role/pattern/model、已知不合格路线在业务读及 Run 前拒
 assignment/history；独立构造的 equal definition 不合并实现，多 trigger 不隐藏读取。
 source 重执行分配新 Run 并读取当前源；fixed 绑定精确输入与既有执行键，可精确命中。
 
-一次源实现通过受控 BatchStream/Arrow 进入已选 local stage。登记 occurrences、Subjects、
-steps/attempts、同刻宽度、part rows、bytes、排序缓冲和时间预算，跨批保留算法边界。
-超预算、取消、提前 close、坏批次和消费异常关闭 cursor/connection、reader 与 staging，
-原子失败；不截断后称完整、不只限制最终显示行、不无界 collect。大规模同刻证明不通过
-扩大排列枚举预算获得资格。
+A source realization enters its selected local stage through controlled
+BatchStream/Arrow, preserving algorithm boundaries across batches. The sole
+R7 execution budget is the Runtime owner's unified 600-second execute deadline,
+shared by every stage and route. Row/byte facts measure transfer efficiency;
+occurrence, Subject, step, part-row and memory quotas are removed by the latest
+user instruction. Timeout, cancellation, early close, bad batches and consumption
+errors close cursor/connection, reader and staging and fail atomically. No
+truncation becomes complete data, no unconstrained collection substitutes for
+governed preparation, and ambiguous order is not resolved by permutation search.
 
 固定读取只经验证 receipt 的 Arrow/Parquet→pandas/数值核。缺部件拒绝，禁止
 Artifact→DuckDB、远端上传、current Semantic load、origin replay 或 lineage 补轴。
@@ -378,9 +405,24 @@ AST/import 及 SQL 提交入口快照；静态数目不是动态 reachability。
 **出口：**F01–F14 无未决必需项，M01–M16 有符号/消费者/新 owner，V01–V18 有公共路线、
 独立 oracle、真实 source/fixed 与恢复责任。R7.1 只完成文档/静态冻结，不授予 Runtime 资格。
 
+Completed on 2026-10-01 at clean-entry `panda`,
+`10724b1d5c54019e175a3a1c3e12a19ec9c4a118`: all fourteen decisions are closed in
+the five sole owning specs. The migration ledger maps M01-M16 and V01-V18 to
+actual baseline symbols/test definitions and future package owners. The snapshot
+records deterministic AST/text/import evidence and mandatory source/fixed/cold
+targets, all planned. Static presence, source admission blockage, unverified
+dynamic unreachability and future deletion are distinct. See the
+[R7.1 acceptance record](2026-09-26-marivo-full-refactor-acceptance.md#r71-documentation-and-static-freeze-completed-acceptance-2026-10-01)
+for validation and excluded execution gates. R7.2-R7.9 remain pending.
+
 ### R7.2 — Ibis occurrence 准备、覆盖与业务顺序消费
 
 迁入 exact Event/StateModel/order 依赖、完整键/participant/time/version 准备和检查。
+Assess source-native lowering first and record full-semantic feasibility,
+transferred row/byte bounds and the precise local remainder for each physical
+implementation. Keep backend-specific operators inside the single method
+registry; ClickHouse candidates require supported Ibis bindings and R9 real
+backend qualification. Do not treat R7.1 compile-only evidence as execution.
 以既有 source/preparation/local-stage 协议消费，不新增 Event packet transport。
 实现 F13 的 planner/lowering 依赖收集、Ibis 候选贡献准备与注册本地 observation consumer，
 使后续观察的全部源依赖在本地阶段前完成。验证交换的完整键、组件/时间/历史属性、
