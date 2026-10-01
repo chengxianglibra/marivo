@@ -29,6 +29,8 @@ from marivo.analysis.core.rules import (
     ObserveMetric,
     ObserveWeightedMean,
     OccurrenceFilter,
+    OccurrencePrepare,
+    PreparedObservation,
     entity_members,
 )
 from marivo.analysis.core.time_authority import civil_bound
@@ -713,10 +715,32 @@ def observe_members(
         if isinstance(during, TimeScope) and during.kind != "absolute"
         else report_timezone,
     )
+    observation_inputs: tuple[Edge, ...] = (Edge("subject", member_root),)
+    local_populations = tuple(
+        node.inputs[0].node
+        for node in topology(member_root)
+        if isinstance(node, MethodNode) and isinstance(node.parameters, OccurrencePrepare)
+    )
+    prepared_parameters = None
+    if local_populations:
+        if len(local_populations) != 1 or not isinstance(parameters, (ObserveMetric, ObserveCount)):
+            raise _reject("one captured Journey population and a qualified prepared Metric")
+        original = local_populations[0]
+        observation_inputs = (Edge("subject", member_root), Edge("subject", original))
+        prepared_parameters = PreparedObservation(parameters)
+    prepared_sources = {parameters.contribution.path}
+    prepared_sources.update((parameters.event.entity_ref.path,))
+    for hop in parameters.path:
+        prepared_sources.update((hop.from_entity_ref.path, hop.to_entity_ref.path))
+    prepared_sources.update(field.entity_ref.path for field in parameters.coordinates)
     root = method_node(
-        (Edge("subject", member_root),),
-        parameters,
-        sources=tuple(leaf for _, leaf in source_entries),
+        observation_inputs,
+        prepared_parameters if prepared_parameters is not None else parameters,
+        sources=tuple(
+            leaf
+            for _, leaf in source_entries
+            if prepared_parameters is None or leaf.definition.ref.path in prepared_sources
+        ),
         value_type=amount_type
         if isinstance(amount_type, DurationType) and aggregate_kind != "count_distinct"
         else (
@@ -748,7 +772,16 @@ def observe_members(
         members,
         root=root,
         leaf=member_leaf,
-        sources=tuple(source_entries),
+        sources=tuple(
+            {
+                leaf.identity: (schema, leaf)
+                for schema, leaf in (
+                    *((schema, nodes[leaf.identity]) for schema, leaf in members.sources),
+                    *source_entries,
+                )
+                if isinstance(leaf, SourceLeaf)
+            }.values()
+        ),
     )
 
 

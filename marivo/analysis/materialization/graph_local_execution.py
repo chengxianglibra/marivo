@@ -152,6 +152,8 @@ def _row_result(
     """Consume one verified current-row stage, including an in-memory predecessor."""
     if method.stage.node.signature.domain.instance_key:
         return _grouped_row_result(method, verified, receipt_hash, input_binding, checks)
+    if isinstance(method.stage.node.value_type, DurationType):
+        return _duration_mean(method, verified, receipt_hash, input_binding, checks)
     cells = _cells(verified)
     name = method.stage.node.method.name
     state: dict[str, list[int | float | None]]
@@ -1830,6 +1832,10 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
         if (
             name
             not in (
+                "journey.match",
+                "journey.duration",
+                "journey.completed",
+                "journey.read",
                 "occurrence.prepare",
                 "group.complete",
                 "group.attach",
@@ -1952,7 +1958,15 @@ def execute_verified_fixed(
             check for check in lowered.admitted.checks if check.node_id == stage.stage.node.identity
         )
         name = stage.stage.node.method.name
-        if name == "occurrence.prepare":
+        if name in ("journey.duration", "journey.completed", "journey.read"):
+            from marivo.analysis.materialization.journey_views import execute as journey_view
+
+            result = journey_view(stage.stage.node, values[0], binding)
+        elif name == "journey.match":
+            from marivo.analysis.materialization.journey_execution import execute as match_journeys
+
+            result = match_journeys(stage.stage.node, values[0], binding)
+        elif name == "occurrence.prepare":
             from marivo.analysis.materialization.domain_preparation import (
                 fixed as fixed_occurrences,
             )
@@ -2221,7 +2235,7 @@ def _grouped_row_result(
             ]
             return pa.Table.from_arrays(
                 [*fields, *table.columns], names=[*keys, *table.column_names]
-            )
+            ).replace_schema_metadata(table.schema.metadata)
 
         outputs.append(
             replace(
@@ -2435,6 +2449,18 @@ def _cohort_stage(
         for row in targets
         for item in (grid.cells if grid is not None else (None,))
     }
+    subject_map: dict[tuple[object, ...], tuple[object, ...]] = {}
+    if params.opportunity_domain.kind == "journey":
+        retained_subject = next(p.table for p in inputs[0].parts if p.role == "subject")
+        subject_map = {
+            tuple(row[k] for k in opportunity_keys): tuple(
+                row[f"subject__key_{i}"] for i in range(len(keys))
+            )
+            for row in retained_subject.to_pylist()
+        }
+        if not set(subject_map.values()) <= expected:
+            raise _invalid("Journey subjects escape the target population")
+        expected = set(subject_map)
     indexed: list[dict[tuple[object, ...], dict[str, object]]] = [{}] + [
         {
             tuple(row[k] for k in opportunity_keys): row
@@ -2466,7 +2492,9 @@ def _cohort_stage(
             for tree in params.predicates
         )
         truth = False if False in truths else None if None in truths else True
-        counts[key[: len(keys)]][1 if truth is None else 0 if truth else 2] += 1
+        counts[subject_map.get(key, key[: len(keys)])][
+            1 if truth is None else 0 if truth else 2
+        ] += 1
     kept = []
     selected_keys: set[tuple[object, ...]] = set()
     decision_rows = []
@@ -2486,6 +2514,11 @@ def _cohort_stage(
                 "cohort_decision__unknown_count": u,
                 "cohort_decision__false_count": f,
                 "cohort_decision__accepted": accepted,
+                **(
+                    {"cohort_decision__opportunity_count": t + u + f}
+                    if params.opportunity_domain.kind == "journey"
+                    else {}
+                ),
             }
         )
     mask = pa.array(kept, type=pa.bool_())
@@ -2502,6 +2535,11 @@ def _cohort_stage(
             pa.field("cohort_decision__unknown_count", pa.int64()),
             pa.field("cohort_decision__false_count", pa.int64()),
             pa.field("cohort_decision__accepted", pa.bool_()),
+            *(
+                [pa.field("cohort_decision__opportunity_count", pa.int64())]
+                if params.opportunity_domain.kind == "journey"
+                else []
+            ),
         ]
     )
     parts = (
@@ -2530,3 +2568,84 @@ def _cohort_stage(
         (),
     )
     return from_arrow(primary, contract, parts=parts, method_state=status)
+
+
+def _duration_mean(
+    method: LoweredLocal,
+    source: ExchangeResult,
+    receipt_hash: str,
+    input_binding: str,
+    checks: tuple[CheckRequirement, ...],
+) -> ExchangeResult:
+    """Finish an exact tick sum/count once at the retained Duration unit."""
+    from fractions import Fraction
+
+    from marivo.analysis.materialization.execute_deadline import check
+
+    params = method.stage.node.parameters
+    output_type = method.stage.node.value_type
+    assert isinstance(params, RowState) and isinstance(output_type, DurationType)
+    if params.method != "mean" or params.output_domain.instance_key:
+        raise _invalid("Duration currently qualifies only an ungrouped current-row mean")
+    if params.merge:
+        retained_input = next(p.table for p in source.parts if p.role == "row_state")
+        totals = retained_input["row_state__sum"].to_pylist()
+        supports = retained_input["row_state__count"].to_pylist()
+        if any(type(v) is not int for v in (*totals, *supports)):
+            raise _invalid("Duration merge requires exact retained sum/count")
+        total, support = sum(totals), sum(supports)
+    else:
+        values: list[int] = []
+        for cell in _cells(source):
+            check()
+            if not isinstance(cell, Defined) or type(cell.value) is not int:
+                raise _invalid("Duration mean requires Defined ticks; use completed().duration")
+            assert isinstance(cell.value, int)
+            values.append(cell.value)
+        total, support = sum(values), len(values)
+    if not -(2**63) <= total < 2**63:
+        raise _invalid("Duration sum exceeds int64 ticks")
+    value = round(Fraction(total, support)) if support else None
+    tag, reason = ("defined", None) if support else ("undefined", "empty_completed_set")
+    primary = pa.table(
+        {
+            "value": pa.array([value], type=arrow_scalar_type(output_type)),
+            "cell_tag": pa.array([tag], type=pa.string()),
+            "cell_reason": pa.array([reason], type=pa.string()),
+        }
+    )
+    primary = primary.replace_schema_metadata(source.primary.schema.metadata)
+    retained = pa.table(
+        {
+            "row_state__sum": pa.array([total], type=pa.int64()),
+            "row_state__count": pa.array([support], type=pa.int64()),
+            "row_state__error_bound": pa.array([0.5 if support else 0.0], type=pa.float64()),
+        }
+    )
+    state = pa.table({"status": [tag]})
+    proofs = tuple(
+        CompletedCheck(
+            requirement,
+            hashlib.sha256((receipt_hash + requirement.obligation.check_id).encode()).hexdigest(),
+        )
+        for requirement in checks
+    )
+    contract = ExchangeContract(
+        method.stage.node.signature,
+        method.stage.node.method,
+        input_binding,
+        primary.schema,
+        (),
+        (PartContract("row_state", retained.schema, ()),),
+        (("undefined", ("empty_completed_set",)),),
+        "row_mean",
+        state.schema,
+        checks,
+    )
+    return from_arrow(
+        primary,
+        contract,
+        parts=(ExchangePart("row_state", retained),),
+        method_state=state,
+        completed_checks=proofs,
+    )

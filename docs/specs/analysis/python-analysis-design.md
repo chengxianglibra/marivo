@@ -2015,6 +2015,26 @@ owns status and test responsibility. This section owns F01/F02 and public
 handles; operators own domain truth/arithmetic, Runtime owns retained schemas
 and placement, and timezone owns instant/window conversion.
 
+R7.3 implementation amendment: the public `session.events.match` entry now accepts
+only a same-Session logical AnalysisDomain and returns LogicalJourneyResult.
+JourneyResult, EventDurationResult and CompletedJourneys have Logical/Materialized
+pairs in the unified graph/Store 7 path. Canonical assignment and reach feed
+registered duration/dropout projections, strict selection, Subject image and
+complete-opportunity cohort. Duration current-row mean is qualified; original
+Journey multiplicity is retained when selecting Subjects. A new Metric observation
+after local selection prepares all source dependencies before that selection in
+the same Run. Source member projections are consumed by their complete identity,
+not the scalar type of the preceding selection. A prepared Metric observation or
+Duration row statistic ends this local logical stage: execute it before further
+operations such as rollup. Dynamic contracts expose that materialization boundary;
+the fixed result exposes its qualified retained-state continuations.
+Fixed continuation uses retained parts without rematching; a fixed
+population is not an input to a source match or observation. This amendment covers
+local DuckDB table/Parquet routes only. It does not qualify R7.4–R7.9 or remote
+backends. The [R7.3 evidence index](../../superpowers/specs/2026-10-01-marivo-r73-evidence-index.md)
+records executable scope and final gates. Result cards disclose captured time
+precision and conversion loss; R7 execution shares a 600-second deadline.
+
 ### Domain identities and concrete result families
 
 Every key includes its exact definition and this realization's binding. Subject

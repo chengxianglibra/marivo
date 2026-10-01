@@ -58,10 +58,20 @@ class TemporalLiteral:
 
 
 @dataclass(frozen=True, slots=True)
+class DurationLiteral:
+    ticks: int
+    unit: Literal["us"] = "us"
+
+    def __post_init__(self) -> None:
+        if type(self.ticks) is not int or not -(2**63) <= self.ticks < 2**63:
+            raise ValueError("Duration literal must fit int64 microseconds")
+
+
+@dataclass(frozen=True, slots=True)
 class ValuePredicate:
     binding: Binding
     operator: Literal["eq", "ne", "lt", "le", "gt", "ge", "is_defined", "all_of", "any_of", "not_"]
-    value: int | float | _DecimalValue | str | bool | TemporalLiteral
+    value: int | float | _DecimalValue | str | bool | TemporalLiteral | DurationLiteral
     unknown: Literal["reject", "drop"] = "reject"
 
     input_index: int = 0
@@ -105,7 +115,8 @@ class ValuePredicate:
                 or (type(self.value) is str and self.operator != "eq")
                 or (type(self.value) is float and not isfinite(self.value))
                 or (type(self.value) is Decimal and not self.value.is_finite())
-                or type(self.value) not in (int, float, Decimal, str, bool, TemporalLiteral)
+                or type(self.value)
+                not in (int, float, Decimal, str, bool, TemporalLiteral, DurationLiteral)
             )
             or self.unknown not in ("reject", "drop")
         ):
@@ -118,7 +129,13 @@ class ValuePredicate:
 
     @property
     def literal(self) -> int | float | Decimal | str | bool | date | datetime:
-        return self.value.resolve() if isinstance(self.value, TemporalLiteral) else self.value
+        return (
+            self.value.resolve()
+            if isinstance(self.value, TemporalLiteral)
+            else self.value.ticks
+            if isinstance(self.value, DurationLiteral)
+            else self.value
+        )
 
 
 def leaves(predicate: ValuePredicate) -> Iterator[ValuePredicate]:

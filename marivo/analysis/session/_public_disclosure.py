@@ -145,6 +145,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.GroupedNumericRelation,
         dsl.GroupedStatisticRelation,
         dsl.GroupedRatioRelation,
+        dsl.LogicalJourneyResult,
+        dsl.MaterializedJourneyResult,
+        dsl.LogicalEventDurationResult,
+        dsl.MaterializedEventDurationResult,
+        dsl.LogicalCompletedJourneys,
+        dsl.MaterializedCompletedJourneys,
         dsl.LogicalAnalysisDomain,
         dsl.LogicalTimeAnalysisDomain,
         dsl.MaterializedTimeAnalysisDomain,
@@ -199,6 +205,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             else ("RootRoute" if type_value is dsl.RootRoute else "RootRoutes")
         )
         policy_examples = {
+            dsl.LogicalJourneyResult: "session.events.match(pattern, population=members, cohort_window=window, completion_through=end, matching=mv.first_per_subject())",
+            dsl.MaterializedJourneyResult: "journeys.execute()",
+            dsl.LogicalEventDurationResult: "journeys.time_to_event(from_step=start, to_step=finish)",
+            dsl.MaterializedEventDurationResult: "elapsed.execute()",
+            dsl.LogicalCompletedJourneys: "elapsed.completed()",
+            dsl.MaterializedCompletedJourneys: "elapsed.completed().execute()",
             SubjectBinding: "relation.subject_binding",
             cohort.AnyInstance: "mv.any_instance()",
             cohort.AtLeast: "mv.at_least(3)",
@@ -243,7 +255,13 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             else "Construct through session.members() or the returned typed relation."
         )
         producers = (
-            ("dsl.LogicalDifferenceRelation.attribute",)
+            ("events.match",)
+            if type_value is dsl.LogicalJourneyResult
+            else ("dsl.Journey.time_to_event",)
+            if type_value is dsl.LogicalEventDurationResult
+            else ("dsl.Duration.completed",)
+            if type_value is dsl.LogicalCompletedJourneys
+            else ("dsl.LogicalDifferenceRelation.attribute",)
             if type_value is dsl.LogicalAttributionResult
             else ("dsl.LogicalAttributionResult.execute",)
             if type_value is dsl.MaterializedAttributionResult
@@ -294,7 +312,17 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 summary=f"Governed Analysis {name} value type.",
                 acquisition=acquisition,
                 producers=("session.artifact",) if name.startswith("Materialized") else producers,
-                consumers=("dsl.Attribution.where", "dsl.LogicalAttributionResult.execute")
+                consumers=("dsl.Journey.time_to_event", "dsl.Journey.read", "dsl.Journey.subjects")
+                if type_value in (dsl.LogicalJourneyResult, dsl.MaterializedJourneyResult)
+                else ("dsl.Duration.completed", "dsl.LogicalEventDurationResult.execute")
+                if type_value
+                in (
+                    dsl.LogicalEventDurationResult,
+                    dsl.MaterializedEventDurationResult,
+                    dsl.LogicalCompletedJourneys,
+                    dsl.MaterializedCompletedJourneys,
+                )
+                else ("dsl.Attribution.where", "dsl.LogicalAttributionResult.execute")
                 if type_value in (dsl.LogicalAttributionResult, dsl.MaterializedAttributionResult)
                 else ("dsl.LogicalTable.execute",)
                 if type_value is dsl.LogicalTable
@@ -636,6 +664,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         fields._BoundValue,
         *field_types,
         dsl._Value,
+        dsl._Journey,
+        dsl._Duration,
         dsl._Attribution,
         dsl._Ranking,
         dsl._CohortDomain,

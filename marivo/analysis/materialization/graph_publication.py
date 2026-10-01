@@ -587,16 +587,21 @@ def execute(
     entered = time.monotonic()
     from contextlib import nullcontext
 
-    from marivo.analysis.core.model import OccurrencePart
+    from marivo.analysis.core.model import JourneyPart, OccurrencePart, RowStatisticQuantity
     from marivo.analysis.core.rules import OccurrencePrepare, PreparedObservation
     from marivo.analysis.materialization.execute_deadline import execution_budget
+    from marivo.analysis.methods.physical import DurationType
 
     uses_r7 = any(
         (
             isinstance(node, MethodNode)
             and isinstance(node.parameters, (OccurrencePrepare, PreparedObservation))
         )
-        or any(isinstance(part, OccurrencePart) for part in node.signature.parts)
+        or any(isinstance(part, (OccurrencePart, JourneyPart)) for part in node.signature.parts)
+        or (
+            isinstance(node.value_type, DurationType)
+            and isinstance(node.signature.quantity, RowStatisticQuantity)
+        )
         for node in topology(root)
     )
     with execution_budget(start=entered) if uses_r7 else nullcontext():

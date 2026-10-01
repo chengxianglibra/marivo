@@ -28,7 +28,7 @@ AUTHORITY: TypeAdapter[CaptureAuthority] = TypeAdapter(CaptureAuthority)
 PRECISION: TypeAdapter[tuple[EventPrecision, ...]] = TypeAdapter(tuple[EventPrecision, ...])
 
 
-def validate_rows(params: OccurrencePrepare, table: pa.Table) -> None:
+def validate_rows(params: OccurrencePrepare, table: pa.Table) -> tuple[int, ...]:
     """Check captured order values without searching permutations or choosing IDs."""
     from marivo.analysis.materialization.execute_deadline import check
 
@@ -43,7 +43,9 @@ def validate_rows(params: OccurrencePrepare, table: pa.Table) -> None:
         if params.order is None
         else {item.event_ref: item for item in params.order.definition.sequences}
     )
-    for row in rows:
+    ordered_indices: list[int] = []
+    for row_index, row in enumerate(rows):
+        row["__input_index"] = row_index
         check()
         identity = tuple(row[key] for key in keys)
         subject = tuple(row[key] for key in subjects)
@@ -100,6 +102,7 @@ def validate_rows(params: OccurrencePrepare, table: pa.Table) -> None:
         check()
         tied = tuple(group)
         if len(tied) < 2:
+            ordered_indices.extend(int(row["__input_index"]) for row in tied)
             continue
         edges: set[tuple[int, int]] = set()
         for i, first in enumerate(tied):
@@ -134,6 +137,7 @@ def validate_rows(params: OccurrencePrepare, table: pa.Table) -> None:
             if not ready:
                 fail("business_order", "contradictory sequence/precedence cycle", stage="consume")
             ambiguous |= len(ready) > 1
+            ordered_indices.extend(int(tied[index]["__input_index"]) for index in sorted(ready))
             remaining -= ready
         if ambiguous and params.order_use == "ordered":
             fail(
@@ -156,6 +160,7 @@ def validate_rows(params: OccurrencePrepare, table: pa.Table) -> None:
                 stage="consume",
             )
     coverage(params)
+    return tuple(ordered_indices)
 
 
 def validate_exchange(

@@ -7,7 +7,16 @@ from typing import Literal, TypeAlias
 
 from marivo.analysis.core.graph import FixedLeaf, MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import Obligation, reject
-from marivo.analysis.core.rules import MapCorrespond, PreparedObservation
+from marivo.analysis.core.rules import (
+    JourneyCompleted,
+    JourneyDuration,
+    JourneyMatch,
+    JourneyRead,
+    MapCorrespond,
+    PartsTransport,
+    PreparedObservation,
+    RowState,
+)
 from marivo.analysis.methods.physical import (
     FixedShape,
     Implementation,
@@ -193,7 +202,20 @@ def plan(
             if (
                 any(edge.node.identity in local for edge in node.inputs)
                 and route != "artifact_python"
-                and not isinstance(node.parameters, PreparedObservation)
+                and not isinstance(
+                    node.parameters,
+                    (PreparedObservation, JourneyDuration, JourneyCompleted, JourneyRead),
+                )
+                and not (
+                    isinstance(node.parameters, PartsTransport)
+                    and node.parameters.mode == "cohort"
+                    and node.parameters.opportunity_domain is not None
+                    and node.parameters.opportunity_domain.kind == "journey"
+                )
+                and not (
+                    node.inputs[0].node.signature.domain.kind == "journey"
+                    and isinstance(node.parameters, (MapCorrespond, PartsTransport, RowState))
+                )
                 and not all(
                     edge.node.identity not in local
                     or (
@@ -243,7 +265,23 @@ def plan(
             subject_image = (
                 isinstance(node.parameters, MapCorrespond)
                 and node.parameters.mode == "subjects"
-                and node.inputs[0].node.signature.domain.kind == "occurrence"
+                and node.inputs[0].node.signature.domain.kind in ("occurrence", "journey")
+            )
+            local_consumer = (
+                (
+                    isinstance(node.parameters, PartsTransport)
+                    and node.parameters.mode == "cohort"
+                    and node.parameters.opportunity_domain is not None
+                    and node.parameters.opportunity_domain.kind == "journey"
+                )
+                or subject_image
+                or isinstance(
+                    node.parameters, (JourneyMatch, JourneyDuration, JourneyCompleted, JourneyRead)
+                )
+                or (
+                    node.inputs[0].node.signature.domain.kind == "journey"
+                    and isinstance(node.parameters, (PartsTransport, RowState))
+                )
             )
             prepared_observation = isinstance(node.parameters, PreparedObservation)
             if prepared_observation and node.inputs[1].node.identity in local:
@@ -256,7 +294,7 @@ def plan(
                 PhysicalRequirement(node.identity, key, node.value_type, implementation)
             )
             consume_output = output
-            if route in ("ibis", "ibis_python") and not subject_image:
+            if route in ("ibis", "ibis_python") and not local_consumer:
                 stages.append(
                     SourceMethodStage(
                         output,
@@ -276,7 +314,7 @@ def plan(
                     (outputs[node.inputs[0].node.identity], output)
                     if prepared_observation
                     else inputs
-                    if subject_image
+                    if local_consumer
                     else (output,)
                     if route == "ibis_python"
                     else inputs

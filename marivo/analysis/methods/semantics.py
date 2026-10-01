@@ -18,6 +18,10 @@ if TYPE_CHECKING:
 
 
 MethodName: TypeAlias = Literal[
+    "journey.match",
+    "journey.duration",
+    "journey.completed",
+    "journey.read",
     "occurrence.prepare",
     "attribution.additive_difference",
     "attribution.component_mix",
@@ -72,6 +76,7 @@ MethodName: TypeAlias = Literal[
 
 
 PersistentStateKind: TypeAlias = Literal[
+    "journey_assignment",
     "occurrence_inputs",
     "attribution_additive",
     "attribution_component_mix",
@@ -128,6 +133,14 @@ class MethodKey:
 
 def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     """Map closed parameter variants to exactly one concrete method identity."""
+    if type(params) is rules.JourneyDuration:
+        return MethodKey("journey.duration")
+    if type(params) is rules.JourneyCompleted:
+        return MethodKey("journey.completed")
+    if type(params) is rules.JourneyRead:
+        return MethodKey("journey.read")
+    if type(params) is rules.JourneyMatch:
+        return MethodKey("journey.match")
     if type(params) is rules.OccurrencePrepare:
         return MethodKey("occurrence.prepare")
     if type(params) is rules.PreparedObservation:
@@ -260,6 +273,10 @@ class MethodSemantics:
     def persistent_state_kind(self) -> PersistentStateKind | None:
         """Return the connected durable state kind; absence grants no publication."""
         kinds: dict[MethodName, PersistentStateKind] = {
+            "journey.match": "journey_assignment",
+            "journey.duration": "journey_assignment",
+            "journey.completed": "journey_assignment",
+            "journey.read": "none",
             "occurrence.prepare": "occurrence_inputs",
             "attribution.additive_difference": "attribution_additive",
             "attribution.component_mix": "attribution_component_mix",
@@ -319,7 +336,32 @@ class MethodSemantics:
         from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
         name = self.key.name
-        if isinstance(params, rules.OccurrencePrepare):
+        if isinstance(params, rules.JourneyRead):
+            field_type = (
+                DurationType("us")
+                if params.field in ("duration", "observed_duration")
+                else ScalarType(
+                    "boolean"
+                    if params.field == "dropout"
+                    else "string"
+                    if params.field == "status"
+                    else "timestamp"
+                )
+            )
+            if output != field_type:
+                reject(
+                    "the exact Journey field carrier", repr(output), "Read the retained field type."
+                )
+            return
+        if isinstance(
+            params,
+            (
+                rules.OccurrencePrepare,
+                rules.JourneyMatch,
+                rules.JourneyDuration,
+                rules.JourneyCompleted,
+            ),
+        ):
             if output != ScalarType("int64"):
                 reject(
                     "occurrence row marker int64",
@@ -328,7 +370,7 @@ class MethodSemantics:
                 )
             return
         if isinstance(params, rules.PreparedObservation):
-            self.validate_output_type(inputs[:1], output, params.observation)
+            self.validate_output_type(inputs[1:], output, params.observation)
             return
         if isinstance(params, rules.AttributionDerive):
             if output.name != params.value_type:
@@ -362,6 +404,19 @@ class MethodSemantics:
         if isinstance(params, rules.PartsTransport) and params.display_view == "ranks":
             if output != ScalarType("int64"):
                 reject("int64 ranks", repr(output), "Use the typed ranks view.")
+            return
+        if name == "domain.cohort":
+            if output != inputs[0]:
+                reject("the target domain physical type", repr(output), "Preserve the target type.")
+            return
+        if name in ("parts_transport", "map_correspond"):
+            retained_inputs = inputs[:1] if isinstance(params, rules.PartsTransport) else inputs
+            if any(value != output for value in retained_inputs):
+                reject(
+                    "unchanged value type for transport/correspondence",
+                    repr(output),
+                    "Retain the exact input value type.",
+                )
             return
         if isinstance(params, rules.ReferenceDerive):
             from marivo.analysis.methods.references import reference_type
@@ -480,19 +535,6 @@ class MethodSemantics:
                         "Use a Decimal type and verify precision before consumption.",
                     )
             return
-        if name == "domain.cohort":
-            if output != inputs[0]:
-                reject("the target domain physical type", repr(output), "Preserve the target type.")
-            return
-        if name in ("parts_transport", "map_correspond"):
-            retained_inputs = inputs[:1] if isinstance(params, rules.PartsTransport) else inputs
-            if any(value != output for value in retained_inputs):
-                reject(
-                    "unchanged value type for transport/correspondence",
-                    repr(output),
-                    "Retain the exact input value type.",
-                )
-            return
         if (
             name == "metric.quantile"
             and isinstance(params, rules.ObserveMetric)
@@ -609,6 +651,10 @@ class MethodSemantics:
     @property
     def rule(self) -> rules.RuleId:
         name = self.key.name
+        if name in ("journey.duration", "journey.completed", "journey.read"):
+            return "journey_view@v1"
+        if name == "journey.match":
+            return "journey_match@v1"
         if name == "occurrence.prepare":
             return "occurrence_prepare@v1"
         if name.startswith("attribution."):
@@ -718,7 +764,9 @@ class MethodSemantics:
                 ("undefined", ("missing_side", "zero_denominator")),
                 ("null", ("empty_contribution",)),
             )
-        if self.key.name in ("row.mean", "row.min", "row.max"):
+        if self.key.name == "row.mean":
+            return (("undefined", ("empty_mean", "empty_completed_set")),)
+        if self.key.name in ("row.min", "row.max"):
             return (("undefined", ("empty_" + self.key.name.removeprefix("row."),)),)
         if self.key.name == "bind_project":
             return (("null", ("source_null",)),)
@@ -838,6 +886,8 @@ class MethodSemantics:
 
     @property
     def output_parts(self) -> tuple[PartRole, ...]:
+        if self.key.name.startswith("journey."):
+            return ("subject", "journey")
         if self.key.name == "occurrence.prepare":
             return ("subject", "occurrences")
         if self.key.name in (
@@ -972,6 +1022,10 @@ class MethodSemantics:
         self, inputs: tuple[Signature, ...], params: rules.RuleParameters
     ) -> rules.RuleDerivation:
         """Validate exact inputs and apply the sole owning semantic rule."""
+        if isinstance(params, (rules.JourneyDuration, rules.JourneyCompleted, rules.JourneyRead)):
+            return rules._journey_view(inputs, params)
+        if isinstance(params, rules.JourneyMatch):
+            return rules._journey_match(inputs, params)
         if isinstance(params, rules.OccurrencePrepare):
             return rules._occurrence_prepare(inputs, params)
         if isinstance(params, rules.PreparedObservation):
@@ -1039,6 +1093,10 @@ class MethodSemantics:
 
 
 CONNECTED_METHODS = (
+    MethodSemantics(MethodKey("journey.match"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("journey.duration"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("journey.completed"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("journey.read"), "analysis.core.rules"),
     MethodSemantics(MethodKey("occurrence.prepare"), "analysis.core.rules"),
     MethodSemantics(MethodKey("attribution.additive_difference"), "analysis.core.rules"),
     MethodSemantics(MethodKey("attribution.component_mix"), "analysis.core.rules"),

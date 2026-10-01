@@ -1,7 +1,7 @@
 # R7.1 contract freeze and consumer migration ledger
 
 Date: 2026-10-01. Status: R7.1 contract/static freeze complete; R7.2 private
-preparation implemented and qualified as recorded below; R7.3-R7.9 remain pending. This ledger indexes sole owners and responsibility;
+preparation implemented and qualified as recorded below; R7.3 implementation is recorded below; R7.4-R7.9 remain pending. This ledger indexes sole owners and responsibility;
 it is not another public API or method registry and grants no Runtime qualification.
 
 ## Actual baseline and accepted decisions
@@ -153,9 +153,9 @@ AST definitions/files; their old assertions are inputs, not target pass evidence
 | V01 | R7.2 (contributors R7.3/R7.5/R7.7) | `tests/test_analysis_domain_preparation_r72.py` | Identity/role/version/Session/static-mode oracle; planned zero-read/Run spies | `tests/test_lazy_event_contracts.py` |
 | V02 | R7.2 | `tests/test_analysis_domain_preparation_r72.py` | Explicit partial-order fixtures, closed positive tie cases, changed violation-ID negative | `tests/test_semantic_r23_business_order.py::test_simultaneous_opposite_transitions_have_no_implicit_occurrence_id_order` |
 | V03 | R7.2 | `tests/test_analysis_domain_preparation_r72.py` | Raw exact interval/origin coverage oracle, wrong Event/source/version and malformed-vs-insufficient distinction | `tests/test_lazy_event_coverage_runtime.py` |
-| V04 | R7.3 | `tests/test_analysis_journeys_r73.py` | Independent scalar occurrence matcher; three policies/repeated Event/one-three steps/shuffle/batching | `tests/test_lazy_event_numeric.py::test_all_policies_match_independent_occurrence_reference` |
-| V05 | R7.3 | `tests/test_analysis_journeys_r73.py` | Exact tick/Fraction endpoint oracle, five states and 140/3 versus 60 second units | `tests/test_lazy_event_reducer_numeric.py::test_time_to_event_classifies_selected_pair` |
-| V06 | R7.3 (contributors R7.6/R7.7/R7.8) | `tests/test_analysis_journeys_r73.py` | Independent Subject set image/opportunity truth; real same-Run nonempty/empty new Metric observation | `tests/test_lazy_event_membership.py::test_selected_identity_authority_drives_events_without_origin_replay` |
+| V04 | R7.3 | `tests/test_analysis_journey_matching_r73.py` | Independent scalar occurrence matcher; three policies/repeated Event/one-three steps/shuffle/batching | `tests/test_lazy_event_numeric.py::test_all_policies_match_independent_occurrence_reference` |
+| V05 | R7.3 | `tests/test_analysis_journey_matching_r73.py` | Exact tick/Fraction endpoint oracle, five states and 140/3 versus 60 second units | `tests/test_lazy_event_reducer_numeric.py::test_time_to_event_classifies_selected_pair` |
+| V06 | R7.3 (contributors R7.6/R7.7/R7.8) | `tests/test_analysis_journey_matching_r73.py` | Independent Subject set image/opportunity truth; real same-Run nonempty/empty new Metric observation | `tests/test_lazy_event_membership.py::test_selected_identity_authority_drives_events_without_origin_replay` |
 | V07 | R7.4 | `tests/test_analysis_funnel_r74.py` | Raw assignment dense-count oracle, historical axes, complete outer support and three denominator roles | `tests/test_lazy_event_reducer_numeric.py::test_funnel_matches_independent_dense_counts` |
 | V08 | R7.4 | `tests/test_analysis_funnel_r74.py` | Independent exact Fraction counts/allocation/side totals; asymmetric Top-K/Other/hierarchy/scope | `tests/test_lazy_event_comparison_numeric.py::test_ratio_mix_reconciles_independent_paths` |
 | V09 | R7.5 | `tests/test_analysis_lifecycle_r75.py` | Small scalar state machine with full legal/illegal/terminal trace and per-Subject ledger | `tests/test_lazy_lifecycle_numeric.py::test_complete_native_rows_match_independent_reference` |
@@ -236,3 +236,54 @@ outcome instead of reporting an ordinary timeout after successful publication.
 Six independent regression cases and the existing historical cases with normalized
 version flags exercise these boundaries. Preparation qualification still excludes
 matching, replay, public domain results and new backends.
+
+
+## R7.3 implementation amendment
+
+The public Session Event producer now constructs the governed Journey graph from
+an explicit AnalysisDomain. M02/M04's matching, duration, dropout, strict selection
+and Subject mapping consumers use registered methods and Store 7 assignment parts.
+They no longer execute through PopulationInput, EventDefinition or legacy reducers.
+M02/M04 are **partially migrated**, not wholesale deletion-qualified: the old private
+LazySources Event producer and codecs still serve the R7.4 funnel and later legacy
+consumers and their regression tests. No compatibility alias was added to the new
+entry. Old remote Event evidence does not qualify the new public Journey producer.
+
+V04–V06 are owned by `test_analysis_journey_matching_r73.py`; V13–V15 additionally
+use R7.2's retained input, source-prefix, deadline and cold-process matrix. The
+[R7.3 evidence index](2026-10-01-marivo-r73-evidence-index.md) records current gates,
+A09 dropout/Duration selection into prepared observation, faults and limitations.
+The registered local assignment route consumes proved order and coverage captured
+by Ibis; there is no native match fallback or source read after local selection.
+Public exports, Help, result guidance and both site languages disclose this boundary.
+Packaged workflow skills remain unchanged: their general source/fixed and observation
+workflow remains applicable; no new workflow rule or skill edit was needed.
+Funnel, Lifecycle, Anchor, remote backend and full same-wheel qualification remain
+outside R7.3. Nothing here grants M01–M16 wholesale deletion or R7 completion.
+
+R7.3 closeout: the stable final implementation passes the 154-case focused
+Runtime matrix (including three public table/Parquet/string-identity journeys),
+`make check-agent` (5395 passed, 5 skipped; typing, lint and API docs included),
+and the 321-page site build. Disclosure-only follow-up checks and repaired
+intermediate failures are recorded in the evidence index. R7.3 is complete within
+this boundary; the later-phase and same-wheel exclusions above remain in force.
+
+### R7.3 adversarial review repairs
+
+Occurrence preparation and the original prepared-observation member envelope
+consume complete Entity keys independently of the scalar marker retained by an
+upstream member projection. They preserve the upstream numeric/predicate and
+coverage obligations; no check is removed to admit a Metric-selected population.
+The public Runtime matrix includes Metric selection -> Journey -> Duration Subject
+image -> new Metric observation, with source reads preceding all local consumers.
+
+Prepared Metric observations and source Duration row statistics expose an explicit
+materialization boundary in dynamic guidance. Execute these local results before
+further operations such as rollup; fixed results expose their qualified retained
+state continuations. This repair does not qualify extra source-after-local stages.
+The evidence index records the repair-specific gates separately from initial closure.
+
+Repair gates: `make check-agent` passed (5399 passed, 5 skipped), final Runtime
+commands passed 3 public plus 151 shared cases, the site built 321 pages, and
+`git diff --check` passed. Initial and intermediate results remain distinguished
+in the evidence index.

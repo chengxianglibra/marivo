@@ -120,7 +120,8 @@ def read_result(root: Path, descriptor: Descriptor) -> ExchangeResult:
             [
                 *(primary.column(key) for key in keys),
                 pa.array(["accepted"] * len(primary), type=pa.string())
-                if descriptor.method_state.kind in ("cohort", "table", "occurrence_inputs")
+                if descriptor.method_state.kind
+                in ("cohort", "table", "occurrence_inputs", "journey_assignment")
                 else primary.column(column),
             ],
             names=[*keys, "status"],

@@ -31,7 +31,14 @@ from marivo.analysis.core.graph import (
 )
 from marivo.analysis.core.model import Binding, Coordinate, DomainSignature, SubjectPart
 from marivo.analysis.core.predicates import ValuePredicate
-from marivo.analysis.core.rules import BindProject, MapCorrespond, PartsTransport, entity_members
+from marivo.analysis.core.rules import (
+    BindProject,
+    MapCorrespond,
+    PartsTransport,
+    PreparedObservation,
+    RowState,
+    entity_members,
+)
 from marivo.analysis.core.time_grid import GridPoint, GridVersionSelection
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.admission import DatasetRuntime
@@ -442,8 +449,23 @@ class MemberGraph:
                 RouteChoice(
                     node.identity,
                     "ibis_python"
-                    if node.method.name
+                    if (
+                        isinstance(node.parameters, PartsTransport)
+                        and node.parameters.mode == "cohort"
+                        and node.parameters.opportunity_domain is not None
+                        and node.parameters.opportunity_domain.kind == "journey"
+                    )
+                    or (
+                        node.inputs[0].node.signature.domain.kind == "journey"
+                        and isinstance(node.parameters, (MapCorrespond, PartsTransport, RowState))
+                    )
+                    or isinstance(node.parameters, PreparedObservation)
+                    or node.method.name
                     in (
+                        "journey.match",
+                        "journey.duration",
+                        "journey.completed",
+                        "journey.read",
                         "cell.relative_change",
                         "cell.ratio",
                         "reference.share",

@@ -140,6 +140,12 @@ SEMANTIC_PUBLIC = {
 
 ANALYSIS_PUBLIC = {
     "LogicalAttributionResult",
+    "LogicalJourneyResult",
+    "MaterializedJourneyResult",
+    "LogicalEventDurationResult",
+    "MaterializedEventDurationResult",
+    "LogicalCompletedJourneys",
+    "MaterializedCompletedJourneys",
     "MaterializedAttributionResult",
     "LogicalRankingResult",
     "MaterializedRankingResult",
@@ -322,7 +328,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "c3aedabd7e30eddc918fba1bebee54c8f6a050f4462f68c2cd07a7a94c782806"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "71938b1be9285fdb1a17373ed0da30d74f0271baf318371d88a32d13dc5c4da6"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

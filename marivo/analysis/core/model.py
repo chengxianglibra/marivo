@@ -597,8 +597,23 @@ class OccurrencePart:
     version: str = "v1"
 
 
+@dataclass(frozen=True, slots=True)
+class JourneyPart:
+    binding: Binding
+    preparation: OccurrencePart
+    steps: tuple[str, ...]
+    events: tuple[str, ...]
+    policy: Literal["first_per_subject", "exclusive", "shared"]
+    cohort_start: str
+    cohort_end: str
+    completion_through: str
+    complete: bool = True
+    version: str = "v1"
+
+
 Part: TypeAlias = (
-    OccurrencePart
+    JourneyPart
+    | OccurrencePart
     | AttributionPart
     | SubjectPart
     | CohortDecisionPart
@@ -615,6 +630,7 @@ Part: TypeAlias = (
     | PairCountsPart
 )
 PartRole: TypeAlias = Literal[
+    "journey",
     "occurrences",
     "basis",
     "allocation",
@@ -647,6 +663,8 @@ PartRole: TypeAlias = Literal[
 
 
 def part_role(part: Part) -> PartRole:
+    if isinstance(part, JourneyPart):
+        return "journey"
     if isinstance(part, OccurrencePart):
         return "occurrences"
     if isinstance(part, AttributionPart):
@@ -679,6 +697,33 @@ def part_role(part: Part) -> PartRole:
 
 
 def validate_part(part: Part) -> None:
+    if isinstance(part, JourneyPart):
+        from datetime import datetime
+
+        validate_part(part.preparation)
+        if (
+            type(part.complete) is not bool
+            or not part.steps
+            or len(set(part.steps)) != len(part.steps)
+            or len(part.steps) != len(part.events)
+            or not set(part.events) <= {event.ref.path for event in part.preparation.events}
+            or part.policy not in ("first_per_subject", "exclusive", "shared")
+            or part.version != "v1"
+            or any(
+                datetime.fromisoformat(value).utcoffset() is None
+                for value in (part.cohort_start, part.cohort_end, part.completion_through)
+            )
+            or not datetime.fromisoformat(part.cohort_start)
+            < datetime.fromisoformat(part.cohort_end)
+            <= datetime.fromisoformat(part.completion_through)
+        ):
+            reject(
+                "exact canonical Journey declaration",
+                repr(part),
+                "Rebuild matching from bound captures.",
+                "core.journey",
+            )
+        return
     if isinstance(part, OccurrencePart):
         from hashlib import sha256
 

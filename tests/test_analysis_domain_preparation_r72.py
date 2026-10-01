@@ -2119,3 +2119,112 @@ def test_review_postcommit_deadline_returns_durable_success(tmp_path, monkeypatc
         )
         assert runtime.store._graph_run(runtime.last_run_ref).lifecycle == "succeeded"
         assert artifact.producing_run_ref == runtime.last_run_ref
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("form", ["table", "parquet"])
+@pytest.mark.parametrize("policy", ["first_per_subject", "shared", "exclusive"])
+def test_r73_matching_consumes_prepared_capture(tmp_path, form, policy):
+    from marivo.analysis.core.model import SubjectPart
+    from marivo.analysis.core.rules import JourneyMatch
+    from marivo.analysis.materialization.journey_execution import ASSIGNMENT
+
+    with _case(tmp_path, form=form) as (runtime, capture, bindings, source, submissions):
+        capture = method_node(
+            capture.inputs,
+            replace(capture.parameters, order_use="ordered"),
+            value_type=capture.value_type,
+            sources=capture.sources,
+        )
+        mapping = next(part for part in capture.signature.parts if isinstance(part, SubjectPart))
+        keys = (*mapping.subject_key, *capture.signature.domain.instance_key)
+        domain = DomainSignature(
+            capture.signature.domain.binding, "journey", keys, keys, "r73-journey"
+        )
+        root = method_node(
+            (Edge("subject", capture),),
+            JourneyMatch(
+                domain,
+                ("start", "end"),
+                ("commerce.hit", "commerce.hit"),
+                policy,
+                "1970-01-01T00:00:00+00:00",
+                "1970-01-01T00:00:10+00:00",
+                "1970-01-01T00:00:10+00:00",
+            ),
+            value_type=ScalarType("int64"),
+        )
+        assert thaw_graph(freeze_graph(root)).fingerprint == root.fingerprint
+        artifact = runtime._execute_graph(
+            root,
+            (RouteChoice(capture.identity, "ibis"), RouteChoice(root.identity, "ibis_python")),
+            source_bindings=bindings,
+            source_factory=source,
+        )
+        result = read_result(tmp_path, artifact.descriptor)
+        values = [
+            ASSIGNMENT.validate_json(value)
+            for value in next(part.table for part in result.parts if part.role == "journey")[
+                "journey__assignment"
+            ].to_pylist()
+        ]
+        assert len(values) == (2 if policy == "first_per_subject" else 3)
+        assert values[0].reach == ("reached", "reached")
+        assert all(value.reach == ("reached", "unknown") for value in values[1:])
+
+        captured = runtime._execute_graph(
+            capture,
+            (RouteChoice(capture.identity, "ibis"),),
+            source_bindings=bindings,
+            source_factory=source,
+        )
+        leaf = FixedLeaf(
+            ArtifactRef(captured.artifact_ref),
+            capture.fingerprint,
+            fixed_signature(captured.descriptor),
+            ScalarType("int64"),
+            FixedShape(TimeShape("instant", "us", "UTC")),
+        )
+        fixed_match = method_node(
+            (Edge("subject", leaf),), root.parameters, value_type=ScalarType("int64")
+        )
+        fixed = runtime._execute_graph(
+            fixed_match, (RouteChoice(fixed_match.identity, "artifact_python"),)
+        )
+        retained = read_result(tmp_path, fixed.descriptor)
+        assert retained.primary.equals(result.primary, check_metadata=False)
+        assert next(part.table for part in retained.parts if part.role == "journey").equals(
+            next(part.table for part in result.parts if part.role == "journey")
+        )
+
+        for path in (*tmp_path.glob("*.parquet"), *tmp_path.glob("source.duckdb*")):
+            path.unlink()
+        script = """
+import sys
+from pathlib import Path
+import ibis
+from marivo.datasource.adapters import SourceSession
+from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.materialization.graph_store import artifact
+from marivo.analysis.materialization.graph_storage import read_result
+from marivo.analysis.materialization.journey_execution import ASSIGNMENT
+def forbidden(*args, **kwargs):
+    raise AssertionError('cold Journey recovery must not read sources')
+SourceSession.bind = forbidden
+ibis.duckdb.connect = forbidden
+store = SessionStore._graph_store(Path(sys.argv[1]))
+with store._connection() as connection:
+    record = artifact(store, connection, sys.argv[2])
+result = read_result(store.project_root, record.descriptor)
+values = [ASSIGNMENT.validate_json(value) for value in next(part.table for part in result.parts if part.role == 'journey')['journey__assignment'].to_pylist()]
+assert len(values) == int(sys.argv[3])
+assert values[0].reach == ('reached', 'reached')
+assert all(value.reach == ('reached', 'unknown') for value in values[1:])
+assert b'r7.precision' in result.primary.schema.metadata
+"""
+        subprocess.run(
+            [sys.executable, "-c", script, str(tmp_path), artifact.artifact_ref, str(len(values))],
+            check=True,
+            capture_output=True,
+            text=True,
+        )

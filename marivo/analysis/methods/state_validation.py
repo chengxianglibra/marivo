@@ -497,6 +497,31 @@ def state_matches(
             and primary.get("cell_tag") == "defined"
             and primary.get("cell_reason") is None
         )
+    if kind == "row_mean" and primary.get("__duration_unit") in ("s", "ms", "us", "ns"):
+        total, count = part.get("row_state__sum"), part.get("row_state__count")
+        if (
+            type(total) is not int
+            or type(count) is not int
+            or not -(2**63) <= total < 2**63
+            or not 0 <= count < 2**63
+        ):
+            return False
+        bound = part.get("row_state__error_bound")
+        if count == 0:
+            return (
+                total == 0
+                and value is None
+                and primary.get("cell_tag") == "undefined"
+                and primary.get("cell_reason") == "empty_completed_set"
+                and bound == 0.0
+            )
+        return (
+            type(value) is int
+            and value == round(Fraction(total, count))
+            and primary.get("cell_tag") == "defined"
+            and primary.get("cell_reason") is None
+            and bound == 0.5
+        )
     if kind == "row_mean":
         total, count = part.get("row_state__sum"), part.get("row_state__count")
         if (

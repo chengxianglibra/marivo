@@ -15,6 +15,10 @@ from marivo.analysis.core.rules import (
     CompleteGroups,
     DisplayRank,
     DisplayTable,
+    JourneyCompleted,
+    JourneyDuration,
+    JourneyMatch,
+    JourneyRead,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
@@ -853,6 +857,12 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     """Version typed folds and once-rounded numeric consumers in Store 7."""
+    if method.name.startswith("journey."):
+        from marivo.analysis.methods.journey_physical import (
+            implementations as journey_implementations,
+        )
+
+        return journey_implementations(method)
     if method.name == "occurrence.prepare":
         from marivo.analysis.methods.domain_preparation import (
             implementations as domain_implementations,
@@ -880,9 +890,11 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             for item in implementations(MethodKey("cell.difference"))
         )
     from marivo.analysis.methods.domain_preparation import consumers
+    from marivo.analysis.methods.journey_physical import consumers as journey_consumers
 
     return (
         *consumers(method),
+        *journey_consumers(method),
         *tuple(
             replace(item, contract_version=4)
             if method.name.startswith("state_rollup")
@@ -968,6 +980,24 @@ def specialize_arity(implementation: Implementation, arity: int) -> Implementati
 def specialize_numeric(implementation: Implementation, key: QualificationKey) -> Implementation:
     """Bind precise numeric families and closed typed predicate inputs."""
     if (
+        key.method.name == "occurrence.prepare"
+        and key.input_domains == implementation.key.input_domains == ("entity",)
+        and len(key.input_types) == 1
+        and isinstance(implementation.key.shape, SourceShape)
+    ):
+        # Population projections carry an upstream scalar type but no scalar column.
+        # Preparation consumes complete member keys, independently of that marker.
+        return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
+    if (
+        key.input_domains == implementation.key.input_domains == ("entity", "entity")
+        and len(key.input_types) == 2
+        and key.input_types[0] == implementation.key.input_types[0]
+        and isinstance(implementation.qualification, Qualified)
+        and implementation.qualification.consumer_id == "analysis.materialization.graph_preparation"
+    ):
+        # The original member envelope is also a key-only population projection.
+        return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
+    if (
         key.method.name.startswith("attribution.")
         and key.input_domains == implementation.key.input_domains
         and len(key.input_types) == 2
@@ -1031,6 +1061,30 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
         except ValueError:
             return implementation
         return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
+    if (
+        key.method.name == "domain.cohort"
+        and implementation.key.input_domains == ("entity", "journey")
+        and 2 <= len(key.input_types) <= 64
+        and key.input_domains == ("entity", *("journey",) * (len(key.input_types) - 1))
+        and key.input_types[0] == implementation.key.input_types[0]
+        and all(
+            value
+            in (
+                ScalarType("int64"),
+                ScalarType("boolean"),
+                ScalarType("string"),
+                ScalarType("timestamp"),
+                DurationType("us"),
+            )
+            for value in key.input_types[1:]
+        )
+    ):
+        return replace(
+            implementation,
+            key=replace(
+                implementation.key, input_types=key.input_types, input_domains=key.input_domains
+            ),
+        )
     if (
         key.method.name in ("parts_transport", "domain.cohort")
         and implementation.key.input_types == (ScalarType("int64"),)
@@ -1122,7 +1176,17 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             repr(implementation.key),
             "Qualify a real lowerer and all required checkers for this exact key.",
         )
-    if isinstance(params, (OccurrencePrepare, PreparedObservation)):
+    if isinstance(
+        params,
+        (
+            OccurrencePrepare,
+            PreparedObservation,
+            JourneyMatch,
+            JourneyDuration,
+            JourneyCompleted,
+            JourneyRead,
+        ),
+    ):
         return
     if (
         isinstance(implementation.key.shape, SourceShape)

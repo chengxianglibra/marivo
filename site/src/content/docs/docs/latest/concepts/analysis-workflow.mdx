@@ -181,9 +181,11 @@ identity and valid fold meaning. A mean is not summed as if it were additive;
 selected ratios and distinct sets retain their actual components.
 
 Comparison, attribution, correlation, forecast and discovery are Dataset methods.
-Event matching starts at `session.events.match(...)`; Lifecycle replay starts at
-`session.lifecycle.replay(...)`. Their reducers belong to the returned Datasets
-and consume retained assignment/history. Cross-Session operands are rejected.
+Event matching starts at `session.events.match(..., population=members)` and
+returns a typed JourneyResult; duration and selection consume its retained
+assignment. Lifecycle replay retains its existing Dataset entry. Cross-Session
+operands are rejected. The following funnel rules describe retained legacy
+consumers pending R7.4 migration, not continuations of the new JourneyResult.
 Event funnel comparisons require equal cohort duration, temporal domain and
 follow-up offset. For funnel attribution, build both funnels logically from
 complete journeys or journey checkpoints opened with `session.artifact(ref)`;
@@ -356,8 +358,9 @@ complete non-Entity state is available on PostgreSQL, SQLite, Trino and
 ClickHouse. MySQL remains unqualified after its live composed query exceeded
 the qualification server's memory limit; expanded Top-K on Trino is also
 unqualified because its query exceeded the server stage limit. Sampling,
-Entity candidates and source driver screening remain unsupported. PostgreSQL
-admits exact two- or three-step `session.events.match(...)` journeys and
+Entity candidates and source driver screening remain unsupported. The following Event backend records concern the retained legacy implementation,
+not the new R7.3 public entry point. PostgreSQL
+admits exact two- or three-step legacy journeys and
 `session.lifecycle.replay(...)` histories with two trigger Events. These shapes
 require unversioned table sources and `int64` subject and occurrence identities.
 Direct Event funnel, time-to-event and subject selection, and Lifecycle
@@ -862,12 +865,74 @@ a Singleton returns MaterializedRolledNumericRelation. This same variant and its
 continuation contract survive recovery.
 
 
-## R7 occurrence preparation status
+## R7.3 Journey matching and duration
 
-R7.2 implements private occurrence preparation and source preparation before
-local selection/observation. Public matching, replay and new domain results remain
-later-phase work. Captured occurrence time may lose native source precision,
-including nanoseconds to microseconds. Captures retain the original/actual units
-and conversion disclosure through fixed continuation and cold recovery. All time
-bounds and order checks use captured time; precision-created ties still require
-business order. Future public domain result cards will disclose this information.
+Execute a Metric observation produced after local Subject selection before further
+operations such as rollup. Likewise, execute a Duration row statistic before merging
+its states. Their logical contracts expose `execute()`; materialized contracts expose
+the qualified retained-state continuations.
+
+
+`session.events.match` now requires an explicit logical AnalysisDomain population
+and returns LogicalJourneyResult. DuckDB native tables and local Parquet use
+Ibis occurrence preparation followed by registered local assignment. All source
+inputs, including a subsequent Metric's contributions, are captured before local
+selection in the same Run. Source failure never changes the engine.
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.refs import ref
+from datetime import datetime, timezone
+
+members = session.members(ref.entity("sales.customers"))
+start = mv.step(participant=ms.participant_role(
+    event=ref.event("sales.started"), name="buyer"), key="start")
+finish = mv.step(participant=ms.participant_role(
+    event=ref.event("sales.finished"), name="buyer"), key="finish")
+window = mv.time_scope(start="2026-02-01T00:00:00Z", end="2026-02-02T00:00:00Z")
+end = datetime(2026, 2, 3, tzinfo=timezone.utc)
+journeys = session.events.match(
+    mv.sequence(start, finish), population=members, cohort_window=window,
+    completion_through=end, matching=mv.first_per_subject(),
+    completeness=(mv.BoundedCompletenessDeclarationV1(
+        inputs=(start.event, finish.event), complete_from=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        complete_through=end, rationale="Verified source coverage"),),
+)
+elapsed = journeys.time_to_event(from_step=start, to_step=finish)
+mean = elapsed.completed().duration.summarize(mv.mean()).execute()
+dropped = journeys.read(mv.dropped_before(step=finish))
+selected = dropped.where(dropped.value.eq(True)).members(
+    through=journeys.subjects(start.participant))
+revenue = selected.observe(
+    ref.metric("sales.revenue"), during=window,
+    via=ref.relationship("sales.order_customer"),
+).execute()
+```
+
+The example assumes the named semantic definitions and verified coverage.
+First-per-subject and every-start shared/exclusive matching retain canonical
+assignment, full Journey keys and every step's reach truth. No start means no
+Journey. Starts use a half-open cohort window; follow-up excludes its upper bound.
+Tied instants require proved business order. Only first-per-subject produces dropout.
+Unknown coverage never becomes False; unresolved ordinary selections reject.
+Complete Journey opportunities can feed the existing explicit Subject cohort rules.
+
+EventDurationResult exposes `status`, `started_at`, `completed_at`, `duration`,
+`observed_duration`, and `followup_until`. Status distinguishes complete, incomplete,
+coverage_censored, not_entered, and entry_unknown. Only completed pairs have a
+duration; `completed()` returns CompletedJourneys. Duration predicates take
+`datetime.timedelta`. Current-row Duration `mean` retains the Journey denominator:
+10, 30 and 100 seconds yield 140/3 seconds, rounded once to 46.666667 seconds at
+microsecond precision. Subject means 20 and 100 instead average to 60 seconds.
+Selecting members does not replace the original Journey denominator.
+
+Materialized results retain assignment, reach, coverage, mappings, precision and
+reduction state in Store 7. Fixed reads, reductions and selections, including fresh
+process recovery after source deletion, consume those parts without rematching.
+Explicit fixed populations cannot be mixed with a new source match or observation.
+Result cards disclose original and captured time units and possible loss (including
+native nanoseconds converted to microseconds). Boundaries and order use captured
+time; precision-created ties still need business order. Execution shares one
+600-second deadline. This stage grants no funnel, Lifecycle, Anchor, remote backend
+or complete same-wheel R7 qualification.
