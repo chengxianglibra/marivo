@@ -860,3 +860,14 @@ acceptance are separate responsibilities.
 An original reduction retaining group keys returns MaterializedGroupedNumericRelation;
 a Singleton returns MaterializedRolledNumericRelation. This same variant and its
 continuation contract survive recovery.
+
+
+## R7 occurrence preparation status
+
+R7.2 implements private occurrence preparation and source preparation before
+local selection/observation. Public matching, replay and new domain results remain
+later-phase work. Captured occurrence time may lose native source precision,
+including nanoseconds to microseconds. Captures retain the original/actual units
+and conversion disclosure through fixed continuation and cold recovery. All time
+bounds and order checks use captured time; precision-created ties still require
+business order. Future public domain result cards will disclose this information.

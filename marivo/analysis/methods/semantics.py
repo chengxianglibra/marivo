@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 
 MethodName: TypeAlias = Literal[
+    "occurrence.prepare",
     "attribution.additive_difference",
     "attribution.component_mix",
     "time.product",
@@ -71,6 +72,7 @@ MethodName: TypeAlias = Literal[
 
 
 PersistentStateKind: TypeAlias = Literal[
+    "occurrence_inputs",
     "attribution_additive",
     "attribution_component_mix",
     "ranking",
@@ -126,6 +128,10 @@ class MethodKey:
 
 def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     """Map closed parameter variants to exactly one concrete method identity."""
+    if type(params) is rules.OccurrencePrepare:
+        return MethodKey("occurrence.prepare")
+    if type(params) is rules.PreparedObservation:
+        return key_for_parameters(params.observation)
     if type(params) is rules.AttributionDerive:
         return MethodKey(
             "attribution.additive_difference"
@@ -254,6 +260,7 @@ class MethodSemantics:
     def persistent_state_kind(self) -> PersistentStateKind | None:
         """Return the connected durable state kind; absence grants no publication."""
         kinds: dict[MethodName, PersistentStateKind] = {
+            "occurrence.prepare": "occurrence_inputs",
             "attribution.additive_difference": "attribution_additive",
             "attribution.component_mix": "attribution_component_mix",
             "display.rank": "ranking",
@@ -312,6 +319,17 @@ class MethodSemantics:
         from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
         name = self.key.name
+        if isinstance(params, rules.OccurrencePrepare):
+            if output != ScalarType("int64"):
+                reject(
+                    "occurrence row marker int64",
+                    repr(output),
+                    "Preserve the typed occurrence carrier.",
+                )
+            return
+        if isinstance(params, rules.PreparedObservation):
+            self.validate_output_type(inputs[:1], output, params.observation)
+            return
         if isinstance(params, rules.AttributionDerive):
             if output.name != params.value_type:
                 reject(
@@ -591,6 +609,8 @@ class MethodSemantics:
     @property
     def rule(self) -> rules.RuleId:
         name = self.key.name
+        if name == "occurrence.prepare":
+            return "occurrence_prepare@v1"
         if name.startswith("attribution."):
             return "attribution@v1"
         if name.startswith("display."):
@@ -818,6 +838,8 @@ class MethodSemantics:
 
     @property
     def output_parts(self) -> tuple[PartRole, ...]:
+        if self.key.name == "occurrence.prepare":
+            return ("subject", "occurrences")
         if self.key.name in (
             "metric.distinct",
             "metric.approx_distinct",
@@ -950,6 +972,10 @@ class MethodSemantics:
         self, inputs: tuple[Signature, ...], params: rules.RuleParameters
     ) -> rules.RuleDerivation:
         """Validate exact inputs and apply the sole owning semantic rule."""
+        if isinstance(params, rules.OccurrencePrepare):
+            return rules._occurrence_prepare(inputs, params)
+        if isinstance(params, rules.PreparedObservation):
+            return rules._prepared_observation(inputs, params)
         if key_for_parameters(params) != self.key:
             reject(str(self.key), str(key_for_parameters(params)), "Use this method's parameters.")
         if type(inputs) is not tuple or any(type(item) is not Signature for item in inputs):
@@ -1013,6 +1039,7 @@ class MethodSemantics:
 
 
 CONNECTED_METHODS = (
+    MethodSemantics(MethodKey("occurrence.prepare"), "analysis.core.rules"),
     MethodSemantics(MethodKey("attribution.additive_difference"), "analysis.core.rules"),
     MethodSemantics(MethodKey("attribution.component_mix"), "analysis.core.rules"),
     MethodSemantics(MethodKey("metric.min"), "analysis.core.rules"),

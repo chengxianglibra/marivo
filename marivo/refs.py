@@ -454,6 +454,10 @@ _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
         "Callable[[str], Ref[SemanticKindTag]]",
         ref.state_model,
     ),
+    SemanticKind.BUSINESS_ORDER: cast(
+        "Callable[[str], Ref[SemanticKindTag]]",
+        ref.business_order,
+    ),
     SemanticKind.PERIOD_CALENDAR: cast(
         "Callable[[str], Ref[SemanticKindTag]]",
         ref.period_calendar,

@@ -18,8 +18,10 @@ from marivo.analysis.core.rules import (
     ObserveCount,
     ObserveMetric,
     ObserveWeightedMean,
+    OccurrencePrepare,
     OriginalReduce,
     PartsTransport,
+    PreparedObservation,
     ReferenceDerive,
     RowState,
     RuleDerivation,
@@ -381,7 +383,36 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
         _fail(f"ordered input roles {expected}", repr(roles))
     if type(node.sources) is not tuple or any(type(s) is not SourceLeaf for s in node.sources):
         _fail("immutable explicit source dependencies", node.identity)
-    if isinstance(node.parameters, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
+    if isinstance(node.parameters, OccurrencePrepare):
+        required_ids = {event.source_id for event in node.parameters.events}
+        if not required_ids <= {source.identity for source in node.sources} and not isinstance(
+            node.inputs[0].node, FixedLeaf
+        ):
+            _fail("explicit captured Event source dependencies", node.identity)
+        if not isinstance(node.inputs[0].node, FixedLeaf):
+            required = {event.source.ref.path for event in node.parameters.events}
+            required.update(event.subject.ref.path for event in node.parameters.events)
+            required.update(
+                hop.to_entity_ref.path for event in node.parameters.events for hop in event.path
+            )
+            actual = {source.definition.ref.path for source in node.sources}
+            if actual != required or len(actual) != len(node.sources):
+                _fail(
+                    f"all captured participant dependencies for {sorted(required)}",
+                    repr(sorted(actual)),
+                )
+    elif isinstance(node.parameters, PreparedObservation):
+        if len(node.inputs) != 2:
+            _fail("selected and original population dependencies", node.identity)
+        observation = node.parameters.observation
+        required = {observation.contribution.path, observation.event.entity_ref.path}
+        for path in observation.path:
+            required.update((path.from_entity_ref.path, path.to_entity_ref.path))
+        required.update(field.entity_ref.path for field in observation.coordinates)
+        actual = {source.definition.ref.path for source in node.sources}
+        if actual != required or len(actual) != len(node.sources):
+            _fail(f"explicit preparation dependencies for {sorted(required)}", repr(sorted(actual)))
+    elif isinstance(node.parameters, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
         required = {node.parameters.contribution.path}
         for path in node.parameters.path:
             required.update((path.from_entity_ref.path, path.to_entity_ref.path))

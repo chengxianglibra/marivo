@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass, replace
 from typing import Literal, TypeAlias
 
+from marivo.analysis.core.domain_captures import EventCapture, OrderCapture, StateModelCapture
 from marivo.analysis.core.model import (
     AttributionPart,
     Binding,
@@ -29,6 +30,7 @@ from marivo.analysis.core.model import (
     MissingCoordinate,
     Obligation,
     ObservedQuantity,
+    OccurrencePart,
     OriginalStatePart,
     PairCountsPart,
     Part,
@@ -49,6 +51,7 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.predicates import ValuePredicate, leaves
 from marivo.analysis.core.time_grid import CumulativeBinding, GridVersionSelection
+from marivo.analysis.domains.completeness import CompletenessDeclaration
 from marivo.refs import (
     DimensionKind,
     EntityKind,
@@ -81,6 +84,7 @@ from marivo.semantic.metric_graph import (
 from marivo.semantic.runtime_metric import RuntimeMetricExpr, SliceValue
 
 RuleId: TypeAlias = Literal[
+    "occurrence_prepare@v1",
     "attribution@v1",
     "bind_project@v1",
     "map_correspond@v1",
@@ -403,8 +407,28 @@ class AttributionDerive:
     top_k: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class OccurrencePrepare:
+    output: DomainSignature
+    events: tuple[EventCapture, ...]
+    start: str | None
+    end: str
+    order: OrderCapture | None = None
+    model: StateModelCapture | None = None
+    completeness: tuple[CompletenessDeclaration, ...] = ()
+    order_use: Literal["prepare", "ordered", "one_step_every_start", "after_terminal"] = "prepare"
+    terminal_state: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedObservation:
+    observation: ObserveMetric | ObserveCount
+
+
 RuleParameters: TypeAlias = (
-    AttributionDerive
+    OccurrencePrepare
+    | PreparedObservation
+    | AttributionDerive
     | BindProject
     | ObserveMetric
     | ObserveCount
@@ -820,7 +844,10 @@ def _declared_slice(aggregate: object) -> tuple[tuple[str, str, object], ...]:
 
 
 def _observe_metric(
-    inputs: tuple[Signature, ...], params: ObserveMetric | ObserveCount | ObserveWeightedMean
+    inputs: tuple[Signature, ...],
+    params: ObserveMetric | ObserveCount | ObserveWeightedMean,
+    *,
+    prepared: bool = False,
 ) -> RuleDerivation:
     from datetime import datetime, timedelta
 
@@ -948,8 +975,8 @@ def _observe_metric(
         if (
             relationship.from_entity_ref.path != current
             or relationship.cardinality not in ("one_to_one", "many_to_one")
-            or relationship.from_version_resolution_required
-            or relationship.to_version_resolution_required
+            or (not prepared and relationship.from_version_resolution_required)
+            or (not prepared and relationship.to_version_resolution_required)
             or not relationship.keys
         ):
             reject(
@@ -3232,3 +3259,184 @@ def _attribution(inputs: tuple[Signature, ...], params: AttributionDerive) -> Ru
         obligations=(),
         eval_id="attribution." + params.method + "@v1",
     )
+
+
+def _occurrence_prepare(inputs: tuple[Signature, ...], params: OccurrencePrepare) -> RuleDerivation:
+    from datetime import datetime
+
+    from marivo.analysis.core.domain_captures import fail
+
+    binding = _binding(inputs, "r7.input_binding")
+    _output_domain(binding, params.output, "r7.input_binding")
+    if len(inputs) != 1 or params.output.kind != "occurrence" or not params.events:
+        fail(
+            "input_binding", "one explicit population and a complete occurrence output are required"
+        )
+    if len({e.ref for e in params.events}) != len(params.events):
+        fail("input_binding", "repeat Event uses must share one explicit capture")
+    if any(e.subject.ref != params.events[0].subject.ref for e in params.events):
+        fail("input_binding", "participants have different Subjects")
+    if len({len(event.identity) for event in params.events}) != 1:
+        fail("input_binding", "captured Events have incompatible complete key shapes")
+    if inputs[0].domain.kind not in ("entity", "occurrence"):
+        fail("input_mode", "population is not an Analysis Entity domain")
+    if params.start is not None and datetime.fromisoformat(params.start) >= datetime.fromisoformat(
+        params.end
+    ):
+        fail("preparation_bounds", "empty or reversed preparation interval")
+    if datetime.fromisoformat(params.end).utcoffset() is None or (
+        params.start is not None and datetime.fromisoformat(params.start).utcoffset() is None
+    ):
+        fail("preparation_bounds", "preparation needs aware instant bounds")
+    if (
+        params.order is not None
+        and params.order.definition.subject != params.events[0].subject.ref.path
+    ):
+        fail("business_order", "order Subject differs")
+    captured = {event.ref.path: event for event in params.events}
+    if params.order is not None:
+        if any(
+            (event.ref.path, event.fingerprint) not in params.order.dependencies
+            for event in params.events
+            if event.ref.path in {item.event_ref for item in params.order.definition.sequences}
+        ):
+            fail("business_order", "order dependency fingerprint differs from its captured Event")
+        for item, field in zip(params.order.definition.sequences, params.order.fields, strict=True):
+            event = captured.get(item.event_ref)
+            if event is not None and (
+                item.participant_role != event.participant or field.entity_ref != event.source.ref
+            ):
+                fail(
+                    "business_order", "sequence role or field owner differs from its Event capture"
+                )
+        for precedence in params.order.definition.conflicts:
+            for event_ref, role in (
+                (precedence.before_event, precedence.before_role),
+                (precedence.after_event, precedence.after_role),
+            ):
+                event = captured.get(event_ref)
+                if event is not None and event.participant != role:
+                    fail("business_order", "precedence role differs from its Event capture")
+    if params.model is not None and (
+        params.model.triggers != params.events or params.model.order != params.order
+    ):
+        fail(
+            "input_binding",
+            "preparation must retain every explicit StateModel trigger and default order capture",
+        )
+    if params.order_use == "after_terminal":
+        fail(
+            "business_order",
+            "preparation has no already-known terminal-prefix proof; consume this case in qualified replay",
+        )
+    if params.order_use == "one_step_every_start" and (
+        len(params.events) != 1 or params.model is not None
+    ):
+        fail(
+            "business_order",
+            "the one-step every_start invariant requires one Event and no replay model",
+        )
+    columns = (
+        "occurred_at",
+        *(
+            ("sequence_int",)
+            if params.order is not None
+            and any(item.order == "integer" for item in params.order.definition.sequences)
+            else ("sequence_enum",)
+            if params.order is not None and params.order.definition.sequences
+            else ()
+        ),
+    )
+    from hashlib import sha256
+
+    preparation_id = sha256(
+        repr(
+            (
+                params.events,
+                params.start,
+                params.end,
+                params.order,
+                params.model,
+                params.completeness,
+                params.order_use,
+                params.terminal_state,
+            )
+        ).encode()
+    ).hexdigest()
+    state = OccurrencePart(
+        binding,
+        params.events,
+        params.order,
+        params.model,
+        columns,
+        preparation_id,
+        params.start,
+        params.end,
+        params.completeness,
+        params.order_use,
+        params.terminal_state,
+    )
+    subject_keys = tuple(
+        Coordinate(semantic_ref.entity(params.events[0].subject.ref.path), key, "identity")
+        for key in params.events[0].subject.primary_key
+    )
+    if inputs[0].domain.kind == "entity" and inputs[0].domain.instance_key != subject_keys:
+        fail("input_binding", "population does not carry the complete participant Subject key")
+    if inputs[0].domain.kind == "occurrence" and state not in inputs[0].parts:
+        fail("input_binding", "fixed preparation cannot replace its captured request")
+    part = SubjectPart(
+        binding,
+        semantic_ref.entity(params.events[0].subject.ref.path),
+        params.output.instance_key,
+        subject_keys,
+        False,
+        True,
+        "v1",
+    )
+    return _result(
+        "occurrence_prepare@v1",
+        inputs,
+        params.output,
+        None,
+        (part, state),
+        pre=(),
+        required=(),
+        created=("subject", "occurrences"),
+        post=(),
+        obligations=(),
+        eval_id=params.output.definition_id,
+    )
+
+
+def _prepared_observation(
+    inputs: tuple[Signature, ...], params: PreparedObservation
+) -> RuleDerivation:
+    from marivo.analysis.core.domain_captures import fail
+
+    _binding(inputs, "r7.input_binding")
+    observation = params.observation
+    if len(inputs) != 2 or inputs[0].domain.instance_key != inputs[1].domain.instance_key:
+        fail(
+            "input_binding", "selected and original members need identical full Subject coordinates"
+        )
+    if observation.start is None or observation.end is None:
+        fail(
+            "preparation_bounds", "local observation requires an explicit bounded candidate window"
+        )
+    if isinstance(observation, ObserveMetric) and observation.method not in ("sum", "mean"):
+        fail("physical_qualification", "only count, sum and mean have prepared local consumers")
+    if (
+        observation.grid_window
+        or observation.cumulative is not None
+        or (
+            isinstance(observation, ObserveMetric)
+            and (
+                observation.fold is not None or observation.amount_type not in ("int64", "float64")
+            )
+        )
+    ):
+        fail(
+            "physical_qualification",
+            "prepared grid/cumulative/fold and nonnumeric state is not qualified",
+        )
+    return _observe_metric((inputs[0],), observation, prepared=True)

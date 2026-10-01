@@ -1,7 +1,7 @@
 # R7.1 contract freeze and consumer migration ledger
 
-Date: 2026-10-01. Status: R7.1 contract/static freeze complete; R7.2-R7.9
-remain unimplemented. This ledger indexes sole owners and responsibility;
+Date: 2026-10-01. Status: R7.1 contract/static freeze complete; R7.2 private
+preparation implemented and qualified as recorded below; R7.3-R7.9 remain pending. This ledger indexes sole owners and responsibility;
 it is not another public API or method registry and grants no Runtime qualification.
 
 ## Actual baseline and accepted decisions
@@ -197,3 +197,42 @@ or qualification gaps, not deferred semantic choices. R7.1 exit is documentation
 and static inventory only. R7.2-R7.9, R8 statistics, R9 remote/native/backend scope,
 R10 real Agents/release remain unqualified by this package. Validation and exact
 artifact fingerprints are in the [R7.1 evidence index](2026-10-01-marivo-r71-evidence-index.md).
+
+
+## R7.2 implementation amendment and qualification boundary
+
+Entry branch `panda`, HEAD `4a472dab4cedc833ebc7b333f2e34a4b51b7b62f` includes
+the preserved R7.1 work. Its historical consumer snapshot, hashes and original
+requirement IDs are unchanged. The user accepts native timestamp precision loss,
+including ns→us. This decision supersedes R7.1's source-lossless time requirement;
+it does not weaken complete keys, participant/version/order/coverage or arithmetic
+in the actual captured carrier. T09/T10 P01 IDs are explicitly possibly lossy.
+Arrow seconds written as Parquet milliseconds are separately disclosed. F03/F05,
+F12/F13 preparation responsibilities now have private Runtime evidence; F06/F10
+future producers consume actual captured time. All historical R7.1 planned rows
+remain history; executed R7.2 status is a separate amendment.
+
+The [R7.2 evidence index](2026-10-01-marivo-r72-evidence-index.md) and machine
+qualification record bind the existing 270 P01 S/F/C IDs to independent complete
+key/Subject/time oracles and source-offline cold execution. V01-V03 and R7.2's
+V13/V15 duties are implemented. Public integration, full replay/matching,
+Finding/legacy removal, relative Metric families, same-wheel and new backend
+qualification remain with R7.3-R7.9/R9. F13 count/int64/float64 sum/mean and
+historical string coordinate preparation are a finite foundation; they do not
+pass P02-P50 or A09/A10/A13 public journeys. Existing M01-M16 deletion gates stay
+pending. No commit, release, AGENTS.md or packaged skill edits are authorized.
+
+
+### R7.2 adversarial review repairs (2026-10-01)
+
+The six reproduced review findings are repaired: prepared contributions use ordered
+Subject identity rather than relationship key order; prepared observation admits
+normalized historical relationship contracts and checks root version nonoverlap;
+version checks share the native captured time, including localized timestamp_ns;
+native table precision metadata reads the actual physical timestamp scale.
+Deadline checks stop ordinary execution before commit. Once Store 7 durably
+commits, acknowledgement and exact original-Run recovery preserve the committed
+outcome instead of reporting an ordinary timeout after successful publication.
+Six independent regression cases and the existing historical cases with normalized
+version flags exercise these boundaries. Preparation qualification still excludes
+matching, replay, public domain results and new backends.

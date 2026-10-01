@@ -7,7 +7,7 @@ loads its optional backend driver. The session owns every issued read and cursor
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import closing, nullcontext, suppress
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -15,7 +15,7 @@ from decimal import Decimal
 from importlib import import_module
 from itertools import islice
 from math import isfinite
-from typing import Literal, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, cast, runtime_checkable
 from uuid import uuid4
 
 import ibis
@@ -40,6 +40,9 @@ from marivo.datasource.ir import (
     TableSourceIR,
 )
 from marivo.datasource.table_source import table_source_expression
+
+if TYPE_CHECKING:
+    from marivo.analysis.domains.completeness import EventCoverageProvider
 
 DURATION_UNIT_METADATA_KEY = b"marivo:duration_unit"
 
@@ -430,7 +433,10 @@ class SourceBatchStream:
 
     def _iterate(self) -> Iterator[pa.RecordBatch]:
         try:
+            check = self._session._checkpoint
+            check()
             while rows := self._cursor.fetchmany(self._chunk_size):
+                check()
                 if any(len(row) != len(self._schema) for row in rows):
                     raise _invalid("rows matching the fixed schema", "driver column count changed")
                 arrays = [
@@ -442,6 +448,7 @@ class SourceBatchStream:
                     for index, field in enumerate(self._schema)
                 ]
                 yield pa.RecordBatch.from_arrays(arrays, schema=self._schema)
+            check()
             self._submission.state = "succeeded"
         except GeneratorExit:
             raise
@@ -501,6 +508,10 @@ class SourceSession:
         self._streams: set[SourceBatchStream] = set()
         self._closed = False
         self.submissions: list[SourceSubmission] = []
+        self.domain_authority: dict[str, object] | None = None
+        self.domain_time_units: dict[tuple[str, str], str] = {}
+        self._domain_coverage_provider: EventCoverageProvider | None = None
+        self._checkpoint: Callable[[], None] = lambda: None
 
     def __enter__(self) -> SourceSession:
         self._ensure_open()
@@ -645,6 +656,7 @@ class SourceSession:
     ) -> CompiledRead:
         """Issue a handle for one bound expression and unmodified Ibis SQL."""
         self._ensure_open()
+        self._checkpoint()
         sources = (qualified,) if isinstance(qualified, QualifiedSource) else tuple(qualified)
         if not sources or any(
             item._owner is not self._token or item.binding._owner is not self._token
@@ -700,6 +712,7 @@ class SourceSession:
         sql = self._backend.compile(expression.as_table(), params=supplied, limit=None)
         if not isinstance(sql, str) or not sql:
             raise _invalid("nonempty Ibis compiled SQL", type(sql).__name__)
+        self._checkpoint()
         source_identity = "|".join(sorted({item.binding.facts.source_identity for item in sources}))
         issued = CompiledRead(
             expression,
@@ -821,6 +834,7 @@ class SourceSession:
     def batches(self, read: CompiledRead, *, chunk_size: int) -> SourceBatchStream:
         """Submit only the exact artifact issued by this open session."""
         self._ensure_open()
+        self._checkpoint()
         stored = self._issued.get(id(read))
         if read._owner is not self._token or stored is None or stored[0] is not read:
             raise _invalid("a compiled read issued by this session", "foreign or fabricated read")
@@ -844,6 +858,7 @@ class SourceSession:
         self.submissions.append(submission)
         try:
             cursor = _native_cursor(self._backend, self.provider.name, proof.sql)
+            self._checkpoint()
         except BaseException:
             submission.state = "failed"
             submission.cursor_state = (
@@ -901,7 +916,13 @@ class SourceSession:
 
     def interrupt(self) -> Termination:
         """Close local resources; remote termination remains unknown without proof."""
-        active = tuple(stream._submission for stream in self._streams)
+        active = tuple(
+            submission for submission in self.submissions if submission.state == "submitted"
+        )
+        if self.provider.name == "duckdb" and self.domain_authority is not None:
+            native = getattr(getattr(self._backend, "con", None), "interrupt", None)
+            if callable(native):
+                native()
         termination: Termination = (
             "local_closed" if self.provider.name in {"duckdb", "sqlite"} else "remote_unknown"
         )

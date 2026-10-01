@@ -1623,3 +1623,57 @@ run; no commit, push, publication or external message occurs. These are excluded
 gates, not passes. R7.2-R7.9 remain **pending implementation and qualification**;
 R8 statistical consumers, R9 backends and R10 real-Agent/release responsibilities
 remain outside this static acceptance.
+
+
+## R7.2 private preparation acceptance (2026-10-01)
+
+Entry: branch `panda`, HEAD `4a472dab4cedc833ebc7b333f2e34a4b51b7b62f`.
+The R7.1 work, historical snapshot and original requirement IDs are preserved.
+The accepted precision amendment allows native source/Ibis/driver loss, including
+ns→us; all checks and consumption use captured time. Original/file/captured units
+and possibly-lossy conversion disclosure persist in receipts, Evidence identity,
+fixed continuation and cold recovery. This supersedes the historical lossless-source
+requirement, without replacing historical R7.1 evidence.
+
+Private Event/StateModel/BusinessOrder captures, occurrence.prepare@v1 and the F13
+source-prefix/local consumer foundation use the existing core, registry, snapshot,
+Runtime and Store 7. Native transactions and immutable local file manifests bind
+checks/consumption to one capture. Complete typed keys, participant mappings,
+source predicates, non-overlapping versions, sequence/precedence, coverage and
+empty schemas have independent checks. Construction/plan performs no business
+I/O and allocates no Run. No source-after-local query or local-result upload is
+admitted. Actual nonempty, empty and strict Subject subsets consume prepared
+count/int64/float64 sum/mean components; historical axes bind at captured time.
+
+The final targeted Runtime selection passed **135 tests**. Its 90 P01 parameter
+cases execute source and verified fixed continuation plus 90 fresh source-offline
+cold processes, qualifying **270 original P01 IDs for preparation only**.
+T09/T10 contribute **54 possibly-lossy IDs**. Other tests independently verify
+positive/negative ns truncation and bounds, precision-created ambiguity, sequence
+and precedence, coverage, table/file replacement, unchanged Ibis SQL, cross-batch
+keys/schema/early close, real query interrupt, and atomic failure at the shared
+600-second checkpoints. There are no new row/memory quotas. Durable original-Run
+commit acknowledgement retains the existing Store 7 recovery authority.
+
+The [R7.2 evidence index](2026-10-01-marivo-r72-evidence-index.md) and
+[qualification record](2026-10-01-marivo-r72-qualification.json) own exact validation
+receipts, environment, code hashes, preserved inputs and qualification limits.
+Matching/replay/new public domain results, all relative Metric expression/type
+cells, Finding and legacy closeout, same-wheel, R7.9, R9/new backend and entire R7
+acceptance are not granted. AGENTS.md and packaged skills are unchanged; no
+commit, push, publication or release occurred.
+
+
+### R7.2 adversarial review repairs (2026-10-01)
+
+The six reproduced review findings are repaired: prepared contributions use ordered
+Subject identity rather than relationship key order; prepared observation admits
+normalized historical relationship contracts and checks root version nonoverlap;
+version checks share the native captured time, including localized timestamp_ns;
+native table precision metadata reads the actual physical timestamp scale.
+Deadline checks stop ordinary execution before commit. Once Store 7 durably
+commits, acknowledgement and exact original-Run recovery preserve the committed
+outcome instead of reporting an ordinary timeout after successful publication.
+Six independent regression cases and the existing historical cases with normalized
+version flags exercise these boundaries. Preparation qualification still excludes
+matching, replay, public domain results and new backends.

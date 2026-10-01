@@ -246,14 +246,31 @@ This section owns F06/F08/F10 time meaning and calendar refusal. Duration
 arithmetic/rounding belongs to the
 [operator owner](operators-and-frames.md#r71-frozen-domain-method-rules).
 
-Occurrence time is an absolute aware instant with exact source precision and
-parser/timezone fingerprint. Required cells are native UTC/report-local aware
-microseconds and Parquet s/ms/us/ns, each preserving int64 ticks on exchange and
-fixed recovery. DATE and unresolved naive occurrence time are refused. Required
-report-local aware DST cells do not permit ambiguous naive wall clocks. Exact
-submicrosecond data never passes through datetime.to_pydatetime() or a float
-second representation. If a boundary/zone conversion cannot preserve the admitted
-unit, that invocation refuses; it is not a lower-precision passing cell.
+Occurrence time is an absolute aware instant with a frozen parser/timezone
+fingerprint. The **2026-10-01 R7.2 precision amendment** supersedes R7.1's
+source-lossless requirement, including its ns tick transport requirement.
+Native source/Ibis/driver conversion may lose precision, including ns to us.
+Preparation records the declared source unit, observed file unit, actual captured
+unit and native conversion behavior. When individual losses cannot be determined,
+it records **possibly lossy**; it does not claim lossless timestamps. No additional
+source-side lossless tick extractor is required. All membership/time bounds,
+version selection, order checks, consumption and future durations/windows use
+the actual captured representation. Precision-created ties still need business
+order unless a closed operator invariant applies; occurrence IDs cannot repair
+ambiguity. DATE and unresolved/ambiguous naive time remain refused. Resolved naive
+conversion is tested as an additional conversion/negative-boundary case, not a
+new positive P01 source profile.
+
+R7.2's qualified DuckDB table/local Parquet captures use timestamp(us, UTC) in
+Arrow. P01 preserves the original s/ms/us/ns and UTC/New_York report profile in
+qualification identity; fixed/cold execution uses the actual us carrier. The
+qualified naive timestamp_ns cast truncates toward zero for positive and negative
+values; aware/source conversion may happen earlier and remains possibly lossy.
+Parquet writes Arrow seconds as milliseconds in the selected PyArrow version,
+which is separately disclosed. Receipt-bound schema metadata, Evidence identity
+and fixed/cold recovery retain this disclosure. Future public domain result
+`.show()` must render it. R7.1's historical snapshot and requirement IDs remain
+unchanged; the R7.2 evidence index records which IDs passed under this amendment.
 
 Start selection is [cohort_window.start, cohort_window.end). completion_through
 is an exclusive absolute bound, independent of membership and start windows.
@@ -273,7 +290,7 @@ constraint and repair to an explicit elapsed window or a business-approved
 unambiguous local boundary. No shift-forward, inherited fold or host timezone
 repairs it. A unique valid instant is used; an already aware Anchor instant in
 a repeated hour remains exact. Deadline conversion must also preserve the
-declared tick unit and reject overflow.
+actual captured tick unit and reject overflow.
 
 The window is [anchor, deadline); the Anchor occurrence itself is excluded by
 its full Event/occurrence identity. A different occurrence at the same instant

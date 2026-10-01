@@ -96,7 +96,15 @@ class MethodRegistration:
                         repr(implementation.key),
                         "Declare a shape admitted by the closed correspondence rule.",
                     )
-            elif rule in ("bind_project@v1", "parts_transport@v1") and input_count != 1:
+            elif (
+                rule in ("bind_project@v1", "parts_transport@v1")
+                and input_count != 1
+                and not (
+                    input_count == 2
+                    and self.semantics.key.name
+                    in ("metric.count", "metric.observe", "metric.sum_zero", "metric.mean")
+                )
+            ):
                 reject(
                     "one ordered input for this method",
                     repr(implementation.key),

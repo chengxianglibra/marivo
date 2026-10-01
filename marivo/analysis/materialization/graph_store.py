@@ -304,6 +304,14 @@ def publish(
         result = artifact(store, conn, ref)
         assert result is not None
         event("before_commit")
+        from marivo.analysis.materialization.execute_deadline import check
+
+        check()
         read_result(store.project_root, descriptor)
+        check()
+    from marivo.analysis.materialization.execute_deadline import COMMITTED, CURRENT
+
+    if CURRENT.get() is not None:
+        COMMITTED.set(True)
     event("after_commit")
     return result
