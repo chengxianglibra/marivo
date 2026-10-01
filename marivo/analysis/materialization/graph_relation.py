@@ -394,6 +394,9 @@ class Relation:
                 classification=self.classification_coordinate()
                 if field_kind == "dimension"
                 else None,
+                display_view=definition.display_view
+                if isinstance(definition, PartsTransport)
+                else None,
             ),
             value_type=self.root.value_type,
             retained_endpoints=(
@@ -755,7 +758,12 @@ class Relation:
             )
             if not matches:
                 retained = next(
-                    (p for p in signature.parts if isinstance(p, CoordinateStatePart)), None
+                    (
+                        p
+                        for p in signature.parts
+                        if isinstance(p, CoordinateStatePart) and not p.attribution_only
+                    ),
+                    None,
                 )
                 matches = (
                     ()

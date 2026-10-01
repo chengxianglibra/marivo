@@ -9,9 +9,12 @@ from marivo.analysis.core.model import CheckId, DomainKind, PartRole
 from marivo.analysis.core.rules import (
     AssociationScore,
     AttachCategory,
+    AttributionDerive,
     BindProject,
     CellDerive,
     CompleteGroups,
+    DisplayRank,
+    DisplayTable,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
@@ -43,6 +46,17 @@ from marivo.analysis.methods.physical import (
 from marivo.analysis.methods.semantics import MethodKey
 
 PARTS: tuple[PartRole, ...] = (
+    "basis",
+    "allocation",
+    "reconciliation",
+    "selection_scope",
+    "values",
+    "ranks",
+    "ranking_domain",
+    "partitions",
+    "ordering",
+    "columns",
+    "column_bindings",
     "fixed_reference",
     "reference_proof",
     "strata",
@@ -51,6 +65,7 @@ PARTS: tuple[PartRole, ...] = (
     "original_state",
     "row_state",
     "coverage",
+    "allocation_state",
     "coordinate_state",
 )
 CHECKS: tuple[CheckId, ...] = (
@@ -71,6 +86,68 @@ NUMERIC_CHECKS: tuple[CheckId, ...] = (
 
 
 def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
+    if method.name.startswith("attribution."):
+        return tuple(
+            Implementation(
+                QualificationKey(
+                    method,
+                    (ScalarType("int64"),) * 2,
+                    (domain,) * 2,
+                    shape,
+                    "artifact_python" if isinstance(shape, FixedShape) else "ibis_python",
+                ),
+                NUMERIC_CHECKS,
+                (*PARTS, "current_endpoint", "baseline_endpoint", "correspondence"),
+                "exact",
+                ResourceRequirements(
+                    "complete", "caller" if isinstance(shape, FixedShape) else "producer", None
+                ),
+                Qualified(
+                    f"r66.{method}.{domain}.{shape}",
+                    "analysis.materialization.graph_attribution",
+                    "tests/test_analysis_attribution_runtime_r66.py",
+                ),
+            )
+            for domain in ("entity", "group", "singleton")
+            for shape in (
+                SourceShape("duckdb", "table", "native", NoTime()),
+                SourceShape("duckdb", "parquet", "parquet", NoTime()),
+                SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
+                SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
+                FixedShape(NoTime()),
+            )
+        )
+    if method.name.startswith("display."):
+        return tuple(
+            Implementation(
+                QualificationKey(
+                    method,
+                    (ScalarType("int64"),),
+                    (domain,),
+                    shape,
+                    "artifact_python" if isinstance(shape, FixedShape) else "ibis_python",
+                ),
+                NUMERIC_CHECKS,
+                (*PARTS, "current_endpoint", "baseline_endpoint", "correspondence", "pair_counts"),
+                "exact",
+                ResourceRequirements(
+                    "complete", "caller" if isinstance(shape, FixedShape) else "producer", None
+                ),
+                Qualified(
+                    f"r65.{method}.{domain}.{shape}",
+                    "analysis.materialization.graph_display",
+                    "tests/test_analysis_display_r65.py",
+                ),
+            )
+            for domain in ("entity", "group", "singleton")
+            for shape in (
+                SourceShape("duckdb", "table", "native", NoTime()),
+                SourceShape("duckdb", "parquet", "parquet", NoTime()),
+                SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
+                SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
+                FixedShape(NoTime()),
+            )
+        )
     if method.name.startswith("reference."):
         shapes: tuple[SourceShape | FixedShape, ...] = (
             SourceShape("duckdb", "table", "native", NoTime()),
@@ -874,6 +951,30 @@ def specialize_arity(implementation: Implementation, arity: int) -> Implementati
 
 def specialize_numeric(implementation: Implementation, key: QualificationKey) -> Implementation:
     """Bind precise numeric families and closed typed predicate inputs."""
+    if (
+        key.method.name.startswith("attribution.")
+        and key.input_domains == implementation.key.input_domains
+        and len(key.input_types) == 2
+        and key.input_types[0] == key.input_types[1]
+    ):
+        return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
+    if (
+        key.method.name.startswith("display.")
+        and key.input_domains == (implementation.key.input_domains[0],) * len(key.input_types)
+        and len(key.input_types) >= 1
+    ):
+        if (
+            key.method.name == "display.rank"
+            and isinstance(key.input_types[0], ScalarType)
+            and key.input_types[0].name not in ("int64", "float64")
+        ):
+            return implementation
+        return replace(
+            implementation,
+            key=replace(
+                implementation.key, input_types=key.input_types, input_domains=key.input_domains
+            ),
+        )
     if key.method.name == "group.attach":
         if (
             key.input_domains != implementation.key.input_domains
@@ -1016,7 +1117,18 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             repr(params.coordinates),
             "Omit contribution coordinates; SQLite nested state is not qualified.",
         )
-    if isinstance(params, (AttachCategory, CompleteGroups, TimeProduct, ReferenceDerive)):
+    if isinstance(
+        params,
+        (
+            AttributionDerive,
+            AttachCategory,
+            CompleteGroups,
+            TimeProduct,
+            ReferenceDerive,
+            DisplayRank,
+            DisplayTable,
+        ),
+    ):
         return
     if isinstance(params, ObserveWeightedMean):
         if params.amount_type not in ("int64", "float64") and not params.amount_type.startswith(
@@ -1116,7 +1228,7 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
                 "Bind the ordered comparable endpoints and registered checks.",
             )
     elif isinstance(params, PartsTransport):
-        if params.mode not in ("where", "projection", "view", "cohort") or (
+        if params.mode not in ("where", "projection", "view", "cohort", "limit") or (
             params.mode == "where" and not params.predicates
         ):
             reject(

@@ -449,6 +449,10 @@ class MemberGraph:
                         "reference.share",
                         "reference.penetration",
                         "reference.standardize",
+                        "attribution.additive_difference",
+                        "attribution.component_mix",
+                        "display.rank",
+                        "display.table",
                     )
                     else "ibis",
                 )

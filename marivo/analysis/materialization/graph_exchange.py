@@ -15,9 +15,11 @@ import pyarrow as pa
 
 from marivo.analysis.compiler.graph_plan import CheckRequirement
 from marivo.analysis.core.model import (
+    AttributionPart,
     CoordinateStatePart,
     CorrespondencePart,
     DerivedQuantity,
+    DisplayPart,
     OriginalStatePart,
     RowStatePart,
     Signature,
@@ -90,6 +92,7 @@ class ExchangeContract:
     state_schema: pa.Schema | None = None
     pending_checks: tuple[CheckRequirement, ...] = ()
     allow_empty_singleton: bool = False
+    column_reasons: tuple[tuple[tuple[str, tuple[str, ...]], ...], ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -106,13 +109,29 @@ class ExchangeContract:
                 part.key_fields != self.key_fields
                 for part in self.parts
                 if part.role
-                not in ("fixed_reference", "reference_proof", "strata", "stratum_values")
+                not in (
+                    "fixed_reference",
+                    "reference_proof",
+                    "strata",
+                    "stratum_values",
+                    "ranking_domain",
+                    "partitions",
+                    "ordering",
+                )
+                and not any(
+                    isinstance(p, AttributionPart) and p.role == part.role
+                    for p in self.signature.parts
+                )
             )
             or len({tag for tag, _ in self.cell_reasons}) != len(self.cell_reasons)
             or any(tag not in ("null", "undefined", "unknown") for tag, _ in self.cell_reasons)
             or self.state_kind
             not in (
                 "none",
+                "attribution_additive",
+                "attribution_component_mix",
+                "ranking",
+                "table",
                 "cohort",
                 "share",
                 "penetration",
@@ -149,6 +168,8 @@ class ExchangeContract:
                     self.key_fields
                     or self.method.name
                     not in (
+                        "display.rank",
+                        "display.table",
                         "parts_transport",
                         "cell.difference",
                         "cell.relative_change",
@@ -224,6 +245,7 @@ class CheckedStream:
         keys: tuple[str, ...],
         cell_reasons: tuple[tuple[str, tuple[str, ...]], ...] = (),
         validate_cells: bool = True,
+        nullable_keys: frozenset[str] = frozenset(),
     ) -> None:
         if not source.schema.equals(schema, check_metadata=False):
             source.close()
@@ -231,6 +253,7 @@ class CheckedStream:
         self._source = source
         self.schema = schema
         self._keys = keys
+        self._nullable_keys = nullable_keys
         self._cell_reasons = dict(cell_reasons)
         self._validate_cell_values = validate_cells
         self._started = False
@@ -254,7 +277,13 @@ class CheckedStream:
                     columns = tuple(batch.column(name) for name in self._keys)
                     for index in range(batch.num_rows):
                         key = tuple(column[index].as_py() for column in columns)
-                        if any(value is None for value in key) or key in seen_keys:
+                        if (
+                            any(
+                                value is None and name not in self._nullable_keys
+                                for name, value in zip(self._keys, key, strict=True)
+                            )
+                            or key in seen_keys
+                        ):
                             raise _invalid("null or duplicate complete key")
                         seen_keys.add(key)
                 if self._validate_cell_values and {"value", "cell_tag", "cell_reason"} <= set(
@@ -324,7 +353,14 @@ def collect(
     method_state: pa.Table | None = None,
 ) -> ExchangeResult:
     """Exhaust one producer and validate every independently keyed state part."""
-    stream = CheckedStream(source, contract.schema, contract.key_fields, contract.cell_reasons)
+    nullable = frozenset(
+        f"key_{i}"
+        for i, c in enumerate(contract.signature.domain.instance_key)
+        if c.field.startswith("attribution:axis:")
+    )
+    stream = CheckedStream(
+        source, contract.schema, contract.key_fields, contract.cell_reasons, nullable_keys=nullable
+    )
     try:
         primary = pa.Table.from_batches(tuple(stream), schema=contract.schema)
     finally:
@@ -342,12 +378,34 @@ def collect(
         for p in contract.signature.parts
     ):
         raise _invalid("unsupported required numerical state version")
-    primary_keys = _table_keys(primary, contract.key_fields)
+    primary_keys = _table_keys(primary, contract.key_fields, nullable)
     for declared, part in zip(contract.parts, parts, strict=True):
         if not part.table.schema.equals(declared.schema, check_metadata=False):
             raise _invalid(f"{declared.role} schema differs")
         from marivo.analysis.core.model import ReferenceStatePart
 
+        attribution_part = next(
+            (
+                p
+                for p in contract.signature.parts
+                if isinstance(p, AttributionPart) and p.role == part.role
+            ),
+            None,
+        )
+        if attribution_part is not None:
+            from marivo.analysis.materialization.graph_attribution import (
+                part_keys as attribution_keys,
+            )
+
+            if declared.key_fields != attribution_keys(attribution_part):
+                raise _invalid("attribution part keys differ from its frozen scope")
+            if any(
+                part.table.schema.field(k).type != primary.schema.field(k).type
+                for k in declared.key_fields
+            ):
+                raise _invalid("attribution scope key types differ")
+            _table_keys(part.table, declared.key_fields, nullable)
+            continue
         reference_part = next(
             (
                 item
@@ -400,10 +458,17 @@ def collect(
             for key in declared.key_fields
         ):
             raise _invalid(f"{declared.role} key types differ")
-        part_keys = _table_keys(part.table, declared.key_fields)
+        part_keys = _table_keys(part.table, declared.key_fields, nullable)
         if declared.role == "cohort_decision" and contract.state_kind == "cohort":
             if not primary_keys <= part_keys:
                 raise _invalid("cohort decision lacks selected target keys")
+        elif declared.role in (
+            "ranking_domain",
+            "partitions",
+            "ordering",
+        ):
+            if not primary_keys <= part_keys:
+                raise _invalid("ranking scope lacks selected keys")
         elif part_keys != primary_keys:
             raise _invalid(f"{declared.role} complete keys differ")
     coordinate = next(
@@ -411,18 +476,18 @@ def collect(
     )
     if coordinate is not None:
         by_role = {part.role: part.table for part in parts}
-        if "original_state" not in by_role or "coordinate_state" not in by_role:
+        if "original_state" not in by_role or part_role(coordinate) not in by_role:
             raise _invalid("coordinate partition lacks original or coordinate components")
         original = {
             tuple(row[name] for name in contract.key_fields): row
             for row in by_role["original_state"].to_pylist()
         }
-        for row in by_role["coordinate_state"].to_pylist():
+        for row in by_role[part_role(coordinate)].to_pylist():
             key = tuple(row[name] for name in contract.key_fields)
             if not coordinate_state_matches(
                 coordinate.components,
                 coordinate.value_type,
-                row.get("coordinate_state__groups"),
+                row.get(part_role(coordinate) + "__groups"),
                 original[key],
                 coordinate.columns,
             ):
@@ -482,7 +547,7 @@ def collect(
         if (
             method_state is None
             or not method_state.schema.equals(contract.state_schema, check_metadata=False)
-            or _table_keys(method_state, contract.key_fields) != primary_keys
+            or _table_keys(method_state, contract.key_fields, nullable) != primary_keys
         ):
             raise _invalid("missing or mismatched method state vector")
         states = {
@@ -512,6 +577,21 @@ def collect(
                     != error_bounds(reference_parameters(contract.signature), parts, primary)
                 ):
                     raise _invalid("reference result error envelope differs from retained operands")
+        elif contract.state_kind in (
+            "ranking",
+            "table",
+            "attribution_additive",
+            "attribution_component_mix",
+        ):
+            expected_status = (
+                primary["cell_tag"].to_pylist()
+                if contract.state_kind != "table"
+                else ["accepted"] * primary.num_rows
+            )
+            if [
+                states[tuple(row[k] for k in contract.key_fields)] for row in primary.to_pylist()
+            ] != expected_status:
+                raise _invalid("display method status differs")
         elif contract.state_kind == "cohort":
             if any(value != "accepted" for value in states.values()):
                 raise _invalid("cohort state contains an unaccepted target")
@@ -571,6 +651,18 @@ def collect(
                     selected_keys.add(tuple(row[key] for key in contract.key_fields))
             if selected_keys != primary_keys:
                 raise _invalid("cohort selected image differs from complete target decisions")
+    if any(isinstance(p, AttributionPart) for p in contract.signature.parts):
+        from marivo.analysis.materialization.graph_attribution import validate
+
+        validate(contract, primary, parts)
+    else:
+        from marivo.analysis.materialization.graph_attribution import validate_endpoints
+
+        validate_endpoints(contract.signature, parts, contract.key_fields)
+    if any(isinstance(p, DisplayPart) for p in contract.signature.parts):
+        from marivo.analysis.materialization.graph_display import validate
+
+        validate(contract, primary, parts)
     return ExchangeResult(contract, primary, parts, completed_checks, method_state)
 
 
@@ -589,7 +681,7 @@ def _verify_difference_parts(
             *keys,
             *(f"{part.role}__{name}" for name in ("value", "cell_tag", "cell_reason")),
         )
-        if tuple(part.table.column_names) != expected_names:
+        if tuple(part.table.column_names[: len(expected_names)]) != expected_names:
             raise _invalid("incomplete ordered Difference endpoint schema")
         endpoint_type = part.table.schema.field(f"{part.role}__value").type
         if not (
@@ -851,12 +943,20 @@ def _verify_single_state_part(
             raise _invalid("method state and primary Cell disagree")
 
 
-def _table_keys(table: pa.Table, fields: tuple[str, ...]) -> set[tuple[object, ...]]:
+def _table_keys(
+    table: pa.Table, fields: tuple[str, ...], nullable: frozenset[str] = frozenset()
+) -> set[tuple[object, ...]]:
     columns = tuple(table.column(name) for name in fields)
     result: set[tuple[object, ...]] = set()
     for index in range(table.num_rows):
         key = tuple(column[index].as_py() for column in columns)
-        if any(value is None for value in key) or key in result:
+        if (
+            any(
+                value is None and name not in nullable
+                for name, value in zip(fields, key, strict=True)
+            )
+            or key in result
+        ):
             raise _invalid("null or duplicate complete part key")
         result.add(key)
     return result

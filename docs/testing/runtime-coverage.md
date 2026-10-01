@@ -141,3 +141,38 @@ construction, retained inputs, source re-evaluation, shared realization,
 source-offline fresh-process continuations, corruption and publication cleanup.
 This is focused Runtime acceptance. Ranking/Top-K invariance belongs to R6.5;
 installed-wheel closure belongs to R6.7.
+
+R6.5 display qualification is owned by `tests/test_analysis_display_r65.py`:
+public DuckDB table/local-Parquet and fixed ranking I/F/D/T (Duration us), four
+tie policies and both directions, composite identities and null partitions,
+Entity/Group/Singleton and UTC monthly Entity×Time domains, full-key scalar
+terminal tables, shared realization, fresh source/fixed input distinction,
+strict two-step Top-K, preserved reference/quantity/order, empty selections and
+empty Singleton tables. Controlled fixed exchanges cover all four Cell tags;
+public source producers cover Defined/Null/Undefined without inventing an Unknown
+producer. New-process source-offline recovery disables Semantic and DuckDB and
+executes ranking selections plus terminal table restoration. Tests also inject
+missing/corrupt parts, state/part versions, rank/order/binding corruption and
+publication faults. `test_cutover_documentation_examples.py` executes the same
+latest English/Chinese display example on table and Parquet sources. This does
+not qualify other Duration units, temporal shapes, remote backends or installed
+wheel paths; R6.6/R6.7 retain their separate acceptance owners.
+
+R6.6 allocation qualification is owned by tests/test_analysis_attribution_runtime_r66.py:
+DuckDB native tables/local Parquet and fixed additive sum/linear I/F/D/T and int64 count,
+component_mix mean/weighted_mean/original ratio I/F/D, logical missing-axis
+expansion, fixed missing-axis rejection, raw-fact side/contribution oracles,
+common asymmetric Top-K, real "Other" collisions, mapped-parent hierarchy,
+per-resolution reconciliation, unconditional selected completeness revocation,
+missing/corrupt parts and versions, shared realization and exact compiled/native
+submissions, fresh source evaluation with fixed retention, UTC monthly
+PeriodChange and day-to-month retained partitions, floating numeric-view bound
+transport and excess small-Decimal rounding rejection before publication.
+A producer and two new processes continue/recover with sources
+renamed away and Semantic/DuckDB/SourceSession disabled. Pure arithmetic in
+tests/test_analysis_attribution_r66.py owns large exact carriers, checked overflow,
+finite outputs, contradictory basis, high-precision component side terms,
+denominator error intervals and many-small-Decimal rounding thresholds.
+test_cutover_documentation_examples.py executes identical latest bilingual
+attribution examples. True-null source coordinates remain rejected under R5;
+additional time shapes and installed-wheel/remote acceptance remain unverified.

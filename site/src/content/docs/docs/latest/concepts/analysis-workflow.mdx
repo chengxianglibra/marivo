@@ -759,5 +759,89 @@ int64/float64 with integer/float weights, or Decimal with Decimal weights.
 Use fixed values, classifications and weights together for fixed continuation.
 After recovery, `where` executes with the retained reference even when sources
 are offline. Read `marivo.help("analysis.methods.metric.reference")` for the
-focused constructors and methods. Ranking/Top-K reference invariance and
-installed-wheel closure have separate acceptance phases.
+focused constructors and methods. Ranking/Top-K reference invariance is covered
+below; installed-wheel closure remains R6.7 acceptance.
+
+## Ranking and terminal tables
+
+Rank exact values with an explicit tie policy. Both views share the current keys;
+filtering keeps original ranks and references. `limit` takes the global prefix,
+whereas per-partition Top-K uses the selected rank view in two steps:
+
+```python
+ranking = counts.rank(order="descending", ties="min", partition_by=(region,))
+defined = ranking.where(ranking.ranks.value.is_defined())
+top = defined.where(defined.ranks.value.lte(3))
+prefix = ranking.limit(3)
+result = mv.table(amount=top.values, rank=top.ranks).execute()
+result.show()
+frame = result.to_pandas()
+restored = session.artifact(result.artifact_ref)
+```
+
+`ordinal` breaks ties by the complete instance key; `dense`, `min` and `max`
+retain their distinct rank rules, so Top-K can contain more than K rows. Every
+non-Defined Cell keeps its label and reason and follows the Defined rows within
+its partition. Ordering uses exact int64, finite float64, Decimal or Duration
+values without epsilon ties. Fixed continuations work from saved parts offline.
+
+Tables require complete equal keys, compatible time meaning and one Session and
+source/fixed mode. Export uses canonical key order, keys once and author column
+order, preserving large integers, Decimal and Duration. Non-Defined values become
+missing in pandas, which loses their labels and reasons; the Artifact and
+`show()` retain them. Tables expose no `contract`, dynamic columns or analysis
+continuations. Use `marivo.help("analysis.dsl.NumericComparison.rank")` or
+`marivo.help("analysis.dsl.table")` for focused details. Qualification covers
+DuckDB tables/local Parquet and fixed Artifacts; installed-wheel closure is R6.7.
+
+## Allocating an absolute change
+
+Retain the contribution axes before materializing a Difference. The original
+method selects additive differences for sum/count/linear, or component_mix for
+mean/weighted_mean/original ratios. Component side terms use the side's total
+denominator, so they are allocated contributions rather than group ratios.
+
+```python
+attribution_members = session.members(ms.ref.entity("sales.customer"))
+channel = ms.ref.dimension("sales.order.channel")
+current_counts = attribution_members.observe(
+    ms.ref.metric("sales.order_count"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    coordinates=(channel,),
+).rollup()
+baseline_counts = attribution_members.observe(
+    ms.ref.metric("sales.order_count"),
+    during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    coordinates=(channel,),
+).rollup()
+change = current_counts.compare(baseline_counts)
+allocation = change.attribute(axes=(channel,), top_k=3).execute()
+selected_allocation = allocation.where(allocation.contribution.value.is_defined()).execute()
+allocated_table = mv.table(
+    contribution=selected_allocation.contribution,
+    current=selected_allocation.current,
+    baseline=selected_allocation.baseline,
+).execute()
+allocation.contract().show()
+restored_allocation = session.artifact(allocation.state.artifact_ref)
+```
+
+Top-K uses one mapping on the union of both endpoint bases. A remainder mask
+distinguishes mapped Other from a real string "Other". With two or more axes,
+`mode="hierarchy"` emits every authored prefix and reconciles each resolution
+separately. `joint` emits full tuples. Selection retains the original target,
+complete basis, rule and reconciliation scope, and always revokes completeness
+of the selected subdomain. It does not reallocate or rebalance residuals.
+
+Logical missing axes expand the frozen observations as explicit graph inputs.
+Fixed missing axes reject before source access. Fixed complete states support
+allocation, view selection and table export offline, including fresh processes.
+Additive int64, Decimal and Duration use exact carriers; component_mix accepts
+int64/float64/Decimal components and rejects Duration. Zero or unstable total
+denominators, contradictory nonzero numerator/zero basis and excess rounding
+residual reject. Relative/nested changes, distinct/distribution/extrema and
+unproved overlapping states have no allocation method. Read
+`marivo.help("analysis.dsl.LogicalDifferenceRelation.attribute")` for the focused
+contract. This qualification does not grant installed-wheel or remote acceptance.

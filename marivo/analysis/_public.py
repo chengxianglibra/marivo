@@ -146,6 +146,7 @@ from marivo.analysis.public_dsl import GroupedRatioRelation as GroupedRatioRelat
 from marivo.analysis.public_dsl import GroupedStatisticRelation as GroupedStatisticRelation
 from marivo.analysis.public_dsl import LogicalAnalysisDomain as LogicalAnalysisDomain
 from marivo.analysis.public_dsl import LogicalAssociationResult as LogicalAssociationResult
+from marivo.analysis.public_dsl import LogicalAttributionResult as LogicalAttributionResult
 from marivo.analysis.public_dsl import LogicalBooleanRelation as LogicalBooleanRelation
 from marivo.analysis.public_dsl import LogicalCategoryRelation as LogicalCategoryRelation
 from marivo.analysis.public_dsl import (
@@ -154,6 +155,7 @@ from marivo.analysis.public_dsl import (
 from marivo.analysis.public_dsl import LogicalDifferenceRelation as LogicalDifferenceRelation
 from marivo.analysis.public_dsl import LogicalFixedAnalysisDomain as LogicalFixedAnalysisDomain
 from marivo.analysis.public_dsl import LogicalNumericRelation as LogicalNumericRelation
+from marivo.analysis.public_dsl import LogicalRankingResult as LogicalRankingResult
 from marivo.analysis.public_dsl import LogicalRatioRelation as LogicalRatioRelation
 from marivo.analysis.public_dsl import LogicalRolledNumericRelation as LogicalRolledNumericRelation
 from marivo.analysis.public_dsl import LogicalRolledRatioRelation as LogicalRolledRatioRelation
@@ -173,11 +175,15 @@ from marivo.analysis.public_dsl import (
     LogicalSelectedTemporalRelation as LogicalSelectedTemporalRelation,
 )
 from marivo.analysis.public_dsl import LogicalStatisticRelation as LogicalStatisticRelation
+from marivo.analysis.public_dsl import LogicalTable as LogicalTable
 from marivo.analysis.public_dsl import LogicalTemporalRelation as LogicalTemporalRelation
 from marivo.analysis.public_dsl import LogicalTimeAnalysisDomain as LogicalTimeAnalysisDomain
 from marivo.analysis.public_dsl import MaterializedAnalysisDomain as MaterializedAnalysisDomain
 from marivo.analysis.public_dsl import (
     MaterializedAssociationResult as MaterializedAssociationResult,
+)
+from marivo.analysis.public_dsl import (
+    MaterializedAttributionResult as MaterializedAttributionResult,
 )
 from marivo.analysis.public_dsl import MaterializedBooleanRelation as MaterializedBooleanRelation
 from marivo.analysis.public_dsl import MaterializedCategoryRelation as MaterializedCategoryRelation
@@ -194,6 +200,7 @@ from marivo.analysis.public_dsl import (
     MaterializedGroupedNumericRelation as MaterializedGroupedNumericRelation,
 )
 from marivo.analysis.public_dsl import MaterializedNumericRelation as MaterializedNumericRelation
+from marivo.analysis.public_dsl import MaterializedRankingResult as MaterializedRankingResult
 from marivo.analysis.public_dsl import MaterializedRatioRelation as MaterializedRatioRelation
 from marivo.analysis.public_dsl import (
     MaterializedRolledNumericRelation as MaterializedRolledNumericRelation,
@@ -219,6 +226,7 @@ from marivo.analysis.public_dsl import (
 from marivo.analysis.public_dsl import (
     MaterializedStatisticRelation as MaterializedStatisticRelation,
 )
+from marivo.analysis.public_dsl import MaterializedTable as MaterializedTable
 from marivo.analysis.public_dsl import MaterializedTemporalRelation as MaterializedTemporalRelation
 from marivo.analysis.public_dsl import (
     MaterializedTimeAnalysisDomain as MaterializedTimeAnalysisDomain,
@@ -239,6 +247,7 @@ from marivo.analysis.public_dsl import reference_weights as reference_weights
 from marivo.analysis.public_dsl import route as route
 from marivo.analysis.public_dsl import routes as routes
 from marivo.analysis.public_dsl import sum as sum
+from marivo.analysis.public_dsl import table as table
 from marivo.analysis.public_dsl import time_grid as time_grid
 from marivo.analysis.refs import ArtifactRef as ArtifactRef
 from marivo.analysis.session._lazy_read_model import ArtifactSummary as ArtifactSummary
@@ -252,6 +261,13 @@ from marivo.analysis.subject import DroppedBefore as DroppedBefore
 from marivo.analysis.subject import dropped_before as dropped_before
 
 __all__ = [  # noqa: RUF022 - accepted public export order is contractual
+    "LogicalAttributionResult",
+    "MaterializedAttributionResult",
+    "LogicalRankingResult",
+    "MaterializedRankingResult",
+    "LogicalTable",
+    "MaterializedTable",
+    "table",
     "ReferenceWeights",
     "reference_weights",
     "SubjectBinding",

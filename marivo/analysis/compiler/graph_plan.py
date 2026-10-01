@@ -204,6 +204,10 @@ def plan(
                             "reference.share",
                             "reference.penetration",
                             "reference.standardize",
+                            "attribution.additive_difference",
+                            "attribution.component_mix",
+                            "display.rank",
+                            "display.table",
                         )
                     )
                     for edge in node.inputs

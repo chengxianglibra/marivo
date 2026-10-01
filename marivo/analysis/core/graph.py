@@ -9,8 +9,11 @@ from uuid import uuid4
 
 from marivo.analysis.core.model import Signature, reject
 from marivo.analysis.core.rules import (
+    AttributionDerive,
     BindProject,
     CellDerive,
+    DisplayRank,
+    DisplayTable,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
@@ -407,7 +410,17 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
         _fail("immutable typed retained endpoint definitions", node.identity)
     if node.retained_endpoints:
         if not isinstance(
-            node.parameters, (CellDerive, PartsTransport, OriginalReduce, RowState, ReferenceDerive)
+            node.parameters,
+            (
+                AttributionDerive,
+                CellDerive,
+                PartsTransport,
+                OriginalReduce,
+                RowState,
+                ReferenceDerive,
+                DisplayRank,
+                DisplayTable,
+            ),
         ):
             _fail("retained endpoints only for comparison or state transport", node.identity)
         if len(node.retained_endpoints) != len(node.inputs):

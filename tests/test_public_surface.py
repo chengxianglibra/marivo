@@ -139,6 +139,13 @@ SEMANTIC_PUBLIC = {
 }
 
 ANALYSIS_PUBLIC = {
+    "LogicalAttributionResult",
+    "MaterializedAttributionResult",
+    "LogicalRankingResult",
+    "MaterializedRankingResult",
+    "LogicalTable",
+    "MaterializedTable",
+    "table",
     "ReferenceWeights",
     "reference_weights",
     "SubjectBinding",
@@ -319,7 +326,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "de227c0c3407770a9024f8c55faa7ffb1434e7dbb2b978c1cfc502fe10725bb6"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "5891d32f9ac2c5af2b75f964d8b6b46fc99e3d9f80ebdf68d81d95a0fa542958"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

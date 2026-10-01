@@ -20,7 +20,10 @@ from marivo.analysis.core.graph import (
 )
 from marivo.analysis.core.model import Signature
 from marivo.analysis.core.rules import (
+    AttributionDerive,
     CellDerive,
+    DisplayRank,
+    DisplayTable,
     OriginalReduce,
     PartsTransport,
     ReferenceDerive,
@@ -195,7 +198,16 @@ def _order(document: GraphDocument) -> tuple[Record, ...]:
             if record.retained_endpoints and (
                 not isinstance(
                     record.parameters,
-                    (CellDerive, PartsTransport, OriginalReduce, RowState, ReferenceDerive),
+                    (
+                        AttributionDerive,
+                        CellDerive,
+                        PartsTransport,
+                        OriginalReduce,
+                        RowState,
+                        ReferenceDerive,
+                        DisplayRank,
+                        DisplayTable,
+                    ),
                 )
                 or len(record.retained_endpoints) != len(record.inputs)
             ):

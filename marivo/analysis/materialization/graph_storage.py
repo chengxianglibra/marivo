@@ -112,7 +112,7 @@ def read_result(root: Path, descriptor: Descriptor) -> ExchangeResult:
             [
                 *(primary.column(key) for key in keys),
                 pa.array(["accepted"] * len(primary), type=pa.string())
-                if descriptor.method_state.kind == "cohort"
+                if descriptor.method_state.kind in ("cohort", "table")
                 else primary.column(column),
             ],
             names=[*keys, "status"],
@@ -147,5 +147,6 @@ def read_result(root: Path, descriptor: Descriptor) -> ExchangeResult:
         None if statuses is None else statuses.schema,
         (),
         descriptor.row_set_contract.kind == "optional_singleton",
+        descriptor.row_contract.column_reasons,
     )
     return from_arrow(primary, contract, parts=parts, method_state=statuses)

@@ -1857,6 +1857,10 @@ ranking result restrict both views; where on attribution restricts all three.
 An attribution's current/baseline labels mean allocated side terms, especially
 for component_mix. View selection preserves the original ranking/reference/
 reconciliation scope while separately recording the current selected domain.
+Attribution numeric views disclose their valid where, current-row summarize,
+rank and explicit ratio continuations; they acquire no original Metric rollup
+or time-comparison template. Ranking consumes their typed Other mask and retains
+the original allocation evidence on its values view.
 
 Table requires at least one column with a nonempty string display label;
 keyword insertion order fixes output-column order. All columns must have the
@@ -1927,3 +1931,62 @@ proof and all weights/values, including zero-weight non-Defined strata. Fixed
 recovery executes those continuations without current Semantic or DuckDB.
 R6.5 ranking/Top-K invariance and R6.7 installed-wheel acceptance are not qualified
 by this source-checkout implementation.
+
+### R6.5 connected ranking and terminal tables
+
+`NumericRelation.rank(order=..., ties=..., partition_by=())` now returns
+`LogicalRankingResult`; `execute()` returns `MaterializedRankingResult`.
+The fixed properties `values` and `ranks` return the existing numeric family.
+`values` preserves the original quantity and actual sufficient parts; `ranks`
+is a new int64 quantity bound to the original ranking domain. Both views follow
+the retained ranking order. Result `where` and `limit` return Logical rankings,
+restrict both views together and preserve original ranks and fixed references.
+`limit(1..100000)` excludes bool and selects a global prefix. Per-partition Top-K
+uses two steps, first `is_defined()`, then `lte(k)` on the selected ranks.
+
+`mv.table(**columns)` returns `LogicalTable`, and execution returns
+`MaterializedTable`. These terminal types provide no contract, field predicates,
+column attributes or analysis continuations. Only the materialized type exposes
+`artifact_ref`, bounded `show()` and isolated `to_pandas()`.
+Export contains keys once followed by authored value labels in insertion order,
+in deterministic canonical key order. Arrow-backed pandas dtypes preserve int64,
+Decimal and Duration precision. Non-Defined Cells export as missing values: this
+compact export loses the distinction between Null, Undefined and Unknown and
+their reasons. The saved Artifact and `show()` retain those facts. No status
+columns or export options are added. The qualified source routes are DuckDB
+native tables and local Parquet; fixed continuations consume verified Store 7
+parts. R6.6 attribution, R6.7 same-wheel closure and remote qualifications remain
+separate acceptance work.
+
+### R6.6 connected allocation
+
+Absolute Difference.attribute(axes=..., mode="joint", top_k=None) returns
+LogicalAttributionResult; execute() returns MaterializedAttributionResult.
+Original sum/count/linear select additive_difference; mean/weighted_mean/ratio
+select component_mix. The factory does not accept a method override. Both
+endpoints must retain complete disjoint original components, valid policies and
+Defined overall values. Direct-only aggregates, extrema, folds, relative or
+nested changes and selected Differences do not inherit allocation authority.
+
+Logical missing axes rebuild the frozen observation graph as an explicit second
+input and validate its endpoints against the original target. Existing source
+captures share their nodes; fixed inputs require the requested ordered axes in
+checked parts and never re-open sources through lineage. Original reduction
+retains an allocation_state partition for this purpose without restoring removed
+axes as public group_by authority. Qualified axes remain direct string Dimensions
+on the contribution root, under the existing non-null coordinate-state contract.
+
+Both bases use one typed Top-K mapping before allocation. Hierarchy reuses that
+mapping for each authored prefix. Original comparison scope, resolution, axes
+and Other mask form complete output keys. Only attribution axis components may
+be null, denoting mapped Other or inactive prefix positions; the mask and
+resolution distinguish them. Source key checks and joins, fixed exchange and
+receipts retain that exact identity. A real "Other" string has a zero Other bit.
+
+contribution/current/baseline are same-key NumericRelation views; component_mix
+side values are allocated numerator/overall-denominator terms. where retains
+the original target, complete basis, allocation rule and reconciliation scope,
+selects all three views together and unconditionally revokes current completeness.
+Views use existing predicate, rank and table consumers and do not gain original
+Metric merge state. Native Help owns static facts and contract() owns current
+continuations; existing packaged workflow guidance remains applicable unchanged.

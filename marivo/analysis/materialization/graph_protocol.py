@@ -14,10 +14,19 @@ from pydantic import BeforeValidator, PlainSerializer, TypeAdapter, ValidationEr
 from marivo.analysis.compiler.graph_plan import CheckRequirement, GraphPlan, RouteChoice
 from marivo.analysis.compiler.graph_plan import plan as make_plan
 from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
-from marivo.analysis.core.model import CorrespondencePart, Evidence, PartRole, Signature, part_role
+from marivo.analysis.core.model import (
+    AttributionPart,
+    CorrespondencePart,
+    Evidence,
+    PartRole,
+    Signature,
+    part_role,
+)
 from marivo.analysis.core.rules import (
     CellDerive,
     CompleteGroups,
+    DisplayRank,
+    DisplayTable,
     MapCorrespond,
     PartsTransport,
     TimeProduct,
@@ -189,6 +198,19 @@ class MethodState:
             if self.kind == "standardized"
             else ("fixed_reference", "reference_proof", "stratum_values")
             if self.kind in ("share", "penetration", "standardized")
+            else (
+                "current_endpoint",
+                "baseline_endpoint",
+                "basis",
+                "allocation",
+                "reconciliation",
+                "selection_scope",
+            )
+            if self.kind in ("attribution_additive", "attribution_component_mix")
+            else ("values", "ranks", "ranking_domain", "partitions", "ordering")
+            if self.kind == "ranking"
+            else ("columns", "column_bindings")
+            if self.kind == "table"
             else ("pair_counts",)
             if self.kind == "spearman"
             else ("current_endpoint", "baseline_endpoint", "correspondence")
@@ -278,6 +300,7 @@ class CompletedEvidence:
 class RowContract:
     key_fields: tuple[str, ...]
     cell_reasons: tuple[tuple[str, tuple[str, ...]], ...]
+    column_reasons: tuple[tuple[tuple[str, tuple[str, ...]], ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -407,7 +430,7 @@ def validate_descriptor(value: Descriptor) -> Node:
         params = root.parameters
         expects_value = (
             False
-            if isinstance(params, TimeProduct)
+            if isinstance(params, (TimeProduct, DisplayTable))
             else params.keep_quantity
             if isinstance(params, PartsTransport)
             else root.signature.quantity is not None
@@ -450,15 +473,34 @@ def validate_descriptor(value: Descriptor) -> Node:
             "keyed"
             if keys
             else "optional_singleton"
-            if isinstance(root.parameters, CellDerive)
-            or (isinstance(root.parameters, PartsTransport) and root.parameters.mode == "where")
+            if isinstance(root.parameters, (CellDerive, DisplayRank, DisplayTable))
+            or (
+                isinstance(root.parameters, PartsTransport)
+                and (
+                    root.parameters.mode in ("where", "limit")
+                    or root.parameters.display_view is not None
+                )
+            )
             else "singleton"
         )
         or any(
             p.input_binding != state.input_binding
             or (
                 p.key_fields != keys
-                and p.role not in ("fixed_reference", "reference_proof", "strata", "stratum_values")
+                and p.role
+                not in (
+                    "fixed_reference",
+                    "reference_proof",
+                    "strata",
+                    "stratum_values",
+                    "ranking_domain",
+                    "partitions",
+                    "ordering",
+                )
+                and not any(
+                    isinstance(part, AttributionPart) and part.role == p.role
+                    for part in value.signature.parts
+                )
             )
             or p.contract_id != f"marivo.analysis.part.{state.kind}.{p.role}"
             or p.contract_version != state.contract_version

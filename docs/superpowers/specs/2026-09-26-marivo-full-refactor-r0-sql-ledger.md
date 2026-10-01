@@ -73,8 +73,8 @@ Status: R0.5 静态目标与调用链保留，R1.5/R1.6 当前状态覆盖见下
 | AN08 | `materialization.lifecycle_integrity.{integrity_sql,integrity_queries}` → `lifecycle_publication`/bundle statement；History/transition/coverage 完整性，DuckDB/ClickHouse，手写 SQL 与 sqlglot 重写 | I 检查表达或 P 对完整输入验证；methods/materialization/R7；逐项故障注入且无文本补丁 |
 | AN09 | `materialization.lifecycle_bundle.LifecycleBundle` → cursor；ClickHouse 履历检查+主/部件 packet，手写 SELECT/CTE | I 或预准入 P，分别发布确切 parts；methods/materialization/R7；Distributed/资源/空批次实测 |
 | AN10 | `materialization.lifecycle_publication.{native_summary,inspect_history}` → `backend.statement/submit`；History 行数/校验，来源与本地 DuckDB | I 校验或固定 pandas 检查；methods/materialization/R7；逐视图独立 count 与 receipt |
-| AN11 | `materialization.duckdb_statements.{attribution_summary_sql,membership_integrity_sql}` → source/local stage statement；归因核对/主体覆盖，DuckDB，手写 CTE | I 来源校验、固定输入 pandas；compiler/materialization/R6/R9；残差与缺主体反例 |
-| AN12 | `materialization.source_stage.attribution_source_summary` → `backend.statement(sql)`；来源归因 proof，六后端候选，编译后包裹 | I typed summarize 检查；compiler/adapters/R6/R9；实际提交与归因 oracle |
+| AN11 | 历史 `materialization.duckdb_statements.attribution_summary_sql` 手写 CTE；R6.6 已删除无调用方的整个模块 | 公共归因经 Ibis scope/键检查与统一本地分配核对；raw-fact、残差和实际 native 提交见 R6 ledger；R6.7 清理剩余私有消费者 |
+| AN12 | 历史 `source_stage.attribution_source_summary` 提交链；当前仅 `source_admission` 结构化拒绝，没有 statement 调用 | 公共 R6.6 使用 SourceSession 签发的 Ibis 编译句柄；driver SQL 与签发 SQL 逐条相等；旧阻断钩子归 R6.7/R7/R8 清理，远端资格仍归 R9 |
 | AN13 | `materialization.local_stage._source_count` → `backend.statement`；来源计数探测，六后端候选 | I `count` 表达，或合格本地输入计数；compiler/adapters/R5/R9；大表/空表实测 |
 | AN14 | `materialization.retained.validate_source_private_relation` → `backend.statement`；部件/来源私有关系校验，来源与本地 | I 源检查、固定 pandas 部件校验；materialization/R4/R9；损坏/缺键/重复拒绝 |
 | AN15 | `materialization.duckdb_execution.{initialize,install_numeric}` → `statement(SET/MACRO)`；本地设置/宏，DuckDB | D 驱动设置；数值宏同 AN01 删除；adapter/R1/R4；时区/线程/数值实测 |

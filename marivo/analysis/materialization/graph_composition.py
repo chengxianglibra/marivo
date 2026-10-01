@@ -307,6 +307,24 @@ def _comparison_template(
                 for key in coordinates
             )
 
+        def mapping_template() -> object:
+            assert isinstance(params, OriginalReduce)
+            if not period or not params.time_mapping:
+                return params.time_mapping
+            source = comparison_endpoints(node)[0].signature.domain.time_grid
+            target = params.output_domain.time_grid
+            assert source is not None and target is not None
+            return tuple(
+                (
+                    grid.grain_token,
+                    grid.report_timezone,
+                    grid.boundary_timezone,
+                    grid.snapshot_digest,
+                    grid.scope_digest,
+                )
+                for grid in (source, target)
+            )
+
         return (
             type(params).__name__,
             tuple(
@@ -314,6 +332,8 @@ def _comparison_template(
                     item.name,
                     coordinate_template(params.coordinates)
                     if isinstance(params, OriginalReduce) and item.name == "coordinates"
+                    else mapping_template()
+                    if isinstance(params, OriginalReduce) and item.name == "time_mapping"
                     else getattr(params, item.name),
                 )
                 for item in fields(params)

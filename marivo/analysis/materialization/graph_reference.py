@@ -33,6 +33,7 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.rules import (
     AttachCategory,
+    DisplayRank,
     ObserveCount,
     ObserveMetric,
     ObserveWeightedMean,
@@ -83,7 +84,11 @@ def invalid(received: str) -> DatasetConstructionError:
 
 
 def original(node: MethodNode) -> MethodNode:
-    while isinstance(node.parameters, (PartsTransport, OriginalReduce, AttachCategory)):
+    while isinstance(
+        node.parameters, (PartsTransport, OriginalReduce, AttachCategory, DisplayRank)
+    ):
+        if isinstance(node.parameters, PartsTransport) and node.parameters.display_view == "ranks":
+            raise invalid("rank quantities have no original Metric state")
         children: tuple[Node, ...] = node.retained_endpoints or tuple(
             edge.node for edge in node.inputs
         )
@@ -242,6 +247,14 @@ def bind(
 
 
 def part_keys(signature: Signature, role: str) -> tuple[str, ...]:
+    from marivo.analysis.core.model import AttributionPart
+    from marivo.analysis.materialization.graph_attribution import part_keys as attribution_keys
+
+    attribution = next(
+        (p for p in signature.parts if isinstance(p, AttributionPart) and p.role == role), None
+    )
+    if attribution is not None:
+        return attribution_keys(attribution)
     declaration = next(
         (
             part
