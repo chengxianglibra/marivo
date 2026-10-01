@@ -21,11 +21,6 @@ from marivo.analysis.domains.contracts import (
     EventTimeToEventPayload,
     EventTimeToEventSemantics,
 )
-from marivo.analysis.domains.event_attribution import (
-    FunnelAttributePayload,
-    FunnelAttributionSemantics,
-)
-from marivo.analysis.domains.event_comparison import FunnelComparePayload, FunnelDeltaSemantics
 from marivo.analysis.domains.lifecycle import LifecyclePayload, LifecycleSemantics
 from marivo.analysis.domains.lifecycle_reducers import (
     REDUCER_TYPES,
@@ -54,9 +49,9 @@ PreparationKind: TypeAlias = Literal["correlation", "distribution"]
 
 def legacy_source_migration_stage(operator_id: str) -> Literal[7, 8] | None:
     """Return the remaining domain owner, or None for a retired R5 route."""
+    if operator_id == "event.compare":
+        return None
     if operator_id.startswith(("session.events.", "event.", "session.lifecycle.", "lifecycle.")):
-        return 7
-    if operator_id in ("delta.where", "delta.funnel_attribute", "funnel_delta.attribute"):
         return 7
     if operator_id.startswith(
         (
@@ -694,8 +689,6 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         consumer = dataset._registry.consumer(dataset._inputs[0], root.operator_id)
         if roles != consumer.input_roles:
             raise compilation_error("exact registered method input roles", "input role mismatch")
-    if isinstance(root.payload, (FunnelComparePayload, FunnelAttributePayload)):
-        return ImplementationRegistration(root.operator_id, roles, _DUCKDB, root.operator_id)
     if isinstance(root.payload, DriverCandidatePayload):
         identity = any(f.role_id == "entity_identity" for f in dataset.schema.columns)
         return ImplementationRegistration(
@@ -756,12 +749,6 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
 
 def admit_local(dataset: LogicalDataset, registration: ImplementationRegistration) -> None:
     root = dataset._root
-    if isinstance(root, LogicalRootHandle) and isinstance(
-        root.payload, (FunnelComparePayload, FunnelAttributePayload)
-    ):
-        for operand in (*dataset._inputs, dataset):
-            admit_retained_rows(operand)
-        return
     if isinstance(root, LogicalRootHandle) and isinstance(root.payload, DriverCandidatePayload):
         expected = 3 if root.payload.spec.expanded_compare is not None else 1
         if (
@@ -835,8 +822,6 @@ def admit_retained_rows(dataset: Dataset) -> None:
             LifecycleSemantics,
             *REDUCER_TYPES,
             EventJourneySemantics,
-            FunnelDeltaSemantics,
-            FunnelAttributionSemantics,
             EventFunnelSemantics,
             EventTimeToEventSemantics,
             EntityPresentMetricSemantics,

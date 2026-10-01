@@ -14,6 +14,10 @@ from marivo.analysis.core.rules import (
     CellDerive,
     DisplayRank,
     DisplayTable,
+    FunnelAttribute,
+    FunnelAxesPrepare,
+    FunnelCompare,
+    FunnelRead,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
@@ -364,7 +368,7 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
     if node.method != key_for_parameters(node.parameters):
         _fail("the parameter variant's exact method version", str(node.method))
     roles = tuple(e.role for e in node.inputs)
-    if isinstance(node.parameters, CellDerive):
+    if isinstance(node.parameters, (CellDerive, FunnelCompare)):
         expected: tuple[str, ...] = ("current", "baseline")
     elif isinstance(node.parameters, ReferenceDerive):
         expected = tuple(
@@ -401,6 +405,11 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
                     f"all captured participant dependencies for {sorted(required)}",
                     repr(sorted(actual)),
                 )
+    elif isinstance(node.parameters, FunnelAxesPrepare):
+        if {s.identity for s in node.sources} != {
+            identity for axis in node.parameters.axes for identity in axis.source_ids
+        }:
+            _fail("all exact entry-axis path dependencies", node.identity)
     elif isinstance(node.parameters, PreparedObservation):
         if len(node.inputs) != 2:
             _fail("selected and original population dependencies", node.identity)
@@ -443,6 +452,10 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
         if not isinstance(
             node.parameters,
             (
+                FunnelCompare,
+                FunnelRead,
+                FunnelAxesPrepare,
+                FunnelAttribute,
                 AttributionDerive,
                 CellDerive,
                 PartsTransport,

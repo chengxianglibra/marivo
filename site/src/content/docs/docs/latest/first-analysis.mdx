@@ -229,3 +229,45 @@ an exact cohort is returned. Null/Undefined comparisons and missing opportunity
 keys reject. Fixed target and predicate Artifacts can continue without sources;
 source-selected members can feed a new observation. `relation.subject_binding`
 provides the producer-owned mapping for an explicit `through=` argument.
+
+## Exact funnel comparison and evidence
+
+Use first-per-subject Journeys from the same explicit population for both periods.
+The pattern, matching and definitions must match; start windows and follow-up
+lengths must be equal and coverage complete. The example continues existing
+`journeys`, `baseline_journeys` and the exact `finish_step` from their pattern.
+
+```python
+funnel = journeys.funnel()
+fixed_funnel = funnel.execute()
+lost = fixed_funnel.read(fixed_funnel.lost_count).execute()
+change = funnel.compare(baseline_journeys.funnel())
+allocation = change.attribute(
+    target=mv.funnel_loss_rate(step=finish_step),
+    axes=(ms.ref.dimension("sales.customers.region"),),
+    mode="joint",
+    top_k=5,
+).execute()
+allocation.contract().show()
+page = allocation.findings(limit=20)
+if page.items:
+    finding = allocation.finding(page.items[0].finding_id)
+```
+
+Funnel axes capture all eligible starts at their entry time before local matching
+consumes the original assignment. Snapshot/validity versions and full axis tuples
+preserve real Null categories. Counts remain exact int64; zero denominators and
+the initial loss rate are Undefined. Owned handles belong to their receiver.
+
+Allocation separates loss and denominator mix, uses one Top-K based on both
+periods' resolved entries, and preserves typed Other masks. Every joint or
+hierarchy resolution reconciles both allocated sides and the target difference.
+Filtering preserves the original reconciliation scope and revokes completeness.
+Fixed results require retained axes/components and never consult current semantics,
+connect sources or rematch. Materialized results expose Evidence, bounded Finding
+pages and exact individual Findings; all reads verify the entire frozen collection.
+Compare/allocation cap emission at 1000 and retain eligible/emitted/truncated counts.
+
+The qualified placement is explicit Ibis source preparation followed by local
+consumption, or source-free `artifact_python` for fixed continuation. No native
+funnel route, remote backend, same-wheel or full R7 qualification is claimed here.

@@ -14,7 +14,6 @@ from marivo.analysis.domains.lifecycle_reducers import (
 )
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
-    ComparisonInputAuthority,
     MaterializationContract,
     PopulationAuthority,
     StorageReceipt,
@@ -97,15 +96,6 @@ def make_descriptor(
             stage="publication",
         )
     roots = tuple(logical_roots(dataset))
-    if dataset.row_contract.shape_id.family_id in ("delta", "attribution"):
-        return _funnel_descriptor(
-            dataset,
-            materialization,
-            storage,
-            validations,
-            inherited=inherited,
-            input_descriptors=input_descriptors,
-        )
     from marivo.analysis.operators.contracts import comparison_basis
 
     basis = comparison_basis(dataset)
@@ -396,148 +386,3 @@ def _selection_population_authority(
         return authority
 
     return visit(dataset)
-
-
-def _funnel_descriptor(
-    dataset: LogicalDataset,
-    materialization: MaterializationContract,
-    storage: DatasetWriteResult[StorageReceipt],
-    validations: tuple[tuple[str, int], ...],
-    *,
-    inherited: ArtifactDescriptor | None,
-    input_descriptors: tuple[ArtifactDescriptor, ...],
-) -> ArtifactDescriptor:
-    """Bind both operand authorities without borrowing the first input's meaning."""
-    from marivo.analysis.domains.event_comparison import FunnelComparePayload
-    from marivo.analysis.operators.contracts import comparison_basis
-
-    leaves = tuple(artifact_inputs(dataset))
-    if not input_descriptors and inherited is not None and len(leaves) == 1:
-        input_descriptors = (inherited,)
-    selected = {
-        leaf.state.artifact_ref.ref: descriptor
-        for leaf, descriptor in zip(leaves, input_descriptors, strict=True)
-    }
-    if not selected and inherited is not None and len(leaves) == 1:
-        selected[leaves[0].state.artifact_ref.ref] = inherited
-
-    def authority(value: Dataset) -> PopulationAuthority:
-        if isinstance(value, MaterializedDataset):
-            return selected[value.state.artifact_ref.ref].population_authority
-        root = value._root
-        if not isinstance(root, LogicalRootHandle):
-            raise MaterializationError(
-                expected="exact comparison operand authority",
-                received="unknown operand",
-                repair="Reconstruct the comparison from its two retained or logical Metrics.",
-                stage="publication",
-            )
-        if isinstance(root.payload, PopulationPayload):
-            payload = root.payload
-            return PopulationAuthority(
-                root.definition_fingerprint,
-                payload.entity.ref.path,
-                payload.entity.identity_signature,
-                scope_payload(payload.time_scope),
-                _version_selection_payload(payload.version_selection),
-                validations,
-            )
-        if not value._inputs:
-            raise MaterializationError(
-                expected="complete comparison Population ancestry",
-                received="missing operand ancestry",
-                repair="Reconstruct both Metrics with their selected Population.",
-                stage="publication",
-            )
-        result = authority(value._inputs[0])
-        if isinstance(root.payload, MetricPayload):
-            return replace(
-                result,
-                definition_fingerprint=root.payload.definition.population_definition,
-                validation_results=validations,
-            )
-        return result
-
-    comparison: Dataset = dataset
-    while not isinstance(comparison._root, LogicalRootHandle) or not isinstance(
-        comparison._root.payload, FunnelComparePayload
-    ):
-        if isinstance(comparison, MaterializedDataset):
-            retained = selected[comparison.state.artifact_ref.ref]
-            inputs = retained.comparison_inputs
-            break
-        if isinstance(comparison._root, LogicalRootHandle) and comparison._root.operator_id in (
-            "delta.funnel_attribute",
-        ):
-            comparison = comparison._inputs[0]
-            continue
-        if len(comparison._inputs) != 1:
-            raise MaterializationError(
-                expected="a comparison or its single-input row continuation",
-                received="missing comparison owner",
-                repair="Construct the funnel comparison through Event.compare().",
-                stage="publication",
-            )
-        comparison = comparison._inputs[0]
-    else:
-        operands: list[ComparisonInputAuthority] = []
-        for role, operand in zip(("current", "baseline"), comparison._inputs, strict=True):
-            refs = tuple(item.state.artifact_ref.ref for item in artifact_inputs(operand))
-            operands.append(
-                ComparisonInputAuthority(
-                    "current" if role == "current" else "baseline",
-                    operand.definition_fingerprint,
-                    authority(operand),
-                    None,
-                    refs,
-                    comparison_basis(operand),
-                )
-            )
-        inputs = tuple(operands)
-    if len(inputs) != 2:
-        raise MaterializationError(
-            expected="two exact ordered comparison operands",
-            received="incomplete comparison authority",
-            repair="Reconstruct the comparison from complete current and baseline Metrics.",
-            stage="publication",
-        )
-    roots = tuple(logical_roots(dataset))
-    return ArtifactDescriptor(
-        definition_fingerprint=dataset.definition_fingerprint,
-        row_contract=dataset.row_contract,
-        row_set_contract=dataset.row_set_contract,
-        realized_schema=storage.realized_schema,
-        bounded_lineage=dataset._lineage,
-        semantic_dependency_digest=semantic_dependency_digest(
-            dataset,
-            retained_semantic_digests={
-                ref: item.semantic_dependency_digest for ref, item in selected.items()
-            },
-        ),
-        population_authority=replace(
-            inputs[0].population_authority, validation_results=validations
-        ),
-        sampling_execution=None,
-        operator_implementation_versions=tuple(
-            dict.fromkeys(
-                (
-                    *(
-                        version
-                        for item in selected.values()
-                        for version in item.operator_implementation_versions
-                    ),
-                    *((root.operator_id, 1) for root in roots),
-                )
-            )
-        ),
-        dataset_materialization_contract=materialization,
-        storage_receipt=storage.primary_receipt,
-        retained_parts=storage.retained_parts,
-        quality_summary=QualitySummary(
-            sample_size=storage.realized_row_count,
-            evaluated_check_count=len(validations) + 1,
-            failed_check_count=0,
-            warning_check_count=0,
-        ),
-        comparison_inputs=inputs,
-    )

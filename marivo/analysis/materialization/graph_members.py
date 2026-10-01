@@ -29,7 +29,15 @@ from marivo.analysis.core.graph import (
     method_node,
     topology,
 )
-from marivo.analysis.core.model import Binding, Coordinate, DomainSignature, SubjectPart
+from marivo.analysis.core.model import (
+    Binding,
+    Coordinate,
+    DomainSignature,
+    FunnelAllocationPart,
+    FunnelComparisonPart,
+    FunnelPart,
+    SubjectPart,
+)
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
     BindProject,
@@ -459,9 +467,18 @@ class MemberGraph:
                         node.inputs[0].node.signature.domain.kind == "journey"
                         and isinstance(node.parameters, (MapCorrespond, PartsTransport, RowState))
                     )
+                    or any(
+                        isinstance(p, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart))
+                        for e in node.inputs
+                        for p in e.node.signature.parts
+                    )
                     or isinstance(node.parameters, PreparedObservation)
                     or node.method.name
                     in (
+                        "funnel.reduce",
+                        "funnel.compare",
+                        "funnel.read",
+                        "funnel_ratio_mix",
                         "journey.match",
                         "journey.duration",
                         "journey.completed",

@@ -119,14 +119,6 @@ if TYPE_CHECKING:
     import pandas
 
     from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
-    from marivo.analysis.domains.funnel_attribution import (
-        LogicalFunnelAttributionDataset,
-        MaterializedFunnelAttributionDataset,
-    )
-    from marivo.analysis.domains.funnel_delta import (
-        LogicalFunnelDeltaDataset,
-        MaterializedFunnelDeltaDataset,
-    )
     from marivo.analysis.domains.lifecycle import (
         LogicalLifecycleDataset,
         MaterializedLifecycleDataset,
@@ -366,15 +358,12 @@ class ObservationProducerContract:
             from marivo.analysis.domains.lifecycle import ROLES
 
             return ROLES
-        if self.producer_id == "delta.funnel_attribute":
-            return ("event_funnel.additive_components",)
         if self.producer_id.startswith(
             (
                 "discover.",
                 "candidate.",
                 "session.events.",
                 "event.",
-                "delta.where",
                 "session.lifecycle.",
                 "lifecycle.",
             )
@@ -397,27 +386,12 @@ class ObservationProducerContract:
             (self.validation_id, "v1"),
             (self.evidence_id, "v1"),
         )
-        if self.producer_id == "event.compare":
-            return (
-                *common,
-                ("event_funnel_checkpoint_scope", "v1"),
-                ("funnel_delta_finding", "v1"),
-                ("bounded_algebraic_findings", "v1"),
-            )
-        if self.producer_id == "delta.funnel_attribute":
-            return (
-                *common,
-                ("contribution_finding", "v1"),
-                ("bounded_algebraic_findings", "v1"),
-                ("event_funnel.additive_components", "v1"),
-            )
         if self.producer_id.startswith(
             (
                 "discover.",
                 "candidate.",
                 "session.events.",
                 "event.",
-                "delta.where",
                 "session.lifecycle.",
                 "lifecycle.",
             )
@@ -452,9 +426,6 @@ class ObservationProducerContract:
 _PRODUCER_CONTRACTS = (
     ObservationProducerContract("session.lifecycle.replay", "lifecycle_history"),
     ObservationProducerContract("session.events.match", "event_journey"),
-    ObservationProducerContract("event.compare", "funnel_delta"),
-    ObservationProducerContract("delta.funnel_attribute", "funnel_attribution"),
-    ObservationProducerContract("funnel_delta.attribute", "funnel_attribution_entry"),
     *(
         ObservationProducerContract(f"lifecycle.{name}", f"lifecycle_{name}")
         for name in ("distribution", "transitions", "dwell", "violations", "where")
@@ -525,12 +496,6 @@ class ObservationActionPort(Protocol):
     def execute_association(
         self, dataset: LogicalAssociationDataset
     ) -> MaterializedAssociationDataset: ...
-    def execute_delta(
-        self, dataset: LogicalFunnelDeltaDataset
-    ) -> MaterializedFunnelDeltaDataset: ...
-    def execute_attribution(
-        self, dataset: LogicalFunnelAttributionDataset
-    ) -> MaterializedFunnelAttributionDataset: ...
     def show(self, dataset: MaterializedDataset, *, max_output_bytes: int | None) -> None: ...
     def to_pandas(self, dataset: MaterializedDataset) -> pandas.DataFrame: ...
     def evidence_digest(self, dataset: MaterializedDataset) -> ArtifactDigest: ...
@@ -1889,10 +1854,6 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
             contract_facts=_contract_facts,
         )
     )
-    from marivo.analysis.domains.funnel_registry import (
-        register_funnel_attribution,
-        register_funnel_delta,
-    )
     from marivo.analysis.operators.correlate import register_association
 
     register_association(registry, ids)
@@ -1902,8 +1863,6 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
     from marivo.analysis.operators.discovery import register_candidate
 
     register_candidate(registry, ids)
-    register_funnel_delta(registry, ids)
-    register_funnel_attribution(registry, ids)
     from marivo.analysis.domains.event import register_event
 
     register_event(registry, ids)
@@ -1928,8 +1887,6 @@ def semantic_dependency_digest(
         EventSelectionPayload,
         EventTimeToEventPayload,
     )
-    from marivo.analysis.domains.event_attribution import FunnelAttributePayload
-    from marivo.analysis.domains.event_comparison import FunnelComparePayload
     from marivo.analysis.domains.lifecycle import LifecyclePayload
     from marivo.analysis.domains.lifecycle_reducers import (
         LifecycleReducerPayload,
@@ -2010,8 +1967,6 @@ def semantic_dependency_digest(
             semantic_facts = ("metric_forecast", payload.spec.identity_payload())
         elif isinstance(payload, CorrelatePayload):
             semantic_facts = ("metric_correlate", payload.spec.identity_payload())
-        elif isinstance(payload, (FunnelComparePayload, FunnelAttributePayload)):
-            semantic_facts = ("event_operator", payload.identity_payload)
         elif isinstance(payload, RetainedFoldPayload):
             semantic_facts = ("retained_fold", payload.spec.identity_payload())
         elif isinstance(payload, RetainedRowsPayload):

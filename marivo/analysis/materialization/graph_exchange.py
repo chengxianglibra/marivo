@@ -117,6 +117,9 @@ class ExchangeContract:
                     "ranking_domain",
                     "partitions",
                     "ordering",
+                    "entry_axes",
+                    "funnel_state",
+                    "finding_policy",
                 )
                 and not any(
                     isinstance(p, AttributionPart) and p.role == part.role
@@ -130,6 +133,10 @@ class ExchangeContract:
                 "none",
                 "occurrence_inputs",
                 "journey_assignment",
+                "entry_axes",
+                "funnel_components",
+                "funnel_comparison",
+                "funnel_allocation",
                 "attribution_additive",
                 "attribution_component_mix",
                 "ranking",
@@ -399,6 +406,14 @@ def collect(
             ),
             None,
         )
+        if declared.role in ("entry_axes", "funnel_state", "finding_policy"):
+            if (
+                declared.key_fields
+                or part.table.num_rows != 1
+                or part.table.schema != pa.schema([(declared.role + "__retained", pa.string())])
+            ):
+                raise _invalid("closed retained state must be one exact string payload")
+            continue
         if attribution_part is not None:
             from marivo.analysis.materialization.graph_attribution import (
                 part_keys as attribution_keys,
@@ -517,6 +532,10 @@ def collect(
         from marivo.analysis.materialization.journey_execution import validate as validate_journey
 
         validate_journey(contract, primary, parts)
+    if any(part.role in ("entry_axes", "funnel_state") for part in parts):
+        from marivo.analysis.materialization.funnel_execution import validate as validate_funnel
+
+        validate_funnel(contract, primary, parts)
     if contract.state_kind == "none":
         # Transport preserves the owning state invariant even without a new method vector.
         for declaration in contract.signature.parts:
@@ -603,6 +622,14 @@ def collect(
                 states[tuple(row[k] for k in contract.key_fields)] for row in primary.to_pylist()
             ] != expected_status:
                 raise _invalid("display method status differs")
+        elif contract.state_kind in (
+            "entry_axes",
+            "funnel_components",
+            "funnel_comparison",
+            "funnel_allocation",
+        ):
+            if any(value != "accepted" for value in states.values()):
+                raise _invalid("funnel state contains unaccepted components")
         elif contract.state_kind == "journey_assignment":
             from marivo.analysis.materialization.journey_execution import validate
 

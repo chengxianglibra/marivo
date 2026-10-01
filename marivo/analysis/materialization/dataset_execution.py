@@ -369,13 +369,6 @@ def execute(self: DatasetRuntime, dataset: LogicalDataset) -> MaterializedDatase
         run = plan.run
         progress = ExecutionProgress()
         try:
-            from marivo.analysis.materialization.event_comparison_publication import (
-                validate_checkpoint_inputs,
-            )
-
-            validate_checkpoint_inputs(
-                dataset, {ref: record.descriptor for ref, record in records.items()}
-            )
             evidence = ExecutionEvidence.from_records(records)
             if plan.basic_source:
                 from marivo.analysis.materialization.basic_source import execute_basic_source

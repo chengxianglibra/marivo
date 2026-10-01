@@ -140,6 +140,10 @@ SEMANTIC_PUBLIC = {
 
 ANALYSIS_PUBLIC = {
     "LogicalAttributionResult",
+    "LogicalFunnelResult",
+    "MaterializedFunnelResult",
+    "LogicalFunnelComparisonResult",
+    "MaterializedFunnelComparisonResult",
     "LogicalJourneyResult",
     "MaterializedJourneyResult",
     "LogicalEventDurationResult",
@@ -328,7 +332,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "71938b1be9285fdb1a17373ed0da30d74f0271baf318371d88a32d13dc5c4da6"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "37cfd93f36c07190b542fdbdfa158911abdd9e524084c1a41739560786c8f182"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

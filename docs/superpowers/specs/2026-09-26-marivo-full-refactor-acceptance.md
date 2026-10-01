@@ -1677,3 +1677,51 @@ outcome instead of reporting an ordinary timeout after successful publication.
 Six independent regression cases and the existing historical cases with normalized
 version flags exercise these boundaries. Preparation qualification still excludes
 matching, replay, public domain results and new backends.
+
+
+## R7.4 bounded local implementation acceptance (2026-10-02)
+
+Baseline: clean `panda`, `01cdbe3571386bf3544602281681c03d0e0f5ab0` (R7.3).
+The [R7.4 evidence index](2026-10-02-marivo-r74-evidence-index.md) owns the exact
+implementation boundary and current validation receipts. Public first-per-subject
+funnel, owned component/loss-step reads, complete compatible period comparison,
+joint/hierarchy ratio-mix attribution and historical entry axes use the existing
+graph, registry, Runtime and Store 7. Logical axes expand against the same assignment;
+fixed continuations consume retained components without current Semantic, source,
+DuckDB or origin matching. Counts/Fraction formulas, side terms, common Top-K,
+Null/Other masks, dense empty steps, Undefined reasons and filtered scope have
+independent V07/V08 oracles. Public table/Parquet A09 funnel and source mutation
+traces are separately executed, with no inherited pass from A09 dropout/Duration.
+
+Frozen nonempty comparison/contribution extractors publish in the existing Artifact,
+Evidence, Findings and terminal transaction. Eligible/emitted/truncated authority,
+cap=1000, stable full typed-key ordering, bound identities/bodies, public digest/page/
+item reads, cold continuation/exact hit and collection/receipt corruption reject
+are tested. Empty eligible sets keep the producer extractor; other producers use
+explicit zero policy. Atomic failure/cancellation/deadline cases leave no partial
+published result. Session Artifact summaries reflect the same validated collection.
+
+M05 replacement execution, old-chain unreachability and physical removal are
+recorded separately in the amended R7 ledger. Eleven exclusive private domain,
+compiler and codec/publication modules, the exclusive descriptor field and four
+old test/worker files are removed. Shared Lifecycle/R8 code and the required closed
+Finding body remain. No alias, dual-read compatibility or migration fallback is added.
+Public exports/typing, native Help/budgets, dynamic continuation/repair, API docs and
+identical executed English/Chinese latest examples are aligned; the CLI keeps its
+existing Help bootstrap route.
+
+The [qualification record](2026-10-02-marivo-r74-qualification.json) preserves all
+810 original P07/P08/P09 IDs. Local K22/T01/T07 S/F/C account for 18 exercised cells;
+792 cells remain explicitly unverified. Source preparation then local `ibis_python`
+and fixed `artifact_python` are the finite implemented routes; no native matching
+or upload is used to obtain source qualification. This implementation acceptance
+does not grant all key/time cells, full R7, R7.5-R7.9, R8-R10, remote or same-wheel
+acceptance. AGENTS.md and packaged skills are unchanged. Work is uncommitted;
+no push, publication, release-check, MinIO or release occurred.
+
+R7.4 exit checks passed: 408 shared Runtime cases, the 42-case R7.4 gate, one
+strengthened independent cap/cold case and nine closeout process/summary/empty-policy
+cases; these overlapping checks do not enlarge the 18-cell qualification.
+`make check-agent` passed with 5367 default tests and 5 skips, typing of 429 modules,
+lint/import contracts and API docs. Site build passed 321 pages, and
+`git diff --check` passed. The bounded R7.4 implementation is complete.

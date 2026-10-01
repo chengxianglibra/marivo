@@ -398,6 +398,9 @@ def _graph_summary(
         raise invalid("Artifact summary has no succeeded producer")
     descriptor = record.descriptor
     authority = digest(encode(descriptor, DESCRIPTOR))
+    from marivo.analysis.materialization.graph_findings import collection
+
+    _, finding_authority = collection(store, conn, descriptor, record.artifact_ref)
     return ArtifactSummary(
         artifact_ref=ArtifactRef(ref=record.artifact_ref),
         artifact_session_ref=record.session_ref,
@@ -416,8 +419,8 @@ def _graph_summary(
             quality_summary_digest=authority,
             typed_issue_digest=digest("[]"),
             evidence_digest=authority,
-            finding_count=0,
-            finding_set_digest=digest("[]"),
+            finding_count=finding_authority.finding_count,
+            finding_set_digest=finding_authority.finding_set_digest,
         ),
         issue_counts=ArtifactIssueCounts(warning=0, blocking=0),
     )

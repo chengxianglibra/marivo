@@ -6,8 +6,19 @@ from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
 from marivo.analysis.core.graph import FixedLeaf, MethodNode, Node, SourceLeaf, topology
-from marivo.analysis.core.model import Obligation, reject
+from marivo.analysis.core.model import (
+    FunnelAllocationPart,
+    FunnelComparisonPart,
+    FunnelPart,
+    Obligation,
+    reject,
+)
 from marivo.analysis.core.rules import (
+    FunnelAttribute,
+    FunnelAxesPrepare,
+    FunnelCompare,
+    FunnelRead,
+    FunnelReduce,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -204,7 +215,16 @@ def plan(
                 and route != "artifact_python"
                 and not isinstance(
                     node.parameters,
-                    (PreparedObservation, JourneyDuration, JourneyCompleted, JourneyRead),
+                    (
+                        PreparedObservation,
+                        JourneyDuration,
+                        JourneyCompleted,
+                        JourneyRead,
+                        FunnelReduce,
+                        FunnelCompare,
+                        FunnelRead,
+                        FunnelAttribute,
+                    ),
                 )
                 and not (
                     isinstance(node.parameters, PartsTransport)
@@ -232,6 +252,10 @@ def plan(
                             "attribution.component_mix",
                             "display.rank",
                             "display.table",
+                            "funnel.reduce",
+                            "funnel.compare",
+                            "funnel.read",
+                            "funnel_ratio_mix",
                         )
                     )
                     for edge in node.inputs
@@ -275,8 +299,23 @@ def plan(
                     and node.parameters.opportunity_domain.kind == "journey"
                 )
                 or subject_image
+                or any(
+                    isinstance(p, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart))
+                    for e in node.inputs
+                    for p in e.node.signature.parts
+                )
                 or isinstance(
-                    node.parameters, (JourneyMatch, JourneyDuration, JourneyCompleted, JourneyRead)
+                    node.parameters,
+                    (
+                        JourneyMatch,
+                        JourneyDuration,
+                        JourneyCompleted,
+                        JourneyRead,
+                        FunnelReduce,
+                        FunnelCompare,
+                        FunnelRead,
+                        FunnelAttribute,
+                    ),
                 )
                 or (
                     node.inputs[0].node.signature.domain.kind == "journey"
@@ -333,7 +372,9 @@ def plan(
                 or not any(prior.obligation == obligation for prior in checks)
             )
         outputs[node.identity] = output
-    if any(isinstance(node.parameters, PreparedObservation) for node in methods):
+    if any(
+        isinstance(node.parameters, (PreparedObservation, FunnelAxesPrepare)) for node in methods
+    ):
         stages = [
             *(stage for stage in stages if not isinstance(stage, LocalMethodStage)),
             *(stage for stage in stages if isinstance(stage, LocalMethodStage)),

@@ -192,3 +192,40 @@ cohort.contract().show()
 ```
 
 `any_instance()` 要求至少一个真机会；`at_least(k)` 的 k 是排除 bool 的正整数。`all_instances(empty=mv.empty_opportunity.false())` 必须明确选择 true、false 或 undefined 空机会政策。已存在的 Unknown 可参加三值量化，但输出精确 cohort 前全部主体资格必须可决定。Null/Undefined 普通比较和缺机会键会拒绝。固定目标及谓词 Artifact 可断源续算；来源选择出的成员可继续观察。需要显式 `through=` 时，从 `relation.subject_binding` 获取生产者拥有的映射。
+
+## 精确漏斗比较与证据
+
+两期使用同一显式总体上的 first-per-subject Journey。pattern、matching 和定义必须
+一致，开始窗口及随访长度相同，并具有完整覆盖。下面继续已有的 `journeys`、
+`baseline_journeys`，以及其 pattern 中精确的 `finish_step`。
+
+```python
+funnel = journeys.funnel()
+fixed_funnel = funnel.execute()
+lost = fixed_funnel.read(fixed_funnel.lost_count).execute()
+change = funnel.compare(baseline_journeys.funnel())
+allocation = change.attribute(
+    target=mv.funnel_loss_rate(step=finish_step),
+    axes=(ms.ref.dimension("sales.customers.region"),),
+    mode="joint",
+    top_k=5,
+).execute()
+allocation.contract().show()
+page = allocation.findings(limit=20)
+if page.items:
+    finding = allocation.finding(page.items[0].finding_id)
+```
+
+漏斗轴在本地 matching 前，按全部合格开始 occurrence 的入口时点准备；计算消费同一
+canonical assignment。snapshot/validity 版本和完整轴元组保留真实 Null 类别。
+七项计数使用精确 int64；零分母和初始步骤流失率为 Undefined。字段 handle 绑定 receiver。
+
+归因分别计算 loss 和 denominator mix，以两期 resolved-entry 合计建立统一 Top-K，
+保留 typed Other 与 masks。joint/hierarchy 的每个 resolution 都核对两侧项和目标差值。
+筛选保留原 reconciliation scope，并撤销完整分区承诺。fixed 必须具有 retained 轴及
+组件，不读取当前 Semantic、不连接来源，也不重新 matching。
+
+物化结果提供 Evidence、分页 Findings 和单条读取；每次读取都验证整个冻结集合。
+compare/归因的发射上限为 1000，保留 eligible/emitted/truncated 权威。
+来源路线为显式 Ibis 准备后本地消费，固定续算为 `artifact_python`。
+此处不授予 native funnel、远端、same-wheel 或完整 R7 资格。

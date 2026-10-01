@@ -99,8 +99,6 @@ def metric_parts(row: DatasetRowContract) -> tuple[MetricFoldAuthorityV1, ...]:
 
 def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = None) -> set[str]:
     """Propagate consumed state to the exact input, respecting producer boundaries."""
-    from marivo.analysis.domains.event_attribution import FunnelAttributePayload
-    from marivo.analysis.domains.event_comparison import FunnelComparePayload
     from marivo.analysis.domains.lifecycle_reducers import (
         LifecycleReducerPayload,
         LifecycleSelectionPayload,
@@ -134,8 +132,6 @@ def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = Non
             elif isinstance(
                 payload,
                 (
-                    FunnelComparePayload,
-                    FunnelAttributePayload,
                     RetainedFoldPayload,
                     DriverCandidatePayload,
                 ),
@@ -150,14 +146,11 @@ def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = Non
 
 
 def _row_part_roles(row: DatasetRowContract) -> set[str]:
-    from marivo.analysis.domains.event_attribution import COMPONENT_ROLE, FunnelAttributionSemantics
 
     if str(row.shape_id) == "lifecycle/history@v1":
         from marivo.analysis.domains.lifecycle import ROLES
 
         return set(ROLES)
-    if isinstance(row.family_semantics, FunnelAttributionSemantics):
-        return {COMPONENT_ROLE}
 
     membership = {role for role, _ in source_private_part_authorities(row)}
     if row.shape_id.family_id == "delta":
@@ -402,14 +395,7 @@ def _part_state_columns(row: DatasetRowContract, role: str) -> tuple[tuple[str, 
             )
             for name in PART_COLUMNS[ROLES.index(role)]
         )
-    from marivo.analysis.domains.event_attribution import (
-        COMPONENT_COLUMNS,
-        COMPONENT_ROLE,
-        FunnelAttributionSemantics,
-    )
 
-    if isinstance(row.family_semantics, FunnelAttributionSemantics) and role == COMPONENT_ROLE:
-        return tuple((name, "integer", False) for name in COMPONENT_COLUMNS)
     if row.shape_id.family_id == "delta":
         from marivo.analysis.operators.attribution_contracts import (
             delta_part_authorities,

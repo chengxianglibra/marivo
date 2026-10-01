@@ -21,8 +21,6 @@ import marivo.datasource.backends as backends
 import marivo.analysis.observation.ordering
 import marivo.semantic.runtime_metric_lowering
 import marivo.analysis.operators.compare
-import marivo.analysis.domains.event_comparison
-import marivo.analysis.domains.event_attribution
 import marivo.analysis.operators.correlate
 import marivo.analysis.operators.discovery
 import marivo.analysis.operators.forecast
@@ -107,8 +105,6 @@ guards = (
     (DatasetRuntime, '_observe_submission', 'query'),
     (NoIoActionPort, 'execute_forecast', 'run'),
     (NoIoActionPort, 'execute_candidate', 'run'),
-    (NoIoActionPort, 'execute_delta', 'run'),
-    (NoIoActionPort, 'execute_attribution', 'run'),
 )
 total = mv.runtime_metric.aggregate(ref.measure("sales.orders.amount"), agg="sum", label="runtime_total")
 weighted = mv.runtime_metric.weighted_mean(ref.measure("sales.orders.amount"), ref.measure("sales.orders.weight"), label="weighted")
@@ -123,9 +119,6 @@ with ExitStack() as stack:
         session_id='session-observation', store_id='store-observation',
     )
     sources.observe((total, weighted, mixed)).metric(mixed).aggregate()
-    event_delta = event_input.funnel().compare(event_input.funnel())
-    event_attribution = event_delta.attribute(target=event_target, axes=[region])
-    assert callable(event_delta.attribute)
     population = sources.population(orders, time_scope=selection)
     population = population.where(eq(region, 'east'))
     observed = sources.observe(
@@ -158,7 +151,7 @@ with ExitStack() as stack:
     with sources.source_bindings({api: {'tenant': 'DIFFERENT_CAPTURE_2A'}}):
         changed = sources.observe(api_value, time_scope=window)
     assert captured.definition_fingerprint != changed.definition_fingerprint
-    values = (event_delta, event_attribution, population, observed, filtered, result, tip, snapshot, validity, captured, rolled,
+    values = (population, observed, filtered, result, tip, snapshot, validity, captured, rolled,
               association, association_selected, association_ranked,
               points, windows, selected_candidates, ranked_candidates)
     for value in values:
@@ -220,9 +213,9 @@ def test_actual_private_observation_chain_is_pure() -> None:
     evidence = json.loads(result.stdout)
     assert evidence["final_shape"] == "metric/dimension-time@v1"
     assert evidence["deep_filter_nodes"] == 80
-    assert evidence["checked_definitions"] == 18
+    assert evidence["checked_definitions"] == 16
     assert evidence["guarded_negative_failures"] == 5
-    assert evidence["guarded_entrypoints"] == 21
+    assert evidence["guarded_entrypoints"] == 19
     assert evidence["telemetry_enabled"] is True
     assert set(evidence["attempts"]) == {
         "datasource",

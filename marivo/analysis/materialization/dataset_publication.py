@@ -156,11 +156,6 @@ def prepare_publication(
         return _forecast_publication(self, stage, evidence, descriptor, policy)
     if dataset.kind == "association":
         return _association_publication(self, stage, evidence, descriptor, policy)
-    if dataset.row_contract.family_semantics.kind in (
-        "delta/funnel@v1",
-        "attribution/funnel-loss-rate@v1",
-    ):
-        return _funnel_publication(self, stage, descriptor, policy)
     return descriptor, ()
 
 
@@ -388,20 +383,4 @@ def _association_publication(
         artifact_ref=stage.artifact_ref,
         session_ref=self.session_ref,
         search_summary=evidence.association_summary,
-    )
-
-
-def _funnel_publication(
-    self: DatasetRuntime,
-    stage: StageResult,
-    descriptor: ArtifactDescriptor,
-    policy: ReadPolicy,
-) -> tuple[ArtifactDescriptor, tuple[Finding, ...]]:
-    from marivo.analysis.materialization.event_comparison_publication import build_publication
-
-    return build_publication(
-        descriptor,
-        _audit_batches(self, descriptor, policy),
-        artifact_ref=stage.artifact_ref,
-        session_ref=self.session_ref,
     )

@@ -142,10 +142,6 @@ def artifact(store: SessionStore, conn: sqlite3.Connection, ref: str) -> GraphAr
         or producer.dataset_input.plan_digest != plan_digest(admitted)
         or evidence is None
         or _text(evidence, "evidence_digest") != digest(text)
-        or evidence["finding_count"] != 0
-        or _text(evidence, "finding_set_digest") != digest("[]")
-        or _text(evidence, "extractor_contract_versions_payload") != "[]"
-        or _one(conn, "SELECT finding_ref FROM findings WHERE artifact_ref=?", (ref,)) is not None
     ):
         raise invalid("Artifact, producer, key or Evidence differs")
     from marivo.analysis.materialization.execution_key import (
@@ -207,6 +203,16 @@ def artifact(store: SessionStore, conn: sqlite3.Connection, ref: str) -> GraphAr
         validate_receipt_owner(receipt.local, prefix)
         if any(owns_resource(receipt.local, r) for r in store._resources(conn, session)):
             raise invalid("committed output still has a cleanup obligation")
+    from marivo.analysis.core.model import FindingPolicyPart
+    from marivo.analysis.materialization.graph_findings import collection
+
+    collection(
+        store,
+        conn,
+        descriptor,
+        ref,
+        verify_receipts=any(isinstance(p, FindingPolicyPart) for p in descriptor.signature.parts),
+    )
     return GraphArtifact(ref, session, key, descriptor, producer.run_ref)
 
 
@@ -281,11 +287,38 @@ def publish(
             (ref, producer.session_ref, producer.execution_key_digest, payload, now),
         )
         event("insert_artifact")
+        from marivo.analysis.evidence._dataset_codec import (
+            encode_finding_body,
+            finding_identity,
+            finding_set_digest,
+        )
+        from marivo.analysis.materialization.graph_findings import (
+            encode_versions,
+            extract,
+            versions,
+        )
+
+        result_rows = read_result(store.project_root, descriptor)
+        findings = extract(descriptor, result_rows, ref, parse_timestamp(now))
         conn.execute(
             "INSERT INTO dataset_evidence VALUES(?,?,?,?,?)",
-            (ref, digest(payload), 0, digest("[]"), "[]"),
+            (
+                ref,
+                digest(payload),
+                len(findings),
+                finding_set_digest(findings),
+                encode_versions(versions(result_rows)),
+            ),
         )
         event("insert_evidence")
+        conn.executemany(
+            "INSERT INTO findings VALUES(?,?,?,?,?)",
+            (
+                (item.finding_id, ref, ordinal, finding_identity(item), encode_finding_body(item))
+                for ordinal, item in enumerate(findings)
+            ),
+        )
+        event("insert_findings")
         conn.execute(
             "INSERT INTO analysis_action_run_terminals VALUES(?,?,?,?,?,?)",
             (producer.run_ref, producer.session_ref, "succeeded", now, ref, None),

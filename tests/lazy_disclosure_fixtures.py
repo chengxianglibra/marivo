@@ -74,7 +74,6 @@ def example_inputs(
         multi_metric=source.observe((revenue, count_metric)).with_dimensions(region),
         time_metric=time_metric,
         events=events,
-        funnel_delta=events.funnel().compare(events.funnel()),
         lifecycle=history(source),
         pattern=sequence(start_step, finish_step),
         start_role=start_role,

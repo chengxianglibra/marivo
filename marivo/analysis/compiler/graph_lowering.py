@@ -31,7 +31,12 @@ from marivo.analysis.core.model import (
     CorrespondencePart,
     DisplayPart,
     EndpointPart,
+    EntryAxesPart,
     FactInput,
+    FindingPolicyPart,
+    FunnelAllocationPart,
+    FunnelComparisonPart,
+    FunnelPart,
     JourneyPart,
     Obligation,
     ObservedQuantity,
@@ -55,6 +60,10 @@ from marivo.analysis.core.rules import (
     CompleteGroups,
     DisplayRank,
     DisplayTable,
+    FunnelAttribute,
+    FunnelAxesPrepare,
+    FunnelCompare,
+    FunnelReduce,
     GroupObservationTarget,
     JourneyCompleted,
     JourneyDuration,
@@ -127,6 +136,11 @@ class PartColumns:
 
 
 def components(part: Part) -> tuple[str, ...]:
+    if isinstance(
+        part,
+        (EntryAxesPart, FindingPolicyPart, FunnelPart, FunnelComparisonPart, FunnelAllocationPart),
+    ):
+        return ("retained",)
     if isinstance(part, JourneyPart):
         return ("assignment",)
     if isinstance(part, OccurrencePart):
@@ -3310,7 +3324,15 @@ def lower(
             if len(stage.inputs) == 2 and not (
                 isinstance(
                     stage.node.parameters,
-                    (AssociationScore, AttachCategory, CompleteGroups, PreparedObservation),
+                    (
+                        AssociationScore,
+                        AttachCategory,
+                        CompleteGroups,
+                        PreparedObservation,
+                        FunnelReduce,
+                        FunnelCompare,
+                        FunnelAttribute,
+                    ),
                 )
                 or (
                     isinstance(stage.node.parameters, PartsTransport)
@@ -3393,7 +3415,9 @@ def lower(
             layout = canonical_layout(stage.leaf.signature, has_value=bound.layout.cell is not None)
             captured_dependency = any(
                 isinstance(node, MethodNode)
-                and isinstance(node.parameters, (OccurrencePrepare, PreparedObservation))
+                and isinstance(
+                    node.parameters, (OccurrencePrepare, PreparedObservation, FunnelAxesPrepare)
+                )
                 and stage.leaf in node.sources
                 for node in topology(admitted.root)
             )
@@ -3446,7 +3470,12 @@ def lower(
                 ]
             )
             source_ids = inputs[0].source_ids
-            if isinstance(params, OccurrencePrepare):
+            if isinstance(params, FunnelAxesPrepare):
+                from marivo.analysis.compiler.funnel_axes import lower_axes
+
+                table, layout, source_ids = lower_axes(stage, inputs[0], bindings, checks)
+                cell_reasons = ()
+            elif isinstance(params, OccurrencePrepare):
                 from marivo.analysis.compiler.domain_preparation import lower_occurrences
 
                 table, layout, source_ids = lower_occurrences(stage, inputs[0], bindings, checks)

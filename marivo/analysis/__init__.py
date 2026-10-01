@@ -153,6 +153,10 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import LogicalDifferenceRelation as LogicalDifferenceRelation
     from marivo.analysis.public_dsl import LogicalEventDurationResult as LogicalEventDurationResult
     from marivo.analysis.public_dsl import LogicalFixedAnalysisDomain as LogicalFixedAnalysisDomain
+    from marivo.analysis.public_dsl import (
+        LogicalFunnelComparisonResult as LogicalFunnelComparisonResult,
+    )
+    from marivo.analysis.public_dsl import LogicalFunnelResult as LogicalFunnelResult
     from marivo.analysis.public_dsl import LogicalJourneyResult as LogicalJourneyResult
     from marivo.analysis.public_dsl import LogicalNumericRelation as LogicalNumericRelation
     from marivo.analysis.public_dsl import LogicalRankingResult as LogicalRankingResult
@@ -208,6 +212,10 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import (
         MaterializedEventDurationResult as MaterializedEventDurationResult,
     )
+    from marivo.analysis.public_dsl import (
+        MaterializedFunnelComparisonResult as MaterializedFunnelComparisonResult,
+    )
+    from marivo.analysis.public_dsl import MaterializedFunnelResult as MaterializedFunnelResult
     from marivo.analysis.public_dsl import (
         MaterializedGroupedNumericRelation as MaterializedGroupedNumericRelation,
     )

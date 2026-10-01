@@ -15,6 +15,11 @@ from marivo.analysis._capabilities.dataset_model import (
 # This registry owns group meaning and parentage. Capability membership is
 # declared by each native provider, never inferred from descriptor ordering.
 _GROUPS = (
+    (
+        "artifacts.reads",
+        "artifacts",
+        "Read verified result rows, Evidence and the complete frozen Finding collection.",
+    ),
     ("inputs.population", "inputs", "Select or sample exact Entity membership."),
     ("inputs.time", "inputs", "Choose observation windows, grains and comparison alignment."),
     ("inputs.events", "inputs", "Build participant patterns and explicit Event completeness."),

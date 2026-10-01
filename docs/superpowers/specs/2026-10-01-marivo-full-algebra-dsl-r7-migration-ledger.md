@@ -1,7 +1,7 @@
 # R7.1 contract freeze and consumer migration ledger
 
 Date: 2026-10-01. Status: R7.1 contract/static freeze complete; R7.2 private
-preparation implemented and qualified as recorded below; R7.3 implementation is recorded below; R7.4-R7.9 remain pending. This ledger indexes sole owners and responsibility;
+preparation implemented and qualified as recorded below; R7.3 and R7.4 implementations are recorded below; R7.5-R7.9 remain pending. This ledger indexes sole owners and responsibility;
 it is not another public API or method registry and grants no Runtime qualification.
 
 ## Actual baseline and accepted decisions
@@ -287,3 +287,44 @@ Repair gates: `make check-agent` passed (5399 passed, 5 skipped), final Runtime
 commands passed 3 public plus 151 shared cases, the site built 321 pages, and
 `git diff --check` passed. Initial and intermediate results remain distinguished
 in the evidence index.
+
+
+## R7.4 implementation amendment (2026-10-02)
+
+Entry branch `panda`, clean HEAD `01cdbe3571386bf3544602281681c03d0e0f5ab0`.
+The public Journey funnel, FunnelComparisonResult and existing AttributionResult
+now share the graph/methods/Runtime/Store 7 owners. Canonical assignment and exact
+coverage are consumed once; Ibis captures full historical entry axes before local
+matching. Logical expansion depends on that same assignment, while fixed inputs
+require retained axes/components. Owned reads preserve original endpoints and
+scope. Filtering removes complete-partition continuation without changing original
+reconciliation authority. F07 and the R7.4 portion of F14 have executable owners.
+
+| Migration | Replacement executable | Old consumer unreachable | Physical deletion |
+| --- | --- | --- | --- |
+| M05 exclusive private funnel Delta/Attribution | Public table/Parquet source and fixed compare/allocation, independent Fraction/side/Top-K and nonempty Finding tests pass | Family registrations, Event.compare, dispatch and extractor consumers removed; no alias or dual read | Seven exclusive domain modules, two compiler modules and two comparison codec/publication modules deleted; exact paths in evidence index |
+| M06 comparison-specific descriptor/codec | Current graph part receipts and atomic Artifact/Evidence/Findings/terminal transaction | Old funnel_evidence descriptor field and its reader/writer removed | Exclusive field and comparison codec/publication removed; other Event/Lifecycle codecs remain |
+| M04 funnel consumer | Registered exact count/rate/read producer consumes canonical first_per_subject assignment | New public path has no legacy reducer dispatch | Shared old Event reducer/matcher modules still have legacy consumers; no wholesale deletion claim |
+| M12 funnel placement/dispatch | Explicit source preparation then ibis_python; artifact_python fixed/cold | No rematch, upload or source-after-local route; old Delta/Attribution dispatch removed | Shared compiler/execution owners retained for genuine Lifecycle/R8 and other methods |
+| M16 exclusive old tests | Independent V07/V08/F14 oracles and public fault/cold workers | Four old comparison test/worker files removed from collection | Four files deleted; shared Event/Lifecycle/R8 fixtures and arithmetic oracles retained |
+
+The original R7.1 snapshot and its 810 P07/P08/P09 requirement IDs are unchanged.
+The [R7.4 qualification record](2026-10-02-marivo-r74-qualification.json) records
+18 exercised K22/T01/T07 source/fixed/cold cells and 792 unverified cells.
+The source route amendment is explicit; previous preparation/assignment passes
+are not transferred to funnel qualification. Native and remote backends, other
+key/time profiles, same-wheel and full R7 remain unqualified here.
+
+The [R7.4 evidence index](2026-10-02-marivo-r74-evidence-index.md) owns current
+gate results, stable extractor policies/cap/counts, source-offline restoration,
+atomic failures, corruption rejection and disclosure alignment. Store 7 and
+graph/execution-key/continuation envelopes remain unchanged. No new Lifecycle,
+Anchor, statistics or retention feature is implemented. AGENTS.md and packaged
+workflow skills remain unchanged; no commit, push or release occurred.
+
+R7.4 closeout: 408 shared Runtime cases and the 42-case R7.4 gate passed. The
+strengthened cap/cold test and nine final process/summary/empty-policy cases also
+passed; repeated tests are not counted as additional unique qualification.
+`make check-agent` passed (5367 default tests, 5 skipped; 429 typed modules,
+lint/import contracts and API docs). Site build passed 321 pages and final
+`git diff --check` passed. R7.4 is complete in this finite local scope.

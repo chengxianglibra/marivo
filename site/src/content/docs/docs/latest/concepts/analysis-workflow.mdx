@@ -184,13 +184,12 @@ Comparison, attribution, correlation, forecast and discovery are Dataset methods
 Event matching starts at `session.events.match(..., population=members)` and
 returns a typed JourneyResult; duration and selection consume its retained
 assignment. Lifecycle replay retains its existing Dataset entry. Cross-Session
-operands are rejected. The following funnel rules describe retained legacy
-consumers pending R7.4 migration, not continuations of the new JourneyResult.
-Event funnel comparisons require equal cohort duration, temporal domain and
-follow-up offset. For funnel attribution, build both funnels logically from
-complete journeys or journey checkpoints opened with `session.artifact(ref)`;
-materialized funnel summaries or a materialized funnel Delta cannot replace
-those journey inputs.
+operands are rejected. First-per-subject Journey results expose `funnel(axes=())`.
+Funnel comparison requires the exact pattern, population, time basis, cohort
+duration, follow-up offset and complete coverage. Logical attribution can prepare
+entry axes against the same assignment; fixed attribution requires those axes
+and original components to have been retained. See the executable funnel example
+below for owned reads, comparison and Findings.
 
 Source execution supports DuckDB and the PostgreSQL, MySQL, SQLite, Trino and ClickHouse scalar subsets below;
 datasource authoring alone does not enable Dataset execution on another backend. Unsupported methods report
@@ -365,14 +364,16 @@ admits exact two- or three-step legacy journeys and
 require unversioned table sources and `int64` subject and occurrence identities.
 Direct Event funnel, time-to-event and subject selection, and Lifecycle
 distribution, transitions, dwell, violations and subject selection are qualified.
-Complete PostgreSQL funnels support retained comparison and attribution.
+The former private PostgreSQL funnel comparison and attribution consumers have
+been retired; that historical backend evidence does not qualify the new R7.4 route.
 ClickHouse and Trino admit two-step journeys with `first_per_subject()` or
 `every_start()` (shared/exclusive), with the same table and identity requirements.
 Trino was tested on Iceberg. ClickHouse requires a read-only reader permitted to
 set `enable_materialized_cte=1`. Source-side assertions run even for empty output;
 only complete admitted results can enter the existing local continuations.
 Trino also supports direct ungrouped funnels, first-per-subject time-to-event,
-subject selection and complete ungrouped funnel comparison. Grouped Trino funnels
+subject selection. Its former private ungrouped funnel comparison consumer has
+been retired and does not qualify the new R7.4 route. Grouped Trino funnels
 and dependent attribution remain unsupported because reconciliation exceeds the
 qualification server's stage limit. ClickHouse direct Event reducers and selection remain unsupported after
 planner/memory qualification failures.
@@ -856,8 +857,9 @@ same typed graph and Store 7. Recover with `session.artifact(ref)` and inspect t
 result's `contract()`. Complete parts are checked before a fixed cache hit or
 continuation; recovery never rereads lineage. `mv.table(...)` remains terminal.
 The old Metric Dataset comparison and Delta/Attribution Dataset exports and Help
-targets are removed without redirects. Event funnel consumers remain private
-R7 contracts; R7/R8 source admission, R9 backend qualification and R10 real-Agent
+targets are removed without redirects. R7.4 replaces private funnel Delta and
+Attribution consumers with public graph results; R7/R8 source admission,
+R9 backend qualification and R10 real-Agent
 acceptance are separate responsibilities.
 
 An original reduction retaining group keys returns MaterializedGroupedNumericRelation;
@@ -936,3 +938,45 @@ native nanoseconds converted to microseconds). Boundaries and order use captured
 time; precision-created ties still need business order. Execution shares one
 600-second deadline. This stage grants no funnel, Lifecycle, Anchor, remote backend
 or complete same-wheel R7 qualification.
+
+## Exact funnel comparison and evidence
+
+Use first-per-subject Journeys from the same explicit population for both periods.
+The pattern, matching and definitions must match; start windows and follow-up
+lengths must be equal and coverage complete. The example continues existing
+`journeys`, `baseline_journeys` and the exact `finish_step` from their pattern.
+
+```python
+funnel = journeys.funnel()
+fixed_funnel = funnel.execute()
+lost = fixed_funnel.read(fixed_funnel.lost_count).execute()
+change = funnel.compare(baseline_journeys.funnel())
+allocation = change.attribute(
+    target=mv.funnel_loss_rate(step=finish_step),
+    axes=(ms.ref.dimension("sales.customers.region"),),
+    mode="joint",
+    top_k=5,
+).execute()
+allocation.contract().show()
+page = allocation.findings(limit=20)
+if page.items:
+    finding = allocation.finding(page.items[0].finding_id)
+```
+
+Funnel axes capture all eligible starts at their entry time before local matching
+consumes the original assignment. Snapshot/validity versions and full axis tuples
+preserve real Null categories. Counts remain exact int64; zero denominators and
+the initial loss rate are Undefined. Owned handles belong to their receiver.
+
+Allocation separates loss and denominator mix, uses one Top-K based on both
+periods' resolved entries, and preserves typed Other masks. Every joint or
+hierarchy resolution reconciles both allocated sides and the target difference.
+Filtering preserves the original reconciliation scope and revokes completeness.
+Fixed results require retained axes/components and never consult current semantics,
+connect sources or rematch. Materialized results expose Evidence, bounded Finding
+pages and exact individual Findings; all reads verify the entire frozen collection.
+Compare/allocation cap emission at 1000 and retain eligible/emitted/truncated counts.
+
+The qualified placement is explicit Ibis source preparation followed by local
+consumption, or source-free `artifact_python` for fixed continuation. No native
+funnel route, remote backend, same-wheel or full R7 qualification is claimed here.

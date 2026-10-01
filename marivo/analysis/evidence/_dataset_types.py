@@ -224,6 +224,20 @@ class FindingDerivationV1(_Value):
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class GraphFindingDerivationV1(_Value):
+    producer_id: str
+    state_contract_version: str
+    extractor_contract_id: str
+    extractor_contract_version: str
+    policy_contract_id: str
+    policy_contract_version: str
+    ordered_input_bindings: tuple[str, ...]
+    definition_fingerprint: str
+    scope_id: str
+    kind: Literal["graph"] = "graph"
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class NoAssociationLagV1(_Value):
     kind: Literal["none"] = "none"
 
@@ -402,7 +416,7 @@ class Finding(_Value):
     coordinates: tuple[FindingCoordinateV1, ...]
     canonical_item_key: str
     value: FindingValueV1
-    derivation: FindingDerivationV1
+    derivation: FindingDerivationV1 | GraphFindingDerivationV1
     committed_at: datetime
 
     def __post_init__(self) -> None:

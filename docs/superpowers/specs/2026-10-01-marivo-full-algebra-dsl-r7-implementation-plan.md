@@ -3,7 +3,7 @@
 Date: 2026-10-01
 
 Status: R7.1 documentation/static contract freeze complete; R7.2 private preparation implemented;
-R7.3 public Journey integration implemented with bounded evidence below; R7.4-R7.9 remain unimplemented. This plan grants no new product or Runtime qualification.
+R7.3 public Journey integration implemented with bounded evidence below; R7.4 funnel and Findings implementation is recorded below; R7.5-R7.9 remain unimplemented. Qualification is limited to each phase's recorded evidence.
 
 The [R7.1 migration ledger](2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md),
 [consumer snapshot](2026-10-01-marivo-r71-consumer-snapshot.json) and
@@ -413,7 +413,7 @@ records deterministic AST/text/import evidence and mandatory source/fixed/cold
 targets, all planned. Static presence, source admission blockage, unverified
 dynamic unreachability and future deletion are distinct. See the
 [R7.1 acceptance record](2026-09-26-marivo-full-refactor-acceptance.md#r71-documentation-and-static-freeze-completed-acceptance-2026-10-01)
-for validation and excluded execution gates. R7.2 preparation and R7.3 Journey implementation are recorded below; R7.4-R7.9 remain pending.
+for validation and excluded execution gates. R7.2 preparation, R7.3 Journey and R7.4 funnel implementation are recorded below; R7.5-R7.9 remain pending.
 
 ### R7.2 — Ibis occurrence 准备、覆盖与业务顺序消费
 
@@ -471,6 +471,17 @@ A09 的 dropout→members→新 Metric 观察包含非空和空选择、完整�
 公共正例；执行轨迹证明所有 source 读取先于本地选人，显式 fixed+source 在读前拒绝。
 
 ### R7.4 — funnel、领域 compare/attribute 与单量 read
+
+**Implementation evidence:** the [R7.4 evidence index](2026-10-02-marivo-r74-evidence-index.md)
+and [qualification record](2026-10-02-marivo-r74-qualification.json) bind public
+source/fixed funnel, exact owned reads, historical entry axes, ratio-mix allocation,
+nonempty Findings and private Delta/Attribution retirement. Native/source matching
+is not rerun: source preparation precedes the explicit `ibis_python` consumer;
+fixed/cold execution uses `artifact_python`. All original P07/P08/P09 IDs remain:
+18 K22/T01/T07 S/F/C cells are exercised here; the other 792 are unverified.
+R7.4 is complete within this bounded local implementation scope. The passing
+validation receipts and completion status are owned by the evidence index.
+This bounded implementation grants no R7.5-R7.9, remote, same-wheel or full R7 acceptance.
 
 实现 first_per_subject funnel、entry-time axes、封闭 funnel-period 比较和
 funnel_ratio_mix，复用既有 AttributionResult/Relation/排名/table/transport。

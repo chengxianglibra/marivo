@@ -9,16 +9,26 @@ import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.core.graph import MethodNode
-from marivo.analysis.core.model import AttributionPart, DerivedQuantity, DisplayPart
+from marivo.analysis.core.model import (
+    AttributionPart,
+    DerivedQuantity,
+    DisplayPart,
+    FunnelAllocationPart,
+    FunnelComparisonPart,
+    FunnelPart,
+)
 from marivo.analysis.core.rules import DisplayTable, PartsTransport
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.state import MaterializedDatasetState, _materialized_state
+from marivo.analysis.errors import AnalysisRepair
+from marivo.analysis.evidence import _dataset_types as t
 from marivo.analysis.materialization import graph_store
 from marivo.analysis.materialization.graph_exchange import ExchangeResult
 from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, digest, encode, invalid
 from marivo.analysis.materialization.graph_storage import read_result
 from marivo.analysis.materialization.graph_store import GraphArtifact
 from marivo.analysis.refs import ArtifactRef
+from marivo.introspection.live.model import LiveHelpTarget
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.admission import DatasetRuntime
@@ -63,6 +73,37 @@ def _public_table(result: ExchangeResult) -> pa.Table:
             if index == 0
             else f"coord_{index - 1}"
         )
+    funnel = next(
+        (
+            p
+            for p in signature.parts
+            if isinstance(p, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart))
+        ),
+        None,
+    )
+    if funnel is not None:
+        from marivo.analysis.materialization.funnel_execution import AXIS
+
+        axes = (
+            funnel.axes
+            if isinstance(funnel, FunnelPart)
+            else funnel.current.axes
+            if isinstance(funnel, FunnelComparisonPart)
+            else funnel.comparison.current.axes
+        )
+        names[0] = "resolution_key" if isinstance(funnel, FunnelAllocationPart) else "step"
+        for i, axis in enumerate(axes):
+            key = result.contract.key_fields[i + 1]
+            dtype = pa.int64() if axis.dimension.logical_type == "int64" else pa.string()
+            decoded = pa.array(
+                [AXIS.validate_json(value, strict=True) for value in table[key].to_pylist()],
+                type=dtype,
+            )
+            table = table.set_column(table.schema.get_field_index(key), key, decoded)
+            names[i + 1] = axis.dimension.ref.path
+        if isinstance(funnel, FunnelAllocationPart):
+            names[len(result.contract.key_fields) - 2] = "other_mask_key"
+            names[len(result.contract.key_fields) - 1] = "contribution_kind"
     quantity = signature.quantity
     if (
         isinstance(quantity, DerivedQuantity)
@@ -151,6 +192,62 @@ class GraphDataset:
     runtime: DatasetRuntime
     artifact: GraphArtifact
     projection: Literal["values", "ranks", "contribution", "current", "baseline"] | None = None
+
+    def evidence_digest(self) -> t.ArtifactDigest:
+        with self.runtime.store._read() as connection:
+            current = graph_store.artifact(
+                self.runtime.store, connection, self.artifact.artifact_ref
+            )
+            if current != self.artifact:
+                raise invalid("selected Artifact changed or disappeared")
+            from marivo.analysis.materialization.graph_findings import collection
+
+            return collection(
+                self.runtime.store, connection, current.descriptor, current.artifact_ref
+            )[1]
+
+    def findings(self, limit: int = 20, cursor: str | None = None) -> t.FindingPage:
+        from marivo.analysis.materialization.graph_findings import collection, page
+
+        with self.runtime.store._read() as connection:
+            current = graph_store.artifact(
+                self.runtime.store, connection, self.artifact.artifact_ref
+            )
+            if current != self.artifact:
+                raise invalid("selected Artifact changed or disappeared")
+            findings, _ = collection(
+                self.runtime.store, connection, current.descriptor, current.artifact_ref
+            )
+            return page(findings, current.artifact_ref, limit, cursor)
+
+    def finding(self, finding_id: str) -> t.Finding:
+        from marivo.analysis.materialization.graph_findings import collection
+
+        with self.runtime.store._read() as connection:
+            current = graph_store.artifact(
+                self.runtime.store, connection, self.artifact.artifact_ref
+            )
+            if current != self.artifact:
+                raise invalid("selected Artifact changed or disappeared")
+            findings, _ = collection(
+                self.runtime.store, connection, current.descriptor, current.artifact_ref
+            )
+            for finding in findings:
+                if finding.finding_id == finding_id:
+                    return finding
+        from marivo.analysis.errors import FindingNotFoundError
+
+        raise FindingNotFoundError(
+            message="The selected Finding does not belong to this Artifact.",
+            expected="an exact Finding identity from this Artifact",
+            received=str(finding_id),
+            location="analysis.finding",
+            repair=AnalysisRepair(
+                kind="inspect",
+                action="Read result.findings() and select an owned Finding identity.",
+                help_target=LiveHelpTarget(surface="analysis"),
+            ),
+        )
 
     def verified(self) -> ExchangeResult:
         store = self.runtime.store

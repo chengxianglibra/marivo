@@ -23,7 +23,7 @@ from marivo.analysis._capabilities.dataset_registry import (
 )
 from marivo.analysis._capabilities.dataset_render import render
 from marivo.analysis._capabilities.registry import REGISTRY as LIVE_REGISTRY
-from marivo.analysis.datasets.base import Dataset, LogicalDataset
+from marivo.analysis.datasets.base import Dataset
 from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.errors import HelpTargetError
 from marivo.analysis.materialization.store import SessionStore
@@ -131,6 +131,10 @@ EXPECTED_EXPORTS = (
     "AnalysisAction",
     "AnalysisContract",
     "LogicalAnalysisDomain",
+    "LogicalFunnelResult",
+    "MaterializedFunnelResult",
+    "LogicalFunnelComparisonResult",
+    "MaterializedFunnelComparisonResult",
     "LogicalJourneyResult",
     "MaterializedJourneyResult",
     "LogicalEventDurationResult",
@@ -232,8 +236,6 @@ EXPECTED_SHAPES = {
         "time",
         "dimension-time",
     ),
-    "delta": ("funnel",),
-    "attribution": ("funnel-loss-rate",),
     "association": ("entity", "dimension", "time-lag", "dimension-time-lag"),
     "forecast": ("time", "dimension-time"),
     "candidate": (
@@ -299,8 +301,6 @@ REQUIRED_TARGETS = frozenset(
         "event_dataset.funnel",
         "event_dataset.time_to_event",
         "event_dataset.select_subjects",
-        "event_dataset.compare",
-        "funnel_delta_dataset.attribute",
         "lifecycle.replay",
         "lifecycle_dataset.distribution",
         "lifecycle_dataset.transitions",
@@ -373,7 +373,7 @@ def test_exact_export_bindings_and_required_native_targets(
 ) -> None:
     actual = {e.name: e for p in disclosure.providers for e in p.exports}
     assert set(actual) == set(EXPECTED_EXPORTS)
-    assert len(actual) == 187
+    assert len(actual) == 191
     assert set(disclosure.canonical_ids()) >= REQUIRED_TARGETS
     for name in EXPECTED_EXPORTS:
         entry = actual[name]
@@ -501,19 +501,6 @@ def test_corrupt_native_input_fails_closed(
             render(candidate, d.canonical_id)
 
 
-def test_bound_funnel_overload_uses_exact_registered_shape(
-    disclosure: DatasetDisclosureRegistry,
-) -> None:
-    environment = example_inputs(disclosure)
-    for key, target in (("funnel_delta", "funnel_delta_dataset.attribute"),):
-        value = environment[key]
-        assert isinstance(value, Dataset)
-        assert disclosure.by_callable(value.attribute).canonical_id == target
-    logical = environment["metric"]
-    assert isinstance(logical, LogicalDataset)
-    assert disclosure.resolve(logical).type_name == "metric_dataset"
-
-
 def test_registered_nested_values_and_module_resolve(disclosure: DatasetDisclosureRegistry) -> None:
     values = example_inputs(disclosure)
     metric = values["metric"]
@@ -598,16 +585,6 @@ EXPECTED_VARIANT_FIELDS = {
     ),
     "EventFunnelSemantics": ("axis_dependency_fingerprints", "axis_refs", "journey_json", "kind"),
     "EventTimeToEventSemantics": ("from_step_json", "journey_json", "kind", "to_step_json"),
-    "FunnelDeltaSemantics": ("baseline_json", "current_json", "kind"),
-    "FunnelAttributionSemantics": (
-        "axis_field_ids",
-        "delta_baseline_json",
-        "delta_current_json",
-        "kind",
-        "resolution_prefixes",
-        "step_key",
-        "top_k",
-    ),
     "LifecycleSemantics": (
         "inceptions",
         "initial",
@@ -827,27 +804,6 @@ def test_invalid_callable_ownership_and_export_links_fail_during_assembly(
         )
     with pytest.raises(DatasetRegistrationError):
         assemble(disclosure.families, tuple(providers))
-
-
-def test_private_funnel_help_resolves_after_metric_variant_retirement(
-    disclosure: DatasetDisclosureRegistry,
-) -> None:
-    inputs = example_inputs(disclosure)
-    candidate = replace(
-        disclosure,
-        descriptors=tuple(
-            replace(d, canonical_id="renamed.funnel")
-            if d.canonical_id == "funnel_delta_dataset.attribute"
-            else d
-            for d in reversed(disclosure.descriptors)
-        ),
-    )
-    value = inputs["funnel_delta"]
-    assert isinstance(value, Dataset)
-    assert candidate.by_callable(value.attribute).canonical_id == "renamed.funnel"
-    assert candidate.by_callable(type(value).attribute).canonical_id == "renamed.funnel"
-    with pytest.raises(HelpTargetError):
-        disclosure.resolve("delta_dataset.attribute")
 
 
 @pytest.mark.parametrize("name", ["sum", "count", "count_defined", "min", "max", "mean"])

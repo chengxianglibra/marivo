@@ -28,6 +28,7 @@ from marivo.analysis.core.rules import (
     CompleteGroups,
     DisplayRank,
     DisplayTable,
+    FunnelAxesPrepare,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -198,6 +199,10 @@ class MethodState:
         required = (
             ()
             if self.kind == "none"
+            else ("entry_axes",)
+            if self.kind == "entry_axes"
+            else ("funnel_state",)
+            if self.kind in ("funnel_components", "funnel_comparison", "funnel_allocation")
             else ("subject", "journey")
             if self.kind == "journey_assignment"
             else ("subject", "occurrences")
@@ -484,6 +489,7 @@ def validate_descriptor(value: Descriptor) -> Node:
                     TimeProduct,
                     DisplayTable,
                     OccurrencePrepare,
+                    FunnelAxesPrepare,
                     JourneyMatch,
                     JourneyDuration,
                     JourneyCompleted,
@@ -554,6 +560,9 @@ def validate_descriptor(value: Descriptor) -> Node:
                     "ranking_domain",
                     "partitions",
                     "ordering",
+                    "entry_axes",
+                    "funnel_state",
+                    "finding_policy",
                 )
                 and not any(
                     isinstance(part, AttributionPart) and part.role == p.role

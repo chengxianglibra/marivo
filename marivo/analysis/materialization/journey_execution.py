@@ -176,19 +176,13 @@ def validate(
     assignments = next(part.table for part in parts if part.role == "journey")
     subjects = next(part.table for part in parts if part.role == "subject")
     mappings = {tuple(row[key] for key in contract.key_fields): row for row in subjects.to_pylist()}
-    observed: dict[tuple[str, tuple[str | int, ...]], OrderedOccurrence] = {}
-    finals: set[tuple[str, tuple[str | int, ...]]] = set()
-    seen_subjects: set[tuple[str | int, ...]] = set()
-    through = datetime.fromisoformat(declaration.completion_through)
+    items: list[JourneyAssignment] = []
     for row in assignments.to_pylist():
         check()
         try:
             item = ASSIGNMENT.validate_json(row["journey__assignment"], strict=True)
         except ValidationError:
             fail("journey_assignment", "invalid retained assignment encoding", stage="recovery")
-        if declaration.policy == "first_per_subject" and item.subject in seen_subjects:
-            fail("journey_assignment", "multiple first-per-subject attempts", stage="recovery")
-        seen_subjects.add(item.subject)
         key = tuple(row[name] for name in contract.key_fields)
         if (
             key != (*item.subject, item.start.event, *item.start.key)
@@ -205,6 +199,23 @@ def validate(
             != item.subject
         ):
             fail("journey_binding", "retained Subject image differs", stage="recovery")
+        items.append(item)
+    validate_assignments(tuple(items), declaration)
+
+
+def validate_assignments(items: tuple[JourneyAssignment, ...], declaration: JourneyPart) -> None:
+    """Verify retained assignment structure without replaying matching or opening sources."""
+    observed: dict[tuple[str, tuple[str | int, ...]], OrderedOccurrence] = {}
+    finals: set[tuple[str, tuple[str | int, ...]]] = set()
+    seen_subjects: set[tuple[str | int, ...]] = set()
+    through = datetime.fromisoformat(declaration.completion_through)
+    for item in items:
+        check()
+        if declaration.policy == "first_per_subject" and item.subject in seen_subjects:
+            fail("journey_assignment", "multiple first-per-subject attempts", stage="recovery")
+        seen_subjects.add(item.subject)
+        if len(item.steps) != len(declaration.steps) or len(item.reach) != len(item.steps):
+            fail("journey_binding", "retained step count differs", stage="recovery")
         previous = None
         missing = None
         for event, step, reach in zip(declaration.events, item.steps, item.reach, strict=True):

@@ -18,6 +18,11 @@ if TYPE_CHECKING:
 
 
 MethodName: TypeAlias = Literal[
+    "funnel.entry_axes",
+    "funnel.reduce",
+    "funnel.compare",
+    "funnel.read",
+    "funnel_ratio_mix",
     "journey.match",
     "journey.duration",
     "journey.completed",
@@ -76,6 +81,10 @@ MethodName: TypeAlias = Literal[
 
 
 PersistentStateKind: TypeAlias = Literal[
+    "entry_axes",
+    "funnel_components",
+    "funnel_comparison",
+    "funnel_allocation",
     "journey_assignment",
     "occurrence_inputs",
     "attribution_additive",
@@ -133,6 +142,27 @@ class MethodKey:
 
 def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     """Map closed parameter variants to exactly one concrete method identity."""
+    if isinstance(
+        params,
+        (
+            rules.FunnelAxesPrepare,
+            rules.FunnelReduce,
+            rules.FunnelCompare,
+            rules.FunnelRead,
+            rules.FunnelAttribute,
+        ),
+    ):
+        return MethodKey(
+            "funnel.entry_axes"
+            if isinstance(params, rules.FunnelAxesPrepare)
+            else "funnel.reduce"
+            if isinstance(params, rules.FunnelReduce)
+            else "funnel.compare"
+            if isinstance(params, rules.FunnelCompare)
+            else "funnel.read"
+            if isinstance(params, rules.FunnelRead)
+            else "funnel_ratio_mix"
+        )
     if type(params) is rules.JourneyDuration:
         return MethodKey("journey.duration")
     if type(params) is rules.JourneyCompleted:
@@ -273,6 +303,11 @@ class MethodSemantics:
     def persistent_state_kind(self) -> PersistentStateKind | None:
         """Return the connected durable state kind; absence grants no publication."""
         kinds: dict[MethodName, PersistentStateKind] = {
+            "funnel.entry_axes": "entry_axes",
+            "funnel.reduce": "funnel_components",
+            "funnel.compare": "funnel_comparison",
+            "funnel.read": "none",
+            "funnel_ratio_mix": "funnel_allocation",
             "journey.match": "journey_assignment",
             "journey.duration": "journey_assignment",
             "journey.completed": "journey_assignment",
@@ -336,6 +371,29 @@ class MethodSemantics:
         from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
         name = self.key.name
+        if isinstance(
+            params,
+            (
+                rules.FunnelAxesPrepare,
+                rules.FunnelReduce,
+                rules.FunnelCompare,
+                rules.FunnelRead,
+                rules.FunnelAttribute,
+            ),
+        ):
+            funnel_type = (
+                ScalarType("int64")
+                if isinstance(params, (rules.FunnelAxesPrepare, rules.FunnelReduce))
+                or (isinstance(params, rules.FunnelRead) and params.field.endswith("_count"))
+                else ScalarType("float64")
+            )
+            if output != funnel_type:
+                reject(
+                    "the exact funnel field carrier",
+                    repr(output),
+                    "Preserve exact counts and float64 rate finishes.",
+                )
+            return
         if isinstance(params, rules.JourneyRead):
             field_type = (
                 DurationType("us")
@@ -651,6 +709,8 @@ class MethodSemantics:
     @property
     def rule(self) -> rules.RuleId:
         name = self.key.name
+        if name.startswith("funnel.") or name == "funnel_ratio_mix":
+            return "funnel@v1"
         if name in ("journey.duration", "journey.completed", "journey.read"):
             return "journey_view@v1"
         if name == "journey.match":
@@ -1022,6 +1082,19 @@ class MethodSemantics:
         self, inputs: tuple[Signature, ...], params: rules.RuleParameters
     ) -> rules.RuleDerivation:
         """Validate exact inputs and apply the sole owning semantic rule."""
+        if isinstance(
+            params,
+            (
+                rules.FunnelAxesPrepare,
+                rules.FunnelReduce,
+                rules.FunnelCompare,
+                rules.FunnelRead,
+                rules.FunnelAttribute,
+            ),
+        ):
+            from marivo.analysis.core.funnel_rules import derive
+
+            return derive(inputs, params)
         if isinstance(params, (rules.JourneyDuration, rules.JourneyCompleted, rules.JourneyRead)):
             return rules._journey_view(inputs, params)
         if isinstance(params, rules.JourneyMatch):
@@ -1093,6 +1166,16 @@ class MethodSemantics:
 
 
 CONNECTED_METHODS = (
+    *(
+        MethodSemantics(MethodKey(name), "analysis.core.rules")
+        for name in (
+            "funnel.entry_axes",
+            "funnel.reduce",
+            "funnel.compare",
+            "funnel.read",
+            "funnel_ratio_mix",
+        )
+    ),
     MethodSemantics(MethodKey("journey.match"), "analysis.core.rules"),
     MethodSemantics(MethodKey("journey.duration"), "analysis.core.rules"),
     MethodSemantics(MethodKey("journey.completed"), "analysis.core.rules"),

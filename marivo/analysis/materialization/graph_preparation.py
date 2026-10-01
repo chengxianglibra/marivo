@@ -22,8 +22,21 @@ from marivo.analysis.compiler.graph_lowering import (
 )
 from marivo.analysis.core.domain_captures import fail
 from marivo.analysis.core.graph import MethodNode
-from marivo.analysis.core.model import CoordinateStatePart, OriginalStatePart
+from marivo.analysis.core.model import (
+    CoordinateStatePart,
+    FunnelAllocationPart,
+    FunnelComparisonPart,
+    FunnelPart,
+    OriginalStatePart,
+)
 from marivo.analysis.core.rules import (
+    DisplayRank,
+    DisplayTable,
+    FunnelAttribute,
+    FunnelAxesPrepare,
+    FunnelCompare,
+    FunnelRead,
+    FunnelReduce,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -282,7 +295,22 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
         not (
             isinstance(
                 item.stage.node.parameters,
-                (PreparedObservation, JourneyMatch, JourneyDuration, JourneyCompleted, JourneyRead),
+                (
+                    PreparedObservation,
+                    JourneyMatch,
+                    JourneyDuration,
+                    JourneyCompleted,
+                    JourneyRead,
+                    FunnelReduce,
+                    FunnelCompare,
+                    FunnelRead,
+                    FunnelAttribute,
+                ),
+            )
+            or any(
+                isinstance(p, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart))
+                for e in item.stage.node.inputs
+                for p in e.node.signature.parts
             )
             or (
                 isinstance(item.stage.node.parameters, PartsTransport)
@@ -325,7 +353,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
         check()
         params = stage.node.parameters if isinstance(stage.node, MethodNode) else None
         if (
-            not isinstance(params, (OccurrencePrepare, PreparedObservation))
+            not isinstance(params, (OccurrencePrepare, PreparedObservation, FunnelAxesPrepare))
             and stage.node.identity not in originals
             and stage.output not in local_source_inputs
         ):
@@ -339,7 +367,19 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             keys=tuple(key.column for key in stage.layout.keys),
             validate_cells=False,
         )
-        if isinstance(params, OccurrencePrepare):
+        if isinstance(params, FunnelAxesPrepare):
+            assert isinstance(stage.node, MethodNode)
+            from marivo.analysis.materialization.funnel_execution import axes_result
+
+            table = table.replace_schema_metadata(
+                {
+                    b"r7.capture_authority": json.dumps(
+                        source.domain_authority, sort_keys=True
+                    ).encode()
+                }
+            )
+            results[stage.output] = axes_result(stage.node, table, stage.node.identity)
+        elif isinstance(params, OccurrencePrepare):
             validate_rows(params, table)
             table = table.replace_schema_metadata(
                 {**(table.schema.metadata or {}), **_metadata(params, lowered, source)}
@@ -363,7 +403,15 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
     for item in locals_:
         check()
         params = item.stage.node.parameters
-        if isinstance(params, (JourneyDuration, JourneyCompleted, JourneyRead)):
+        if isinstance(params, (FunnelReduce, FunnelCompare, FunnelRead, FunnelAttribute)):
+            from marivo.analysis.materialization.funnel_execution import execute as execute_funnel
+
+            results[item.stage.output] = execute_funnel(
+                item.stage.node,
+                tuple(results[key] for key in item.stage.inputs),
+                item.stage.node.identity,
+            )
+        elif isinstance(params, (JourneyDuration, JourneyCompleted, JourneyRead)):
             from marivo.analysis.materialization.journey_views import execute as journey_view
 
             results[item.stage.output] = journey_view(
@@ -374,6 +422,14 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
 
             results[item.stage.output] = match_journeys(
                 item.stage.node, results[item.stage.inputs[0]], item.stage.node.identity
+            )
+        elif isinstance(params, (DisplayRank, DisplayTable)):
+            from marivo.analysis.materialization.graph_display import fixed
+
+            results[item.stage.output] = fixed(
+                item.stage.node,
+                tuple(results[key] for key in item.stage.inputs),
+                item.stage.node.identity,
             )
         elif isinstance(params, PartsTransport):
             results[item.stage.output] = _transport_stage(

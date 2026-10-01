@@ -24,8 +24,6 @@ from marivo.analysis.domains.contracts import (
     EventSelectionPayload,
     EventTimeToEventPayload,
 )
-from marivo.analysis.domains.event_attribution import FunnelAttributePayload
-from marivo.analysis.domains.event_comparison import FunnelComparePayload
 from marivo.analysis.domains.lifecycle import LifecyclePayload
 from marivo.analysis.domains.lifecycle_reducers import (
     LifecycleReducerPayload,
@@ -103,8 +101,6 @@ _INPUT_ONLY_PAYLOADS = (
     LifecycleSelectionPayload,
     RetainedRowsPayload,
     RetainedFoldPayload,
-    FunnelComparePayload,
-    FunnelAttributePayload,
     CorrelatePayload,
     ForecastPayload,
     CandidatePayload,
@@ -300,8 +296,6 @@ def _required_entities(
                 LifecycleSelectionPayload,
                 RetainedRowsPayload,
                 RetainedFoldPayload,
-                FunnelComparePayload,
-                FunnelAttributePayload,
                 CorrelatePayload,
                 ForecastPayload,
                 CandidatePayload,

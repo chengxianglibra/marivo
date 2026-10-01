@@ -30,6 +30,10 @@ from marivo.analysis.core.rules import (
     CellDerive,
     DisplayRank,
     DisplayTable,
+    FunnelAttribute,
+    FunnelCompare,
+    FunnelRead,
+    FunnelReduce,
     MapCorrespond,
     OriginalReduce,
     PartsTransport,
@@ -453,6 +457,10 @@ def _transport_stage(
 ) -> ExchangeResult:
     params = method.stage.node.parameters
     assert isinstance(params, PartsTransport)
+    if any(p.role == "funnel_state" for p in source.parts):
+        from marivo.analysis.materialization.funnel_execution import transport
+
+        return transport(method, source, input_binding, predicate_sources)
     if params.mode == "cohort":
         return _cohort_stage(method, source, predicate_sources, input_binding)
     keys = source.contract.key_fields
@@ -1815,7 +1823,17 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
             len(stage.stage.node.inputs)
             if isinstance(
                 stage.stage.node.parameters,
-                (AttributionDerive, PartsTransport, ReferenceDerive, DisplayRank, DisplayTable),
+                (
+                    AttributionDerive,
+                    PartsTransport,
+                    ReferenceDerive,
+                    DisplayRank,
+                    DisplayTable,
+                    FunnelReduce,
+                    FunnelCompare,
+                    FunnelRead,
+                    FunnelAttribute,
+                ),
             )
             else 2
             if name
@@ -1832,6 +1850,10 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
         if (
             name
             not in (
+                "funnel.reduce",
+                "funnel.compare",
+                "funnel.read",
+                "funnel_ratio_mix",
                 "journey.match",
                 "journey.duration",
                 "journey.completed",
@@ -1892,7 +1914,17 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
             and name not in ("group.attach", "group.complete", "domain.cohort")
             and not isinstance(
                 stage.stage.node.parameters,
-                (AttributionDerive, CellDerive, ReferenceDerive, DisplayRank, DisplayTable),
+                (
+                    AttributionDerive,
+                    CellDerive,
+                    ReferenceDerive,
+                    DisplayRank,
+                    DisplayTable,
+                    FunnelReduce,
+                    FunnelCompare,
+                    FunnelRead,
+                    FunnelAttribute,
+                ),
             )
         ):
             domains = tuple(edge.node.signature.domain for edge in stage.stage.node.inputs)
@@ -1958,7 +1990,13 @@ def execute_verified_fixed(
             check for check in lowered.admitted.checks if check.node_id == stage.stage.node.identity
         )
         name = stage.stage.node.method.name
-        if name in ("journey.duration", "journey.completed", "journey.read"):
+        if isinstance(
+            stage.stage.node.parameters, (FunnelReduce, FunnelCompare, FunnelRead, FunnelAttribute)
+        ):
+            from marivo.analysis.materialization.funnel_execution import execute as execute_funnel
+
+            result = execute_funnel(stage.stage.node, values, binding)
+        elif name in ("journey.duration", "journey.completed", "journey.read"):
             from marivo.analysis.materialization.journey_views import execute as journey_view
 
             result = journey_view(stage.stage.node, values[0], binding)

@@ -19,7 +19,16 @@ from marivo.analysis._subject import SubjectBinding
 from marivo.analysis.materialization import graph_fields as fields
 
 _METHOD_GROUPS = {
+    ("_MaterializedValue", "show"): "artifacts.reads",
+    ("_MaterializedValue", "to_pandas"): "artifacts.reads",
+    ("_MaterializedValue", "evidence_digest"): "artifacts.reads",
+    ("_MaterializedValue", "findings"): "artifacts.reads",
+    ("_MaterializedValue", "finding"): "artifacts.reads",
     ("_NumericComparison", "rank"): "methods.rows",
+    ("_Journey", "funnel"): "methods.events",
+    ("_Funnel", "read"): "methods.events",
+    ("_FunnelResult", "compare"): "methods.compare",
+    ("_FunnelComparison", "attribute"): "methods.compare",
     ("_Attribution", "where"): "methods.compare",
     ("LogicalDifferenceRelation", "attribute"): "methods.compare",
     ("MaterializedDifferenceRelation", "attribute"): "methods.compare",
@@ -145,6 +154,10 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.GroupedNumericRelation,
         dsl.GroupedStatisticRelation,
         dsl.GroupedRatioRelation,
+        dsl.LogicalFunnelResult,
+        dsl.MaterializedFunnelResult,
+        dsl.LogicalFunnelComparisonResult,
+        dsl.MaterializedFunnelComparisonResult,
         dsl.LogicalJourneyResult,
         dsl.MaterializedJourneyResult,
         dsl.LogicalEventDurationResult,
@@ -205,6 +218,10 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             else ("RootRoute" if type_value is dsl.RootRoute else "RootRoutes")
         )
         policy_examples = {
+            dsl.LogicalFunnelResult: "journeys.funnel(axes=(channel,))",
+            dsl.MaterializedFunnelResult: "funnel.execute()",
+            dsl.LogicalFunnelComparisonResult: "current.compare(baseline)",
+            dsl.MaterializedFunnelComparisonResult: "change.execute()",
             dsl.LogicalJourneyResult: "session.events.match(pattern, population=members, cohort_window=window, completion_through=end, matching=mv.first_per_subject())",
             dsl.MaterializedJourneyResult: "journeys.execute()",
             dsl.LogicalEventDurationResult: "journeys.time_to_event(from_step=start, to_step=finish)",
@@ -255,7 +272,15 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             else "Construct through session.members() or the returned typed relation."
         )
         producers = (
-            ("events.match",)
+            ("dsl.Journey.funnel",)
+            if type_value is dsl.LogicalFunnelResult
+            else ("dsl.LogicalFunnelResult.execute",)
+            if type_value is dsl.MaterializedFunnelResult
+            else ("dsl.FunnelResult.compare",)
+            if type_value is dsl.LogicalFunnelComparisonResult
+            else ("dsl.LogicalFunnelComparisonResult.execute",)
+            if type_value is dsl.MaterializedFunnelComparisonResult
+            else ("events.match",)
             if type_value is dsl.LogicalJourneyResult
             else ("dsl.Journey.time_to_event",)
             if type_value is dsl.LogicalEventDurationResult
@@ -312,7 +337,17 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 summary=f"Governed Analysis {name} value type.",
                 acquisition=acquisition,
                 producers=("session.artifact",) if name.startswith("Materialized") else producers,
-                consumers=("dsl.Journey.time_to_event", "dsl.Journey.read", "dsl.Journey.subjects")
+                consumers=("dsl.Funnel.read", "dsl.FunnelResult.compare")
+                if type_value in (dsl.LogicalFunnelResult, dsl.MaterializedFunnelResult)
+                else ("dsl.Funnel.read", "dsl.FunnelComparison.attribute")
+                if type_value
+                in (dsl.LogicalFunnelComparisonResult, dsl.MaterializedFunnelComparisonResult)
+                else (
+                    "dsl.Journey.funnel",
+                    "dsl.Journey.time_to_event",
+                    "dsl.Journey.read",
+                    "dsl.Journey.subjects",
+                )
                 if type_value in (dsl.LogicalJourneyResult, dsl.MaterializedJourneyResult)
                 else ("dsl.Duration.completed", "dsl.LogicalEventDurationResult.execute")
                 if type_value
@@ -665,6 +700,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         *field_types,
         dsl._Value,
         dsl._Journey,
+        dsl._Funnel,
+        dsl._FunnelResult,
+        dsl._FunnelComparison,
         dsl._Duration,
         dsl._Attribution,
         dsl._Ranking,
