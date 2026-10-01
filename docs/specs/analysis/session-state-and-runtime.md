@@ -932,3 +932,242 @@ under private R7 owners; source admission remains blocked. Neutral ordered-input
 bindings and scalar Finding values remain for their actual Event/R8 consumers.
 Original group reductions restore the same MaterializedGroupedNumericRelation
 variant and K as execution; Singleton reductions restore MaterializedRolledNumericRelation.
+
+## R7.1 frozen domain execution and retained state
+
+Status: accepted target, 2026-10-01; static freeze only. This owns F05/F12-F14
+execution identity, state schemas, placement, resources and Findings. The
+[domain API](python-analysis-design.md#r71-frozen-domain-api-target) and
+[operator rules](operators-and-frames.md#r71-frozen-domain-method-rules) own
+signatures and semantics. The
+[R7 ledger](../../superpowers/specs/2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md)
+records actual blockers and qualification/test responsibility.
+
+### Method identity and parts
+
+Physical Entity/Metric SourceDefinition leaves remain the access boundary.
+Closed method parameter captures carry exact Event, StateModel, BusinessOrder,
+participant, coverage and relative-window definitions and their ordered
+dependencies. EventCapture binds its occurrence Entity leaf; StateModelCapture
+binds each distinct trigger Event once; OrderCapture binds exact sequence field
+owners and precedence roles. All captures are serializable frozen values in the
+same DAG, never a closure or lineage-only Ref. Definition identity includes full
+source/definition versions and input captures; separately constructed equal
+definitions remain independent realizations.
+
+New domain methods below have semantic/rule/state version v1 and implementation
+contract v1. Each named retained part has contract version 1 and carries its
+complete typed keys, schema, bound input identity and digest. Extensions of
+existing methods preserve their semantic method key and introduce a separately
+qualified domain/Duration implementation; old implementations gain no new cells.
+New R7 implementation identities are `r7.<method-key>.<route>@v1`, selected by
+the exact type/domain/source/time qualification key. This v1 is independent of
+existing R5/R6 implementation contracts (including contract 4); it does not
+renumber or downgrade them. Source and fixed consumers retain the producing
+identity, their own executing identity and both versions.
+
+| Method key / parameters | Output/state kind | Required retained parts and continuation condition |
+| --- | --- | --- |
+| occurrence.prepare@v1 / Event captures, Subject input, time bounds, order, coverage | occurrence_inputs | exact occurrences, participants, order facts, coverage and capture authority; reusable only for the bound downstream methods |
+| journey.match@v1 / pattern, policy, start/follow-up bounds | journey_assignment | complete Journey domain, dense assignment/reach, exact steps, SubjectBinding, input/order/coverage facts |
+| journey.duration@v1 / exact from/to steps | journey_duration | full Journey domain, status/endpoints/follow-up, assignment/reach and SubjectBinding |
+| journey.dropped_before@v1 / exact noninitial step | journey_truth | full opportunity/reach and coverage; first_per_subject only |
+| funnel.reduce@v1 / axes | funnel_components | assignment binding, step/axis domain, seven counts, three rate Cells, entry-time axes and complete-partition evidence |
+| funnel.compare@v1 / ordered current/baseline | funnel_comparison | both endpoint components/domains and funnel-period compatibility; read preserves the bound endpoint roles |
+| funnel_ratio_mix@v1 / target, axes, mode, Top-K | funnel_allocation | both full component partitions, target, common mapping/masks, all resolutions, allocated sides/error bounds and original reconciliation scope |
+| history.replay@v1 / model, from_inception, report window | canonical_history | exact full Subject domain/classification, inception/known-prefix/coverage, clipped intervals with original boundaries, all legal transitions and occurrence violations |
+| history.in_state@v1 / state, checkpoint | history_truth | full Subject ledger, state/interval and end-left-limit authority; missing interval is not missing Subject |
+| history.distribution@v1 / checkpoints, axes | state_distribution | checkpoint/state/actual-axis target domain, checkpoint axes, exact Subject classifications and count components |
+| history.transitions@v1 / report window | transition_summary | complete declared pair domain and all legal trace entries, self/zero-duration included |
+| history.violations@v1 / report window | violation_rows | exact violation occurrences/time/kind/state, model and SubjectBinding |
+| history.intervals@v1 / report window | interval_rows | original/clipped boundary causes, statuses, exact observed ticks, SubjectBinding |
+| history.dwell@v1 / completed_window_fragment_duration@v1 | dwell_statistics | complete state domain, classified interval counts, exact completed ticks/order statistics and tick sum/count |
+| anchor.bind@v1 / Event role or Journey starts, population, during, order | anchor_domain | full Anchor keys/starts, source assignment or occurrence input, exact Subject map, frozen order/coverage |
+| anchor.observe@v1 / Metric/RuntimeMetricExpr, RootRoutes, relative window | anchor_observation | per-Anchor Metric components and Cells, exact windows, contribution-use keys, coverage and root/path definitions |
+| anchor.retention@v1 / returning role, relative window, coverage | anchor_retention | original Omega, K+/K-/K?, windows, exact return uses/absence facts and Anchor-to-Subject mapping |
+| retention.by_subject@v1 / any_anchor or every_anchor | subject_retention | original instance status fibers, explicit Subject-image Omega, quantified truth and bounds |
+| existing parts_transport@v1 / bound selection, completed, owned read, Subject image | receiver-specific transported state | preserve/rekey the required parts and explicit original scope; never recreate members from counts |
+| existing row.mean@v1 / Duration current rows | row_statistic | exact checked tick sum/count, unit, complete selected domain and final rounding policy |
+
+These are target registrations, not a second runtime registry. The single
+methods owner must accept them before graph derivation/lowering consumes them.
+The qualifying implementation supplies exact ordered types/domain kinds,
+source/table/time shape, checks and resources. Source/current-version checks have
+consume deadlines; exhaustive keys, coverage, partition and part checks complete
+before publish. Fixed receipt checks precede row consumption, K and exact hit.
+No construction/plan allocates a Run or performs business I/O.
+
+Conditional K is derived from the bound method and its verified required parts:
+
+| Producer/view | Permitted continuation and exact condition |
+| --- | --- |
+| journey.match | duration and SubjectBinding views require assignment/reach/map; funnel and dropped_before additionally require first_per_subject |
+| journey.duration / completed view | owned relations, exact where/Subject image and Duration row.mean require the selected full Journey keys and transported endpoint/unit state |
+| funnel.reduce | owned read and period compare require full components; compare additionally needs both compatible complete endpoints; attribute needs complete axis partitions, with explicit Logical same-assignment expansion or already retained fixed axes |
+| funnel.compare / funnel_ratio_mix | read and contribution selection/table retain endpoint/allocation/scope parts; selected views lose complete-partition K; no arbitrary rate rollup or Subject reconstruction |
+| history.replay | each named History method requires the Subject ledger and its specific trace/interval/checkpoint parts from the table; no bag replay/merge |
+| history.in_state | decidable where/members uses the Entity domain and known-state proof, without an instance through binding |
+| history.distribution / transitions / dwell | owned read/selection/table retain full state/pair/count/statistic scope; no default Subject map or summary-value rollup |
+| history.violations / intervals | owned read/where and members require the total model SubjectBinding; interval Duration row.mean also requires exact observed ticks/unit |
+| anchor.bind | observe/retention require the frozen instance keys/windows/map and all explicitly captured downstream Metric/return parts; an unseen live dependency is mixed |
+| anchor.observe | existing Metric read/selection/table rules apply per Anchor with original components/use bindings; removing Anchor coordinates grants no original rollup without an independently admitted disjoint/allocation proof |
+| anchor.retention / retention.by_subject | status views and known-true members retain original Omega/coverage/map; subject quantification requires complete fibers; bounds have no arithmetic/rollup K |
+| parts_transport / row.mean | transport preserves only capabilities justified by surviving rekeyed parts; mean retains exact sum/count/unit for its existing row-statistic continuations, never original Metric state |
+
+Missing required parts removes the corresponding K and causes an attempted
+continuation to reject before row reads/exact hit. Materialized continuation
+constructs the paired Logical fixed graph; execution and cold restoration must
+derive the same K from validated parts, not a serialized capability claim.
+
+### Exchange schemas and source consistency
+
+The typed Arrow schemas have the following fixed roles. Each scalar preserves
+its declared physical type; temporal values use int64 ticks plus exact unit/time
+authority, counts are checked int64, and every nullable Cell has its own tag and
+reason. Definition/capture metadata is immutable and receipt-bound, not repeated
+untyped JSON inside value columns.
+
+| Part role | Complete row key | Required payload beyond the key |
+| --- | --- | --- |
+| occurrences | Event binding + complete occurrence K | exact Subject K, occurred_at; closed no-sequence/integer-sequence/enum-sequence schema variant |
+| coverage | exact Event/source/version + Subject/interval binding | observed/declared/mixed/unknown basis, origin or bounded claim, exclusive extent, known prefix, capture authority |
+| assignments | Journey K + exact step key | assigned occurrence/time Cells, reach truth/reason and input binding |
+| subjects | exact instance K | exact complete Subject K and role/definition binding; total single-valued map |
+| duration | Journey K + exact step-pair binding | closed status, started/completed/follow-up Cells, completed/observed ticks and unit |
+| funnel_components | step + complete historical-axis tuple | seven exact counts, first/previous denominator roles, full target scope and coverage |
+| subject_history | complete input Subject K | inception/NotStarted/Unknown classification, known prefix, origin and follow-up authority |
+| transitions | Subject K + canonical transition ordinal | occurrence key, instant, from/to state, legal/inception disposition, report-window inclusion |
+| violations | exact trigger occurrence K | instant, known state, illegal/terminal kind and model binding |
+| intervals | Subject K + original canonical interval ordinal | original/clipped start/end and causes, state, completed/right/coverage censor, left clipping and observed ticks |
+| checkpoint_axes | Subject K + exact checkpoint | exact historical Dimension tuple and version/path facts |
+| metric_candidates | Metric component/root + original contribution K + exact time/version key | exact value/state and null/empty policy, path allocation, historical axes, support mapping and candidate scope |
+| anchor_uses | Anchor K + component/return occurrence K | exact per-Anchor window, component state or return truth, coverage and use binding |
+| retention_status | original Omega instance K | exactly one true/false/unknown tag and its proof/coverage binding |
+| allocation | full resolution/axis/mask/kind key | exact endpoint counts, target/side/contribution values with bounds, common Top-K mapping and original scope |
+
+No schema admits an unkeyed positional join, opaque summary in place of required
+state, or a count-only reconstruction of Subjects. Empty streams still carry
+their exact schemas/domains. Parts transport records whether scope was filtered,
+and which complete target/partition facts still hold. Retained interval ordinal
+is tied to the original trace, never renumbered after clipping or selection.
+
+Validation consumes the captured stream that matching/replay/reducers actually
+consume. Native multi-query captures needing a shared snapshot require one
+verified source-adapter transaction/snapshot authority, including every Event,
+historical axis and later Metric dependency. Driver APIs own transaction/control;
+no hand-written business SQL or Event packet returns. A file-source capture
+requiring common consistency must bind a verified immutable source manifest with
+exact files/content identities; a bare path or independent reads provide no
+such guarantee. Missing authority blocks that exact route. This freezes the
+requirement, not an implemented SourceSession snapshot API. Captured inputs can
+prove only their recorded authority, not a global transaction implied by a Run.
+
+### Source placement and pushdown priority
+
+The 2026-10-01 user instruction makes qualified source pushdown the preferred
+plan. Select the exact qualified full-Ibis/source-native implementation first
+when it preserves the whole requested retained contract. Membership/time filters,
+participant joins, historical attributes, projections, key/order checks and
+safe grouped count/component aggregation belong at the source whenever expressible.
+Do not transfer irrelevant columns, unconstrained Event histories or a whole
+population's raw contributions merely because a Python kernel is available.
+Canonical assignments/reach should be computed at source when an exact qualified
+implementation exists; funnel aggregation over those assignments should remain
+at source. Backend native functions are candidates in the same method registry,
+not a separate Event executor or backend-name branch.
+
+An ibis_python route is selected before execution only for the precise operation
+not represented by an equivalent qualified source implementation. Its declaration
+records the missing semantic/lowering capability, irreducible projected input,
+bounded member/time candidate envelope, row/byte estimate and execute deadline.
+It still pushes all safe preparation/aggregation ahead of exchange. A source
+failure never switches route. Source-native and local implementations compare
+full domain/assignment/state/K, not just funnel totals. Physical qualification
+includes server/Ibis versions, function modes, type/time limits, query/submission
+identity and transferred rows/bytes as well as correctness and cancellation.
+
+Local selection followed by observation collects all later source dependencies
+from the Logical DAG up front. Before local selection, source prepares governed
+Metric candidate support/components within the original member/time envelope,
+plus all necessary historical axes. A registered local consumer limits them by
+the actual Subject image or each actual Anchor window. Complete components may
+be preaggregated only over keys whose retained support proves that restriction
+remains exact; a candidate-population scalar is insufficient. Source-computable
+selection stays in the source prefix where qualified. No local IDs upload,
+source-after-local query, rematch/replay or hidden second selection is permitted.
+Explicit Materialized members/Journey + live source remains mixed and refuses.
+An unproved candidate time envelope or unenforceable execute deadline blocks the required cell; it does not
+authorize all-history collection. Fixed-only consumes verified Arrow/Parquet
+parts through artifact_python, without DuckDB, current Semantic or lineage reads.
+
+### Unified execute time budget and versions
+
+r7_execute_v1 is the sole private execution budget: 600 monotonic seconds per
+`execute()` invocation, with no new public budget argument. The clock starts
+on execute entry and covers admission, dependency preparation, source queries,
+exchange, local computation, fixed receipt/cache validation and publication
+performed by that call, through successful return. Every stage and route shares
+the same remaining time; neither batching nor a source/fixed stage resets it.
+The latest user decision removes occurrence/attempt/Subject/step/tie-width,
+part-row, captured-byte and sorting-space execution quotas.
+
+Source-native, ibis_python and artifact_python implementations must enforce the
+same deadline, including source timeout/cancellation authority and late-result
+rejection. An implementation without this authority remains blocked. Estimates
+and actual exchanged rows/bytes support pushdown assessment, not extra budgets.
+Expiry, cancellation, bad batch or early close fails atomically and closes
+source/cursor/reader/staging under existing resource owners. Deadline-aware
+publication cannot publish a late or partial Artifact/Evidence/Finding set.
+Cleanup preserves its actual acknowledgement and never labels truncated data
+complete. Schema, type/overflow, identity and completeness checks remain method
+correctness conditions; Finding caps and protocol-envelope limits remain their
+own contracts rather than execution quotas.
+
+Store generation remains 7. The existing graph-dag-v1 document envelope and
+continuation/execution-key v2 envelopes carry the new closed method/state/part
+variants, with their explicit v1 contracts. No structural envelope rewrite or
+dual read is required by this freeze; a later incompatible structural change
+must explicitly supersede this owner with a new version before encoding it.
+Legacy Event/Lifecycle Dataset descriptors/parts are not graph variants and are
+refused, not migrated or rematched. Source reruns allocate a new Run/capture;
+fixed exact hits verify all definitions, ordered inputs, schemas, digests,
+completed checks and parts before reusing the Artifact, without another Run.
+
+### Evidence and Findings protocol
+
+The common graph Store replaces its unconditional empty-Findings assumption
+with an exact producer policy. Target producer contracts are:
+
+| Producer | Extractor / body / policy versions | Eligibility and ordering |
+| --- | --- | --- |
+| funnel.compare@v1 | graph.funnel_delta_findings@v1; existing closed FunnelDeltaFindingValueV1 body; bounded_algebraic_findings@v1 | calculation_status=ok, complete uncensored components and finite defined delta; abs(loss_rate_delta) descending then full typed row key |
+| funnel_ratio_mix@v1 | graph.funnel_contribution_findings@v1; existing closed ContributionFindingValueV1 body; bounded_algebraic_findings@v1 | reconciled complete resolution, valid finite sides/contribution, status ok or zero_total_delta; abs(contribution) descending then resolution/full typed row key/kind |
+| every other R7 producer, including reads/selection/row mean | graph.no_findings@v1; no body; zero_findings@v1 | eligible/emitted/truncated=0, empty set digest and explicit no-extractor authority |
+
+Both nonzero policies use cap=1000. eligible is counted before cap, emitted is
+min(eligible,1000), truncated=eligible-emitted. No eligible rows is a valid empty
+set with the producer's nonzero-policy/extractor version retained. Bodies retain
+the existing exact business fields: compare's step/presence, seven count pairs,
+two loss rates and delta; contribution's method/masks/kind, two allocated sides,
+target/contribution, typed three shares, rank/status and causal_claim=none.
+They never contain raw Subject/occurrence identities. Only governed step/axis
+coordinates are public; full internal keys may break ties without projection.
+Violations are domain rows, not automatic Findings.
+
+Finding identity binds Session/Artifact, producer/state/extractor/policy versions,
+ordered input roles and capture/Artifact identities, exact definition/scope,
+public coordinates and body digest. The existing neutral input-binding owner
+remains shared with actual R8 consumers. Source inputs have captured identities,
+not invented source Artifact refs. Evidence includes actual finding_count,
+finding_set_digest, extractor/policy versions and all three selection counts.
+The canonical set digest uses the deterministically ordered full bound Findings,
+not only IDs/counts; each Finding's body and exact input/Artifact binding is checked.
+
+Artifact, Evidence, all Findings and terminal Run state publish in the existing
+Store transaction after extraction/validation succeeds. Extractor or transaction
+failure publishes none and preserves previous artifacts. graph_publication,
+graph_store, Session evidence_digest/findings/finding reads, cold recovery and
+exact hit share this validation. Missing/body-corrupt/swapped/foreign/version-wrong
+Findings, wrong digest/count/cap and falsely empty sets reject before returning
+rows, K or a cached result. No skipping malformed records, second Evidence store,
+Dataset codec read or origin replay is admitted.
