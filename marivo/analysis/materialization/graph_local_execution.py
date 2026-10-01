@@ -26,7 +26,10 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.rules import (
     AttachCategory,
+    AttributionDerive,
     CellDerive,
+    DisplayRank,
+    DisplayTable,
     MapCorrespond,
     OriginalReduce,
     PartsTransport,
@@ -488,15 +491,72 @@ def _transport_stage(
         keep.append(accepted)
         if accepted:
             selected_keys.add(key)
+    if params.mode == "limit":
+        assert params.limit_count is not None
+        ordering = next(part.table for part in source.parts if part.role == "ordering")
+        positions = {
+            tuple(row[k] for k in keys): row["ordering__position"] for row in ordering.to_pylist()
+        }
+        ordered = sorted(selected_keys, key=lambda key: positions[key])
+        selected_keys = set(ordered[: params.limit_count])
+        keep = [tuple(row[k] for k in keys) in selected_keys for row in source.primary.to_pylist()]
     filtered = source.primary.filter(pa.array(keep, type=pa.bool_()))
     columns = (*keys, "value", "cell_tag", "cell_reason") if params.keep_quantity else keys
     primary = filtered.select(columns)
+    if params.attribution_view is not None:
+        allocation = next(p.table for p in source.parts if p.role == "allocation")
+        rows = {tuple(r[k] for k in keys): r for r in allocation.to_pylist()}
+        primary = primary.set_column(
+            primary.schema.get_field_index("value"),
+            "value",
+            pa.array(
+                [
+                    rows[tuple(r[k] for k in keys)]["allocation__" + params.attribution_view]
+                    for r in primary.to_pylist()
+                ],
+                type=primary.schema.field("value").type,
+            ),
+        )
+    if params.display_view == "ranks":
+        ranks = next(part.table for part in source.parts if part.role == "ranks")
+        rows = {tuple(row[k] for k in keys): row for row in ranks.to_pylist()}
+        for field in ("value", "cell_tag", "cell_reason"):
+            primary = primary.set_column(
+                primary.schema.get_field_index(field),
+                field,
+                pa.array(
+                    [
+                        rows[tuple(row[k] for k in keys)]["ranks__" + field]
+                        for row in primary.to_pylist()
+                    ],
+                    type=ranks.schema.field("ranks__" + field).type,
+                ),
+            )
     parts: list[ExchangePart] = []
     for role in params.retained_roles:
         prior = next((part for part in source.parts if part.role == role), None)
         if prior is None:
             raise _invalid("required retained transport part is absent")
-        if role in ("fixed_reference", "reference_proof", "strata", "stratum_values"):
+        from marivo.analysis.core.model import AttributionPart
+
+        if any(
+            isinstance(p, AttributionPart) and p.role == role
+            for p in source.contract.signature.parts
+        ) and role in ("current_endpoint", "baseline_endpoint"):
+            parts.append(prior)
+            continue
+        if role in (
+            "fixed_reference",
+            "reference_proof",
+            "strata",
+            "stratum_values",
+            "basis",
+            "allocation",
+            "reconciliation",
+            "ranking_domain",
+            "partitions",
+            "ordering",
+        ):
             parts.append(prior)
             continue
         mask = pa.array(
@@ -522,7 +582,7 @@ def _transport_stage(
         "none",
         None,
         (),
-        params.mode == "where" and not keys,
+        (params.mode in ("where", "limit") or params.display_view is not None) and not keys,
     )
     return from_arrow(primary, contract, parts=tuple(parts))
 
@@ -656,6 +716,24 @@ def _operand_components(source: ExchangeResult) -> dict[tuple[object, ...], dict
     """Index retained operand components once per endpoint, using complete keys."""
     result: dict[tuple[object, ...], dict[str, object]] = {}
     quantity = source.contract.signature.quantity
+    from marivo.analysis.core.model import AttributionPart
+
+    attribution = next(
+        (
+            p
+            for p in source.contract.signature.parts
+            if isinstance(p, AttributionPart) and p.role == "allocation"
+        ),
+        None,
+    )
+    if attribution is not None:
+        allocation = next(p.table for p in source.parts if p.role == "allocation")
+        return {
+            tuple(row[name] for name in source.contract.key_fields): {
+                "allocation_error_bound": row["allocation__" + attribution.view + "_error_bound"]
+            }
+            for row in allocation.to_pylist()
+        }
     if quantity is not None and quantity.method_version.startswith("reference."):
         from marivo.analysis.materialization.graph_exchange import reference_parameters
         from marivo.analysis.materialization.graph_reference import error_bounds
@@ -684,13 +762,14 @@ def _fixed_operand_bound(
     if row is None or row["cell_tag"] != "defined" or type(row["value"]) is not float:
         return 0.0
     for name in (
+        "allocation_error_bound",
         "reference_error_bound",
         "correspondence__result_error_bound",
         "original_state__absolute_sum",
     ):
         value = components.get(name)
         if type(value) is float:
-            if name.startswith(("correspondence", "reference")):
+            if name.startswith(("allocation", "correspondence", "reference")):
                 return value
             bound = roundoff(value)
             quantity = source.contract.signature.quantity
@@ -1015,6 +1094,11 @@ def _difference_stage(
                     type=primary.schema.field(key_name).type,
                 ),
             )
+    from marivo.analysis.materialization.graph_attribution import retain_endpoint_states
+
+    parts = retain_endpoint_states(
+        method.stage.node.signature, parts, values, original_baseline_keys
+    )
     parts = (*parts, ExchangePart("correspondence", correspondence))
     if any(isinstance(p, SubjectPart) for p in method.stage.node.signature.parts):
         subject = primary.select(keys)
@@ -1230,6 +1314,9 @@ def _coordinate_rollup_stage(
     semantics = REGISTRY.lookup(method.stage.node.method).semantics
     state_kind = semantics.persistent_state_kind
     assert state_kind is not None
+    from marivo.analysis.materialization.graph_attribution import retain_partition
+
+    parts = retain_partition(method.stage.node, source, primary, parts)
     contract = ExchangeContract(
         method.stage.node.signature,
         method.stage.node.method,
@@ -1372,11 +1459,14 @@ def _original_ratio_rollup_stage(
             for name, total in totals.items()
         }
     )
-    parts = (
+    parts: tuple[ExchangePart, ...] = (
         ExchangePart("original_state", original),
         ExchangePart("coverage", pa.table({"coverage__complete": [True]})),
     )
     status = pa.table({"status": primary["cell_tag"]})
+    from marivo.analysis.materialization.graph_attribution import retain_partition
+
+    parts = retain_partition(method.stage.node, source, primary, parts)
     contract = ExchangeContract(
         method.stage.node.signature,
         method.stage.node.method,
@@ -1421,8 +1511,14 @@ def _original_count_stage(
     )
     state = pa.table({"original_state__count": pa.array([total], type=pa.int64())})
     coverage = pa.table({"coverage__complete": [True]})
-    parts = (ExchangePart("original_state", state), ExchangePart("coverage", coverage))
+    parts: tuple[ExchangePart, ...] = (
+        ExchangePart("original_state", state),
+        ExchangePart("coverage", coverage),
+    )
     status = pa.table({"status": ["defined"]})
+    from marivo.analysis.materialization.graph_attribution import retain_partition
+
+    parts = retain_partition(method.stage.node, source, primary, parts)
     contract = ExchangeContract(
         method.stage.node.signature,
         method.stage.node.method,
@@ -1577,6 +1673,9 @@ def _fold_rollup_stage(
             *parts,
         )
     status = pa.table({**arrays, "status": tags})
+    from marivo.analysis.materialization.graph_attribution import retain_partition
+
+    parts = retain_partition(method.stage.node, source, primary, parts)
     contract = ExchangeContract(
         method.stage.node.signature,
         method.stage.node.method,
@@ -1676,8 +1775,14 @@ def _original_sum_stage(
         }
     )
     covered = pa.table({"coverage__complete": [True]})
-    parts = (ExchangePart("original_state", original), ExchangePart("coverage", covered))
+    parts: tuple[ExchangePart, ...] = (
+        ExchangePart("original_state", original),
+        ExchangePart("coverage", covered),
+    )
     status = pa.table({"status": ["defined" if defined else "null"]})
+    from marivo.analysis.materialization.graph_attribution import retain_partition
+
+    parts = retain_partition(method.stage.node, source, primary, parts)
     contract = ExchangeContract(
         method.stage.node.signature,
         method.stage.node.method,
@@ -1706,7 +1811,10 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
         name = stage.stage.node.method.name
         arity = (
             len(stage.stage.node.inputs)
-            if isinstance(stage.stage.node.parameters, (PartsTransport, ReferenceDerive))
+            if isinstance(
+                stage.stage.node.parameters,
+                (AttributionDerive, PartsTransport, ReferenceDerive, DisplayRank, DisplayTable),
+            )
             else 2
             if name
             in (
@@ -1729,6 +1837,10 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                 "reference.share",
                 "reference.penetration",
                 "reference.standardize",
+                "attribution.additive_difference",
+                "attribution.component_mix",
+                "display.rank",
+                "display.table",
                 "map_correspond",
                 "state_rollup.min",
                 "state_rollup.max",
@@ -1771,7 +1883,10 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
         if (
             arity == 2
             and name not in ("group.attach", "group.complete", "domain.cohort")
-            and not isinstance(stage.stage.node.parameters, (CellDerive, ReferenceDerive))
+            and not isinstance(
+                stage.stage.node.parameters,
+                (AttributionDerive, CellDerive, ReferenceDerive, DisplayRank, DisplayTable),
+            )
         ):
             domains = tuple(edge.node.signature.domain for edge in stage.stage.node.inputs)
             if any(
@@ -1836,7 +1951,15 @@ def execute_verified_fixed(
             check for check in lowered.admitted.checks if check.node_id == stage.stage.node.identity
         )
         name = stage.stage.node.method.name
-        if isinstance(stage.stage.node.parameters, ReferenceDerive):
+        if isinstance(stage.stage.node.parameters, AttributionDerive):
+            from marivo.analysis.materialization.graph_attribution import fixed
+
+            result = fixed(stage.stage.node, values, binding)
+        elif isinstance(stage.stage.node.parameters, (DisplayRank, DisplayTable)):
+            from marivo.analysis.materialization.graph_display import fixed
+
+            result = fixed(stage.stage.node, values, binding)
+        elif isinstance(stage.stage.node.parameters, ReferenceDerive):
             from marivo.analysis.materialization.graph_reference import fixed_parts
             from marivo.analysis.materialization.graph_reference import result as reference_result
 

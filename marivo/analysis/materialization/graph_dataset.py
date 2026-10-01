@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
 import pyarrow as pa
 
-from marivo.analysis.core.model import DerivedQuantity
+from marivo.analysis.core.graph import MethodNode
+from marivo.analysis.core.model import AttributionPart, DerivedQuantity, DisplayPart
+from marivo.analysis.core.rules import DisplayTable, PartsTransport
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.state import MaterializedDatasetState, _materialized_state
 from marivo.analysis.materialization import graph_store
@@ -44,6 +46,16 @@ _IDS = d._StableIdRegistry(
 def _public_table(result: ExchangeResult) -> pa.Table:
     table = result.primary
     signature = result.contract.signature
+    terminal = any(isinstance(p, DisplayPart) and p.role == "columns" for p in signature.parts)
+    if terminal:
+        # Authored labels live in the checked definition, never become physical lookup keys.
+        columns = next(
+            p for p in signature.parts if isinstance(p, DisplayPart) and p.role == "columns"
+        )
+        count = len(columns.components) // 3
+        table = table.select(
+            (*result.contract.key_fields, *(f"column_{i}__value" for i in range(count)))
+        )
     names = list(table.column_names)
     for index, key in enumerate(result.contract.key_fields):
         names[names.index(key)] = (
@@ -63,6 +75,16 @@ def _public_table(result: ExchangeResult) -> pa.Table:
                 if name not in result.contract.key_fields:
                     table = table.append_column(name, counts[name])
                     names.append(name.removeprefix("pair_counts__"))
+    ordering = next((p.table for p in result.parts if p.role == "ordering"), None)
+    if ordering is not None:
+        keys = result.contract.key_fields
+        positions = {
+            tuple(row[k] for k in keys): row["ordering__position"] for row in ordering.to_pylist()
+        }
+        indices = sorted(
+            range(table.num_rows), key=lambda i: positions[tuple(table[k][i].as_py() for k in keys)]
+        )
+        return table.rename_columns(names).take(pa.array(indices, type=pa.int64()))
     table = table.rename_columns(names)
     return (
         table.sort_by(
@@ -128,6 +150,7 @@ def _schema(table: pa.Table) -> d.DatasetSchema:
 class GraphDataset:
     runtime: DatasetRuntime
     artifact: GraphArtifact
+    projection: Literal["values", "ranks", "contribution", "current", "baseline"] | None = None
 
     def verified(self) -> ExchangeResult:
         store = self.runtime.store
@@ -137,7 +160,20 @@ class GraphDataset:
             current = graph_store.artifact(store, connection, self.artifact.artifact_ref)
         if current != self.artifact:
             raise invalid("selected Artifact changed or disappeared")
-        return read_result(store.project_root, current.descriptor)
+        result = read_result(store.project_root, current.descriptor)
+        if self.projection is not None:
+            from marivo.analysis.materialization.graph_display import project
+
+            if self.projection in ("contribution", "current", "baseline"):
+                from marivo.analysis.materialization.graph_attribution import (
+                    project as attribution_project,
+                )
+
+                result = attribution_project(result, self.projection)
+            else:
+                assert self.projection in ("values", "ranks")
+                result = project(result, self.projection)
+        return result
 
     @property
     def state(self) -> MaterializedDatasetState:
@@ -165,19 +201,86 @@ class GraphDataset:
         return self.state.realized_schema
 
     def to_pandas(self) -> pd.DataFrame:
-        frame: pd.DataFrame = _public_table(self.verified()).to_pandas()
+        checked = self.verified()
+        table = _public_table(checked)
+        from marivo.analysis.materialization.graph_protocol import validate_descriptor
+
+        definition = validate_descriptor(self.artifact.descriptor)
+        params = definition.parameters if isinstance(definition, MethodNode) else None
+        if isinstance(params, DisplayTable):
+            table = table.rename_columns(
+                [*table.column_names[: len(checked.contract.key_fields)], *params.labels]
+            )
+            frame: pd.DataFrame = table.to_pandas(types_mapper=pd.ArrowDtype)
+        elif any(
+            isinstance(p, (DisplayPart, AttributionPart)) for p in checked.contract.signature.parts
+        ):
+            frame = table.to_pandas(types_mapper=pd.ArrowDtype)
+        else:
+            frame = table.to_pandas()
         return frame.copy(deep=True)
 
     def show(self, *, max_output_bytes: int | None = None) -> None:
         checked = self.verified()
-        table = _public_table(checked).to_pandas()
+        public = _public_table(checked)
+        table = public.to_pandas(types_mapper=pd.ArrowDtype)
         frame = table.head(5).copy()
-        hidden = [name for name in frame.columns if str(name).startswith("member")]
+        from marivo.analysis.materialization.graph_protocol import validate_descriptor
+
+        definition = validate_descriptor(self.artifact.descriptor)
+        params = definition.parameters if isinstance(definition, MethodNode) else None
+        if isinstance(params, DisplayTable):
+            frame = frame.rename(
+                columns=dict(
+                    zip(
+                        public.column_names[len(checked.contract.key_fields) :],
+                        params.labels,
+                        strict=True,
+                    )
+                )
+            ).astype(object)
+            keys = checked.contract.key_fields
+            cells = {tuple(row[k] for k in keys): row for row in checked.primary.to_pylist()}
+            for i, label in enumerate(params.labels):
+                for index, public_row in enumerate(public.to_pylist()[:5]):
+                    row = cells[tuple(public_row[k] for k in public.column_names[: len(keys)])]
+                    tag, reason = row[f"column_{i}__cell_tag"], row[f"column_{i}__cell_reason"]
+                    if tag != "defined":
+                        frame.at[frame.index[index], label] = f"{str(tag).title()}({reason})"
+        hidden = (
+            [public.column_names[0]]
+            if checked.contract.signature.domain.kind == "entity" and checked.contract.key_fields
+            else []
+        )
         for name in hidden:
             frame[name] = "<identity>"
         from marivo.analysis.materialization.graph_reference import disclosure
 
         facts = "".join(f"\n{name}: {value}" for name, value in disclosure(checked))
+        ranking = next(
+            (
+                p
+                for p in checked.contract.signature.parts
+                if isinstance(p, DisplayPart) and p.role == "ranking_domain"
+            ),
+            None,
+        )
+        if ranking is not None:
+            original = next(p.table for p in checked.parts if p.role == "ranking_domain")
+            facts += f"\nranking: {ranking.order}, ties={ranking.ties}; original_rows={original.num_rows}, selected_rows={len(table)}"
+            if self.projection is None and not (
+                isinstance(params, PartsTransport) and params.display_view is not None
+            ):
+                rank_table = next(p.table for p in checked.parts if p.role == "ranks")
+                keys = checked.contract.key_fields
+                ranks = {
+                    tuple(row[k] for k in keys): row["ranks__value"]
+                    for row in rank_table.to_pylist()
+                }
+                frame["rank"] = [
+                    ranks[tuple(row[k] for k in public.column_names[: len(keys)])]
+                    for row in public.to_pylist()[:5]
+                ]
         text = (
             f"Artifact {self.artifact.artifact_ref} rows={len(table)}{facts}"
             f"\n{frame.to_string(index=False)}"

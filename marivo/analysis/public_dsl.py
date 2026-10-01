@@ -32,8 +32,10 @@ from marivo.analysis._time_grid import TimeGrid as TimeGrid
 from marivo.analysis._time_grid import time_grid as time_grid
 from marivo.analysis.core.graph import FixedLeaf, MethodNode, retained_nodes
 from marivo.analysis.core.model import (
+    AttributionPart,
     Coordinate,
     DerivedQuantity,
+    DisplayPart,
     ObservedQuantity,
     OriginalStatePart,
     RolledQuantity,
@@ -47,6 +49,8 @@ from marivo.analysis.core.rules import (
     BindProject,
     CellDerive,
     CompleteGroups,
+    DisplayRank,
+    DisplayTable,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
@@ -77,6 +81,7 @@ from marivo.analysis.materialization.graph_fields import (
 )
 from marivo.analysis.materialization.graph_relation import FrozenBinding, LiveBinding, Relation
 from marivo.analysis.methods.physical import DecimalType, ScalarType
+from marivo.analysis.refs import ArtifactRef
 from marivo.refs import (
     DimensionKind,
     EntityKind,
@@ -294,6 +299,43 @@ class AnalysisContract:
 def _kind(node: Relation) -> str:
     definition = node.definition
     params, quantity = definition.parameters, definition.signature.quantity
+    attribution = next(
+        (
+            p
+            for p in definition.signature.parts
+            if isinstance(p, AttributionPart) and p.role == "allocation"
+        ),
+        None,
+    )
+    if any(
+        isinstance(p, DisplayPart) and p.role == "ranking_domain"
+        for p in definition.signature.parts
+    ):
+        if isinstance(params, PartsTransport) and params.display_view is not None:
+            if params.display_view == "values":
+                if isinstance(quantity, RowStatisticQuantity):
+                    return "summarize"
+                if isinstance(quantity, (ObservedQuantity, RolledQuantity)):
+                    return (
+                        "ratio_rollup"
+                        if isinstance(quantity, RolledQuantity)
+                        and quantity.method_version == "ratio@v1"
+                        else "rollup"
+                        if isinstance(quantity, RolledQuantity)
+                        else "ratio_observe"
+                        if quantity.method_version == "ratio@v1"
+                        else "observe"
+                    )
+            return "relation_ratio"
+        return "ranking"
+    if attribution is not None:
+        return (
+            "attribution_view"
+            if quantity is not None and quantity.definition_id != attribution.domain.definition_id
+            else "attribution"
+        )
+    if isinstance(params, DisplayTable):
+        return "table"
     if isinstance(params, TimeProduct):
         return "members"
     if isinstance(params, CompleteGroups):
@@ -375,6 +417,7 @@ class _Value:
         self._node = (
             node
             if dataset is None
+            or dataset.projection is not None
             or (
                 isinstance(node.root, FixedLeaf)
                 and node.root.artifact.ref == dataset.artifact.artifact_ref
@@ -396,7 +439,13 @@ class _Value:
         kind, fixed = _kind(self._node), self._dataset is not None
         roles = tuple(part_role(part) for part in signature.parts)
         names: tuple[str, ...]
-        if isinstance(self, MaterializedCoefficientRelation):
+        if kind == "attribution":
+            names = ("contribution", "current", "baseline", "where")
+        elif kind == "attribution_view":
+            names = ("where", "summarize")
+        elif kind == "ranking":
+            names = ("values", "ranks", "where", "limit")
+        elif isinstance(self, MaterializedCoefficientRelation):
             names = ("where", "summarize")
         elif kind == "members":
             names = (
@@ -456,9 +505,21 @@ class _Value:
             names = tuple(dict.fromkeys((*names, "group_by", "summarize")))
         if not fixed and kind not in ("members", "read", "group", "correlate"):
             names = (*names, "execute")
+        if isinstance(self, (LogicalDifferenceRelation, MaterializedDifferenceRelation)):
+            from marivo.analysis.materialization.graph_attribution import method
+
+            try:
+                method(signature)
+            except DatasetConstructionError:
+                pass
+            else:
+                names = tuple(dict.fromkeys((*names, "attribute")))
         if isinstance(self, _NumericComparison):
+            names = tuple(dict.fromkeys((*names, "rank")))
             if self._node.comparison_error is None:
                 names = tuple(dict.fromkeys((*names, "compare", "ratio")))
+            elif any(isinstance(p, AttributionPart) for p in signature.parts):
+                names = tuple(dict.fromkeys((*names, "ratio")))
             else:
                 names = tuple(name for name in names if name not in ("compare", "ratio"))
             from marivo.analysis.materialization.graph_reference import original, statistical_unit
@@ -511,6 +572,14 @@ class _Value:
         if self._node.comparison_error is not None:
             facts.append(("comparison_unavailable", self._node.comparison_error))
         params = self._node.definition.parameters
+        attribution = next((p for p in signature.parts if isinstance(p, AttributionPart)), None)
+        if attribution is not None:
+            facts += (
+                ("allocation_method", attribution.method),
+                ("reconciliation_scope", attribution.domain.definition_id),
+                ("complete_partition", str(attribution.complete)),
+                ("side_terms", "allocated original components; not grouped ratios"),
+            )
         reference = next(
             (
                 node.parameters
@@ -855,6 +924,10 @@ class _Value:
         for name in names:
             member = getattr(type(self), name, None)
             if isinstance(member, property):
+                if name in ("values", "ranks", "contribution", "current", "baseline"):
+                    actions.append(
+                        AnalysisAction("relation." + name, "analysis." + type(self).__name__)
+                    )
                 if name == "coefficient":
                     actions.append(
                         AnalysisAction(
@@ -886,6 +959,48 @@ class _Value:
 
 class _NumericComparison(_Value):
     """Shared numeric composition without granting original Metric reductions."""
+
+    def rank(
+        self,
+        *,
+        order: Literal["ascending", "descending"],
+        ties: Literal["ordinal", "dense", "min", "max"],
+        partition_by: tuple[CategoryRelation, ...] = (),
+    ) -> LogicalRankingResult:
+        """Rank finite Defined values within explicit complete category partitions.
+
+        Args: order: Ascending or descending values. ties: ordinal, dense, min or max. partition_by: Corresponding CategoryRelations, or one global partition.
+        Returns: A logical ranking with same-key values and ranks views.
+        Example: ``ranking = values.rank(order="descending", ties="dense")``.
+        Constraints: Non-Defined Cells retain their reason and sort last; exact typed keys break ties. No epsilon ties or implicit coercion.
+        """
+        from marivo.analysis.materialization.graph_display import bind, invalid
+
+        if type(partition_by) is not tuple or any(
+            not isinstance(
+                p,
+                (
+                    LogicalCategoryRelation,
+                    MaterializedCategoryRelation,
+                    LogicalSelectedCategoryRelation,
+                    MaterializedSelectedCategoryRelation,
+                ),
+            )
+            for p in partition_by
+        ):
+            raise invalid("partition_by must contain CategoryRelations")
+        if len({p._node.root.identity for p in partition_by}) != len(partition_by):
+            raise invalid("duplicate partition bindings")
+        node = bind(
+            (self._node, *(p._node for p in partition_by)),
+            DisplayRank(
+                self._node.root.value_type.name,
+                order,
+                ties,
+                tuple(p._node.root.value_type.name for p in partition_by),
+            ),
+        )
+        return LogicalRankingResult(_TOKEN, node, self._runtime, inputs=(self, *partition_by))
 
     def share_of(self, reference: NumericRelation) -> LogicalNumericRelation:
         """Calculate shares against one immutable same-measure Singleton reference.
@@ -1552,7 +1667,10 @@ class LogicalAnalysisDomain(_CohortDomain):
         )
         if coordinates:
             subject = next(p for p in observed.root.signature.parts if isinstance(p, SubjectPart))
-            observed = observed.rollup(subject.entity_ref, *coordinates)
+            grid = observed.root.signature.domain.time_grid
+            observed = observed.rollup(
+                subject.entity_ref, *coordinates, *((grid,) if grid is not None else ())
+            )
         return LogicalNumericRelation(_TOKEN, observed, self._runtime, inputs=(self,))
 
 
@@ -2646,6 +2764,26 @@ class LogicalDifferenceRelation(_NumericComparison):
         """
         return NumericField(self._node.root, self._node)
 
+    def attribute(
+        self,
+        *,
+        axes: tuple[Ref[DimensionKind], ...],
+        mode: Literal["joint", "hierarchy"] = "joint",
+        top_k: int | None = None,
+    ) -> LogicalAttributionResult:
+        """Allocate an absolute change from its complete original endpoint states.
+
+        Args: axes: Unique ordered contribution Dimensions; mode: Joint tuples or authored prefixes; top_k: Common basis limit 1..1000, or None.
+        Returns: A LogicalAttributionResult with same-key contribution/current/baseline views.
+        Example: ``result = change.attribute(axes=(channel,), mode="joint", top_k=5).execute()``.
+        Constraints: Fixed inputs require retained axes; every resolution independently reconciles.
+        """
+        from marivo.analysis.materialization.graph_attribution import bind
+
+        return LogicalAttributionResult(
+            _TOKEN, bind(self._node, axes, mode, top_k), self._runtime, inputs=(self,)
+        )
+
     def where(self, predicate: BoundPredicate) -> LogicalSelectedDifferenceRelation:
         """Select Defined Difference rows through this exact field.
 
@@ -2706,6 +2844,26 @@ class MaterializedDifferenceRelation(_MaterializedValue, _NumericComparison):
         Constraints: Predicates built from this field remain bound to its relation.
         """
         return NumericField(self._node.root, self._node)
+
+    def attribute(
+        self,
+        *,
+        axes: tuple[Ref[DimensionKind], ...],
+        mode: Literal["joint", "hierarchy"] = "joint",
+        top_k: int | None = None,
+    ) -> LogicalAttributionResult:
+        """Allocate an absolute change from its complete original endpoint states.
+
+        Args: axes: Unique ordered contribution Dimensions; mode: Joint tuples or authored prefixes; top_k: Common basis limit 1..1000, or None.
+        Returns: A LogicalAttributionResult with same-key contribution/current/baseline views.
+        Example: ``result = change.attribute(axes=(channel,), mode="joint", top_k=5).execute()``.
+        Constraints: Fixed inputs require retained axes; every resolution independently reconciles.
+        """
+        from marivo.analysis.materialization.graph_attribution import bind
+
+        return LogicalAttributionResult(
+            _TOKEN, bind(self._node, axes, mode, top_k), self._runtime, inputs=(self,)
+        )
 
     def where(self, predicate: BoundPredicate) -> LogicalSelectedDifferenceRelation:
         """Build a fixed-only Difference selection.
@@ -3110,6 +3268,14 @@ def wrap_materialized(
 ) -> PublicMaterialized:
     """Restore the existing public result variant from its checked typed graph."""
     kind = _kind(node)
+    if kind == "attribution":
+        return MaterializedAttributionResult(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "attribution_view":
+        return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "ranking":
+        return MaterializedRankingResult(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "table":
+        return MaterializedTable(_TOKEN, node, runtime, dataset=dataset)
     if kind in ("members", "group") and node.root.signature.domain.time_grid is not None:
         return MaterializedTimeAnalysisDomain(_TOKEN, node, runtime, dataset=dataset)
     if kind in ("members", "group"):
@@ -3657,6 +3823,330 @@ class MaterializedSelectedNumericRelation(_MaterializedValue, _OriginalContinuat
         )
 
 
+class _Ranking(_Value):
+    def _view(
+        self, name: Literal["values", "ranks"]
+    ) -> LogicalNumericRelation | MaterializedNumericRelation:
+        from marivo.analysis.materialization.graph_display import view
+
+        node = view(self._node, name)
+        if self._dataset is None:
+            return LogicalNumericRelation(_TOKEN, node, self._runtime, inputs=(self,))
+        return MaterializedNumericRelation(
+            _TOKEN, node, self._runtime, dataset=replace(self._dataset, projection=name)
+        )
+
+    def where(self, predicate: BoundPredicate) -> LogicalRankingResult:
+        """Restrict both views while preserving original ranks and reference scope.
+
+        Args: predicate: A strict typed predicate from a corresponding relation or view.
+        Returns: A logical ranking on the selected keys.
+        Example: ``selected = ranking.where(ranking.ranks.value.is_defined())``.
+        Constraints: Checks all operands; filtering never reranks or changes fixed denominators.
+        """
+        bound, dependencies = self._bound_predicate(predicate)
+        return LogicalRankingResult(
+            _TOKEN,
+            self._node.where(bound, dependencies=dependencies),
+            self._runtime,
+            inputs=(self,),
+        )
+
+    def limit(self, count: int) -> LogicalRankingResult:
+        """Take the global prefix of the original deterministic display order.
+
+        Args: count: Integer 1..100000, excluding bool.
+        Returns: A logical ranking with both views restricted to that prefix.
+        Example: ``top = ranking.limit(10)``.
+        Constraints: This is a global prefix, not per-partition Top-K; original ranks remain unchanged.
+        """
+        from marivo.analysis.materialization.graph_display import limit
+
+        return LogicalRankingResult(_TOKEN, limit(self._node, count), self._runtime, inputs=(self,))
+
+
+class LogicalRankingResult(_Ranking):
+    """A logical ranking with typed same-key numeric views."""
+
+    @property
+    def values(self) -> LogicalNumericRelation:
+        """Return the original quantity on the current selected ranking keys.
+
+        Args: None.
+        Returns: A LogicalNumericRelation retaining its actual sufficient parts.
+        Example: ``values = ranking.values``.
+        Constraints: Selection preserves the original quantity and display order.
+        """
+        from marivo.analysis.materialization.graph_display import view
+
+        return LogicalNumericRelation(
+            _TOKEN, view(self._node, "values"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def ranks(self) -> LogicalNumericRelation:
+        """Return exact int64 ranks with original non-Defined Cell states.
+
+        Args: None.
+        Returns: A LogicalNumericRelation bound to the original ranking domain.
+        Example: ``ranks = ranking.ranks``.
+        Constraints: No original Metric state or implicit reranking is introduced.
+        """
+        from marivo.analysis.materialization.graph_display import view
+
+        return LogicalNumericRelation(
+            _TOKEN, view(self._node, "ranks"), self._runtime, inputs=(self,)
+        )
+
+    def execute(self) -> MaterializedRankingResult:
+        """Execute and atomically publish the qualified ranking and retained scope.
+
+        Args: None.
+        Returns: The materialized ranking with values and ranks views.
+        Example: ``result = ranking.execute()``.
+        Constraints: Source execution evaluates anew; fixed execution consumes verified receipts only.
+        """
+        return MaterializedRankingResult(_TOKEN, self._node, self._runtime, dataset=self._run())
+
+
+class MaterializedRankingResult(_MaterializedValue, _Ranking):
+    """A verified fixed ranking; selection preserves its original domain and order."""
+
+    @property
+    def values(self) -> MaterializedNumericRelation:
+        """Return the fixed original-quantity view without allocating a new Run.
+
+        Args: None.
+        Returns: A MaterializedNumericRelation over verified retained Cells and parts.
+        Example: ``values = ranking.values``.
+        Constraints: Uses the same selected keys and original ranking order.
+        """
+        result = self._view("values")
+        assert isinstance(result, MaterializedNumericRelation)
+        return result
+
+    @property
+    def ranks(self) -> MaterializedNumericRelation:
+        """Return the fixed int64 rank view without recomputing ranks.
+
+        Args: None.
+        Returns: A MaterializedNumericRelation bound to the original ranking domain.
+        Example: ``ranks = ranking.ranks``.
+        Constraints: Retains non-Defined tags/reasons and allocates no new Run.
+        """
+        result = self._view("ranks")
+        assert isinstance(result, MaterializedNumericRelation)
+        return result
+
+
+class _Table:
+    __slots__ = ("_dataset", "_node", "_runtime")
+    _node: Relation
+    _runtime: DatasetRuntime
+    _dataset: GraphDataset | None
+
+    def __init__(
+        self,
+        token: object,
+        node: Relation,
+        runtime: DatasetRuntime,
+        *,
+        dataset: GraphDataset | None = None,
+    ) -> None:
+        if token is not _TOKEN:
+            raise TypeError("Construct terminal tables through mv.table().")
+        self._node, self._runtime, self._dataset = node, runtime, dataset
+
+    def __repr__(self) -> str:
+        identity = (
+            self._dataset.artifact.artifact_ref
+            if self._dataset is not None
+            else self._node.root.fingerprint[:22]
+        )
+        return f"<{type(self).__name__} kind=table id={identity}; use {'.show()' if self._dataset is not None else '.execute()'}>"
+
+
+class LogicalTable(_Table):
+    """A terminal same-key table definition with ordered labeled Relations."""
+
+    def execute(self) -> MaterializedTable:
+        """Execute all ordered columns through the common scheduler and publication.
+
+        Args: None.
+        Returns: A verified terminal MaterializedTable.
+        Example: ``result = mv.table(revenue=values).execute()``.
+        Constraints: Duplicate or missing keys reject; no external join or analysis continuation exists.
+        """
+        return MaterializedTable(_TOKEN, self._node, self._runtime, dataset=self._node.execute())
+
+
+class MaterializedTable(_Table):
+    """Terminal verified display/export only; no analysis continuation contract."""
+
+    @property
+    def artifact_ref(self) -> ArtifactRef:
+        """Return the exact saved terminal Artifact identity for session.artifact().
+
+        Args: None.
+        Returns: The ArtifactRef identifying this committed terminal table.
+        Example: ``restored = session.artifact(table.artifact_ref)``.
+        Constraints: Identifies fixed saved state, without granting analysis continuations.
+        """
+        assert self._dataset is not None
+        return ArtifactRef(ref=self._dataset.artifact.artifact_ref)
+
+    def show(self, *, max_output_bytes: int | None = None) -> None:
+        """Print a deterministic bounded preview preserving exact Cell labels and reasons.
+
+        Args: max_output_bytes: Optional smaller preview byte bound.
+        Returns: None; prints the saved table preview.
+        Example: ``table.show()``.
+        Constraints: Reads verified saved Cells only and redacts member identities.
+        """
+        assert self._dataset is not None
+        self._dataset.show(max_output_bytes=max_output_bytes)
+
+    def to_pandas(self) -> pd.DataFrame:
+        """Export an isolated table containing keys and authored value columns only.
+
+        Args: None.
+        Returns: A complete DataFrame copy preserving scalar precision and column order.
+        Example: ``frame = table.to_pandas()``.
+        Constraints: Non-Defined Cells become missing values; pandas does not distinguish their tags/reasons. The Artifact and show() retain those facts.
+        """
+        assert self._dataset is not None
+        return self._dataset.to_pandas()
+
+
+class _Attribution(_Value):
+    def where(self, predicate: BoundPredicate) -> LogicalAttributionResult:
+        """Select all three views while retaining the original complete reconciliation scope.
+
+        Args: predicate: Strict typed predicate on this result or a corresponding view.
+        Returns: A logical selected attribution.
+        Example: ``selected = result.where(result.contribution.value.gt(0))``.
+        Constraints: Selection always revokes current-subdomain completeness.
+        """
+        bound, dependencies = self._bound_predicate(predicate)
+        return LogicalAttributionResult(
+            _TOKEN,
+            self._node.where(bound, dependencies=dependencies),
+            self._runtime,
+            inputs=(self,),
+        )
+
+
+class LogicalAttributionResult(_Attribution):
+    """Logical allocated change with original scope and three typed numeric views."""
+
+    @property
+    def contribution(self) -> LogicalNumericRelation:
+        """Return the contribution view on exactly the current selected allocation keys.
+
+        Args: None.
+        Returns: A LogicalNumericRelation retaining the original allocation evidence.
+        Example: ``values = result.contribution``.
+        Constraints: Side terms are allocated components; selection does not reallocate.
+        """
+        from marivo.analysis.materialization.graph_attribution import view
+
+        node = view(self._node, "contribution")
+        return LogicalNumericRelation(_TOKEN, node, self._runtime, inputs=(self,))
+
+    @property
+    def current(self) -> LogicalNumericRelation:
+        """Return the current view on exactly the current selected allocation keys.
+
+        Args: None.
+        Returns: A LogicalNumericRelation retaining the original allocation evidence.
+        Example: ``values = result.current``.
+        Constraints: Side terms are allocated components; selection does not reallocate.
+        """
+        from marivo.analysis.materialization.graph_attribution import view
+
+        node = view(self._node, "current")
+        return LogicalNumericRelation(_TOKEN, node, self._runtime, inputs=(self,))
+
+    @property
+    def baseline(self) -> LogicalNumericRelation:
+        """Return the baseline view on exactly the current selected allocation keys.
+
+        Args: None.
+        Returns: A LogicalNumericRelation retaining the original allocation evidence.
+        Example: ``values = result.baseline``.
+        Constraints: Side terms are allocated components; selection does not reallocate.
+        """
+        from marivo.analysis.materialization.graph_attribution import view
+
+        node = view(self._node, "baseline")
+        return LogicalNumericRelation(_TOKEN, node, self._runtime, inputs=(self,))
+
+    def execute(self) -> MaterializedAttributionResult:
+        """Execute registered allocation and atomically publish every required part.
+
+        Args: None.
+        Returns: A MaterializedAttributionResult with verified original scope.
+        Example: ``result = change.attribute(axes=(channel,)).execute()``.
+        Constraints: Each resolution independently reconciles before publication.
+        """
+        return MaterializedAttributionResult(_TOKEN, self._node, self._runtime, dataset=self._run())
+
+
+class MaterializedAttributionResult(_MaterializedValue, _Attribution):
+    """Materialized allocated change with original scope and three typed numeric views."""
+
+    @property
+    def contribution(self) -> MaterializedNumericRelation:
+        """Return the contribution view on exactly the current selected allocation keys.
+
+        Args: None.
+        Returns: A MaterializedNumericRelation retaining the original allocation evidence.
+        Example: ``values = result.contribution``.
+        Constraints: Side terms are allocated components; selection does not reallocate.
+        """
+        from marivo.analysis.materialization.graph_attribution import view
+
+        assert self._dataset is not None
+        node = view(self._node, "contribution")
+        return MaterializedNumericRelation(
+            _TOKEN, node, self._runtime, dataset=replace(self._dataset, projection="contribution")
+        )
+
+    @property
+    def current(self) -> MaterializedNumericRelation:
+        """Return the current view on exactly the current selected allocation keys.
+
+        Args: None.
+        Returns: A MaterializedNumericRelation retaining the original allocation evidence.
+        Example: ``values = result.current``.
+        Constraints: Side terms are allocated components; selection does not reallocate.
+        """
+        from marivo.analysis.materialization.graph_attribution import view
+
+        assert self._dataset is not None
+        node = view(self._node, "current")
+        return MaterializedNumericRelation(
+            _TOKEN, node, self._runtime, dataset=replace(self._dataset, projection="current")
+        )
+
+    @property
+    def baseline(self) -> MaterializedNumericRelation:
+        """Return the baseline view on exactly the current selected allocation keys.
+
+        Args: None.
+        Returns: A MaterializedNumericRelation retaining the original allocation evidence.
+        Example: ``values = result.baseline``.
+        Constraints: Side terms are allocated components; selection does not reallocate.
+        """
+        from marivo.analysis.materialization.graph_attribution import view
+
+        assert self._dataset is not None
+        node = view(self._node, "baseline")
+        return MaterializedNumericRelation(
+            _TOKEN, node, self._runtime, dataset=replace(self._dataset, projection="baseline")
+        )
+
+
 PublicMaterialized: TypeAlias = (
     MaterializedBooleanRelation
     | MaterializedTemporalRelation
@@ -3676,6 +4166,9 @@ PublicMaterialized: TypeAlias = (
     | MaterializedStatisticRelation
     | MaterializedCoefficientSelectionRelation
     | MaterializedAssociationResult
+    | MaterializedAttributionResult
+    | MaterializedRankingResult
+    | MaterializedTable
 )
 
 
@@ -3965,3 +4458,72 @@ def one_to_one(
         relationship=relationship,
     )
     return OneToOneCorrespondence(_TOKEN, left._node, right._node, relationship, time)
+
+
+def table(
+    **columns: NumericRelation
+    | CategoryRelation
+    | LogicalBooleanRelation
+    | MaterializedBooleanRelation
+    | LogicalSelectedBooleanRelation
+    | MaterializedSelectedBooleanRelation
+    | LogicalTemporalRelation
+    | MaterializedTemporalRelation
+    | LogicalSelectedTemporalRelation
+    | MaterializedSelectedTemporalRelation,
+) -> LogicalTable:
+    """Bind an ordered terminal table from complete corresponding scalar Relations.
+
+    Args: columns: Nonempty display labels mapped to typed numeric, categorical, boolean or temporal Relations.
+    Returns: A LogicalTable using the shared graph scheduler.
+    Example: ``profile = mv.table(revenue=values, region=region).execute()``.
+    Constraints: All columns share full typed keys, time meaning, Session and source/fixed mode. Labels cannot collide with exported key names. The table has no analysis continuation.
+    """
+    from marivo.analysis.materialization.graph_display import bind, invalid
+
+    if not columns or any(
+        not isinstance(value, _Value)
+        or not isinstance(
+            value,
+            (
+                _NumericComparison,
+                LogicalCategoryRelation,
+                MaterializedCategoryRelation,
+                LogicalSelectedCategoryRelation,
+                MaterializedSelectedCategoryRelation,
+                LogicalBooleanRelation,
+                MaterializedBooleanRelation,
+                LogicalSelectedBooleanRelation,
+                MaterializedSelectedBooleanRelation,
+                LogicalTemporalRelation,
+                MaterializedTemporalRelation,
+                LogicalSelectedTemporalRelation,
+                MaterializedSelectedTemporalRelation,
+            ),
+        )
+        for value in columns.values()
+    ):
+        raise invalid("table requires nonempty scalar Relation columns")
+    values = tuple(columns.values())
+    first = values[0]
+    keys = tuple(
+        ("member" if first._node.root.signature.domain.kind == "entity" else "group")
+        if i == 0
+        else f"coord_{i - 1}"
+        for i in range(len(first._node.root.signature.domain.instance_key))
+    )
+    if any(not label or label in keys for label in columns):
+        raise invalid(
+            repr(tuple(columns)),
+            expected="nonempty display labels distinct from exported key names",
+            repair=f"Choose nonempty labels outside the key names {keys!r}.",
+        )
+    node = bind(
+        tuple(value._node for value in values),
+        DisplayTable(
+            tuple(columns),
+            tuple(value._node.root.value_type.name for value in values),
+            tuple(value._node.root.fingerprint for value in values),
+        ),
+    )
+    return LogicalTable(_TOKEN, node, first._runtime)

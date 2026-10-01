@@ -19,6 +19,12 @@ from marivo.analysis._subject import SubjectBinding
 from marivo.analysis.materialization import graph_fields as fields
 
 _METHOD_GROUPS = {
+    ("_NumericComparison", "rank"): "methods.rows",
+    ("_Attribution", "where"): "methods.compare",
+    ("LogicalDifferenceRelation", "attribute"): "methods.compare",
+    ("MaterializedDifferenceRelation", "attribute"): "methods.compare",
+    ("_Ranking", "where"): "methods.rows",
+    ("_Ranking", "limit"): "methods.rows",
     ("_NumericComparison", "compare"): "methods.compare",
     ("_NumericComparison", "ratio"): "methods.compare",
     ("_NumericComparison", "share_of"): "methods.metric.reference",
@@ -35,6 +41,10 @@ _METHOD_GROUPS = {
     ("LogicalNumericRelation", "summarize"): "methods.metric.summary",
     ("LogicalNumericRelation", "correlate"): "methods.association",
     ("MaterializedNumericRelation", "summarize"): "methods.metric.summary",
+    ("MaterializedNumericRelation", "group_by"): "methods.metric.reduce",
+    ("MaterializedNumericRelation", "rollup"): "methods.metric.reduce",
+    ("MaterializedNumericRelation", "correlate"): "methods.association",
+    ("MaterializedNumericRelation", "where"): "methods.rows",
     ("LogicalRatioRelation", "group_by"): "methods.metric",
     ("LogicalRatioRelation", "rollup"): "methods.metric",
     ("LogicalRatioRelation", "summarize"): "methods.metric.summary",
@@ -47,6 +57,10 @@ _METHOD_GROUPS = {
 }
 
 _INPUT_GUIDANCE = {
+    "order": "Choose ascending or descending; ranking compares exact represented values.",
+    "ties": "Choose ordinal, dense, min or max. Ordinal breaks ties by complete typed instance key.",
+    "partition_by": "Bind an ordered tuple of complete CategoryRelations; () selects one global partition.",
+    "count": "For ranking.limit, use an integer 1..100000 excluding bool; the prefix is global.",
     "reference": "Use an exact compatible reference in this Session and source/fixed mode; standardize consumes mv.reference_weights(...).",
     "values": "Use complete grouped dimensionless stratum values in this Session.",
     "strata": "Use the ordered CategoryRelation tuple bound through the existing grouping or inclusion mapping.",
@@ -60,6 +74,9 @@ _INPUT_GUIDANCE = {
     "dimension": "Use a declared categorical Dimension Ref on this receiver's domain.",
     "during": "Use mv.time_scope(start=..., end=...) with absolute bounds.",
     "via": "Use the exact relationship Ref or mv.routes(...) required by this Metric.",
+    "axes": "Use unique ordered retained contribution Dimension Refs.",
+    "mode": "Choose joint or hierarchy; hierarchy requires at least two axes.",
+    "top_k": "Common basis limit 1..1000 excluding bool, or None.",
     "coordinates": "Distinct qualified contribution Dimension Refs; complete tuples remain bound together.",
     "baseline": "Use recursively compatible numeric endpoints under the selected design.",
     "design": "Use mv.TimeChange(), mv.CohortContrast(), or mv.PeriodChange(alignment=mv.window_bucket()).",
@@ -111,6 +128,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         cohort.empty_opportunity,
         dsl.OneToOneCorrespondence,
         dsl.ReferenceWeights,
+        dsl.LogicalAttributionResult,
+        dsl.MaterializedAttributionResult,
+        dsl.LogicalRankingResult,
+        dsl.MaterializedRankingResult,
+        dsl.LogicalTable,
+        dsl.MaterializedTable,
         dsl.PeriodChange,
         dsl.UnionKeys,
         dsl.ExactKeys,
@@ -189,6 +212,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             dsl.PeriodChange: "mv.PeriodChange(alignment=mv.window_bucket())",
             dsl.OneToOneCorrespondence: "mv.one_to_one(left=left, right=right, via=relationship)",
             dsl.ReferenceWeights: "mv.reference_weights(values, strata=(category,), unit=entity)",
+            dsl.LogicalAttributionResult: "change.attribute(axes=(channel,))",
+            dsl.MaterializedAttributionResult: "attribution.execute()",
+            dsl.LogicalRankingResult: 'values.rank(order="descending", ties="dense")',
+            dsl.MaterializedRankingResult: "ranking.execute()",
+            dsl.LogicalTable: "mv.table(values=ranking.values, ranks=ranking.ranks)",
+            dsl.MaterializedTable: "table.execute()",
         }
         acquisition = (
             f"Call {policy_examples[type_value]}."
@@ -214,7 +243,19 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             else "Construct through session.members() or the returned typed relation."
         )
         producers = (
-            ("dsl.reference_weights",)
+            ("dsl.LogicalDifferenceRelation.attribute",)
+            if type_value is dsl.LogicalAttributionResult
+            else ("dsl.LogicalAttributionResult.execute",)
+            if type_value is dsl.MaterializedAttributionResult
+            else ("dsl.table",)
+            if type_value is dsl.LogicalTable
+            else ("dsl.LogicalTable.execute",)
+            if type_value is dsl.MaterializedTable
+            else ("dsl.NumericComparison.rank",)
+            if type_value is dsl.LogicalRankingResult
+            else ("dsl.LogicalRankingResult.execute",)
+            if type_value is dsl.MaterializedRankingResult
+            else ("dsl.reference_weights",)
             if type_value is dsl.ReferenceWeights
             else ("dsl.any_instance",)
             if type_value is cohort.AnyInstance
@@ -253,7 +294,15 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 summary=f"Governed Analysis {name} value type.",
                 acquisition=acquisition,
                 producers=("session.artifact",) if name.startswith("Materialized") else producers,
-                consumers=("dsl.NumericComparison.standardize", "dsl.ReferenceWeights.show")
+                consumers=("dsl.Attribution.where", "dsl.LogicalAttributionResult.execute")
+                if type_value in (dsl.LogicalAttributionResult, dsl.MaterializedAttributionResult)
+                else ("dsl.LogicalTable.execute",)
+                if type_value is dsl.LogicalTable
+                else ("dsl.MaterializedTable.show", "dsl.MaterializedTable.to_pandas")
+                if type_value is dsl.MaterializedTable
+                else ("dsl.Ranking.where", "dsl.Ranking.limit", "dsl.table")
+                if type_value in (dsl.LogicalRankingResult, dsl.MaterializedRankingResult)
+                else ("dsl.NumericComparison.standardize", "dsl.ReferenceWeights.show")
                 if type_value is dsl.ReferenceWeights
                 else ("GridWindow", "GridEndpoint", "dsl.TimeGrid.show")
                 if type_value is dsl.TimeGrid
@@ -327,6 +376,34 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
     )
     exports.append(ExportInput("time_grid", dsl.time_grid, "dsl.time_grid"))
 
+    descriptors.append(
+        operation(
+            "dsl.table",
+            "mv.table",
+            dsl.table,
+            summary="Construct an ordered complete-key terminal table.",
+            discovery_group="methods.rows",
+            parameters=(
+                ParameterInput(
+                    "columns", "Use labeled scalar Relations with complete matching typed keys."
+                ),
+            ),
+            output="LogicalTable",
+            constraints=(
+                "One Session and source/fixed mode; terminal export only. Non-Defined pandas values lose their Cell labels, retained by show() and the Artifact.",
+            ),
+            effects="Pure definition binding; no business rows or Run.",
+            failures=("AnalysisError: use the exact structured binding or key repair.",),
+            example=ExampleInput(
+                "result = mv.table(values=values, ranks=ranks)",
+                ("values", "ranks"),
+                "result",
+                "A terminal complete-key table.",
+                True,
+            ),
+        )
+    )
+    exports.append(ExportInput("table", dsl.table, "dsl.table"))
     functions = (
         dsl.route,
         dsl.routes,
@@ -559,6 +636,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         fields._BoundValue,
         *field_types,
         dsl._Value,
+        dsl._Attribution,
+        dsl._Ranking,
         dsl._CohortDomain,
         dsl._CountRelation,
         dsl._NumericComparison,

@@ -24,10 +24,13 @@ from marivo.analysis.compiler.graph_plan import (
 from marivo.analysis.compiler.member_version import select_version, version_predicate
 from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import (
+    AttributionPart,
     CohortDecisionPart,
     Coordinate,
     CoordinateStatePart,
     CorrespondencePart,
+    DisplayPart,
+    EndpointPart,
     FactInput,
     Obligation,
     ObservedQuantity,
@@ -44,9 +47,12 @@ from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
     AssociationScore,
     AttachCategory,
+    AttributionDerive,
     BindProject,
     CellDerive,
     CompleteGroups,
+    DisplayRank,
+    DisplayTable,
     GroupObservationTarget,
     MapCorrespond,
     ObserveCount,
@@ -114,6 +120,25 @@ class PartColumns:
 
 
 def components(part: Part) -> tuple[str, ...]:
+    if isinstance(part, AttributionPart):
+        from marivo.analysis.methods.attribution import columns
+
+        return columns(part)
+    if isinstance(part, EndpointPart):
+        return (
+            "value",
+            "cell_tag",
+            "cell_reason",
+            *(
+                ("state__" + c for c in part.original_state.components)
+                if part.original_state
+                else ()
+            ),
+            *(("groups",) if part.coordinate_state else ()),
+            *(("complete",) if part.original_state else ()),
+        )
+    if isinstance(part, DisplayPart):
+        return part.components
     if isinstance(part, CorrespondencePart):
         return (
             "current_present",
@@ -192,6 +217,7 @@ class LoweredRelation:
     cell_reasons: tuple[tuple[str, tuple[str, ...]], ...] = ()
     part_expressions: tuple[tuple[str, ir.Table], ...] = ()
     part_source_ids: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    column_reasons: tuple[tuple[tuple[str, tuple[str, ...]], ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -371,6 +397,14 @@ def _validate_layout(
             _fail("complete ordered part components", repr(part.columns))
         for component in part.columns:
             role = part_role(part.part)
+            if isinstance(part.part, (AttributionPart, EndpointPart)):
+                continue
+            if isinstance(part.part, DisplayPart):
+                if table[component.column].type() != dt.dtype(
+                    part.part.types[part.part.components.index(component.component)]
+                ):
+                    _fail("exact display component type", component.column)
+                continue
             if isinstance(part.part, CoordinateStatePart):
                 if table[component.column].type() != coordinate_state_type(part.part):
                     _fail("the exact nested contribution coordinate state", component.column)
@@ -420,7 +454,15 @@ def _key_violations(
     if not keys:
         counts = table.aggregate(n=table.count())
         return counts.filter(counts.n > 1 if allow_empty else counts.n != 1)
-    nulls = reduce(or_, (table[key].isnull() for key in keys))
+    nulls = reduce(
+        or_,
+        (
+            table[k.column].isnull()
+            for k in layout.keys
+            if not k.coordinate.field.startswith("attribution:axis:")
+        ),
+        ibis.literal(False),
+    )
     groups = table.group_by(*keys).aggregate(n=table.count())
     duplicates = groups.filter(groups.n > 1).select(*keys)
     return table.filter(nulls).select(*keys).union(duplicates, distinct=False)
@@ -467,13 +509,24 @@ def _pair_violations(left: LoweredRelation, right: LoweredRelation) -> ir.Table:
         )
     a = left.expression.select(*keys).view()
     b = right.expression.select(*keys).view()
-    return a.anti_join(b, keys).union(b.anti_join(a, keys), distinct=False)
+    predicates = [a[k].identical_to(b[k]) for k in keys]
+    return a.anti_join(b, predicates).union(b.anti_join(a, predicates), distinct=False)
 
 
 def _operand_bound(source: LoweredRelation, table: ir.Table) -> ir.Value:
     zero = ibis.literal(0).cast("float64")
     if source.node.value_type != ScalarType("float64"):
         return zero
+    attribution = next(
+        (
+            p
+            for p in source.node.signature.parts
+            if isinstance(p, AttributionPart) and p.role == "allocation"
+        ),
+        None,
+    )
+    if attribution is not None:
+        return table["allocation__" + attribution.view + "_error_bound"]
     if "correspondence__result_error_bound" in table.columns:
         return table.correspondence__result_error_bound
     if "reference_proof__retained" in table.columns:
@@ -622,6 +675,7 @@ def _difference(
         current_reason=lhs[a.reason],
         current_present=ibis.literal(True),
         current_error_bound=_operand_bound(left, lhs),
+        **endpoint_fields(stage.node.signature, "current", lhs),
     )
     baseline = rhs.select(
         **{f"baseline_key_{i}": rhs[key] for i, key in enumerate(keys)},
@@ -630,6 +684,7 @@ def _difference(
         baseline_reason=rhs[b.reason],
         baseline_present=ibis.literal(True),
         baseline_error_bound=_operand_bound(right, rhs),
+        **endpoint_fields(stage.node.signature, "baseline", rhs),
     )
     translated_keys = {
         i: ibis.cases(
@@ -768,6 +823,18 @@ def _difference(
         value=ibis.ifelse(defined, value, ibis.null().cast(value.type())),
         cell_tag=tag,
         cell_reason=reason,
+        **{
+            name: paired[name]
+            for name in paired.columns
+            if name.startswith(("current_endpoint__state__", "baseline_endpoint__state__"))
+            or name
+            in (
+                "current_endpoint__groups",
+                "baseline_endpoint__groups",
+                "current_endpoint__complete",
+                "baseline_endpoint__complete",
+            )
+        },
         current_endpoint__value=first,
         current_endpoint__cell_tag=tag_a,
         current_endpoint__cell_reason=reason_a,
@@ -876,9 +943,11 @@ def _transport(
             },
         ).view()
         left = table.view()
-        table = (left.inner_join(other, keys) if keys else left.cross_join(other)).select(
-            *[left[name] for name in table.columns], *[other[name] for name in names]
-        )
+        table = (
+            left.inner_join(other, [left[k].identical_to(other[k]) for k in keys])
+            if keys
+            else left.cross_join(other)
+        ).select(*[left[name] for name in table.columns], *[other[name] for name in names])
         cells.append(CellColumns(*names))
 
     def leaf_value(predicate: ValuePredicate) -> ir.BooleanValue:
@@ -1015,6 +1084,19 @@ def _transport(
         return complete.filter(complete.cohort_decision__accepted).select(*layout.columns), layout
     if conditions:
         table = table.filter(reduce(and_, conditions))
+    if params.mode == "limit":
+        assert params.limit_count is not None
+        table = table.order_by(table.ordering__position).limit(params.limit_count)
+    if params.attribution_view is not None:
+        table = table.mutate(value=table["allocation__" + params.attribution_view])
+    if params.display_view == "ranks":
+        assert cell is not None
+        table = table.mutate(
+            value=table.ranks__value,
+            cell_tag=table.ranks__cell_tag,
+            cell_reason=table.ranks__cell_reason,
+        )
+
     target = canonical_layout(
         stage.node.signature, has_value=cell is not None and params.keep_quantity
     )
@@ -2176,7 +2258,15 @@ def _original_sum(
             cell_tag=(support > 0).ifelse("defined", "null"),
             cell_reason=(support > 0).ifelse(ibis.null().cast("string"), "empty_contribution"),
         )
-        target = canonical_layout(stage.node.signature, has_value=True)
+        target = canonical_layout(
+            replace(
+                stage.node.signature,
+                parts=tuple(
+                    p for p in stage.node.signature.parts if not isinstance(p, CoordinateStatePart)
+                ),
+            ),
+            has_value=True,
+        )
         return _reduction_subjects(result, stage.node.signature).select(*target.columns), target
     if stage.node.method.name == "state_rollup.mean":
         reduced = grouped.aggregate(
@@ -2188,7 +2278,15 @@ def _original_sum(
                 for name in _original_state(stage.node.signature).components
             }
         )
-        target = canonical_layout(stage.node.signature, has_value=True)
+        target = canonical_layout(
+            replace(
+                stage.node.signature,
+                parts=tuple(
+                    p for p in stage.node.signature.parts if not isinstance(p, CoordinateStatePart)
+                ),
+            ),
+            has_value=True,
+        )
         return _mean_finish(
             _reduction_subjects(reduced, stage.node.signature),
             target,
@@ -2205,7 +2303,15 @@ def _original_sum(
                 for name in state.components
             }
         )
-        target = canonical_layout(stage.node.signature, has_value=True)
+        target = canonical_layout(
+            replace(
+                stage.node.signature,
+                parts=tuple(
+                    p for p in stage.node.signature.parts if not isinstance(p, CoordinateStatePart)
+                ),
+            ),
+            has_value=True,
+        )
         return (
             _linear_finish(
                 _reduction_subjects(reduced, stage.node.signature), target, stage.node.signature
@@ -2227,7 +2333,15 @@ def _original_sum(
                 )
             }
         )
-        target = canonical_layout(stage.node.signature, has_value=True)
+        target = canonical_layout(
+            replace(
+                stage.node.signature,
+                parts=tuple(
+                    p for p in stage.node.signature.parts if not isinstance(p, CoordinateStatePart)
+                ),
+            ),
+            has_value=True,
+        )
         return _ratio_finish(
             _reduction_subjects(reduced, stage.node.signature), target, stage.node.signature
         ), target
@@ -2236,7 +2350,15 @@ def _original_sum(
             original_state__count=table.original_state__count.sum().fill_null(0),
             coverage__complete=table.coverage__complete.all().fill_null(True),
         )
-        target_count = canonical_layout(stage.node.signature, has_value=True)
+        target_count = canonical_layout(
+            replace(
+                stage.node.signature,
+                parts=tuple(
+                    p for p in stage.node.signature.parts if not isinstance(p, CoordinateStatePart)
+                ),
+            ),
+            has_value=True,
+        )
         return _reduction_subjects(reduced_count, stage.node.signature).mutate(
             value=reduced_count.original_state__count.cast("int64"),
             cell_tag=ibis.literal("defined"),
@@ -2264,7 +2386,15 @@ def _original_sum(
     defined = support > 0 if stage.node.method.name == "state_rollup" else ibis.literal(True)
     value_type = stage.node.value_type
     assert isinstance(value_type, (ScalarType, DecimalType, DurationType))
-    target = canonical_layout(stage.node.signature, has_value=True)
+    target = canonical_layout(
+        replace(
+            stage.node.signature,
+            parts=tuple(
+                p for p in stage.node.signature.parts if not isinstance(p, CoordinateStatePart)
+            ),
+        ),
+        has_value=True,
+    )
     result = reduced.mutate(
         original_state__sum=reduced.original_state__sum.cast(
             "int64" if isinstance(value_type, DurationType) else value_type.name
@@ -3050,7 +3180,8 @@ def lower(
         if isinstance(stage, LocalMethodStage):
             admit(stage.implementation, stage.node.parameters)
             if len(stage.inputs) not in (1, 2) and not isinstance(
-                stage.node.parameters, (PartsTransport, ReferenceDerive)
+                stage.node.parameters,
+                (AttributionDerive, PartsTransport, ReferenceDerive, DisplayRank, DisplayTable),
             ):
                 _fail("registered row, Association, or predicate inputs", repr(stage.inputs))
             if len(stage.inputs) == 2 and not (
@@ -3061,7 +3192,12 @@ def lower(
                     isinstance(stage.node.parameters, PartsTransport)
                     and stage.node.parameters.external_predicate
                 )
-                or (isinstance(stage.node.parameters, (CellDerive, ReferenceDerive)))
+                or (
+                    isinstance(
+                        stage.node.parameters,
+                        (AttributionDerive, CellDerive, ReferenceDerive, DisplayRank, DisplayTable),
+                    )
+                )
             ):
                 _fail("a registered two-input local method", repr(stage.inputs))
             output_layout = canonical_layout(
@@ -3074,6 +3210,15 @@ def lower(
                 and stage.node.signature.quantity is None
             ):
                 output_layout = canonical_layout(stage.node.signature, has_value=False)
+            if isinstance(stage.node.parameters, DisplayTable):
+                output_layout = replace(
+                    canonical_layout(stage.node.signature, has_value=False),
+                    extras=tuple(
+                        f"column_{i}__{f}"
+                        for i in range(len(stage.node.parameters.labels))
+                        for f in ("value", "cell_tag", "cell_reason")
+                    ),
+                )
             if isinstance(stage.node.parameters, AssociationScore):
                 output_layout = replace(output_layout, extras=("status",))
             stages.append(
@@ -3081,8 +3226,12 @@ def lower(
             )
             layouts[stage.output] = output_layout
             if (
-                isinstance(stage.node.parameters, (CellDerive, ReferenceDerive))
+                isinstance(
+                    stage.node.parameters,
+                    (AttributionDerive, CellDerive, ReferenceDerive, DisplayRank, DisplayTable),
+                )
                 and len(stage.inputs) == 1
+                and stage.inputs[0] in results
             ):
                 predecessor = results[stage.inputs[0]]
                 results[stage.output] = replace(predecessor, output=stage.output)
@@ -3141,7 +3290,32 @@ def lower(
             inputs = tuple(results[i] for i in stage.inputs[: len(stage.node.inputs)])
             params = stage.node.parameters
             source_ids = inputs[0].source_ids
-            if isinstance(params, ReferenceDerive):
+            if isinstance(params, AttributionDerive):
+                from marivo.analysis.compiler.graph_attribution import (
+                    prepare as prepare_attribution,
+                )
+
+                table, layout = prepare_attribution(stage, inputs, checks, part_expressions)
+                source_ids = _source_ids(*(item.source_ids for item in inputs))
+                cell_reasons = ()
+            elif isinstance(params, (DisplayRank, DisplayTable)):
+                from marivo.analysis.compiler.graph_display import prepare
+
+                table, layout = prepare(stage, inputs, checks)
+                part_expressions.extend(
+                    (role, expression)
+                    for role, expression in inputs[0].part_expressions
+                    if isinstance(params, DisplayRank)
+                    and role
+                    not in {
+                        part.role
+                        for part in inputs[0].node.signature.parts
+                        if isinstance(part, DisplayPart)
+                    }
+                )
+                source_ids = _source_ids(*(item.source_ids for item in inputs))
+                cell_reasons = inputs[0].cell_reasons
+            elif isinstance(params, ReferenceDerive):
                 table, layout = _reference(stage, inputs, part_expressions)
                 part_source_ids = tuple(
                     (
@@ -3164,8 +3338,35 @@ def lower(
                 part_expressions.extend(
                     (role, expression)
                     for role, expression in inputs[0].part_expressions
-                    if role in ("fixed_reference", "reference_proof", "strata", "stratum_values")
+                    if role
+                    in (
+                        "fixed_reference",
+                        "reference_proof",
+                        "strata",
+                        "stratum_values",
+                        "basis",
+                        "allocation",
+                        "reconciliation",
+                        "current_endpoint",
+                        "baseline_endpoint",
+                        "ranking_domain",
+                        "partitions",
+                        "ordering",
+                    )
                 )
+                for part in inputs[0].layout.parts:
+                    if isinstance(part.part, DisplayPart) and part.part.independent:
+                        role = part.part.role
+                        if not any(name == role for name, _ in part_expressions):
+                            part_expressions.append(
+                                (
+                                    role,
+                                    inputs[0].expression.select(
+                                        *(key.column for key in inputs[0].layout.keys),
+                                        *(component.column for component in part.columns),
+                                    ),
+                                )
+                            )
                 table, layout = _transport(stage, inputs[0], checks, inputs[1:], part_expressions)
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
                 cell_reasons = () if params.mode == "cohort" else inputs[0].cell_reasons
@@ -3210,6 +3411,9 @@ def lower(
                     if params.method == "fold"
                     else _original_sum(stage, inputs[0])
                 )
+                from marivo.analysis.compiler.graph_attribution import retain_partition
+
+                table, layout = retain_partition(stage, inputs[0], table, layout)
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, RowState):
                 table, layout = _count(stage, inputs[0])
@@ -3234,6 +3438,9 @@ def lower(
             cell_reasons,
             tuple(part_expressions),
             part_source_ids,
+            tuple(item.cell_reasons for item in inputs)
+            if isinstance(node, MethodNode) and isinstance(node.parameters, DisplayTable)
+            else (),
         )
         results[stage.output] = relation
         layouts[stage.output] = layout
@@ -3253,10 +3460,13 @@ def lower(
                         layout,
                         allow_empty=isinstance(node, MethodNode)
                         and (
-                            isinstance(node.parameters, CellDerive)
+                            isinstance(node.parameters, (CellDerive, DisplayRank, DisplayTable))
                             or (
                                 isinstance(node.parameters, PartsTransport)
-                                and node.parameters.mode == "where"
+                                and (
+                                    node.parameters.mode in ("where", "limit")
+                                    or node.parameters.display_view is not None
+                                )
                             )
                         )
                         and not layout.keys,
@@ -3324,9 +3534,22 @@ def lower(
                 violations = _key_violations(output.expression, output.layout)
                 source_ids = output.source_ids
             elif check_id == "source.exact_pairing@v1" and len(inputs) >= 2:
+                pairing_owner = next(
+                    (
+                        relation.node
+                        for relation in results.values()
+                        if isinstance(relation.node, MethodNode)
+                        and isinstance(relation.node.parameters, CellDerive)
+                        and requirement.obligation.fact in relation.node.derivation.pre
+                        and tuple(edge.node.identity for edge in relation.node.inputs)
+                        == tuple(item.node.identity for item in inputs)
+                    ),
+                    None,
+                )
                 paired_right = (
-                    _mapped_period_input(inputs[1], owner.parameters)
-                    if isinstance(owner, MethodNode) and isinstance(owner.parameters, CellDerive)
+                    _mapped_period_input(inputs[1], pairing_owner.parameters)
+                    if pairing_owner is not None
+                    and isinstance(pairing_owner.parameters, CellDerive)
                     else inputs[1]
                 )
                 violations = _pair_violations(inputs[0], paired_right)
@@ -3688,3 +3911,24 @@ def _reference(
         },
     )
     return table.select(*layout.columns), layout
+
+
+def endpoint_fields(signature: Signature, side: str, table: ir.Table) -> dict[str, ir.Value]:
+    part = next(p for p in signature.parts if isinstance(p, EndpointPart) and p.side == side)
+    fields = (
+        {
+            f"{side}_endpoint__state__{c}": table["original_state__" + c]
+            for c in part.original_state.components
+        }
+        if part.original_state
+        else {}
+    )
+    if part.original_state:
+        fields[f"{side}_endpoint__complete"] = table.coverage__complete
+    if part.coordinate_state:
+        fields[f"{side}_endpoint__groups"] = table[
+            "allocation_state__groups"
+            if part.coordinate_state.attribution_only
+            else "coordinate_state__groups"
+        ]
+    return fields

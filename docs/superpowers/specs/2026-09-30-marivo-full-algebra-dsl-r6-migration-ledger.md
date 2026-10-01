@@ -2,7 +2,8 @@
 
 Date: 2026-09-30. Status: R6.1 contract/static inventory complete; R6.2 public comparison implementation is connected, with final validation recorded below;
 R6.3 and R6.4 are connected through the bounded qualifications recorded below;
-R6.5–R6.7 remain unimplemented. This ledger indexes the
+R6.5 ranking and terminal display are connected, with final validation recorded below;
+R6.6 allocation is connected; final qualification is recorded below. R6.7 remains unimplemented. This ledger indexes the
 [R6 implementation plan](2026-09-30-marivo-full-algebra-dsl-r6-implementation-plan.md)
 and sole contract owners; it is not another method registry or executable API.
 
@@ -102,7 +103,7 @@ table are absent. Private legacy tests passing does not qualify new public work.
 | M09 | attribution_codec read by `materialization/contracts.py:1503,1589,2303`; attribution_publication imported by dataset_execution:44, source_stage:28, local_execution:51 and store:964; evidence/_dataset_reads consumes summaries | F09 R6.6/R6.7 uses common graph parts/atomic publication; delete old R6 codec/publication dispatch, migrate Evidence reads | Shared event publication and R8 evidence consumers split before helper deletion; stale reconciliation scope/corrupt side view; V09/V11 |
 | M10 | `operators/registry.py:58` legacy_source_migration_stage marks metric.compare/delta/attribution R6; source_admission consumes marker; dataset_execution carries AttributionSourceSummary | Remove migrated R6 registrations and dispatch, not merely the marker; R6.7 reverse scan imports, IDs, module strings, private workers and codec branches | Keep event/lifecycle R7 and candidate/forecast/association R8 blocks. No default source admission; V10/V12 |
 | M11 | observation.population/metric still imported by session/core, _lazy_sources and domains; coordinates imported by attribute_expansion, event_axes/sources, lowering/normalize/source_dependencies; fold_contracts has compare/attribute, forecast/correlation/event consumers | R5 ledger M05/M06 R6 consumers migrate here; remove their actual calls after replacement; no whole observation-directory deletion | R7 Subject/Event and R8 statistics remain explicit residual owners; fold/coverage contradictions; V08/V09 |
-| M12 | AN11 `materialization/duckdb_statements.py:11` attribution_summary_sql; AN12 `source_stage.py:59` attribution_source_summary submits backend statements | R6.6 replace R6 checks with Ibis expressions, record driver submission evidence; R6.7 static SQL and reverse-call closure | Existing code still present, **not deleted** by blocking legacy source; R9 is not an exemption for handwritten R6 queries |
+| M12 | AN11 unused summary module deleted in R6.6; AN12 source_stage hook is rejection-only, with no backend statement submission | R6.6 public typed scope checks and registered allocation have native submission/raw-fact evidence; R6.7 owns remaining legacy hook/helper deletion | The old hook is **retained but blocked**, not reported deleted. No handwritten R6 replacement or remote qualification is granted |
 | M13 | `methods/semantics.py` CONNECTED_METHODS and MethodName; builtin cell.difference int64 source/local declarations; graph_plan/lowering and graph_{source,local}_execution consume exact registry selection | Extend F01–F09 through existing registry/rules; no family executor, backend-name dispatch or runtime fallback | Required method×type×route/time positive cells below; static registration is not qualification |
 | M14 | Native _help, analysis/_capabilities, lazy __init__/_public, CLI, latest site en/zh, export/typing/help tests retain current surface | R6.2–R6.6 update affected disclosures per connected capability, R6.7 remove obsolete targets/imports without redirects | V12 exact export/reachability/budget and current-state continuation checks, not shadow renderer inventories |
 | M15 | tests/test_lazy_compare_* and lazy_compare_runtime_worker; tests/test_lazy_attribute_*, test_lazy_attribution_* and lazy_attribution_runtime_worker still exercise old families | Preserve raw-fact/Fraction/Decimal oracles and negative cases; move public consumers into planned R6 tests; remove old worker only after its assertions have replacements | Do not delete/skip legacy tests to claim closure; R6.7 test manifest maps every disposition |
@@ -582,3 +583,212 @@ Null/Undefined/Unknown exemptions. The owning numerical policy is clarified.
 Validation: focused pure tests **20 passed**; R6.4 Runtime **33 passed**;
 `make check-agent` **5564 passed / 5 existing skipped**, including typing,
 lint/import checks and API docs; `git diff --check` passed. No commit or push.
+
+## R6.5 ranking and terminal display completed (2026-10-01)
+
+Implementation baseline: `panda`, HEAD
+`ea406d51ef26a1a8986d2c95d0c35c174007fc39` (contains R6.4). The working tree
+was clean at implementation entry; all preceding committed work is preserved.
+No commit, push, release, AGENTS.md or packaged-skill edit is included.
+
+### Connected contracts and state
+
+- `rank(order, ties, partition_by=())` produces paired Logical/Materialized
+  RankingResult variants with fixed `values` and `ranks` numeric views.
+  Ordinal/dense/min/max use exact represented values and canonical complete
+  typed keys. Partition tuples precede Defined rank blocks and the instance-key
+  ordered non-Defined tail. View export preserves that order.
+- Ranking `where`/global `limit(1..100000)` restrict both views through the same
+  selection map and retain original ranks, domain, partitions, order and fixed
+  reference. Two-step `is_defined` then selected-rank `lte(k)` gives per-group
+  Top-K, including ties beyond K. Numeric-view selection keeps the numeric family;
+  values retains its actual sufficient parts and quantity, ranks never acquires
+  original Metric state. View access does not allocate a Run.
+- `mv.table` produces terminal LogicalTable/MaterializedTable variants, requiring
+  equal complete keys, compatible time meaning, one Session and one source/fixed
+  mode. It retains authored column order, concrete types, per-column Cell reason
+  policies and exact ordered input/view bindings. Duplicate/missing keys reject;
+  paired empty domains and empty Singletons are valid. Labels cannot collide
+  with exported keys. No contract/K, dynamic columns or analysis feedback exists.
+- Compact pandas export contains keys once and authored values only, using exact
+  Arrow-backed pandas dtypes. Null/Undefined/Unknown become missing and lose
+  their tags/reasons in this export. Saved Cells and bounded `show()` retain that
+  information. Mutating the returned DataFrame cannot change the Artifact.
+- `display.rank/table@v1` use the shared method registry, GraphPlan, Runtime,
+  execution keys, DAG snapshots, receipts and atomic publication. Source Ibis
+  prepares/checks keys and partitions for the registered local finish. Fixed
+  execution uses checked Arrow/Parquet through the controlled pandas carrier.
+  Store remains generation 7; `ranking/table` state contract v1 and their parts
+  verify original scope, selected Cells, order and bindings before publication
+  or fixed reuse. One explicit rank and its source realization are shared when
+  table consumes both views. Independent captures remain distinct; no fallback.
+
+### Actual qualification and validation
+
+| Cell / check | Result | Boundary |
+| --- | --- | --- |
+| Rank I/F/D/T, table/Parquet source and fixed; ties × directions | Passed | Duration us; Decimal fixture `(30,6)` and exact widened observation output; no epsilon float ties |
+| Entity composite keys, Group, Singleton; UTC monthly Entity×Time | Passed | Null category partition first; other grids/timezones remain unverified |
+| Numeric/Category/Boolean/Temporal terminal columns | Passed | Temporal UTC timestamp; full keys, author order, precision, missing values and isolation |
+| Four Cell labels and reasons | Passed | All four on controlled fixed exchange; public source Defined/Null/Undefined; no new Unknown producer |
+| Global prefix vs partition Top-K, tied overflow, no rerank, share identity/denominator | Passed | Actual sufficient parts govern view K and rollup |
+| Shared realization, new source evaluation, fixed retention, failure refusal | Passed | Exact explicit capture identities; no automatic merge or retry |
+| Fresh-process offline ranking selection and table recovery | Passed | Native table and Parquet; source renamed away and Semantic/DuckDB disabled |
+| Missing/corrupt parts, part/state versions, ranks/order/bindings; receipt reuse; publication faults | Passed | Reject before publication or fixed reuse; prior Artifacts survive failed publication |
+| Native Help, exports, typing positive/negative, reachability/budgets, API and bilingual examples | Passed | Existing Help/contract skill delegation remains applicable |
+| Installed wheel, remote backends, R6.6 attribution | Unverified / deferred | R6.7, R9 and R6.6 respectively; no qualification inferred |
+
+Validation commands and outcomes:
+
+- Targeted default disclosure/typing/registration/export/display tests:
+  **108 passed** at the earlier focused set; final full default gate includes
+  the subsequent independent disclosure assertions and all nine pure display cases.
+- `make runtime-test-agent TESTS='tests/test_analysis_display_r65.py'`:
+  **45 passed**, no failures or skips, after controlled pandas fixed transport.
+- R6.2/R6.3/R6.4/common publication Runtime regression with the earlier R6.5
+  matrix: **184 passed**, no failures/skips. The exact files were
+  `test_analysis_display_r65.py`, `test_analysis_references_r64.py`,
+  `test_analysis_comparison_runtime_r62.py`, `test_analysis_cohort_r63.py`, and
+  `test_analysis_graph_publication_r44.py`.
+- Display + latest display example + R6.3 predicate Runtime set:
+  **63 passed / 27 non-Runtime deselected**, no failures/skips.
+  Both bilingual copies have identical executable code; the example executes
+  and restores its actual terminal Artifact on native table and Parquet.
+- `make check-agent`: **5573 passed / 5 existing skipped**, **417** typed files,
+  formatting/lint/import contracts and API documentation passed. Four SQLite
+  expression fixtures lack declared Decimal storage; the existing metadata
+  channel-failure fixture delegates to dispatcher fallback. Those skips grant
+  no R6 qualification.
+- `npm --prefix site run build`: Sphinx API prebuild, Astro check/build
+  (**321 pages**) and standard/Chinese install script verification passed.
+- Final strengthened raw-data partition oracle and missing-partition-key checks:
+  **18 passed** (four ties, both directions, table/Parquet, composite keys),
+  after the 45-case run; focused formatting/lint and diff whitespace checks pass.
+- `git diff --check`: passed.
+
+Failed development iterations exposed missing execution-key part encoding,
+source-local check handoff, ambiguous implementation identities, metadata-only
+frozen endpoints, reference/ranking state layout separation, UTC column typing,
+empty Singleton transport and disclosure/doc drift. These were repaired and
+rerun. Fixture timestamp syntax and result-family assertions were also corrected.
+The first broad default run had two stale disclosure/example assertions; the
+first site/API run had five Sphinx imports under the wrong currentmodule. Final
+checks above pass; failed runs are not counted as successful evidence.
+
+Untested Duration s/ms/ns, additional Decimal precisions/scales, temporal Date
+columns and other time shapes remain explicitly unverified. No full Runtime
+release-check, MinIO, same-wheel installation, publication or real-Agent test
+was run. R6.6 and R6.7 are separate remaining phases.
+
+## R6.6 bounded implementation and qualification (2026-10-01)
+
+### Baseline and accepted scope
+
+Branch `panda`, HEAD `ea406d51ef26a1a8986d2c95d0c35c174007fc39`.
+The working tree already contained uncommitted R6.5 implementation, tests and
+documentation, including both graph_display modules and test_analysis_display_r65.py.
+Those changes were preserved and extended only where allocation consumers needed
+them. The entry tracked diff was captured with SHA256
+`a61ceac8957bd0a439aada346818dbfeecf8664df6cd9ab0f872e6c22780e5f2`.
+This task implements R6.6 only; R6.7 legacy-family removal and installed-wheel
+closure remain separate. No commit, push, release, release-check, MinIO,
+AGENTS.md or packaged-skill edit occurred.
+
+The existing packaged analysis skill still delegates static navigation to Help,
+current mechanical continuations to contract and repair to structured errors.
+Allocation uses those same owners; no workflow or judgment boundary changed, so
+no skill edit was necessary. Tests use the repository fixture skill and shared
+DslCaseFactory/raw-fact rows rather than a second semantic fixture family.
+
+### Connected methods, parts and consumers
+
+- `Difference.attribute(axes=..., mode="joint"|"hierarchy", top_k=None|1..1000)`
+  selects additive_difference or component_mix from original state. Closed
+  LogicalAttributionResult/MaterializedAttributionResult expose three same-key
+  NumericRelation views and strict where. Invalid axes, bool/invalid Top-K,
+  relative/nested/selected changes, unsupported original methods, illegal
+  folds/overlap and missing fixed axes reject without an alternate execution route.
+- Logical missing-axis expansion adds a frozen observation dependency to the
+  same graph. Original reduction retains allocation_state without restoring
+  removed public group axes. Fixed execution uses retained parts only.
+- Common union-basis Top-K uses exact scores and typed tie-breaking, including
+  every mapped parent and Other. Hierarchy reuses that mapping and checks each
+  resolution separately. Real string "Other" and remainder mask remain distinct.
+  Contradictory local zero basis is checked before Top-K; no balancing residual.
+- Store 7/DAG/registry/Runtime carry six ordered v1 roles: current_endpoint,
+  baseline_endpoint, basis, allocation, reconciliation and selection_scope.
+  Original-scope parts, complete allocation parts and selected keys have separate
+  declared keys. Independent validation reproduces endpoints, components,
+  target, mapping, side values, bounds, each resolution and selected primary.
+  Filtering always revokes current completeness, including an all-row filter.
+- Floating allocation retains current/baseline/contribution R5 bounds from
+  original magnitudes and denominator intervals. Source/fixed numeric views
+  consume their own bound in explicit ratio arithmetic. Ranking retains allocation
+  evidence on its values view, orders typed Other after ordinary coordinates,
+  and preserves its own result family and complete-key validation.
+- UTC monthly PeriodChange and retained day-to-month partitions preserve the
+  authored time axis. Inherited pairing checks use the originating comparison's
+  frozen map; coarsened quantity templates compare grain/timezone authority,
+  rather than concrete date labels.
+- Help, exports, positive typing, independent disclosure snapshots and latest
+  English/Chinese executable examples are aligned. AN11's unused
+  attribution_summary_sql module is deleted; AN12's private legacy hook remains
+  rejection-only with no SQL statement call. Issued SQL, direct Ibis compilation
+  and native driver submissions match exactly on the replacement route.
+
+### Actual qualification
+
+| Cell / check | Result | Boundary |
+| --- | --- | --- |
+| Additive sum/linear I/F/D; count I; component_mix mean/weighted_mean/original ratio I/F/D | Passed | DuckDB table/local Parquet, retained source, retained fixed and explicit logical axis expansion; Decimal fixture (30,6), widened outputs |
+| Additive Duration sum/linear | Passed | Native us and Parquet ns plus fixed; pure ns exact carrier; s/ms Runtime remain unverified |
+| Original scope and time | Passed | Singleton/member groups, UTC monthly PeriodChange and whole-cell day-to-month retained allocation; additional grids/timezones unverified |
+| Common Top-K/Other, two-axis joint/hierarchy, side terms and each resolution | Passed | Independent raw-fact expectations; asymmetric sides, real "Other", mapped parent and mask |
+| Numeric views, selection, ratio bounds, ranked ties and terminal table | Passed | Same keys, exact float oracle bound, unconditional completeness revocation, typed remainder last; no original Metric rollup permission |
+| New source evaluation and fixed retention | Passed | Source facts changed on both table/Parquet; fixed reuse retains original basis and Artifact identity |
+| Missing/corrupt parts, schemas/versions, independent key order | Passed | Common exchange and descriptor checks reject; complete allocation is not inferred from residual |
+| Produce/continue/recover in separate source-offline processes | Passed | Native/Parquet count Difference; sources renamed away and Semantic/DuckDB/SourceSession disabled; actual attribute/where/view/table continuations |
+| Numerical negatives and failed publication | Passed | Large exact carriers, checked overflow/nonfinite, contradictory zero basis, denominator interval spanning zero; Decimal high precision and 3000 small partitions, no extra successful publication on excess residual |
+| Six-part publication fault cleanup | Passed | Three common writer boundaries on both source/fixed; only failed-run files removed, resource journal empty, prior Difference unchanged and clean retry succeeds |
+| Native submission/SQL closure, shared realization, Help/typing/docs | Passed | Ibis-issued reads match actual driver strings; three views share one allocation; no legacy summary SQL route |
+| True-null original contribution coordinates | Rejected under existing R5 contract | Nullable output slots belong only to Other/inactive hierarchy positions; no identity-null relaxation |
+| Installed wheel, legacy family removal, remote backends, real Agents | Unverified / deferred | R6.7, R9 and R10 retain their respective ownership |
+
+### Validation and repaired iterations
+
+- `make runtime-test TESTS='tests/test_analysis_attribution_runtime_r66.py'`:
+  **54 passed**, no failures/skips, including source/fixed/type matrix, fresh
+  source evaluation, Decimal failed publication and float numeric-view arithmetic.
+  The final two added typed-Other ranking/disclosure cases passed separately with
+  `-k numeric_view_rank`: **2 passed**. This is **56** qualified R6.6 Runtime cases;
+  the two-case run is not represented as part of the earlier 54-case command.
+  Three additional publication fault cases (`-k publication_cleans`) cover both
+  source and fixed at part-written/files-published/receipts-verified boundaries:
+  **3 passed**. Total qualified R6.6 Runtime cases: **59** across these explicit
+  runs, rather than one claimed 59-case invocation.
+- The affected comparison/coordinate/display/temporal/example Runtime set passed
+  **303 cases**, with no failures/skips. Exact files: attribution_runtime_r66,
+  comparison_runtime_r62, coordinates_r54, display_r65, temporal_r55 and
+  cutover_documentation_examples. This preceded the final view-bound/rank additions;
+  their final focused checks are recorded above and below.
+- `make test TESTS='tests/test_analysis_attribution_r66.py'`: **10 passed**,
+  independent exact/Fraction/Decimal numerical and threshold checks.
+- Latest display and all bilingual examples are checked with
+  `make runtime-test TESTS='tests/test_analysis_display_r65.py tests/test_cutover_documentation_examples.py'`:
+  **60 passed**, no failures/skips, after the final Other/ranking transport changes.
+- Final full default/lint/type/API gate is `make check-agent`; site gate is
+  `npm --prefix site run build`: **5583 passed / 5 existing skipped**, **419** typed
+  files, lint/import contracts and API documentation passed; site built **321 pages**
+  and verified standard/Chinese install outputs. Focused final lint and
+  `git diff --check` passed. Existing default skips grant no R6 Runtime qualification.
+
+Failed iterations exposed incomplete source-local part binding, independent part
+ordering and nullable Other keys, hidden coordinate-role lookup, duration tick
+restoration, inherited period maps/coarsening templates, lost float view bounds,
+and allocation verification with additional ranking parts. Each was repaired and
+rerun on its affected public path. Test assumptions about generic exported key
+names and last_run_ref on failed Runs were corrected against current contracts;
+failed Runs are recorded and have no successful output Artifact. Failed commands
+are not counted as qualification. Raw command logs were captured under
+`/tmp/marivo-r66-*.log`; the checked-in tests and commands above are the durable
+reproduction sources.

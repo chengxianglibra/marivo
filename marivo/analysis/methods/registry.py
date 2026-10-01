@@ -76,6 +76,12 @@ class MethodRegistration:
             keys.add(implementation.key)
             rule = self.semantics.rule
             input_count = len(implementation.key.input_domains)
+            if rule == "attribution@v1" and input_count != 2:
+                reject(
+                    "two ordered attribution inputs",
+                    repr(implementation.key),
+                    "Bind original target and expanded basis.",
+                )
             if self.semantics.key.name in ("group.attach", "group.complete"):
                 if input_count != 2:
                     reject(

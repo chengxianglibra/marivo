@@ -403,3 +403,60 @@ Exact Artifact recovery verifies its snapshot, primary receipt and required part
 without current Semantic or datasource access. R5–R9 Dataset families retain
 their signatures but reject execution before business reads and Run allocation.
 Old-generation projects are preserved and are not migrated or read through a fallback.
+
+Ranking and terminal tables
+---------------------------
+
+.. currentmodule:: marivo.analysis
+
+``values.rank(order="descending", ties="dense", partition_by=(category,))``
+returns a ranking with fixed ``values`` and ``ranks`` numeric views. Filtering
+and global ``limit`` preserve original ranks, ordering and fixed references.
+For per-partition Top-K, filter ``ranking.ranks.value.is_defined()`` first, then
+filter ``selected.ranks.value.lte(k)`` on that selected result.
+
+``mv.table(amount=ranking.values, rank=ranking.ranks)`` requires complete equal
+keys, one Session and one source/fixed mode. The terminal Artifact exposes
+``artifact_ref``, bounded ``show()`` and an isolated ``to_pandas()`` containing
+keys once and authored value columns. Non-Defined values export as missing;
+only the Artifact and ``show()`` preserve their tags and reasons. Tables have
+no analysis contract or column attributes.
+
+.. autoclass:: LogicalRankingResult
+   :members:
+
+.. autoclass:: MaterializedRankingResult
+   :members:
+
+.. autofunction:: table
+
+.. autoclass:: LogicalTable
+   :members:
+
+.. autoclass:: MaterializedTable
+   :members:
+
+Allocated absolute changes
+--------------------------
+
+``change.attribute(axes=(channel,), mode="joint", top_k=5)`` chooses the
+allocation method from the original endpoint states. Sum/count/linear changes
+use additive differences; mean/weighted_mean/original ratios allocate each
+numerator against its side's total denominator before subtracting. Logical
+inputs may explicitly expand the frozen observations; fixed inputs require
+the axes already retained. Relative/nested changes and direct-only aggregates
+cannot acquire allocation authority.
+
+``joint`` emits complete axis tuples. ``hierarchy`` requires at least two axes
+and emits each authored prefix. A common Top-K mapping uses both endpoint bases;
+typed remainder masks distinguish a real ``"Other"`` label. Every resolution
+reconciles independently, with no balancing residual. The ``contribution``,
+``current`` and ``baseline`` numeric views always share complete keys.
+``where`` keeps the original target, full allocation and reconciliation parts
+and revokes current-subdomain completeness even when every row remains selected.
+
+.. autoclass:: LogicalAttributionResult
+   :members:
+
+.. autoclass:: MaterializedAttributionResult
+   :members:

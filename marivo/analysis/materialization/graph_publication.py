@@ -15,7 +15,7 @@ from marivo.analysis.compiler.graph_lowering import SourceBinding, lower
 from marivo.analysis.compiler.graph_plan import RouteChoice
 from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import CorrespondencePart
-from marivo.analysis.core.rules import CellDerive, PartsTransport
+from marivo.analysis.core.rules import CellDerive, DisplayRank, DisplayTable, PartsTransport
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization import graph_store
 from marivo.analysis.materialization.contracts import RunFailure, RunFailurePhase, canonical_json
@@ -444,15 +444,22 @@ def execute(
                 run_ref,
                 key,
                 root.signature,
-                RowContract(result.contract.key_fields, result.contract.cell_reasons),
+                RowContract(
+                    result.contract.key_fields,
+                    result.contract.cell_reasons,
+                    result.contract.column_reasons,
+                ),
                 RowSetContract(
                     "keyed"
                     if keys
                     else "optional_singleton"
-                    if isinstance(root.parameters, CellDerive)
+                    if isinstance(root.parameters, (CellDerive, DisplayRank, DisplayTable))
                     or (
                         isinstance(root.parameters, PartsTransport)
-                        and root.parameters.mode == "where"
+                        and (
+                            root.parameters.mode in ("where", "limit")
+                            or root.parameters.display_view is not None
+                        )
                     )
                     else "singleton",
                     "unordered",

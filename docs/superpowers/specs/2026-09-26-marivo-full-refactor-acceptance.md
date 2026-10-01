@@ -1406,3 +1406,104 @@ Execution began on clean `panda` at
 No release-check, MinIO, commit, push, publication, AGENTS.md or packaged-skill
 edit was performed. The existing packaged skill's Help/contract delegation
 continues to apply without modification.
+
+## R6.5 ranking and terminal display (2026-10-01)
+
+R6.5 is complete within the bounded local source/fixed matrix in the
+[R6 ledger](2026-09-30-marivo-full-algebra-dsl-r6-migration-ledger.md#r65-ranking-and-terminal-display-completed-2026-10-01).
+The baseline is `panda` at `ea406d51ef26a1a8986d2c95d0c35c174007fc39`, containing
+R6.4; preceding work is preserved. Public RankingResult variants, fixed numeric
+values/ranks views, four ties, partitioning, synchronized where/global limit,
+strict two-step Top-K and complete-key terminal tables use the unified graph and
+Store 7 publication/recovery path. No alternate executor or failure route exists.
+
+Ranking order and original scope survive selection and recovery. Values retains
+its quantity and actual sufficient parts; ranks is a new original-domain quantity.
+Table saves ordered concrete column types, full Cells and exact input bindings,
+with no continuation contract or analysis feedback. Compact pandas export uses
+keys once and author value order, preserves integer/Decimal/Duration precision,
+and deliberately loses non-Defined tags/reasons by mapping them to missing.
+The Artifact and bounded show retain those states.
+
+Validation: **45** focused R6.5 Runtime cases; **184** affected composition/
+reference/cohort/publication Runtime regressions at the earlier display matrix;
+**63** combined display/predicate/bilingual-example Runtime cases, with **27**
+non-Runtime cases deselected. Final `make check-agent`: **5573 passed / 5 existing
+skipped**, **417** typed files, lint/import checks and API docs passed. Site
+build and bilingual install verification passed (**321 pages**); diff whitespace
+check passed. Earlier failed iterations and repaired disclosure/doc assertions
+are recorded separately in the ledger.
+
+Qualification covers DuckDB native tables, local Parquet and fixed Artifacts;
+I/F/D and Duration us, Entity/Group/Singleton and UTC monthly Entity×Time,
+Numeric/Category/Boolean/UTC Timestamp terminal columns. All four Cell consumers
+are checked on controlled fixed exchange; source examples exercise Defined,
+Null and Undefined without inventing an Unknown producer. Fresh-process tests
+remove sources and disable Semantic/DuckDB before actual ranking continuations
+and table restoration. Corrupt receipts/parts/versions/order/bindings and
+publication failures reject without changing prior Artifacts.
+
+Other Duration units, Decimal/time combinations, temporal Date columns, remote
+backends, R6.6 attribution, R6.7 same-wheel closure and real-Agent acceptance are
+unverified/deferred. No release-check, MinIO, AGENTS.md/packaged-skill edit,
+commit, push or publication occurred.
+
+## R6.6 attribution SQL route closure (2026-10-01)
+
+The historical AN11 attribution_summary_sql module had no remaining import/call
+site and is deleted. AN12 attribution_source_summary currently raises the explicit
+legacy source-admission error; no statement call or SQL wrapper remains in that
+hook. The typed public Difference.attribute replacement uses Ibis observations,
+scope/key checks, SourceSession-issued compilation and controlled local allocation
+with common Store 7 publication. Its native cursor SQL is compared byte-for-byte
+with every issued CompiledRead and direct Ibis compilation, alongside independent
+raw-fact attribution oracles. Closure is supported by execution evidence, in
+addition to the reverse import/SQL scan. The rejection-only private hook and
+remaining family helper/codec consumers are retained for precise R6.7/R7/R8
+cleanup; they are not claimed deleted. Remote qualification and same-wheel
+acceptance remain R9/R6.7. See the current R6 migration ledger for final gates.
+
+## R6.6 completed bounded qualification (2026-10-01)
+
+On `panda` at `ea406d51ef26a1a8986d2c95d0c35c174007fc39`, preserving the
+uncommitted R6.5 work, public absolute Difference.attribute now executes additive
+sum/count/linear and component_mix mean/weighted_mean/original ratio through the
+same typed graph, registry, Runtime and Store 7. It supports explicit logical
+axis expansion, retained fixed partitions, joint/hierarchy, common Top-K/typed
+Other, three numeric views and selection with original reconciliation scope.
+Original state, coverage, endpoints, target, each resolution, bounds and selected
+keys are independently verified on publication and fixed recovery.
+
+Qualification covers native DuckDB/local Parquet and fixed I/F/D sum/linear,
+int64 count, I/F/D component_mix, and additive Duration us/native and ns/Parquet.
+UTC monthly PeriodChange and whole-cell day-to-month retained partitions pass;
+other grids/timezones and Duration s/ms Runtime remain unverified. Large exact
+carriers, high-precision Decimal side differences, unstable denominator intervals,
+contradictory zero basis and 3000 small-Decimal partitions enforce the frozen
+numeric policy. Float view ratio carries R5 bounds and satisfies a raw-value
+Fraction oracle. Typed Other breaks ranking ties after ordinary coordinates.
+Source changes produce a new realization; fixed reuse preserves original state.
+
+Native/Parquet producer plus fresh continuation/recovery processes remove the
+source and disable Semantic/DuckDB/SourceSession, then actually attribute,
+filter, read views and recover terminal tables. Missing/corrupt parts and
+versions reject. Writer faults at part/files/receipt boundaries on source and
+fixed clean only the failed Run, preserve prior Artifacts, empty the resource
+journal and allow a clean retry. These are local source/fixed tests, not installed
+wheel or remote-backend acceptance.
+
+Final validation: **54 + 2 + 3 = 59** explicit R6.6 Runtime cases across the full
+54-case matrix and later focused Other/ranking and publication runs; **10** pure
+numerical cases; **303** affected Runtime regressions at the preceding matrix;
+**60** final display/bilingual-example Runtime regressions. Final
+`make check-agent`: **5583 passed / 5 existing skipped**, **419** typed files,
+lint/import/API documentation passed. `npm --prefix site run build` passed
+(**321 pages**, standard/Chinese install outputs); final focused lint and
+`git diff --check` passed. Commands, repaired failures, actual types/routes and
+unverified cells are recorded in the R6 migration ledger.
+
+AN11/AN12 closure is described above. Remaining legacy family/helper/codec
+deletion and same-wheel installed journeys remain R6.7; remote and real-Agent
+qualification remain R9/R10. True-null original axes retain the existing R5
+rejection; nullable allocation slots belong to Other/inactive hierarchy only.
+No commit, push, release-check, MinIO, AGENTS.md or packaged-skill edit occurred.

@@ -970,3 +970,71 @@ values. Malformed Defined values reject even at zero weight. Public source/fixed
 qualification and independent numeric/corruption tests are owned by
 `tests/test_analysis_references_r64.py`. R6.5 ranking/Top-K and R6.7 wheel
 qualification remain separate.
+
+### R6.5 registered display execution
+
+`display.rank@v1` and `display.table@v1` use `display@v1` in the common registry.
+Ranking sorts exact represented int64/float64/Decimal values or Duration ticks;
+float64 ties have no epsilon. Canonical partition tuples precede the Defined
+rank blocks; each tied block and the non-Defined tail use complete typed instance
+keys. Null classification is a distinct canonical partition, ordered first.
+Ordinal, dense, min and max follow the frozen definitions above.
+
+Ranking stores current values/ranks and independent full ranking_domain,
+partitions and ordering parts. Selection applies one complete-key mapping to both
+current views and any actual sufficient parts; the independent original scope
+stays complete. Recovery reproduces rank and order from that domain, verifies
+partitions and every current Cell, and rejects missing/duplicate keys or a
+changed selection/order. A retained share denominator and quantity identity stay
+fixed. No synthetic original-state or complete-partition capability is added.
+
+Table stores ordered column vectors, concrete Arrow types, per-column Cell
+reason policies and immutable ordered input/view bindings. It requires equal
+complete key images, including empty images, and compatible time meaning.
+A source Ibis preparation checks those facts before the registered local finish;
+fixed preparation consumes checked exchange data. It never joins outer keys or
+pairs rows by position. Exact Arrow-backed export preserves values but collapses
+all non-Defined states to pandas missing. `show()` retains tags and reasons.
+The independent acceptance owner is `tests/test_analysis_display_r65.py`; tested
+qualification is recorded in the R6 ledger, rather than inferred from registration.
+
+Ranking numeric views may be ranked again. Each new ranking rebuilds its display
+parts from the current numeric values and requested partitions, while preserving
+non-display sufficient parts. Previous ranking domains and ordering parts do not
+become the new ranking's retained state.
+
+### R6.6 allocation implementation qualification
+
+Difference.attribute selects its method from retained original sufficient state.
+The public result variants are LogicalAttributionResult and
+MaterializedAttributionResult with contribution/current/baseline NumericRelation
+views. Source preparation and scope checks use Ibis; allocation uses exact
+Fraction intermediates and the existing checked physical finish. Fixed execution
+uses the same method after common part verification. Original reductions retain
+an internal allocation_state partition without reinstating removed public axes.
+
+The qualified direct contribution axes remain non-null strings. True-null original
+basis coordinates remain rejected by the preceding coordinate contract. Nullable
+output axis slots are owned by allocation: resolution marks inactive hierarchy
+positions and Other mask bits mark mapped remainder. Complete keys distinguish
+those from every ordinary string, including "Other". Attribution does not relax
+Entity identities or unrelated part key validation.
+
+Additive int64/Decimal/Duration reconcile exactly; floating/rounded component
+allocation uses the frozen exact-carrier threshold. Original float sufficient
+state includes the existing magnitude/denominator stability facts; it must pass
+original-state validation before allocation. Published Decimal sides are rounded
+once and contributions are exact differences at that scale. High precision and
+many small partitions retain the same tolerance, with rejection on excess
+rounding rather than balancing. Existing direct-only and temporal limitations
+remain enforced. Actual tested cells and unverified shapes are recorded in the
+R6 migration ledger, separately from this connected method contract.
+
+Allocation retains a finite nonnegative R5 error bound for each published
+current/baseline side and contribution. Bounds use the original numerator
+magnitudes, denominator interval and common mapped partitions; exact families
+retain zero float error. Floating division and subtraction include their finish
+rounding. Numeric views consume their own retained bound in both source and
+fixed arithmetic, including after selection/recovery. Exchange independently
+reproduces these bounds with the allocation, so a damaged bound cannot authorize
+later division or a current-row statistic.

@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from typing import Literal, TypeAlias
 
 from marivo.analysis.core.model import (
+    AttributionPart,
     Binding,
     Cell,
     CheckId,
@@ -18,6 +19,7 @@ from marivo.analysis.core.model import (
     CoveragePart,
     Defined,
     DerivedQuantity,
+    DisplayPart,
     DomainSignature,
     EndpointPart,
     Evidence,
@@ -79,6 +81,7 @@ from marivo.semantic.metric_graph import (
 from marivo.semantic.runtime_metric import RuntimeMetricExpr, SliceValue
 
 RuleId: TypeAlias = Literal[
+    "attribution@v1",
     "bind_project@v1",
     "map_correspond@v1",
     "cell_derive@v1",
@@ -89,6 +92,7 @@ RuleId: TypeAlias = Literal[
     "domain.cohort@v1",
     "association_score@v1",
     "reference@v1",
+    "display@v1",
 ]
 
 
@@ -328,7 +332,7 @@ class OriginalReduce:
 
 
 TransportMode: TypeAlias = Literal[
-    "where", "projection", "compare", "view", "materialize", "cohort"
+    "where", "projection", "compare", "view", "materialize", "cohort", "limit"
 ]
 
 
@@ -347,6 +351,9 @@ class PartsTransport:
     cohort_count: int = 1
     cohort_empty: Literal["true", "false", "undefined"] = "false"
     opportunity_domain: DomainSignature | None = None
+    display_view: Literal["values", "ranks"] | None = None
+    limit_count: int | None = None
+    attribution_view: Literal["contribution", "current", "baseline"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,8 +377,35 @@ class ReferenceDerive:
     strata_dependencies: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class DisplayRank:
+    value_type: str
+    order: Literal["ascending", "descending"]
+    ties: Literal["ordinal", "dense", "min", "max"]
+    partition_types: tuple[str, ...] = ()
+    inclusion_inputs: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class DisplayTable:
+    labels: tuple[str, ...]
+    types: tuple[str, ...]
+    bindings: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AttributionDerive:
+    output_domain: DomainSignature
+    axes: tuple[Ref[DimensionKind], ...]
+    method: Literal["additive_difference", "component_mix"]
+    value_type: str
+    mode: Literal["joint", "hierarchy"] = "joint"
+    top_k: int | None = None
+
+
 RuleParameters: TypeAlias = (
-    BindProject
+    AttributionDerive
+    | BindProject
     | ObserveMetric
     | ObserveCount
     | ObserveWeightedMean
@@ -387,6 +421,8 @@ RuleParameters: TypeAlias = (
     | PartsTransport
     | AssociationScore
     | ReferenceDerive
+    | DisplayRank
+    | DisplayTable
 )
 
 
@@ -1422,12 +1458,24 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
             "current",
             left.quantity.definition_id,
             "v2" if params.method == "difference" else "v1",
+            next((p for p in left.parts if isinstance(p, OriginalStatePart)), None)
+            if params.method == "difference" and params.pairing == "exact"
+            else None,
+            next((p for p in left.parts if isinstance(p, CoordinateStatePart)), None)
+            if params.method == "difference" and params.pairing == "exact"
+            else None,
         ),
         EndpointPart(
             right.domain.binding,
             "baseline",
             right.quantity.definition_id,
             "v2" if params.method == "difference" else "v1",
+            next((p for p in right.parts if isinstance(p, OriginalStatePart)), None)
+            if params.method == "difference" and params.pairing == "exact"
+            else None,
+            next((p for p in right.parts if isinstance(p, CoordinateStatePart)), None)
+            if params.method == "difference" and params.pairing == "exact"
+            else None,
         ),
         CorrespondencePart(
             binding,
@@ -2194,7 +2242,19 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
         inputs,
         params.output_domain,
         rolled,
-        (*subjects, new_state, new_coverage),
+        (
+            *subjects,
+            new_state,
+            new_coverage,
+            *(
+                replace(p, attribution_only=True, binding=params.output_domain.binding)
+                for p in source.parts
+                if isinstance(p, CoordinateStatePart)
+                and params.method
+                in ("sum", "sum_zero", "count", "mean", "weighted_mean", "ratio", "linear")
+                and state.fold_kind is None
+            ),
+        ),
         pre=(partition, complete),
         required=(
             "original_state",
@@ -2297,7 +2357,7 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
     source = inputs[0]
     binding = _binding(inputs, "core.parts_transport")
     _output_domain(binding, params.output_domain, "core.parts_transport")
-    if params.mode not in ("where", "projection", "compare", "view", "materialize"):
+    if params.mode not in ("where", "projection", "compare", "view", "materialize", "limit"):
         reject(
             "a closed transport mode",
             str(params.mode),
@@ -2339,6 +2399,44 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
             "core.parts_transport.domain",
         )
     parts = tuple(require_part(source, role) for role in params.retained_roles)
+    if any(isinstance(p, AttributionPart) for p in parts):
+        parts = tuple(
+            replace(
+                p,
+                complete=False if params.mode == "where" else p.complete,
+                view=params.attribution_view or p.view,
+            )
+            if isinstance(p, AttributionPart)
+            else p
+            for p in parts
+        )
+    if params.limit_count is not None and (
+        params.mode != "limit"
+        or type(params.limit_count) is not int
+        or not 1 <= params.limit_count <= 100000
+    ):
+        reject(
+            "integer global limit 1..100000",
+            repr(params.limit_count),
+            "Use a valid ranking limit.",
+            "analysis.display",
+        )
+    quantity = source.quantity if params.keep_quantity else None
+    if params.attribution_view is not None and quantity is not None:
+        quantity = replace(
+            quantity, definition_id=source.domain.definition_id + ":" + params.attribution_view
+        )
+    if params.display_view is not None:
+        require_part(source, params.display_view)
+        if params.display_view == "ranks" and params.mode == "view":
+            quantity = DerivedQuantity(
+                source.domain.definition_id + ":ranks",
+                "display.ranks@v1",
+                (source.quantity.definition_id,) if source.quantity else (),
+                "count",
+                source.quantity.time_scope if source.quantity else "untimed",
+                "input_owned",
+            )
     if not params.keep_quantity and any(
         role
         in (
@@ -2362,7 +2460,7 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
         "parts_transport@v1",
         inputs,
         params.output_domain,
-        source.quantity if params.keep_quantity else None,
+        quantity,
         parts,
         pre=(),
         required=params.retained_roles,
@@ -2885,4 +2983,252 @@ def _reference(inputs: tuple[Signature, ...], params: ReferenceDerive) -> RuleDe
         post=(),
         obligations=(),
         eval_id="reference." + params.kind + "@v1",
+    )
+
+
+def _display(inputs: tuple[Signature, ...], params: DisplayRank | DisplayTable) -> RuleDerivation:
+    if not inputs:
+        reject(
+            "at least one complete Relation",
+            "empty columns",
+            "Supply a typed Relation.",
+            "analysis.display",
+        )
+    first = inputs[0]
+    _binding(inputs, "analysis.display")
+    if any(
+        item.domain.instance_key != first.domain.instance_key
+        or item.domain.time_grid != first.domain.time_grid
+        for item in inputs[1:]
+    ):
+        reject(
+            "complete matching typed keys and time meaning",
+            repr(inputs),
+            "Use exact corresponding Relations.",
+            "analysis.display",
+        )
+    binding = first.domain.binding
+    identity = first.domain.definition_id
+    if isinstance(params, DisplayRank):
+        if (
+            first.quantity is None
+            or params.order not in ("ascending", "descending")
+            or params.ties not in ("ordinal", "dense", "min", "max")
+            or len(inputs) != 1 + len(params.partition_types)
+        ):
+            reject(
+                "numeric rank with explicit order and ties",
+                repr(params),
+                "Rank a numeric Relation with a closed tie policy.",
+                "analysis.display",
+            )
+        if any(item.quantity is not None for item in inputs[1:]):
+            reject(
+                "Category partition Relations",
+                "numeric partitions",
+                "Bind exact CategoryRelations.",
+                "analysis.display",
+            )
+        cells = ("value", "cell_tag", "cell_reason")
+        value_type = params.value_type
+        partitions = tuple(f"partition_{i}" for i in range(len(params.partition_types))) or (
+            "partition",
+        )
+        partition_types = params.partition_types or ("int64",)
+        declarations: tuple[
+            tuple[
+                Literal["values", "ranks", "ranking_domain", "partitions", "ordering"],
+                tuple[str, ...],
+                tuple[str, ...],
+                bool,
+            ],
+            ...,
+        ] = (
+            ("values", cells, (value_type, "string", "string"), False),
+            ("ranks", cells, ("int64", "string", "string"), False),
+            (
+                "ranking_domain",
+                (*cells, "rank_value", "rank_tag", "rank_reason", "position", *partitions),
+                (
+                    value_type,
+                    "string",
+                    "string",
+                    "int64",
+                    "string",
+                    "string",
+                    "int64",
+                    *partition_types,
+                ),
+                True,
+            ),
+            ("partitions", partitions, partition_types, True),
+            ("ordering", ("position",), ("int64",), True),
+        )
+        parts = (
+            *tuple(p for p in first.parts if not isinstance(p, DisplayPart)),
+            *(
+                DisplayPart(
+                    binding, role, columns, types, identity, independent, params.order, params.ties
+                )
+                for role, columns, types, independent in declarations
+            ),
+        )
+        quantity = first.quantity
+        name = "display.rank"
+    else:
+        if (
+            len(params.labels) != len(inputs)
+            or len(params.types) != len(inputs)
+            or len(params.bindings) != len(inputs)
+            or any(type(label) is not str or not label for label in params.labels)
+            or len(set(params.labels)) != len(params.labels)
+        ):
+            reject(
+                "ordered nonempty display labels and exact column bindings",
+                repr(params),
+                "Supply one labeled Relation per column.",
+                "analysis.display",
+            )
+        columns = tuple(
+            f"column_{i}__{field}"
+            for i in range(len(inputs))
+            for field in ("value", "cell_tag", "cell_reason")
+        )
+        types = tuple(
+            t
+            for dtype in params.types
+            for t in ("timestamp('UTC', 6)" if dtype == "timestamp" else dtype, "string", "string")
+        )
+        parts = (
+            DisplayPart(binding, "columns", columns, types, identity),
+            DisplayPart(
+                binding,
+                "column_bindings",
+                ("identity",),
+                ("string",),
+                repr((params.labels, params.types, params.bindings)),
+            ),
+        )
+        quantity = None
+        name = "display.table"
+    return _result(
+        "display@v1",
+        inputs,
+        first.domain,
+        quantity,
+        parts,
+        pre=(),
+        required=(),
+        created=tuple(part_role(p) for p in parts if isinstance(p, DisplayPart)),
+        post=(_fact("output_key", binding, identity),),
+        obligations=(),
+        eval_id=name + "@v1",
+    )
+
+
+def _attribution(inputs: tuple[Signature, ...], params: AttributionDerive) -> RuleDerivation:
+    binding = _binding(inputs, "analysis.attribution")
+    if len(inputs) != 2 or any(
+        s.quantity is None or s.quantity.method_version != "cell.difference@v1" for s in inputs
+    ):
+        reject(
+            "two absolute Differences with original components",
+            repr(inputs),
+            "Retain the original observation endpoints.",
+            "analysis.attribution",
+        )
+    source, expanded = inputs
+    if source.domain != expanded.domain:
+        reject(
+            "one complete comparison scope",
+            repr(expanded.domain),
+            "Expand axes on the original observation scope.",
+            "analysis.attribution",
+        )
+    endpoint_parts = tuple(p for p in expanded.parts if isinstance(p, EndpointPart))
+    if len(endpoint_parts) != 2 or any(
+        p.original_state is None
+        or p.coordinate_state is None
+        or tuple(c.field for c in p.coordinate_state.coordinates)
+        != tuple(a.path for a in params.axes)
+        for p in endpoint_parts
+    ):
+        reject(
+            "complete retained states for every authored axis",
+            repr(params.axes),
+            "Observe both endpoints with these contribution coordinates before materializing.",
+            "analysis.attribution",
+        )
+    assert source.quantity is not None
+    originals = tuple(p.original_state for p in endpoint_parts)
+    if any(
+        s is None or s.fold_kind is not None or s.temporal_policy in ("repeated", "overlapping")
+        for s in originals
+    ):
+        reject(
+            "complete disjoint original states",
+            repr(originals),
+            "Preserve the original contribution partitions.",
+            "analysis.attribution",
+        )
+    names = {s.method_version for s in originals if s is not None}
+    expected_method = (
+        "additive_difference"
+        if names <= {"sum@v1", "sum_zero@v1", "count@v1", "linear@v1"}
+        else "component_mix"
+        if names <= {"mean@v1", "weighted_mean@v1", "ratio@v1"}
+        else None
+    )
+    if len(names) != 1 or params.method != expected_method:
+        reject(
+            "the original state's allocation method",
+            params.method,
+            "Use the original additive or N/W method.",
+            "analysis.attribution",
+        )
+    parts = tuple(
+        AttributionPart(
+            binding,
+            role,
+            source.domain
+            if role in ("current_endpoint", "baseline_endpoint", "basis")
+            else params.output_domain,
+            params.axes,
+            params.method,
+            params.mode,
+            params.top_k,
+            endpoint_parts[0]
+            if role == "current_endpoint"
+            else endpoint_parts[1]
+            if role == "baseline_endpoint"
+            else None,
+        )
+        for role in (
+            "current_endpoint",
+            "baseline_endpoint",
+            "basis",
+            "allocation",
+            "reconciliation",
+            "selection_scope",
+        )
+    )
+    return _result(
+        "attribution@v1",
+        inputs,
+        params.output_domain,
+        DerivedQuantity(
+            params.output_domain.definition_id,
+            "attribution." + params.method + "@v1",
+            (source.quantity.definition_id,),
+            source.quantity.unit,
+            source.quantity.time_scope,
+            "strict",
+        ),
+        parts,
+        pre=(),
+        required=(),
+        created=tuple(part_role(p) for p in parts),
+        post=(_fact("output_key", binding, params.output_domain.definition_id),),
+        obligations=(),
+        eval_id="attribution." + params.method + "@v1",
     )

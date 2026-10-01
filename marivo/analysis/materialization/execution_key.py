@@ -40,6 +40,7 @@ _GRAPH_PROTOCOL = "marivo.analysis.execution_key/v2"
 _CanonicalValue: TypeAlias = None | bool | int | float | str | tuple["_CanonicalValue", ...]
 
 _WIRE_TAGS: dict[type[object], str] = {
+    core_model.AttributionPart: "attribution_part",
     BoundTimeGrid: "time_grid",
     CumulativeBinding: "cumulative_binding",
     EndpointWindow: "endpoint_window",
@@ -53,6 +54,7 @@ _WIRE_TAGS: dict[type[object], str] = {
     core_model.DerivedQuantity: "derived_quantity",
     core_model.RowStatisticQuantity: "row_statistic_quantity",
     core_model.RolledQuantity: "rolled_quantity",
+    core_model.DisplayPart: "display_part",
     core_model.ReferenceStatePart: "reference_state_part",
     core_model.CohortDecisionPart: "cohort_decision_part",
     core_model.SubjectPart: "subject_part",

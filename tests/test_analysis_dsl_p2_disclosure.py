@@ -57,7 +57,10 @@ def test_first_round_help_has_receiver_specific_constraints() -> None:
     entry = render(REGISTRY, "entry")
     assert "Entity-member questions" in entry
     assert "start with session.members(Entity Ref)" in entry
-    assert "R6.2 comparisons use session.members(...)" in entry
+    assert (
+        "R6.2–R6.6 composition, predicates, references, display and attribution use session.members(...)"
+        in entry
+    )
     assert entry.index("analysis.session.members") < entry.index("analysis.observe")
     assert "receiver's contract() actions" in render(REGISTRY, "methods")
     time_scope = render(REGISTRY, "time_scope")
@@ -70,6 +73,20 @@ def test_first_round_help_has_receiver_specific_constraints() -> None:
     assert "dsl.NumericComparison.compare" in render(REGISTRY, "methods.compare")
     assert "dsl.MaterializedSelectedDifferenceRelation.members" in render(REGISTRY, "methods.rows")
     assert "dsl.MaterializedCoefficientRelation.where" in render(REGISTRY, "methods.association")
+
+    assert "dsl.NumericComparison.rank" in render(REGISTRY, "methods.rows")
+    assert "dsl.table" in render(REGISTRY, "methods.rows")
+    ranking_help = render(REGISTRY, "LogicalRankingResult")
+    assert "values" in ranking_help and "ranks" in ranking_help
+    for target in ("LogicalAttributionResult", "MaterializedAttributionResult"):
+        text = render(REGISTRY, target)
+        assert "contribution" in text and "current" in text and "baseline" in text
+    assert "dsl.LogicalDifferenceRelation.attribute" in render(REGISTRY, "methods.compare")
+    assert "axes" in render(REGISTRY, "dsl.MaterializedDifferenceRelation.attribute")
+    terminal_help = render(REGISTRY, "MaterializedTable")
+    assert "contract" not in next(
+        line for line in terminal_help.splitlines() if line.startswith("Methods:")
+    )
 
     observed = render(REGISTRY, "dsl.LogicalAnalysisDomain.observe")
     assert "governed Metric" in observed

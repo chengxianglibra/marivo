@@ -552,4 +552,79 @@ mean、weighted_mean、ratio 在冻结组件能证明统计单位时准入。总
 
 fixed 续算须同时使用 fixed 值、分类与权重。恢复后，即使来源断开，`where` 也使用
 原保留参照执行。通过 `marivo.help("analysis.methods.metric.reference")` 发现聚焦入口。
-排名与 Top-K 参照不变验收、安装 wheel 收口属于各自后续阶段。
+排名与 Top-K 参照不变验收见下节；安装 wheel 收口仍归 R6.7。
+
+## 排名与终端表格
+
+排名需要显式平局政策。两个视图始终同键，筛选保留原名次和参照。
+`limit` 取全局前缀；每分区 Top-K 则对筛选后的 ranks 分两步操作：
+
+```python
+ranking = counts.rank(order="descending", ties="min", partition_by=(region,))
+defined = ranking.where(ranking.ranks.value.is_defined())
+top = defined.where(defined.ranks.value.lte(3))
+prefix = ranking.limit(3)
+result = mv.table(amount=top.values, rank=top.ranks).execute()
+result.show()
+frame = result.to_pandas()
+restored = session.artifact(result.artifact_ref)
+```
+
+`ordinal` 用完整实例键打破平局；`dense`、`min`、`max` 各自保留对应名次规则，
+因此 Top-K 可能超过 K 行。非 Defined Cell 保留标签和原因，在分区内排在 Defined
+行之后。int64、有限 float64、Decimal、Duration 精确排序，float 不使用 epsilon
+平局。固定续算可在断源后使用已保存部件执行。
+
+表格要求完整同键、时间含义相容、同 Session 和同 source/fixed 模式。导出使用规范
+键序，只输出一次键列，再按作者顺序输出值列，并保持大整数、Decimal、Duration
+精度。非 Defined 值在 pandas 中变成缺失值，标签和原因信息随之丢失；Artifact 与
+`show()` 保留这些信息。Table 没有 `contract`、动态列属性或分析续算入口。
+使用 `marivo.help("analysis.dsl.NumericComparison.rank")` 或
+`marivo.help("analysis.dsl.table")` 查看聚焦说明。资格覆盖 DuckDB table、local
+Parquet 和固定 Artifact；安装 wheel 的收口归 R6.7。
+
+## 分配绝对变化
+
+在物化 Difference 前保留贡献轴。原始方法决定使用 sum/count/linear 的加法差分，
+或 mean/weighted_mean/原始 ratio 的 component_mix。分量侧项使用该侧的整体分母，
+因此表达分配后的贡献，而不是各组的比值。
+
+```python
+attribution_members = session.members(ms.ref.entity("sales.customer"))
+channel = ms.ref.dimension("sales.order.channel")
+current_counts = attribution_members.observe(
+    ms.ref.metric("sales.order_count"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    coordinates=(channel,),
+).rollup()
+baseline_counts = attribution_members.observe(
+    ms.ref.metric("sales.order_count"),
+    during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    coordinates=(channel,),
+).rollup()
+change = current_counts.compare(baseline_counts)
+allocation = change.attribute(axes=(channel,), top_k=3).execute()
+selected_allocation = allocation.where(allocation.contribution.value.is_defined()).execute()
+allocated_table = mv.table(
+    contribution=selected_allocation.contribution,
+    current=selected_allocation.current,
+    baseline=selected_allocation.baseline,
+).execute()
+allocation.contract().show()
+restored_allocation = session.artifact(allocation.state.artifact_ref)
+```
+
+Top-K 在两侧完整基底的并集上使用一个共同映射。余项掩码区分映射出的 Other 与真实
+字符串 "Other"。两个或更多轴可以使用 `mode="hierarchy"`，按作者顺序输出每个前缀，
+各层独立核对；`joint` 输出完整元组。筛选保留原始目标、完整基底、规则和核对范围，
+并无条件撤销当前子域的完整性，不重新分配或平衡残差。
+
+逻辑输入缺轴时，以显式图依赖展开冻结的观测定义；固定输入缺轴会在访问来源前拒绝。
+完整固定状态支持断源归因、视图筛选与表格导出，包括新进程恢复。加法 int64、Decimal
+和 Duration 使用精确载体；component_mix 接受 int64/float64/Decimal 分量，拒绝 Duration。
+整体分母为零或不稳定、非零分子与零基底矛盾、舍入残差超限都会拒绝。相对或嵌套变化、
+distinct/distribution/extrema 与未经证明的重叠状态没有分配方法。通过
+`marivo.help("analysis.dsl.LogicalDifferenceRelation.attribute")` 阅读聚焦契约。
+此资格不授予安装 wheel 或远端验收。

@@ -32,6 +32,18 @@ observed.compare(observed).rollup()
 observed.correlate(observed, method="pearson")
 mv.route(ms.ref.metric("sales.revenue"), through=(ms.ref.relationship("sales.buyer"),))
 mv.sum("extra")
+category.rank(order="ascending", ties="dense")
+observed.rank(order="up", ties="average")
+observed.rank(order="ascending", ties="dense", partition_by=(observed,))
+ranking = observed.rank(order="ascending", ties="dense")
+ranking.limit("1")
+ranking.where(True)
+table = mv.table(value=observed)
+table.contract()
+table.value
+table.where(observed.value.gt(0))
+mv.table(value=ranking)
+table.execute().execute()
 """
     )
     root = Path(__file__).resolve().parents[1]
@@ -64,6 +76,15 @@ mv.sum("extra")
     assert 'Argument "method" to "correlate"' in output
     assert 'Argument 1 to "route"' in output
     assert 'Too many arguments for "sum"' in output
+    assert 'Argument "order" to "rank"' in output
+    assert 'Argument "ties" to "rank"' in output
+    assert 'Argument "partition_by" to "rank"' in output
+    assert 'Argument 1 to "limit"' in output
+    assert 'LogicalTable" has no attribute "contract"' in output
+    assert 'LogicalTable" has no attribute "value"' in output
+    assert 'LogicalTable" has no attribute "where"' in output
+    assert 'MaterializedTable" has no attribute "execute"' in output
+    assert 'Argument "value" to "table"' in output
 
 
 def test_public_observation_allows_omitted_window_and_precise_narrowing(tmp_path: Path) -> None:

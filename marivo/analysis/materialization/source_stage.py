@@ -59,7 +59,7 @@ if TYPE_CHECKING:
 def attribution_source_summary(
     self: DatasetRuntime, backend: ExecutionAdapter, table: ir.Table, row: DatasetRowContract
 ) -> AttributionSourceSummary:
-    """Reduce complete Attribution proof inside its engine; return only global facts."""
+    """Reject the legacy attribution proof hook before any source read."""
     raise _error("source_admission")
 
 

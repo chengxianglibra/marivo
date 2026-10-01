@@ -20,7 +20,14 @@ from marivo.analysis.compiler.graph_lowering import (
 from marivo.analysis.compiler.graph_plan import CheckRequirement
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import Defined, DerivedQuantity, ReferenceStatePart
-from marivo.analysis.core.rules import CellDerive, PartsTransport, ReferenceDerive
+from marivo.analysis.core.rules import (
+    AttributionDerive,
+    CellDerive,
+    DisplayRank,
+    DisplayTable,
+    PartsTransport,
+    ReferenceDerive,
+)
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     CheckedStream,
@@ -212,6 +219,26 @@ def _result(
             "value",
             table["value"].cast(pa.duration(stage.node.value_type.unit), safe=True),
         )
+    from marivo.analysis.core.model import DisplayPart
+
+    for display_part in stage.node.signature.parts:
+        if isinstance(display_part, DisplayPart):
+            for component, dtype in zip(display_part.components, display_part.types, strict=True):
+                name = f"{display_part.role}__{component}"
+                if dtype.startswith("interval(") and name in table.column_names:
+                    import ibis.expr.datatypes as dt
+
+                    table = table.set_column(
+                        table.schema.get_field_index(name),
+                        name,
+                        table[name].cast(dt.dtype(dtype).to_pyarrow()),
+                    )
+                    if display_part.role == "columns":
+                        table = table.set_column(
+                            table.schema.get_field_index(component),
+                            component,
+                            table[component].cast(dt.dtype(dtype).to_pyarrow()),
+                        )
     key_names = tuple(item.column for item in stage.layout.keys)
     cell_names = (
         ()
@@ -226,7 +253,7 @@ def _result(
     primary = table.select(primary_names)
     part_contracts: list[PartContract] = []
     parts: list[ExchangePart] = []
-    from marivo.analysis.core.model import part_role
+    from marivo.analysis.core.model import AttributionPart, part_role
 
     for part in stage.layout.parts:
         role = part_role(part.part)
@@ -234,6 +261,22 @@ def _result(
         selected = next(
             (item.table for item in retained_parts if item.role == role), table.select(names)
         )
+        if isinstance(stage.node.value_type, DurationType) and isinstance(
+            part.part, AttributionPart
+        ):
+            for name in (
+                ("contribution", "current", "baseline")
+                if role == "allocation"
+                else ("target", "total")
+                if role == "reconciliation"
+                else ()
+            ):
+                column = role + "__" + name
+                selected = selected.set_column(
+                    selected.schema.get_field_index(column),
+                    column,
+                    selected[column].cast(pa.duration(stage.node.value_type.unit), safe=True),
+                )
         from marivo.analysis.materialization.graph_reference import part_keys
 
         part_contracts.append(
@@ -248,7 +291,7 @@ def _result(
     if state_kind != "none":
         statuses = (
             pa.array(["accepted"] * len(primary), type=pa.string())
-            if state_kind == "cohort"
+            if state_kind in ("cohort", "table")
             else primary.column("status")
             if state_kind == "spearman"
             else primary.column("cell_tag")
@@ -257,9 +300,11 @@ def _result(
             [*(primary.column(name) for name in key_names), statuses],
             names=[*key_names, "status"],
         )
-        if isinstance(
-            stage.node.signature.quantity, DerivedQuantity
-        ) and stage.node.signature.quantity.method_version.startswith("reference."):
+        if (
+            state_kind in ("share", "penetration", "standardized")
+            and isinstance(stage.node.signature.quantity, DerivedQuantity)
+            and stage.node.signature.quantity.method_version.startswith("reference.")
+        ):
             from marivo.analysis.materialization.graph_exchange import reference_parameters
             from marivo.analysis.materialization.graph_reference import error_bounds
 
@@ -282,13 +327,17 @@ def _result(
         None if state is None else state.schema,
         pending,
         (
-            isinstance(stage.node.parameters, CellDerive)
+            isinstance(stage.node.parameters, (CellDerive, DisplayRank, DisplayTable))
             or (
                 isinstance(stage.node.parameters, PartsTransport)
-                and stage.node.parameters.mode == "where"
+                and (
+                    stage.node.parameters.mode in ("where", "limit")
+                    or stage.node.parameters.display_view is not None
+                )
             )
         )
         and not key_names,
+        stage.column_reasons,
     )
     return from_arrow(
         primary,
@@ -321,6 +370,10 @@ def execute_source_graph(
                 "reference.share",
                 "reference.penetration",
                 "reference.standardize",
+                "attribution.additive_difference",
+                "attribution.component_mix",
+                "display.rank",
+                "display.table",
             )
             or (
                 item.stage.node.method.name == "association.spearman"
@@ -358,6 +411,66 @@ def execute_source_graph(
                     ),
                     None,
                 )
+                if predecessor is not None and isinstance(
+                    stage.stage.node.parameters, AttributionDerive
+                ):
+                    from marivo.analysis.materialization.graph_attribution import pack, result
+
+                    retained = tuple(
+                        ExchangePart(
+                            role,
+                            _read(
+                                source,
+                                lowered,
+                                expression,
+                                purpose="analysis.graph.attribution",
+                                replacements=replacements,
+                            ),
+                        )
+                        for role, expression in predecessor.part_expressions
+                        if role in ("current_endpoint", "baseline_endpoint", "basis")
+                    )
+                    finished = result(
+                        stage.stage.node.signature,
+                        stage.stage.node.value_type,
+                        retained,
+                        ",".join(predecessor.source_ids),
+                    )
+                    table = pack(finished, tables[predecessor.output].schema)
+                    staged = source.stage_calculated(issued_reads[predecessor.output], table)
+                    owned.append(staged)
+                    tables[stage.stage.output] = table
+                    replacements[predecessor.expression.op()] = staged.op()
+                    final_local = replace(predecessor, output=stage.stage.output)
+                    for check in lowered.checks:
+                        if (
+                            isinstance(check, SemanticCheck)
+                            and check.requirement.stage_output == stage.stage.output
+                        ):
+                            proof = _check(source, lowered, check, replacements)
+                            if proof is not None:
+                                completed.append(proof)
+                    continue
+                if predecessor is not None and isinstance(
+                    stage.stage.node.parameters, (DisplayRank, DisplayTable)
+                ):
+                    from marivo.analysis.materialization.graph_display import finish
+
+                    table = finish(stage.stage.node, tables[predecessor.output])
+                    final_local = replace(predecessor, output=stage.stage.output)
+                    staged = source.stage_calculated(issued_reads[predecessor.output], table)
+                    owned.append(staged)
+                    tables[stage.stage.output] = table
+                    replacements[predecessor.expression.op()] = staged.op()
+                    for check in lowered.checks:
+                        if (
+                            isinstance(check, SemanticCheck)
+                            and check.requirement.stage_output == stage.stage.output
+                        ):
+                            proof = _check(source, lowered, check, replacements)
+                            if proof is not None:
+                                completed.append(proof)
+                    continue
                 if predecessor is not None and isinstance(
                     stage.stage.node.parameters, ReferenceDerive
                 ):

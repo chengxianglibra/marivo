@@ -25,7 +25,7 @@ def _blocks(language: str, page: str) -> tuple[str, ...]:
 
 
 @pytest.mark.parametrize(
-    "page,count", [("analysis-workflow", 12), ("evidence", 2), ("semantic-layer", 47)]
+    "page,count", [("analysis-workflow", 14), ("evidence", 2), ("semantic-layer", 47)]
 )
 def test_bilingual_examples_have_identical_executable_contracts(page: str, count: int) -> None:
     assert len(_blocks("en", page)) == count
@@ -199,3 +199,65 @@ def test_coordinate_row_statistic_workflow_example(analysis_dsl_case_factory: Ds
     total = namespace["total_row_mean"]
     assert isinstance(total, mv.MaterializedStatisticRelation)
     assert total.to_pandas()["value"].tolist() == [300]
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("parquet", [False, True])
+def test_display_workflow_example_executes(
+    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
+) -> None:
+    from tests.shared_fixtures import export_dsl_parquet_models
+
+    case = analysis_dsl_case_factory("j2")
+    if parquet:
+        export_dsl_parquet_models(case, case.root)
+        ms.load(workspace_dir=case.root)
+    members = case.session.members(ms.ref.entity("sales.customer"))
+    namespace = {
+        "session": case.session,
+        "mv": mv,
+        "region": members.read(ms.ref.dimension("sales.customer.region")),
+        "counts": members.observe(
+            ms.ref.metric("sales.order_count"),
+            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+            via=ms.ref.relationship("sales.order_buyer"),
+        ),
+    }
+    code = next(
+        block for block in _blocks("en", "analysis-workflow") if block.startswith("ranking =")
+    )
+    exec(compile(code, "r65-display-example", "exec"), namespace)
+    result = namespace["result"]
+    assert isinstance(result, mv.MaterializedTable)
+    assert result.to_pandas().columns.tolist() == ["member", "amount", "rank"]
+    assert result.to_pandas().equals(namespace["restored"].to_pandas())
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("parquet", [False, True])
+def test_attribution_workflow_example_executes(
+    analysis_dsl_case_factory: DslCaseFactory,
+    parquet: bool,
+) -> None:
+    from tests.shared_fixtures import export_dsl_parquet_models
+
+    case = analysis_dsl_case_factory("j2")
+    if parquet:
+        export_dsl_parquet_models(case, case.root)
+        ms.load(workspace_dir=case.root)
+    namespace = {"session": case.session, "mv": mv, "ms": ms}
+    code = next(
+        block
+        for block in _blocks("en", "analysis-workflow")
+        if block.startswith("attribution_members =")
+    )
+    assert code in _blocks("zh-cn", "analysis-workflow")
+    exec(compile(code, "r66-attribution-example", "exec"), namespace)
+    allocation = namespace["allocation"]
+    restored = namespace["restored_allocation"]
+    table = namespace["allocated_table"]
+    assert isinstance(allocation, mv.MaterializedAttributionResult)
+    assert isinstance(restored, mv.MaterializedAttributionResult)
+    assert isinstance(table, mv.MaterializedTable)
+    assert allocation.contribution.to_pandas().equals(restored.contribution.to_pandas())
+    assert table.to_pandas()["contribution"].sum() == 0

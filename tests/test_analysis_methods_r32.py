@@ -154,6 +154,10 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "reference.share@v1": "reference@v1",
         "reference.penetration@v1": "reference@v1",
         "reference.standardize@v1": "reference@v1",
+        "display.rank@v1": "display@v1",
+        "display.table@v1": "display@v1",
+        "attribution.additive_difference@v1": "attribution@v1",
+        "attribution.component_mix@v1": "attribution@v1",
         "association.spearman@v1": "association_score@v1",
     }
     assert {
@@ -198,6 +202,10 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "reference.share",
         "reference.penetration",
         "reference.standardize",
+        "display.rank",
+        "display.table",
+        "attribution.additive_difference",
+        "attribution.component_mix",
         "map_correspond",
         "cell.difference",
         "row.count",

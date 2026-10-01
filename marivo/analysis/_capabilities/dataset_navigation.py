@@ -25,6 +25,11 @@ _GROUPS = (
     ("event_matching", "inputs.events", "Choose first or repeated starts per subject."),
     ("methods.metric", "methods", "Add axes, aggregate, roll up or select a Metric."),
     (
+        "methods.metric.reduce",
+        "methods.metric",
+        "Group and merge retained original Metric state.",
+    ),
+    (
         "methods.metric.summary",
         "methods.metric",
         "Summarize current finished rows without changing original Metric state.",
@@ -59,7 +64,7 @@ _HUBS = (
         "decision_hub",
         guidance=(
             "Entity-member questions (member totals, attributes, groups, comparisons, ratios, or associations): start with session.members(Entity Ref), then follow the relation's contract() and exact Help targets.",
-            "R5 members and observations and R6.2 comparisons use session.members(...). session.observe retains legacy Dataset construction; later R6 and R7–R9 consumers await their own Store 7 qualification.",
+            "R5 members/observations and R6.2–R6.6 composition, predicates, references, display and attribution use session.members(...). session.observe retains legacy Dataset construction; R7–R9 consumers await their own qualification.",
             "Known handoff: use its exact refs and scope; do not browse the whole catalog again.",
             "Existing work: resume the Session and follow runtime reads; do not replay successful sources.",
         ),

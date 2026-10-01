@@ -405,6 +405,8 @@ class EndpointPart:
     side: Literal["current", "baseline"]
     quantity_id: str
     version: str
+    original_state: OriginalStatePart | None = None
+    coordinate_state: CoordinateStatePart | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -445,6 +447,7 @@ class CoordinateStatePart:
     version: Literal["v1"]
 
     extra_coordinates: tuple[Coordinate, ...] = ()
+    attribution_only: bool = False
 
     @property
     def coordinates(self) -> tuple[Coordinate, ...]:
@@ -500,6 +503,47 @@ class ReferenceStatePart:
 
 
 @dataclass(frozen=True, slots=True)
+class DisplayPart:
+    """Closed display data with independently retained original ranking scope."""
+
+    binding: Binding
+    role: Literal[
+        "values", "ranks", "ranking_domain", "partitions", "ordering", "columns", "column_bindings"
+    ]
+    components: tuple[str, ...]
+    types: tuple[str, ...]
+    identity: str
+    independent: bool = False
+    order: Literal["ascending", "descending"] = "ascending"
+    ties: Literal["ordinal", "dense", "min", "max"] = "ordinal"
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class AttributionPart:
+    """Typed allocation evidence, independently keyed to its original scope."""
+
+    binding: Binding
+    role: Literal[
+        "current_endpoint",
+        "baseline_endpoint",
+        "basis",
+        "allocation",
+        "reconciliation",
+        "selection_scope",
+    ]
+    domain: DomainSignature
+    axes: tuple[Ref[DimensionKind], ...]
+    method: Literal["additive_difference", "component_mix"]
+    mode: Literal["joint", "hierarchy"]
+    top_k: int | None
+    endpoint: EndpointPart | None = None
+    complete: bool = True
+    view: Literal["contribution", "current", "baseline"] = "contribution"
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
 class StatisticalWeightPart:
     binding: Binding
     role_id: str
@@ -526,7 +570,8 @@ class CohortDecisionPart:
 
 
 Part: TypeAlias = (
-    SubjectPart
+    AttributionPart
+    | SubjectPart
     | CohortDecisionPart
     | EndpointPart
     | CorrespondencePart
@@ -536,10 +581,22 @@ Part: TypeAlias = (
     | CoveragePart
     | FixedReferencePart
     | ReferenceStatePart
+    | DisplayPart
     | StatisticalWeightPart
     | PairCountsPart
 )
 PartRole: TypeAlias = Literal[
+    "basis",
+    "allocation",
+    "reconciliation",
+    "selection_scope",
+    "values",
+    "ranks",
+    "ranking_domain",
+    "partitions",
+    "ordering",
+    "columns",
+    "column_bindings",
     "reference_proof",
     "strata",
     "stratum_values",
@@ -548,6 +605,7 @@ PartRole: TypeAlias = Literal[
     "current_endpoint",
     "baseline_endpoint",
     "original_state",
+    "allocation_state",
     "coordinate_state",
     "row_state",
     "coverage",
@@ -559,6 +617,10 @@ PartRole: TypeAlias = Literal[
 
 
 def part_role(part: Part) -> PartRole:
+    if isinstance(part, AttributionPart):
+        return part.role
+    if isinstance(part, DisplayPart):
+        return part.role
     if isinstance(part, ReferenceStatePart):
         return part.role
     if isinstance(part, CohortDecisionPart):
@@ -572,7 +634,7 @@ def part_role(part: Part) -> PartRole:
     if isinstance(part, OriginalStatePart):
         return "original_state"
     if isinstance(part, CoordinateStatePart):
-        return "coordinate_state"
+        return "allocation_state" if part.attribution_only else "coordinate_state"
     if isinstance(part, RowStatePart):
         return "row_state"
     if isinstance(part, CoveragePart):
@@ -585,6 +647,63 @@ def part_role(part: Part) -> PartRole:
 
 
 def validate_part(part: Part) -> None:
+    if isinstance(part, AttributionPart):
+        if (
+            not part.axes
+            or type(part.axes) is not tuple
+            or any(type(a) is not Ref or a.kind is not SemanticKind.DIMENSION for a in part.axes)
+            or len(set(part.axes)) != len(part.axes)
+            or part.method not in ("additive_difference", "component_mix")
+            or part.mode not in ("joint", "hierarchy")
+            or (part.mode == "hierarchy" and len(part.axes) < 2)
+            or (
+                part.top_k is not None
+                and (type(part.top_k) is not int or not 1 <= part.top_k <= 1000)
+            )
+            or part.version != "v1"
+            or type(part.complete) is not bool
+            or part.view not in ("contribution", "current", "baseline")
+            or (part.role in ("current_endpoint", "baseline_endpoint"))
+            != (part.endpoint is not None)
+            or (part.endpoint is not None and part.role != part.endpoint.side + "_endpoint")
+        ):
+            reject(
+                "closed attribution state at v1",
+                repr(part),
+                "Rebuild attribution from complete endpoint components.",
+                "core.attribution",
+            )
+        if part.endpoint is not None:
+            validate_part(part.endpoint)
+        return
+    if isinstance(part, DisplayPart):
+        if (
+            part.role
+            not in (
+                "values",
+                "ranks",
+                "ranking_domain",
+                "partitions",
+                "ordering",
+                "columns",
+                "column_bindings",
+            )
+            or not part.identity
+            or part.version != "v1"
+            or not part.components
+            or len(set(part.components)) != len(part.components)
+            or len(part.components) != len(part.types)
+            or type(part.independent) is not bool
+            or part.order not in ("ascending", "descending")
+            or part.ties not in ("ordinal", "dense", "min", "max")
+        ):
+            reject(
+                "a closed complete display part at v1",
+                repr(part),
+                "Re-execute the display definition.",
+                "core.display",
+            )
+        return
     if isinstance(part, ReferenceStatePart):
         if (
             part.role not in ("fixed_reference", "reference_proof", "strata", "stratum_values")
@@ -689,11 +808,16 @@ def validate_part(part: Part) -> None:
                 "core.part.endpoint",
             )
         _nonempty(part.quantity_id, "core.part.endpoint.quantity")
+        if part.original_state is not None:
+            validate_part(part.original_state)
+        if part.coordinate_state is not None:
+            validate_part(part.coordinate_state)
     elif isinstance(part, CoordinateStatePart):
         _nonempty(part.quantity_id, "core.part.coordinate.quantity")
         _unique(part.components, "core.part.coordinate.components")
         if (
-            len(set(part.coordinates)) != len(part.coordinates)
+            type(part.attribution_only) is not bool
+            or len(set(part.coordinates)) != len(part.coordinates)
             or any(c.role != "group" for c in part.extra_coordinates)
             or part.dimension.kind is not SemanticKind.DIMENSION
             or part.owner.kind is not SemanticKind.ENTITY

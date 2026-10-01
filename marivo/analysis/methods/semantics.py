@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 
 MethodName: TypeAlias = Literal[
+    "attribution.additive_difference",
+    "attribution.component_mix",
     "time.product",
     "group.attach",
     "group.complete",
@@ -59,6 +61,8 @@ MethodName: TypeAlias = Literal[
     "state_rollup.linear",
     "parts_transport",
     "domain.cohort",
+    "display.rank",
+    "display.table",
     "reference.share",
     "reference.penetration",
     "reference.standardize",
@@ -67,6 +71,10 @@ MethodName: TypeAlias = Literal[
 
 
 PersistentStateKind: TypeAlias = Literal[
+    "attribution_additive",
+    "attribution_component_mix",
+    "ranking",
+    "table",
     "none",
     "cohort",
     "share",
@@ -118,6 +126,16 @@ class MethodKey:
 
 def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     """Map closed parameter variants to exactly one concrete method identity."""
+    if type(params) is rules.AttributionDerive:
+        return MethodKey(
+            "attribution.additive_difference"
+            if params.method == "additive_difference"
+            else "attribution.component_mix"
+        )
+    if type(params) is rules.DisplayRank:
+        return MethodKey("display.rank")
+    if type(params) is rules.DisplayTable:
+        return MethodKey("display.table")
     if type(params) is rules.ReferenceDerive:
         if params.kind == "share":
             return MethodKey("reference.share")
@@ -236,6 +254,10 @@ class MethodSemantics:
     def persistent_state_kind(self) -> PersistentStateKind | None:
         """Return the connected durable state kind; absence grants no publication."""
         kinds: dict[MethodName, PersistentStateKind] = {
+            "attribution.additive_difference": "attribution_additive",
+            "attribution.component_mix": "attribution_component_mix",
+            "display.rank": "ranking",
+            "display.table": "table",
             "time.product": "none",
             "group.attach": "none",
             "group.complete": "none",
@@ -290,6 +312,39 @@ class MethodSemantics:
         from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
         name = self.key.name
+        if isinstance(params, rules.AttributionDerive):
+            if output.name != params.value_type:
+                reject(
+                    "the exact allocation result type",
+                    repr(output),
+                    "Preserve the original numeric carrier.",
+                )
+            return
+        if isinstance(params, (rules.DisplayRank, rules.DisplayTable)):
+            declared_types = (
+                (params.value_type, *params.partition_types)
+                if isinstance(params, rules.DisplayRank)
+                else params.types
+            )
+            if (
+                tuple(value.name for value in inputs) != declared_types
+                or output != inputs[0]
+                or (
+                    isinstance(params, rules.DisplayRank)
+                    and isinstance(inputs[0], ScalarType)
+                    and inputs[0].name not in ("int64", "float64")
+                )
+            ):
+                reject(
+                    "exact display input type",
+                    repr(output),
+                    "Preserve the ranked numeric or ordered terminal column types.",
+                )
+            return
+        if isinstance(params, rules.PartsTransport) and params.display_view == "ranks":
+            if output != ScalarType("int64"):
+                reject("int64 ranks", repr(output), "Use the typed ranks view.")
+            return
         if isinstance(params, rules.ReferenceDerive):
             from marivo.analysis.methods.references import reference_type
 
@@ -536,6 +591,10 @@ class MethodSemantics:
     @property
     def rule(self) -> rules.RuleId:
         name = self.key.name
+        if name.startswith("attribution."):
+            return "attribution@v1"
+        if name.startswith("display."):
+            return "display@v1"
         if name.startswith("reference."):
             return "reference@v1"
         if name in ("cell.difference", "cell.relative_change", "cell.ratio"):
@@ -940,6 +999,10 @@ class MethodSemantics:
             return rules._occurrence_combine(inputs, params)
         if type(params) is rules.OriginalReduce:
             return rules._original_reduce(inputs, params)
+        if isinstance(params, (rules.DisplayRank, rules.DisplayTable)):
+            return rules._display(inputs, params)
+        if type(params) is rules.AttributionDerive:
+            return rules._attribution(inputs, params)
         if type(params) is rules.ReferenceDerive:
             return rules._reference(inputs, params)
         if type(params) is rules.PartsTransport:
@@ -950,6 +1013,8 @@ class MethodSemantics:
 
 
 CONNECTED_METHODS = (
+    MethodSemantics(MethodKey("attribution.additive_difference"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("attribution.component_mix"), "analysis.core.rules"),
     MethodSemantics(MethodKey("metric.min"), "analysis.core.rules"),
     MethodSemantics(MethodKey("metric.max"), "analysis.core.rules"),
     MethodSemantics(MethodKey("state_rollup.min"), "analysis.core.rules"),
@@ -991,6 +1056,8 @@ CONNECTED_METHODS = (
     MethodSemantics(MethodKey("state_rollup"), "analysis.core.rules"),
     MethodSemantics(MethodKey("parts_transport"), "analysis.core.rules"),
     MethodSemantics(MethodKey("domain.cohort"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("display.rank"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("display.table"), "analysis.core.rules"),
     MethodSemantics(MethodKey("reference.share"), "analysis.core.rules"),
     MethodSemantics(MethodKey("reference.penetration"), "analysis.core.rules"),
     MethodSemantics(MethodKey("reference.standardize"), "analysis.core.rules"),

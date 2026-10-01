@@ -868,3 +868,56 @@ It does not load current Semantic, connect a source or depend on DuckDB.
 Publication uses the existing atomic writer and cleans only the failed Run's
 resources. Table/Parquet fresh-process recovery and publication faults are covered
 by `tests/test_analysis_references_r64.py`; installed-wheel closure belongs to R6.7.
+
+### R6.5 ranking and terminal table state v1
+
+Store generation remains 7. The closed `ranking` and `table` method states use
+contract version 1 and the existing descriptor, DAG snapshot, execution key,
+receipts and atomic publication protocol. Ranking records values, ranks,
+ranking_domain, partitions and ordering; the independent scope parts have the
+same complete keys as the original domain, and current views have precisely the
+current selection. Table records columns and column_bindings with authored
+label/type/input order. The row contract stores each column's Cell reason policy.
+Its primary contains the complete Cell vectors, including non-Defined reasons.
+
+A terminal table is a distinct persisted result with no scalar primary Cell and
+no continuation contract. Numeric node metadata is only a graph typing anchor;
+it grants no NumericRelation behavior. Restoring the descriptor reconstructs the
+terminal class and ordered exports. Ranking views use the existing
+parts_transport method and verified projection, without an extra realization.
+A table consuming both views of one explicit rank shares that rank and its source
+node once. Independently captured equal definitions retain separate identities.
+Source reexecution evaluates anew; fixed cache hits verify every receipt before
+reuse. Neither failure reroutes to a different method or datasource.
+
+### R6.6 allocation parts v1
+
+Store 7, the shared DAG snapshot, execution key and atomic writer now carry
+attribution_additive/attribution_component_mix state contract v1. The ordered
+required roles are current_endpoint, baseline_endpoint, basis, allocation,
+reconciliation and selection_scope. Endpoint and original-target parts use the
+complete comparison scope; allocation/reconciliation use original output keys;
+selection_scope uses exactly the selected primary keys. Selection never truncates
+the original allocation or reconciliation parts.
+Allocation carries contribution/current/baseline values and their finite R5 error
+bounds, keyed together. Each numeric view transports and consumes its own bound.
+
+Frozen declarations retain original sufficient-state and coordinate schemas,
+coverage, ordered axes, method/mode/Top-K, complete partition status and view.
+Exchange verifies original endpoint Cells and component partitions, recomputes
+the common mapping and side terms, independently reproduces the target and each
+resolution total, then verifies selected values and keys. Independently ordered
+parts are matched by complete keys. Missing/corrupt state, wrong schemas/versions,
+contradictory zero basis, zero/unstable denominator and excess reconciliation
+residual reject before publication or fixed reuse. No balancing row is introduced.
+
+Ibis owns source observation, grouping, scope correspondence and key checks.
+The registered local arithmetic owner consumes controlled exchange, then returns
+to the same SourceSession-issued staging and common publication protocol. Fixed
+execution consumes checked Arrow/Parquet parts without current Semantic or
+DuckDB. AN11's unused hand-built summary SQL is deleted; AN12's legacy source
+proof hook remains an explicit pre-execution rejection with no statement call.
+The public replacement has native driver submission evidence, independent raw
+fact oracles and three-process source-offline continuation/recovery tests.
+Legacy family dispatch/helper deletion and installed-wheel closure remain R6.7;
+remote backend qualification remains R9.
