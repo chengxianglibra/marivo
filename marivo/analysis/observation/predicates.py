@@ -566,36 +566,17 @@ def bind_predicates(
         if item.operand is None:
             _error("complete field predicate", "corrupt predicate")
         resolved = resolver(item.operand)
-        comparison_roles = {
-            "comparison_ordinal": "comparison_coordinate",
-            "current_time": "comparison_time",
-            "baseline_time": "comparison_time",
-            "coordinate_presence": "status",
-            "current_value": "comparison_value",
-            "baseline_value": "comparison_value",
-            "delta": "comparison_value",
-            "relative_delta": "effect_value",
-            "calculation_status": "status",
-            "relative_delta_status": "status",
-        }
-        comparison_field = (
-            resolved.field_id.value == f"generated.compare.{resolved.name}@v1"
-            and comparison_roles.get(resolved.name) == resolved.role_id
-        )
         from marivo.analysis.domains.event_comparison import filterable_field as funnel_delta_field
         from marivo.analysis.domains.event_reducers import event_filterable_field
         from marivo.analysis.domains.lifecycle_reducers import (
             filterable_field as lifecycle_filterable_field,
         )
-        from marivo.analysis.operators.attribution_contracts import attribution_filterable_field
         from marivo.analysis.operators.correlate import association_filterable_field
         from marivo.analysis.operators.discovery import candidate_filterable_field
         from marivo.analysis.operators.forecast import forecast_filterable_field
 
         if (
             resolved.role_id not in ("metric", "dimension", "time_dimension", "rank")
-            and not comparison_field
-            and not attribution_filterable_field(resolved)
             and not association_filterable_field(resolved)
             and not forecast_filterable_field(resolved)
             and not candidate_filterable_field(resolved)

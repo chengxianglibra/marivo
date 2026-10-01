@@ -41,9 +41,9 @@ from marivo.semantic.ir import (
 from marivo.semantic.validator import Registry
 
 if TYPE_CHECKING:
+    from marivo.analysis.domains.funnel_attribution import LogicalFunnelAttributionDataset
+    from marivo.analysis.domains.funnel_delta import LogicalFunnelDeltaDataset
     from marivo.analysis.operators.association import LogicalAssociationDataset
-    from marivo.analysis.operators.attribution import LogicalAttributionDataset
-    from marivo.analysis.operators.delta import LogicalDeltaDataset
     from marivo.refs import EntityKind, FieldKind
 
 _LOCATION = SourceLocation("lazy_fixture.py", 1)
@@ -86,10 +86,10 @@ class NoIoActionPort:
     def execute_association(self, dataset: LogicalAssociationDataset) -> Never:
         raise AssertionError("Association execution is not part of definition-only acceptance")
 
-    def execute_delta(self, dataset: LogicalDeltaDataset) -> Never:
+    def execute_delta(self, dataset: LogicalFunnelDeltaDataset) -> Never:
         raise AssertionError("Delta execution is not part of definition-only acceptance")
 
-    def execute_attribution(self, dataset: LogicalAttributionDataset) -> Never:
+    def execute_attribution(self, dataset: LogicalFunnelAttributionDataset) -> Never:
         raise AssertionError("Attribution execution is not part of definition-only acceptance")
 
     def show(self, dataset: MaterializedDataset, *, max_output_bytes: int | None) -> Never:

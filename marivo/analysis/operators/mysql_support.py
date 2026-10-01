@@ -3,7 +3,6 @@
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.operators.association_contracts import CorrelatePayload
-from marivo.analysis.operators.attribution_contracts import AttributePayload
 from marivo.analysis.operators.scalar_support import (
     entity_correlation_reason,
     supports_scalar_type,
@@ -47,12 +46,6 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
         dataset._root.payload, CorrelatePayload
     ):
         return entity_correlation_reason(dataset)
-    if (
-        isinstance(dataset._root, LogicalRootHandle)
-        and isinstance(dataset._root.payload, AttributePayload)
-        and dataset._root.payload.spec.expanded_compare is not None
-    ):
-        return "expanded Attribution exceeds the qualified MySQL resource limit"
     return scalar_reason(
         dataset,
         supported_type,

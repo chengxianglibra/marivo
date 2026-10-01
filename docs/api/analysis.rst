@@ -6,8 +6,9 @@ marivo.analysis
 .. automodule:: marivo.analysis
    :no-members:
 
-Construct analysis through ``session.observe``, ``session.population``,
-``session.events`` or ``session.lifecycle``. Logical Datasets describe work
+Construct typed algebra through ``session.members(entity_ref)`` and its owned
+read/observe operations. Event and Lifecycle remain separately owned migration
+contracts. Logical Datasets describe work
 without source I/O. ``execute()`` commits a Run and returns an immutable
 Materialized Dataset. Its owned fields and methods describe valid continuations.
 Use ``show()`` for bounded current state and ``contract()`` for mechanical input
@@ -203,18 +204,6 @@ constructors are documented inline to support case-insensitive filesystems.
    :members:
 
 .. autoclass:: MaterializedMetricDataset
-   :members:
-
-.. autoclass:: LogicalDeltaDataset
-   :members:
-
-.. autoclass:: MaterializedDeltaDataset
-   :members:
-
-.. autoclass:: LogicalAttributionDataset
-   :members:
-
-.. autoclass:: MaterializedAttributionDataset
    :members:
 
 .. autoclass:: LogicalAssociationDataset
@@ -460,3 +449,18 @@ and revokes current-subdomain completeness even when every row remains selected.
 
 .. autoclass:: MaterializedAttributionResult
    :members:
+
+R6 recovery and retired consumers
+---------------------------------
+
+Comparison, selection/cohort, fixed references, ranking, attribution and terminal
+tables use one typed graph, Runtime and Store 7. ``session.artifact(ref)`` verifies
+complete state before fixed continuation. Missing parts revoke the affected
+operations; recovery does not consult Semantic or lineage sources. Tables remain
+terminal. Original reductions with group keys publish
+``MaterializedGroupedNumericRelation``; Singleton reductions publish
+``MaterializedRolledNumericRelation``. Cold recovery preserves that contract.
+
+The old Metric Dataset ``compare`` and public Delta/Attribution Dataset types
+are removed. Their Help targets are unresolved, with no compatibility redirect.
+Private Event funnel results belong to R7 and confer no new source qualification.

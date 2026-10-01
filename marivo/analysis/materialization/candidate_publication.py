@@ -117,8 +117,6 @@ def validate_descriptor(descriptor: ArtifactDescriptor) -> None:
     if (
         any(part.contract_id != "population_sampling_state" for part in descriptor.retained_parts)
         or descriptor.comparison_inputs
-        or descriptor.delta_evidence is not None
-        or descriptor.attribution_evidence is not None
         or descriptor.association_evidence is not None
         or descriptor.forecast_evidence is not None
         or descriptor.dataset_materialization_contract.finding_extractor_id != "none"

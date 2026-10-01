@@ -43,9 +43,7 @@ from marivo.analysis.observation.contracts import (
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.observation.private_parts import source_private_part_authorities
 from marivo.analysis.operators.association_contracts import AssociationSemantics, CorrelatePayload
-from marivo.analysis.operators.attribution_contracts import AttributePayload, AttributionSemantics
 from marivo.analysis.operators.candidate_contracts import CandidatePayload, CandidateSemantics
-from marivo.analysis.operators.contracts import ComparePayload, DeltaSemantics
 from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
 from marivo.analysis.operators.forecast_contracts import ForecastPayload, ForecastSemantics
 from marivo.datasource.ir import TableSourceIR
@@ -54,12 +52,12 @@ BackendName: TypeAlias = Literal["duckdb", "postgres", "mysql", "sqlite", "trino
 PreparationKind: TypeAlias = Literal["correlation", "distribution"]
 
 
-def legacy_source_migration_stage(operator_id: str) -> Literal[6, 7, 8] | None:
+def legacy_source_migration_stage(operator_id: str) -> Literal[7, 8] | None:
     """Return the remaining domain owner, or None for a retired R5 route."""
     if operator_id.startswith(("session.events.", "event.", "session.lifecycle.", "lifecycle.")):
         return 7
-    if operator_id.startswith(("delta.attribute", "attribution.", "delta.", "metric.compare")):
-        return 6
+    if operator_id in ("delta.where", "delta.funnel_attribute", "funnel_delta.attribute"):
+        return 7
     if operator_id.startswith(
         (
             "candidate.",
@@ -606,11 +604,6 @@ _ROW_METHODS = frozenset(
         "metric.rank",
         "metric.limit",
         "delta.where",
-        "delta.rank",
-        "delta.limit",
-        "attribution.where",
-        "attribution.rank",
-        "attribution.limit",
     }
 )
 _FOLD_METHODS = frozenset({"metric.aggregate", "metric.rollup"})
@@ -733,23 +726,10 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
             ),
             "metric.correlate",
         )
-    if (
-        isinstance(root.payload, AttributePayload)
-        and root.payload.spec.method == "distribution_shapley@v1"
-    ):
-        return ImplementationRegistration(
-            root.operator_id,
-            roles,
-            (BackendRegistration("duckdb", source=False, preparation="distribution"),),
-            root.operator_id,
-        )
     entity_scoped_result = any(
         field.role_id == "entity_identity" for field in dataset.schema.columns
     ) and dataset.kind in ("delta", "attribution", "candidate")
-    source_private_state = bool(source_private_part_authorities(dataset.row_contract)) or (
-        isinstance(root.payload, AttributePayload)
-        and root.payload.spec.method == "distinct_membership@v1"
-    )
+    source_private_state = bool(source_private_part_authorities(dataset.row_contract))
     backends = (
         *_DUCKDB,
         *(
@@ -767,12 +747,7 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
         if not entity_scoped_result
         and not source_private_state
         and (
-            (
-                root.operator_id == "metric.compare"
-                and dataset.row_contract.shape_id.local_shape_id != "entity"
-            )
-            or root.operator_id == "delta.attribute"
-            or root.operator_id in _ROW_METHODS
+            root.operator_id in _ROW_METHODS
             or (root.operator_id in _FOLD_METHODS and isinstance(root.payload, RetainedFoldPayload))
         )
         else None,
@@ -828,47 +803,10 @@ def admit_local(dataset: LogicalDataset, registration: ImplementationRegistratio
                 "registered exact correlation method", "missing local implementation"
             )
         return
-    if (
-        isinstance(root, LogicalRootHandle)
-        and isinstance(root.payload, AttributePayload)
-        and root.payload.spec.method == "distribution_shapley@v1"
-    ):
-        raise compilation_error(
-            "the registered source-produced coalition preparation input",
-            "source-required distribution preparation",
-        )
-    if source_private_part_authorities(dataset.row_contract) or (
-        isinstance(root, LogicalRootHandle)
-        and isinstance(root.payload, AttributePayload)
-        and root.payload.spec.method == "distinct_membership@v1"
-    ):
+    if source_private_part_authorities(dataset.row_contract):
         raise compilation_error(
             "source execution for exact distinct membership", "source-required membership state"
         )
-    if isinstance(root, LogicalRootHandle) and isinstance(root.payload, ComparePayload):
-        if (
-            registration.local_method != "metric.compare"
-            or len(dataset._inputs) != 2
-            or root.payload.spec.output_row.shape_id.local_shape_id == "entity"
-        ):
-            raise compilation_error(
-                "non-Entity registered two-operand comparison", "source-required comparison"
-            )
-        for value in (*dataset._inputs, dataset):
-            admit_retained_rows(value)
-        return
-    if isinstance(root, LogicalRootHandle) and isinstance(root.payload, AttributePayload):
-        if (
-            registration.local_method != "delta.attribute"
-            or len(dataset._inputs) != 1
-            or any(field.role_id == "entity_identity" for field in dataset.schema.columns)
-        ):
-            raise compilation_error(
-                "non-Entity retained-axis attribution", "source-required attribution"
-            )
-        for value in (*dataset._inputs, dataset):
-            admit_retained_rows(value)
-        return
     if dataset.kind in ("delta", "attribution", "candidate") and any(
         field.role_id == "entity_identity" for field in dataset.schema.columns
     ):
@@ -903,8 +841,6 @@ def admit_retained_rows(dataset: Dataset) -> None:
             EventTimeToEventSemantics,
             EntityPresentMetricSemantics,
             EntityReducedMetricSemantics,
-            DeltaSemantics,
-            AttributionSemantics,
             AssociationSemantics,
             ForecastSemantics,
             CandidateSemantics,

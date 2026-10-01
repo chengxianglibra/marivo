@@ -33,14 +33,12 @@ from tests.lazy_scalar_source_fixtures import registry_for as scalar_registry
 from tests.lazy_shared_assertions import (
     assert_cross_root_ratio,
     assert_date_bucket_values,
-    assert_dimension_comparison,
     assert_forecast_history,
     assert_kendall_source_reduction,
     assert_missing_relationship_values,
     assert_no_dataset_artifacts,
     assert_primary_status_gate,
     assert_relationship_values,
-    assert_retained_axis_attribution,
     assert_status_fold_values,
     assert_time_discovery,
     assert_version_identities,
@@ -73,45 +71,6 @@ def test_entity_correlation(
     )
     assert result.to_pandas().coefficient.iloc[0] == pytest.approx(1.0)
     assert runtime.statistics.primary_queries > 0
-
-
-@pytest.mark.parametrize("metric_name", ["sales.revenue", "sales.mean_amount"])
-def test_hidden_axis_attribution(tmp_path: Path, method_database: str, metric_name: str) -> None:
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(
-        tmp_path / "expanded-attribution", "clickhouse-expanded-attribution"
-    )
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    metric = sources.observe(ref.metric(metric_name)).aggregate()
-    frame = metric.compare(metric).attribute(axes=(CHANNEL,)).execute().to_pandas()
-    assert frame.contribution.tolist() == pytest.approx([0.0, 0.0])
-    assert runtime.statistics.primary_queries > 0
-
-
-@pytest.mark.parametrize("top_k", [None, 1])
-def test_hidden_axis_attribution_complete_contributions(
-    tmp_path: Path, method_database: str, top_k: int | None
-) -> None:
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(tmp_path / "expanded-sides", "clickhouse-expanded-sides")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    metric = ref.metric("sales.revenue")
-    before = sources.observe(
-        metric, time_scope=time_scope(start="2026-02-01", end="2026-02-04")
-    ).aggregate()
-    after = sources.observe(
-        metric, time_scope=time_scope(start="2026-02-02", end="2026-02-05")
-    ).aggregate()
-    frame = after.compare(before).attribute(axes=(CHANNEL,), top_k=top_k).execute().to_pandas()
-    if top_k is None:
-        assert dict(zip(frame.channel, frame.contribution, strict=True)) == {
-            "a": pytest.approx(-10.0),
-            "b": pytest.approx(40.0),
-        }
-    else:
-        assert frame.contribution.sum() == pytest.approx(30.0)
-        assert sum(any(mask) for mask in frame.other_mask) == 1
-    assert frame.overall_delta.tolist() == pytest.approx([30.0, 30.0])
 
 
 def registry_for(database: str) -> tuple[Registry, CompiledExpressionSidecar]:
@@ -657,31 +616,6 @@ def test_time_discovery(tmp_path: Path, method_database: str) -> None:
     assert_time_discovery(len(result.to_pandas()), runtime.statistics.transferred_rows)
 
 
-def test_dimension_comparison_alignment(tmp_path: Path, method_database: str) -> None:
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(tmp_path / "project", "comparison")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    metric = ref.metric("sales.mean_amount")
-    before = (
-        sources.observe(metric, time_scope=time_scope(start="2026-02-01", end="2026-02-03"))
-        .with_dimensions(CHANNEL)
-        .aggregate()
-    )
-    after = (
-        sources.observe(metric, time_scope=time_scope(start="2026-02-03", end="2026-02-05"))
-        .with_dimensions(CHANNEL)
-        .aggregate()
-    )
-    result = after.compare(before).execute()
-    frame = result.to_pandas().sort_values("channel")
-    assert_dimension_comparison(
-        frame.channel.tolist(),
-        frame.baseline_value.iloc[0],
-        frame.current_value.iloc[1],
-        frame.delta.isna().all(),
-    )
-
-
 def test_cross_root_ratio_keeps_contribution_grain(tmp_path: Path, method_database: str) -> None:
     registry, sidecar = registry_for(method_database)
     runtime = DatasetRuntime.create(tmp_path / "project", "fanout")
@@ -757,30 +691,6 @@ def test_weight_pairs_and_zero_denominator(
     assert_weighted_mean_values(
         frame.weighted_amount.tolist(), frame.weighted_amount.isna().all(), expected
     )
-
-
-def test_retained_axis_attribution(tmp_path: Path, method_database: str) -> None:
-    with modify_source(method_database) as connection:
-        connection.execute("UPDATE orders SET channel='a'")
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(tmp_path / "project", "attribution")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    metric = ref.metric("sales.mean_amount")
-    before = (
-        sources.observe(metric, time_scope=time_scope(start="2026-02-01", end="2026-02-03"))
-        .with_dimensions(CHANNEL)
-        .aggregate()
-        .execute()
-    )
-    after = (
-        sources.observe(metric, time_scope=time_scope(start="2026-02-03", end="2026-02-05"))
-        .with_dimensions(CHANNEL)
-        .aggregate()
-        .execute()
-    )
-    offline(method_database)
-    frame = after.compare(before).attribute(axes=(CHANNEL,)).execute().to_pandas()
-    assert_retained_axis_attribution(frame.contribution.tolist(), frame.overall_delta.tolist())
 
 
 @pytest.mark.parametrize("change", ["closed_closed", "sentinel"])

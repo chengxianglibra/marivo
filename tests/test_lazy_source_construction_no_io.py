@@ -23,6 +23,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from ibis.backends.duckdb import Backend
 import marivo.analysis as mv
+import marivo.analysis.domains.funnel_registry
 import marivo.semantic.runtime_metric_lowering
 import marivo.analysis.compiler as compiler
 import marivo.analysis.compiler.lowering as lowering
@@ -260,28 +261,6 @@ with ExitStack() as stack:
         assert original_state == (original.definition_fingerprint, original._root,
                                   original.row_contract, original.row_set_contract)
         assert len(original.schema.columns) == 2
-        comparison_inputs = (
-            original, original.aggregate(), reduced, grain_results[0],
-            dimensional.with_time_axis(order_time, grain=builtin_grain('day')).aggregate(),
-        )
-        comparisons = tuple(value.compare(value) for value in comparison_inputs)
-        assert tuple(value.row_contract.shape_id.local_shape_id for value in comparisons) == (
-            'entity', 'scalar', 'dimension', 'time', 'dimension-time',
-        )
-        delta_filtered = comparisons[2].where(eq(
-            comparisons[2].fields.get('coordinate_presence'), 'matched',
-        ))
-        delta_ranked = delta_filtered.rank(delta_filtered.fields.get('delta'))
-        delta_limited = delta_ranked.limit(2)
-        assert delta_limited._root.operator_id == 'delta.limit'
-        attributed = comparisons[2].attribute(axes=[region])
-        component_attributed = aggregate_results[2].compare(aggregate_results[2]).attribute(axes=[region])
-        expanded_attributed = comparisons[1].attribute(axes=[region])
-        attributed_selected = attributed.where(eq(attributed.fields.get('active_axis_mask'), (True,)))
-        assert 'metric.expand_axes' not in original.contract().render()
-        assert 'delta.attribute_expanded' not in comparisons[1].contract().render()
-        scalar_delta = comparisons[1]
-
         negative_failures = 0
         # Physical type compatibility is checked after execution observes source types.
         for invalid in (
@@ -290,8 +269,6 @@ with ExitStack() as stack:
             lambda: ranked[0].rank(ranked[0].fields.metric(revenue)),
             lambda: reduced.rank(reduced.fields.dimension(region)),
             lambda: ranked[0].limit(True),
-            lambda: scalar_delta.rank(scalar_delta.fields.get('delta')),
-            lambda: scalar_delta.limit(1),
             lambda: setattr(original, 'kind', 'changed'),
         ):
             try:
@@ -307,9 +284,7 @@ with ExitStack() as stack:
 
         values = (original, dimensional, *filtered, canonical, eligible,
                   selected_metrics, reduced, *grain_results, *aggregate_results,
-                  folded, *ranked, *limited, *comparisons,
-                  delta_filtered, delta_ranked, delta_limited, attributed, component_attributed,
-                  expanded_attributed, attributed_selected)
+                  folded, *ranked, *limited)
         for index, value in enumerate(values):
             assert value.state.kind == 'logical'
             assert value.schema is value.row_contract.schema
@@ -347,9 +322,9 @@ def test_complete_source_construction_has_no_io() -> None:
     assert evidence["grains"] == 9
     assert evidence["aggregates"] == 8
     assert evidence["ties"] == 4
-    assert evidence["guarded_negative_failures"] == 8
+    assert evidence["guarded_negative_failures"] == 6
     assert evidence["guarded_entrypoints"] == 59
-    assert evidence["checked_definitions"] == 56
+    assert evidence["checked_definitions"] == 44
     assert evidence["telemetry_enabled"] is True
     assert set(evidence["attempts"]) == {
         "source",

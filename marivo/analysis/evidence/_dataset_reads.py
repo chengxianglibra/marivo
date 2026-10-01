@@ -301,7 +301,7 @@ def findings(
             raise _selection_error()
         ordinal = position
     if registration is None:
-        from marivo.analysis.materialization.attribution_publication import (
+        from marivo.analysis.evidence._finding_registry import (
             finding_registration,
         )
 
@@ -348,7 +348,7 @@ def finding(
     if type(finding_id) is not str or not finding_id or len(finding_id) > 4096:
         raise _selection_error()
     if registration is None:
-        from marivo.analysis.materialization.attribution_publication import (
+        from marivo.analysis.evidence._finding_registry import (
             finding_registration,
         )
 
@@ -384,7 +384,7 @@ def audit_findings(
 ) -> None:
     """Stream the complete ordinal set and validate count, bodies, and canonical digest."""
     if registration is None:
-        from marivo.analysis.materialization.attribution_publication import (
+        from marivo.analysis.evidence._finding_registry import (
             finding_registration,
         )
 

@@ -14,9 +14,9 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.observation.metric import MaterializedMetricDataset
 from marivo.analysis.operators.forecast_contracts import drift, naive, periods, seasonal_naive
 from marivo.analysis.operators.forecast_dataset import MaterializedForecastDataset
-from tests.lazy_distinct_runtime_worker import rows
 from tests.lazy_forecast_fixtures import history, setup_forecast
 from tests.lazy_materialization_crash_worker import record_evidence, snapshot, statistics, versions
+from tests.lazy_result_fixtures import rows
 from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 

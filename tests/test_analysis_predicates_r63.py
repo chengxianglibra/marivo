@@ -304,8 +304,9 @@ assert result.members(through=result.subject_binding).execute().to_pandas().memb
 
 @pytest.mark.runtime
 @pytest.mark.parametrize("physical", ["BIGINT", "DOUBLE", "DECIMAL(18,2)"])
+@pytest.mark.parametrize("parquet", [False, True])
 def test_public_precise_field_comparisons(
-    analysis_dsl_case_factory: DslCaseFactory, physical: str
+    analysis_dsl_case_factory: DslCaseFactory, physical: str, parquet: bool
 ) -> None:
     import duckdb
 
@@ -313,6 +314,8 @@ def test_public_precise_field_comparisons(
     n = case.names
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute(f'ALTER TABLE "{n.order}" ALTER "{n.amount}" TYPE {physical}')
+    if parquet:
+        export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
     values = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}")).observe(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
@@ -339,7 +342,9 @@ def test_public_precise_field_comparisons(
 
 
 @pytest.mark.runtime
-@pytest.mark.parametrize("unit,parquet", [("us", False), ("s", True), ("ms", True), ("ns", True)])
+@pytest.mark.parametrize(
+    "unit,parquet", [("us", False), ("s", True), ("ms", True), ("us", True), ("ns", True)]
+)
 def test_public_duration_field_comparison(
     analysis_dsl_case_factory: DslCaseFactory, unit: str, parquet: bool
 ) -> None:

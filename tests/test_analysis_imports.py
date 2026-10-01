@@ -159,11 +159,13 @@ def test_analysis_keeps_typed_dataset_operator_values():
 def test_session_class_exposes_sources_and_dataset_owned_operators():
     import marivo.analysis as mv
 
+    assert callable(mv.LogicalNumericRelation.compare)
+    assert not hasattr(mv.LogicalMetricDataset, "compare")
     assert callable(mv.Session.observe)
     assert callable(mv.Session.population)
     assert isinstance(mv.Session.events, property)
     assert isinstance(mv.Session.lifecycle, property)
-    for name in ("compare", "correlate", "forecast"):
+    for name in ("correlate", "forecast"):
         assert callable(getattr(mv.LogicalMetricDataset, name))
 
 

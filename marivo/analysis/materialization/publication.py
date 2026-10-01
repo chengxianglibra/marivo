@@ -97,30 +97,8 @@ def make_descriptor(
             stage="publication",
         )
     roots = tuple(logical_roots(dataset))
-    from marivo.analysis.operators.candidate_contracts import CandidateSemantics
-
-    semantics = dataset.row_contract.family_semantics
-    delta_candidate = (
-        isinstance(semantics, CandidateSemantics)
-        and semantics.objective in ("period_shifts", "driver_axes")
-        and (inherited is None or inherited.row_contract.shape_id.family_id != "candidate")
-    )
-    if delta_candidate:
-        paired = _delta_descriptor(
-            dataset,
-            materialization,
-            storage,
-            validations,
-            inherited=inherited,
-            input_descriptors=input_descriptors,
-        )
-        return replace(
-            paired,
-            comparison_basis=paired.comparison_inputs[0].comparison_basis,
-            comparison_inputs=(),
-        )
     if dataset.row_contract.shape_id.family_id in ("delta", "attribution"):
-        return _delta_descriptor(
+        return _funnel_descriptor(
             dataset,
             materialization,
             storage,
@@ -420,7 +398,7 @@ def _selection_population_authority(
     return visit(dataset)
 
 
-def _delta_descriptor(
+def _funnel_descriptor(
     dataset: LogicalDataset,
     materialization: MaterializationContract,
     storage: DatasetWriteResult[StorageReceipt],
@@ -431,7 +409,7 @@ def _delta_descriptor(
 ) -> ArtifactDescriptor:
     """Bind both operand authorities without borrowing the first input's meaning."""
     from marivo.analysis.domains.event_comparison import FunnelComparePayload
-    from marivo.analysis.operators.contracts import ComparePayload, comparison_basis
+    from marivo.analysis.operators.contracts import comparison_basis
 
     leaves = tuple(artifact_inputs(dataset))
     if not input_descriptors and inherited is not None and len(leaves) == 1:
@@ -482,16 +460,14 @@ def _delta_descriptor(
 
     comparison: Dataset = dataset
     while not isinstance(comparison._root, LogicalRootHandle) or not isinstance(
-        comparison._root.payload, (ComparePayload, FunnelComparePayload)
+        comparison._root.payload, FunnelComparePayload
     ):
         if isinstance(comparison, MaterializedDataset):
             retained = selected[comparison.state.artifact_ref.ref]
             inputs = retained.comparison_inputs
             break
         if isinstance(comparison._root, LogicalRootHandle) and comparison._root.operator_id in (
-            "delta.attribute_expanded",
             "delta.funnel_attribute",
-            "discover.driver_axes_expanded",
         ):
             comparison = comparison._inputs[0]
             continue
@@ -499,7 +475,7 @@ def _delta_descriptor(
             raise MaterializationError(
                 expected="a comparison or its single-input row continuation",
                 received="missing comparison owner",
-                repair="Construct the Delta through Metric.compare().",
+                repair="Construct the funnel comparison through Event.compare().",
                 stage="publication",
             )
         comparison = comparison._inputs[0]
@@ -526,21 +502,6 @@ def _delta_descriptor(
             stage="publication",
         )
     roots = tuple(logical_roots(dataset))
-    from marivo.analysis.operators.attribution_contracts import AttributePayload
-
-    attribute_payload = next(
-        (root.payload for root in reversed(roots) if isinstance(root.payload, AttributePayload)),
-        None,
-    )
-    attribution_folds = None
-    if dataset.row_contract.shape_id.family_id == "attribution":
-        if attribute_payload is not None:
-            attribution_folds = (
-                attribute_payload.spec.current_fold_authority,
-                attribute_payload.spec.baseline_fold_authority,
-            )
-        elif inherited is not None:
-            attribution_folds = inherited.attribution_fold_authority
     return ArtifactDescriptor(
         definition_fingerprint=dataset.definition_fingerprint,
         row_contract=dataset.row_contract,
@@ -579,10 +540,4 @@ def _delta_descriptor(
             warning_check_count=0,
         ),
         comparison_inputs=inputs,
-        attribution_evidence=(
-            inherited.attribution_evidence
-            if inherited is not None and dataset.row_contract.shape_id.family_id == "attribution"
-            else None
-        ),
-        attribution_fold_authority=attribution_folds,
     )

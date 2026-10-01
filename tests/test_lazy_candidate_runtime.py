@@ -17,7 +17,7 @@ from tests.lazy_candidate_fixtures import candidate_input, discover, setup_candi
 pytestmark = pytest.mark.runtime
 
 
-@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows", "period_shifts"])
+@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows"])
 @pytest.mark.parametrize("input_kind", ["logical", "local", "engine"])
 def test_real_candidate_authorities(
     tmp_path: Path,
@@ -71,7 +71,7 @@ def test_real_candidate_authorities(
     assert logical.execute().state.artifact_ref == result.state.artifact_ref
 
 
-@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows", "period_shifts"])
+@pytest.mark.parametrize("objective", ["point_anomalies", "interesting_windows"])
 def test_direct_local_successors_and_empty_selection(
     tmp_path: Path, objective: CandidateObjective, capsys: pytest.CaptureFixture[str]
 ) -> None:

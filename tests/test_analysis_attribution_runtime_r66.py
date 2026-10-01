@@ -53,15 +53,18 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
         assert restored.contribution.to_pandas().equals(frame)
 
 
-@pytest.mark.parametrize("parquet", [False, True])
 @pytest.mark.parametrize(
-    "family,kind",
+    "family,kind,parquet",
     [
-        (family, kind)
+        (family, kind, parquet)
         for family in ("int64", "float64", "decimal")
         for kind in ("sum", "count", "linear", "mean", "weighted", "ratio")
+        for parquet in (False, True)
     ]
-    + [("duration", "sum"), ("duration", "linear")],
+    + [("duration", kind, parquet) for kind in ("sum", "linear") for parquet in (False, True)]
+    + [
+        ("duration_" + unit, kind, True) for unit in ("s", "ms", "us") for kind in ("sum", "linear")
+    ],
 )
 def test_numeric_source_fixed_and_axis_expansion(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -76,7 +79,7 @@ def test_numeric_source_fixed_and_axis_expansion(
         "float64": "DOUBLE",
         "decimal": "DECIMAL(30,6)",
         "duration": "BIGINT",
-    }[family]
+    }["duration" if family.startswith("duration") else family]
     with duckdb.connect(str(case.database_path)) as db:
         db.execute(f'ALTER TABLE "order" ALTER amount TYPE {dtype}')
         db.execute(f'ALTER TABLE "order" ADD COLUMN weight {dtype}')
@@ -86,7 +89,7 @@ def test_numeric_source_fixed_and_axis_expansion(
                 'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?, ?)',
                 [str(index), "A", channel, "paid", f"2026-{month:02d}-15", amount, weight],
             )
-        if family == "duration" and not parquet:
+        if family.startswith("duration") and not parquet:
             db.execute(
                 'ALTER TABLE "order" ALTER amount TYPE INTERVAL USING to_microseconds(amount)'
             )
@@ -99,14 +102,14 @@ def test_numeric_source_fixed_and_axis_expansion(
     )
     if parquet:
         export_dsl_parquet_models(case, case.root)
-        if family == "duration":
+        if family.startswith("duration"):
             path = case.root / "source_files/order.parquet"
             data = pq.read_table(path)
             pq.write_table(
                 data.set_column(
                     data.schema.get_field_index("amount"),
                     "amount",
-                    data["amount"].cast(pa.duration("ns")),
+                    data["amount"].cast(pa.duration(family.partition("_")[2] or "ns")),
                 ),
                 path,
             )
@@ -162,7 +165,7 @@ def test_numeric_source_fixed_and_axis_expansion(
         result = change.attribute(axes=axes).execute()
         checked = result._dataset.verified()
         allocation = next(p.table for p in checked.parts if p.role == "allocation")
-        if family == "duration":
+        if family.startswith("duration"):
             allocation = allocation.set_column(
                 allocation.schema.get_field_index("allocation__contribution"),
                 "allocation__contribution",

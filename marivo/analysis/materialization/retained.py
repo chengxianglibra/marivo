@@ -106,8 +106,6 @@ def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = Non
         LifecycleSelectionPayload,
         consumed_roles,
     )
-    from marivo.analysis.operators.attribution_contracts import AttributePayload
-    from marivo.analysis.operators.contracts import ComparePayload
     from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
 
     required: set[str] = set()
@@ -136,8 +134,6 @@ def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = Non
             elif isinstance(
                 payload,
                 (
-                    ComparePayload,
-                    AttributePayload,
                     FunnelComparePayload,
                     FunnelAttributePayload,
                     RetainedFoldPayload,

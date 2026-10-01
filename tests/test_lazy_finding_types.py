@@ -22,7 +22,7 @@ from marivo.refs import RefPayloadV1, SemanticKind
 @pytest.mark.parametrize("damage", ["json", "decimal", "date", "datetime"])
 def test_corrupt_finding_body_discards_native_exception_context(damage: str) -> None:
     original = replace(
-        _finding(_delta()),
+        _finding(_forecast_exact()),
         coordinates=(
             t.FindingCoordinateV1(
                 field_id=d._make_field_id("dimension.region"),
@@ -59,9 +59,7 @@ def _finding(value: t.FindingValueV1) -> t.Finding:
             metric_a=d._catalog_identity("metric:sales.revenue"),
             metric_b=d._catalog_identity("metric:sales.order_count"),
         )
-    elif isinstance(value, t.FunnelDeltaFindingValueV1) or (
-        isinstance(value, t.ContributionFindingValueV1) and value.contribution_kind != "metric"
-    ):
+    elif isinstance(value, (t.FunnelDeltaFindingValueV1, t.ContributionFindingValueV1)):
         subject = t.FunnelFindingSubjectV1(
             subject_entity_ref=RefPayloadV1(
                 schema="marivo.semantic_ref/v1", kind=SemanticKind.ENTITY, path="sales.customers"
@@ -92,39 +90,24 @@ def _finding(value: t.FindingValueV1) -> t.Finding:
     return replace(item, finding_id=finding_identity(item))
 
 
-def _delta() -> t.DeltaFindingValueV1:
-    return t.DeltaFindingValueV1(
-        coordinate_presence="matched",
-        current_value=Decimal("12.30"),
-        baseline_value=Decimal("10.00"),
-        delta=Decimal("2.30"),
-        relative_delta=t.DefinedFindingRatioV1(value=0.23),
+def _forecast_exact() -> t.ForecastPointFindingValueV1:
+    return t.ForecastPointFindingValueV1(
+        model="naive@v1",
+        interval_level=Decimal("0.95"),
+        horizon_ordinal=1,
+        forecast_value=Decimal("12.30"),
+        interval_lower=Decimal("10.00"),
+        interval_upper=Decimal("14.00"),
+        training_row_count=5,
     )
-
-
-def test_finite_delta_remains_eligible_when_relative_arithmetic_is_unavailable() -> None:
-    value = replace(_delta(), relative_delta=t.UndefinedRelativeDeltaV1(reason="delta_unavailable"))
-    finding = _finding(value)
-    restored = decode_finding_body(
-        encode_finding_body(finding),
-        finding_id=finding.finding_id,
-        artifact_ref=finding.artifact_ref.ref,
-        session_id=finding.session_id,
-        committed_at=finding.committed_at,
-    )
-    assert restored == finding
-    with pytest.raises(IntegrityError):
-        replace(value, baseline_value=Decimal("0"))
-    with pytest.raises(IntegrityError):
-        replace(value, relative_delta=t.UndefinedRelativeDeltaV1(reason="baseline_zero"))
 
 
 def _contribution() -> t.ContributionFindingValueV1:
     return t.ContributionFindingValueV1(
-        method="additive_difference@v1",
+        method="funnel_ratio_mix@v1",
         active_axis_mask=(True,),
         other_mask=(False,),
-        contribution_kind="metric",
+        contribution_kind="loss",
         current_value=12,
         baseline_value=10,
         overall_delta=2,
@@ -172,7 +155,7 @@ def _funnel() -> t.FunnelDeltaFindingValueV1:
             complete_pair_count=10,
             lag=t.NoAssociationLagV1(),
         ),
-        _delta(),
+        _forecast_exact(),
         _contribution(),
         t.ForecastPointFindingValueV1(
             model="drift@v1",
@@ -186,7 +169,7 @@ def _funnel() -> t.FunnelDeltaFindingValueV1:
         _funnel(),
     ],
 )
-def test_five_closed_variants_round_trip_and_exclude_store_envelope(
+def test_four_closed_variants_round_trip_and_exclude_store_envelope(
     value: t.FindingValueV1,
 ) -> None:
     original = _finding(value)
@@ -238,7 +221,7 @@ def test_five_closed_variants_round_trip_and_exclude_store_envelope(
 )
 def test_coordinate_scalar_type_and_value_are_lossless(scalar: t.Scalar) -> None:
     original = replace(
-        _finding(_delta()),
+        _finding(_forecast_exact()),
         coordinates=(
             t.FindingCoordinateV1(
                 field_id=d._make_field_id("dimension.region"),
@@ -271,7 +254,7 @@ def test_coordinate_scalar_type_and_value_are_lossless(scalar: t.Scalar) -> None
 def test_body_codec_rejects_unknown_and_duplicated_ownership(
     member: str, unexpected: object
 ) -> None:
-    original = _finding(_delta())
+    original = _finding(_forecast_exact())
     body = parse_json(encode_finding_body(original))
     assert isinstance(body, dict)
     body[member] = unexpected
@@ -287,9 +270,9 @@ def test_body_codec_rejects_unknown_and_duplicated_ownership(
 
 def test_typed_values_reject_unknown_kind_nonfinite_counts_masks_and_mixed_numeric_types() -> None:
     with pytest.raises(IntegrityError):
-        replace(_delta(), current_value=float("nan"))
+        replace(_forecast_exact(), forecast_value=float("nan"))
     with pytest.raises(IntegrityError):
-        replace(_delta(), delta=2.3)
+        replace(_contribution(), contribution_kind="metric")
     with pytest.raises(IntegrityError):
         replace(_contribution(), active_axis_mask=(False,), other_mask=(True,))
     with pytest.raises(IntegrityError):
@@ -297,9 +280,9 @@ def test_typed_values_reject_unknown_kind_nonfinite_counts_masks_and_mixed_numer
     with pytest.raises(IntegrityError):
         replace(_funnel(), current_coverage_censored_count=1)
     with pytest.raises(IntegrityError):
-        replace(_finding(_delta()), epistemic_kind="predicted")
+        replace(_finding(_forecast_exact()), epistemic_kind="algebraic")
     with pytest.raises(IntegrityError):
-        replace(_finding(_delta()), committed_at=datetime(2026, 9, 8))
+        replace(_finding(_forecast_exact()), committed_at=datetime(2026, 9, 8))
     with pytest.raises(IntegrityError):
         t.FindingPage(items=(), limit=True, has_more=False, next_cursor=None)
 
@@ -332,3 +315,28 @@ def test_digest_and_three_axis_results_have_exact_private_shape() -> None:
     )
     assert audit.revalidation_version == "v2"
     assert len(audit.render()) < 8000
+
+
+def test_retired_metric_delta_finding_body_is_not_recovered() -> None:
+    original = _finding(_forecast_exact())
+    body = parse_json(encode_finding_body(original))
+    assert isinstance(body, dict)
+    body["finding_type"] = "delta"
+    body["epistemic_kind"] = "algebraic"
+    body["value"] = {
+        "kind": "delta",
+        "coordinate_presence": "matched",
+        "current_value": 2,
+        "baseline_value": 1,
+        "delta": 1,
+        "relative_delta": {"kind": "defined", "value": 1.0},
+        "calculation_status": "ok",
+    }
+    with pytest.raises(IntegrityError):
+        decode_finding_body(
+            canonical_json(body),
+            finding_id=original.finding_id,
+            artifact_ref="artifact",
+            session_id="session",
+            committed_at=original.committed_at,
+        )

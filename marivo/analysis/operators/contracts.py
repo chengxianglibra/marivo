@@ -1,4 +1,4 @@
-"""Closed comparison authority and Delta row contracts, without source execution."""
+"""Retained comparison authority and R8 arithmetic row contracts."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from marivo.analysis.datasets.descriptors import (
     _canonical_digest,
     _descriptor_payload,
 )
-from marivo.analysis.datasets.handles import CanonicalValue, LogicalRootHandle, _LogicalNodePayload
+from marivo.analysis.datasets.handles import CanonicalValue, LogicalRootHandle
 from marivo.analysis.operators.errors import comparison_error
 from marivo.semantic._quantile import ApproximationClass
 
@@ -189,12 +189,3 @@ class CompareSpecV1:
             self.current_basis,
             self.baseline_basis,
         )
-
-
-@dataclass(frozen=True, slots=True, repr=False, eq=False, kw_only=True)
-class ComparePayload(_LogicalNodePayload, _token=_CORE_TOKEN):
-    spec: CompareSpecV1
-
-    @property
-    def identity_payload(self) -> CanonicalValue:
-        return self.spec.identity_payload()

@@ -25,19 +25,17 @@ from tests.lazy_distinct_fixtures import (
     assert_no_raw_keys,
     make_distinct_registry,
 )
-from tests.lazy_distribution_fixtures import VALUES, make_distribution_registry
+from tests.lazy_distribution_fixtures import make_distribution_registry
 from tests.lazy_private_transfer_fixtures import guard_private_batches
 from tests.lazy_scalar_source_fixtures import TimeFoldIR, registry_for
 from tests.lazy_shared_assertions import (
     assert_cross_root_ratio,
     assert_date_bucket_values,
-    assert_dimension_comparison,
     assert_forecast_history,
     assert_kendall_source_reduction,
     assert_missing_relationship_values,
     assert_primary_status_gate,
     assert_relationship_values,
-    assert_retained_axis_attribution,
     assert_status_fold_values,
     assert_time_discovery,
     assert_version_identities,
@@ -71,86 +69,6 @@ def test_entity_correlation(
     )
     assert any(item.role == "primary" and "SELECT" in item.sql.upper() for item in submitted)
     assert all(item.state == "succeeded" for item in submitted)
-
-
-@pytest.mark.parametrize("metric_name", ["sales.revenue", "sales.mean_amount"])
-def test_hidden_axis_attribution(tmp_path: Path, method_database: Path, metric_name: str) -> None:
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(
-        tmp_path / "expanded-attribution", "sqlite-expanded-attribution"
-    )
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    metric = sources.observe(ref.metric(metric_name)).aggregate()
-    frame = metric.compare(metric).attribute(axes=(CHANNEL,)).execute().to_pandas()
-    assert frame.contribution.tolist() == pytest.approx([0.0, 0.0])
-    assert all(tuple(mask) == (True,) for mask in frame.active_axis_mask)
-    assert runtime.statistics.primary_queries > 0
-
-
-@pytest.mark.parametrize("top_k", [None, 1])
-def test_hidden_axis_attribution_matches_complete_source_sides(
-    tmp_path: Path, method_database: Path, top_k: int | None
-) -> None:
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(tmp_path / "expanded-sides", "sqlite-expanded-sides")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    metric = ref.metric("sales.revenue")
-    before = sources.observe(
-        metric, time_scope=time_scope(start="2026-02-01", end="2026-02-04")
-    ).aggregate()
-    after = sources.observe(
-        metric, time_scope=time_scope(start="2026-02-02", end="2026-02-05")
-    ).aggregate()
-    frame = after.compare(before).attribute(axes=(CHANNEL,), top_k=top_k).execute().to_pandas()
-    if top_k is None:
-        assert dict(zip(frame.channel, frame.contribution, strict=True)) == {
-            "a": pytest.approx(-10.0),
-            "b": pytest.approx(40.0),
-        }
-    else:
-        assert frame.contribution.sum() == pytest.approx(30.0)
-        assert sum(any(mask) for mask in frame.other_mask) == 1
-    assert frame.overall_delta.tolist() == pytest.approx([30.0, 30.0])
-
-
-def test_hidden_axis_attribution_invalid_source_does_not_publish(
-    tmp_path: Path, method_database: Path
-) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
-    from tests.lazy_acceptance_capture import counts
-
-    with sqlite3.connect(method_database) as connection:
-        connection.execute("UPDATE orders SET amount = ? WHERE id = 1", (float("inf"),))
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(tmp_path / "expanded-invalid", "sqlite-expanded-invalid")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    metric = sources.observe(ref.metric("sales.revenue")).aggregate()
-    with pytest.raises(MaterializationError):
-        metric.compare(metric).attribute(axes=(CHANNEL,)).execute()
-    assert counts(runtime)["dataset_artifacts"] == 0
-
-
-def test_hidden_axis_attribution_failure_after_source_preparation_cleans_up(
-    tmp_path: Path, method_database: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from tests.lazy_acceptance_capture import counts
-
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(tmp_path / "expanded-failure", "sqlite-expanded-failure")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    metric = sources.observe(ref.metric("sales.revenue")).aggregate()
-
-    def fail_write(*args: object, **kwargs: object) -> None:
-        raise RuntimeError("injected write failure after source validation")
-
-    monkeypatch.setattr(
-        "marivo.analysis.materialization.dataset_publication.write_output", fail_write
-    )
-    with pytest.raises(RuntimeError, match="injected write failure"):
-        metric.compare(metric).attribute(axes=(CHANNEL,)).execute()
-    assert any(item.role == "validation_batch" for item in runtime.statistics.submissions)
-    assert counts(runtime)["dataset_artifacts"] == 0
-    assert runtime.store.resources(runtime.session_ref) == ()
 
 
 def test_entity_correlation_constant_input(tmp_path: Path, method_database: Path) -> None:
@@ -380,71 +298,6 @@ def test_remote_membership_rejects_duplicate_pair_even_with_matching_endpoint(
             result.row_contract,
             role,
         )
-
-
-@pytest.mark.parametrize(("q", "store"), [(0.25, 6.0), (0.5, 7.0), (0.9, 8.6)])
-def test_exact_distribution(
-    tmp_path: Path, method_database: Path, monkeypatch: pytest.MonkeyPatch, q: float, store: float
-) -> None:
-    # January web [1, 1] is always 1; store [5, 9] interpolates to 6/7/8.6.
-    with sqlite3.connect(method_database) as connection:
-        connection.execute("DELETE FROM orders")
-        connection.executemany(
-            "INSERT INTO orders(id, customer_id, channel, amount, day) VALUES (?,?,?,?,?)",
-            VALUES,
-        )
-    sqlite_registry, _ = registry_for(method_database)
-    distribution_registry, sidecar = make_distribution_registry(q=q)
-    registry = replace(
-        distribution_registry,
-        entities={
-            **distribution_registry.entities,
-            "sales.orders": sqlite_registry.entities["sales.orders"],
-        },
-        datasources=sqlite_registry.datasources,
-    )
-    registry.freeze()
-    runtime = DatasetRuntime.create(tmp_path / "distribution-project", "sqlite-distribution")
-    private_batches = guard_private_batches(runtime, monkeypatch)
-    logical = (
-        runtime.sources(semantic_registry=registry, sidecar=sidecar)
-        .observe(
-            ref.metric("sales.revenue"), time_scope=time_scope(start="2026-01-01", end="2026-02-01")
-        )
-        .with_dimensions(CHANNEL)
-        .aggregate()
-    )
-    result = logical.execute()
-    frame = result.to_pandas().sort_values("channel")
-    assert frame["revenue"].tolist() == pytest.approx([store, 1.0])
-    record = runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None
-    assert any(
-        part.contract_id == "metric.distribution" for part in record.descriptor.retained_parts
-    )
-    assert private_batches
-    current_ref = None
-    if q == 0.5:
-        current = (
-            runtime.sources(semantic_registry=registry, sidecar=sidecar)
-            .observe(
-                ref.metric("sales.revenue"),
-                time_scope=time_scope(start="2026-02-01", end="2026-03-01"),
-            )
-            .with_dimensions(CHANNEL)
-            .aggregate()
-            .execute()
-        )
-        current_ref = current.state.artifact_ref
-    method_database.rename(tmp_path / "source.offline")
-    cold = DatasetRuntime.open(tmp_path / "distribution-project", runtime.session_ref)
-    recovered = cold.artifact(result.state.artifact_ref)
-    assert recovered.to_pandas().equals(result.to_pandas())
-    assert cold.revalidate(result.state.artifact_ref).artifact_integrity == "valid"
-    if current_ref is not None:
-        current = cold.artifact(current_ref)
-        delta = current.compare(recovered).execute().to_pandas()
-        assert sorted(delta["delta"].tolist()) == pytest.approx([-3.0, 4.0])
 
 
 def test_distribution_raw_values_stay_in_private_part(
@@ -784,31 +637,6 @@ def test_time_discovery(tmp_path: Path, method_database: Path) -> None:
     assert_time_discovery(len(result.to_pandas()), runtime.statistics.transferred_rows)
 
 
-def test_dimension_comparison_alignment(tmp_path: Path, method_database: Path) -> None:
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(tmp_path / "project", "comparison")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    metric = ref.metric("sales.mean_amount")
-    before = (
-        sources.observe(metric, time_scope=time_scope(start="2026-02-01", end="2026-02-03"))
-        .with_dimensions(CHANNEL)
-        .aggregate()
-    )
-    after = (
-        sources.observe(metric, time_scope=time_scope(start="2026-02-03", end="2026-02-05"))
-        .with_dimensions(CHANNEL)
-        .aggregate()
-    )
-    result = after.compare(before).execute()
-    frame = result.to_pandas().sort_values("channel")
-    assert_dimension_comparison(
-        frame.channel.tolist(),
-        frame.baseline_value.iloc[0],
-        frame.current_value.iloc[1],
-        frame.delta.isna().all(),
-    )
-
-
 def test_cross_root_ratio_keeps_contribution_grain(tmp_path: Path, method_database: Path) -> None:
     registry, sidecar = registry_for(method_database)
     runtime = DatasetRuntime.create(tmp_path / "project", "fanout")
@@ -871,30 +699,6 @@ def test_weight_pairs_and_zero_denominator(
     assert_weighted_mean_values(
         frame.weighted_amount.tolist(), frame.weighted_amount.isna().all(), expected
     )
-
-
-def test_retained_axis_attribution(tmp_path: Path, method_database: Path) -> None:
-    with sqlite3.connect(method_database) as connection:
-        connection.execute("UPDATE orders SET channel='a'")
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(tmp_path / "project", "attribution")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    metric = ref.metric("sales.mean_amount")
-    before = (
-        sources.observe(metric, time_scope=time_scope(start="2026-02-01", end="2026-02-03"))
-        .with_dimensions(CHANNEL)
-        .aggregate()
-        .execute()
-    )
-    after = (
-        sources.observe(metric, time_scope=time_scope(start="2026-02-03", end="2026-02-05"))
-        .with_dimensions(CHANNEL)
-        .aggregate()
-        .execute()
-    )
-    method_database.rename(tmp_path / "offline.sqlite")
-    frame = after.compare(before).attribute(axes=(CHANNEL,)).execute().to_pandas()
-    assert_retained_axis_attribution(frame.contribution.tolist(), frame.overall_delta.tolist())
 
 
 @pytest.mark.parametrize("change", ["closed_closed", "sentinel"])

@@ -13,9 +13,9 @@ from marivo.analysis.datasets.base import Dataset
 from marivo.analysis.datasets.handles import CanonicalValue, LogicalRootHandle, _LogicalNodePayload
 from marivo.analysis.domains.contracts import EventFunnelSemantics
 from marivo.analysis.domains.event_reducers import _rows
+from marivo.analysis.domains.funnel_delta import LogicalFunnelDeltaDataset
 from marivo.analysis.observation.contracts import RetainedRowsPayload, owner_of, producer_contract
 from marivo.analysis.observation.predicates import BoundPredicate
-from marivo.analysis.operators.delta import LogicalDeltaDataset
 from marivo.analysis.operators.errors import comparison_error
 
 COUNTS = (
@@ -191,7 +191,7 @@ def generated_fields(ids: d._StableIdRegistry) -> tuple[d.DatasetField, ...]:
     return tuple(result)
 
 
-def compare(current: Dataset, baseline: Dataset) -> LogicalDeltaDataset:
+def compare(current: Dataset, baseline: Dataset) -> LogicalFunnelDeltaDataset:
     if not isinstance(baseline, Dataset):
         raise comparison_error("an Event funnel Dataset baseline", "invalid baseline type")
     a, b = current.row_contract.family_semantics, baseline.row_contract.family_semantics
@@ -255,7 +255,7 @@ def compare(current: Dataset, baseline: Dataset) -> LogicalDeltaDataset:
             ),
         ),
     )
-    if not isinstance(result, LogicalDeltaDataset):
+    if not isinstance(result, LogicalFunnelDeltaDataset):
         raise comparison_error("the shared Logical Delta family", "invalid comparison registration")
     return result
 

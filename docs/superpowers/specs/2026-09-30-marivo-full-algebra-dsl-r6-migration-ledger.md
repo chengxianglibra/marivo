@@ -3,7 +3,7 @@
 Date: 2026-09-30. Status: R6.1 contract/static inventory complete; R6.2 public comparison implementation is connected, with final validation recorded below;
 R6.3 and R6.4 are connected through the bounded qualifications recorded below;
 R6.5 ranking and terminal display are connected, with final validation recorded below;
-R6.6 allocation is connected; final qualification is recorded below. R6.7 remains unimplemented. This ledger indexes the
+R6.6 allocation is connected; final qualification is recorded below. R6.7 and full frozen local R6 acceptance are complete; final evidence is recorded below. This ledger indexes the
 [R6 implementation plan](2026-09-30-marivo-full-algebra-dsl-r6-implementation-plan.md)
 and sole contract owners; it is not another method registry or executable API.
 
@@ -792,3 +792,57 @@ failed Runs are recorded and have no successful output Artifact. Failed commands
 are not counted as qualification. Raw command logs were captured under
 `/tmp/marivo-r66-*.log`; the checked-in tests and commands above are the durable
 reproduction sources.
+
+## R6.7 implementation and acceptance (2026-10-01)
+
+Execution baseline is clean `panda` at `909f4bdcf4a9a9d9caf3beb99c591c34d9a60ddf`.
+The [R6.7 evidence index](2026-10-01-marivo-r67-evidence-index.md) owns the final
+M01–M15 disposition, test migration manifest, source/test/wheel/command summaries,
+V01–V12 results and precise R7–R10 handoff. R6.7 and full frozen local R6 acceptance passed. Earlier unverified
+Duration/share/rank/Date statements above are historical and superseded only by
+the explicit cells below and the final qualification attachment.
+
+
+### R6.7 final qualification and handoff
+
+V01-V12 passed with their exact public test owners in the evidence index. M01-M15
+are closed: the old Metric -> Delta -> Attribution construction, registration,
+compiler/executor, publication, body/descriptor codec and recovery variants are
+removed, as are the four public exports and their old Help targets. AN11 stays
+deleted; AN12's rejection hook and remaining calls are deleted. Actual Event
+comparison/allocation classes and registrations have private R7 owners. Actual
+R8 arithmetic, reconciliation and value/input codecs remain with their consumers;
+none reconstructs a public R6 producer or grants R7/R8 source eligibility.
+The migration manifest records 316 legacy test nodes and 6 retired workers.
+
+The required Duration native us and Parquet s/ms/us/ns positives and corresponding
+fixed routes passed for comparison, field predicates, share, rank/table and
+additive sum/linear attribution. Date terminal columns passed both sources.
+I/F/Decimal positives/refusals, retained time/period/key authority, fixed reference
+identity, four ties, common Top-K/typed Other, parent resolutions and selected
+reconciliation scope passed their named tests. Current-row Decimal/Duration
+reducers and named statistical_weight remain withdrawn/unqualified.
+
+Source Runtime has 771 unique passed cases. Final `make check-agent` passed 5359
+with 5 existing default skips (kept outside Runtime acceptance), 417 typed files,
+lint/import/API checks; site build passed 321 pages. Final wheel gate passed
+1500 inner tests with no skips/failures and 48 journey phase processes,
+covering native/Parquet J1-J4 and A02/A06-A08. A06 includes branch numerator versus
+unchanged denominator, negative/zero baselines, PeriodChange, nested changes,
+cumulative and fold, with independent raw-fact expectations. A07 proves both
+additive and component_mix allocation, frozen references and selected scope.
+Every required part for both allocation methods and other R6 kinds is faulted;
+recovery, K and cached execution reject before new Runs or source replay.
+
+Final wheel SHA256: `d7cb5cc4be1bd3aeaf15393506d8e46dd10e5026fc0be3bd7b5b4d45293d07e5`. Exact source/test/dependency hashes, commands/exit
+codes, qualification cells, actual receipt/K records and attachment hashes are
+indexed by the R6.7 evidence index. Earlier failed/superseded wheel iterations
+are retained separately and grant no final-candidate acceptance. The recorded
+baseline remains clean panda/909f4bdcf4; no commit, push or release was performed,
+and AGENTS.md/packaged skills were not edited. No release-check or MinIO ran.
+
+R7 must migrate and qualify Event/Lifecycle/domain producers, including private
+funnel comparison/allocation. R8 must migrate and qualify statistical producers
+and their remaining arithmetic/helpers. R9 must qualify remote backends and all
+required physical forms/types. R10 must run real Agent journeys and release
+acceptance. These responsibilities are not promoted by this local R6 completion.

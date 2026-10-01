@@ -73,8 +73,6 @@ def example_inputs(
         customer=ref.entity("sales.customers"),
         multi_metric=source.observe((revenue, count_metric)).with_dimensions(region),
         time_metric=time_metric,
-        time_delta=time_metric.compare(time_metric),
-        delta=dimensioned.aggregate().compare(dimensioned.aggregate()),
         events=events,
         funnel_delta=events.funnel().compare(events.funnel()),
         lifecycle=history(source),

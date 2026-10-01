@@ -149,23 +149,3 @@ def test_diagnostic_version_does_not_change_selection_or_execution(
     after = prepare_graph(target._node.root, session_ref=case.session.id, routes=routes)
     assert before == after
     assert target.execute().to_pandas()["value"].sum() == 147
-
-
-def test_semantic_observation_keeps_its_owner_while_comparison_federates_inputs() -> None:
-    from marivo.refs import ref
-    from tests.lazy_observation_fixtures import make_sources
-
-    first, second = make_sources(), make_sources()
-    population = first.population(ref.entity("sales.customers"))
-    mixed = second.observe(REVENUE, population=population)
-    with pytest.raises(DatasetCompilationError, match="source-required"):
-        place(mixed)
-
-    comparison = first.observe(REVENUE).aggregate().compare(second.observe(REVENUE).aggregate())
-    graph = place(comparison)
-    assert len(graph.steps) == 3
-    assert isinstance(graph.steps[0], SourceStep)
-    assert isinstance(graph.steps[1], SourceStep)
-    assert not graph.steps[0].binding.same_domain(graph.steps[1].binding)
-    assert graph.local_steps[0].inputs == (0, 1)
-    assert graph.local_steps[0].implementation.operator_id == "metric.compare"

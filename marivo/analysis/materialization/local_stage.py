@@ -28,9 +28,6 @@ from marivo.analysis.materialization.contracts import (
     ArtifactRecord,
     StorageReceipt,
 )
-from marivo.analysis.materialization.errors import (
-    MaterializationError,
-)
 from marivo.analysis.materialization.errors import _execution_error as _error
 from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.materialization.execution_state import ExecutionProgress
@@ -169,11 +166,6 @@ def run_local_graph(
     *,
     cancel_source: Callable[[], None],
 ) -> LocalResult:
-    from marivo.analysis.operators.attribution_contracts import (
-        AttributePayload,
-        AttributeSpecV1,
-    )
-    from marivo.analysis.operators.contracts import ComparePayload, CompareSpecV1
 
     stages: list[LocalStage] = []
     for step in physical.local_steps:
@@ -185,8 +177,6 @@ def run_local_graph(
             RowCall
             | FunnelCompareSpec
             | FunnelAttributeSpec
-            | CompareSpecV1
-            | AttributeSpecV1
             | CorrelateSpecV1
             | ForecastSpecV1
             | CandidateSpecV1
@@ -195,10 +185,8 @@ def run_local_graph(
         if isinstance(
             payload,
             (
-                ComparePayload,
                 FunnelComparePayload,
                 FunnelAttributePayload,
-                AttributePayload,
                 CorrelatePayload,
                 ForecastPayload,
                 CandidatePayload,
@@ -254,42 +242,6 @@ def _correlation_input(
         raise _error("output_validation", run_ref)
     return (
         LocalBoundary(step.output, PairInput(root.payload.spec, pair_count)),
-        LocalInputStreams(source_stage.batches(self, backend, recipe.expression, 1024)),
-    )
-
-
-def _distribution_input(
-    self: DatasetRuntime,
-    step: SourceStep,
-    backend: ExecutionAdapter,
-    recipe: CompiledDataset,
-    run_ref: str,
-) -> tuple[LocalBoundary, LocalInputStreams]:
-    from marivo.analysis.materialization.local_execution import CoalitionInput
-    from marivo.analysis.operators.attribution_contracts import AttributePayload
-
-    root = step.dataset._root
-    if (
-        not isinstance(root, LogicalRootHandle)
-        or not isinstance(root.payload, AttributePayload)
-        or recipe.numerical_input != "distribution_coalitions"
-    ):
-        raise _error("implementation_registration", run_ref)
-    expected_count = _source_count(backend, recipe, role="distribution_cardinality")
-    if (
-        not isinstance(expected_count, int)
-        or isinstance(expected_count, bool)
-        or expected_count < 0
-    ):
-        raise MaterializationError(
-            expected="a non-negative source-certified coalition count",
-            received="invalid coalition count",
-            repair="Narrow comparison scopes or lower top_k before retrying.",
-            stage="transfer_guard",
-            run_ref=run_ref,
-        )
-    return (
-        LocalBoundary(step.output, CoalitionInput(root.payload.spec, expected_count)),
         LocalInputStreams(source_stage.batches(self, backend, recipe.expression, 1024)),
     )
 
@@ -373,8 +325,6 @@ def _local_inputs(
             backend, recipe, _ = prepared[step.output]
             if step.operation == "correlation":
                 boundary, stream = _correlation_input(self, step, backend, recipe, run_ref)
-            elif step.operation == "distribution":
-                boundary, stream = _distribution_input(self, step, backend, recipe, run_ref)
             else:
                 boundary, stream = _projected_source_input(self, dataset, step, backend, recipe)
         elif isinstance(step, ArtifactReadStep):
@@ -405,9 +355,6 @@ def execute_local_stages(
 
     local_result = run_local_graph(
         self, physical, boundaries, streams, run_ref, cancel_source=cancel_sources
-    )
-    evidence.attribution_summary = (
-        local_result.summaries.attribution or evidence.attribution_summary
     )
     evidence.association_summary = (
         local_result.summaries.association or evidence.association_summary

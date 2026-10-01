@@ -19,13 +19,9 @@ from marivo.analysis._capabilities.dataset_model import (
 )
 from marivo.analysis._comparison import WindowBucketAlignment, window_bucket
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
-from marivo.analysis.domains.event_attribution import FunnelAttributionSemantics
-from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics
 from marivo.analysis.operators.association_contracts import AssociationSemantics
-from marivo.analysis.operators.attribution_contracts import AttributionSemantics
 from marivo.analysis.operators.candidate_contracts import CandidateSemantics
-from marivo.analysis.operators.contracts import DeltaSemantics
-from marivo.analysis.operators.discovery import DeltaDiscovery, MetricDiscovery
+from marivo.analysis.operators.discovery import MetricDiscovery
 from marivo.analysis.operators.forecast_contracts import (
     ForecastHorizon,
     ForecastModel,
@@ -46,16 +42,6 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
     for fid, summary, variants in (
-        (
-            "delta",
-            "Paired exact current/baseline comparison, including a distinct funnel variant.",
-            (DeltaSemantics, FunnelDeltaSemantics),
-        ),
-        (
-            "attribution",
-            "Governed additive, component-mix, distinct-membership, distribution-Shapley or funnel-loss-rate contributions.",
-            (AttributionSemantics, FunnelAttributionSemantics),
-        ),
         (
             "association",
             "Descriptive pair association with typed validity statuses; not causality.",
@@ -160,54 +146,6 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
     specs = (
         (
             "metric",
-            "compare",
-            "metric_dataset.compare",
-            ("metric.compare",),
-            (
-                P(
-                    "baseline",
-                    "Construct an exact compatible one-Metric baseline in this Session.",
-                    ("observe",),
-                ),
-                P(
-                    "alignment",
-                    "Use window_bucket() to pair equal-count time buckets by ordinal.",
-                    ("window_bucket",),
-                ),
-            ),
-            "LogicalDeltaDataset",
-            "result = dimensioned.aggregate().compare(dimensioned.aggregate())",
-            ("dimensioned",),
-            "One Metric, compatible units/membership/coordinates and exact bucket pairing; one-sided sampling is rejected.",
-        ),
-        (
-            "delta",
-            "attribute",
-            "delta_dataset.attribute",
-            ("delta.attribute", "delta.attribute_expanded"),
-            (
-                P(
-                    "axes",
-                    "Select ordered governed Dimensions; missing axes require logical source operands.",
-                ),
-                P("mode", "Choose joint or hierarchy."),
-                P(
-                    "top_k",
-                    "Optional positive retained-member count per mapped parent; None retains all members. Excluded members form governed Other, not discarded rows.",
-                ),
-                P(
-                    "target",
-                    "Leave None for Metric attribution; funnel loss uses its separate focused leaf.",
-                    ("funnel_delta_dataset.attribute",),
-                ),
-            ),
-            "LogicalAttributionDataset",
-            "result = delta.attribute(axes=(region,))",
-            ("delta", "region"),
-            "Admits additive, component-mix, exact distinct-membership and distribution-Shapley comparisons under method-specific authority; retained inputs require complete sufficient statistics. Distribution-Shapley uses complete mapped players and coalitions and preserves the selected exact or approximate quantile method.",
-        ),
-        (
-            "metric",
             "correlate",
             "metric_dataset.correlate",
             ("metric.correlate",),
@@ -287,18 +225,6 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "entity_outliers",
             "Robust Entity-level leads; source-owned identities and positive dispersion are required.",
             "metric",
-        ),
-        (
-            DeltaDiscovery,
-            "period_shifts",
-            "Trailing complete Delta window means; gaps break windows.",
-            "time_delta",
-        ),
-        (
-            DeltaDiscovery,
-            "driver_axes",
-            "Exact additive axis concentration, including zero and permitted-null members; no inferential conclusion.",
-            "delta",
         ),
     ):
         parameters = (

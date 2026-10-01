@@ -961,7 +961,7 @@ class SessionStore:
             finding_set_digest,
         )
         from marivo.analysis.evidence._dataset_reads import _validate
-        from marivo.analysis.materialization.attribution_publication import (
+        from marivo.analysis.evidence._finding_registry import (
             finding_registration,
         )
 

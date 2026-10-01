@@ -249,18 +249,11 @@ class DefinedFindingRatioV1(_Value):
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class UndefinedRelativeDeltaV1(_Value):
-    reason: Literal["baseline_zero", "delta_unavailable"] = "baseline_zero"
-    kind: Literal["undefined"] = "undefined"
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class UndefinedFindingShareV1(_Value):
     reason: Literal["zero_total_delta", "empty_positive_pool", "empty_negative_pool"]
     kind: Literal["undefined"] = "undefined"
 
 
-RelativeDeltaV1: TypeAlias = DefinedFindingRatioV1 | UndefinedRelativeDeltaV1
 FindingShareV1: TypeAlias = DefinedFindingRatioV1 | UndefinedFindingShareV1
 
 
@@ -287,38 +280,11 @@ class AssociationFindingValueV1(_Value):
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class DeltaFindingValueV1(_Value):
-    coordinate_presence: CoordinatePresence
-    current_value: Number
-    baseline_value: Number
-    delta: Number
-    relative_delta: RelativeDeltaV1
-    calculation_status: Literal["ok"] = "ok"
-    kind: Literal["delta"] = "delta"
-
-    def __post_init__(self) -> None:
-        _Value.__post_init__(self)
-        if len({type(self.current_value), type(self.baseline_value), type(self.delta)}) != 1:
-            raise invalid("Delta numbers do not preserve one lossless common type")
-        if self.baseline_value == 0 and not (
-            isinstance(self.relative_delta, UndefinedRelativeDeltaV1)
-            and self.relative_delta.reason == "baseline_zero"
-        ):
-            raise invalid("relative Delta baseline-zero status mismatch")
-        if (
-            self.baseline_value != 0
-            and isinstance(self.relative_delta, UndefinedRelativeDeltaV1)
-            and self.relative_delta.reason != "delta_unavailable"
-        ):
-            raise invalid("relative Delta unavailable status mismatch")
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class ContributionFindingValueV1(_Value):
     method: str
     active_axis_mask: tuple[bool, ...]
     other_mask: tuple[bool, ...]
-    contribution_kind: Literal["metric", "loss", "denominator_mix"]
+    contribution_kind: Literal["loss", "denominator_mix"]
     current_value: Number
     baseline_value: Number
     overall_delta: Number
@@ -333,6 +299,8 @@ class ContributionFindingValueV1(_Value):
 
     def __post_init__(self) -> None:
         _Value.__post_init__(self)
+        if self.method != "funnel_ratio_mix@v1":
+            raise invalid("unregistered Funnel contribution method")
         _count(self.contribution_rank, minimum=1)
         if len(self.active_axis_mask) != len(self.other_mask) or any(
             other and not active
@@ -417,7 +385,6 @@ class FunnelDeltaFindingValueV1(_Value):
 
 FindingValueV1: TypeAlias = (
     AssociationFindingValueV1
-    | DeltaFindingValueV1
     | ContributionFindingValueV1
     | ForecastPointFindingValueV1
     | FunnelDeltaFindingValueV1
@@ -451,10 +418,7 @@ class Finding(_Value):
         subject = "metric"
         if self.finding_type == "association":
             subject = "association"
-        elif self.finding_type == "funnel_delta" or (
-            isinstance(self.value, ContributionFindingValueV1)
-            and self.value.contribution_kind != "metric"
-        ):
+        elif self.finding_type in ("funnel_delta", "contribution"):
             subject = "event_funnel"
         if self.subject.kind != subject:
             raise invalid("Finding subject does not match its value family")

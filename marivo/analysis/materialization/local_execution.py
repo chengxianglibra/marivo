@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pandas as pd
 import pyarrow as pa
@@ -37,18 +36,13 @@ from marivo.analysis.operators.association_contracts import (
     CorrelateSpecV1,
     candidate_count,
 )
-from marivo.analysis.operators.attribution_contracts import AttributeSpecV1
 from marivo.analysis.operators.candidate_contracts import (
     CandidateSearchSummary,
     CandidateSpecV1,
 )
-from marivo.analysis.operators.contracts import CompareSpecV1
 from marivo.analysis.operators.driver_contracts import DriverCandidateSpecV1
 from marivo.analysis.operators.forecast_contracts import ForecastSpecV1, ForecastTrainingSummary
 from marivo.analysis.operators.row import PartFrame, RowCall
-
-if TYPE_CHECKING:
-    from marivo.analysis.materialization.attribution_publication import AttributionSourceSummary
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -78,7 +72,7 @@ class ArtifactInput:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class LocalRequest:
-    input: StreamInput | ArtifactInput | CoalitionInput | PairInput
+    input: StreamInput | ArtifactInput | PairInput
     calls: tuple[RowCall, ...]
     parts: tuple[LocalPartInput, ...] = ()
 
@@ -95,7 +89,6 @@ class LocalPartResult:
 class FamilySummaries:
     """Original producer summaries carried unchanged through local row successors."""
 
-    attribution: AttributionSourceSummary | None = None
     association: AssociationSearchSummary | None = None
     forecast: ForecastTrainingSummary | None = None
     candidate: CandidateSearchSummary | None = None
@@ -135,17 +128,9 @@ class PairInput:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class CoalitionInput:
-    """Closed numerical preparation input; never an Artifact or Dataset row contract."""
-
-    spec: AttributeSpecV1
-    expected_rows: int
-
-
-@dataclass(frozen=True, slots=True, repr=False)
 class LocalBoundary:
     output: int
-    input: StreamInput | ArtifactInput | CoalitionInput | PairInput
+    input: StreamInput | ArtifactInput | PairInput
     parts: tuple[LocalPartInput, ...] = ()
 
 
@@ -157,8 +142,6 @@ class LocalStage:
         RowCall
         | FunnelCompareSpec
         | FunnelAttributeSpec
-        | CompareSpecV1
-        | AttributeSpecV1
         | CorrelateSpecV1
         | ForecastSpecV1
         | CandidateSpecV1
@@ -189,10 +172,10 @@ class _Frames:
 
 def _collect_input(
     streams: LocalInputStreams,
-    selected: StreamInput | ArtifactInput | CoalitionInput | PairInput,
+    selected: StreamInput | ArtifactInput | PairInput,
     parts: tuple[LocalPartInput, ...],
 ) -> tuple[_Frames, int]:
-    if isinstance(selected, (CoalitionInput, PairInput)):
+    if isinstance(selected, PairInput):
         from marivo.analysis.operators.distribution_values import validate_coalition_schema
 
         input_kind = "pair" if isinstance(selected, PairInput) else "coalition"
@@ -324,9 +307,7 @@ class _GraphResult:
 def _execute_graph(
     streams: tuple[LocalInputStreams, ...], request: LocalGraphRequest
 ) -> _GraphResult:
-    from marivo.analysis.operators.attribute_values import execute_attribute
-    from marivo.analysis.operators.compare import execute_compare
-    from marivo.analysis.operators.delta_state import execute_compare_parts, validate_delta_parts
+    from marivo.analysis.operators.delta_state import validate_delta_parts
     from marivo.analysis.operators.rollup import validate_parts
 
     if len(streams) != len(request.boundaries):
@@ -491,80 +472,8 @@ def _execute_graph(
             schema = pa.Schema.from_pandas(result, preserve_index=False)
             value = _Frames(result, parts, schema)
             output_row = call.output_row
-        elif isinstance(call, CompareSpecV1):
-            if len(incoming) != 2:
-                fail("ordered current and baseline operands", "invalid comparison arity")
-            current, baseline = incoming
-            validate_frame(current.frame, call.current_row, call.current_rows)
-            validate_frame(baseline.frame, call.baseline_row, call.baseline_rows)
-            from marivo.analysis.compiler.lowering import retained_part_specs
-
-            for value, row in ((current, call.current_row), (baseline, call.baseline_row)):
-                required = {part.role for part in retained_part_specs(row)}
-                if not required.issubset(part.role for part in value.parts):
-                    fail(
-                        "complete comparison side component roles",
-                        "missing side components",
-                        "transfer_guard",
-                    )
-                validate_parts(value.frame, value.parts, row)
-            result = execute_compare(current.frame, baseline.frame, call)
-            parts = execute_compare_parts(
-                current.frame, baseline.frame, call, current.parts, baseline.parts, result
-            )
-            validate_frame(result, call.output_row, call.output_rows)
-            fields: list[pa.Field] = []
-            for field in call.output_row.schema.columns:
-                dtype = result[field.name].dtype
-                if not isinstance(dtype, pd.ArrowDtype):
-                    fail(
-                        "exact Arrow comparison result types",
-                        "untyped comparison output",
-                        "output_validation",
-                    )
-                fields.append(pa.field(field.name, dtype.pyarrow_dtype, field.nullable))
-            schema = pa.schema(fields)
-            value = _Frames(result, parts, schema)
-            handoffs.extend((id(item.frame), id(result)) for item in incoming)
-            output_row = call.output_row
-            del current, baseline
         else:
-            if len(incoming) != 1 or (
-                call.expanded_compare is not None and call.method != "distribution_shapley@v1"
-            ):
-                fail("one complete retained Attribution input", "source-required axis expansion")
-            source = incoming[0]
-            if call.method != "distribution_shapley@v1":
-                validate_frame(source.frame, call.input_row, call.input_rows)
-            if call.method == "distribution_shapley@v1":
-                from marivo.analysis.operators.distribution_values import execute_distribution
-
-                result = execute_distribution(source.frame, call)
-            else:
-                validate_delta_parts(source.frame, source.parts, call.input_row)
-                result = execute_attribute(source.frame, call, parts=source.parts)
-            validate_frame(result, call.output_row, call.output_rows)
-            from marivo.analysis.materialization.attribution_publication import (
-                summarize_attribution_frame,
-            )
-
-            summaries = replace(
-                summaries, attribution=summarize_attribution_frame(result, call.output_row)
-            )
-            fields = []
-            for field in call.output_row.schema.columns:
-                dtype = result[field.name].dtype
-                if not isinstance(dtype, pd.ArrowDtype):
-                    fail(
-                        "exact Arrow Attribution result types",
-                        "untyped Attribution output",
-                        "output_validation",
-                    )
-                fields.append(pa.field(field.name, dtype.pyarrow_dtype, field.nullable))
-            value = _Frames(result, (), pa.schema(fields))
-            handoffs.append((id(source.frame), id(result)))
-            output_row = call.output_row
-            del source
+            fail("a registered Event or R8 local method", "retired R6 local method")
         values[stage.output] = value
         for key in stage.inputs:
             users[key] -= 1

@@ -13,7 +13,6 @@ import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo.analysis.compiler.comparison import lower_compare
 from marivo.analysis.compiler.distinct_fold import fold_memberships
 from marivo.analysis.compiler.distribution import frequency_quantile, source_quantile
 from marivo.analysis.compiler.errors import compilation_error
@@ -34,7 +33,6 @@ from marivo.analysis.compiler.normalize import (
 from marivo.analysis.compiler.predicates import lower_bound_predicate, predicate_leaves
 from marivo.analysis.compiler.private_parts import (
     PrivateRelations,
-    comparison_private_parts,
     private_part_specs,
     private_part_validations,
     selected_private_parts,
@@ -120,13 +118,11 @@ from marivo.analysis.observation.fold_contracts import (
 from marivo.analysis.observation.private_parts import source_private_part_authorities
 from marivo.analysis.operators.association_contracts import CorrelatePayload, association_orders
 from marivo.analysis.operators.attribution_contracts import (
-    AttributePayload,
     delta_part_authorities,
     delta_presence_name,
     delta_state_name,
 )
 from marivo.analysis.operators.candidate_contracts import CandidateDefinition, CandidatePayload
-from marivo.analysis.operators.contracts import ComparePayload
 from marivo.analysis.operators.driver_contracts import (
     DriverCandidateDefinition,
     DriverCandidatePayload,
@@ -2444,7 +2440,7 @@ class _Compiler:
         ):
             result = self._event_reducer(root, payload)
         elif isinstance(payload, DriverCandidatePayload):
-            from marivo.analysis.compiler.attribution import prepare_expanded_attribute
+            from marivo.analysis.compiler.attribution import prepare_expanded_driver
             from marivo.analysis.compiler.driver_candidate import lower_driver_candidate
 
             previous = self._visit(root.inputs[0].root)
@@ -2457,7 +2453,7 @@ class _Compiler:
                 original = frozen
                 current = self._visit(root.inputs[1].root)
                 baseline = self._visit(root.inputs[2].root)
-                expanded, driver_compare_checks = prepare_expanded_attribute(
+                expanded, driver_compare_checks = prepare_expanded_driver(
                     original, current.expression, baseline.expression, payload.spec
                 )
                 self.validations.extend(driver_compare_checks)
@@ -2519,93 +2515,6 @@ class _Compiler:
                 )
             self.validations.extend(checks)
             result = _Rows(table, inputs[0].membership, inputs[0].entity)
-        elif isinstance(payload, ComparePayload):
-            current = self._visit(root.inputs[0].root)
-            baseline = self._visit(root.inputs[1].root)
-            table, validations = lower_compare(
-                current.expression,
-                baseline.expression,
-                payload.spec,
-                emulate_full_join=self.emulate_full_join,
-            )
-            self.validations.extend(validations)
-            parts = comparison_private_parts(table, current.parts, baseline.parts, payload.spec)
-            self.validations.extend(
-                private_part_validations(payload.spec.output_row, table, dict(parts))
-            )
-            result = _Rows(table, current.membership, current.entity, parts=parts)
-        elif isinstance(payload, AttributePayload):
-            from marivo.analysis.compiler.attribution import (
-                lower_attribute,
-                lower_expanded_attribute,
-            )
-
-            previous = self._visit(root.inputs[0].root)
-            if payload.spec.method in ("distinct_membership@v1", "distribution_shapley@v1"):
-                from marivo.analysis.compiler.distinct_attribution import lower_distinct_attribute
-
-                input_table = previous.expression
-                parts = previous.parts
-                extra_checks: tuple[CompiledValidation, ...] = ()
-                if payload.spec.expanded_compare is not None:
-                    from marivo.analysis.compiler.attribution import (
-                        prepare_expanded_attribute,
-                    )
-
-                    current = self._visit(root.inputs[1].root)
-                    baseline = self._visit(root.inputs[2].root)
-                    comparison = payload.spec.expanded_compare
-                    input_table, extra_checks = prepare_expanded_attribute(
-                        previous.expression, current.expression, baseline.expression, payload.spec
-                    )
-                    parts = comparison_private_parts(
-                        input_table,
-                        current.parts,
-                        baseline.parts,
-                        comparison,
-                    )
-                private_parts = dict(parts)
-                if payload.spec.method == "distribution_shapley@v1":
-                    from marivo.analysis.compiler.distribution_attribution import (
-                        lower_distribution_attribute,
-                    )
-
-                    table, validations = lower_distribution_attribute(
-                        input_table,
-                        payload.spec,
-                        current=private_parts["delta_distribution.current"],
-                        baseline=private_parts["delta_distribution.baseline"],
-                        original=previous.expression
-                        if payload.spec.expanded_compare is not None
-                        else None,
-                    )
-                else:
-                    table, validations = lower_distinct_attribute(
-                        input_table,
-                        payload.spec,
-                        current_membership=private_parts["delta_membership.current"],
-                        baseline_membership=private_parts["delta_membership.baseline"],
-                        original=previous.expression
-                        if payload.spec.expanded_compare is not None
-                        else None,
-                    )
-                validations = (*extra_checks, *validations)
-            elif payload.spec.expanded_compare is None:
-                table, validations = lower_attribute(previous.expression, payload.spec)
-            else:
-                current = self._visit(root.inputs[1].root)
-                baseline = self._visit(root.inputs[2].root)
-                table, validations = lower_expanded_attribute(
-                    previous.expression,
-                    current.expression,
-                    baseline.expression,
-                    payload.spec,
-                    emulate_full_join=self.emulate_full_join,
-                    scalar_masks=self.scalar_masks,
-                )
-            self.validations.extend(validations)
-            result = _Rows(table, previous.membership, previous.entity)
-            self.attribution_proof = table
         elif isinstance(payload, RetainedFoldPayload):
             previous = self._visit(root.inputs[0].root)
             table, validations = lower_fold(previous.expression, payload.spec)
@@ -2794,24 +2703,6 @@ class _Compiler:
     def compile(self) -> CompiledDataset:
         rows = self._visit(self.dataset._root)
         root = self.dataset._root
-        if (
-            isinstance(root, LogicalRootHandle)
-            and isinstance(root.payload, AttributePayload)
-            and root.payload.spec.method == "distribution_shapley@v1"
-        ):
-            if self.preparations:
-                self._flush_validations()
-            checks, preparations = _named_validations(
-                tuple(self.validations), tuple(self.preparations)
-            )
-            return CompiledDataset(
-                rows.expression,
-                checks,
-                tuple(rows.expression.columns),
-                (),
-                preparations,
-                numerical_input="distribution_coalitions",
-            )
         primary = tuple(field.name for field in self.dataset.schema.columns)
         parts = retained_part_specs(self.dataset.row_contract)
         hidden = _state_projection(self.dataset.row_contract)
@@ -3279,57 +3170,6 @@ def compile_retained_rows(
             validations.extend(checks)
             private_parts[id(value)] = ()
             return result
-        if isinstance(payload, ComparePayload):
-            current = visit(value._inputs[0])
-            baseline = visit(value._inputs[1])
-            result, checks = lower_compare(current, baseline, payload.spec)
-            private_parts[id(value)] = comparison_private_parts(
-                result,
-                private_parts[id(value._inputs[0])],
-                private_parts[id(value._inputs[1])],
-                payload.spec,
-            )
-            validations.extend(
-                private_part_validations(value.row_contract, result, dict(private_parts[id(value)]))
-            )
-            validations.extend(checks)
-            return result
-        if isinstance(payload, AttributePayload):
-            from marivo.analysis.compiler.attribution import lower_attribute
-
-            if payload.spec.expanded_compare is not None:
-                raise compilation_error(
-                    "logical source axis expansion", "retained expansion boundary"
-                )
-            previous = visit(value._inputs[0])
-            if payload.spec.method == "distribution_shapley@v1":
-                from marivo.analysis.compiler.distribution_attribution import (
-                    lower_distribution_attribute,
-                )
-
-                basis = dict(private_parts[id(value._inputs[0])])
-                result, checks = lower_distribution_attribute(
-                    previous,
-                    payload.spec,
-                    current=basis["delta_distribution.current"],
-                    baseline=basis["delta_distribution.baseline"],
-                )
-            elif payload.spec.method == "distinct_membership@v1":
-                from marivo.analysis.compiler.distinct_attribution import lower_distinct_attribute
-
-                basis = dict(private_parts[id(value._inputs[0])])
-                result, checks = lower_distinct_attribute(
-                    previous,
-                    payload.spec,
-                    current_membership=basis["delta_membership.current"],
-                    baseline_membership=basis["delta_membership.baseline"],
-                )
-            else:
-                result, checks = lower_attribute(previous, payload.spec)
-            private_parts[id(value)] = ()
-            validations.extend(checks)
-            attribution_proof = result
-            return result
         if (
             not isinstance(payload, (RetainedRowsPayload, RetainedFoldPayload))
             or len(value._inputs) != 1
@@ -3387,19 +3227,6 @@ def compile_retained_rows(
 
     expression = _physical_casts(visit(dataset))
     root = dataset._root
-    if (
-        isinstance(root, LogicalRootHandle)
-        and isinstance(root.payload, AttributePayload)
-        and root.payload.spec.method == "distribution_shapley@v1"
-    ):
-        checks, _ = _named_validations(tuple(validations))
-        return CompiledDataset(
-            expression,
-            checks,
-            tuple(expression.columns),
-            (),
-            numerical_input="distribution_coalitions",
-        )
     validations.extend(
         private_part_validations(dataset.row_contract, expression, dict(private_parts[id(dataset)]))
     )

@@ -42,6 +42,7 @@ from marivo.analysis.domains.contracts import (
 )
 from marivo.analysis.domains.errors import EventConstructionError, event_error
 from marivo.analysis.domains.event_reducers import validate_reducer
+from marivo.analysis.domains.funnel_delta import LogicalFunnelDeltaDataset
 from marivo.analysis.domains.subject import PopulationInput, admit_population
 from marivo.analysis.event import EventPattern, EveryStart, FirstPerSubject, PatternStep
 from marivo.analysis.observation import coordinates
@@ -58,7 +59,6 @@ from marivo.analysis.observation.contracts import (
 )
 from marivo.analysis.observation.population import LogicalPopulationDataset, make_population
 from marivo.analysis.observation.predicates import AnalysisPredicate
-from marivo.analysis.operators.delta import LogicalDeltaDataset
 from marivo.analysis.subject import DroppedBefore
 from marivo.refs import Ref, SemanticKind
 from marivo.semantic.event import ParticipantRoleHandle
@@ -78,7 +78,7 @@ class LogicalEventDataset(LogicalDataset, _token=d._CORE_TOKEN, family_id="event
 
     def compare(
         self, baseline: LogicalEventDataset | MaterializedEventDataset
-    ) -> LogicalDeltaDataset:
+    ) -> LogicalFunnelDeltaDataset:
         """Compare compatible funnel cells against baseline.
 
         Args: baseline: Logical or materialized Event funnel with compatible axes and follow-up.
@@ -152,7 +152,7 @@ class MaterializedEventDataset(MaterializedDataset, _token=d._CORE_TOKEN, family
 
     def compare(
         self, baseline: LogicalEventDataset | MaterializedEventDataset
-    ) -> LogicalDeltaDataset:
+    ) -> LogicalFunnelDeltaDataset:
         """Compare compatible funnel cells against baseline.
 
         Args: baseline: Logical or materialized Event funnel with compatible axes and follow-up.

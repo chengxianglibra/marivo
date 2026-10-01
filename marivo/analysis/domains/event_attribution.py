@@ -17,10 +17,10 @@ from marivo.analysis.domains.event_comparison import (
     compare,
 )
 from marivo.analysis.domains.event_reducers import funnel, step_index
+from marivo.analysis.domains.funnel_attribution import LogicalFunnelAttributionDataset
 from marivo.analysis.funnel import FunnelLossRate
 from marivo.analysis.observation.contracts import DimensionInput, owner_of, producer_contract
 from marivo.analysis.operators.attribute import _generated
-from marivo.analysis.operators.attribution import LogicalAttributionDataset
 from marivo.analysis.operators.errors import attribution_error
 
 REPAIR = "Use complete logical journeys or open journey checkpoints with session.artifact(ref), rebuild both funnels logically, then compare and attribute before materializing aggregate rows."
@@ -114,7 +114,7 @@ def attribute(
     axes: list[DimensionInput] | tuple[DimensionInput, ...],
     mode: Literal["joint", "hierarchy"],
     top_k: int | None,
-) -> LogicalAttributionDataset:
+) -> LogicalFunnelAttributionDataset:
     semantics = dataset.row_contract.family_semantics
     if (
         not isinstance(dataset, LogicalDataset)
@@ -242,7 +242,7 @@ def attribute(
         contract_versions=producer_contract("delta.funnel_attribute").versions,
         payload=FunnelAttributePayload(_token=d._CORE_TOKEN, spec=spec),
     )
-    if not isinstance(result, LogicalAttributionDataset):
+    if not isinstance(result, LogicalFunnelAttributionDataset):
         raise attribution_error("the shared Attribution family", "invalid registration")
     return result
 

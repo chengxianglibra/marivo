@@ -16,7 +16,6 @@ from marivo.analysis.evidence import _dataset_types as t
 from marivo.analysis.evidence._dataset_codec import _encode, finding_identity, finding_set_digest
 from marivo.analysis.evidence._dataset_reads import CoordinateRule, FindingRegistration
 from marivo.analysis.materialization.association_codec import AssociationEvidenceSummary
-from marivo.analysis.materialization.comparison_publication import _scalar
 from marivo.analysis.materialization.contracts import (
     FINDING_CAP,
     ArtifactDescriptor,
@@ -25,6 +24,7 @@ from marivo.analysis.materialization.contracts import (
     canonical_json,
     invalid,
 )
+from marivo.analysis.materialization.finding_values import _scalar
 from marivo.analysis.operators.association_contracts import (
     SELECTION_RULE_ID,
     STATUSES,

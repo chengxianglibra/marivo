@@ -28,11 +28,17 @@ from marivo.analysis.materialization.errors import IntegrityError, Materializati
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.observation.contracts import make_ids
 from marivo.analysis.refs import ArtifactRef
+from marivo.refs import RefPayloadV1, SemanticKind
 from tests.lazy_dataset_fixtures import make_row_contracts
 from tests.lazy_materialization_fixtures import descriptor
 
 _NOW = datetime(2026, 9, 8, tzinfo=timezone.utc)
-_SUBJECT = t.MetricFindingSubjectV1(metric=d._catalog_identity("metric:sales.revenue"))
+_SUBJECT = t.FunnelFindingSubjectV1(
+    subject_entity_ref=RefPayloadV1(
+        schema="marivo.semantic_ref/v1", kind=SemanticKind.ENTITY, path="sales.customers"
+    ),
+    pattern_fingerprint="a" * 64,
+)
 
 
 def test_invalid_finding_commit_time_discards_native_exception_context(tmp_path: Path) -> None:
@@ -50,21 +56,35 @@ def _item(artifact_ref: str, ordinal: int) -> t.Finding:
         finding_id="pending",
         artifact_ref=ArtifactRef(ref=artifact_ref),
         session_id="owner",
-        finding_type="delta",
+        finding_type="funnel_delta",
         epistemic_kind="algebraic",
         subject=_SUBJECT,
         coordinates=(),
         canonical_item_key=canonical_json(["row", ordinal]),
-        value=t.DeltaFindingValueV1(
+        value=t.FunnelDeltaFindingValueV1(
+            step_key="complete",
             coordinate_presence="matched",
-            current_value=ordinal + 2,
-            baseline_value=1,
-            delta=ordinal + 1,
-            relative_delta=t.DefinedFindingRatioV1(value=float(ordinal + 1)),
+            current_cohort_count=ordinal + 2,
+            baseline_cohort_count=1,
+            current_resolved_cohort_count=ordinal + 2,
+            baseline_resolved_cohort_count=1,
+            current_entry_count=ordinal + 2,
+            baseline_entry_count=1,
+            current_resolved_entry_count=ordinal + 2,
+            baseline_resolved_entry_count=1,
+            current_reached_count=ordinal + 2,
+            baseline_reached_count=1,
+            current_lost_count=0,
+            baseline_lost_count=0,
+            current_coverage_censored_count=0,
+            baseline_coverage_censored_count=0,
+            current_loss_rate_from_previous=0.0,
+            baseline_loss_rate_from_previous=0.0,
+            loss_rate_delta=0.0,
         ),
         derivation=t.FindingDerivationV1(
-            producer_id="test.delta",
-            extractor_contract_id="test_delta_finding",
+            producer_id="test.funnel",
+            extractor_contract_id="test_funnel_finding",
             extractor_contract_version="1",
             source_artifact_refs=(),
             source_fields=(),
@@ -75,8 +95,8 @@ def _item(artifact_ref: str, ordinal: int) -> t.Finding:
 
 
 def _item_key(finding: t.Finding) -> str:
-    assert isinstance(finding.value, t.DeltaFindingValueV1)
-    return canonical_json(["row", finding.value.current_value - 2])
+    assert isinstance(finding.value, t.FunnelDeltaFindingValueV1)
+    return canonical_json(["row", finding.value.current_cohort_count - 2])
 
 
 def _seed(
@@ -91,9 +111,9 @@ def _seed(
     base = descriptor()
     contract = replace(
         base.dataset_materialization_contract,
-        producer_id="test.delta",
+        producer_id="test.funnel",
         shape_id=row.shape_id,
-        finding_extractor_id="test_delta_finding",
+        finding_extractor_id="test_funnel_finding",
         finding_policy_id="test_findings@v1",
     )
     metadata = replace(
@@ -108,7 +128,7 @@ def _seed(
         evidence_digest="a" * 64,
         finding_count=count,
         finding_set_digest=finding_set_digest(items),
-        extractor_contract_versions=("test_delta_finding@v1",),
+        extractor_contract_versions=("test_funnel_finding@v1",),
         quality_summary_digest="b" * 64,
         typed_issue_digest="c" * 64,
     )
@@ -156,11 +176,11 @@ def _seed(
             ],
         )
     registration = reads.FindingRegistration(
-        producer_id="test.delta",
-        extractor_contract_id="test_delta_finding",
+        producer_id="test.funnel",
+        extractor_contract_id="test_funnel_finding",
         extractor_contract_version="1",
         shape_id=row.shape_id,
-        finding_type="delta",
+        finding_type="funnel_delta",
         subject=_SUBJECT,
         coordinates=(),
         source_artifact_refs=(),
@@ -385,10 +405,10 @@ def test_registered_dimension_null_states_are_derived_from_contribution_masks(
     )
     base = _item("artifact", 0)
     value = t.ContributionFindingValueV1(
-        method="additive_difference@v1",
+        method="funnel_ratio_mix@v1",
         active_axis_mask=(active,),
         other_mask=(other,),
-        contribution_kind="metric",
+        contribution_kind="loss",
         current_value=2,
         baseline_value=1,
         overall_delta=1,
@@ -399,7 +419,19 @@ def test_registered_dimension_null_states_are_derived_from_contribution_masks(
         contribution_rank=1,
         status="ok",
     )
-    item = replace(base, finding_type="contribution", coordinates=(coordinate,), value=value)
+    item = replace(
+        base,
+        finding_type="contribution",
+        epistemic_kind="algebraic",
+        subject=t.FunnelFindingSubjectV1(
+            subject_entity_ref=RefPayloadV1(
+                schema="marivo.semantic_ref/v1", kind=SemanticKind.ENTITY, path="sales.customers"
+            ),
+            pattern_fingerprint="a" * 64,
+        ),
+        coordinates=(coordinate,),
+        value=value,
+    )
     if valid:
         reads._coordinate(coordinate, rule, item)
     else:
@@ -582,8 +614,8 @@ def test_full_finding_set_streams_beyond_per_record_metadata_byte_bound(tmp_path
     suffix = "x" * 3500
 
     def key(item: t.Finding) -> str:
-        assert isinstance(item.value, t.DeltaFindingValueV1)
-        return canonical_json(["row", item.value.current_value - 2, suffix])
+        assert isinstance(item.value, t.FunnelDeltaFindingValueV1)
+        return canonical_json(["row", item.value.current_cohort_count - 2, suffix])
 
     items = tuple(replace(item, canonical_item_key=key(item)) for item in initial)
     items = tuple(replace(item, finding_id=finding_identity(item)) for item in items)

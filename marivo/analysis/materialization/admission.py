@@ -18,6 +18,14 @@ from marivo.analysis.domains.completeness import (
     EventCoverageProvider,
 )
 from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
+from marivo.analysis.domains.funnel_attribution import (
+    LogicalFunnelAttributionDataset,
+    MaterializedFunnelAttributionDataset,
+)
+from marivo.analysis.domains.funnel_delta import (
+    LogicalFunnelDeltaDataset,
+    MaterializedFunnelDeltaDataset,
+)
 from marivo.analysis.domains.lifecycle import (
     LogicalLifecycleDataset,
     MaterializedLifecycleDataset,
@@ -55,15 +63,10 @@ from marivo.analysis.operators.association import (
     LogicalAssociationDataset,
     MaterializedAssociationDataset,
 )
-from marivo.analysis.operators.attribution import (
-    LogicalAttributionDataset,
-    MaterializedAttributionDataset,
-)
 from marivo.analysis.operators.candidate_dataset import (
     LogicalCandidateDataset,
     MaterializedCandidateDataset,
 )
-from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
 from marivo.analysis.operators.forecast_dataset import (
     LogicalForecastDataset,
     MaterializedForecastDataset,
@@ -454,17 +457,17 @@ class DatasetRuntime:
             raise _error("publication", None)
         return result
 
-    def execute_delta(self, dataset: LogicalDeltaDataset) -> MaterializedDeltaDataset:
+    def execute_delta(self, dataset: LogicalFunnelDeltaDataset) -> MaterializedFunnelDeltaDataset:
         result = self._execute(dataset)
-        if not isinstance(result, MaterializedDeltaDataset):
+        if not isinstance(result, MaterializedFunnelDeltaDataset):
             raise _error("presentation")
         return result
 
     def execute_attribution(
-        self, dataset: LogicalAttributionDataset
-    ) -> MaterializedAttributionDataset:
+        self, dataset: LogicalFunnelAttributionDataset
+    ) -> MaterializedFunnelAttributionDataset:
         result = self._execute(dataset)
-        if not isinstance(result, MaterializedAttributionDataset):
+        if not isinstance(result, MaterializedFunnelAttributionDataset):
             raise _error("presentation")
         return result
 

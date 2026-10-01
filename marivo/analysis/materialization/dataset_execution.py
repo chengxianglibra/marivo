@@ -41,7 +41,6 @@ from marivo.analysis.domains.lifecycle_reducers import (
     LifecycleReducerPayload,
 )
 from marivo.analysis.materialization import contracts as codec
-from marivo.analysis.materialization.attribution_publication import AttributionSourceSummary
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
     ArtifactRecord,
@@ -288,7 +287,6 @@ def _admit_miss(
 @dataclass(slots=True)
 class ExecutionEvidence:
     validations: list[tuple[str, int]] = field(default_factory=list)
-    attribution_summary: AttributionSourceSummary | None = None
     association_summary: AssociationSearchSummary | None = None
     forecast_summary: ForecastTrainingSummary | None = None
     candidate_summary: CandidateSearchSummary | None = None

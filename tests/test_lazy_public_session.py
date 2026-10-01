@@ -27,34 +27,6 @@ def test_new_public_session_starts_with_empty_v7_store(
     assert session.runs().items == ()
 
 
-def test_public_construction_has_no_datasource_io_and_rejects_cross_session(
-    authoring_evidence_project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from marivo.datasource import backends
-
-    monkeypatch.chdir(authoring_evidence_project)
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("logical construction performed datasource I/O")
-
-    monkeypatch.setattr(backends, "build_backend", forbidden)
-    monkeypatch.setattr(backends, "build_backend_with_secrets", forbidden)
-    first = mv.session.get_or_create("first", report_timezone="UTC")
-    second = mv.session.get_or_create("second", report_timezone="UTC")
-    population = first.population(ms.ref.entity("sales.orders"))
-    current = first.observe(ms.ref.metric("sales.revenue"), population=population).aggregate()
-    baseline = second.observe(ms.ref.metric("sales.revenue")).aggregate()
-    assert isinstance(current, mv.LogicalMetricDataset)
-    assert not hasattr(current, "show")
-    assert not hasattr(current, "to_pandas")
-    with pytest.raises(DatasetConstructionError):
-        current.compare(baseline)
-    assert first.runs().items == ()
-    assert second.runs().items == ()
-    assert not first._runtime.statistics.statements
-    assert not second._runtime.statistics.statements
-
-
 @pytest.mark.parametrize("version", [0, 2, 3])
 @pytest.mark.parametrize("entry", ["get_or_create", "resume", "current"])
 def test_public_session_rejects_existing_store_without_modifying_it(

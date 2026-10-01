@@ -6,7 +6,6 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Literal
 
 from marivo._temporal import Grain, TimeScope
-from marivo.analysis._comparison import WindowBucketAlignment
 from marivo.analysis.datasets.actions import construct_operator
 from marivo.analysis.datasets.base import (
     Dataset,
@@ -51,7 +50,6 @@ from marivo.analysis.observation.population import (
 )
 from marivo.analysis.observation.predicates import AnalysisPredicate, bind_predicates
 from marivo.analysis.observation.rollup import rollup as _rollup
-from marivo.analysis.operators.contracts import DEFAULT_ALIGNMENT
 from marivo.analysis.operators.forecast_contracts import (
     DEFAULT_MODEL,
     ForecastHorizon,
@@ -70,7 +68,6 @@ if TYPE_CHECKING:
 
     from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
     from marivo.analysis.operators.association import LogicalAssociationDataset
-    from marivo.analysis.operators.delta import LogicalDeltaDataset
     from marivo.analysis.operators.discovery import MetricDiscovery
     from marivo.analysis.operators.forecast_dataset import LogicalForecastDataset
 
@@ -123,22 +120,6 @@ class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric
         from marivo.analysis.operators.correlate import correlate
 
         return correlate(self, method=method, lag_range=lag_range)
-
-    def compare(
-        self,
-        baseline: LogicalMetricDataset | MaterializedMetricDataset,
-        *,
-        alignment: WindowBucketAlignment = DEFAULT_ALIGNMENT,
-    ) -> LogicalDeltaDataset:
-        """Compare current rows with baseline using ordinal window alignment.
-
-        Args: baseline: Compatible single-Metric input. alignment: window_bucket() policy.
-        Returns: Logical Delta. Example: ``current.compare(baseline)``.
-        Constraints: Same membership and non-time selection; source ownership is validated.
-        """
-        from marivo.analysis.operators.compare import compare
-
-        return compare(self, baseline, alignment=alignment)
 
     def rank(
         self,
@@ -295,22 +276,6 @@ class MaterializedMetricDataset(MaterializedDataset, _token=_CORE_TOKEN, family_
         from marivo.analysis.operators.correlate import correlate
 
         return correlate(self, method=method, lag_range=lag_range)
-
-    def compare(
-        self,
-        baseline: LogicalMetricDataset | MaterializedMetricDataset,
-        *,
-        alignment: WindowBucketAlignment = DEFAULT_ALIGNMENT,
-    ) -> LogicalDeltaDataset:
-        """Compare current rows with baseline using ordinal window alignment.
-
-        Args: baseline: Compatible single-Metric input. alignment: window_bucket() policy.
-        Returns: Logical Delta. Example: ``current.compare(baseline)``.
-        Constraints: Same membership and non-time selection; source ownership is validated.
-        """
-        from marivo.analysis.operators.compare import compare
-
-        return compare(self, baseline, alignment=alignment)
 
     def rank(
         self,

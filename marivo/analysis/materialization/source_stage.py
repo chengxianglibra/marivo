@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterator, Mapping
 from contextlib import ExitStack
 from typing import TYPE_CHECKING
 
@@ -19,19 +19,14 @@ from marivo.analysis.compiler.placement import (
     SourceStep,
 )
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.datasets.descriptors import DatasetRowContract
 from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.domains.lifecycle_reducers import (
     REDUCER_TYPES,
 )
 from marivo.analysis.materialization import dataset_publication
-from marivo.analysis.materialization.attribution_publication import AttributionSourceSummary
 from marivo.analysis.materialization.contracts import (
     ArtifactRecord,
     StorageReceipt,
-)
-from marivo.analysis.materialization.errors import (
-    MaterializationError,
 )
 from marivo.analysis.materialization.errors import _execution_error as _error
 from marivo.analysis.materialization.execution import ExecutionAdapter
@@ -54,13 +49,6 @@ from marivo.analysis.operators.driver_contracts import (
 if TYPE_CHECKING:
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.dataset_execution import ExecutionEvidence
-
-
-def attribution_source_summary(
-    self: DatasetRuntime, backend: ExecutionAdapter, table: ir.Table, row: DatasetRowContract
-) -> AttributionSourceSummary:
-    """Reject the legacy attribution proof hook before any source read."""
-    raise _error("source_admission")
 
 
 def batches(
@@ -93,41 +81,6 @@ def batches(
                 raise
 
 
-def _decode_scalar_masks(
-    batches: Iterable[pa.RecordBatch], arity: int, run_ref: str
-) -> Iterator[pa.RecordBatch]:
-    """Restore exact fixed-width source mask bits at the public storage boundary."""
-    for batch in batches:
-        arrays = []
-        fields = []
-        for schema_field, column in zip(batch.schema, batch.columns, strict=True):
-            if schema_field.name not in {"active_axis_mask", "other_mask"}:
-                arrays.append(column)
-                fields.append(schema_field)
-                continue
-            values = column.to_pylist()
-            if any(
-                not isinstance(value, str)
-                or len(value) != arity
-                or any(bit not in "01" for bit in value)
-                for value in values
-            ):
-                raise MaterializationError(
-                    expected=f"exact {arity}-bit source Attribution mask",
-                    received=f"invalid {schema_field.name} value",
-                    repair="Correct the source mask lowering before publication.",
-                    stage="storage_staging",
-                    run_ref=run_ref,
-                )
-            arrays.append(
-                pa.array(
-                    [[bit == "1" for bit in value] for value in values], type=pa.list_(pa.bool_())
-                )
-            )
-            fields.append(schema_field.with_type(pa.list_(pa.bool_())))
-        yield pa.RecordBatch.from_arrays(arrays, schema=pa.schema(fields))
-
-
 def prepare_sources(
     self: DatasetRuntime,
     source_steps: tuple[SourceStep, ...],
@@ -154,7 +107,6 @@ def prepare_sources(
             proof_backend, proof_recipe, source_boundary, evidence, boundary_validations, run_ref
         )
         _collect_search_proofs(proof_backend, proof_recipe, source_boundary, evidence, run_ref)
-        _collect_attribution_proof(self, proof_backend, proof_recipe, source_boundary, evidence)
         evidence.validations.extend(
             (
                 f"source.{source_boundary.output}.{name}" if len(source_steps) > 1 else name,
@@ -344,32 +296,6 @@ def _collect_search_proofs(
         )
 
 
-def _collect_attribution_proof(
-    self: DatasetRuntime,
-    proof_backend: ExecutionAdapter,
-    proof_recipe: CompiledDataset,
-    source_boundary: SourceStep,
-    evidence: ExecutionEvidence,
-) -> None:
-    if (
-        proof_recipe.attribution_proof is not None
-        and source_boundary.dataset.kind == "attribution"
-        and (
-            proof_backend.engine == "duckdb"
-            or any(
-                field.role_id == "entity_identity"
-                for field in source_boundary.dataset.row_contract.schema.columns
-            )
-        )
-    ):
-        evidence.attribution_summary = attribution_source_summary(
-            self,
-            proof_backend,
-            proof_recipe.attribution_proof,
-            source_boundary.dataset.row_contract,
-        )
-
-
 def _validate_candidate_output(
     dataset: LogicalDataset,
     backend: ExecutionAdapter,
@@ -490,18 +416,6 @@ def execute_source_only(
         recipe.expression,
         1024,
     )
-    if dataset.kind == "attribution" and source_step.binding.adapter in {
-        "sqlite",
-        "mysql",
-    }:
-        from marivo.analysis.operators.attribution_contracts import (
-            AttributionSemantics,
-        )
-
-        semantics = dataset.row_contract.family_semantics
-        if not isinstance(semantics, AttributionSemantics):
-            raise _error("implementation_registration", run_ref)
-        incoming = _decode_scalar_masks(incoming, len(semantics.axis_field_ids), run_ref)
     output_parts = tuple(
         PartWriteSpec(
             part.role,

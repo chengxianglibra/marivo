@@ -119,8 +119,15 @@ def test_public_references_source_and_fixed(
 
 
 @pytest.mark.runtime
-@pytest.mark.parametrize("physical", ["BIGINT", "DOUBLE", "DECIMAL(30,6)", "duration"])
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize(
+    "physical,parquet",
+    [
+        (physical, parquet)
+        for physical in ("BIGINT", "DOUBLE", "DECIMAL(30,6)", "duration")
+        for parquet in (False, True)
+    ]
+    + [("duration_" + unit, True) for unit in ("s", "ms", "ns")],
+)
 def test_public_share_numeric_matrix(
     analysis_dsl_case_factory: DslCaseFactory, physical: str, parquet: bool
 ) -> None:
@@ -132,22 +139,22 @@ def test_public_share_numeric_matrix(
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
-        if physical == "duration" and not parquet:
+        if physical.startswith("duration") and not parquet:
             db.execute(
                 'ALTER TABLE "order" ALTER amount TYPE INTERVAL USING to_microseconds(amount)'
             )
-        elif physical != "duration":
+        elif not physical.startswith("duration"):
             db.execute(f'ALTER TABLE "order" ALTER amount TYPE {physical}')
     if parquet:
         export_dsl_parquet_models(case, case.root)
-        if physical == "duration":
+        if physical.startswith("duration"):
             path = case.root / "source_files/order.parquet"
             table = pq.read_table(path)
             pq.write_table(
                 table.set_column(
                     table.schema.get_field_index("amount"),
                     "amount",
-                    table["amount"].cast(pa.duration("us")),
+                    table["amount"].cast(pa.duration(physical.partition("_")[2] or "us")),
                 ),
                 path,
             )
@@ -158,7 +165,7 @@ def test_public_share_numeric_matrix(
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
     )
-    if physical == "duration":
+    if physical.startswith("duration"):
         category = members.read(ms.ref.dimension("sales.customer.region"))
         grouped = values.group_by(category).rollup()
         assert not any("standardize(" in action.call for action in grouped.contract().actions)

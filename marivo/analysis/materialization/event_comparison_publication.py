@@ -24,7 +24,6 @@ from marivo.analysis.domains.event_comparison import (
 from marivo.analysis.evidence import _dataset_types as t
 from marivo.analysis.evidence._dataset_codec import finding_identity, finding_set_digest
 from marivo.analysis.evidence._dataset_reads import CoordinateRule, FindingRegistration
-from marivo.analysis.materialization.attribution_publication import _share
 from marivo.analysis.materialization.contracts import (
     FINDING_CAP,
     ArtifactDescriptor,
@@ -37,6 +36,7 @@ from marivo.analysis.materialization.event_comparison_codec import (
     decode_evidence,
     evidence_payload,
 )
+from marivo.analysis.materialization.finding_values import _share
 from marivo.analysis.operators.attribute_values import reconciles
 from marivo.analysis.operators.row_values import compare_value
 from marivo.analysis.refs import ArtifactRef
@@ -119,12 +119,6 @@ def validate_descriptor(descriptor: ArtifactDescriptor) -> None:
         or len(descriptor.comparison_inputs) != 2
     ):
         raise invalid("missing or inconsistent Event comparison Evidence")
-    if (
-        descriptor.delta_evidence is not None
-        or descriptor.attribution_evidence is not None
-        or descriptor.attribution_fold_authority is not None
-    ):
-        raise invalid("Event comparison cannot inherit Metric arithmetic authority")
     from marivo.analysis.domains.event_attribution import COMPONENT_CONTRACT, COMPONENT_ROLE
 
     expected = (
@@ -372,7 +366,7 @@ def build_publication(
                     contribution_rank=integer("contribution_rank"),
                     status="zero_total_delta" if status == "zero_total_delta" else "ok",
                 )
-            from marivo.analysis.materialization.comparison_publication import _scalar
+            from marivo.analysis.materialization.finding_values import _scalar
 
             finding = t.Finding(
                 finding_id="pending",

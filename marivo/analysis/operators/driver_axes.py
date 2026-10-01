@@ -142,18 +142,10 @@ def driver_axes(
             raise discovery_error(
                 "all requested axes in retained Delta", "materialized missing-axis barrier"
             )
-        from marivo.analysis.operators.attribute_expansion import expand_attribute_inputs
-
-        current, baseline, expanded_compare = expand_attribute_inputs(dataset, axes)
-        inputs = (dataset, current, baseline)
-        operator_id = "discover.driver_axes_expanded"
-        original_input_row = dataset.row_contract
-        input_row, input_rows = expanded_compare.output_row, expanded_compare.output_rows
-        known = {
-            f.identity.identity_id.split(":", 1)[1]: f
-            for f in input_row.schema.columns
-            if f.role_id == "dimension" and isinstance(f.identity, d._CatalogFieldIdentity)
-        }
+        raise discovery_error(
+            "R8 typed driver inputs with retained requested axes",
+            "retired Metric comparison axis expansion",
+        )
     incoming = input_row.family_semantics
     if not isinstance(incoming, DeltaSemantics):
         raise discovery_error("exact expanded Delta semantics", "invalid expansion")

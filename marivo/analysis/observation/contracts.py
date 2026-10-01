@@ -119,6 +119,14 @@ if TYPE_CHECKING:
     import pandas
 
     from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
+    from marivo.analysis.domains.funnel_attribution import (
+        LogicalFunnelAttributionDataset,
+        MaterializedFunnelAttributionDataset,
+    )
+    from marivo.analysis.domains.funnel_delta import (
+        LogicalFunnelDeltaDataset,
+        MaterializedFunnelDeltaDataset,
+    )
     from marivo.analysis.domains.lifecycle import (
         LogicalLifecycleDataset,
         MaterializedLifecycleDataset,
@@ -137,16 +145,11 @@ if TYPE_CHECKING:
         LogicalAssociationDataset,
         MaterializedAssociationDataset,
     )
-    from marivo.analysis.operators.attribution import (
-        LogicalAttributionDataset,
-        MaterializedAttributionDataset,
-    )
     from marivo.analysis.operators.candidate_contracts import CandidateDefinition
     from marivo.analysis.operators.candidate_dataset import (
         LogicalCandidateDataset,
         MaterializedCandidateDataset,
     )
-    from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
     from marivo.analysis.operators.driver_contracts import DriverCandidateDefinition
     from marivo.analysis.operators.forecast_dataset import (
         LogicalForecastDataset,
@@ -371,6 +374,7 @@ class ObservationProducerContract:
                 "candidate.",
                 "session.events.",
                 "event.",
+                "delta.where",
                 "session.lifecycle.",
                 "lifecycle.",
             )
@@ -378,18 +382,9 @@ class ObservationProducerContract:
             return ()
         if self.contract_stem.startswith(("association", "forecast")):
             return ()
-        if self.contract_stem.startswith("attribution"):
-            return ("attribution.reconciliation",)
-        if self.producer_id == "metric.compare" or self.producer_id.startswith("delta."):
-            return (
-                "delta.sufficient_components",
-                "delta.distinct_membership",
-                "delta.distribution",
-            )
         return (
             ("metric.sufficient_components", "metric.distinct_membership", "metric.distribution")
-            if self.producer_id != "metric.compare"
-            and (self.producer_id.startswith("metric.") or self.producer_id == "session.observe")
+            if self.producer_id.startswith("metric.") or self.producer_id == "session.observe"
             else ()
         )
 
@@ -422,6 +417,7 @@ class ObservationProducerContract:
                 "candidate.",
                 "session.events.",
                 "event.",
+                "delta.where",
                 "session.lifecycle.",
                 "lifecycle.",
             )
@@ -439,38 +435,15 @@ class ObservationProducerContract:
                 ("association_finding", "v1"),
                 ("association_findings", "v1"),
             )
-        if self.contract_stem.startswith("attribution"):
-            producing = self.producer_id in ("delta.attribute", "delta.attribute_expanded")
-            return (
-                *common,
-                ("contribution_finding" if producing else "none", "v1"),
-                ("contribution_findings" if producing else "zero_findings", "v1"),
-                ("attribution.reconciliation", "v1"),
-            )
-        comparison = self.producer_id == "metric.compare" or self.producer_id.startswith("delta.")
+        metric = self.producer_id.startswith("metric.") or self.producer_id == "session.observe"
         return (
             *common,
-            ("delta_finding" if comparison else "none", "v1"),
-            ("delta_findings" if comparison else "zero_findings", "v1"),
-            (
-                "delta.sufficient_components"
-                if comparison
-                else "metric.sufficient_components"
-                if self.producer_id.startswith("metric.") or self.producer_id == "session.observe"
-                else "population_identity",
-                "v1",
-            ),
+            ("none", "v1"),
+            ("zero_findings", "v1"),
+            ("metric.sufficient_components" if metric else "population_identity", "v1"),
             *(
-                (
-                    (
-                        "delta.distinct_membership" if comparison else "metric.distinct_membership",
-                        "v1",
-                    ),
-                    ("delta.distribution" if comparison else "metric.distribution", "v1"),
-                )
-                if comparison
-                or self.producer_id.startswith("metric.")
-                or self.producer_id == "session.observe"
+                (("metric.distinct_membership", "v1"), ("metric.distribution", "v1"))
+                if metric
                 else ()
             ),
         )
@@ -481,6 +454,7 @@ _PRODUCER_CONTRACTS = (
     ObservationProducerContract("session.events.match", "event_journey"),
     ObservationProducerContract("event.compare", "funnel_delta"),
     ObservationProducerContract("delta.funnel_attribute", "funnel_attribution"),
+    ObservationProducerContract("funnel_delta.attribute", "funnel_attribution_entry"),
     *(
         ObservationProducerContract(f"lifecycle.{name}", f"lifecycle_{name}")
         for name in ("distribution", "transitions", "dwell", "violations", "where")
@@ -519,15 +493,7 @@ _PRODUCER_CONTRACTS = (
     ObservationProducerContract("association.where", "association_filter"),
     ObservationProducerContract("association.rank", "association_rank"),
     ObservationProducerContract("association.limit", "association_limit"),
-    ObservationProducerContract("metric.compare", "delta"),
     ObservationProducerContract("delta.where", "delta_filter"),
-    ObservationProducerContract("delta.rank", "delta_rank"),
-    ObservationProducerContract("delta.limit", "delta_limit"),
-    ObservationProducerContract("delta.attribute", "attribution"),
-    ObservationProducerContract("delta.attribute_expanded", "attribution"),
-    ObservationProducerContract("attribution.where", "attribution_filter"),
-    ObservationProducerContract("attribution.rank", "attribution_rank"),
-    ObservationProducerContract("attribution.limit", "attribution_limit"),
 )
 
 
@@ -559,10 +525,12 @@ class ObservationActionPort(Protocol):
     def execute_association(
         self, dataset: LogicalAssociationDataset
     ) -> MaterializedAssociationDataset: ...
-    def execute_delta(self, dataset: LogicalDeltaDataset) -> MaterializedDeltaDataset: ...
+    def execute_delta(
+        self, dataset: LogicalFunnelDeltaDataset
+    ) -> MaterializedFunnelDeltaDataset: ...
     def execute_attribution(
-        self, dataset: LogicalAttributionDataset
-    ) -> MaterializedAttributionDataset: ...
+        self, dataset: LogicalFunnelAttributionDataset
+    ) -> MaterializedFunnelAttributionDataset: ...
     def show(self, dataset: MaterializedDataset, *, max_output_bytes: int | None) -> None: ...
     def to_pandas(self, dataset: MaterializedDataset) -> pandas.DataFrame: ...
     def evidence_digest(self, dataset: MaterializedDataset) -> ArtifactDigest: ...
@@ -1903,18 +1871,6 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
             ("metric_source_validation@v1",),
             discoverable=False,
         ),
-        ConsumerRegistration(
-            "metric.compare",
-            ("current", "baseline"),
-            "delta",
-            tuple(
-                shape
-                for shape in shapes
-                if shape.local_shape_id
-                in ("entity", "scalar", "dimension", "time", "dimension-time")
-            ),
-            ("compare.metric@v1",),
-        ),
     )
     registry.register(
         DatasetFamilyRegistration(
@@ -1933,8 +1889,10 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
             contract_facts=_contract_facts,
         )
     )
-    from marivo.analysis.operators.attribute import register_attribution
-    from marivo.analysis.operators.compare import register_delta
+    from marivo.analysis.domains.funnel_registry import (
+        register_funnel_attribution,
+        register_funnel_delta,
+    )
     from marivo.analysis.operators.correlate import register_association
 
     register_association(registry, ids)
@@ -1944,8 +1902,8 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
     from marivo.analysis.operators.discovery import register_candidate
 
     register_candidate(registry, ids)
-    register_delta(registry, ids)
-    register_attribution(registry, ids)
+    register_funnel_delta(registry, ids)
+    register_funnel_attribution(registry, ids)
     from marivo.analysis.domains.event import register_event
 
     register_event(registry, ids)
@@ -1978,9 +1936,7 @@ def semantic_dependency_digest(
         LifecycleSelectionPayload,
     )
     from marivo.analysis.operators.association_contracts import CorrelatePayload
-    from marivo.analysis.operators.attribution_contracts import AttributePayload
     from marivo.analysis.operators.candidate_contracts import CandidatePayload
-    from marivo.analysis.operators.contracts import ComparePayload
     from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
     from marivo.analysis.operators.forecast_contracts import ForecastPayload
 
@@ -2056,10 +2012,6 @@ def semantic_dependency_digest(
             semantic_facts = ("metric_correlate", payload.spec.identity_payload())
         elif isinstance(payload, (FunnelComparePayload, FunnelAttributePayload)):
             semantic_facts = ("event_operator", payload.identity_payload)
-        elif isinstance(payload, ComparePayload):
-            semantic_facts = ("metric_compare",)
-        elif isinstance(payload, AttributePayload):
-            semantic_facts = ("metric_attribute", payload.spec.identity_payload())
         elif isinstance(payload, RetainedFoldPayload):
             semantic_facts = ("retained_fold", payload.spec.identity_payload())
         elif isinstance(payload, RetainedRowsPayload):

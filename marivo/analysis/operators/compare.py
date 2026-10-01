@@ -3,18 +3,13 @@
 from __future__ import annotations
 
 import math
-from dataclasses import replace
 from decimal import Decimal, InvalidOperation, localcontext
 from functools import cmp_to_key
 
 import pandas as pd
 import pyarrow as pa
 
-from marivo.analysis._comparison import WindowBucketAlignment
-from marivo.analysis.datasets.actions import construct_operator
-from marivo.analysis.datasets.base import Dataset, _dataset_repr, _validate_input_ownership
 from marivo.analysis.datasets.descriptors import (
-    _CORE_TOKEN,
     DatasetField,
     DatasetRowContract,
     DatasetRowSetContract,
@@ -23,46 +18,17 @@ from marivo.analysis.datasets.descriptors import (
     _EntityFieldIdentity,
     _generated_identity,
     _GeneratedFieldIdentity,
-    _keyed_cardinality,
     _make_field,
     _make_field_id,
-    _make_row_contract,
-    _make_row_set_contract,
-    _make_schema,
-    _make_shape_id,
-    _RuntimeMetricFieldIdentity,
-    _singleton_cardinality,
     _StableIdRegistry,
-    _unknown_row_bound,
-    _unordered_ordering,
 )
-from marivo.analysis.datasets.registry import (
-    ConsumerRegistration,
-    DatasetFamilyRegistration,
-    DatasetFamilyRegistry,
-)
-from marivo.analysis.datasets.state import MaterializedDatasetState, _validate_materialized_state
-from marivo.analysis.observation.contracts import (
-    EntityPresentMetricSemantics,
-    EntityReducedMetricSemantics,
-    RetainedRowsPayload,
-    owner_of,
-    producer_contract,
-)
-from marivo.analysis.observation.fold_contracts import decode_fold_authority
 from marivo.analysis.operators.contracts import (
-    DEFAULT_ALIGNMENT,
     DELTA_SHAPES,
-    ComparePayload,
     CompareSpecV1,
     DeltaSemantics,
-    comparison_basis,
-    decode_comparison_basis,
 )
-from marivo.analysis.operators.delta import LogicalDeltaDataset, MaterializedDeltaDataset
 from marivo.analysis.operators.errors import comparison_error
 from marivo.analysis.operators.row_values import compare_value, frame_keys, row_key_names
-from marivo.semantic._quantile import approximation_class
 
 _GENERATED = (
     ("coordinate_presence", "status", "string", False),
@@ -115,212 +81,6 @@ def _generated(
         nullable=nullable,
         ids=ids,
     )
-
-
-def compare(
-    current: Dataset, baseline: Dataset, *, alignment: WindowBucketAlignment = DEFAULT_ALIGNMENT
-) -> LogicalDeltaDataset:
-    """Bind two compatible exact input authorities without performing data work."""
-    from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
-
-    if type(current) not in (LogicalMetricDataset, MaterializedMetricDataset) or type(
-        baseline
-    ) not in (LogicalMetricDataset, MaterializedMetricDataset):
-        raise comparison_error(
-            "Logical or Materialized Metric operands",
-            f"current={type(current).__name__}, baseline={type(baseline).__name__}",
-        )
-    _validate_input_ownership(current._owner, (current, baseline))
-    if type(alignment) is not WindowBucketAlignment:
-        raise comparison_error("window_bucket() alignment", "unsupported alignment policy")
-    shape = current.row_contract.shape_id.local_shape_id
-    if shape not in DELTA_SHAPES or current.row_contract.shape_id != baseline.row_contract.shape_id:
-        raise comparison_error(
-            "one identical admitted Metric shape", "incompatible comparison shapes"
-        )
-    current_values = tuple(field for field in current.schema.columns if field.role_id == "metric")
-    baseline_values = tuple(field for field in baseline.schema.columns if field.role_id == "metric")
-    if len(current_values) != 1 or len(baseline_values) != 1:
-        raise comparison_error(
-            "exactly one Metric per input",
-            "multi-Metric input",
-            repair="Select each input with dataset.metric(metric_ref) before compare().",
-        )
-    a, b = current_values[0], baseline_values[0]
-    left, right = current.row_contract.family_semantics, baseline.row_contract.family_semantics
-    if not isinstance(
-        left, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)
-    ) or not isinstance(right, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
-        raise comparison_error("exact retained Metric contracts", "unsupported row semantics")
-    if (
-        _field_signature(a) != _field_signature(b)
-        or left.metric_bindings != right.metric_bindings
-        or left.metric_folds != right.metric_folds
-    ):
-        raise comparison_error(
-            "identical Metric identity, type, unit and aggregation", "incompatible Metric contracts"
-        )
-    if (
-        isinstance(left, EntityReducedMetricSemantics)
-        and isinstance(right, EntityReducedMetricSemantics)
-        and (left.reduced_entity_ref, left.reduced_identity_signature)
-        != (right.reduced_entity_ref, right.reduced_identity_signature)
-    ):
-        raise comparison_error("identical reduced Entity authority", "different Entity contracts")
-    current_coordinates = tuple(
-        field
-        for field in current.schema.columns
-        if field.field_id in current.row_contract.coordinate_field_ids
-    )
-    baseline_coordinates = tuple(
-        field
-        for field in baseline.schema.columns
-        if field.field_id in baseline.row_contract.coordinate_field_ids
-    )
-    if (
-        tuple(_field_signature(item) for item in current_coordinates)
-        != tuple(_field_signature(item) for item in baseline_coordinates)
-        or left.coordinate_semantics != right.coordinate_semantics
-    ):
-        raise comparison_error(
-            "identical ordered coordinate contracts", "incompatible coordinate identity or grain"
-        )
-    current_basis, baseline_basis = comparison_basis(current), comparison_basis(baseline)
-    current_authority, baseline_authority = (
-        decode_comparison_basis(current_basis),
-        decode_comparison_basis(baseline_basis),
-    )
-    if current_authority.model_copy(
-        update={"observation_scope": None}
-    ) != baseline_authority.model_copy(update={"observation_scope": None}):
-        raise comparison_error(
-            "same Population membership, sampling and non-time selection",
-            "incompatible comparison scope",
-        )
-    promoted = promoted_numeric_type(a.logical_type_id)
-    ids = current._registration.ids
-    current_time = next(
-        (field for field in current_coordinates if field.role_id == "time_dimension"), None
-    )
-    baseline_time = next(
-        (field for field in baseline_coordinates if field.role_id == "time_dimension"), None
-    )
-    coordinates = tuple(field for field in current_coordinates if field.role_id != "time_dimension")
-    columns = list(coordinates)
-    if current_time is not None and baseline_time is not None:
-        ordinal = _generated("comparison_ordinal", "comparison_coordinate", "int64", False, ids)
-        coordinates = (*coordinates, ordinal)
-        columns.extend(
-            (
-                ordinal,
-                _generated(
-                    "current_time",
-                    "comparison_time",
-                    current_time.logical_type_id,
-                    current_time.nullable,
-                    ids,
-                ),
-                _generated(
-                    "baseline_time",
-                    "comparison_time",
-                    baseline_time.logical_type_id,
-                    baseline_time.nullable,
-                    ids,
-                ),
-            )
-        )
-    if current_time is not None and baseline_time is not None:
-        columns = [
-            replace(
-                field,
-                _token=_CORE_TOKEN,
-                derivation_identity=f"{field.derivation_identity}:{current_time.derivation_identity if field.name == 'current_time' else baseline_time.derivation_identity}",
-            )
-            if field.name in ("current_time", "baseline_time")
-            and field.role_id == "comparison_time"
-            else field
-            for field in columns
-        ]
-    columns.extend(
-        _generated(name, role, promoted if kind == "numeric" else kind, nullable, ids)
-        for name, role, kind, nullable in _GENERATED
-    )
-    if len({field.name for field in columns}) != len(columns):
-        raise comparison_error(
-            "unambiguous retained coordinate and generated comparison names",
-            "coordinate name collides with a generated comparison field",
-        )
-    if not isinstance(a.identity, (_CatalogFieldIdentity, _RuntimeMetricFieldIdentity)):
-        raise comparison_error("exact retained Metric identity", "unsupported Metric identity")
-    semantics = DeltaSemantics(
-        _token=_CORE_TOKEN,
-        metric_ref=(
-            a.identity.identity_id.split(":", 1)[1]
-            if isinstance(a.identity, _CatalogFieldIdentity)
-            else a.identity.identity_id
-        ),
-        metric_unit=left.metric_bindings[0][1],
-        numeric_type=promoted,
-        exact_empty_zero=left.metric_bindings[0][5] == "zero",
-        approximation_class=approximation_class(
-            sampled=bool(current_authority.sampling_definition),
-            semantic=any(
-                item.distribution is not None
-                and item.distribution.quantile.method == "duckdb_tdigest@v1"
-                for item in left.metric_folds
-            ),
-        ),
-        current_time_field_name=None if current_time is None else "current_time",
-        baseline_time_field_name=None if baseline_time is None else "baseline_time",
-        current_fold_authority=decode_fold_authority(left.fold_authority)
-        .model_copy(update={"scope": None})
-        .to_json(),
-        baseline_fold_authority=decode_fold_authority(right.fold_authority)
-        .model_copy(update={"scope": None})
-        .to_json(),
-    )
-    row = _make_row_contract(
-        schema_version=1,
-        shape_id=_make_shape_id("delta", shape, 1, ids=ids),
-        schema=_make_schema(tuple(columns)),
-        coordinate_field_ids=tuple(field.field_id for field in coordinates),
-        key_field_ids=tuple(field.field_id for field in coordinates),
-        family_semantics=semantics,
-    )
-    rows = _make_row_set_contract(
-        schema_version=1,
-        cardinality=_singleton_cardinality()
-        if shape == "scalar"
-        else _keyed_cardinality(_unknown_row_bound()),
-        ordering=_unordered_ordering(),
-    )
-    spec = CompareSpecV1(
-        current.row_contract,
-        current.row_set_contract,
-        baseline.row_contract,
-        baseline.row_set_contract,
-        row,
-        rows,
-        a.name,
-        b.name,
-        promoted,
-        semantics.exact_empty_zero,
-        current_basis,
-        baseline_basis,
-    )
-    result = construct_operator(
-        owner=owner_of(current),
-        registry=current._registry,
-        operator_id="metric.compare",
-        contract_versions=producer_contract("metric.compare").versions,
-        inputs=(current, baseline),
-        row_contract=row,
-        row_set_contract=rows,
-        payload=ComparePayload(_token=_CORE_TOKEN, spec=spec),
-    )
-    if not isinstance(result, LogicalDeltaDataset):
-        raise comparison_error("paired Logical Delta", "invalid family registration")
-    return result
 
 
 def validate_delta(row: DatasetRowContract, rows: DatasetRowSetContract) -> None:
@@ -451,128 +211,6 @@ def validate_delta(row: DatasetRowContract, rows: DatasetRowSetContract) -> None
         raise comparison_error(
             "ordered coordinates and generated Delta fields", "invalid field order"
         )
-
-
-def register_delta(registry: DatasetFamilyRegistry, ids: _StableIdRegistry) -> None:
-    from marivo.analysis.domains.event_attribution import admits_attribute
-    from marivo.analysis.domains.event_comparison import FunnelComparePayload, FunnelDeltaSemantics
-    from marivo.analysis.domains.event_comparison import validate_delta as validate_funnel_delta
-    from marivo.analysis.operators.discovery import DeltaDiscovery
-
-    funnel_shapes = (_make_shape_id("delta", "funnel", 1, ids=ids),)
-
-    def decode(state: MaterializedDatasetState) -> MaterializedDatasetState:
-        _validate_materialized_state(state, ids=ids)
-        return state
-
-    shapes = tuple(_make_shape_id("delta", shape, 1, ids=ids) for shape in DELTA_SHAPES)
-    non_scalar = tuple(shape for shape in shapes if shape.local_shape_id != "scalar")
-    registry.register(
-        DatasetFamilyRegistration(
-            family_id="delta",
-            logical_type=LogicalDeltaDataset,
-            materialized_type=MaterializedDeltaDataset,
-            shape_ids=(*shapes, *funnel_shapes),
-            owner_id="operators.compare",
-            ids=ids,
-            row_validator=lambda row, rows: (
-                validate_funnel_delta(row, rows, ids)
-                if isinstance(row.family_semantics, FunnelDeltaSemantics)
-                else validate_delta(row, rows)
-            ),
-            consumers=(
-                ConsumerRegistration(
-                    "delta.funnel_attribute",
-                    ("input", "current", "baseline"),
-                    "attribution",
-                    funnel_shapes,
-                    ("event.exact_journey@v1",),
-                    discoverable=False,
-                    operand_shape_ids=(
-                        funnel_shapes,
-                        (_make_shape_id("event", "funnel", 1, ids=ids),),
-                        (_make_shape_id("event", "funnel", 1, ids=ids),),
-                    ),
-                ),
-                ConsumerRegistration(
-                    "discover.driver_axes",
-                    ("input",),
-                    "candidate",
-                    shapes,
-                    ("delta.current_rows@v1", "delta.sufficient_components@v1"),
-                    namespace_type=DeltaDiscovery,
-                ),
-                ConsumerRegistration(
-                    "discover.driver_axes_expanded",
-                    ("input", "current", "baseline"),
-                    "candidate",
-                    shapes,
-                    ("delta.current_rows@v1", "delta.sufficient_components@v1"),
-                    discoverable=False,
-                    operand_shape_ids=(
-                        shapes,
-                        registry.get("metric").shape_ids,
-                        registry.get("metric").shape_ids,
-                    ),
-                ),
-                ConsumerRegistration(
-                    "discover.period_shifts",
-                    ("delta_time",),
-                    "candidate",
-                    tuple(
-                        shape
-                        for shape in shapes
-                        if shape.local_shape_id in ("time", "dimension-time")
-                    ),
-                    ("candidate.delta_time@v1",),
-                    namespace_type=DeltaDiscovery,
-                ),
-                *(
-                    ConsumerRegistration(
-                        f"delta.{method}",
-                        ("input",),
-                        "delta",
-                        (*non_scalar, *funnel_shapes) if method == "where" else non_scalar,
-                        ("delta.current_rows@v1", "delta.sufficient_components@v1"),
-                    )
-                    for method in ("where", "rank", "limit")
-                ),
-                ConsumerRegistration(
-                    "delta.attribute",
-                    ("input",),
-                    "attribution",
-                    (*shapes, *funnel_shapes),
-                    ("delta.current_rows@v1", "delta.sufficient_components@v1"),
-                ),
-                ConsumerRegistration(
-                    "delta.attribute_expanded",
-                    ("input", "current", "baseline"),
-                    "attribution",
-                    shapes,
-                    ("delta.current_rows@v1", "delta.sufficient_components@v1"),
-                    discoverable=False,
-                    operand_shape_ids=(
-                        shapes,
-                        registry.get("metric").shape_ids,
-                        registry.get("metric").shape_ids,
-                    ),
-                ),
-            ),
-            repr_renderer=_dataset_repr,
-            materialized_state_decoder=decode,
-            node_payload_types=(ComparePayload, FunnelComparePayload, RetainedRowsPayload),
-            consumer_admission=lambda dataset, method: (
-                admits_attribute(dataset)
-                if method == "delta.attribute"
-                and isinstance(dataset.row_contract.family_semantics, FunnelDeltaSemantics)
-                else not any(field.role_id == "rank" for field in dataset.schema.columns)
-                if method == "delta.rank"
-                else dataset.row_set_contract.ordering.kind == "ordered"
-                if method == "delta.limit"
-                else True
-            ),
-        )
-    )
 
 
 def _missing(value: object) -> bool:

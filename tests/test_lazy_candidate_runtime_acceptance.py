@@ -43,7 +43,7 @@ def _run(mode: str, objective: str, kind: str, project: Path, refs: object) -> d
 
 @pytest.mark.parametrize(
     "objective,kind",
-    [("point_anomalies", "local"), ("interesting_windows", "engine"), ("period_shifts", "local")],
+    [("point_anomalies", "local"), ("interesting_windows", "engine")],
 )
 def test_three_process_candidate(tmp_path: Path, objective: str, kind: str) -> None:
     candidate = _manifest()

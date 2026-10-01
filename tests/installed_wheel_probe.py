@@ -104,8 +104,6 @@ def surface_snapshot() -> list[dict[str, object]]:
     for family in (
         "Population",
         "Metric",
-        "Delta",
-        "Attribution",
         "Association",
         "Forecast",
         "Candidate",
@@ -160,7 +158,10 @@ if __name__ == "__main__":
         hook.write_text(f"import os, sys; exec({bootstrap!r})\n")
         report = {"hook": str(hook)}
     else:
-        from tests.installed_graph_journeys import journey
+        if sys.argv[3].startswith("a"):
+            from tests.installed_r6_journeys import journey
+        else:
+            from tests.installed_graph_journeys import journey
 
         report = journey(mode, Path(sys.argv[2]), sys.argv[3], sys.argv[4])
         report["origin"] = assert_installed_origin()

@@ -18,7 +18,6 @@ from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.operators.attribute_values import (
     _difference,
     _finite,
-    _partition_values,
     _sum,
     exact_magnitude,
     partition_endpoints,
@@ -31,6 +30,7 @@ from marivo.analysis.operators.driver_contracts import (
     DriverCandidateSpecV1,
 )
 from marivo.analysis.operators.errors import driver_error as discovery_error
+from marivo.analysis.operators.rollup import _value
 from marivo.analysis.operators.row import PartFrame, ordered
 from marivo.analysis.operators.row_values import _missing, compare_value, frame_keys, row_key_names
 
@@ -245,7 +245,7 @@ def execute_driver(
         for index, state in enumerate(side_states):
             if check is not None and index % 1024 == 0:
                 check()
-            _partition_values(authority, state, "additive_difference@v1")
+            _finite(_value(authority, state))
     scope_names = tuple(f.name for f in spec.scope_fields)
     groups: dict[tuple[object, ...], list[int]] = {}
     for index, scope in enumerate(frame_keys(frame, scope_names)):

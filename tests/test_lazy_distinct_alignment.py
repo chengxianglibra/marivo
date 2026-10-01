@@ -20,15 +20,15 @@ from marivo.analysis.compiler.distinct import (
     membership_validations,
 )
 from marivo.analysis.datasets.descriptors import _CORE_TOKEN, DatasetRowContract, _make_schema
-from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.observation.distinct_contracts import (
     DISTINCT_KEY_COLUMN,
     membership_part_authorities,
 )
-from marivo.analysis.operators.contracts import ComparePayload, CompareSpecV1
+from marivo.analysis.operators.contracts import CompareSpecV1
 from marivo.refs import ref
 from tests.lazy_distinct_fixtures import DISTINCT_BUYERS, REGION, make_distinct_sources
 from tests.lazy_execution_fixtures import assert_compiled_validations
+from tests.r8_arithmetic_fixtures import comparison_for_metric
 
 
 @pytest.fixture
@@ -49,10 +49,7 @@ def _spec(*, timed: bool = True, dimension: bool = True) -> CompareSpecV1:
             ref.time_dimension("sales.orders.order_time"), grain=grain("day")
         )
     result = metric.aggregate()
-    delta = result.compare(result)
-    assert isinstance(delta._root, LogicalRootHandle)
-    assert isinstance(delta._root.payload, ComparePayload)
-    return delta._root.payload.spec
+    return comparison_for_metric(result)
 
 
 def _side(

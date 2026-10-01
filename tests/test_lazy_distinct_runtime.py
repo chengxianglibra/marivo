@@ -1,7 +1,5 @@
 """Immutable Parquet checkpoints keep private membership native through recovery and inspection."""
 
-import os
-import traceback
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -9,18 +7,12 @@ from unittest.mock import patch
 
 import pytest
 
-from marivo._compat import Never
-from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.materialization import inspection
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.materialization.storage import ReadPolicy
-from marivo.analysis.observation.contracts import source_owner_of
 from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
-from marivo.analysis.operators.delta import MaterializedDeltaDataset
-from marivo.analysis.operators.errors import ComparisonError
 from marivo.refs import ref
 from tests.lazy_execution_fixtures import make_execution_registry, seed_execution_database
 
@@ -108,156 +100,3 @@ def test_membership_failure_releases_whole_checkpoint_and_scrubs_native_diagnost
     assert run is not None and run.lifecycle == "failed" and run.output_artifact_ref is None
     assert runtime.store.resources(runtime.session_ref) == ()
     assert runtime.graph().artifacts == ()
-
-
-@pytest.mark.parametrize("fault", ["missing", "replaced"])
-def test_damaged_delta_membership_keeps_primary_readable_but_blocks_consumption(
-    tmp_path: Path, fault: str
-) -> None:
-    runtime, metric, database = _setup(tmp_path)
-    delta = metric.compare(metric).execute()
-    expected = delta.to_pandas()
-    record = runtime.store.artifact(delta.state.artifact_ref.ref)
-    assert record is not None
-    receipt = next(
-        part.storage_receipt
-        for part in record.descriptor.retained_parts
-        if part.role == "delta_membership.current"
-    )
-    assert isinstance(receipt, LocalReceipt)
-    path = tmp_path / receipt.project_relative_path / "data.parquet"
-    if fault == "missing":
-        path.unlink()
-    else:
-        os.chmod(path, 0o600)
-        path.write_bytes(b"private-member-physical-canary")
-    database.rename(tmp_path / "origin.offline")
-    cold = DatasetRuntime.open(tmp_path, runtime.session_ref)
-    recovered = cold.artifact(delta.state.artifact_ref)
-    assert isinstance(recovered, MaterializedDeltaDataset)
-    assert recovered.to_pandas().equals(expected)
-    checked = cold.revalidate(delta.state.artifact_ref)
-    assert checked.artifact_integrity == checked.evidence_integrity == "valid"
-    assert checked.storage_authority == ("missing" if fault == "missing" else "mutated")
-    with pytest.raises(MaterializationError) as caught:
-        recovered.attribute(axes=(ref.dimension("sales.orders.channel"),)).execute()
-    assert cold.last_run_ref is not None
-    failed = cold.store.run(cold.last_run_ref)
-    assert (
-        failed is not None and failed.lifecycle == "failed" and failed.output_artifact_ref is None
-    )
-    assert cold.store.resources(cold.session_ref) == ()
-    assert cold.statistics.events.get("profile_resolution", 0) == 0
-    with cold.store._read() as connection:
-        dump = "\n".join(connection.iterdump())
-    assert "private-member-physical-canary" not in dump + "".join(
-        traceback.format_exception(caught.value)
-    )
-    assert caught.value.__cause__ is None and caught.value.__context__ is None
-
-
-@pytest.mark.parametrize("retained", [False, True])
-def test_distinct_foreign_domain_contracts_fail_before_data_work(
-    tmp_path: Path, retained: bool
-) -> None:
-    runtime, current, _ = _setup(tmp_path)
-    foreign_path = tmp_path / "foreign.duckdb"
-    seed_execution_database(foreign_path)
-    original, sidecar = make_execution_registry(foreign_path)
-    metrics = dict(original.metrics)
-    metrics["sales.order_count"] = replace(
-        metrics["sales.order_count"], aggregation="count_distinct"
-    )
-    registry = replace(original, metrics=metrics)
-    registry.freeze()
-    foreign_sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    foreign = (
-        foreign_sources.observe(ref.metric("sales.order_count"))
-        .with_dimensions(ref.dimension("sales.orders.channel"))
-        .aggregate()
-    )
-    baseline = foreign.execute() if retained else foreign
-    before = runtime.graph()
-    previous_run = runtime.last_run_ref
-    previous_statements = tuple(runtime.statistics.statements)
-    with pytest.raises(ComparisonError, match="incompatible Metric contracts"):
-        current.compare(baseline).attribute(axes=(ref.dimension("sales.orders.channel"),)).execute()
-    assert runtime.last_run_ref == previous_run
-    assert tuple(runtime.statistics.statements) == previous_statements
-    assert runtime.graph() == before
-    assert runtime.store.resources(runtime.session_ref) == ()
-
-
-def test_distinct_local_frontier_rejects_separate_source_owners_before_run(tmp_path: Path) -> None:
-    runtime, current, _ = _setup(tmp_path)
-    owner = source_owner_of(current)
-    independent = runtime.sources(semantic_registry=owner.semantic_registry, sidecar=owner.sidecar)
-    baseline = (
-        independent.observe(ref.metric("sales.order_count"))
-        .with_dimensions(ref.dimension("sales.orders.channel"))
-        .aggregate()
-    )
-    with pytest.raises(DatasetCompilationError, match="source-required"):
-        current.compare(baseline).attribute(axes=(ref.dimension("sales.orders.channel"),)).execute()
-    assert runtime.last_run_ref is None
-    assert not runtime.statistics.statements
-    assert runtime.graph().artifacts == ()
-    assert runtime.store.resources(runtime.session_ref) == ()
-
-
-def test_mixed_source_input_membership_is_rechecked_before_publication(tmp_path: Path) -> None:
-    runtime, current, _ = _setup(tmp_path)
-    baseline = current.execute()
-    record = runtime.store.artifact(baseline.state.artifact_ref.ref)
-    assert record is not None
-    receipt = next(
-        part.storage_receipt
-        for part in record.descriptor.retained_parts
-        if part.contract_id == "metric.distinct_membership"
-    )
-    assert isinstance(receipt, LocalReceipt)
-    changed: list[str] = []
-
-    def mutate(point: str) -> None:
-        if point == "after_rename":
-            path = tmp_path / receipt.project_relative_path / "data.parquet"
-            os.chmod(path, 0o600)
-            with path.open("ab") as stream:
-                stream.write(b"private-member-mutation-canary")
-            changed.append(point)
-
-    runtime._hook = mutate
-    with pytest.raises(MaterializationError, match="backing size changed"):
-        current.compare(baseline).attribute(axes=(ref.dimension("sales.orders.channel"),)).execute()
-    assert changed == ["after_rename"]
-    assert runtime.last_run_ref is not None
-    failed = runtime.store.run(runtime.last_run_ref)
-    assert (
-        failed is not None and failed.lifecycle == "failed" and failed.output_artifact_ref is None
-    )
-    assert runtime.store.resources(runtime.session_ref) == ()
-    assert len(runtime.graph().artifacts) == 1
-
-
-def test_distinct_external_failure_preserves_traceback_and_has_no_publication(
-    tmp_path: Path,
-) -> None:
-    runtime, metric, _ = _setup(tmp_path)
-    delta = metric.compare(metric).execute()
-    original = TimeoutError("external driver timeout")
-
-    def failed(backend: ExecutionAdapter, *_: object) -> Never:
-        raise original
-
-    with (
-        patch.object(runtime, "_attribution_source_summary", side_effect=failed),
-        pytest.raises(TimeoutError) as caught,
-    ):
-        delta.attribute(axes=(ref.dimension("sales.orders.channel"),)).execute()
-    assert caught.value is original
-    assert "failed" in [item.name for item in traceback.extract_tb(caught.value.__traceback__)]
-    assert runtime.last_run_ref is not None
-    run = runtime.store.run(runtime.last_run_ref)
-    assert run is not None and run.lifecycle == "failed" and run.output_artifact_ref is None
-    assert runtime.store.resources(runtime.session_ref) == ()
-    assert len(runtime.graph().artifacts) == 1

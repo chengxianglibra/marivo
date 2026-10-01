@@ -204,7 +204,8 @@ catalog.preview(
 
 campaigns = catalog.temporal_sets.get("sales.campaigns")
 launch = campaigns.occurrence("spring-2026")
-dataset = session.observe(revenue, time_scope=launch).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('day')).aggregate()
+members = session.members(ms.ref.entity("sales.customer"))
+dataset = members.observe(revenue, during=launch, via=ms.ref.relationship("sales.order_buyer"))
 ```
 `mv.grain("day")` 始终使用会话的报告时区作为边界。发生项使用其他
 边界时区时，应将会话配置为相同的 `report_timezone`（或使用已认证的
@@ -213,7 +214,8 @@ calendar day 粒度）；Marivo 不会静默地用发生项时区重解释裸 bu
 `occurrence(key)` 返回绑定精确快照的 `TimeScope`；分页有界，区间筛选使用半开区间重叠规则，
 导航不会再次读取数据源。TemporalSet 不推断 recurrence，也不会按名称猜测跨年的发生项
 是否对应。每个精确发生项提供一个明确的源范围。支持的比较与显式窗口对齐以
-Metric Dataset 契约和 `marivo.help("analysis.metric_dataset.compare")` 为准。
+typed NumericRelation 契约和 `marivo.help("analysis.dsl.LogicalNumericRelation.compare")` 为准，
+分别使用 TimeChange、CohortContrast 或显式 PeriodChange 对齐。
 精确查找使用 `marivo.help("analysis.temporal_set.occurrence")`，有界筛选分页使用
 `marivo.help("analysis.temporal_set.occurrences")`；快照错误通过
 `marivo.help(error)` 路由到 `semantic.preview`。

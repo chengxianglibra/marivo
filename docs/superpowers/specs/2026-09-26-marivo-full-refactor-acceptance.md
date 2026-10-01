@@ -4,6 +4,8 @@ Date: 2026-09-26
 
 Status: R0.1–R0.4 与 R0.6 的静态产物已登记，R0.5 替代可行性仍阻塞；R1.1–R1.5 分项记录后已于 2026-09-28 执行整体验收复核：出口 1、3、5 在所测范围通过，出口 2 新链闭合但旧文本路线源码待删，出口 4 含 MySQL/ClickHouse timeout 精确阻塞格，R1 整体保持部分通过（见"R1 整体验收复核"节）；R1.6（2026-09-28 用户批准的 provider 语句通道例外）已恢复六后端丰富 metadata、四家主键/唯一约束与 DuckDB scoped 认证 HTTP，DS11/DS13 保持阻塞（见"R1.6 Provider 能力通道与丰富 metadata 恢复"节）；R2.1–R2.4 及后续静态交接有有界证据；R3.1 私有纯构造与 R3.2 私有注册有有界测试证据，R3.2 已接入 J1/core 重叠方法的语义 owner 修正见末节；R3.3 私有图与纯计划有有界测试证据；R3.4 私有 lowering、固定输入局部规律及 DuckDB 基础格有有界证据，完整阶段与公共执行仍未验收。R0、R1、R2 和 R3 整体均未验收。
 
+Current update (2026-10-01): R6.7 and full frozen local R6 acceptance are complete; see the final R6.7 section. Historical R0-R5 and R9/R10 boundaries above are not enlarged.
+
 本文件按[主计划](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)和[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)续记实际证据。历史验收不自动转成新 DSL 的技术、后端、安装包或真实 Agent 资格。
 
 | R0 出口 | 状态 | 当前证据或缺口 |
@@ -1507,3 +1509,57 @@ deletion and same-wheel installed journeys remain R6.7; remote and real-Agent
 qualification remain R9/R10. True-null original axes retain the existing R5
 rejection; nullable allocation slots belong to Other/inactive hierarchy only.
 No commit, push, release-check, MinIO, AGENTS.md or packaged-skill edit occurred.
+
+## R6.7 and full frozen R6 completed acceptance (2026-10-01)
+
+Baseline: clean `panda`, `909f4bdcf4a9a9d9caf3beb99c591c34d9a60ddf`; HEAD and
+branch remain unchanged. No commit/push/publication, release-check or MinIO;
+AGENTS.md and packaged skills are unchanged. This final record supersedes only
+the R6.7 pending/Duration qualification statements in earlier R6 sections.
+
+The [R6.7 evidence index](2026-10-01-marivo-r67-evidence-index.md) maps every
+V01-V12 requirement to independent public tests, exact qualification cells,
+command receipts, fingerprints and actual recovered K. All passed in the frozen
+local scope. The old R6 Metric -> Delta -> Attribution consumers and four public
+exports/Help targets are removed. AN11 and AN12, including the rejection-only
+AN12 collection/summary calls, are deleted. Exact Event private owners and actual
+R8 arithmetic/codecs remain blocked at their own source admission boundary;
+there is no second R6 construction/execution/publication/recovery chain.
+
+- Source Runtime: **771 unique passed**, including 277 R6 Runtime parameter cells
+  and affected R5/shared publication/contract cases; no Runtime skips.
+- Full engineering: **5359 passed / 5 existing default skips**, **417** typed
+  files, lint/import/API checks passed; site built **321** pages and verified
+  both language install outputs. Existing skips grant no Runtime qualification.
+- Final same-wheel gate: **1500 passed inner tests**, no failures/skips,
+  87 command receipts and 48 independent journey phase processes. All native
+  table/local Parquet J1-J4 and A02/A06-A08 producer/continue/recover runs use the
+  same non-editable installed wheel. Every process checks isolated origin/hash;
+  deliberate source PYTHONPATH contamination rejects foreign Marivo imports.
+- Cold continuations execute with database/models/Parquet removed and Semantic,
+  DuckDB and source connections forbidden. Values, frozen definitions, ordered
+  identities, every part and K compare independently; continuation cache hits
+  preserve Artifact identities and Run counts. Both additive and component_mix
+  allocation have actual cold selection/table continuations. Terminal table
+  recovery proves reading and its terminal boundary.
+- Required Duration native us plus Parquet s/ms/us/ns and fixed routes passed;
+  Date terminal columns passed both sources. I/F/Decimal and time/domain rules
+  retain their exact qualification/refusal owners. Faults cover all required
+  endpoint/opportunity/reference/ranking/allocation/table parts and reject before
+  recovery/K/cache; publication/cleanup regressions preserve prior artifacts.
+
+Wheel SHA256 `d7cb5cc4be1bd3aeaf15393506d8e46dd10e5026fc0be3bd7b5b4d45293d07e5`; sdist SHA256 `2ffec6db1af129dfd5b4977d777e141f7a1ea473c7bfed031fbc1694034ba3ca`. Raw evidence is retained under
+`docs/superpowers/plans/r67-evidence/` with a tracked index and 316-node/6-worker
+migration manifest. Failed and superseded candidates are separate; none supplies
+passing evidence for the final wheel. Two confirmed implementation repairs make
+Group-retaining reduction execution/recovery share the canonical Grouped variant
+and apply the existing typed-Other nullable attribution-axis policy to terminal
+validation; null Entity identity stays rejected.
+
+R6 is complete within the accepted C07-C09/local qualification. Named
+statistical_weight/current-row weighted mean, Decimal/Duration current-row
+reducers, arbitrary FormulaBasis and distinct/distribution public attribution
+remain excluded. R7 owns domain/Event/Lifecycle and private funnel migration; R8
+owns statistical producers/helper cutover; R9 owns remote/six-backend and physical
+form qualification; R10 owns real Agent journeys and release acceptance. This
+record does not qualify any of those remaining responsibilities.

@@ -10,7 +10,6 @@ from marivo.analysis import grain, time_scope
 from marivo.analysis import runtime_metric as rm
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.placement import place, source_binding
-from marivo.analysis.operators.mysql_support import unsupported_reason as mysql_reason
 from marivo.analysis.operators.scalar_support import supports_scalar_type, unsupported_reason
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
 from marivo.datasource.ir import TableSourceIR
@@ -35,14 +34,6 @@ def test_composed_scalar_closure(metric: str) -> None:
     observed = _sources().observe(ref.metric("sales." + metric))
     assert unsupported_reason(observed, supports_scalar_type) is None
     assert unsupported_reason(observed.aggregate(), supports_scalar_type) is None
-
-
-def test_mysql_expanded_attribution_reports_resource_rejection_without_source_io() -> None:
-    metric = _sources().observe(ref.metric("sales.revenue")).aggregate()
-    expanded = metric.compare(metric).attribute(axes=(ref.dimension("sales.orders.channel"),))
-    assert (
-        mysql_reason(expanded) == "expanded Attribution exceeds the qualified MySQL resource limit"
-    )
 
 
 def test_relationships_are_independently_qualified() -> None:

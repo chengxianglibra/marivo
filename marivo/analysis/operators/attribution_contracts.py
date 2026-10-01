@@ -1,4 +1,4 @@
-"""Closed additive Attribution authority and side-state naming contracts."""
+"""R8 partition row contracts and shared exact side-state naming."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from marivo.analysis.datasets.descriptors import (
     DatasetRowSetContract,
     _descriptor_payload,
 )
-from marivo.analysis.datasets.handles import CanonicalValue, _LogicalNodePayload
+from marivo.analysis.datasets.handles import CanonicalValue
 from marivo.analysis.observation.fold_contracts import MetricFoldAuthorityV1, decode_fold_authority
 from marivo.analysis.operators.contracts import CompareSpecV1, DeltaSemantics
 from marivo.analysis.operators.errors import attribution_error
@@ -121,24 +121,3 @@ class AttributeSpecV1:
             if self.original_input_row is None
             else _descriptor_payload(self.original_input_row),
         )
-
-
-@dataclass(frozen=True, slots=True, repr=False, eq=False, kw_only=True)
-class AttributePayload(_LogicalNodePayload, _token=_CORE_TOKEN):
-    spec: AttributeSpecV1
-
-    @property
-    def identity_payload(self) -> CanonicalValue:
-        return self.spec.identity_payload()
-
-
-def attribution_filterable_field(field: DatasetField) -> bool:
-    """Keep generated selector authority at the registered Attribution owner."""
-    from marivo.analysis.operators.attribute import GENERATED
-
-    return any(
-        field.field_id.value == f"generated.attribute.{name}@v1"
-        and field.name == name
-        and field.role_id == role
-        for name, role, _, _ in GENERATED
-    )

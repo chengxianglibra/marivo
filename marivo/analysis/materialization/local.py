@@ -208,7 +208,6 @@ def execute_retained_suffix(
     parts: tuple[PartFrame, ...],
     calls: tuple[RowCall, ...],
 ) -> tuple[pd.DataFrame, tuple[PartFrame, ...], tuple[tuple[int, int], ...]]:
-    from marivo.analysis.domains.event_comparison import FunnelDeltaSemantics
     from marivo.analysis.materialization.retained import (
         reject_source_private_transfer,
         source_private_role,
@@ -219,13 +218,7 @@ def execute_retained_suffix(
     handoffs: list[tuple[int, int]] = []
     for call in calls:
         validate_frame(frame, call.input_row, call.input_rows)
-        if call.input_row.shape_id.family_id == "delta" and not isinstance(
-            call.input_row.family_semantics, FunnelDeltaSemantics
-        ):
-            from marivo.analysis.operators.delta_state import validate_delta_parts
-
-            validate_delta_parts(frame, parts, call.input_row)
-        elif parts and (
+        if parts and (
             call.input_row.shape_id.family_id == "metric"
             or any(part.role != "population_sampling_state" for part in parts)
         ):

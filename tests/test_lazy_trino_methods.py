@@ -59,54 +59,6 @@ def test_entity_correlation(
     assert runtime.statistics.primary_queries > 0
 
 
-@pytest.mark.parametrize("metric_name", ["sales.revenue", "sales.mean_amount"])
-def test_hidden_axis_attribution(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method_table: str, metric_name: str
-) -> None:
-    registry, sidecar = _method_registry(method_table, monkeypatch)
-    runtime = DatasetRuntime.create(tmp_path / "expanded-attribution", "trino-expanded-attribution")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    metric = sources.observe(ref.metric(metric_name)).aggregate()
-    frame = metric.compare(metric).attribute(axes=(CHANNEL,)).execute().to_pandas()
-    assert frame.contribution.tolist() == pytest.approx([0.0, 0.0])
-    assert runtime.statistics.primary_queries > 0
-
-
-def test_hidden_axis_attribution_complete_contributions(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method_table: str
-) -> None:
-    registry, sidecar = _method_registry(method_table, monkeypatch)
-    runtime = DatasetRuntime.create(tmp_path / "expanded-sides", "trino-expanded-sides")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    metric = ref.metric("sales.revenue")
-    before = sources.observe(
-        metric, time_scope=time_scope(start="2026-02-01", end="2026-02-04")
-    ).aggregate()
-    after = sources.observe(
-        metric, time_scope=time_scope(start="2026-02-02", end="2026-02-05")
-    ).aggregate()
-    frame = after.compare(before).attribute(axes=(CHANNEL,)).execute().to_pandas()
-    assert dict(zip(frame.channel, frame.contribution, strict=True)) == {
-        "a": pytest.approx(-10.0),
-        "b": pytest.approx(40.0),
-    }
-    assert frame.overall_delta.tolist() == pytest.approx([30.0, 30.0])
-
-
-def test_hidden_axis_top_k_rejected_before_source_query(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method_table: str
-) -> None:
-    from marivo.analysis.compiler.errors import DatasetCompilationError
-
-    registry, sidecar = _method_registry(method_table, monkeypatch)
-    runtime = DatasetRuntime.create(tmp_path / "expanded-top-k", "trino-expanded-top-k")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    metric = sources.observe(ref.metric("sales.revenue")).aggregate()
-    with pytest.raises(DatasetCompilationError, match="Top-K exceeds"):
-        metric.compare(metric).attribute(axes=(CHANNEL,), top_k=1).execute()
-    assert runtime.statistics.primary_queries == 0
-
-
 def _method_registry(
     table: str, monkeypatch: pytest.MonkeyPatch
 ) -> tuple[Registry, CompiledExpressionSidecar]:
@@ -284,19 +236,6 @@ def test_grouped_kendall_uses_complete_source_reduction(
     frame = logical.execute().to_pandas()
     assert frame.coefficient.tolist() == pytest.approx([1.0])
     assert runtime.statistics.transferred_rows == 4
-
-
-def test_grouped_compare_and_attribution(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method_table: str
-) -> None:
-    registry, sidecar = _method_registry(method_table, monkeypatch)
-    runtime = DatasetRuntime.create(tmp_path, "trino-attribution")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    logical = sources.observe(ref.metric("sales.mean_amount")).with_dimensions(CHANNEL).aggregate()
-    result = logical.compare(logical).attribute(axes=(CHANNEL,)).execute()
-    frame = result.to_pandas()
-    assert frame.contribution.tolist() == pytest.approx([0.0, 0.0])
-    assert runtime.statistics.primary_queries == 1
 
 
 def _fold_registry(
@@ -773,31 +712,3 @@ def test_validity_selection_preserves_membership(
     assert (
         record is not None and record.descriptor.population_authority.version_selection is not None
     )
-
-
-def test_retained_axis_attribution_without_source(tmp_path: Path, method_table: str) -> None:
-    with _admin() as admin:
-        admin.execute(f"UPDATE {method_table} SET channel = 'a'").fetchall()
-    registry, sidecar = registry_for(tmp_path / "unused", engine="trino", table=method_table)
-    runtime = DatasetRuntime.create(tmp_path, "retained-attribution")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    metric = ref.metric("sales.mean_amount")
-    before = (
-        sources.observe(metric, time_scope=time_scope(start="2026-02-01", end="2026-02-03"))
-        .with_dimensions(CHANNEL)
-        .aggregate()
-        .execute()
-    )
-    after = (
-        sources.observe(metric, time_scope=time_scope(start="2026-02-03", end="2026-02-05"))
-        .with_dimensions(CHANNEL)
-        .aggregate()
-        .execute()
-    )
-    with _admin() as admin:
-        admin.execute(f"DROP TABLE {method_table}").fetchall()
-    queries = runtime.statistics.primary_queries
-    frame = after.compare(before).attribute(axes=(CHANNEL,)).execute().to_pandas()
-    assert frame.contribution.tolist() == [20.0]
-    assert frame.overall_delta.tolist() == [20.0]
-    assert runtime.statistics.primary_queries == queries

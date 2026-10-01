@@ -100,20 +100,12 @@ def show(
         " | ".join(table.column_names),
     ]
     from marivo.analysis.observation.distribution_contracts import distribution_part_authorities
-    from marivo.analysis.observation.fold_contracts import decode_fold_authority
 
     quantiles = tuple(
         item.distribution.quantile
         for _, item in distribution_part_authorities(dataset.row_contract)
         if item.distribution is not None
     )
-    if record.descriptor.attribution_fold_authority is not None:
-        quantiles = tuple(
-            item.distribution.quantile
-            for payload in record.descriptor.attribution_fold_authority
-            for item in decode_fold_authority(payload).metrics
-            if item.distribution is not None
-        )
     lines[1:1] = [
         f"Percentile: method={quantile.method}; q={quantile.q}; "
         + (

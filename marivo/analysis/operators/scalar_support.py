@@ -24,8 +24,6 @@ from marivo.analysis.observation.contracts import (
     source_owner_of,
 )
 from marivo.analysis.operators.association_contracts import CorrelatePayload
-from marivo.analysis.operators.attribution_contracts import AttributePayload
-from marivo.analysis.operators.contracts import ComparePayload
 from marivo.refs import (
     RefPayloadV1,
     SemanticKind,
@@ -328,8 +326,6 @@ def unsupported_reason(
     status_folds: frozenset[str] = frozenset(),
     distinct_memberships: frozenset[Literal["measure", "entity"]] = frozenset(),
     distributions: frozenset[Literal["linear_interpolation"]] = frozenset(),
-    expanded_attribution: bool = False,
-    expanded_top_k: bool = True,
 ) -> str | None:
     """Check methods/types without I/O; placement.source_binding owns exact source identity.
 
@@ -356,31 +352,11 @@ def unsupported_reason(
     authority. An empty set keeps the admission outcome rejected; the rejection
     text is the shape-specific diagnostic. Each unqualified state shape carries
     its own diagnostic.
-    ``expanded_attribution`` admits the qualified non-Entity expanded Compare,
-    axis expansion, and additive/component Attribute closure. When
-    ``expanded_top_k`` is false, that closure rejects Top-K before source I/O.
     """
     if artifact_inputs(dataset):
         return "remote retained import is not supported"
     roots = tuple(logical_roots(dataset))
     for root in roots:
-        if expanded_attribution and root.operator_id == "metric.expand_axes":
-            continue
-        if expanded_attribution and isinstance(root.payload, ComparePayload):
-            if root.payload.spec.output_row.shape_id.local_shape_id == "entity":
-                return "Entity comparison requires a separate source-private qualification"
-            continue
-        if expanded_attribution and isinstance(root.payload, AttributePayload):
-            spec = root.payload.spec
-            if (
-                spec.expanded_compare is None
-                or spec.method not in {"additive_difference@v1", "component_mix@v1"}
-                or spec.output_row.shape_id.local_shape_id == "entity"
-            ):
-                return "this expanded Attribution shape or method is not qualified"
-            if spec.top_k is not None and not expanded_top_k:
-                return "expanded Attribution Top-K exceeds this backend's qualified query plan"
-            continue
         if root.operator_id not in _METHODS:
             return (
                 f"{root.operator_id} requires a source preparation or private-state "
@@ -461,8 +437,6 @@ def unsupported_reason(
 
     for root in roots:
         payload = root.payload
-        if expanded_attribution and isinstance(payload, (ComparePayload, AttributePayload)):
-            continue
         if not isinstance(payload, (PopulationPayload, MetricPayload)):
             return "the source payload has no qualified scalar implementation"
         for predicate in predicate_leaves(payload.predicate):
