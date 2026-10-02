@@ -24,6 +24,7 @@ from marivo.analysis.core.model import (
     part_role,
 )
 from marivo.analysis.core.rules import (
+    AnchorBind,
     CellDerive,
     CompleteGroups,
     DisplayRank,
@@ -494,6 +495,7 @@ def validate_descriptor(value: Descriptor) -> Node:
                 params,
                 (
                     TimeProduct,
+                    AnchorBind,
                     DisplayTable,
                     OccurrencePrepare,
                     FunnelAxesPrepare,

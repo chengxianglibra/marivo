@@ -2230,3 +2230,36 @@ continuation. Materialized/fixed selected members cannot introduce a live Metric
 The existing InState/in_state signature is retained with its sole definition in
 analysis.lifecycle; no Dataset reducer dependency or string field entry is added.
 R7.7-R7.9, remote execution and same-wheel qualification remain separate.
+
+### R7.7 implementation amendment (2026-10-02)
+
+The unified Anchor producer and relative numeric consumer now use `anchor.bind@v1`
+and `anchor.observe@v1` in the existing graph, method registry, Runtime and Store 7.
+Event-origin elapsed windows lower through Ibis. Calendar windows and the current
+local Journey origin follow F13: all finite source candidates are prepared before
+local Anchor restriction. P48's frozen native Journey route is still unverified;
+local execution does not substitute for that original qualification.
+
+Each retained Anchor includes the full ordered Subject tuple, Event/occurrence
+identity, captured start/order and source definition. Journey starts retain the
+canonical assignment, with no rematch. Relative NumericRelations retain exact
+windows, coverage, per-component original state and every `(Anchor, component
+occurrence)` use. Shared contributions in overlapping windows are intentional;
+deleting the Anchor coordinate cannot recover original-state rollup.
+
+The closed qualified numeric shapes are count, int64/float64/Decimal(38,6)/Duration
+additive sums, their original-component ratios, multi-root float64 linear and int64
+ratio. `via` accepts the governed relationship or closed RootRoutes for multiple
+roots. Results reuse the existing NumericRelation and numeric owners.
+
+Event construction requires logical population. Fixed Journey construction requires
+compatible fixed population; foreign Session, mixed inputs, wrong Subject and
+Journey order overrides reject before business reads and Run allocation. A retained
+Anchor cannot acquire a new live Metric dependency. Materialized numeric results
+continue using verified retained parts, with their exact available operations in
+`contract()`. Receipt failures reject rather than recover from source or Semantic.
+The execute deadline remains one shared 600-second budget across all stages.
+
+The R7.7 evidence index records tested routes and original mandatory cells separately.
+Retention, Subject any/every, complete A13, same-wheel and remote qualification remain
+at their existing R7.8/R7.9/R9 owners. AGENTS.md and packaged skills are unchanged.

@@ -5,6 +5,7 @@ from __future__ import annotations
 from inspect import Parameter, getdoc, isfunction, signature
 
 import marivo.analysis._cohort as cohort
+from marivo.analysis import anchors as windows
 from marivo.analysis import public_dsl as dsl
 from marivo.analysis._capabilities.dataset_model import (
     Descriptor,
@@ -25,6 +26,8 @@ _METHOD_GROUPS = {
     ("_MaterializedRead", "findings"): "artifacts.reads",
     ("_MaterializedRead", "finding"): "artifacts.reads",
     ("_NumericComparison", "rank"): "methods.rows",
+    ("_AnchorDomain", "observe"): "methods.events",
+    ("_AnchorDomain", "subjects"): "methods.events",
     ("_Journey", "funnel"): "methods.events",
     ("_Funnel", "read"): "methods.events",
     ("_FunnelResult", "compare"): "methods.compare",
@@ -82,6 +85,10 @@ _INPUT_GUIDANCE = {
     "groups": "Use an explicit matching typed target domain to retain empty groups.",
     "dimension": "Use a declared categorical Dimension Ref on this receiver's domain.",
     "during": "Use mv.time_scope(start=..., end=...) with absolute bounds.",
+    "duration": "Use a positive mv.duration(...) with exactly one named integer unit.",
+    "days": "Choose positive whole local days, excluding bool.",
+    "timezone": "Pass ZoneInfo with an explicit IANA key; no fixed-offset replacement.",
+    "within": "Use mv.elapsed(mv.duration(...)) or mv.calendar_days(days, ZoneInfo(...)); actual deadlines must be exact and unambiguous.",
     "via": "Use the exact relationship Ref or mv.routes(...) required by this Metric.",
     "axes": "Use unique ordered retained contribution Dimension Refs.",
     "mode": "Choose joint or hierarchy; hierarchy requires at least two axes.",
@@ -129,6 +136,11 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
     types = (
+        windows.Duration,
+        windows.ElapsedWindow,
+        windows.CalendarWindow,
+        dsl.LogicalAnchorDomain,
+        dsl.MaterializedAnchorDomain,
         SubjectBinding,
         cohort.AnyInstance,
         cohort.AtLeast,
@@ -230,6 +242,11 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             else ("RootRoute" if type_value is dsl.RootRoute else "RootRoutes")
         )
         policy_examples = {
+            windows.Duration: "mv.duration(hours=168)",
+            windows.ElapsedWindow: "mv.elapsed(mv.duration(hours=168))",
+            windows.CalendarWindow: "mv.calendar_days(7, ZoneInfo('America/New_York'))",
+            dsl.LogicalAnchorDomain: "session.anchors(buyer, population=members, during=window)",
+            dsl.MaterializedAnchorDomain: "anchors.execute()",
             dsl.LogicalFunnelResult: "journeys.funnel(axes=(channel,))",
             dsl.MaterializedFunnelResult: "funnel.execute()",
             dsl.LogicalFunnelComparisonResult: "current.compare(baseline)",
@@ -370,6 +387,14 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             if type_value is dsl.RootRoutes
             else ("session.members",)
         )
+        if type_value is windows.Duration:
+            producers = ("dsl.duration",)
+        elif type_value is windows.ElapsedWindow:
+            producers = ("dsl.elapsed",)
+        elif type_value is windows.CalendarWindow:
+            producers = ("dsl.calendar_days",)
+        elif type_value is dsl.LogicalAnchorDomain:
+            producers = ("session.anchors",)
         if type_value in history_families:
             method, materialized = history_families[type_value]
             producers = (
@@ -384,7 +409,15 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 summary=f"Governed Analysis {name} value type.",
                 acquisition=acquisition,
                 producers=("session.artifact",) if name.startswith("Materialized") else producers,
-                consumers=("dsl.Value.contract",)
+                consumers=("dsl.AnchorDomain.observe",)
+                if type_value in (windows.ElapsedWindow, windows.CalendarWindow)
+                else ("dsl.elapsed",)
+                if type_value is windows.Duration
+                else ("dsl.AnchorDomain.subjects", "dsl.Value.contract")
+                if type_value is dsl.MaterializedAnchorDomain
+                else ("dsl.AnchorDomain.observe", "dsl.AnchorDomain.subjects", "dsl.Value.contract")
+                if type_value is dsl.LogicalAnchorDomain
+                else ("dsl.Value.contract",)
                 if type_value in history_families
                 else (
                     "dsl.LogicalHistoryResult.execute",
@@ -528,6 +561,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
     )
     exports.append(ExportInput("table", dsl.table, "dsl.table"))
     functions = (
+        windows.duration,
+        windows.elapsed,
+        windows.calendar_days,
         dsl.route,
         dsl.routes,
         dsl.sum,
@@ -540,7 +576,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
     for function in functions:
         name = function.__name__
         params = tuple(
-            ParameterInput(key, _INPUT_GUIDANCE.get(key, "Use the exact governed input."))
+            ParameterInput(
+                key,
+                f"Use integer {key}; omit the other named units."
+                if name == "duration"
+                else _INPUT_GUIDANCE.get(key, "Use the exact governed input."),
+            )
             for key in signature(function).parameters
         )
         descriptors.append(
@@ -549,25 +590,55 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 "mv." + name,
                 function,
                 summary=f"Construct the admitted {name} argument for the Analysis DSL.",
+                discovery_group="methods.events"
+                if name in ("duration", "elapsed", "calendar_days")
+                else None,
                 parameters=params,
-                output="CountMethod"
+                output={
+                    "duration": "Duration",
+                    "elapsed": "ElapsedWindow",
+                    "calendar_days": "CalendarWindow",
+                }[name]
+                if name in ("duration", "elapsed", "calendar_days")
+                else "CountMethod"
                 if name in ("count", "count_defined")
                 else "RootRoute"
                 if name == "route"
                 else "RootRoutes"
                 if name == "routes"
                 else "RowMethod",
-                constraints=("Only qualified typed graph input shapes are admitted.",),
+                constraints=(
+                    _doc_section(function, "Constraints")
+                    if name in ("duration", "elapsed", "calendar_days")
+                    else "Only qualified typed graph input shapes are admitted.",
+                ),
                 effects="Pure argument construction; no source read or Run.",
                 failures=("AnalysisError: use the structured expected and received repair.",),
                 example=ExampleInput(
-                    f"result = mv.{name}()"
+                    "result = mv.duration(hours=168)"
+                    if name == "duration"
+                    else "result = mv.elapsed(mv.duration(hours=168))"
+                    if name == "elapsed"
+                    else "from zoneinfo import ZoneInfo\nresult = mv.calendar_days(7, ZoneInfo('America/New_York'))"
+                    if name == "calendar_days"
+                    else f"result = mv.{name}()"
                     if name in ("sum", "count", "count_defined", "min", "max", "mean")
                     else f"result = mv.{name}(root, through=(relationship,))"
                     if name == "route"
                     else "result = mv.routes(first_route, second_route)",
                     ()
-                    if name in ("sum", "count", "count_defined", "min", "max", "mean")
+                    if name
+                    in (
+                        "sum",
+                        "count",
+                        "count_defined",
+                        "min",
+                        "max",
+                        "mean",
+                        "duration",
+                        "elapsed",
+                        "calendar_days",
+                    )
                     else ("root", "relationship")
                     if name == "route"
                     else ("first_route", "second_route"),
@@ -766,6 +837,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl._ViolationResult,
         dsl._StateIntervalResult,
         dsl._DwellSummary,
+        dsl._AnchorDomain,
         dsl._Journey,
         dsl._Funnel,
         dsl._FunnelResult,
@@ -817,6 +889,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     if key == "through" and name in ("cohort", "members")
                     else ("dsl.route", "dsl.routes")
                     if key == "via"
+                    else ("dsl.elapsed", "dsl.calendar_days")
+                    if key == "within" and owner is dsl._AnchorDomain
                     else (
                         "dsl.sum",
                         "dsl.count",

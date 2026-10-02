@@ -31,6 +31,8 @@ from marivo.analysis.core.model import (
     OriginalStatePart,
 )
 from marivo.analysis.core.rules import (
+    AnchorBind,
+    AnchorObserve,
     DisplayRank,
     DisplayTable,
     FunnelAttribute,
@@ -301,6 +303,8 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             isinstance(
                 item.stage.node.parameters,
                 (
+                    AnchorBind,
+                    AnchorObserve,
                     PreparedObservation,
                     HistoryReplay,
                     HistoryView,
@@ -330,14 +334,15 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 and item.stage.node.parameters.opportunity_domain.kind == "journey"
             )
             or (
-                item.stage.node.inputs[0].node.signature.domain.kind in ("journey", "interval")
+                item.stage.node.inputs[0].node.signature.domain.kind
+                in ("journey", "interval", "anchor")
                 and isinstance(item.stage.node.parameters, (PartsTransport, RowState))
             )
             or (
                 isinstance(item.stage.node.parameters, MapCorrespond)
                 and item.stage.node.parameters.mode == "subjects"
                 and item.stage.node.inputs[0].node.signature.domain.kind
-                in ("occurrence", "journey", "interval")
+                in ("occurrence", "journey", "interval", "anchor")
             )
         )
         for item in locals_
@@ -359,6 +364,11 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
         if isinstance(item.stage.node.parameters, PreparedObservation)
     }
     local_source_inputs = {key for item in locals_ for key in item.stage.inputs if key in relations}
+    anchor_candidate_outputs = {
+        item.stage.inputs[1]
+        for item in locals_
+        if isinstance(item.stage.node.parameters, AnchorObserve)
+    }
     # Complete all source reads before the first local consumer.
     for stage in relations.values():
         check()
@@ -366,7 +376,14 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
         if (
             not isinstance(
                 params,
-                (OccurrencePrepare, PreparedObservation, FunnelAxesPrepare, HistoryAxesPrepare),
+                (
+                    AnchorBind,
+                    AnchorObserve,
+                    OccurrencePrepare,
+                    PreparedObservation,
+                    FunnelAxesPrepare,
+                    HistoryAxesPrepare,
+                ),
             )
             and stage.node.identity not in originals
             and stage.output not in local_source_inputs
@@ -421,9 +438,37 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                     ).encode()
                 }
             )
+        elif isinstance(params, (AnchorBind, AnchorObserve)):
+            from marivo.analysis.core.model import (
+                AnchorDomainPart,
+                AnchorObservationPart,
+                require_part,
+            )
+
+            declaration = require_part(stage.node.signature, "anchor")
+            domain = (
+                declaration.domain
+                if isinstance(declaration, AnchorObservationPart)
+                else declaration
+            )
+            assert isinstance(domain, AnchorDomainPart)
+            capture = next(
+                (
+                    result
+                    for result in results.values()
+                    if any(
+                        getattr(part, "preparation_id", None) == domain.preparation.preparation_id
+                        for part in result.contract.signature.parts
+                    )
+                ),
+                None,
+            )
+            if capture is not None:
+                table = table.replace_schema_metadata(capture.primary.schema.metadata)
         if (
             isinstance(stage.node, MethodNode)
             and not isinstance(params, PreparedObservation)
+            and stage.output not in anchor_candidate_outputs
             and stage.output not in results
         ):
             results[stage.output] = _result(stage, table, (), ())
@@ -431,7 +476,37 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
     for item in locals_:
         check()
         params = item.stage.node.parameters
-        if isinstance(params, (HistoryView, HistoryRead)):
+        if isinstance(params, AnchorBind):
+            from marivo.analysis.core.model import AnchorDomainPart, require_part
+            from marivo.analysis.materialization.anchor_execution import bind as bind_anchor
+
+            anchor_part = require_part(item.stage.node.signature, "anchor")
+            assert isinstance(anchor_part, AnchorDomainPart)
+            captured = next(
+                (
+                    result
+                    for result in results.values()
+                    if any(
+                        getattr(part, "preparation_id", None)
+                        == anchor_part.preparation.preparation_id
+                        for part in result.contract.signature.parts
+                    )
+                ),
+                None,
+            )
+            results[item.stage.output] = bind_anchor(
+                item.stage.node, results[item.stage.inputs[0]], item.stage.node.identity, captured
+            )
+        elif isinstance(params, AnchorObserve):
+            from marivo.analysis.materialization.anchor_execution import observe as observe_anchor
+
+            results[item.stage.output] = observe_anchor(
+                item.stage.node,
+                results[item.stage.inputs[0]],
+                tables[item.stage.inputs[1]],
+                item.stage.node.identity,
+            )
+        elif isinstance(params, (HistoryView, HistoryRead)):
             from marivo.analysis.materialization.history_views import execute as history_view
 
             results[item.stage.output] = history_view(

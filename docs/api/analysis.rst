@@ -501,3 +501,48 @@ Other producers use the explicit zero-Finding policy.
 
 .. autoclass:: MaterializedFunnelComparisonResult
    :members:
+
+Anchor domains and relative observation
+---------------------------------------
+
+``Session.anchors(event_role, population=members, during=scope, business_order=order)``
+selects each Event start with its full Subject and occurrence identity. Journey
+starts inherit their captured assignment and order; fixed Journey input requires
+a compatible fixed population. ``during`` filters starts only.
+
+``anchors.observe(metric, within=window, via=route)`` returns a NumericRelation
+on the Anchor instance domain. Windows are half-open and exclude the exact Anchor
+occurrence. Overlapping windows retain separate component-use bindings and cannot
+be rolled up by discarding Anchor coordinates. Event elapsed observation uses Ibis;
+calendar and local Journey observation prepare all bounded source candidates before
+local window restriction. Fixed results continue through retained parts; a fixed
+Anchor cannot introduce a new live Metric dependency.
+
+.. autoclass:: Duration
+   :members:
+
+.. autofunction:: duration
+
+.. autoclass:: ElapsedWindow
+   :members:
+
+.. autofunction:: elapsed
+
+.. autoclass:: CalendarWindow
+   :members:
+
+.. autofunction:: calendar_days
+
+.. autoclass:: LogicalAnchorDomain
+   :members:
+
+.. autoclass:: MaterializedAnchorDomain
+   :members:
+
+.. automethod:: LogicalAnchorDomain.observe
+
+.. automethod:: LogicalAnchorDomain.subjects
+
+.. automethod:: MaterializedAnchorDomain.observe
+
+.. automethod:: MaterializedAnchorDomain.subjects

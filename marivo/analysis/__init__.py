@@ -28,6 +28,12 @@ if TYPE_CHECKING:
     from marivo.analysis._comparison import WindowBucketAlignment as WindowBucketAlignment
     from marivo.analysis._comparison import window_bucket as window_bucket
     from marivo.analysis._subject import SubjectBinding as SubjectBinding
+    from marivo.analysis.anchors import CalendarWindow as CalendarWindow
+    from marivo.analysis.anchors import Duration as Duration
+    from marivo.analysis.anchors import ElapsedWindow as ElapsedWindow
+    from marivo.analysis.anchors import calendar_days as calendar_days
+    from marivo.analysis.anchors import duration as duration
+    from marivo.analysis.anchors import elapsed as elapsed
     from marivo.analysis.datasets.base import Dataset as Dataset
     from marivo.analysis.datasets.base import LogicalDataset as LogicalDataset
     from marivo.analysis.datasets.base import MaterializedDataset as MaterializedDataset
@@ -138,6 +144,7 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import GroupedRatioRelation as GroupedRatioRelation
     from marivo.analysis.public_dsl import GroupedStatisticRelation as GroupedStatisticRelation
     from marivo.analysis.public_dsl import LogicalAnalysisDomain as LogicalAnalysisDomain
+    from marivo.analysis.public_dsl import LogicalAnchorDomain as LogicalAnchorDomain
     from marivo.analysis.public_dsl import LogicalAssociationResult as LogicalAssociationResult
     from marivo.analysis.public_dsl import LogicalAttributionResult as LogicalAttributionResult
     from marivo.analysis.public_dsl import LogicalBooleanRelation as LogicalBooleanRelation
@@ -189,6 +196,7 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import LogicalTransitionSummary as LogicalTransitionSummary
     from marivo.analysis.public_dsl import LogicalViolationResult as LogicalViolationResult
     from marivo.analysis.public_dsl import MaterializedAnalysisDomain as MaterializedAnalysisDomain
+    from marivo.analysis.public_dsl import MaterializedAnchorDomain as MaterializedAnchorDomain
     from marivo.analysis.public_dsl import (
         MaterializedAssociationResult as MaterializedAssociationResult,
     )

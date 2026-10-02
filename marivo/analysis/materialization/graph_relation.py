@@ -34,6 +34,7 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
+    AnchorObserve,
     AssociationScore,
     AttachCategory,
     BindProject,
@@ -493,6 +494,10 @@ class Relation:
         at: datetime | GridPoint | None = None,
     ) -> Relation:
         live = self._live()
+        relative = any(
+            isinstance(node, MethodNode) and isinstance(node.parameters, AnchorObserve)
+            for node in topology(self.root)
+        )
         graph = observe_members(
             live.graph,
             metric,
@@ -502,6 +507,7 @@ class Relation:
             coordinates=coordinates,
             sidecar=live.sidecar,
             report_timezone=live.report_timezone,
+            relative=relative,
         )
         return Relation(self.runtime, graph.root, replace(live, graph=graph))
 
@@ -522,6 +528,10 @@ class Relation:
     ) -> Relation:
         """Observe an ordered multi-root quantity under explicitly bound routes."""
         live = self._live()
+        relative = any(
+            isinstance(node, MethodNode) and isinstance(node.parameters, AnchorObserve)
+            for node in topology(self.root)
+        )
         if _resolves_linear(live, metric):
             linear = observe_linear_members(
                 live.graph,
@@ -532,6 +542,7 @@ class Relation:
                 coordinates=coordinates,
                 sidecar=live.sidecar,
                 report_timezone=live.report_timezone,
+                relative=relative,
             )
             return Relation(self.runtime, linear.root, replace(live, graph=linear))
         graph = observe_ratio_members(
@@ -543,6 +554,7 @@ class Relation:
             coordinates=coordinates,
             sidecar=live.sidecar,
             report_timezone=live.report_timezone,
+            relative=relative,
         )
         return Relation(self.runtime, graph.root, replace(live, graph=graph))
 

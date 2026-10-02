@@ -20,7 +20,12 @@ from marivo.analysis.compiler.graph_lowering import (
 from marivo.analysis.compiler.graph_plan import SourceMethodStage
 from marivo.analysis.compiler.source_time import source_time
 from marivo.analysis.core.domain_captures import fail
-from marivo.analysis.core.rules import OccurrencePrepare, PreparedObservation
+from marivo.analysis.core.rules import (
+    ObserveCount,
+    ObserveMetric,
+    OccurrencePrepare,
+    PreparedObservation,
+)
 from marivo.refs import ref
 from marivo.semantic._expression_binding import evaluate_expression_body
 from marivo.semantic.ir import TargetSnapshotVersion, TargetValidityVersion
@@ -400,14 +405,26 @@ def lower_candidates(
     bindings: tuple[SourceBinding, ...],
     relations: tuple[LoweredRelation, ...],
     checks: list[LoweredCheck],
+    *,
+    captured_columns: tuple[tuple[str, str], ...] = (),
+    observation: ObserveMetric | ObserveCount | None = None,
 ) -> tuple[ir.Table, RelationLayout, tuple[str, ...]]:
     from marivo.analysis.compiler.graph_lowering import CoordinateColumn, _contribution_rows
     from marivo.analysis.core.model import Coordinate
 
     params = stage.node.parameters
-    assert isinstance(params, PreparedObservation)
-    observation = params.observation
-    rows, ids = _contribution_rows(stage, observation, bindings, relations, checks, prepared=True)
+    if observation is None:
+        assert isinstance(params, PreparedObservation)
+        observation = params.observation
+    rows, ids = _contribution_rows(
+        stage,
+        observation,
+        bindings,
+        relations,
+        checks,
+        prepared=True,
+        captured_columns=captured_columns,
+    )
     rows = rows.mutate(event_time=rows.event_time.cast("timestamp('UTC')"))
     current_ids = ids
     invalid = rows.event_time.isnull() | reduce(

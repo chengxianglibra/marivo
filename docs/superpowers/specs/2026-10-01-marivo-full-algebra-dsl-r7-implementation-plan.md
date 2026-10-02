@@ -3,7 +3,7 @@
 Date: 2026-10-01
 
 Status: R7.1 documentation/static contract freeze complete; R7.2 private preparation implemented;
-R7.3 public Journey integration implemented with bounded evidence below; R7.4 funnel and Findings, R7.5 canonical History and R7.6 History views are recorded below; R7.7-R7.9 remain unimplemented. Qualification is limited to each phase's recorded evidence.
+R7.3 public Journey integration implemented with bounded evidence below; R7.4 funnel and Findings, R7.5 canonical History and R7.6 History views are recorded below; R7.7 implementation and bounded qualification are recorded below; R7.8-R7.9 remain unimplemented. Qualification is limited to each phase's recorded evidence.
 
 The [R7.1 migration ledger](2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md),
 [consumer snapshot](2026-10-01-marivo-r71-consumer-snapshot.json) and
@@ -413,7 +413,7 @@ records deterministic AST/text/import evidence and mandatory source/fixed/cold
 targets, all planned. Static presence, source admission blockage, unverified
 dynamic unreachability and future deletion are distinct. See the
 [R7.1 acceptance record](2026-09-26-marivo-full-refactor-acceptance.md#r71-documentation-and-static-freeze-completed-acceptance-2026-10-01)
-for validation and excluded execution gates. R7.2 preparation, R7.3 Journey, R7.4 funnel, R7.5 canonical History and R7.6 History views are recorded below; R7.7-R7.9 remain pending.
+for validation and excluded execution gates. R7.2 preparation, R7.3 Journey, R7.4 funnel, R7.5 canonical History, R7.6 History views and R7.7 bounded Anchor implementation are recorded below; R7.7 has unfinished original qualification targets and R7.8-R7.9 remain pending.
 
 ### R7.2 — Ibis occurrence 准备、覆盖与业务顺序消费
 
@@ -549,6 +549,22 @@ Anchor 上传到源，或重新 matching 取得一个可下推的替代域。
 **出口：**V12/V13–V15 的 Anchor 格通过；DST elapsed/calendar deadline、同刻排除/顺序、
 多 Anchor 重数、重叠贡献、multi-root 和不可原状态 rollup 的反例成立；fixed Journey
 起点不 rematch，纯固定已保留观察续算不回源。
+
+R7.7 实施记录（2026-10-02）：入口实际为 clean
+`panda@f1a8f49cff538d285c6f93b20eea7790436f5258`，R7.6 已提交；入口差异与
+输入 digest 已保存。Event/Journey Anchor、精确 Duration、elapsed/calendar 窗口及
+相对 count/sum/ratio/linear 已接入唯一 graph/registry/Runtime/Store 7。Event elapsed
+使用 Ibis；calendar 与当前 Journey 使用 F13 的有界源准备后本地消费。snapshot/validity
+依赖随源前缀准备；固定续算与冷恢复保留原窗口、完整身份、原状态及每次贡献使用绑定。
+
+当前验证及原始 **6750 格**的逐格状态见
+[evidence index](2026-10-02-marivo-r77-evidence-index.md)、
+[qualification record](2026-10-02-marivo-r77-qualification.json) 和
+[acceptance record](2026-10-02-marivo-r77-acceptance.md)。P48 原生目标保持 unverified；
+当前本地路线单列。固定 NumericRelation 续算的通过不能授予未执行的 fixed
+`anchor.observe` 内核资格；starts-only Anchor 缺少 Metric 部件时在读取前拒绝。
+原始 requirement ID、路线和 mandatory 标记保持不变；未通过的必需目标列为未完成。
+本轮不修改 AGENTS.md 或 packaged skills，不提交、推送或发布。
 
 ### R7.8 — retention 固定 Ω、未知界与显式主体量化
 

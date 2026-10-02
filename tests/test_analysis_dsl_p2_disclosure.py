@@ -25,7 +25,13 @@ def _free_names(code: str) -> set[str]:
         for node in ast.walk(tree)
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
     }
-    return loaded - assigned - {"mv", "ms"}
+    imported = {
+        alias.asname or alias.name.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+    }
+    return loaded - assigned - imported - {"mv", "ms"}
 
 
 def test_first_round_help_targets_are_reachable_and_bounded() -> None:

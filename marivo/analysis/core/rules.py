@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass, replace
 from typing import Literal, TypeAlias
 
+from marivo.analysis.anchors import CalendarWindow, ElapsedWindow
 from marivo.analysis.core.domain_captures import (
     EntryAxisCapture,
     EventCapture,
@@ -97,6 +98,7 @@ from marivo.semantic.metric_graph import (
 from marivo.semantic.runtime_metric import RuntimeMetricExpr, SliceValue
 
 RuleId: TypeAlias = Literal[
+    "anchor@v1",
     "funnel@v1",
     "history_replay@v1",
     "history_view@v1",
@@ -208,6 +210,7 @@ class ObserveMetric:
     cumulative: CumulativeBinding | None = None
     report_timezone: str = "UTC"
     window_timezone: str = "UTC"
+    capture_versions: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,6 +254,7 @@ class ObserveCount:
     cumulative: CumulativeBinding | None = None
     report_timezone: str = "UTC"
     window_timezone: str = "UTC"
+    capture_versions: bool = False
 
 
 MapMode: TypeAlias = Literal[
@@ -582,8 +586,25 @@ class FunnelAttribute:
     kind: Literal["funnel_attribute"] = "funnel_attribute"
 
 
+@dataclass(frozen=True, slots=True)
+class AnchorBind:
+    output: DomainSignature
+    during_start: str
+    during_end: str
+
+
+@dataclass(frozen=True, slots=True)
+class AnchorObserve:
+    window: ElapsedWindow | CalendarWindow
+    observations: tuple[ObserveMetric | ObserveCount, ...]
+    template: Signature
+    composition: OriginalRatio | OccurrenceCombine | None = None
+
+
 RuleParameters: TypeAlias = (
-    FunnelAxesPrepare
+    AnchorBind
+    | AnchorObserve
+    | FunnelAxesPrepare
     | FunnelReduce
     | FunnelCompare
     | FunnelRead
@@ -849,6 +870,21 @@ def entity_members(
     )
 
 
+def entity_candidates(
+    entity: TargetEntityContract, ref: Ref[EntityKind], binding: Binding
+) -> Signature:
+    """Describe raw source keys without claiming a selected version or unique members.
+
+    Per-occurrence version resolution and complete-key checks belong to the
+    bounded preparation consumer, before these candidates become an instance domain.
+    """
+    key = tuple(Coordinate(ref, name, "identity") for name in entity.primary_key)
+    return Signature(
+        DomainSignature(binding, "entity", key, key, f"candidates:{ref.path}"),
+        parts=(SubjectPart(binding, ref, key, key, entity.version is None, True, "v1"),),
+    )
+
+
 def _bind_project(inputs: tuple[Signature, ...], params: BindProject) -> RuleDerivation:
     if len(inputs) != 1:
         reject("one domain input", str(len(inputs)), "Bind one domain.", "core.bind_project")
@@ -1021,6 +1057,9 @@ def _observe_metric(
 ) -> RuleDerivation:
     from datetime import datetime, timedelta
 
+    prepared = prepared or (
+        isinstance(params, (ObserveMetric, ObserveCount)) and params.capture_versions
+    )
     from marivo.semantic.metric_graph import (
         AggregateNodeV1,
         WeightedMeanAggregateNodeV1,

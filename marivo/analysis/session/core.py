@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import AbstractContextManager
 from datetime import datetime, tzinfo
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 from marivo._temporal import BeforeEndBoundary, TimeScope
 from marivo.analysis.datasets.base import MaterializedDataset
@@ -24,12 +24,21 @@ from marivo.analysis.session._lazy_read_model import (
     SessionGraph,
 )
 from marivo.analysis.session._lazy_sources import LazySources
-from marivo.refs import EntityKind, Ref
+from marivo.refs import BusinessOrderKind, EntityKind, Ref
 from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.event import ParticipantRoleHandle
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.admission import DatasetRuntime
-    from marivo.analysis.public_dsl import LogicalAnalysisDomain, PublicMaterialized
+    from marivo.analysis.public_dsl import (
+        LogicalAnalysisDomain,
+        LogicalAnchorDomain,
+        LogicalFixedAnalysisDomain,
+        LogicalJourneyResult,
+        MaterializedAnalysisDomain,
+        MaterializedJourneyResult,
+        PublicMaterialized,
+    )
     from marivo.analysis.session._history_lifecycle import HistoryLifecycle
     from marivo.analysis.session._journey_events import JourneyEvents
 
@@ -166,6 +175,86 @@ class Session:
         from marivo.analysis.session._history_lifecycle import HistoryLifecycle
 
         return HistoryLifecycle(self._sources()._owner)
+
+    @overload
+    def anchors(
+        self,
+        source: ParticipantRoleHandle,
+        *,
+        population: LogicalAnalysisDomain,
+        during: TimeScope,
+        business_order: Ref[BusinessOrderKind] | None = None,
+    ) -> LogicalAnchorDomain: ...
+
+    @overload
+    def anchors(
+        self,
+        source: LogicalJourneyResult | MaterializedJourneyResult,
+        *,
+        population: LogicalAnalysisDomain | LogicalFixedAnalysisDomain | MaterializedAnalysisDomain,
+        during: TimeScope,
+    ) -> LogicalAnchorDomain: ...
+
+    def anchors(
+        self,
+        source: ParticipantRoleHandle | LogicalJourneyResult | MaterializedJourneyResult,
+        *,
+        population: LogicalAnalysisDomain | LogicalFixedAnalysisDomain | MaterializedAnalysisDomain,
+        during: TimeScope,
+        business_order: Ref[BusinessOrderKind] | None = None,
+    ) -> LogicalAnchorDomain:
+        """Bind exact Event occurrences or existing Journey starts as Anchors.
+
+        Args:
+            source: Exact Event participant or canonical Journey.
+            population: Explicit matching Subject domain.
+            during: Half-open selection of starts.
+            business_order: Event-only captured order.
+
+        Returns: A LogicalAnchorDomain preserving every selected Anchor instance.
+        Example: ``anchors = session.anchors(buyer, population=members, during=window)``.
+        Constraints: One Session; fixed Journey uses compatible fixed population without Semantic loading.
+        """
+        from marivo.analysis.core.domain_captures import fail
+        from marivo.analysis.materialization.graph_anchors import bind
+        from marivo.analysis.materialization.graph_relation import LiveBinding, Relation
+        from marivo.analysis.public_dsl import (
+            _TOKEN,
+            LogicalAnalysisDomain,
+            LogicalAnchorDomain,
+            LogicalFixedAnalysisDomain,
+            LogicalJourneyResult,
+            MaterializedAnalysisDomain,
+            MaterializedJourneyResult,
+        )
+
+        if not isinstance(
+            population,
+            (LogicalAnalysisDomain, LogicalFixedAnalysisDomain, MaterializedAnalysisDomain),
+        ):
+            fail("input_mode", "Anchor population must be an explicit AnalysisDomain")
+        if population._runtime.session_ref != self._runtime.session_ref:
+            fail("input_binding", "foreign Session population")
+        input_source: ParticipantRoleHandle | Relation
+        if isinstance(source, ParticipantRoleHandle):
+            if not isinstance(population._node.binding, LiveBinding):
+                fail("input_mode", "fixed population plus a live Event is mixed")
+            owner = self._sources()._owner
+            input_source = source
+        elif isinstance(source, (LogicalJourneyResult, MaterializedJourneyResult)):
+            if source._runtime.session_ref != self._runtime.session_ref:
+                fail("input_binding", "foreign Session Journey")
+            owner, input_source = None, source._node
+        else:
+            fail("anchor_binding", "Anchor source must be an Event role or canonical Journey")
+        node = bind(
+            input_source,
+            population._node,
+            during=during,
+            owner=owner,
+            business_order=business_order,
+        )
+        return LogicalAnchorDomain(_TOKEN, node, self._runtime)
 
     def population(
         self,

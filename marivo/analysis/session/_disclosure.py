@@ -236,6 +236,13 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
         *operations,
         (
             Session,
+            "anchors",
+            "LogicalAnchorDomain",
+            "result = session.anchors(buyer, population=members, during=window)",
+            "Bind exact Event or Journey starts; retain full Anchor identity and original authority.",
+        ),
+        (
+            Session,
             "render",
             "str",
             "result = session.render()",
@@ -243,6 +250,10 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
         ),
     )
     acquisition = {
+        "source": "Use an exact Event participant or canonical JourneyResult.",
+        "population": "Use the matching complete Subject domain in the same Session and source/fixed mode.",
+        "during": "Select starts with a finite half-open TimeScope.",
+        "business_order": "Event-only named order; Journey starts inherit captured order.",
         "at": "Use an exact datetime or TimeScope.before_end for versioned membership; omit for unversioned Entities.",
         "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
         "name": "Choose a project-local Session name from recent() or a new name for get_or_create().",
@@ -274,6 +285,8 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 summary=effect,
                 discovery_group="entry"
                 if name == "members"
+                else "methods.events"
+                if name == "anchors"
                 else "session.namespace"
                 if receiver is session_namespace
                 else "runtime.sessions"
@@ -310,6 +323,8 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                     if name == "get_run"
                     else ("session", "entity_ref")
                     if name == "members"
+                    else ("session", "buyer", "members", "window")
+                    if name == "anchors"
                     else ("session",),
                     "result",
                     output,

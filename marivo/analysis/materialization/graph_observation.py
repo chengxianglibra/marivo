@@ -31,6 +31,7 @@ from marivo.analysis.core.rules import (
     OccurrenceFilter,
     OccurrencePrepare,
     PreparedObservation,
+    entity_candidates,
     entity_members,
 )
 from marivo.analysis.core.time_authority import civil_bound
@@ -211,6 +212,7 @@ def observe_members(
     coordinates: tuple[Ref[DimensionKind], ...] = (),
     component_index: int = 0,
     at: datetime | GridPoint | None = None,
+    relative: bool = False,
 ) -> MemberGraph:
     """Resolve schema only and capture one component's observation before admission.
 
@@ -243,13 +245,18 @@ def observe_members(
             help_target="dsl.LogicalAnalysisDomain.observe",
         )
     if (
-        len(path) not in (0, 1, 2)
+        len(path) not in ((0, 1, 2, 3) if relative else (0, 1, 2))
         or (path and path[-1].to_entity_ref.path != members.entity_schema.contract.ref.path)
         or any(
             relationship.cardinality not in ("many_to_one", "one_to_one")
             or not relationship.keys
-            or relationship.from_version_resolution_required
-            or relationship.to_version_resolution_required
+            or (
+                not relative
+                and (
+                    relationship.from_version_resolution_required
+                    or relationship.to_version_resolution_required
+                )
+            )
             for relationship in path
         )
         or any(first.to_entity_ref != second.from_entity_ref for first, second in pairwise(path))
@@ -552,8 +559,9 @@ def observe_members(
                 digest(schema.contract.dependency_fingerprint + schema_text(schema.schema)),
                 ref.datasource(schema.contract.datasource_ref.path),
                 replace(schema.shape, time=temporal),
+                schema.contract.version,
             ),
-            entity_members(
+            (entity_candidates if relative else entity_members)(
                 replace(
                     schema.contract,
                     columns=tuple((field.name, str(field.type)) for field in schema.schema),
@@ -715,6 +723,10 @@ def observe_members(
         if isinstance(during, TimeScope) and during.kind != "absolute"
         else report_timezone,
     )
+    if relative:
+        if not isinstance(parameters, (ObserveMetric, ObserveCount)):
+            raise _reject("relative capture requires count or additive components")
+        parameters = replace(parameters, capture_versions=True)
     observation_inputs: tuple[Edge, ...] = (Edge("subject", member_root),)
     local_populations = tuple(
         node.inputs[0].node
@@ -795,6 +807,7 @@ def observe_ratio_members(
     report_timezone: str,
     coordinates: tuple[Ref[DimensionKind], ...] = (),
     at: datetime | GridPoint | None = None,
+    relative: bool = False,
 ) -> MemberGraph:
     """Bind a closed ratio to its independently aggregated ordered components."""
     from marivo.analysis.materialization.graph_composition import combine_observations
@@ -825,6 +838,7 @@ def observe_ratio_members(
             coordinates=coordinates,
             component_index=index,
             at=at,
+            relative=relative,
         )
         for index, component in enumerate(metric.components)
     )
@@ -858,6 +872,7 @@ def observe_linear_members(
     report_timezone: str,
     coordinates: tuple[Ref[DimensionKind], ...] = (),
     at: datetime | GridPoint | None = None,
+    relative: bool = False,
 ) -> MemberGraph:
     """Bind a signed linear combination to its independently reduced occurrences."""
     from marivo.analysis.materialization.graph_composition import combine_linear_occurrences
@@ -884,6 +899,7 @@ def observe_linear_members(
             coordinates=coordinates,
             component_index=index,
             at=at,
+            relative=relative,
         )
         for index, component in enumerate(metric.components)
     )

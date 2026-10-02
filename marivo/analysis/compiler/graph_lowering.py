@@ -24,6 +24,8 @@ from marivo.analysis.compiler.graph_plan import (
 from marivo.analysis.compiler.member_version import select_version, version_predicate
 from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import (
+    AnchorDomainPart,
+    AnchorObservationPart,
     AttributionPart,
     CohortDecisionPart,
     Coordinate,
@@ -54,6 +56,8 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
+    AnchorBind,
+    AnchorObserve,
     AssociationScore,
     AttachCategory,
     AttributionDerive,
@@ -141,6 +145,8 @@ class PartColumns:
 
 
 def components(part: Part) -> tuple[str, ...]:
+    if isinstance(part, (AnchorDomainPart, AnchorObservationPart)):
+        return part.components
     if isinstance(
         part,
         (EntryAxesPart, FindingPolicyPart, FunnelPart, FunnelComparisonPart, FunnelAllocationPart),
@@ -2462,6 +2468,7 @@ def _contribution_rows(
     checks: list[LoweredCheck],
     *,
     prepared: bool = False,
+    captured_columns: tuple[tuple[str, str], ...] = (),
 ) -> tuple[ir.Table, tuple[str, ...]]:
     owned_sources = {source.identity for source in stage.node.sources}
     by_entity = {
@@ -2524,6 +2531,7 @@ def _contribution_rows(
             )
         )
     fields: dict[str, ir.Value] = {
+        **{name: root[column] for name, column in captured_columns},
         **(
             {
                 f"candidate__key_{i}": root[key.coordinate.field]
@@ -3337,6 +3345,8 @@ def lower(
                         AssociationScore,
                         AttachCategory,
                         CompleteGroups,
+                        AnchorBind,
+                        AnchorObserve,
                         PreparedObservation,
                         HistoryView,
                         FunnelReduce,
@@ -3375,7 +3385,14 @@ def lower(
                 output_layout = canonical_layout(stage.node.signature, has_value=False)
             if isinstance(
                 stage.node.parameters,
-                (HistoryReplay, OccurrencePrepare, JourneyMatch, JourneyDuration, JourneyCompleted),
+                (
+                    AnchorBind,
+                    HistoryReplay,
+                    OccurrencePrepare,
+                    JourneyMatch,
+                    JourneyDuration,
+                    JourneyCompleted,
+                ),
             ):
                 output_layout = canonical_layout(stage.node.signature, has_value=False)
             if (
@@ -3439,7 +3456,13 @@ def lower(
                 isinstance(node, MethodNode)
                 and isinstance(
                     node.parameters,
-                    (OccurrencePrepare, PreparedObservation, FunnelAxesPrepare, HistoryAxesPrepare),
+                    (
+                        OccurrencePrepare,
+                        PreparedObservation,
+                        AnchorObserve,
+                        FunnelAxesPrepare,
+                        HistoryAxesPrepare,
+                    ),
                 )
                 and stage.leaf in node.sources
                 for node in topology(admitted.root)
@@ -3489,11 +3512,29 @@ def lower(
             inputs = tuple(
                 results[i]
                 for i in stage.inputs[
-                    : 1 if isinstance(params, PreparedObservation) else len(stage.node.inputs)
+                    : 1
+                    if isinstance(params, PreparedObservation)
+                    or (isinstance(params, AnchorObserve) and stage.operation == "prepare")
+                    else len(stage.node.inputs)
                 ]
             )
             source_ids = inputs[0].source_ids
-            if isinstance(params, HistoryAxesPrepare):
+            if isinstance(params, AnchorBind):
+                from marivo.analysis.compiler.anchors import bind as lower_anchor_bind
+
+                table, layout, source_ids = lower_anchor_bind(stage, inputs[0])
+                cell_reasons = ()
+            elif isinstance(params, AnchorObserve):
+                from marivo.analysis.compiler.anchors import observe as lower_anchor_observe
+
+                table, layout, source_ids = lower_anchor_observe(
+                    stage, inputs, bindings, tuple(results.values()), checks
+                )
+                cell_reasons = (
+                    ("null", ("empty_contribution",)),
+                    ("undefined", ("zero_denominator",)),
+                )
+            elif isinstance(params, HistoryAxesPrepare):
                 from marivo.analysis.compiler.history_axes import lower_axes as lower_history_axes
 
                 table, layout, source_ids = lower_history_axes(stage, inputs[0], bindings, checks)

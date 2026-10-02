@@ -973,6 +973,46 @@ time; precision-created ties still need business order. Execution shares one
 600-second deadline. This stage grants no funnel, Lifecycle, Anchor, remote backend
 or complete same-wheel R7 qualification.
 
+## Observe relative to each Anchor
+
+An Anchor is one Event start or one retained Journey start. Multiple starts for the
+same Subject remain separate. Declare the Event participant, complete Subject
+mapping, Metric and relationship in your semantic project before running this example.
+
+```python
+from zoneinfo import ZoneInfo
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+session = mv.session.get_or_create("anchor-revenue", report_timezone="UTC")
+customers = session.members(ms.ref.entity("commerce.subjects"))
+anchors = session.anchors(
+    ms.participant_role(event=ms.ref.event("commerce.started"), name="subject"),
+    population=customers,
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    business_order=ms.ref.business_order("commerce.order"),
+)
+elapsed_week = mv.elapsed(mv.duration(hours=168))
+civil_week = mv.calendar_days(7, ZoneInfo("America/New_York"))
+relative = anchors.observe(
+    ms.ref.metric("commerce.revenue"),
+    within=elapsed_week,
+    via=ms.ref.relationship("commerce.participant"),
+).execute()
+relative.show()
+relative.contract().show()
+selected = relative.where(relative.value.is_defined()).execute()
+selected.members().execute().show()
+```
+
+The deadline is excluded, and the complete Anchor occurrence is excluded separately.
+Civil days preserve local wall time across DST; ambiguous or nonexistent deadlines
+fail with a concrete repair. Event elapsed observation uses Ibis. Calendar and
+current Journey origins prepare bounded candidates before local consumption.
+Overlapping windows keep each contribution use and cannot be rolled up by removing
+the Anchor coordinate. Fixed continuations consume retained inputs; they cannot
+introduce a new live Metric. Retention remains outside this R7.7 slice.
+
 ## Exact funnel comparison and evidence
 
 Use first-per-subject Journeys from the same explicit population for both periods.

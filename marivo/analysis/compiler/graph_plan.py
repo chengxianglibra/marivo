@@ -15,6 +15,8 @@ from marivo.analysis.core.model import (
     reject,
 )
 from marivo.analysis.core.rules import (
+    AnchorBind,
+    AnchorObserve,
     FunnelAttribute,
     FunnelAxesPrepare,
     FunnelCompare,
@@ -221,6 +223,8 @@ def plan(
                 and not isinstance(
                     node.parameters,
                     (
+                        AnchorBind,
+                        AnchorObserve,
                         PreparedObservation,
                         HistoryView,
                         HistoryRead,
@@ -240,7 +244,7 @@ def plan(
                     and node.parameters.opportunity_domain.kind == "journey"
                 )
                 and not (
-                    node.inputs[0].node.signature.domain.kind in ("journey", "interval")
+                    node.inputs[0].node.signature.domain.kind in ("journey", "interval", "anchor")
                     and isinstance(node.parameters, (MapCorrespond, PartsTransport, RowState))
                 )
                 and not any(
@@ -302,10 +306,11 @@ def plan(
                 isinstance(node.parameters, MapCorrespond)
                 and node.parameters.mode == "subjects"
                 and node.inputs[0].node.signature.domain.kind
-                in ("occurrence", "journey", "interval")
+                in ("occurrence", "journey", "interval", "anchor")
             )
             local_consumer = (
-                (
+                (isinstance(node.parameters, AnchorBind) and route != "ibis")
+                or (
                     isinstance(node.parameters, PartsTransport)
                     and node.parameters.mode == "cohort"
                     and node.parameters.opportunity_domain is not None
@@ -345,11 +350,14 @@ def plan(
                     ),
                 )
                 or (
-                    node.inputs[0].node.signature.domain.kind in ("journey", "interval")
+                    node.inputs[0].node.signature.domain.kind in ("journey", "interval", "anchor")
                     and isinstance(node.parameters, (PartsTransport, RowState))
                 )
             )
-            prepared_observation = isinstance(node.parameters, PreparedObservation)
+            prepared_observation = (
+                isinstance(node.parameters, (PreparedObservation, AnchorObserve))
+                and route != "ibis"
+            )
             if prepared_observation and node.inputs[1].node.identity in local:
                 _refuse(
                     "a source original member envelope",
@@ -400,7 +408,8 @@ def plan(
             )
         outputs[node.identity] = output
     if any(
-        isinstance(node.parameters, (PreparedObservation, FunnelAxesPrepare)) for node in methods
+        isinstance(node.parameters, (PreparedObservation, AnchorObserve, FunnelAxesPrepare))
+        for node in methods
     ):
         stages = [
             *(stage for stage in stages if not isinstance(stage, LocalMethodStage)),

@@ -30,9 +30,12 @@ from marivo.analysis._time_grid import GridEndpoint as GridEndpoint
 from marivo.analysis._time_grid import GridWindow as GridWindow
 from marivo.analysis._time_grid import TimeGrid as TimeGrid
 from marivo.analysis._time_grid import time_grid as time_grid
+from marivo.analysis.anchors import CalendarWindow, ElapsedWindow
 from marivo.analysis.core.graph import FixedLeaf, MethodNode, method_node, retained_nodes
 from marivo.analysis.core.history_types import HistoryField
 from marivo.analysis.core.model import (
+    AnchorDomainPart,
+    AnchorObservationPart,
     AttributionPart,
     Coordinate,
     DerivedQuantity,
@@ -52,6 +55,8 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.predicates import DurationLiteral, TemporalLiteral, ValuePredicate
 from marivo.analysis.core.rules import (
+    AnchorBind,
+    AnchorObserve,
     AssociationScore,
     BindProject,
     CellDerive,
@@ -323,6 +328,10 @@ class AnalysisContract:
 
 
 def _kind(node: Relation) -> str:
+    if isinstance(node.definition.parameters, AnchorBind):
+        return "anchor"
+    if isinstance(node.definition.parameters, AnchorObserve):
+        return "observe"
     definition = node.definition
     if isinstance(definition.parameters, FunnelReduce):
         return "funnel"
@@ -626,10 +635,12 @@ class _Value:
             )
         else:
             names = ()
+        if kind == "anchor":
+            names = ("subjects",) if fixed else ("observe", "subjects", "execute")
         if kind == "where":
             names = ("where", *names)
         state = next((p for p in signature.parts if isinstance(p, OriginalStatePart)), None)
-        if state is not None and state.temporal_policy == "repeated":
+        if state is not None and state.temporal_policy in ("repeated", "overlapping"):
             names = tuple(name for name in names if name != "rollup")
         if isinstance(self, _CountRelation):
             names = tuple(dict.fromkeys((*names, "group_by", "summarize")))
@@ -688,6 +699,13 @@ class _Value:
             and "members" not in names
         ):
             names = (*names, "members")
+        if "anchor" in roles and signature.quantity is not None:
+            names = (
+                "where",
+                "summarize",
+                *(("members",) if kind == "where" else ()),
+                *(("execute",) if not fixed else ()),
+            )
         if isinstance(self._node.root.value_type, DurationType) and (
             any(isinstance(part, (JourneyPart, HistoryViewPart)) for part in signature.parts)
             or isinstance(signature.quantity, RowStatisticQuantity)
@@ -701,10 +719,41 @@ class _Value:
         if self._materialize_before_continuing():
             names = ("execute",)
         required = tuple(role for role in roles if role != "subject")
+        actions = self._action_contract(names)
+        if "anchor" in roles and signature.quantity is not None:
+            allowed = (
+                ("count", "count_defined", "mean")
+                if isinstance(self._node.root.value_type, DurationType)
+                else ("count", "count_defined")
+                if isinstance(self._node.root.value_type, DecimalType)
+                else (
+                    "count",
+                    "count_defined",
+                    "sum",
+                    "min",
+                    "max",
+                    *(("mean",) if self._node.root.value_type == ScalarType("float64") else ()),
+                )
+            )
+            actions = tuple(
+                replacement
+                for action in actions
+                for replacement in (
+                    tuple(
+                        AnalysisAction(
+                            f"relation.where(relation.value.is_defined()).summarize(mv.{method}())",
+                            action.help_target,
+                        )
+                        for method in allowed
+                    )
+                    if action.call.startswith("relation.summarize(")
+                    else (action,)
+                )
+            )
         return AnalysisContract(
             kind,
             "materialized" if fixed else "logical",
-            self._action_contract(names),
+            actions,
             signature.domain.kind,
             None if signature.quantity is None else signature.quantity.kind,
             required,
@@ -762,6 +811,31 @@ class _Value:
                     )
                 )
         journey = next((p for p in signature.parts if isinstance(p, JourneyPart)), None)
+        anchor = next(
+            (
+                p
+                for p in signature.parts
+                if isinstance(p, (AnchorDomainPart, AnchorObservationPart))
+            ),
+            None,
+        )
+        if anchor is not None:
+            domain = anchor.domain if isinstance(anchor, AnchorObservationPart) else anchor
+            facts.extend(
+                (
+                    ("statistical_unit", "Anchor"),
+                    ("start_selection", domain.during_start + "/" + domain.during_end),
+                    ("origin", "Journey" if domain.journey else "Event"),
+                    ("time_precision", "captured microseconds; deadlines must be exact"),
+                )
+            )
+            if isinstance(anchor, AnchorObservationPart):
+                facts.extend(
+                    (
+                        ("within", repr(anchor.window)),
+                        ("contribution_policy", "per Anchor use bindings; overlapping windows"),
+                    )
+                )
         if journey is not None:
             facts.extend(
                 (
@@ -3617,6 +3691,8 @@ def wrap_materialized(
         if typ == ScalarType("timestamp"):
             return MaterializedTemporalRelation(_TOKEN, node, runtime, dataset=dataset)
         return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "anchor":
+        return MaterializedAnchorDomain(_TOKEN, node, runtime, dataset=dataset)
     if kind == "history":
         return MaterializedHistoryResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "journey":
@@ -5869,6 +5945,98 @@ class MaterializedStateIntervalResult(_StateIntervalResult, _MaterializedRead):
     """Verified fixed StateIntervalResult with retained continuations."""
 
 
+class _AnchorDomain(_Value):
+    def observe(
+        self,
+        metric: Ref[MetricKind] | RuntimeMetricExpr,
+        *,
+        within: ElapsedWindow | CalendarWindow,
+        via: Ref[RelationshipKind] | RootRoutes,
+    ) -> LogicalNumericRelation:
+        """Observe a governed Metric separately in each relative Anchor window.
+
+        Args:
+            metric: Exact Metric or RuntimeMetricExpr.
+            within: Positive closed relative window.
+            via: Exact route or independently bound contribution-root routes.
+
+        Returns: A LogicalNumericRelation on the complete Anchor instance domain.
+        Example: ``values = anchors.observe(revenue, within=mv.elapsed(mv.duration(hours=168)), via=route)``.
+        Constraints: Shared overlapping contributions retain use keys; fixed new source input rejects.
+        """
+        from marivo.analysis.materialization.graph_anchors import observe
+
+        if not isinstance(within, (ElapsedWindow, CalendarWindow)):
+            raise _reject(
+                "a closed relative window", repr(within), "Use mv.elapsed or mv.calendar_days."
+            )
+        if not isinstance(self._node.binding, LiveBinding):
+            raise _reject(
+                "a source Anchor with Metric dependencies captured in the same graph",
+                f"{type(self).__name__} with fixed starts and no retained Metric input",
+                "Observe on the source Anchor before executing it; continue an already observed numeric Artifact through its current contract.",
+            )
+        declared = via.routes if isinstance(via, RootRoutesValue) else (via,)
+        if isinstance(self._node.binding, LiveBinding):
+            from marivo.semantic.validator import normalize_target_relationship
+
+            for route in declared:
+                if isinstance(route, RootRouteValue):
+                    relationship = normalize_target_relationship(
+                        self._node.binding.graph.registry, route.through[0].path
+                    )
+                    if relationship.from_entity_ref.path != route.root.path:
+                        raise _reject(
+                            f"contribution root {relationship.from_entity_ref.path}",
+                            route.root.path,
+                            f"Bind the route root to {relationship.from_entity_ref.path}, declared by {route.through[0].path}.",
+                        )
+        paths = tuple(
+            route.through if isinstance(route, RootRouteValue) else (route,) for route in declared
+        )
+        return LogicalNumericRelation(
+            _TOKEN,
+            observe(self._node, metric, window=within, paths=paths),
+            self._runtime,
+            inputs=(self,),
+        )
+
+    def subjects(self, role: ParticipantRoleHandle) -> SubjectBinding:
+        """Return the exact retained Anchor-to-Subject mapping.
+
+        Args: role: The exact source Event participant role.
+        Returns: A total SubjectBinding on Anchor instances.
+        Example: ``binding = anchors.subjects(buyer)``.
+        Constraints: No Subject deduplication of instance observations; foreign roles reject.
+        """
+        part = next(p for p in self._node.root.signature.parts if isinstance(p, AnchorDomainPart))
+        if not any(
+            role.event == e.ref and role.name == e.participant for e in part.preparation.events
+        ):
+            raise _reject(
+                "the retained participant", repr(role), "Use the Anchor's exact source participant."
+            )
+        return self.subject_binding
+
+
+class LogicalAnchorDomain(_AnchorDomain):
+    """Unexecuted exact Event or Journey Anchor instances."""
+
+    def execute(self) -> MaterializedAnchorDomain:
+        """Publish complete Anchor instances and their retained authority.
+
+        Args: None.
+        Returns: The paired MaterializedAnchorDomain.
+        Example: ``result = anchors.execute()``.
+        Constraints: One governed graph; source invocation receives a fresh identity.
+        """
+        return MaterializedAnchorDomain(_TOKEN, self._node, self._runtime, dataset=self._run())
+
+
+class MaterializedAnchorDomain(_AnchorDomain, _MaterializedValue):
+    """Receipt-bound Anchor instances with source-free reads."""
+
+
 def new_history(node: Relation, runtime: DatasetRuntime) -> LogicalHistoryResult:
     """Wrap the exact canonical History graph without evaluating it."""
     return LogicalHistoryResult(_TOKEN, node, runtime)
@@ -5880,7 +6048,8 @@ def new_journeys(node: Relation, runtime: DatasetRuntime) -> LogicalJourneyResul
 
 
 PublicMaterialized: TypeAlias = (
-    MaterializedHistoryResult
+    MaterializedAnchorDomain
+    | MaterializedHistoryResult
     | MaterializedStateDistributionResult
     | MaterializedTransitionSummary
     | MaterializedDwellSummary
