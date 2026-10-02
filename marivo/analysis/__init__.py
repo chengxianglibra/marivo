@@ -62,7 +62,6 @@ if TYPE_CHECKING:
     )
     from marivo.analysis.domains.event import LogicalEventDataset as LogicalEventDataset
     from marivo.analysis.domains.event import MaterializedEventDataset as MaterializedEventDataset
-    from marivo.analysis.domains.lifecycle import LogicalLifecycleDataset as LogicalLifecycleDataset
     from marivo.analysis.domains.lifecycle import (
         MaterializedLifecycleDataset as MaterializedLifecycleDataset,
     )
@@ -157,6 +156,7 @@ if TYPE_CHECKING:
         LogicalFunnelComparisonResult as LogicalFunnelComparisonResult,
     )
     from marivo.analysis.public_dsl import LogicalFunnelResult as LogicalFunnelResult
+    from marivo.analysis.public_dsl import LogicalHistoryResult as LogicalHistoryResult
     from marivo.analysis.public_dsl import LogicalJourneyResult as LogicalJourneyResult
     from marivo.analysis.public_dsl import LogicalNumericRelation as LogicalNumericRelation
     from marivo.analysis.public_dsl import LogicalRankingResult as LogicalRankingResult
@@ -219,6 +219,7 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import (
         MaterializedGroupedNumericRelation as MaterializedGroupedNumericRelation,
     )
+    from marivo.analysis.public_dsl import MaterializedHistoryResult as MaterializedHistoryResult
     from marivo.analysis.public_dsl import MaterializedJourneyResult as MaterializedJourneyResult
     from marivo.analysis.public_dsl import (
         MaterializedNumericRelation as MaterializedNumericRelation,

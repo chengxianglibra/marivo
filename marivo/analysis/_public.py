@@ -57,7 +57,6 @@ from marivo.analysis.domains.completeness import (
 )
 from marivo.analysis.domains.event import LogicalEventDataset as LogicalEventDataset
 from marivo.analysis.domains.event import MaterializedEventDataset as MaterializedEventDataset
-from marivo.analysis.domains.lifecycle import LogicalLifecycleDataset as LogicalLifecycleDataset
 from marivo.analysis.domains.lifecycle import (
     MaterializedLifecycleDataset as MaterializedLifecycleDataset,
 )
@@ -152,6 +151,7 @@ from marivo.analysis.public_dsl import (
     LogicalFunnelComparisonResult as LogicalFunnelComparisonResult,
 )
 from marivo.analysis.public_dsl import LogicalFunnelResult as LogicalFunnelResult
+from marivo.analysis.public_dsl import LogicalHistoryResult as LogicalHistoryResult
 from marivo.analysis.public_dsl import LogicalJourneyResult as LogicalJourneyResult
 from marivo.analysis.public_dsl import LogicalNumericRelation as LogicalNumericRelation
 from marivo.analysis.public_dsl import LogicalRankingResult as LogicalRankingResult
@@ -208,6 +208,7 @@ from marivo.analysis.public_dsl import MaterializedFunnelResult as MaterializedF
 from marivo.analysis.public_dsl import (
     MaterializedGroupedNumericRelation as MaterializedGroupedNumericRelation,
 )
+from marivo.analysis.public_dsl import MaterializedHistoryResult as MaterializedHistoryResult
 from marivo.analysis.public_dsl import MaterializedJourneyResult as MaterializedJourneyResult
 from marivo.analysis.public_dsl import MaterializedNumericRelation as MaterializedNumericRelation
 from marivo.analysis.public_dsl import MaterializedRankingResult as MaterializedRankingResult
@@ -323,8 +324,8 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "MaterializedCandidateDataset",
     "LogicalEventDataset",
     "MaterializedEventDataset",
-    "LogicalLifecycleDataset",
-    "MaterializedLifecycleDataset",
+    "LogicalHistoryResult",
+    "MaterializedHistoryResult",
     "AnalysisPredicate",
     "ForecastHorizon",
     "ForecastModel",

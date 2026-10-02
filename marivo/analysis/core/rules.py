@@ -95,6 +95,7 @@ from marivo.semantic.runtime_metric import RuntimeMetricExpr, SliceValue
 
 RuleId: TypeAlias = Literal[
     "funnel@v1",
+    "history_replay@v1",
     "journey_match@v1",
     "journey_view@v1",
     "occurrence_prepare@v1",
@@ -439,6 +440,13 @@ class PreparedObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class HistoryReplay:
+    output: DomainSignature
+    window_start: str
+    window_end: str
+
+
+@dataclass(frozen=True, slots=True)
 class JourneyMatch:
     output: DomainSignature
     steps: tuple[str, ...]
@@ -556,6 +564,7 @@ RuleParameters: TypeAlias = (
     | FunnelCompare
     | FunnelRead
     | FunnelAttribute
+    | HistoryReplay
     | JourneyMatch
     | JourneyDuration
     | JourneyCompleted
@@ -3707,4 +3716,41 @@ def _journey_view(
         post=(),
         obligations=(),
         eval_id=identity,
+    )
+
+
+def _history_replay(inputs: tuple[Signature, ...], params: HistoryReplay) -> RuleDerivation:
+    from marivo.analysis.core.domain_captures import fail
+    from marivo.analysis.core.model import HistoryPart, validate_part
+
+    binding = _binding(inputs, "r7.history_binding")
+    _output_domain(binding, params.output, "r7.history_binding")
+    if (
+        len(inputs) != 2
+        or inputs[0].domain.kind != "entity"
+        or inputs[1].domain.kind != "occurrence"
+    ):
+        fail(
+            "history_binding",
+            "replay requires the complete Subject domain and captured occurrences",
+        )
+    capture = require_part(inputs[1], "occurrences")
+    subject = require_part(inputs[1], "subject")
+    assert isinstance(capture, OccurrencePart) and isinstance(subject, SubjectPart)
+    if params.output != inputs[0].domain or subject.subject_key != params.output.instance_key:
+        fail("history_binding", "History must preserve every exact input Subject")
+    state = HistoryPart(binding, capture, inputs[1].domain, params.window_start, params.window_end)
+    validate_part(state)
+    return _result(
+        "history_replay@v1",
+        inputs,
+        params.output,
+        None,
+        (state,),
+        pre=(),
+        required=("occurrences", "subject"),
+        created=("history",),
+        post=(),
+        obligations=(),
+        eval_id=inputs[1].domain.definition_id,
     )

@@ -20,6 +20,7 @@ from marivo.analysis.core.rules import (
     FunnelCompare,
     FunnelRead,
     FunnelReduce,
+    HistoryReplay,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -870,6 +871,12 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         )
 
         return funnel_implementations(method)
+    if method.name == "history.replay":
+        from marivo.analysis.methods.history_physical import (
+            implementations as history_implementations,
+        )
+
+        return history_implementations(method)
     if method.name.startswith("journey."):
         from marivo.analysis.methods.journey_physical import (
             implementations as journey_implementations,
@@ -1199,6 +1206,7 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             FunnelCompare,
             FunnelRead,
             FunnelAttribute,
+            HistoryReplay,
             JourneyMatch,
             JourneyDuration,
             JourneyCompleted,

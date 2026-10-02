@@ -169,6 +169,7 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "funnel.read@v1": "funnel@v1",
         "funnel_ratio_mix@v1": "funnel@v1",
         "occurrence.prepare@v1": "occurrence_prepare@v1",
+        "history.replay@v1": "history_replay@v1",
     }
     assert {
         str(item.semantics.key): item.semantics.rule for item in REGISTRY.registrations
@@ -185,6 +186,7 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "funnel.read",
         "funnel_ratio_mix",
         "occurrence.prepare",
+        "history.replay",
         "time.product",
         "cell.ratio",
         "cell.relative_change",

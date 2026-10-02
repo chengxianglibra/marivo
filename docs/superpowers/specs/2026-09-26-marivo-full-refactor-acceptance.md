@@ -1725,3 +1725,58 @@ cases; these overlapping checks do not enlarge the 18-cell qualification.
 `make check-agent` passed with 5367 default tests and 5 skips, typing of 429 modules,
 lint/import contracts and API docs. Site build passed 321 pages, and
 `git diff --check` passed. The bounded R7.4 implementation is complete.
+
+
+## R7.5 bounded local implementation acceptance (2026-10-02)
+
+Baseline: clean `panda`, `8646ceb7bdda4f5eaa986df61a5481f3a1607aca` (R7.4).
+The [R7.5 evidence index](2026-10-02-marivo-r75-evidence-index.md) and
+[qualification record](2026-10-02-marivo-r75-qualification.json) own the exact
+current scope, original requirement IDs, code/receipt hashes and validation gates.
+Required logical Subject membership and modeled occurrence preparation are two
+explicit dependencies of history.replay@v1. The model-owned ordered local scan,
+canonical_history and closed HistoryPart@v1 use the existing typed graph, registry,
+Runtime and Store 7; there is no parallel executor or public fixed replay route.
+Paired HistoryResult types replace the old public Lifecycle Dataset types without
+aliases. Retained complete-key rows include every Subject, empty lists, exact
+occurrence dispositions, legal/self/zero-duration transitions, raw interval
+boundaries, classification, known prefix, coverage and captured precision.
+
+Independent scalar oracles cover pre-window inception, complete no-event
+NotStarted, insufficient origin/follow-up Unknown, illegal/terminal/pre-inception
+facts and exclusive end. Unknown origin does not invent initial state; incomplete
+follow-up preserves proved facts without inventing later transitions. Only a
+terminal proved before an unordered same-time group admits invariant exact
+violations; other ambiguity rejects, including equal final states with different
+violation identities. Fixed/cold validation checks the saved trace and projections
+without source connection, DuckDB, current Semantic loading or origin replay.
+Violation records keep the existing zero Findings policy. Failure, cancellation
+and deadline checks use the shared 600-second transaction and preserve previous
+Artifacts. Required receipt/record/descriptor/version/binding/precision corruption
+rejects before any new Run.
+
+All **270 original P10 cells passed**: 9 complete key profiles × 10 time/source
+profiles × source/fixed/cold, with 90 separate producer tests and fresh source-offline
+recovery processes. Fixed/cold qualify reading the already published History and
+its state/contract, not a new fixed replay constructor. Accepted R7.2 native UTC/us
+conversion and disclosed possible ns loss apply; no ns-exact or remote claim is made.
+Final Runtime validation after all corrections passed **151 tests** in 416.30 seconds
+(150 R7.5 plus one migration guard). Affected R7.2–R7.4 Runtime regression passed
+**197 tests**. `make check-agent` passed lint/import contracts, typing of 430 modules,
+**5330 default tests with 5 skips**, and API documentation generation. Site build
+passed 321 pages and both install-script outputs; `git diff --check` passed.
+
+M07–M10 record removal of the old public construction, production and recovery
+routes, replay SQL/array compiler modules, exclusive publication/integrity/native
+branches and old replay tests. Independent business counterexamples now use the
+new public path. Actual private R7.6 reducer declaration/codec/schema consumers and
+shared R8 owners remain with explicit exit boundaries; they grant no compatibility
+route or deferred reducer Runtime pass. Exports, precise typing, Help/budgets,
+bounded result guidance, API docs and identical executed English/Chinese latest
+examples are aligned. Current History contracts expose no R7.6 views.
+
+The bounded local R7.5 implementation is complete. R7.6 views, Duration statistics,
+selected-Subject observation, R7.7–R7.9/full R7, same-wheel, remote and R8–R10
+qualification remain separate. AGENTS.md, packaged skills and the R7.1 historical
+snapshot are unchanged. Work remains uncommitted; no push, publication, release,
+release-check or MinIO occurred.

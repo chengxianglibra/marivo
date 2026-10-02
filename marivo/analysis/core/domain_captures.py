@@ -185,6 +185,26 @@ class StateModelCapture:
     dependencies: tuple[tuple[str, str], ...]
 
     def __post_init__(self) -> None:
+        states = {state.name for state in self.definition.states}
+        rules = {
+            (item.from_state, item.trigger.event_ref, item.trigger.participant_role)
+            for item in self.definition.transitions
+        }
+        if (
+            not states
+            or len(states) != len(self.definition.states)
+            or sum(state.initial for state in self.definition.states) != 1
+            or not self.definition.inceptions
+            or len(rules) != len(self.definition.transitions)
+            or any(
+                item.from_state not in states or item.to_state not in states
+                for item in self.definition.transitions
+            )
+        ):
+            fail(
+                "history_model",
+                "StateModel requires closed unique states, one initial, inception and deterministic transitions",
+            )
         expected = {
             (item.trigger.event_ref, item.trigger.participant_role)
             for item in self.definition.inceptions

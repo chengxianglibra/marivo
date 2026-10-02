@@ -1866,9 +1866,6 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
     from marivo.analysis.domains.event import register_event
 
     register_event(registry, ids)
-    from marivo.analysis.domains.lifecycle import register_lifecycle
-
-    register_lifecycle(registry, ids)
     registry.freeze()
     return registry
 

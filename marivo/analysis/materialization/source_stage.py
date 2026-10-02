@@ -123,16 +123,6 @@ def _collect_lifecycle_proofs(
     source_boundary: SourceStep,
     evidence: ExecutionEvidence,
 ) -> None:
-    if proof_recipe.lifecycle_coverage is not None:
-        from marivo.analysis.materialization.lifecycle_publication import (
-            native_summary,
-        )
-
-        evidence.lifecycle_summary = native_summary(
-            proof_backend,
-            proof_recipe,
-            source_boundary.dataset.row_contract,
-        )
     if proof_recipe.lifecycle_reducer_coverage is not None and (
         isinstance(source_boundary.dataset.row_contract.family_semantics, REDUCER_TYPES)
         or proof_recipe.lifecycle_selection_payload is not None

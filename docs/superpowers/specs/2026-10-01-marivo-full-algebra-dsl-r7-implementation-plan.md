@@ -3,7 +3,7 @@
 Date: 2026-10-01
 
 Status: R7.1 documentation/static contract freeze complete; R7.2 private preparation implemented;
-R7.3 public Journey integration implemented with bounded evidence below; R7.4 funnel and Findings implementation is recorded below; R7.5-R7.9 remain unimplemented. Qualification is limited to each phase's recorded evidence.
+R7.3 public Journey integration implemented with bounded evidence below; R7.4 funnel and Findings implementation is recorded below; R7.5 canonical History is recorded below; R7.6-R7.9 remain unimplemented. Qualification is limited to each phase's recorded evidence.
 
 The [R7.1 migration ledger](2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md),
 [consumer snapshot](2026-10-01-marivo-r71-consumer-snapshot.json) and
@@ -413,7 +413,7 @@ records deterministic AST/text/import evidence and mandatory source/fixed/cold
 targets, all planned. Static presence, source admission blockage, unverified
 dynamic unreachability and future deletion are distinct. See the
 [R7.1 acceptance record](2026-09-26-marivo-full-refactor-acceptance.md#r71-documentation-and-static-freeze-completed-acceptance-2026-10-01)
-for validation and excluded execution gates. R7.2 preparation, R7.3 Journey and R7.4 funnel implementation are recorded below; R7.5-R7.9 remain pending.
+for validation and excluded execution gates. R7.2 preparation, R7.3 Journey and R7.4 funnel and R7.5 canonical History implementations are recorded below; R7.6-R7.9 remain pending.
 
 ### R7.2 — Ibis occurrence 准备、覆盖与业务顺序消费
 
@@ -504,6 +504,14 @@ canonical intervals 和每主体 coverage/known-prefix。删除 replay SQL/数�
 
 **出口：**V09/V13–V15 相关格通过；跨输出窗口 inception、无区间主体、自循环/零时长、
 terminal/illegal/pre-inception、不同违规身份及 end 排他反例成立；History 单独可断源恢复。
+
+**实施记录（2026-10-02）：**公共 paired HistoryResult、完整成员与 occurrence 的双依赖、
+canonical_history/HistoryPart@v1、注册本地扫描、断源校验和旧 replay 专属链退出已实现。
+冻结 P10 的 270 格全部执行；fixed/cold 只读取并验证已发布 History，不构造新 replay。
+相关 V09/V13–V15、披露和迁移证据见
+[R7.5 evidence index](2026-10-02-marivo-r75-evidence-index.md) 与
+[逐格 qualification record](2026-10-02-marivo-r75-qualification.json)。
+V10/V11 及完整 R7/same-wheel 原始 requirement ID 保留并明确后置；本轮不开放 R7.6 视图。
 
 ### R7.6 — History 视图、Duration 统计与跨家族续算
 

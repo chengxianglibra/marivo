@@ -24,6 +24,13 @@ category.where(category.value.eq("west")).where(True)
 members.show()
 fixed = members.execute()
 fixed.execute()
+window = mv.time_scope(start="2026-08-01", end="2026-09-01")
+session.lifecycle.replay(ms.ref.state_model("sales.model"), window=window, seed=mv.from_inception())
+session.lifecycle.replay(ms.ref.entity("sales.customer"), population=members, window=window, seed=mv.from_inception())
+session.lifecycle.replay(ms.ref.state_model("sales.model"), population=fixed, window=window, seed=mv.from_inception())
+history = session.lifecycle.replay(ms.ref.state_model("sales.model"), population=members, window=window, seed=mv.from_inception())
+history.distribution()
+history.execute().read(mv.in_state(ms.model_state(ms.ref.state_model("sales.model"), "done"), at=window.end))
 category.where(category.value.eq("west")).execute().members().observe(ms.ref.metric("sales.revenue"))
 observed = members.observe(ms.ref.metric("sales.revenue"), during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=ms.ref.relationship("sales.buyer"))
 assert isinstance(observed, mv.LogicalNumericRelation)
@@ -64,6 +71,10 @@ table.execute().execute()
     )
     assert completed.returncode != 0
     output = completed.stdout
+    assert 'Missing named argument "population"' in output
+    assert 'Argument "population" to "replay"' in output
+    assert 'LogicalHistoryResult" has no attribute "distribution"' in output
+    assert 'MaterializedHistoryResult" has no attribute "read"' in output
     assert 'Argument 1 to "members"' in output
     assert 'Argument 1 to "read"' in output
     assert 'has no attribute "compare"' in output

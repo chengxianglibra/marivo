@@ -37,6 +37,7 @@ from marivo.analysis.core.model import (
     FunnelAllocationPart,
     FunnelComparisonPart,
     FunnelPart,
+    HistoryPart,
     JourneyPart,
     Obligation,
     ObservedQuantity,
@@ -65,6 +66,7 @@ from marivo.analysis.core.rules import (
     FunnelCompare,
     FunnelReduce,
     GroupObservationTarget,
+    HistoryReplay,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -141,6 +143,8 @@ def components(part: Part) -> tuple[str, ...]:
         (EntryAxesPart, FindingPolicyPart, FunnelPart, FunnelComparisonPart, FunnelAllocationPart),
     ):
         return ("retained",)
+    if isinstance(part, HistoryPart):
+        return ("record",)
     if isinstance(part, JourneyPart):
         return ("assignment",)
     if isinstance(part, OccurrencePart):
@@ -3341,7 +3345,14 @@ def lower(
                 or (
                     isinstance(
                         stage.node.parameters,
-                        (AttributionDerive, CellDerive, ReferenceDerive, DisplayRank, DisplayTable),
+                        (
+                            HistoryReplay,
+                            AttributionDerive,
+                            CellDerive,
+                            ReferenceDerive,
+                            DisplayRank,
+                            DisplayTable,
+                        ),
                     )
                 )
             ):
@@ -3358,7 +3369,7 @@ def lower(
                 output_layout = canonical_layout(stage.node.signature, has_value=False)
             if isinstance(
                 stage.node.parameters,
-                (OccurrencePrepare, JourneyMatch, JourneyDuration, JourneyCompleted),
+                (HistoryReplay, OccurrencePrepare, JourneyMatch, JourneyDuration, JourneyCompleted),
             ):
                 output_layout = canonical_layout(stage.node.signature, has_value=False)
             if (

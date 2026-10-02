@@ -481,6 +481,13 @@ class DatasetRuntime:
     def _execute(self, dataset: LogicalDataset) -> MaterializedDataset:
         from marivo.analysis.materialization import dataset_execution
 
+        if dataset.row_contract.shape_id.family_id == "lifecycle":
+            from marivo.analysis.core.domain_captures import fail
+
+            fail(
+                "input_mode",
+                "retired Lifecycle Dataset execution; construct session.lifecycle.replay with explicit logical Subjects",
+            )
         if self.store.layout.generation == 7:
             from marivo.analysis.datasets.errors import DatasetConstructionError
 

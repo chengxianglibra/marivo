@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime
+from typing import Literal
 from uuid import uuid4
 
 from marivo._temporal import TimeScope
-from marivo.analysis.core.domain_captures import EventCapture, OrderCapture, fail
+from marivo.analysis.core.domain_captures import EventCapture, OrderCapture, StateModelCapture, fail
 from marivo.analysis.core.graph import (
     Edge,
     MethodNode,
@@ -28,18 +29,19 @@ from marivo.analysis.materialization.graph_protocol import digest, schema_text
 from marivo.analysis.materialization.graph_relation import LiveBinding, Relation
 from marivo.analysis.methods.physical import ScalarType, TimeShape
 from marivo.analysis.observation.contracts import ObservationOwner
-from marivo.refs import BusinessOrderKind, Ref, ref
+from marivo.refs import BusinessOrderKind, Ref, StateModelKind, ref
 from marivo.semantic.validator import normalize_target_dimension, normalize_target_relationship
 
 
-def construct(
+def prepare(
     population: Relation,
     owner: ObservationOwner,
     pattern: EventPattern,
     *,
     cohort_window: TimeScope,
     completion_through: datetime,
-    matching: FirstPerSubject | EveryStart,
+    order_use: Literal["prepare", "ordered", "one_step_every_start"],
+    model_ref: Ref[StateModelKind] | None = None,
     business_order: Ref[BusinessOrderKind] | None,
     completeness: tuple[CompletenessDeclaration, ...],
 ) -> Relation:
@@ -198,17 +200,77 @@ def construct(
         OccurrencePrepare(
             domain,
             tuple(captures.values()),
-            start,
+            None if model_ref is not None else start,
             completion_through.isoformat(),
             order=order,
+            model=None
+            if model_ref is None
+            else StateModelCapture(
+                model_ref,
+                digest(repr(registry.state_models[model_ref.path])),
+                registry.state_models[model_ref.path],
+                tuple(captures.values()),
+                order,
+                tuple((capture.ref.path, capture.fingerprint) for capture in captures.values()),
+            ),
             completeness=completeness,
-            order_use="one_step_every_start"
-            if len(steps) == 1 and isinstance(matching, EveryStart)
-            else "ordered",
+            order_use=order_use,
         ),
         value_type=ScalarType("int64"),
         sources=tuple(by_entity[path] for path in sorted(paths)),
     )
+    member_leaf = nodes[live.graph.leaf.identity]
+    assert isinstance(member_leaf, SourceLeaf)
+    graph = replace(
+        live.graph,
+        root=capture_node,
+        leaf=member_leaf,
+        sources=tuple(
+            {
+                leaf.identity: (schema, leaf)
+                for schema, leaf in (
+                    *((schema, nodes[leaf.identity]) for schema, leaf in live.graph.sources),
+                    *entries,
+                )
+                if isinstance(leaf, SourceLeaf)
+            }.values()
+        ),
+        expression_sidecar=owner.sidecar,
+    )
+    return Relation(population.runtime, capture_node, replace(live, graph=graph))
+
+
+def construct(
+    population: Relation,
+    owner: ObservationOwner,
+    pattern: EventPattern,
+    *,
+    cohort_window: TimeScope,
+    completion_through: datetime,
+    matching: FirstPerSubject | EveryStart,
+    business_order: Ref[BusinessOrderKind] | None,
+    completeness: tuple[CompletenessDeclaration, ...],
+) -> Relation:
+    captured = prepare(
+        population,
+        owner,
+        pattern,
+        cohort_window=cohort_window,
+        completion_through=completion_through,
+        business_order=business_order,
+        completeness=completeness,
+        order_use="one_step_every_start"
+        if len(pattern.steps) == 1 and isinstance(matching, EveryStart)
+        else "ordered",
+    )
+    assert isinstance(captured.binding, LiveBinding) and isinstance(captured.root, MethodNode)
+    capture_node = captured.root
+    population_root = capture_node.inputs[0].node
+    keys = capture_node.signature.domain.instance_key
+    binding = population_root.signature.domain.binding
+    steps = _normalize_steps(owner, pattern)
+    start, end = _window_bounds(cohort_window, captured.binding.report_timezone)
+    assert start is not None and end is not None
     journey_keys = (*population_root.signature.domain.instance_key, *keys)
     journey_domain = DomainSignature(binding, "journey", journey_keys, journey_keys, uuid4().hex)
     result = method_node(
@@ -226,22 +288,8 @@ def construct(
         ),
         value_type=ScalarType("int64"),
     )
-    member_leaf = nodes[live.graph.leaf.identity]
-    assert isinstance(member_leaf, SourceLeaf)
-    graph = replace(
-        live.graph,
-        root=result,
-        leaf=member_leaf,
-        sources=tuple(
-            {
-                leaf.identity: (schema, leaf)
-                for schema, leaf in (
-                    *((schema, nodes[leaf.identity]) for schema, leaf in live.graph.sources),
-                    *entries,
-                )
-                if isinstance(leaf, SourceLeaf)
-            }.values()
-        ),
-        expression_sidecar=owner.sidecar,
+    return Relation(
+        population.runtime,
+        result,
+        replace(captured.binding, graph=replace(captured.binding.graph, root=result)),
     )
-    return Relation(population.runtime, result, replace(live, graph=graph))

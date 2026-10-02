@@ -29,6 +29,7 @@ from marivo.analysis.core.rules import (
     DisplayRank,
     DisplayTable,
     FunnelAxesPrepare,
+    HistoryReplay,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -199,6 +200,8 @@ class MethodState:
         required = (
             ()
             if self.kind == "none"
+            else ("history",)
+            if self.kind == "canonical_history"
             else ("entry_axes",)
             if self.kind == "entry_axes"
             else ("funnel_state",)
@@ -490,6 +493,7 @@ def validate_descriptor(value: Descriptor) -> Node:
                     DisplayTable,
                     OccurrencePrepare,
                     FunnelAxesPrepare,
+                    HistoryReplay,
                     JourneyMatch,
                     JourneyDuration,
                     JourneyCompleted,

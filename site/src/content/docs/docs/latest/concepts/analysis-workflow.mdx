@@ -183,7 +183,7 @@ selected ratios and distinct sets retain their actual components.
 Comparison, attribution, correlation, forecast and discovery are Dataset methods.
 Event matching starts at `session.events.match(..., population=members)` and
 returns a typed JourneyResult; duration and selection consume its retained
-assignment. Lifecycle replay retains its existing Dataset entry. Cross-Session
+assignment. R7.5 Lifecycle replay returns canonical HistoryResult through the typed graph. Cross-Session
 operands are rejected. First-per-subject Journey results expose `funnel(axes=())`.
 Funnel comparison requires the exact pattern, population, time basis, cohort
 duration, follow-up offset and complete coverage. Logical attribution can prepare
@@ -290,7 +290,7 @@ server query stopped. Never automatically resubmit an ambiguously submitted acti
 
 The backend and method descriptions below preserve pre-refactor qualification
 history. At the current R1 checkout, they do not grant execution to the older
-source routes: Event, Lifecycle, Attribution, mean, time-scoped observation,
+source routes: Event, Attribution, mean, time-scoped observation,
 ranking and other non-basic methods reject at `source_admission` until their
 R6–R9 migration and fresh backend qualification. Check the Dataset contract
 and the repository's R1 acceptance record for current evidence.
@@ -359,11 +359,9 @@ the qualification server's memory limit; expanded Top-K on Trino is also
 unqualified because its query exceeded the server stage limit. Sampling,
 Entity candidates and source driver screening remain unsupported. The following Event backend records concern the retained legacy implementation,
 not the new R7.3 public entry point. PostgreSQL
-admits exact two- or three-step legacy journeys and
-`session.lifecycle.replay(...)` histories with two trigger Events. These shapes
+admits exact two- or three-step legacy journeys. These shapes
 require unversioned table sources and `int64` subject and occurrence identities.
-Direct Event funnel, time-to-event and subject selection, and Lifecycle
-distribution, transitions, dwell, violations and subject selection are qualified.
+Retained Event time-to-event and subject selection keep their historical records. The retired Lifecycle Dataset records do not qualify R7.5.
 The former private PostgreSQL funnel comparison and attribution consumers have
 been retired; that historical backend evidence does not qualify the new R7.4 route.
 ClickHouse and Trino admit two-step journeys with `first_per_subject()` or
@@ -377,34 +375,35 @@ been retired and does not qualify the new R7.4 route. Grouped Trino funnels
 and dependent attribution remain unsupported because reconciliation exceeds the
 qualification server's stage limit. ClickHouse direct Event reducers and selection remain unsupported after
 planner/memory qualification failures.
-Trino (Iceberg) and ClickHouse (MergeTree) also support two-trigger Lifecycle
-history with these table requirements and one `int64` component per subject
-and occurrence identity. They replay complete sequences
-with native array folds and verify same-time order ambiguity in the source.
-Execute history first to use its complete retained distribution, transition,
-dwell, violation and subject-selection continuations. Direct source Lifecycle
-reducers on these two backends remain unsupported. SQLite and MySQL
-Event/Lifecycle remain unsupported.
-
-For a qualified PostgreSQL, Trino or ClickHouse model, materialize history before
-continuing:
+R7.5 canonical Lifecycle History supports governed DuckDB tables and local Parquet.
+Use an exact StateModel Ref, an explicit logical Subject domain, an aware report
+window and `from_inception()`. The model owns business order. Ibis captures all
+source inputs before local replay; History retains every Subject and the full
+transition/violation trace. Published History can be read with source disconnected.
+The six History views, Duration statistics and selected-Subject observation belong
+to R7.6. Remote Lifecycle replay is unqualified.
 
 ```python
+members = session.members(ms.ref.entity("commerce.subjects"))
 history = session.lifecycle.replay(
-    model,
+    ms.ref.state_model("commerce.model"),
+    population=members,
     window=window,
     seed=mv.from_inception(),
     completeness=lifecycle_completeness,
 )
 retained_history = history.execute()
-transitions = retained_history.transitions().execute()
-transitions.show()
+retained_history.show()
+retained_history.contract().show()
+recovered = session.artifact(retained_history.state.artifact_ref)
+recovered.show()
 ```
 
-Here `model` is a governed two-trigger StateModel, `window` is an aware time scope,
-and `lifecycle_completeness` contains source-origin coverage declarations. The
-source replays the complete history; the published result retains the parts needed
-for cold-process continuation.
+Here `window` is an aware half-open scope and `lifecycle_completeness` contains
+source-origin declarations for all modeled triggers. Coverage declarations do not
+prove coverage by themselves. Without sufficient authority the ledger remains
+Unknown with its known prefix. No-event Subjects with complete origin are NotStarted.
+Precision follows the captured conversion and disclosed possible loss.
 
 String-parser time axes and multi-unit buckets are enabled per
 backend, with the limits below. Unsupported shapes report a concrete reason; they

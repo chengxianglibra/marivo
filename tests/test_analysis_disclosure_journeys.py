@@ -23,7 +23,6 @@ from tests.lazy_disclosure_fixtures import example_inputs
         "dimensioned",
         "time_metric",
         "events",
-        "lifecycle",
         "population",
     ),
 )

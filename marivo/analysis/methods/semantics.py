@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 
 MethodName: TypeAlias = Literal[
+    "history.replay",
     "funnel.entry_axes",
     "funnel.reduce",
     "funnel.compare",
@@ -81,6 +82,7 @@ MethodName: TypeAlias = Literal[
 
 
 PersistentStateKind: TypeAlias = Literal[
+    "canonical_history",
     "entry_axes",
     "funnel_components",
     "funnel_comparison",
@@ -169,6 +171,8 @@ def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
         return MethodKey("journey.completed")
     if type(params) is rules.JourneyRead:
         return MethodKey("journey.read")
+    if type(params) is rules.HistoryReplay:
+        return MethodKey("history.replay")
     if type(params) is rules.JourneyMatch:
         return MethodKey("journey.match")
     if type(params) is rules.OccurrencePrepare:
@@ -303,6 +307,7 @@ class MethodSemantics:
     def persistent_state_kind(self) -> PersistentStateKind | None:
         """Return the connected durable state kind; absence grants no publication."""
         kinds: dict[MethodName, PersistentStateKind] = {
+            "history.replay": "canonical_history",
             "funnel.entry_axes": "entry_axes",
             "funnel.reduce": "funnel_components",
             "funnel.compare": "funnel_comparison",
@@ -415,6 +420,7 @@ class MethodSemantics:
             params,
             (
                 rules.OccurrencePrepare,
+                rules.HistoryReplay,
                 rules.JourneyMatch,
                 rules.JourneyDuration,
                 rules.JourneyCompleted,
@@ -709,6 +715,8 @@ class MethodSemantics:
     @property
     def rule(self) -> rules.RuleId:
         name = self.key.name
+        if name == "history.replay":
+            return "history_replay@v1"
         if name.startswith("funnel.") or name == "funnel_ratio_mix":
             return "funnel@v1"
         if name in ("journey.duration", "journey.completed", "journey.read"):
@@ -946,6 +954,8 @@ class MethodSemantics:
 
     @property
     def output_parts(self) -> tuple[PartRole, ...]:
+        if self.key.name == "history.replay":
+            return ("history",)
         if self.key.name.startswith("journey."):
             return ("subject", "journey")
         if self.key.name == "occurrence.prepare":
@@ -1097,6 +1107,8 @@ class MethodSemantics:
             return derive(inputs, params)
         if isinstance(params, (rules.JourneyDuration, rules.JourneyCompleted, rules.JourneyRead)):
             return rules._journey_view(inputs, params)
+        if isinstance(params, rules.HistoryReplay):
+            return rules._history_replay(inputs, params)
         if isinstance(params, rules.JourneyMatch):
             return rules._journey_match(inputs, params)
         if isinstance(params, rules.OccurrencePrepare):
@@ -1166,6 +1178,7 @@ class MethodSemantics:
 
 
 CONNECTED_METHODS = (
+    MethodSemantics(MethodKey("history.replay"), "analysis.core.rules"),
     *(
         MethodSemantics(MethodKey(name), "analysis.core.rules")
         for name in (

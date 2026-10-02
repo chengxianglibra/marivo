@@ -26,6 +26,16 @@ def recover_dataset(
 ) -> MaterializedDataset:
     """Decode only committed metadata; a retained owner has no catalog or origin."""
     descriptor = record.descriptor
+    if descriptor.row_contract.shape_id.family_id == "lifecycle":
+        from marivo.analysis.datasets.errors import DatasetConstructionError
+
+        raise DatasetConstructionError(
+            expected="a Store 7 canonical HistoryResult",
+            received="a retired Lifecycle Dataset artifact",
+            repair="Create History through session.lifecycle.replay with explicit logical Subjects.",
+            location="analysis.artifact",
+            help_target="lifecycle.replay",
+        )
     ids = make_ids(())
     registry = make_family_registry(ids)
     owner = ObservationRuntimeOwner(

@@ -563,7 +563,7 @@ retains the earlier full-gate failures for older source methods.
 ## R1.4 consumer and disclosure handoff
 
 The internal `SourceSession` is the admitted route for the basic source-backed
-Dataset path described above. Existing Event, Lifecycle, Attribution, mean,
+Dataset path described above. Existing Event, Attribution, mean,
 time-scoped and other older source methods still reject at `source_admission`;
 their prior J1–J4 or Group A evidence does not qualify them under this route.
 Fixed Artifact continuation retains its separately admitted path. The R1
@@ -685,7 +685,7 @@ primary/part receipts. Missing, malformed or mismatched snapshots reject.
 
 | Existing public entry | P1 decision |
 | --- | --- |
-| `session.population(...)` and its Dataset family methods | Retained for Population, Event, Lifecycle and other shapes outside the admitted Entity-domain chain; it is not a J1–J4 synonym. |
+| `session.population(...)` and its Dataset family methods | Retained for Population, Event and other shapes outside the admitted Entity-domain chain; it is not a J1–J4 synonym. |
 | `session.observe(...)` and its Dataset family methods | Retained for existing Metric, time-series and non-J1–J4 analysis; new member-domain J1–J4 guidance starts at `session.members(...)`. |
 | `session.artifact(reference)` | Extended to recover a concrete public J1–J4 Materialized variant when its validated snapshot exists; other family Artifacts retain their prior return shape. |
 | Private `DatasetRuntime.execute_j1(...)` and old private J1 Artifacts | No public entry or migration; private Artifacts without a public snapshot reject through the public recovery call. |
@@ -964,14 +964,10 @@ state is qualified on all five remote backends. Percentile status-time folds
 and remote `duckdb_tdigest@v1` remain unqualified. Entity Pearson and Spearman
 correlation now reduce complete source-private pairs on all five remote backends;
 Kendall remains a complete-input local continuation. PostgreSQL admits exact
-Event journeys with two or three steps, and Lifecycle replay with two trigger
-Events, over unversioned tables with int64 subject and occurrence identities.
-Direct PostgreSQL Event funnel, time-to-event and subject selection, and
-Lifecycle distribution, transitions, dwell, violations and subject selection
-are also admitted. Complete PostgreSQL funnel inputs can continue through the
+Event journeys with two or three steps over unversioned tables with int64 subject and occurrence identities.
+The retained legacy PostgreSQL Event time-to-event and subject selection records do not qualify the new R7 graph. Complete PostgreSQL funnel inputs can continue through the
 existing retained comparison and attribution path. PostgreSQL journey queries
-use one read-only materialized CTE bundle; replay and direct reducers execute
-source-side assertions and outputs in a read-only repeatable-read transaction.
+use one read-only materialized CTE bundle.
 
 ClickHouse and Trino admit exact two-step Event journeys with first-per-subject
 or every-start shared/exclusive matching over the same identity/table shape.
@@ -984,17 +980,10 @@ Trino also admits direct ungrouped funnels, first-per-subject time-to-event and
 subject selection, plus complete ungrouped funnel comparison through the existing
 local continuation. Its grouped funnel reconciliation exceeds the 150-stage
 acceptance limit (306 stages), so grouped funnels and dependent attribution remain
-closed. Trino and ClickHouse also admit Lifecycle history with two trigger Events
-and one int64 component per subject/occurrence identity, under the same table restrictions (Iceberg and MergeTree,
-respectively). Native array folds replay every occurrence without a recursive
-query depth cap; source-side interleaving exploration proves equal-time
-confluence including per-occurrence violation outcomes. Trino keeps all assertions
-and parts inside its read-only snapshot. ClickHouse returns assertions, bounded
-Evidence, history and all three retained parts in one ordered packet statement
-under a shared storage snapshot, without requiring Lifecycle CTE materialization.
-Complete retained histories support the existing local distribution, transition,
-dwell, violation and subject-selection continuations, including cold recovery.
-Direct Trino/ClickHouse Lifecycle reducers and selection remain unqualified.
+closed. The old Lifecycle recursive/array replay and dedicated native integrity
+routes have been retired. R7.5 canonical History uses DuckDB table/local Parquet
+Ibis preparation followed by registered local replay, with source-free Arrow/Parquet
+recovery. It grants no remote backend or R7.6 view qualification.
 ClickHouse direct Event reducers and selection remain closed after planner/memory qualification failures. SQLite
 and MySQL C9 methods remain closed. These are exact implementation qualifications, not claims
 that other engines cannot implement the underlying algorithms. Other Event and
@@ -1189,7 +1178,7 @@ states. Retained imports and source-private advanced methods remain unavailable.
 The relational/date extension above owns additional method admission.
 
 The original Slice 1d blanket restriction is superseded. Existing DuckDB
-Event/Lifecycle, Candidate, JSON and retained-stream execution remain available.
+Event, Candidate, JSON and retained-stream execution retain their private owners; R7.5 History uses Store 7.
 
 
 `marivo.analysis` is the governed Dataset analysis surface. Import it as `mv`,
@@ -1234,7 +1223,7 @@ captured during construction and are not reread at execution.
 ## Row meaning and ownership
 
 Remaining legacy Dataset families are Population, Metric, Association, Forecast,
-Candidate, Event and Lifecycle. R6 uses typed Relation/Difference/AttributionResult
+Candidate and Event. R7.5 History uses the typed graph family. R6 uses typed Relation/Difference/AttributionResult
 variants. The private R7 funnel comparison/allocation shapes have their own owner
 and are not public Delta/Attribution Dataset exports. Each admitted shape has paired Logical
 and Materialized classes. Shape, schema, coordinate/key fields, row cardinality,
@@ -1271,7 +1260,7 @@ registered method; temporary execution relations are not persisted Artifacts.
 Primary output and required part reads need not observe the same source state.
 Each query uses its backend's current observation. Marivo neither opens a shared
 consistency transaction nor rejects or retries solely because intervening updates
-occurred. Artifact validations still apply; Event/Lifecycle may re-evaluate
+occurred. Artifact validations still apply; Event may re-evaluate
 deterministic source relations, including across concurrent writes. Independent
 output queries may observe different versions; atomic publication does not
 certify a common source snapshot.

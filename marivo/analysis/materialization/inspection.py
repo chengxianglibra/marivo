@@ -108,10 +108,6 @@ def _payload_check(
             raise StorageAccessError("mutated")
         if validator is not None:
             validator.finish()
-            if str(row.shape_id) == "lifecycle/history@v1":
-                from marivo.analysis.materialization.lifecycle_publication import inspect_history
-
-                inspect_history(root, descriptor, policy)
     finally:
         stream.close()
 
