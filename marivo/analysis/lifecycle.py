@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
+
+from marivo.analysis.core.domain_captures import fail
+from marivo.semantic.state_model import ModelStateHandle
 
 
 def _fingerprint(payload: object) -> str:
@@ -63,4 +68,37 @@ def from_inception() -> FromInception:
     return FromInception()
 
 
-__all__ = ["FromInception", "from_inception"]
+@dataclass(frozen=True, slots=True)
+class InState:
+    """An exact retained model state at one aware instant."""
+
+    state: ModelStateHandle
+    at: datetime
+
+    def __post_init__(self) -> None:
+        if type(self.state) is not ModelStateHandle:
+            fail("history_state", "use an exact ModelStateHandle")
+        object.__setattr__(self, "at", instant(self.at))
+
+
+def instant(value: datetime) -> datetime:
+    if type(value) is not datetime or value.tzinfo is None or value.utcoffset() is None:
+        fail("history_checkpoint", "use a timezone-aware datetime")
+    return value.astimezone(timezone.utc)
+
+
+def in_state(state: ModelStateHandle, *, at: datetime) -> InState:
+    """Select state at an aware at instant, returning an immutable InState value.
+
+    Args:
+        state: Exact StateModel state handle.
+        at: A timezone-aware checkpoint inside the receiver's replay window.
+
+    Returns: An immutable InState selector consumed by History.read().
+    Example: ``in_state(paid, at=checkpoint)``.
+    Constraints: The receiver validates the exact model and replay window.
+    """
+    return InState(state, at)
+
+
+__all__ = ["FromInception", "InState", "from_inception", "in_state"]

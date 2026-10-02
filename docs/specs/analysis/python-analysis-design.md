@@ -983,7 +983,8 @@ acceptance limit (306 stages), so grouped funnels and dependent attribution rema
 closed. The old Lifecycle recursive/array replay and dedicated native integrity
 routes have been retired. R7.5 canonical History uses DuckDB table/local Parquet
 Ibis preparation followed by registered local replay, with source-free Arrow/Parquet
-recovery. It grants no remote backend or R7.6 view qualification.
+recovery. R7.6 qualifies the six History views and exact Duration/Subject observation
+continuations on these local forms. Remote History backends remain unqualified.
 ClickHouse direct Event reducers and selection remain closed after planner/memory qualification failures. SQLite
 and MySQL C9 methods remain closed. These are exact implementation qualifications, not claims
 that other engines cannot implement the underlying algorithms. Other Event and
@@ -2204,3 +2205,28 @@ Private funnel Delta/Attribution registrations, dispatch, extractor consumers an
 exclusive codecs are physically removed. Remaining Event/Lifecycle shared code
 awaits its owning phase. Detailed validation and physical requirement statuses are
 in the R7.4 evidence index; later phases, same-wheel and remote qualification remain separate.
+
+## R7.6 local History API amendment
+
+All six History operations and the five Logical/Materialized view pairs above are
+implemented on governed local DuckDB tables and Parquet. Both History variants
+return Logical views; fixed receivers use their verified frozen graph. Named
+fields return the existing precise scalar Relation families. Intervals expose
+state/start/end/observed_duration/left_clipped/status; violations expose
+trigger/occurred_at/state_at_event/kind. MaterializedStateIntervalResult.state is
+the state CategoryRelation. Obtain the committed identity with
+`intervals.evidence_digest().artifact_ref` and recover it with `session.artifact(ref)`.
+
+Summary views have no Subject mapping. Interval/violation subjects() retains the
+exact model Subject binding and members(through=...) projects its set image.
+State-level read has original complete Subject keys and needs no through.
+Dynamic contracts disclose qualified field reads and continuations after verifying
+required parts; Duration summary fields do not disclose pooling, and History
+scalar reads do not disclose unsupported comparison or ratio methods.
+
+Logical selected Subjects can observe a new count/sum Metric through F13 in the
+same Run. Execute prepared observations and Duration row statistics before further
+continuation. Materialized/fixed selected members cannot introduce a live Metric.
+The existing InState/in_state signature is retained with its sole definition in
+analysis.lifecycle; no Dataset reducer dependency or string field entry is added.
+R7.7-R7.9, remote execution and same-wheel qualification remain separate.

@@ -262,17 +262,17 @@ def arithmetic(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> ArithmeticRe
 
 
 def count(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> CountResult:
-    """R4 supplies validated fixed rows; this method never reads or publishes."""
+    """Consume validated retained or prepared rows without reading or publishing."""
     admit(stage.implementation, stage.node.parameters)
     if (
         not isinstance(stage.node.parameters, RowState)
         or stage.node.parameters.method != "count"
-        or stage.implementation.key.route != "artifact_python"
+        or stage.implementation.key.route not in ("artifact_python", "ibis_python")
     ):
         reject(
-            "the registered fixed count stage",
+            "the registered local count stage",
             str(stage.node.method),
-            "Use fixed row.count.",
+            "Use row.count over verified fixed or prepared inputs.",
             "analysis.local",
         )
     limit = stage.implementation.resources.max_rows
@@ -319,8 +319,7 @@ def count(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> CountResult:
             )
             for c in cells
         )
-        or limit is None
-        or len(cells) > limit
+        or (limit is not None and len(cells) > limit)
     ):
         reject(
             f"validated Cells within {limit} rows",
@@ -337,7 +336,7 @@ def count_defined(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> CountResu
     if (
         not isinstance(stage.node.parameters, RowState)
         or stage.node.parameters.method != "count_defined"
-        or stage.implementation.key.route != "artifact_python"
+        or stage.implementation.key.route not in ("artifact_python", "ibis_python")
         or type(cells) is not tuple
         or any(type(cell) not in (Defined, Null, Undefined, Unknown) for cell in cells)
     ):

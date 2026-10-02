@@ -18,10 +18,6 @@ from marivo.analysis.domains.completeness import (
     EventCoverageProvider,
 )
 from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
-from marivo.analysis.domains.lifecycle import (
-    LogicalLifecycleDataset,
-    MaterializedLifecycleDataset,
-)
 from marivo.analysis.evidence._dataset_types import (
     ArtifactDigest,
     ArtifactRevalidation,
@@ -423,12 +419,6 @@ class DatasetRuntime:
             raise _error("presentation")
         return result
 
-    def execute_lifecycle(self, dataset: LogicalLifecycleDataset) -> MaterializedLifecycleDataset:
-        result = self._execute(dataset)
-        if not isinstance(result, MaterializedLifecycleDataset):
-            raise _error("publication")
-        return result
-
     def execute_event(self, dataset: LogicalEventDataset) -> MaterializedEventDataset:
         result = self._execute(dataset)
         if not isinstance(result, MaterializedEventDataset):
@@ -481,13 +471,6 @@ class DatasetRuntime:
     def _execute(self, dataset: LogicalDataset) -> MaterializedDataset:
         from marivo.analysis.materialization import dataset_execution
 
-        if dataset.row_contract.shape_id.family_id == "lifecycle":
-            from marivo.analysis.core.domain_captures import fail
-
-            fail(
-                "input_mode",
-                "retired Lifecycle Dataset execution; construct session.lifecycle.replay with explicit logical Subjects",
-            )
         if self.store.layout.generation == 7:
             from marivo.analysis.datasets.errors import DatasetConstructionError
 

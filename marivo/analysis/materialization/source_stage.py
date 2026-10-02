@@ -19,10 +19,6 @@ from marivo.analysis.compiler.placement import (
     SourceStep,
 )
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.domains.lifecycle_reducers import (
-    REDUCER_TYPES,
-)
 from marivo.analysis.materialization import dataset_publication
 from marivo.analysis.materialization.contracts import (
     ArtifactRecord,
@@ -102,7 +98,6 @@ def prepare_sources(
             )
         )
         proof_backend, proof_recipe, _ = prepared[source_boundary.output]
-        _collect_lifecycle_proofs(proof_backend, proof_recipe, source_boundary, evidence)
         _collect_event_proofs(
             proof_backend, proof_recipe, source_boundary, evidence, boundary_validations, run_ref
         )
@@ -115,29 +110,6 @@ def prepare_sources(
             for name, value in boundary_validations
         )
     return prepared
-
-
-def _collect_lifecycle_proofs(
-    proof_backend: ExecutionAdapter,
-    proof_recipe: CompiledDataset,
-    source_boundary: SourceStep,
-    evidence: ExecutionEvidence,
-) -> None:
-    if proof_recipe.lifecycle_reducer_coverage is not None and (
-        isinstance(source_boundary.dataset.row_contract.family_semantics, REDUCER_TYPES)
-        or proof_recipe.lifecycle_selection_payload is not None
-    ):
-        from marivo.analysis.materialization.lifecycle_reducer_publication import (
-            native_summary as continuation_summary,
-        )
-
-        evidence.lifecycle_summary = continuation_summary(
-            proof_backend,
-            proof_recipe,
-            source_boundary.dataset.row_contract,
-            filtered=isinstance(source_boundary.dataset._root, LogicalRootHandle)
-            and source_boundary.dataset._root.operator_id == "lifecycle.where",
-        )
 
 
 def _collect_event_proofs(

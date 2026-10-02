@@ -34,6 +34,7 @@ def build_lifecycle_public(
     rows=None,
     empty=False,
     cycle=False,
+    observations=False,
 ):
     import marivo.analysis as mv
     import marivo.semantic as ms
@@ -67,9 +68,11 @@ def build_lifecycle_public(
     epoch = int(START.timestamp()) * factor
     facts.update(kind=[value[1] for value in values], seq=[value[3] for value in values])
     facts["instant"] = pa.array(
-        [epoch + value[2] * factor + (123 if unit == "ns" else 0) for value in values],
+        [epoch + int(value[2] * factor) + (123 if unit == "ns" else 0) for value in values],
         type=pa.timestamp(unit, tz="UTC"),
     )
+    if observations:
+        facts["amount"] = pa.array([float(value[3]) for value in values], type=pa.float64())
     tables = {"subjects": pa.table(members), "facts": pa.table(facts)}
     if empty:
         tables["subjects"] = tables["subjects"].slice(0, 0)
@@ -140,6 +143,8 @@ model = ms.state_model(name='model', subject=subjects, states=(open_state, paid_
     {"business_order=order," if ordered else ""}
     ai_context=ms.ai_context(business_definition='Canonical business lifecycle.'))
 """
+    if observations:
+        code += "amount = ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all(), unit='USD')\nrevenue = ms.aggregate(name='revenue', measure=amount, agg='sum', time=instant, nulls=ms.nulls.ignore(), empty=ms.empty.zero())\nfact_count = ms.count(name='fact_count', entity=facts, time=instant)\n"
     (models / "semantic" / "commerce" / "objects.py").write_text(code)
     ms.load(workspace_dir=root)
     store = SessionStore._graph_store(root)

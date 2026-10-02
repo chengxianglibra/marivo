@@ -1257,8 +1257,42 @@ Semantic or invoke replay. Missing, corrupt, swapped or wrong-bound parts fail b
 any new Run. The existing Artifact/Evidence/zero-Findings/terminal transaction and
 single execution deadline own publication and failure cleanup.
 
-Only this replay registration is active in R7.5. `history.in_state`, distribution,
-transitions, violations, intervals and dwell remain R7.6 targets. Old Lifecycle
+R7.5 introduced this replay registration. R7.6 adds in_state, distribution,
+transitions, violations, intervals and dwell as described below. Old Lifecycle
 Dataset construction, production and public recovery are closed; the remaining
-private schema/reducer declarations are recorded in the R7 migration ledger and
-are not a compatibility route.
+exclusive private schema/reducer declarations and consumers are removed in R7.6.
+The R7 migration ledger retains their historical dispositions and actual shared
+Event/R8 owners.
+
+### R7.6 History views and exact Duration publication
+
+The sole method registry registers history.in_state/distribution/transitions/
+violations/intervals/dwell and history.read@v1. Closed HistoryViewPart@v1 and its
+singleton history_view retained record bind the original canonical History,
+request, coverage, captured precision and optional complete checkpoint axes.
+Initial exchange, publication, restoration, continuation and exact hit validate
+that state and reproduce every scalar/primary projection. Selected transports
+retain full original state with a declared incomplete row domain and exact Subject
+mapping. Missing, foreign, noncanonical or wrong-version state fails before K.
+
+Checkpoint axes are prepared by Ibis on the original complete member domain,
+including Subjects without intervals. Each checkpoint uses its own snapshot or
+validity version and complete nullable axis tuple. The source prefix completes
+before local History consumption. A fixed History without matching axis proof
+rejects new axes; a published distribution retains its checkpoint proof.
+
+Intervals keep canonical ordinal, raw boundary occurrences, clipping and censoring.
+Dwell retains the original typed trace, exact completed ticks and their order; it
+finishes sum/count and Fraction quantiles with one HALF_EVEN round at microseconds.
+Completed interval row.mean retains int64 sum/count and checked merging, including
+empty_completed_set. No finished group mean or p90 is pooled.
+
+Logical state/interval/violation selection transports the exact Subject image into
+F13 prepared count/sum observation. Every source contribution is prepared first and
+restricted locally by complete Subject keys in the same Run. Prepared observation
+and Duration row statistics preserve the existing execute-before-continuing
+boundary. Fixed selected members plus a new live Metric remain mixed and reject.
+The shared 600-second execute deadline and Store 7 atomic publication remain sole
+owners. Dedicated old Lifecycle Dataset reducer/compiler/codec consumers are
+removed; actual shared Event/R8 consumers remain. This grants local table/Parquet
+History behavior only, not R7.7-R7.9, same-wheel, remote or release acceptance.

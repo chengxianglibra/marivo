@@ -44,7 +44,6 @@ from marivo.semantic.metric_graph_lowering import normalize_target_metric
 from tests.lazy_dataset_fixtures import make_logical_dataset, make_materialized_dataset
 from tests.lazy_event_fixtures import make_event_sources
 from tests.lazy_execution_fixtures import make_execution_registry
-from tests.lazy_lifecycle_fixtures import history, sources_without_io
 from tests.lazy_observation_fixtures import NoIoActionPort
 
 
@@ -404,11 +403,3 @@ def test_event_source_fact_prevents_artifact_only_false_negative(tmp_path: Path)
     )
     assert classify_inputs(event_with_fixed_members).kind == "mixed"
     assert not database.exists()
-
-
-def test_lifecycle_payload_declares_its_own_live_event_sources() -> None:
-    lifecycle = history(sources_without_io())
-    assert isinstance(lifecycle._root, LogicalRootHandle)
-    assert lifecycle._root.payload is not None
-    assert lifecycle._root.payload.live_source_dependencies
-    assert lifecycle._root in classify_inputs(lifecycle._root).source_nodes

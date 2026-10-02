@@ -73,8 +73,8 @@ table.execute().execute()
     output = completed.stdout
     assert 'Missing named argument "population"' in output
     assert 'Argument "population" to "replay"' in output
-    assert 'LogicalHistoryResult" has no attribute "distribution"' in output
-    assert 'MaterializedHistoryResult" has no attribute "read"' in output
+    assert 'Missing named argument "at" for "distribution"' in output
+    assert 'Too many positional arguments for "model_state"' in output
     assert 'Argument 1 to "members"' in output
     assert 'Argument 1 to "read"' in output
     assert 'has no attribute "compare"' in output
@@ -113,6 +113,48 @@ observed.rollup().execute()
 ratio = members.observe(ms.ref.metric('sales.aov'), via=ms.ref.relationship('sales.buyer'))
 assert isinstance(ratio, mv.LogicalRatioRelation)
 ratio.rollup().execute()
+"""
+    )
+    root = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        [str(root / ".venv/bin/mypy"), "--no-pretty", "--python-version", "3.10", str(source)],
+        cwd=root,
+        env={**os.environ, "PYTHONPATH": str(root)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def test_history_r76_pairs_fields_and_fixed_logical_returns_are_precise(tmp_path: Path) -> None:
+    source = tmp_path / "history_types.py"
+    source.write_text(
+        """
+from datetime import datetime, timezone
+from typing_extensions import assert_type
+import marivo.analysis as mv
+import marivo.semantic as ms
+def check(history: mv.LogicalHistoryResult, fixed: mv.MaterializedHistoryResult) -> None:
+    at = datetime(2026, 2, 1, tzinfo=timezone.utc)
+    state = ms.model_state(model=ms.ref.state_model('commerce.model'), name='done')
+    assert_type(history.read(mv.in_state(state, at=at)), mv.LogicalBooleanRelation)
+    assert_type(fixed.read(mv.in_state(state, at=at)), mv.LogicalBooleanRelation)
+    assert_type(history.distribution(at=(at,)), mv.LogicalStateDistributionResult)
+    assert_type(fixed.distribution(at=(at,)).execute(), mv.MaterializedStateDistributionResult)
+    assert_type(history.transitions(), mv.LogicalTransitionSummary)
+    assert_type(fixed.transitions().execute(), mv.MaterializedTransitionSummary)
+    assert_type(history.violations(), mv.LogicalViolationResult)
+    assert_type(fixed.violations().execute(), mv.MaterializedViolationResult)
+    assert_type(history.intervals(), mv.LogicalStateIntervalResult)
+    assert_type(fixed.intervals().execute(), mv.MaterializedStateIntervalResult)
+    assert_type(history.dwell(), mv.LogicalDwellSummary)
+    assert_type(fixed.dwell().execute(), mv.MaterializedDwellSummary)
+    assert_type(fixed.intervals().execute().state, mv.LogicalCategoryRelation)
+    assert_type(fixed.intervals().observed_duration, mv.LogicalNumericRelation)
+    assert_type(fixed.violations().occurred_at, mv.LogicalTemporalRelation)
+    assert_type(fixed.violations().kind, mv.LogicalCategoryRelation)
+    assert_type(fixed.distribution(at=(at,)).share_among_seeded, mv.LogicalNumericRelation)
 """
     )
     root = Path(__file__).resolve().parents[1]

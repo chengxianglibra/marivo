@@ -19,11 +19,11 @@ from marivo.analysis._subject import SubjectBinding
 from marivo.analysis.materialization import graph_fields as fields
 
 _METHOD_GROUPS = {
-    ("_MaterializedValue", "show"): "artifacts.reads",
-    ("_MaterializedValue", "to_pandas"): "artifacts.reads",
-    ("_MaterializedValue", "evidence_digest"): "artifacts.reads",
-    ("_MaterializedValue", "findings"): "artifacts.reads",
-    ("_MaterializedValue", "finding"): "artifacts.reads",
+    ("_MaterializedRead", "show"): "artifacts.reads",
+    ("_MaterializedRead", "to_pandas"): "artifacts.reads",
+    ("_MaterializedRead", "evidence_digest"): "artifacts.reads",
+    ("_MaterializedRead", "findings"): "artifacts.reads",
+    ("_MaterializedRead", "finding"): "artifacts.reads",
     ("_NumericComparison", "rank"): "methods.rows",
     ("_Journey", "funnel"): "methods.events",
     ("_Funnel", "read"): "methods.events",
@@ -159,6 +159,16 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.LogicalFunnelComparisonResult,
         dsl.MaterializedFunnelComparisonResult,
         dsl.LogicalHistoryResult,
+        dsl.LogicalStateDistributionResult,
+        dsl.MaterializedStateDistributionResult,
+        dsl.LogicalTransitionSummary,
+        dsl.MaterializedTransitionSummary,
+        dsl.LogicalViolationResult,
+        dsl.MaterializedViolationResult,
+        dsl.LogicalStateIntervalResult,
+        dsl.MaterializedStateIntervalResult,
+        dsl.LogicalDwellSummary,
+        dsl.MaterializedDwellSummary,
         dsl.MaterializedHistoryResult,
         dsl.LogicalJourneyResult,
         dsl.MaterializedJourneyResult,
@@ -226,6 +236,16 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             dsl.MaterializedFunnelComparisonResult: "change.execute()",
             dsl.LogicalHistoryResult: "session.lifecycle.replay(model, population=members, window=window, seed=mv.from_inception())",
             dsl.MaterializedHistoryResult: "history.execute()",
+            dsl.LogicalDwellSummary: "history.dwell()",
+            dsl.MaterializedDwellSummary: "history.dwell().execute()",
+            dsl.LogicalStateIntervalResult: "history.intervals()",
+            dsl.MaterializedStateIntervalResult: "history.intervals().execute()",
+            dsl.LogicalViolationResult: "history.violations()",
+            dsl.MaterializedViolationResult: "history.violations().execute()",
+            dsl.LogicalTransitionSummary: "history.transitions()",
+            dsl.MaterializedTransitionSummary: "history.transitions().execute()",
+            dsl.LogicalStateDistributionResult: "history.distribution(at=(checkpoint,))",
+            dsl.MaterializedStateDistributionResult: "history.distribution(at=(checkpoint,)).execute()",
             dsl.LogicalJourneyResult: "session.events.match(pattern, population=members, cohort_window=window, completion_through=end, matching=mv.first_per_subject())",
             dsl.MaterializedJourneyResult: "journeys.execute()",
             dsl.LogicalEventDurationResult: "journeys.time_to_event(from_step=start, to_step=finish)",
@@ -251,6 +271,18 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             dsl.MaterializedRankingResult: "ranking.execute()",
             dsl.LogicalTable: "mv.table(values=ranking.values, ranks=ranking.ranks)",
             dsl.MaterializedTable: "table.execute()",
+        }
+        history_families = {
+            dsl.LogicalStateDistributionResult: ("distribution", False),
+            dsl.MaterializedStateDistributionResult: ("distribution", True),
+            dsl.LogicalTransitionSummary: ("transitions", False),
+            dsl.MaterializedTransitionSummary: ("transitions", True),
+            dsl.LogicalViolationResult: ("violations", False),
+            dsl.MaterializedViolationResult: ("violations", True),
+            dsl.LogicalStateIntervalResult: ("intervals", False),
+            dsl.MaterializedStateIntervalResult: ("intervals", True),
+            dsl.LogicalDwellSummary: ("dwell", False),
+            dsl.MaterializedDwellSummary: ("dwell", True),
         }
         acquisition = (
             f"Call {policy_examples[type_value]}."
@@ -338,6 +370,13 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             if type_value is dsl.RootRoutes
             else ("session.members",)
         )
+        if type_value in history_families:
+            method, materialized = history_families[type_value]
+            producers = (
+                ("dsl.Logical" + type_value.__name__.removeprefix("Materialized") + ".execute",)
+                if materialized
+                else ("dsl.History." + method,)
+            )
         descriptors.append(
             value_type(
                 name,
@@ -345,7 +384,18 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 summary=f"Governed Analysis {name} value type.",
                 acquisition=acquisition,
                 producers=("session.artifact",) if name.startswith("Materialized") else producers,
-                consumers=("dsl.LogicalHistoryResult.execute", "dsl.Value.contract")
+                consumers=("dsl.Value.contract",)
+                if type_value in history_families
+                else (
+                    "dsl.LogicalHistoryResult.execute",
+                    "dsl.History.read",
+                    "dsl.History.distribution",
+                    "dsl.History.transitions",
+                    "dsl.History.violations",
+                    "dsl.History.intervals",
+                    "dsl.History.dwell",
+                    "dsl.Value.contract",
+                )
                 if type_value in (dsl.LogicalHistoryResult, dsl.MaterializedHistoryResult)
                 else ("dsl.Funnel.read", "dsl.FunnelResult.compare")
                 if type_value in (dsl.LogicalFunnelResult, dsl.MaterializedFunnelResult)
@@ -709,6 +759,13 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         fields._BoundValue,
         *field_types,
         dsl._Value,
+        dsl._History,
+        dsl._HistoryInstance,
+        dsl._StateDistributionResult,
+        dsl._TransitionSummary,
+        dsl._ViolationResult,
+        dsl._StateIntervalResult,
+        dsl._DwellSummary,
         dsl._Journey,
         dsl._Funnel,
         dsl._FunnelResult,
@@ -721,7 +778,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl._NumericComparison,
         dsl._OriginalContinuation,
         dsl._StatisticContinuation,
-        dsl._MaterializedValue,
+        dsl._MaterializedRead,
         *(
             value
             for value in types

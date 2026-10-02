@@ -264,7 +264,7 @@ status-time fold 仍未准入。相关性消费者保留其独立资格边界。
 
 PostgreSQL、SQLite、Trino 与 ClickHouse 支持基于完整非 Entity 状态的隐藏轴展开加性与组件归因。MySQL 的组合查询在实测中超过验收服务的内存限制，因此仍拒绝；Trino 的展开 Top-K 查询超过服务的 stage 上限，也保持拒绝。以下 Event 后端记录属于保留的旧实现，不构成 R7.3 新公共入口资格。PostgreSQL 支持精确的两步或三步旧旅程；要求未版本化表源和 `int64` 主体、事件身份。直接 Event 漏斗、耗时和主体选择，已验收；旧 Lifecycle Dataset 后端记录不授予 R7.5 资格。旧 PostgreSQL 私有漏斗比较和归因消费者已退出；历史后端证据不授予新 R7.4 路线资格。
 
-ClickHouse 和 Trino 支持相同表源与身份条件下的两步旅程，匹配策略包括 `first_per_subject()` 和 `every_start()` 的共享／独占完成分配。Trino 的真实验收使用 Iceberg；ClickHouse 要求只读账户获准设置 `enable_materialized_cte=1`。空输出也执行源端断言，只有契约允许的完整结果进入既有本地续算。Trino 还支持直接无分组漏斗、first-per-subject 耗时、主体选择。其旧私有无分组漏斗比较消费者已退出，不授予新 R7.4 路线资格。Trino 分组漏斗的核对查询超过验收服务的 stage 上限，因此分组漏斗和依赖它的归因保持拒绝。ClickHouse 的直接 Event 派生方法与主体选择仍因计划或内存限制保持拒绝。R7.5 canonical Lifecycle History 接通受治理的 DuckDB 表和本地 Parquet。入口要求精确 StateModel Ref、显式逻辑 Subject 域、带时区的报告窗口和 `from_inception()`；业务顺序由模型拥有。Ibis 先准备全部源输入，本地扫描再消费同一捕获。History 保留每个主体、全部迁移与违规轨迹，已发布结果可独立断源读取。六类 History 视图、Duration 统计和选人后观察归 R7.6；远端 Lifecycle replay 尚未验收。
+ClickHouse 和 Trino 支持相同表源与身份条件下的两步旅程，匹配策略包括 `first_per_subject()` 和 `every_start()` 的共享／独占完成分配。Trino 的真实验收使用 Iceberg；ClickHouse 要求只读账户获准设置 `enable_materialized_cte=1`。空输出也执行源端断言，只有契约允许的完整结果进入既有本地续算。Trino 还支持直接无分组漏斗、first-per-subject 耗时、主体选择。其旧私有无分组漏斗比较消费者已退出，不授予新 R7.4 路线资格。Trino 分组漏斗的核对查询超过验收服务的 stage 上限，因此分组漏斗和依赖它的归因保持拒绝。ClickHouse 的直接 Event 派生方法与主体选择仍因计划或内存限制保持拒绝。R7.5 canonical Lifecycle History 接通受治理的 DuckDB 表和本地 Parquet。入口要求精确 StateModel Ref、显式逻辑 Subject 域、带时区的报告窗口和 `from_inception()`；业务顺序由模型拥有。Ibis 先准备全部源输入，本地扫描再消费同一捕获。History 保留每个主体、全部迁移与违规轨迹，已发布结果可独立断源读取。六类 History 视图、精确 Duration 统计和选人后同 Run 的 count/sum 观察已在 R7.6 本地验收；远端 Lifecycle replay 尚未验收。
 
 ```python
 members = session.members(ms.ref.entity("commerce.subjects"))
@@ -280,6 +280,39 @@ retained_history.show()
 retained_history.contract().show()
 recovered = session.artifact(retained_history.state.artifact_ref)
 recovered.show()
+```
+
+R7.6 已接通六个 History 视图及具体字段关系。检查点可取窗口 end 的左极限。
+区间和违规筛选通过保留的 Subject 绑定选人；状态读取已经具有完整主体键。
+新 Metric 观察应从执行前的逻辑 History 构造。固定续算仅消费保留部件。
+Duration 均值从 completed 区间的精确 ticks 计算；Dwell 的均值、中位数及 p90 摘要不能平均或合并。
+
+```python
+checkpoint = window.end
+done = ms.model_state(model=ms.ref.state_model("commerce.model"), name="done")
+truth = history.read(mv.in_state(done, at=checkpoint))
+distribution = history.distribution(at=(window.start, checkpoint))
+transitions = history.transitions()
+violations = history.violations()
+intervals = history.intervals()
+dwell = history.dwell()
+
+truth.where(truth.value.eq(True)).members().observe(
+    ms.ref.metric("commerce.revenue"),
+    during=window,
+    via=ms.ref.relationship("commerce.participant"),
+).execute().show()
+
+retained_intervals = intervals.execute()
+interval_ref = retained_intervals.evidence_digest().artifact_ref
+session.artifact(interval_ref).state.execute().show()
+completed = retained_intervals.where(retained_intervals.status.value.eq("completed"))
+completed.members(through=retained_intervals.subjects()).execute().show()
+completed.observed_duration.summarize(mv.mean()).execute().show()
+distribution.execute().known_state_count.execute().show()
+transitions.execute().count.execute().show()
+violations.execute().kind.execute().show()
+dwell.execute().p90_duration.execute().show()
 ```
 
 其中 `window` 为带时区的半开范围，`lifecycle_completeness` 包含全部模型触发 Event 的 source-origin 声明。声明本身不能证明覆盖；依据不足时保留 Unknown 与已知前缀，完整起源的无事件主体为 NotStarted。精度遵循实际捕获转换及其损失披露。

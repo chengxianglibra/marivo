@@ -29,7 +29,9 @@ from marivo.analysis.core.rules import (
     DisplayRank,
     DisplayTable,
     FunnelAxesPrepare,
+    HistoryAxesPrepare,
     HistoryReplay,
+    HistoryView,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -202,6 +204,8 @@ class MethodState:
             if self.kind == "none"
             else ("history",)
             if self.kind == "canonical_history"
+            else ("history_view",)
+            if self.kind == "history_view"
             else ("entry_axes",)
             if self.kind == "entry_axes"
             else ("funnel_state",)
@@ -494,11 +498,13 @@ def validate_descriptor(value: Descriptor) -> Node:
                     OccurrencePrepare,
                     FunnelAxesPrepare,
                     HistoryReplay,
+                    HistoryAxesPrepare,
                     JourneyMatch,
                     JourneyDuration,
                     JourneyCompleted,
                 ),
             )
+            or (isinstance(params, HistoryView) and root.signature.quantity is None)
             else params.keep_quantity
             if isinstance(params, PartsTransport)
             else root.signature.quantity is not None
@@ -564,6 +570,7 @@ def validate_descriptor(value: Descriptor) -> Node:
                     "ranking_domain",
                     "partitions",
                     "ordering",
+                    "history_view",
                     "entry_axes",
                     "funnel_state",
                     "finding_policy",

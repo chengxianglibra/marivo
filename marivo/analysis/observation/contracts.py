@@ -119,10 +119,6 @@ if TYPE_CHECKING:
     import pandas
 
     from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
-    from marivo.analysis.domains.lifecycle import (
-        LogicalLifecycleDataset,
-        MaterializedLifecycleDataset,
-    )
     from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
     from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
     from marivo.analysis.observation.population import (
@@ -354,20 +350,7 @@ class ObservationProducerContract:
 
     @property
     def retained_contract_ids(self) -> tuple[str, ...]:
-        if self.producer_id == "session.lifecycle.replay":
-            from marivo.analysis.domains.lifecycle import ROLES
-
-            return ROLES
-        if self.producer_id.startswith(
-            (
-                "discover.",
-                "candidate.",
-                "session.events.",
-                "event.",
-                "session.lifecycle.",
-                "lifecycle.",
-            )
-        ):
+        if self.producer_id.startswith(("discover.", "candidate.", "session.events.", "event.")):
             return ()
         if self.contract_stem.startswith(("association", "forecast")):
             return ()
@@ -386,16 +369,7 @@ class ObservationProducerContract:
             (self.validation_id, "v1"),
             (self.evidence_id, "v1"),
         )
-        if self.producer_id.startswith(
-            (
-                "discover.",
-                "candidate.",
-                "session.events.",
-                "event.",
-                "session.lifecycle.",
-                "lifecycle.",
-            )
-        ):
+        if self.producer_id.startswith(("discover.", "candidate.", "session.events.", "event.")):
             return (*common, ("none", "v1"), ("zero_findings", "v1"))
         if self.contract_stem.startswith("forecast"):
             return (
@@ -424,13 +398,7 @@ class ObservationProducerContract:
 
 
 _PRODUCER_CONTRACTS = (
-    ObservationProducerContract("session.lifecycle.replay", "lifecycle_history"),
     ObservationProducerContract("session.events.match", "event_journey"),
-    *(
-        ObservationProducerContract(f"lifecycle.{name}", f"lifecycle_{name}")
-        for name in ("distribution", "transitions", "dwell", "violations", "where")
-    ),
-    ObservationProducerContract("lifecycle.select_subjects", "subject_selection"),
     ObservationProducerContract("event.funnel", "event_funnel"),
     ObservationProducerContract("event.time_to_event", "event_time_to_event"),
     ObservationProducerContract("event.select_subjects", "subject_selection"),
@@ -477,10 +445,6 @@ def producer_contract(operator_id: str) -> ObservationProducerContract:
 
 class ObservationActionPort(Protocol):
     """Required execution/read owner; definition construction never invokes this port."""
-
-    def execute_lifecycle(
-        self, dataset: LogicalLifecycleDataset
-    ) -> MaterializedLifecycleDataset: ...
 
     def execute_event(self, dataset: LogicalEventDataset) -> MaterializedEventDataset: ...
 
@@ -1053,7 +1017,6 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 "forecast",
                 "candidate",
                 "event",
-                "lifecycle",
             }
         ),
         shapes=frozenset(
@@ -1075,10 +1038,6 @@ def make_ids(entities: tuple[TargetEntityContract, ...]) -> _StableIdRegistry:
                 *(("forecast", shape, 1) for shape in ("time", "dimension-time")),
                 ("population", "entity-membership", 1),
                 ("event", "journey", 1),
-                *(
-                    ("lifecycle", shape, 1)
-                    for shape in ("history", "distribution", "transitions", "dwell", "violations")
-                ),
                 ("event", "funnel", 1),
                 ("delta", "funnel", 1),
                 ("attribution", "funnel-loss-rate", 1),
@@ -1714,7 +1673,6 @@ def _contract_facts(dataset: Dataset) -> tuple[tuple[str, str], ...]:
 
 def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
     from marivo.analysis.domains.contracts import EventSelectionPayload
-    from marivo.analysis.domains.lifecycle_reducers import LifecycleSelectionPayload
     from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
     from marivo.analysis.observation.population import (
         LogicalPopulationDataset,
@@ -1748,11 +1706,7 @@ def make_family_registry(ids: _StableIdRegistry) -> DatasetFamilyRegistry:
             ),
             repr_renderer=_dataset_repr,
             materialized_state_decoder=state_decoder,
-            node_payload_types=(
-                PopulationPayload,
-                EventSelectionPayload,
-                LifecycleSelectionPayload,
-            ),
+            node_payload_types=(PopulationPayload, EventSelectionPayload),
             consumer_admission=_consumer_admission,
             contract_facts=_contract_facts,
         )
@@ -1884,11 +1838,6 @@ def semantic_dependency_digest(
         EventSelectionPayload,
         EventTimeToEventPayload,
     )
-    from marivo.analysis.domains.lifecycle import LifecyclePayload
-    from marivo.analysis.domains.lifecycle_reducers import (
-        LifecycleReducerPayload,
-        LifecycleSelectionPayload,
-    )
     from marivo.analysis.operators.association_contracts import CorrelatePayload
     from marivo.analysis.operators.candidate_contracts import CandidatePayload
     from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
@@ -1944,10 +1893,6 @@ def semantic_dependency_digest(
                 if definition.reference_axis is None
                 else dimension_payload(definition.reference_axis),
             )
-        elif isinstance(payload, (LifecycleReducerPayload, LifecycleSelectionPayload)):
-            semantic_facts = ("lifecycle_operator", payload.identity_payload)
-        elif isinstance(payload, LifecyclePayload):
-            semantic_facts = ("lifecycle", payload.identity_payload)
         elif isinstance(payload, EventPayload):
             semantic_facts = (
                 "event",

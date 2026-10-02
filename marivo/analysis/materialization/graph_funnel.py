@@ -10,10 +10,7 @@ from marivo.analysis.core.domain_captures import EntryAxisCapture, fail
 from marivo.analysis.core.graph import (
     Edge,
     MethodNode,
-    SourceDefinition,
-    SourceLeaf,
     method_node,
-    topology,
 )
 from marivo.analysis.core.model import (
     Coordinate,
@@ -32,10 +29,7 @@ from marivo.analysis.core.rules import (
     FunnelReduce,
     JourneyMatch,
     OccurrencePrepare,
-    entity_members,
 )
-from marivo.analysis.materialization.graph_preflight import preflight_entities
-from marivo.analysis.materialization.graph_protocol import digest, schema_text
 from marivo.analysis.materialization.graph_relation import (
     FrozenBinding,
     LiveBinding,
@@ -43,9 +37,7 @@ from marivo.analysis.materialization.graph_relation import (
     _shared_root,
 )
 from marivo.analysis.methods.physical import ScalarType
-from marivo.analysis.observation.coordinates import functional_path
 from marivo.refs import DimensionKind, Ref, SemanticKind, ref
-from marivo.semantic.validator import normalize_target_dimension, normalize_target_relationship
 
 
 def reduce(relation: Relation, axes: tuple[Ref[DimensionKind], ...]) -> Relation:
@@ -73,100 +65,22 @@ def reduce(relation: Relation, axes: tuple[Ref[DimensionKind], ...]) -> Relation
                 "funnel_axes",
                 "fixed Journey lacks retained entry axes; execute the grouped funnel before materializing",
             )
-        live = relation.binding
-        registry = live.graph.registry
-        subject = part.preparation.events[0].subject
-        dimensions = tuple(normalize_target_dimension(registry, a.path) for a in axes)
-        paths = tuple(
-            functional_path(
-                registry,
-                subject.ref.path,
-                a.entity_ref.path,
-                allow_versioned_target=True,
-                allow_versioned_source=True,
-                allow_versioned_intermediates=True,
-            )
-            for a in dimensions
-        )
-        routes = tuple(
-            tuple(normalize_target_relationship(registry, name) for name in path) for path in paths
-        )
-        entity_paths = []
-        for route in routes:
-            names = [subject.ref.path]
-            for hop in route:
-                names.append(
-                    hop.to_entity_ref.path
-                    if hop.from_entity_ref.path == names[-1]
-                    else hop.from_entity_ref.path
-                )
-            entity_paths.append(tuple(names))
-        schemas = preflight_entities(
-            registry,
-            relation.runtime.store.project_root,
-            tuple(sorted({name for names in entity_paths for name in names})),
-        )
-        entries = {leaf.definition.ref.path: (schema, leaf) for schema, leaf in live.graph.sources}
-        shape = part.preparation.events[0].source_id
-        shape_leaf = next(
-            n for n in topology(relation.root) if isinstance(n, SourceLeaf) and n.identity == shape
-        )
-        for schema in schemas:
-            if schema.contract.ref.path in entries:
-                continue
-            leaf = SourceLeaf(
-                SourceDefinition(
-                    ref.entity(schema.contract.ref.path),
-                    digest(schema.contract.dependency_fingerprint + schema_text(schema.schema)),
-                    ref.datasource(schema.contract.datasource_ref.path),
-                    replace(schema.shape, time=shape_leaf.definition.shape.time),
-                    schema.contract.version,
-                ),
-                replace(
-                    entity_members(
-                        replace(schema.contract, version=None),
-                        ref.entity(schema.contract.ref.path),
-                        part.binding,
-                    ),
-                    obligations=(),
-                ),
-                schema.identity_type,
-            )
-            entries[schema.contract.ref.path] = (schema, leaf)
-        captures = tuple(
-            EntryAxisCapture(
-                replace(
-                    dimension,
-                    logical_type=str(
-                        entries[dimension.entity_ref.path][0]
-                        .schema.field(dimension.source_column)
-                        .type
-                    ),
-                ),
-                subject,
-                route,
-                tuple(entries[name][0].contract for name in names),
-                tuple(entries[name][1].identity for name in names),
-            )
-            for dimension, route, names in zip(dimensions, routes, entity_paths, strict=True)
+        from marivo.analysis.materialization.graph_axes import capture_axes
+
+        relation, captures, sources = capture_axes(
+            relation,
+            axes,
+            part.preparation.events[0].subject,
+            part.binding,
+            part.preparation.events[0].source_id,
         )
         axis_node = method_node(
             (Edge("subject", capture),),
             FunnelAxesPrepare(part.cohort_start, part.cohort_end, captures, part.events[0]),
-            sources=tuple(
-                entries[name][1]
-                for name in sorted({name for names in entity_paths for name in names})
-            ),
+            sources=sources,
             value_type=ScalarType("int64"),
         )
         edges.append(Edge("subject", axis_node))
-        relation = replace(
-            relation,
-            binding=replace(
-                live,
-                graph=replace(live.graph, sources=tuple(entries[name] for name in sorted(entries))),
-            ),
-        )
     owner = ref.entity(part.preparation.events[0].subject.ref.path)
     assert owner.kind is SemanticKind.ENTITY
     keys = (

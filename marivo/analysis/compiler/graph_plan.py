@@ -10,6 +10,7 @@ from marivo.analysis.core.model import (
     FunnelAllocationPart,
     FunnelComparisonPart,
     FunnelPart,
+    HistoryViewPart,
     Obligation,
     reject,
 )
@@ -19,7 +20,10 @@ from marivo.analysis.core.rules import (
     FunnelCompare,
     FunnelRead,
     FunnelReduce,
+    HistoryAxesPrepare,
+    HistoryRead,
     HistoryReplay,
+    HistoryView,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -218,6 +222,8 @@ def plan(
                     node.parameters,
                     (
                         PreparedObservation,
+                        HistoryView,
+                        HistoryRead,
                         JourneyDuration,
                         JourneyCompleted,
                         JourneyRead,
@@ -234,8 +240,13 @@ def plan(
                     and node.parameters.opportunity_domain.kind == "journey"
                 )
                 and not (
-                    node.inputs[0].node.signature.domain.kind == "journey"
+                    node.inputs[0].node.signature.domain.kind in ("journey", "interval")
                     and isinstance(node.parameters, (MapCorrespond, PartsTransport, RowState))
+                )
+                and not any(
+                    isinstance(p, HistoryViewPart)
+                    for e in node.inputs
+                    for p in e.node.signature.parts
                 )
                 and not all(
                     edge.node.identity not in local
@@ -290,7 +301,8 @@ def plan(
             subject_image = (
                 isinstance(node.parameters, MapCorrespond)
                 and node.parameters.mode == "subjects"
-                and node.inputs[0].node.signature.domain.kind in ("occurrence", "journey")
+                and node.inputs[0].node.signature.domain.kind
+                in ("occurrence", "journey", "interval")
             )
             local_consumer = (
                 (
@@ -300,16 +312,29 @@ def plan(
                     and node.parameters.opportunity_domain.kind == "journey"
                 )
                 or subject_image
-                or any(
-                    isinstance(p, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart))
-                    for e in node.inputs
-                    for p in e.node.signature.parts
+                or (
+                    not isinstance(node.parameters, HistoryAxesPrepare)
+                    and any(
+                        isinstance(
+                            p,
+                            (
+                                FunnelPart,
+                                FunnelComparisonPart,
+                                FunnelAllocationPart,
+                                HistoryViewPart,
+                            ),
+                        )
+                        for e in node.inputs
+                        for p in e.node.signature.parts
+                    )
                 )
                 or isinstance(
                     node.parameters,
                     (
                         HistoryReplay,
                         JourneyMatch,
+                        HistoryView,
+                        HistoryRead,
                         JourneyDuration,
                         JourneyCompleted,
                         JourneyRead,
@@ -320,7 +345,7 @@ def plan(
                     ),
                 )
                 or (
-                    node.inputs[0].node.signature.domain.kind == "journey"
+                    node.inputs[0].node.signature.domain.kind in ("journey", "interval")
                     and isinstance(node.parameters, (PartsTransport, RowState))
                 )
             )

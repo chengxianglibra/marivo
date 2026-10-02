@@ -38,6 +38,7 @@ from marivo.analysis.core.model import (
     FunnelComparisonPart,
     FunnelPart,
     HistoryPart,
+    HistoryViewPart,
     JourneyPart,
     Obligation,
     ObservedQuantity,
@@ -66,7 +67,9 @@ from marivo.analysis.core.rules import (
     FunnelCompare,
     FunnelReduce,
     GroupObservationTarget,
+    HistoryAxesPrepare,
     HistoryReplay,
+    HistoryView,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -142,6 +145,8 @@ def components(part: Part) -> tuple[str, ...]:
         part,
         (EntryAxesPart, FindingPolicyPart, FunnelPart, FunnelComparisonPart, FunnelAllocationPart),
     ):
+        return ("retained",)
+    if isinstance(part, HistoryViewPart):
         return ("retained",)
     if isinstance(part, HistoryPart):
         return ("record",)
@@ -3333,6 +3338,7 @@ def lower(
                         AttachCategory,
                         CompleteGroups,
                         PreparedObservation,
+                        HistoryView,
                         FunnelReduce,
                         FunnelCompare,
                         FunnelAttribute,
@@ -3370,6 +3376,11 @@ def lower(
             if isinstance(
                 stage.node.parameters,
                 (HistoryReplay, OccurrencePrepare, JourneyMatch, JourneyDuration, JourneyCompleted),
+            ):
+                output_layout = canonical_layout(stage.node.signature, has_value=False)
+            if (
+                isinstance(stage.node.parameters, HistoryView)
+                and stage.node.signature.quantity is None
             ):
                 output_layout = canonical_layout(stage.node.signature, has_value=False)
             if (
@@ -3427,7 +3438,8 @@ def lower(
             captured_dependency = any(
                 isinstance(node, MethodNode)
                 and isinstance(
-                    node.parameters, (OccurrencePrepare, PreparedObservation, FunnelAxesPrepare)
+                    node.parameters,
+                    (OccurrencePrepare, PreparedObservation, FunnelAxesPrepare, HistoryAxesPrepare),
                 )
                 and stage.leaf in node.sources
                 for node in topology(admitted.root)
@@ -3481,7 +3493,12 @@ def lower(
                 ]
             )
             source_ids = inputs[0].source_ids
-            if isinstance(params, FunnelAxesPrepare):
+            if isinstance(params, HistoryAxesPrepare):
+                from marivo.analysis.compiler.history_axes import lower_axes as lower_history_axes
+
+                table, layout, source_ids = lower_history_axes(stage, inputs[0], bindings, checks)
+                cell_reasons = ()
+            elif isinstance(params, FunnelAxesPrepare):
                 from marivo.analysis.compiler.funnel_axes import lower_axes
 
                 table, layout, source_ids = lower_axes(stage, inputs[0], bindings, checks)
@@ -3723,7 +3740,7 @@ def lower(
             isinstance(owner.parameters, PreparedObservation)
             or (
                 isinstance(owner.parameters, RowState)
-                and owner.inputs[0].node.signature.domain.kind == "journey"
+                and owner.inputs[0].node.signature.domain.kind in ("journey", "interval")
                 and requirement.obligation.check_id == "source.finite_numeric@v1"
             )
         ):

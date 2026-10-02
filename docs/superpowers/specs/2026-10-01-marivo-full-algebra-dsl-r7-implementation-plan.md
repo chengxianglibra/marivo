@@ -3,7 +3,7 @@
 Date: 2026-10-01
 
 Status: R7.1 documentation/static contract freeze complete; R7.2 private preparation implemented;
-R7.3 public Journey integration implemented with bounded evidence below; R7.4 funnel and Findings implementation is recorded below; R7.5 canonical History is recorded below; R7.6-R7.9 remain unimplemented. Qualification is limited to each phase's recorded evidence.
+R7.3 public Journey integration implemented with bounded evidence below; R7.4 funnel and Findings, R7.5 canonical History and R7.6 History views are recorded below; R7.7-R7.9 remain unimplemented. Qualification is limited to each phase's recorded evidence.
 
 The [R7.1 migration ledger](2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md),
 [consumer snapshot](2026-10-01-marivo-r71-consumer-snapshot.json) and
@@ -413,7 +413,7 @@ records deterministic AST/text/import evidence and mandatory source/fixed/cold
 targets, all planned. Static presence, source admission blockage, unverified
 dynamic unreachability and future deletion are distinct. See the
 [R7.1 acceptance record](2026-09-26-marivo-full-refactor-acceptance.md#r71-documentation-and-static-freeze-completed-acceptance-2026-10-01)
-for validation and excluded execution gates. R7.2 preparation, R7.3 Journey and R7.4 funnel and R7.5 canonical History implementations are recorded below; R7.6-R7.9 remain pending.
+for validation and excluded execution gates. R7.2 preparation, R7.3 Journey, R7.4 funnel, R7.5 canonical History and R7.6 History views are recorded below; R7.7-R7.9 remain pending.
 
 ### R7.2 — Ibis occurrence 准备、覆盖与业务顺序消费
 
@@ -523,6 +523,20 @@ owned Relation。复用 where/members/SubjectBinding；满足 C12/C13 所需的 
 **出口：**V10–V11 及 A10 通过；每视图有独立原始事件/区间 oracle；仅区间无法恢复
 迁移、摘要无法恢复主体/原分布的负例拒绝；NotStarted/Unknown 和 completed fragment
 分类正确；所有已披露 fixed K 在源/模型不可用的新进程中实际执行。
+
+**本地实施验收（2026-10-02）：**基线 `panda@09c0c488738816e02fdea785df72120aa4269e40`。
+六个视图、具体字段 Relation、完整 Subject 分类、历史 checkpoint axes、canonical
+transition 计数、裁剪区间与精确 completed-fragment Duration 已接通。状态、违规和
+区间选人后同 Run 的原始 count:int64/sum:float64 观察先准备全部源依赖，再按实际
+完整主体键限制贡献。原始 P11–P16 的 **1620 格**和 P24/P36/P49 的 **810 个 History
+消费格**通过；V10/V11 与 table/Parquet A10 三独立进程旅程通过，每条离线旅程执行
+**109 项 fixed K**，冷恢复精确命中 **119 个输出**。R7.5 剩余 Lifecycle reducer、
+compiler、codec、专属调度与测试已删除，实际 Event/R8 共享消费者保留。
+逐格 ID、失败修复、精度、资源、披露与验证边界见
+[evidence index](2026-10-02-marivo-r76-evidence-index.md) 和
+[qualification record](2026-10-02-marivo-r76-qualification.json)。
+本地实施完成不授予 same-wheel、远端、完整 R7 或 R7.7–R7.9/R8–R10 资格；
+不修改 AGENTS.md 或 packaged skills，不提交、推送或发布。
 
 ### R7.7 — Anchor 域、时间窗口与相对 Metric 观察
 

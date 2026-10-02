@@ -19,6 +19,14 @@ if TYPE_CHECKING:
 
 MethodName: TypeAlias = Literal[
     "history.replay",
+    "history.in_state",
+    "history.distribution",
+    "history.transitions",
+    "history.violations",
+    "history.intervals",
+    "history.dwell",
+    "history.read",
+    "history.axes",
     "funnel.entry_axes",
     "funnel.reduce",
     "funnel.compare",
@@ -83,6 +91,7 @@ MethodName: TypeAlias = Literal[
 
 PersistentStateKind: TypeAlias = Literal[
     "canonical_history",
+    "history_view",
     "entry_axes",
     "funnel_components",
     "funnel_comparison",
@@ -171,6 +180,20 @@ def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
         return MethodKey("journey.completed")
     if type(params) is rules.JourneyRead:
         return MethodKey("journey.read")
+    if isinstance(params, rules.HistoryAxesPrepare):
+        return MethodKey("history.axes")
+    if isinstance(params, rules.HistoryRead):
+        return MethodKey("history.read")
+    if isinstance(params, rules.HistoryView):
+        names: dict[str, MethodName] = {
+            "in_state": "history.in_state",
+            "distribution": "history.distribution",
+            "transitions": "history.transitions",
+            "violations": "history.violations",
+            "intervals": "history.intervals",
+            "dwell": "history.dwell",
+        }
+        return MethodKey(names[params.request.kind])
     if type(params) is rules.HistoryReplay:
         return MethodKey("history.replay")
     if type(params) is rules.JourneyMatch:
@@ -308,6 +331,14 @@ class MethodSemantics:
         """Return the connected durable state kind; absence grants no publication."""
         kinds: dict[MethodName, PersistentStateKind] = {
             "history.replay": "canonical_history",
+            "history.in_state": "none",
+            "history.distribution": "history_view",
+            "history.transitions": "history_view",
+            "history.violations": "history_view",
+            "history.intervals": "history_view",
+            "history.dwell": "history_view",
+            "history.read": "none",
+            "history.axes": "history_view",
             "funnel.entry_axes": "entry_axes",
             "funnel.reduce": "funnel_components",
             "funnel.compare": "funnel_comparison",
@@ -397,6 +428,19 @@ class MethodSemantics:
                     "the exact funnel field carrier",
                     repr(output),
                     "Preserve exact counts and float64 rate finishes.",
+                )
+            return
+        if isinstance(params, (rules.HistoryView, rules.HistoryRead, rules.HistoryAxesPrepare)):
+            from marivo.analysis.methods.history_view_physical import (
+                output_type as history_output_type,
+            )
+
+            history_type = history_output_type(params)
+            if output != history_type:
+                reject(
+                    "the exact History field carrier",
+                    repr(output),
+                    "Use the retained History field type.",
                 )
             return
         if isinstance(params, rules.JourneyRead):
@@ -715,6 +759,8 @@ class MethodSemantics:
     @property
     def rule(self) -> rules.RuleId:
         name = self.key.name
+        if name.startswith("history.") and name != "history.replay":
+            return "history_view@v1"
         if name == "history.replay":
             return "history_replay@v1"
         if name.startswith("funnel.") or name == "funnel_ratio_mix":
@@ -956,6 +1002,8 @@ class MethodSemantics:
     def output_parts(self) -> tuple[PartRole, ...]:
         if self.key.name == "history.replay":
             return ("history",)
+        if self.key.name.startswith("history."):
+            return ("history_view",)
         if self.key.name.startswith("journey."):
             return ("subject", "journey")
         if self.key.name == "occurrence.prepare":
@@ -1107,6 +1155,10 @@ class MethodSemantics:
             return derive(inputs, params)
         if isinstance(params, (rules.JourneyDuration, rules.JourneyCompleted, rules.JourneyRead)):
             return rules._journey_view(inputs, params)
+        if isinstance(params, (rules.HistoryView, rules.HistoryRead, rules.HistoryAxesPrepare)):
+            from marivo.analysis.core.history_rules import derive as derive_history_view
+
+            return derive_history_view(inputs, params)
         if isinstance(params, rules.HistoryReplay):
             return rules._history_replay(inputs, params)
         if isinstance(params, rules.JourneyMatch):
@@ -1179,6 +1231,14 @@ class MethodSemantics:
 
 CONNECTED_METHODS = (
     MethodSemantics(MethodKey("history.replay"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("history.in_state"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("history.distribution"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("history.transitions"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("history.violations"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("history.intervals"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("history.dwell"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("history.read"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("history.axes"), "analysis.core.rules"),
     *(
         MethodSemantics(MethodKey(name), "analysis.core.rules")
         for name in (

@@ -380,8 +380,8 @@ Use an exact StateModel Ref, an explicit logical Subject domain, an aware report
 window and `from_inception()`. The model owns business order. Ibis captures all
 source inputs before local replay; History retains every Subject and the full
 transition/violation trace. Published History can be read with source disconnected.
-The six History views, Duration statistics and selected-Subject observation belong
-to R7.6. Remote Lifecycle replay is unqualified.
+R7.6 adds the six History views, exact Duration statistics and selected-Subject
+observation on these local routes. Remote Lifecycle replay is unqualified.
 
 ```python
 members = session.members(ms.ref.entity("commerce.subjects"))
@@ -397,6 +397,41 @@ retained_history.show()
 retained_history.contract().show()
 recovered = session.artifact(retained_history.state.artifact_ref)
 recovered.show()
+```
+
+R7.6 connects all six History views and their typed fields. Checkpoints include the
+window end as a left limit. Interval and violation selection uses the retained
+Subject binding; state selection already has Subject keys. Build new Metric
+observations from logical History before execution. Fixed continuations use
+retained parts only. Duration mean consumes completed interval rows with exact
+ticks; Dwell mean/median/p90 summaries cannot be averaged or pooled.
+
+```python
+checkpoint = window.end
+done = ms.model_state(model=ms.ref.state_model("commerce.model"), name="done")
+truth = history.read(mv.in_state(done, at=checkpoint))
+distribution = history.distribution(at=(window.start, checkpoint))
+transitions = history.transitions()
+violations = history.violations()
+intervals = history.intervals()
+dwell = history.dwell()
+
+truth.where(truth.value.eq(True)).members().observe(
+    ms.ref.metric("commerce.revenue"),
+    during=window,
+    via=ms.ref.relationship("commerce.participant"),
+).execute().show()
+
+retained_intervals = intervals.execute()
+interval_ref = retained_intervals.evidence_digest().artifact_ref
+session.artifact(interval_ref).state.execute().show()
+completed = retained_intervals.where(retained_intervals.status.value.eq("completed"))
+completed.members(through=retained_intervals.subjects()).execute().show()
+completed.observed_duration.summarize(mv.mean()).execute().show()
+distribution.execute().known_state_count.execute().show()
+transitions.execute().count.execute().show()
+violations.execute().kind.execute().show()
+dwell.execute().p90_duration.execute().show()
 ```
 
 Here `window` is an aware half-open scope and `lifecycle_completeness` contains

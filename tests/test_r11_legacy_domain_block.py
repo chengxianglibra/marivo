@@ -12,7 +12,6 @@ from marivo.analysis.observation.predicates import eq
 from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
 from marivo.refs import ref
 from tests.lazy_event_runtime_fixtures import journey, setup_event
-from tests.lazy_lifecycle_fixtures import history, setup_lifecycle
 from tests.lazy_local_fixtures import setup_local
 from tests.test_lazy_distinct_runtime import _setup as setup_distinct
 
@@ -31,17 +30,6 @@ def test_event_source_route_rejects_before_run_and_source_open(tmp_path: Path) -
     ):
         logical.execute()
     assert caught.value.stage == "source_admission"
-    assert runtime.last_run_ref is None
-    assert runtime.statistics.submissions == []
-
-
-def test_lifecycle_source_route_rejects_before_run(tmp_path: Path) -> None:
-    runtime, sources, _database = setup_lifecycle(tmp_path)
-    from marivo.analysis.core.domain_captures import DomainPreparationError
-
-    with pytest.raises(DomainPreparationError, match="retired Lifecycle Dataset") as caught:
-        history(sources).execute()
-    assert caught.value.stage == "construction"
     assert runtime.last_run_ref is None
     assert runtime.statistics.submissions == []
 

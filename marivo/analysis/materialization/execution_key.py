@@ -11,6 +11,7 @@ from typing import TypeAlias
 from pydantic import TypeAdapter
 
 from marivo.analysis.compiler.graph_plan import GraphPlan, LocalMethodStage, SourceMethodStage
+from marivo.analysis.core import history_types
 from marivo.analysis.core import model as core_model
 from marivo.analysis.core.domain_captures import (
     EntryAxisCapture,
@@ -66,6 +67,13 @@ _WIRE_TAGS: dict[type[object], str] = {
     core_model.FunnelAllocationPart: "funnel_allocation_part",
     core_model.FindingPolicyPart: "finding_policy_part",
     core_model.HistoryPart: "history_part",
+    core_model.HistoryViewPart: "history_view_part",
+    history_types.StateAt: "history_state_at",
+    history_types.Distribution: "history_distribution",
+    history_types.Transitions: "history_transitions",
+    history_types.Violations: "history_violations",
+    history_types.Intervals: "history_intervals",
+    history_types.Dwell: "history_dwell",
     core_model.JourneyPart: "journey_part",
     core_model.OccurrencePart: "occurrence_part",
     core_model.AttributionPart: "attribution_part",

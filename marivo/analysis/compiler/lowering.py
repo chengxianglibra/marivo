@@ -73,11 +73,6 @@ from marivo.analysis.domains.contracts import (
     EventTimeToEventPayload,
     EventTimeToEventSemantics,
 )
-from marivo.analysis.domains.lifecycle import LifecyclePayload, LifecycleSemantics
-from marivo.analysis.domains.lifecycle_reducers import (
-    LifecycleReducerPayload,
-    LifecycleSelectionPayload,
-)
 from marivo.analysis.observation.contracts import (
     EntityPresentMetricSemantics,
     EntityReducedMetricSemantics,
@@ -667,7 +662,7 @@ class _Compiler:
         explicit_correlation: bool = False,
         emulate_full_join: bool = False,
         scalar_masks: bool = False,
-        lifecycle_dialect: Literal["duckdb", "postgres", "trino", "clickhouse"] = "duckdb",
+        event_dialect: Literal["duckdb", "postgres", "trino", "clickhouse"] = "duckdb",
         ranked_event_successors: bool = False,
         scalar_single_identity: bool = False,
     ) -> None:
@@ -681,7 +676,7 @@ class _Compiler:
         self.explicit_correlation = explicit_correlation
         self.emulate_full_join = emulate_full_join
         self.scalar_masks = scalar_masks
-        self.lifecycle_dialect = lifecycle_dialect
+        self.event_dialect = event_dialect
         self.ranked_event_successors = ranked_event_successors
         self.scalar_single_identity = scalar_single_identity
         self.time_authorities: dict[tuple[str, str], SourceTimeAuthority] = {}
@@ -709,10 +704,6 @@ class _Compiler:
         self.association_proof: ir.Table | None = None
         self.candidate_proof: ir.Table | None = None
         self.candidate_definition: CandidateDefinition | DriverCandidateDefinition | None = None
-        self.lifecycle_coverage: EventCoverageResolution | None = None
-        self.lifecycle_reducer_coverage: EventCoverageResolution | None = None
-        self.lifecycle_selection_payload: LifecycleSelectionPayload | None = None
-        self.lifecycle_selection_proof: ir.Table | None = None
         self.event_proof: ir.Table | None = None
         self.event_coverage: EventCoverageResolution | None = None
         self.event_coverages = dict(event_coverages or {})
@@ -2088,12 +2079,6 @@ class _Compiler:
         )
         return self._evaluate(definition, membership)
 
-    def _lifecycle_history(self, root: LogicalRootHandle, payload: LifecyclePayload) -> _Rows:
-        raise compilation_error(
-            "session.lifecycle.replay(model, population=members, window=window, seed=from_inception())",
-            "retired Lifecycle Dataset producer",
-        )
-
     def _event_journey(self, root: LogicalRootHandle, payload: EventPayload) -> _Rows:
         from marivo.analysis.compiler.event import compile_event_match, event_output_proof
         from marivo.analysis.compiler.event_sources import lower_event_sources
@@ -2138,7 +2123,7 @@ class _Compiler:
             definition_digest=journey_identity_digest(journey_semantics(definition)),
             coverage_complete=coverage.complete,
             ranked_successors=self.ranked_event_successors,
-            require_int64_identities=self.lifecycle_dialect in ("postgres", "trino", "clickhouse"),
+            require_int64_identities=self.event_dialect in ("postgres", "trino", "clickhouse"),
         )
         self.validations.extend(checks)
         table = freeze(table)
@@ -2160,63 +2145,6 @@ class _Compiler:
         )
         self.event_coverage = coverage
         return _Rows(table, membership, definition.entity)
-
-    def _lifecycle_reducer(
-        self, root: LogicalRootHandle, payload: LifecycleReducerPayload | LifecycleSelectionPayload
-    ) -> _Rows:
-        from marivo.analysis.compiler.event_axes import lower_event_axes
-        from marivo.analysis.compiler.lifecycle_reducers import reduce_lifecycle
-
-        previous = self._visit(root.inputs[0].root)
-        incoming = root.inputs[0].root
-        key = (
-            incoming.artifact_ref.ref
-            if isinstance(incoming, MaterializedScanLeafHandle)
-            else incoming.definition_fingerprint
-        )
-        coverage = self.event_coverages.get(key)
-        if coverage is None:
-            raise compilation_error("exact input Lifecycle coverage", "missing retained coverage")
-
-        def freeze(table: ir.Table) -> ir.Table:
-            self._flush_validations()
-            name = f"__mv_lifecycle_reducer_{len(self.preparations)}"
-            self.preparations.append(CompiledRelationFence(name, table, id(root)))
-            return ibis.table(table.schema(), name=name)
-
-        def enrich(table: ir.Table, at: datetime) -> ir.Table:
-            if not isinstance(payload, LifecycleReducerPayload) or not payload.axes:
-                return table
-            anchored = table.mutate(
-                step_key=ibis.literal("checkpoint"), occurred_at=ibis.literal(at)
-            )
-            return lower_event_axes(
-                anchored,
-                payload.axes,
-                self.owner,
-                self.tables,
-                step_key="checkpoint",
-                freeze=freeze,
-                add_validation=self.validations.append,
-            ).drop("step_key", "occurred_at")
-
-        result, checks, proof = reduce_lifecycle(
-            previous.expression, dict(previous.parts), payload, freeze=freeze, enrich=enrich
-        )
-        self.validations.extend(checks)
-        self.lifecycle_reducer_coverage = coverage
-        if isinstance(payload, LifecycleSelectionPayload):
-            self.lifecycle_selection_payload, self.lifecycle_selection_proof = payload, proof
-            self.selection_input_definition = self.datasets[id(incoming)].definition_fingerprint
-            result = freeze(result)
-            identity = result.entity_identity
-            if not isinstance(identity, ir.StructValue):
-                raise compilation_error("complete selected identity", "invalid selection output")
-            membership = result.select(
-                **{name: identity[name] for name in previous.entity.primary_key}
-            )
-            return _Rows(result, membership, previous.entity)
-        return _Rows(result, previous.membership, previous.entity)
 
     def _event_reducer(
         self,
@@ -2289,7 +2217,7 @@ class _Compiler:
                 scan is None
                 or not isinstance(dataset, MaterializedDataset)
                 or (
-                    root.shape_id.family_id not in ("population", "delta", "event", "lifecycle")
+                    root.shape_id.family_id not in ("population", "delta", "event")
                     and not (
                         root.shape_id.family_id == "candidate"
                         and root.shape_id.local_shape_id in ("entity-outlier", "driver-axis")
@@ -2329,9 +2257,7 @@ class _Compiler:
                     table,
                     table,
                     entity,
-                    parts=scan.parts
-                    if dataset.kind == "lifecycle"
-                    else selected_private_parts(
+                    parts=selected_private_parts(
                         scan.parts, dataset.row_contract, table, required=False
                     ),
                 )
@@ -2350,7 +2276,7 @@ class _Compiler:
                 )
             membership = table.select(**{name: identity[name] for name in entity.primary_key})
             if (
-                root.shape_id.family_id in ("delta", "event", "lifecycle")
+                root.shape_id.family_id in ("delta", "event")
                 or root.shape_id.local_shape_id == "driver-axis"
             ):
                 # Complete row keys are validated separately; driver rows may
@@ -2363,9 +2289,7 @@ class _Compiler:
                 table,
                 membership,
                 entity,
-                parts=scan.parts
-                if dataset.kind == "lifecycle"
-                else selected_private_parts(
+                parts=selected_private_parts(
                     scan.parts, dataset.row_contract, table, required=False
                 ),
             )
@@ -2374,10 +2298,6 @@ class _Compiler:
         payload = root.payload
         if isinstance(payload, PopulationPayload):
             result = self._population(root, payload)
-        elif isinstance(payload, (LifecycleReducerPayload, LifecycleSelectionPayload)):
-            result = self._lifecycle_reducer(root, payload)
-        elif isinstance(payload, LifecyclePayload):
-            result = self._lifecycle_history(root, payload)
         elif isinstance(payload, EventPayload):
             result = self._event_journey(root, payload)
         elif isinstance(
@@ -2644,10 +2564,6 @@ class _Compiler:
         ordering = self.dataset.row_set_contract.ordering
         if self.dataset.row_contract.shape_id.family_id == "event":
             expression = canonical_event_rows(expression, self.dataset.row_contract)
-        elif self.dataset.kind == "lifecycle":
-            from marivo.analysis.compiler.lifecycle_reducers import canonical_rows
-
-            expression = canonical_rows(expression, self.dataset.row_contract)
         elif isinstance(ordering, _OrderedOrdering):
             field_names = {field.field_id: field.name for field in self.dataset.schema.columns}
             terms = tuple(
@@ -2675,7 +2591,7 @@ class _Compiler:
                 *parts,
                 *private_part_specs(
                     self.dataset.row_contract,
-                    tuple((role, _physical_casts(table)) for role, table in rows.parts),
+                    tuple(((role, _physical_casts(table)) for role, table in rows.parts)),
                 ),
             ),
             preparations,
@@ -2687,16 +2603,6 @@ class _Compiler:
             )
             if self.time_authorities
             else None,
-            lifecycle_coverage=self.lifecycle_coverage
-            if str(self.dataset.row_contract.shape_id) == "lifecycle/history@v1"
-            else None,
-            lifecycle_reducer_coverage=self.lifecycle_reducer_coverage,
-            lifecycle_selection_payload=self.lifecycle_selection_payload
-            if self.dataset.kind == "population"
-            else None,
-            lifecycle_selection_proof=self.lifecycle_selection_proof
-            if self.dataset.kind == "population"
-            else None,
             association_proof=self.association_proof,
             candidate_proof=self.candidate_proof if self.dataset.kind == "candidate" else None,
             candidate_definition=self.candidate_definition
@@ -2706,19 +2612,16 @@ class _Compiler:
             event_coverage=self.event_coverages.get(root.definition_fingerprint)
             if isinstance(root, LogicalRootHandle)
             else None,
-            event_reducer_proof=(
-                event_result_proof(
-                    expression,
-                    self.dataset.row_contract,
-                    filtered=isinstance(root, LogicalRootHandle)
-                    and root.operator_id == "event.where",
-                )
-                if isinstance(
-                    self.dataset.row_contract.family_semantics,
-                    (EventFunnelSemantics, EventTimeToEventSemantics),
-                )
-                else None
-            ),
+            event_reducer_proof=event_result_proof(
+                expression,
+                self.dataset.row_contract,
+                filtered=isinstance(root, LogicalRootHandle) and root.operator_id == "event.where",
+            )
+            if isinstance(
+                self.dataset.row_contract.family_semantics,
+                (EventFunnelSemantics, EventTimeToEventSemantics),
+            )
+            else None,
             event_reducer_coverage=self.event_reducer_coverage,
             selection_proof=self.selection_proof if self.dataset.kind == "population" else None,
             selection_coverage=self.selection_coverage,
@@ -2742,7 +2645,7 @@ def compile_dataset(
     explicit_correlation: bool = False,
     emulate_full_join: bool = False,
     scalar_masks: bool = False,
-    lifecycle_dialect: Literal["duckdb", "postgres", "trino", "clickhouse"] = "duckdb",
+    event_dialect: Literal["duckdb", "postgres", "trino", "clickhouse"] = "duckdb",
     ranked_event_successors: bool = False,
     scalar_single_identity: bool = False,
 ) -> CompiledDataset:
@@ -2761,7 +2664,7 @@ def compile_dataset(
         explicit_correlation,
         emulate_full_join,
         scalar_masks,
-        lifecycle_dialect,
+        event_dialect,
         ranked_event_successors,
         scalar_single_identity,
     ).compile()
@@ -2773,8 +2676,6 @@ def _lower_retained_scan(
     selected_parts: Mapping[str, ir.Table] | None,
 ) -> tuple[ir.Table, tuple[CompiledValidation, ...]]:
     """Attach and reconcile only the consumer-selected immutable component roles."""
-    if isinstance(row.family_semantics, LifecycleSemantics):
-        return selected_table, ()
     validations: list[CompiledValidation] = []
 
     def assertion(name: str, invalid: ir.Table) -> None:
@@ -2900,9 +2801,6 @@ def compile_retained_rows(
     preparations: list[CompiledValidation | CompiledRelationFence] = []
     prepared_count = 0
     event_reducer_coverage: EventCoverageResolution | None = None
-    lifecycle_reducer_coverage: EventCoverageResolution | None = None
-    lifecycle_selection_payload: LifecycleSelectionPayload | None = None
-    lifecycle_selection_proof: ir.Table | None = None
     selection_proof: ir.Table | None = None
     selection_coverage: EventCoverageResolution | None = None
     selection_payload: EventSelectionPayload | None = None
@@ -2912,9 +2810,7 @@ def compile_retained_rows(
     private_parts: dict[int, PrivateRelations] = {}
 
     def read(value: MaterializedDataset) -> ir.Table:
-        nonlocal event_reducer_coverage, lifecycle_reducer_coverage
-        if value.kind == "lifecycle":
-            lifecycle_reducer_coverage = coverages.get(value.state.artifact_ref.ref)
+        nonlocal event_reducer_coverage
         if value.kind == "event":
             event_reducer_coverage = coverages.get(value.state.artifact_ref.ref)
         selected_table = (
@@ -2925,15 +2821,11 @@ def compile_retained_rows(
         )
         result, checks = _lower_retained_scan(value.row_contract, selected_table, selected_parts)
         validations.extend(checks)
-        private_parts[id(value)] = (
-            tuple(({} if selected_parts is None else selected_parts).items())
-            if value.kind == "lifecycle"
-            else selected_private_parts(
-                tuple(({} if selected_parts is None else selected_parts).items()),
-                value.row_contract,
-                result,
-                required=False,
-            )
+        private_parts[id(value)] = selected_private_parts(
+            tuple(({} if selected_parts is None else selected_parts).items()),
+            value.row_contract,
+            result,
+            required=False,
         )
         return result
 
@@ -2951,7 +2843,6 @@ def compile_retained_rows(
         return ibis.table(value.schema(), name=name)
 
     def visit_node(value: Dataset) -> ir.Table:
-        nonlocal lifecycle_reducer_coverage, lifecycle_selection_payload, lifecycle_selection_proof
         nonlocal \
             event_reducer_coverage, \
             selection_proof, \
@@ -2970,38 +2861,6 @@ def compile_retained_rows(
         if not isinstance(value, LogicalDataset) or not isinstance(value._root, LogicalRootHandle):
             raise compilation_error("an exact retained row graph", "invalid retained row node")
         payload = value._root.payload
-        if isinstance(payload, (LifecycleReducerPayload, LifecycleSelectionPayload)):
-            from marivo.analysis.compiler.lifecycle_reducers import reduce_lifecycle
-
-            incoming = value._inputs[0]
-            previous = visit(incoming)
-            key = (
-                incoming.state.artifact_ref.ref
-                if isinstance(incoming, MaterializedDataset)
-                else incoming.definition_fingerprint
-            )
-            coverage = coverages.get(key)
-            if coverage is None:
-                raise compilation_error(
-                    "exact retained Lifecycle coverage", "missing input authority"
-                )
-            if isinstance(payload, LifecycleReducerPayload) and payload.axes:
-                raise compilation_error("current semantic axis binding", "retained-only enrichment")
-            root_handle = value._root
-            result, checks, proof = reduce_lifecycle(
-                previous,
-                dict(private_parts[id(incoming)]),
-                payload,
-                freeze=lambda t: freeze(t, root_handle),
-            )
-            validations.extend(checks)
-            lifecycle_reducer_coverage = coverage
-            private_parts[id(value)] = ()
-            if isinstance(payload, LifecycleSelectionPayload):
-                lifecycle_selection_payload, lifecycle_selection_proof = payload, proof
-                selection_input_definition = incoming.definition_fingerprint
-                return freeze(result, value._root)
-            return result
         if isinstance(
             payload, (EventFunnelPayload, EventTimeToEventPayload, EventSelectionPayload)
         ):
@@ -3156,10 +3015,6 @@ def compile_retained_rows(
     ordering = dataset.row_set_contract.ordering
     if dataset.row_contract.shape_id.family_id == "event":
         expression = canonical_event_rows(expression, dataset.row_contract)
-    elif dataset.kind == "lifecycle":
-        from marivo.analysis.compiler.lifecycle_reducers import canonical_rows
-
-        expression = canonical_rows(expression, dataset.row_contract)
     elif isinstance(ordering, _OrderedOrdering):
         names = {field.field_id: field.name for field in dataset.schema.columns}
         expression = _Compiler._order(
@@ -3180,7 +3035,9 @@ def compile_retained_rows(
             *retained_part_specs(dataset.row_contract),
             *private_part_specs(
                 dataset.row_contract,
-                tuple((role, _physical_casts(table)) for role, table in private_parts[id(dataset)]),
+                tuple(
+                    ((role, _physical_casts(table)) for role, table in private_parts[id(dataset)])
+                ),
             ),
         ),
         preparations=named_preparations,
@@ -3188,24 +3045,14 @@ def compile_retained_rows(
         association_proof=association_proof,
         candidate_proof=candidate_proof,
         candidate_definition=candidate_definition,
-        event_reducer_proof=(
-            event_result_proof(
-                expression,
-                dataset.row_contract,
-                filtered=isinstance(root, LogicalRootHandle) and root.operator_id == "event.where",
-            )
-            if isinstance(
-                dataset.row_contract.family_semantics,
-                (EventFunnelSemantics, EventTimeToEventSemantics),
-            )
-            else None
-        ),
-        lifecycle_reducer_coverage=lifecycle_reducer_coverage,
-        lifecycle_selection_payload=lifecycle_selection_payload
-        if dataset.kind == "population"
-        else None,
-        lifecycle_selection_proof=lifecycle_selection_proof
-        if dataset.kind == "population"
+        event_reducer_proof=event_result_proof(
+            expression,
+            dataset.row_contract,
+            filtered=isinstance(root, LogicalRootHandle) and root.operator_id == "event.where",
+        )
+        if isinstance(
+            dataset.row_contract.family_semantics, (EventFunnelSemantics, EventTimeToEventSemantics)
+        )
         else None,
         event_reducer_coverage=event_reducer_coverage,
         selection_proof=selection_proof if dataset.kind == "population" else None,

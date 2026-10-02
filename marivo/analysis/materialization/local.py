@@ -17,7 +17,6 @@ from marivo.analysis.datasets.descriptors import (
     _bool_tuple_value,
     _EntityFieldIdentity,
 )
-from marivo.analysis.domains.lifecycle_reducers import is_fragment_duration
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.storage import (
     _matches_type,
@@ -82,9 +81,6 @@ def collect_primary(
 def to_local_frame(table: pa.Table, row: DatasetRowContract) -> pd.DataFrame:
     # Conversion may materialize Python identities and index/column objects.
     frame = _to_dataframe(table, row)
-    for field in row.schema.columns:
-        if is_fragment_duration(row, field):
-            frame[field.name] = pd.Series(table[field.name], dtype=pd.ArrowDtype(pa.float64()))
     return frame
 
 
@@ -164,9 +160,7 @@ def validate_frame(
             ):
                 fail("retained identity tuples", "invalid local identity", "output_validation")
         elif field.logical_type_id == "duration":
-            if not isinstance(dtype, pd.ArrowDtype) or dtype.pyarrow_dtype != (
-                pa.float64() if is_fragment_duration(row, field) else pa.duration("us")
-            ):
+            if not isinstance(dtype, pd.ArrowDtype) or dtype.pyarrow_dtype != (pa.duration("us")):
                 fail("microsecond duration values", "invalid local duration", "output_validation")
         elif not isinstance(field.identity, _EntityFieldIdentity) and (
             not isinstance(dtype, pd.ArrowDtype)

@@ -34,12 +34,6 @@ from marivo.analysis.domains.contracts import (
     EventFunnelPayload,
     EventPayload,
 )
-from marivo.analysis.domains.lifecycle import (
-    LifecyclePayload,
-)
-from marivo.analysis.domains.lifecycle_reducers import (
-    LifecycleReducerPayload,
-)
 from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
@@ -60,10 +54,6 @@ from marivo.analysis.materialization.event_reducer_codec import (
     EventSelectionEvidenceSummary,
 )
 from marivo.analysis.materialization.execution_key import execution_key
-from marivo.analysis.materialization.lifecycle_codec import LifecycleEvidenceSummary
-from marivo.analysis.materialization.lifecycle_reducer_codec import (
-    ContinuationEvidence,
-)
 from marivo.analysis.materialization.ownership import owns_resource
 from marivo.analysis.materialization.publication import materialization_contract
 from marivo.analysis.materialization.reconciliation import reconcile_session
@@ -131,12 +121,11 @@ def _admit_miss(
             if (
                 isinstance(value._root, LogicalRootHandle)
                 and isinstance(
-                    value._root.payload,
-                    (PopulationPayload, MetricPayload, EventPayload, LifecyclePayload),
+                    value._root.payload, (PopulationPayload, MetricPayload, EventPayload)
                 )
             ) or (
                 isinstance(value._root, LogicalRootHandle)
-                and isinstance(value._root.payload, (EventFunnelPayload, LifecycleReducerPayload))
+                and isinstance(value._root.payload, (EventFunnelPayload,))
                 and bool(value._root.payload.axes)
             ):
                 binding = source_binding(value)
@@ -290,7 +279,6 @@ class ExecutionEvidence:
     association_summary: AssociationSearchSummary | None = None
     forecast_summary: ForecastTrainingSummary | None = None
     candidate_summary: CandidateSearchSummary | None = None
-    lifecycle_summary: LifecycleEvidenceSummary | ContinuationEvidence | None = None
     event_summary: EventEvidenceSummary | EventReducerEvidenceSummary | None = None
     selection_summary: EventSelectionEvidenceSummary | None = None
 
@@ -299,8 +287,6 @@ class ExecutionEvidence:
         state = cls()
         for input_record in records.values():
             descriptor = input_record.descriptor
-            if descriptor.lifecycle_evidence is not None:
-                state.lifecycle_summary = descriptor.lifecycle_evidence
             if descriptor.event_evidence is not None:
                 state.event_summary = descriptor.event_evidence
             if descriptor.subject_selection_evidence is not None:

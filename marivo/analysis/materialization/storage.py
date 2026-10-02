@@ -36,7 +36,6 @@ from marivo.analysis.datasets.descriptors import (
     _ResolvedPhysicalType,
     _StaticRowBound,
 )
-from marivo.analysis.domains.lifecycle_reducers import is_fragment_duration
 from marivo.analysis.materialization.contracts import (
     ExchangeBinding,
     FileEntry,
@@ -261,7 +260,7 @@ def _realized_schema(row: DatasetRowContract, actual: pa.Schema) -> DatasetSchem
         _fail("the exact ordered primary column names", "primary columns differ")
     columns: list[DatasetField] = []
     for expected, field in zip(logical.columns, actual, strict=True):
-        fragment = is_fragment_duration(row, expected)
+        fragment = False
         if not (
             pa.types.is_float64(field.type)
             if fragment
@@ -430,20 +429,6 @@ class _RowValidator:
         from marivo.analysis.operators.association_contracts import association_orders
 
         self.authored_orders = association_orders(contract, rows)
-        from marivo.analysis.domains.lifecycle_reducers import (
-            REDUCER_TYPES,
-            TransitionsSemantics,
-            history_semantics,
-        )
-
-        self.lifecycle_pairs: tuple[tuple[str, str], ...] | None = None
-        self.previous_lifecycle_pair: int | None = None
-        if isinstance(contract.family_semantics, REDUCER_TYPES):
-            lifecycle = history_semantics(contract.family_semantics)
-            if isinstance(contract.family_semantics, TransitionsSemantics):
-                self.lifecycle_pairs = lifecycle.transition_pairs
-            elif "model_state" in by_id.values():
-                self.authored_orders["model_state"] = lifecycle.states
 
         self.contract = contract
         self.rows = rows
@@ -542,24 +527,7 @@ class _RowValidator:
                 _value(batch.column(batch.schema.get_field_index(name))[offset])
                 for name, _, _ in self.terms
             )
-            if self.lifecycle_pairs is not None:
-                pair = (
-                    batch["from_model_state"][offset].as_py(),
-                    batch["to_model_state"][offset].as_py(),
-                )
-                if pair not in self.lifecycle_pairs:
-                    _fail("declared Lifecycle transition pair", "unknown pair")
-                ordinal = self.lifecycle_pairs.index(pair)
-                if (
-                    self.previous_lifecycle_pair is not None
-                    and ordinal <= self.previous_lifecycle_pair
-                ):
-                    _fail(
-                        "strictly increasing declared transition pairs",
-                        "duplicate or unordered pair",
-                    )
-                self.previous_lifecycle_pair = ordinal
-            elif self.previous is not None:
+            if self.previous is not None:
                 comparison = 0
                 for left, right, (name, direction, nulls) in zip(
                     self.previous,
@@ -765,9 +733,6 @@ def write_local_dataset(
 
             event("retained_part_write")
             event(f"retained_part_write.{independent.role}")
-            if row_contract.shape_id.family_id == "lifecycle":
-                event("lifecycle_part_write")
-                event(f"lifecycle_part_write.{independent.role}")
             directory = f"parts/{independent.role}"
             target = staging / directory
             _create_directory(target)
@@ -1011,9 +976,7 @@ def _to_dataframe(table: pa.Table, row: DatasetRowContract) -> pd.DataFrame:
             result[field.name] = pd.Series(
                 [_value(array[index]) for index in range(table.num_rows)], dtype=object
             )
-        if is_fragment_duration(row, field):
-            result[field.name] = pd.to_timedelta(table.column(field.name).to_pandas(), unit="us")
-        elif field.logical_type_id == "duration":
+        if field.logical_type_id == "duration":
             result[field.name] = pd.Series(
                 table.column(field.name).cast(pa.duration("us")),
                 dtype=pd.ArrowDtype(pa.duration("us")),

@@ -90,6 +90,13 @@ class MethodRegistration:
                         repr(implementation.key),
                         "Bind receiver and category.",
                     )
+            elif rule == "history_view@v1":
+                if input_count not in (1, 2):
+                    reject(
+                        "one History and optional checkpoint axes",
+                        repr(implementation.key),
+                        "Use the exact registered History shape.",
+                    )
             elif rule == "history_replay@v1":
                 if input_count != 2:
                     reject(

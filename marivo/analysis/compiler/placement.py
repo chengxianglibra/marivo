@@ -15,10 +15,6 @@ from marivo.analysis.domains.contracts import (
     EventSelectionPayload,
     EventTimeToEventPayload,
 )
-from marivo.analysis.domains.lifecycle_reducers import (
-    LifecycleReducerPayload,
-    LifecycleSelectionPayload,
-)
 from marivo.analysis.observation.contracts import (
     ObservationOwner,
     RetainedRowsPayload,
@@ -179,9 +175,11 @@ def place(
             candidate = (
                 child_domains[0]
                 if child_domains
-                and not (
-                    isinstance(value._root.payload, (EventFunnelPayload, LifecycleReducerPayload))
-                    and value._root.payload.axes
+                and (
+                    not (
+                        isinstance(value._root.payload, (EventFunnelPayload,))
+                        and value._root.payload.axes
+                    )
                 )
                 and isinstance(
                     value._root.payload,
@@ -189,8 +187,6 @@ def place(
                         EventFunnelPayload,
                         EventTimeToEventPayload,
                         EventSelectionPayload,
-                        LifecycleSelectionPayload,
-                        LifecycleReducerPayload,
                         RetainedRowsPayload,
                         RetainedFoldPayload,
                         CorrelatePayload,

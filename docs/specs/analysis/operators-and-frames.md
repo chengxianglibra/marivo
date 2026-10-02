@@ -1238,9 +1238,11 @@ trace without replaying origin or connecting to source/current Semantic. Violati
 use the existing zero-Findings policy. Precision follows the R7.2 capture conversion
 and retained loss disclosure. There are no replay row, memory or tie-width quotas.
 
-The six views and subsequent Duration/Subject observation rules below are R7.6
-targets. R7.5 exposes only execution, terminal reading, contract and evidence actions;
-its dynamic contract does not disclose those views.
+R7.6 implements the six views and the Duration/Subject observation rules below
+on the unified local graph path. Logical and materialized History both return
+Logical views; materialized receivers retain fixed leaves. Dwell Duration summary
+fields cannot be pooled with summarize or rollup. Current-row mean is admitted on
+interval observed_duration and retains exact sum/count for fixed merging.
 
 Replay starts at real inception, which may precede the report window; only
 source-origin authority proves its absence. A complete origin history with a
