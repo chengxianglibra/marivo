@@ -23,6 +23,12 @@ from marivo.analysis._comparison import UnionKeys as UnionKeys
 from marivo.analysis._comparison import WindowBucketAlignment as WindowBucketAlignment
 from marivo.analysis._comparison import window_bucket as window_bucket
 from marivo.analysis._subject import SubjectBinding as SubjectBinding
+from marivo.analysis.anchors import CalendarWindow as CalendarWindow
+from marivo.analysis.anchors import Duration as Duration
+from marivo.analysis.anchors import ElapsedWindow as ElapsedWindow
+from marivo.analysis.anchors import calendar_days as calendar_days
+from marivo.analysis.anchors import duration as duration
+from marivo.analysis.anchors import elapsed as elapsed
 from marivo.analysis.datasets.base import Dataset as Dataset
 from marivo.analysis.datasets.base import LogicalDataset as LogicalDataset
 from marivo.analysis.datasets.base import MaterializedDataset as MaterializedDataset
@@ -133,6 +139,7 @@ from marivo.analysis.public_dsl import GroupedNumericRelation as GroupedNumericR
 from marivo.analysis.public_dsl import GroupedRatioRelation as GroupedRatioRelation
 from marivo.analysis.public_dsl import GroupedStatisticRelation as GroupedStatisticRelation
 from marivo.analysis.public_dsl import LogicalAnalysisDomain as LogicalAnalysisDomain
+from marivo.analysis.public_dsl import LogicalAnchorDomain as LogicalAnchorDomain
 from marivo.analysis.public_dsl import LogicalAssociationResult as LogicalAssociationResult
 from marivo.analysis.public_dsl import LogicalAttributionResult as LogicalAttributionResult
 from marivo.analysis.public_dsl import LogicalBooleanRelation as LogicalBooleanRelation
@@ -182,6 +189,7 @@ from marivo.analysis.public_dsl import LogicalTimeAnalysisDomain as LogicalTimeA
 from marivo.analysis.public_dsl import LogicalTransitionSummary as LogicalTransitionSummary
 from marivo.analysis.public_dsl import LogicalViolationResult as LogicalViolationResult
 from marivo.analysis.public_dsl import MaterializedAnalysisDomain as MaterializedAnalysisDomain
+from marivo.analysis.public_dsl import MaterializedAnchorDomain as MaterializedAnchorDomain
 from marivo.analysis.public_dsl import (
     MaterializedAssociationResult as MaterializedAssociationResult,
 )
@@ -287,6 +295,14 @@ from marivo.analysis.subject import DroppedBefore as DroppedBefore
 from marivo.analysis.subject import dropped_before as dropped_before
 
 __all__ = [  # noqa: RUF022 - accepted public export order is contractual
+    "Duration",
+    "ElapsedWindow",
+    "CalendarWindow",
+    "duration",
+    "elapsed",
+    "calendar_days",
+    "LogicalAnchorDomain",
+    "MaterializedAnchorDomain",
     "LogicalAttributionResult",
     "MaterializedAttributionResult",
     "LogicalRankingResult",

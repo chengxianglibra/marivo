@@ -12,6 +12,7 @@ import ibis
 import pyarrow as pa
 
 from marivo._temporal import BeforeEndBoundary
+from marivo.analysis.anchors import CalendarWindow
 from marivo.analysis.compiler.graph_lowering import (
     ComponentColumn,
     CoordinateColumn,
@@ -30,6 +31,7 @@ from marivo.analysis.core.graph import (
     topology,
 )
 from marivo.analysis.core.model import (
+    AnchorDomainPart,
     Binding,
     Coordinate,
     DomainSignature,
@@ -41,6 +43,8 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
+    AnchorBind,
+    AnchorObserve,
     BindProject,
     MapCorrespond,
     PartsTransport,
@@ -459,13 +463,28 @@ class MemberGraph:
                     node.identity,
                     "ibis_python"
                     if (
+                        isinstance(node.parameters, AnchorBind)
+                        and node.inputs[0].node.signature.domain.kind == "journey"
+                    )
+                    or (
+                        isinstance(node.parameters, AnchorObserve)
+                        and (
+                            isinstance(node.parameters.window, CalendarWindow)
+                            or any(
+                                isinstance(p, AnchorDomainPart) and p.journey is not None
+                                for p in node.inputs[0].node.signature.parts
+                            )
+                        )
+                    )
+                    or (
                         isinstance(node.parameters, PartsTransport)
                         and node.parameters.mode == "cohort"
                         and node.parameters.opportunity_domain is not None
                         and node.parameters.opportunity_domain.kind == "journey"
                     )
                     or (
-                        node.inputs[0].node.signature.domain.kind in ("journey", "interval")
+                        node.inputs[0].node.signature.domain.kind
+                        in ("journey", "interval", "anchor")
                         and isinstance(node.parameters, (MapCorrespond, PartsTransport, RowState))
                     )
                     or any(

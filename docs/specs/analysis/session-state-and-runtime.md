@@ -1296,3 +1296,39 @@ The shared 600-second execute deadline and Store 7 atomic publication remain sol
 owners. Dedicated old Lifecycle Dataset reducer/compiler/codec consumers are
 removed; actual shared Event/R8 consumers remain. This grants local table/Parquet
 History behavior only, not R7.7-R7.9, same-wheel, remote or release acceptance.
+
+## R7.7 Anchor execution and recovery
+
+`anchor.bind@v1` and `anchor.observe@v1` use the current graph, registry, planner,
+Runtime and Store 7 publication. Event elapsed observation uses public Ibis joins
+and per-Anchor aggregates. Calendar and current Journey origins collect every
+source candidate component in a proven finite envelope before local restriction;
+local Anchors are never uploaded, and source access cannot follow local consumption.
+
+Raw source candidates retain their declared Entity version contract without claiming
+that a snapshot/validity member selection has already happened. Preparation resolves
+that version at the captured occurrence instant and verifies complete single-valued
+Subject correspondence. Internal relative Metric captures are construction templates;
+they cannot execute as ordinary Metric nodes. R5 numeric state and finishing remain
+the numeric owners for Anchor count/sum/ratio/linear observation.
+
+The Anchor part owns the exact Subject/Event/occurrence identity, source definition,
+start, captured order, Journey assignment where applicable, exact deadline and typed
+component-use lists. The existing original-state part owns sufficient numeric state;
+coverage is retained with the same coordinate binding. Exchange, publication and
+recovery verify membership, complete use keys, own-occurrence exclusion, business
+order, deadline and recomputed component state. Float comparisons use the existing
+R5 magnitude/error owner; int64, Decimal and Duration state remain exact.
+
+Fixed Journey bind requires the original population definition and consumes retained
+assignment without rematch. A starts-only Anchor Artifact cannot introduce a new
+live Metric input. Already observed NumericRelations continue through verified parts;
+missing, corrupt or differently bound required inputs reject before a continuation
+Run. The shared 600-second execute clock spans source preparation, local consumption,
+checks and publication. A failed or cancelled invocation publishes no successful
+Artifact, closes prepared resources and preserves prior verified Artifacts.
+
+The R7.7 qualification record preserves the original P48 native target and every
+mandatory ID. Tested local execution, fixed continuations and cold recovery do not
+silently replace an unverified native or fixed-method target. Full R7, same-wheel,
+retention and remote acceptance keep their later owners.

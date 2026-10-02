@@ -7,6 +7,8 @@ from typing import Literal
 
 from marivo.analysis.core.model import CheckId, DomainKind, PartRole
 from marivo.analysis.core.rules import (
+    AnchorBind,
+    AnchorObserve,
     AssociationScore,
     AttachCategory,
     AttributionDerive,
@@ -61,6 +63,7 @@ from marivo.analysis.methods.physical import (
 from marivo.analysis.methods.semantics import MethodKey
 
 PARTS: tuple[PartRole, ...] = (
+    "anchor",
     "history",
     "history_view",
     "funnel_state",
@@ -870,6 +873,10 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     """Version typed folds and once-rounded numeric consumers in Store 7."""
+    if method.name.startswith("anchor."):
+        from marivo.analysis.methods.anchor_physical import implementations as anchors
+
+        return anchors(method)
     if method.name.startswith("funnel.") or method.name == "funnel_ratio_mix":
         from marivo.analysis.methods.funnel_physical import (
             implementations as funnel_implementations,
@@ -918,11 +925,13 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             )
             for item in implementations(MethodKey("cell.difference"))
         )
+    from marivo.analysis.methods.anchor_physical import consumers as anchor_consumers
     from marivo.analysis.methods.domain_preparation import consumers
     from marivo.analysis.methods.history_view_physical import consumers as history_consumers
     from marivo.analysis.methods.journey_physical import consumers as journey_consumers
 
     declarations = (
+        *anchor_consumers(method),
         *consumers(method),
         *journey_consumers(method),
         *tuple(
@@ -1012,6 +1021,30 @@ def specialize_arity(implementation: Implementation, arity: int) -> Implementati
 
 def specialize_numeric(implementation: Implementation, key: QualificationKey) -> Implementation:
     """Bind precise numeric families and closed typed predicate inputs."""
+    if (
+        key.method.name == "anchor.observe"
+        and key.input_domains == implementation.key.input_domains == ("anchor", "entity")
+        and key.input_types[0] == implementation.key.input_types[0]
+        and len(key.input_types) == 2
+        and key.input_types[1] in (ScalarType("int64"), ScalarType("string"))
+    ):
+        return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
+    if (
+        key.input_domains == implementation.key.input_domains == ("anchor",)
+        and len(key.input_types) == 1
+        and (
+            key.method.name == "map_correspond"
+            or (key.method.name == "row.mean" and isinstance(key.input_types[0], DurationType))
+        )
+        and isinstance(key.input_types[0], (DecimalType, DurationType))
+        and implementation.key.input_types
+        == (ScalarType("int64" if key.method.name != "row.mean" else "float64"),)
+    ):
+        return replace(
+            implementation,
+            key=replace(implementation.key, input_types=key.input_types),
+            precision="exact",
+        )
     if (
         key.method.name == "occurrence.prepare"
         and key.input_domains == implementation.key.input_domains == ("entity",)
@@ -1198,6 +1231,12 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
 
 def admit(implementation: Implementation, params: RuleParameters) -> None:
     """Resolve a real consumer and reject parameter variants outside its evidence."""
+    if isinstance(params, (ObserveMetric, ObserveCount)) and params.capture_versions:
+        reject(
+            "relative observation through anchor.observe",
+            "a capture template submitted as an executable Metric node",
+            "Use AnchorDomain.observe so bounded version resolution owns the candidate input.",
+        )
     if implementation not in tuple(
         specialize_numeric(
             specialize_arity(candidate, len(implementation.key.input_types)), implementation.key
@@ -1212,6 +1251,8 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
     if isinstance(
         params,
         (
+            AnchorBind,
+            AnchorObserve,
             OccurrencePrepare,
             PreparedObservation,
             FunnelAxesPrepare,

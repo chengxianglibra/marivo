@@ -25,6 +25,7 @@ from marivo.analysis.core.model import (
     Unknown,
 )
 from marivo.analysis.core.rules import (
+    AnchorBind,
     AttachCategory,
     AttributionDerive,
     CellDerive,
@@ -1862,6 +1863,7 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
         if (
             name
             not in (
+                "anchor.bind",
                 "history.in_state",
                 "history.distribution",
                 "history.transitions",
@@ -2011,7 +2013,11 @@ def execute_verified_fixed(
             check for check in lowered.admitted.checks if check.node_id == stage.stage.node.identity
         )
         name = stage.stage.node.method.name
-        if isinstance(stage.stage.node.parameters, (HistoryView, HistoryRead)):
+        if isinstance(stage.stage.node.parameters, AnchorBind):
+            from marivo.analysis.materialization.anchor_execution import bind as bind_anchor
+
+            result = bind_anchor(stage.stage.node, values[0], binding)
+        elif isinstance(stage.stage.node.parameters, (HistoryView, HistoryRead)):
             from marivo.analysis.materialization.history_views import execute as history_view
 
             result = history_view(stage.stage.node, values, binding)

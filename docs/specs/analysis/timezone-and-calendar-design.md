@@ -307,3 +307,24 @@ and both start boundaries; an unproved envelope or ambiguous deadline blocks the
 precise route, not a silently widened all-history read. Source time authority,
 Anchor time, exact deadline/window and conversion version remain in execution
 identity, parts and cold K. Recovery never recomputes them from current host facts.
+
+## R7.7 relative windows
+
+`mv.duration(...)` specifies exactly one integer unit: hours, minutes, seconds,
+milliseconds, microseconds or nanoseconds. Hours/minutes become checked int64
+seconds; the other units retain s/ms/us/ns ticks. `mv.elapsed(duration)` requires
+a positive length and adds elapsed ticks to the captured instant.
+
+`mv.calendar_days(days, ZoneInfo("America/New_York"))` requires a positive integer
+and a named IANA zone. It preserves the Anchor's local wall time while adding civil
+days, then verifies the deadline by round trip. A spring gap or autumn fold fails
+with `r7.calendar_deadline` and an explicit repair to use elapsed time or a different
+start/window. It never chooses a fold or shifts a gap silently. Windows include
+the Anchor instant and exclude the deadline; the complete Anchor occurrence is
+excluded separately. Another same-instant occurrence needs captured business order.
+
+R7's accepted captured instant carrier is UTC microseconds. A deadline that cannot
+be represented exactly in that carrier fails with `r7.window_precision`; no tick
+truncation is allowed. This does not retract R7.2's disclosed source ns-to-us loss.
+The calendar source envelope is conservative and finite; only actual Anchor
+wall-time deadlines determine selection, after all source preparation has ended.

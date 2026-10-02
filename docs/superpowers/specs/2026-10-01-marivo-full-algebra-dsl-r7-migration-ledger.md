@@ -1,7 +1,7 @@
 # R7.1 contract freeze and consumer migration ledger
 
 Date: 2026-10-01. Status: R7.1 contract/static freeze complete; R7.2 private
-preparation implemented and qualified as recorded below; R7.3-R7.6 implementations are recorded below; R7.7-R7.9 remain pending. This ledger indexes sole owners and responsibility;
+preparation implemented and qualified as recorded below; R7.3-R7.6 implementations are recorded below; R7.7 bounded implementation and remaining qualifications are recorded below; R7.8-R7.9 remain pending. This ledger indexes sole owners and responsibility;
 it is not another public API or method registry and grants no Runtime qualification.
 
 ## Actual baseline and accepted decisions
@@ -396,3 +396,36 @@ work. This does not close every M01–M16 node or grant R7.9/R8–R10 acceptance
 R7.6 bounded local implementation is complete. Receipt failures and repairs are
 separate from accepted cells in the evidence index. No commit, push, publication,
 release, installed-wheel or remote qualification occurred.
+
+
+## R7.7 Anchor/window/relative Metric amendment (2026-10-02)
+
+Entry: clean `panda@f1a8f49cff538d285c6f93b20eea7790436f5258`; the requested
+R7.6 predecessor was already committed. Entry metadata and owning-input digests
+are recorded in the [R7.7 evidence index](2026-10-02-marivo-r77-evidence-index.md).
+The [qualification record](2026-10-02-marivo-r77-qualification.json) retains all
+6750 original Anchor cells and records actual execution separately from their
+original method/route targets.
+
+F10 and the Anchor portions of F02/F13 use the one public `session.anchors` entry,
+closed Duration/windows, R5 numeric owners, explicit bounded source preparation,
+registered local consumption and existing Store 7 validation/publication/recovery.
+No Anchor upload, source-after-local, rematch, SQL fallback or alternate Store path
+was added. Overlapping use bindings survive legal transport; original-state rollup
+cannot remove Anchor coordinates. Raw historical candidates gain their member/version
+proof at the captured instant, rather than asserting an earlier selected version.
+
+| Node | R7.7 responsibility | Status boundary |
+| --- | --- | --- |
+| M12/M13 | Anchor rules, precise physical placements, source-first planner, typed parts/receipts and exact recovery | New owners only; no compatibility alias or second executor |
+| M15 | Eight public exports, native Help, current-state K, typing, API and latest EN/ZH executable example | AGENTS.md and packaged skills unchanged under explicit user scope |
+| M16 | Module-owned raw oracles, fixtures, three-process workers and fault cases | Original IDs/routes/mandatory flags unchanged; passing continuations cannot qualify an unexecuted method target |
+| P24 | Anchor selection/transport, actual Subject image and retained fixed numeric continuations | Anchor duty recorded separately; retention remains R7.8 |
+| P48 | Current shared Journey starts execute locally after canonical matching | Original native target stays unverified |
+
+Starts-only fixed Anchor inputs cannot acquire new live Metric dependencies. Numeric
+Artifacts retain their already observed components and disclose only concrete qualified
+continuations. Event fixed-bind and fixed anchor.observe targets without retained input
+have no falsely qualified physical registration; the outstanding mandatory targets are
+listed in the acceptance record. Retention/any-every/full A13, R7.9 same-wheel and R9
+remote responsibilities remain unchanged. No commit, push or release occurred.

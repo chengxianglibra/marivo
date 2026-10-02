@@ -532,6 +532,10 @@ def collect(
             )
         ):
             raise _invalid("retained fold kind differs from the declared original quantity")
+    if any(part.role == "anchor" for part in parts):
+        from marivo.analysis.materialization.anchor_execution import validate as validate_anchor
+
+        validate_anchor(contract, primary, parts)
     if any(part.role == "history_view" for part in parts):
         from marivo.analysis.materialization.history_views import validate as validate_view
 

@@ -19,7 +19,7 @@ from marivo.analysis.core.graph import (
     topology,
 )
 from marivo.analysis.core.model import Coordinate, DomainSignature
-from marivo.analysis.core.rules import JourneyMatch, OccurrencePrepare, entity_members
+from marivo.analysis.core.rules import JourneyMatch, OccurrencePrepare, entity_candidates
 from marivo.analysis.domains.completeness import CompletenessDeclaration
 from marivo.analysis.domains.event import _normalize_steps
 from marivo.analysis.event import EventPattern, EveryStart, FirstPerSubject
@@ -113,7 +113,7 @@ def prepare(
                     schema.contract.version,
                 ),
                 replace(
-                    entity_members(
+                    entity_candidates(
                         replace(
                             schema.contract,
                             columns=tuple((field.name, str(field.type)) for field in schema.schema),

@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from marivo.analysis.core.model import Signature, reject
 from marivo.analysis.core.rules import (
+    AnchorObserve,
     AttributionDerive,
     BindProject,
     CellDerive,
@@ -448,6 +449,14 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
         }
         if actual != required or len(actual) != len(node.sources):
             _fail(f"explicit source bindings for {sorted(required)}", repr(sorted(actual)))
+    elif isinstance(node.parameters, AnchorObserve):
+        required = {observation.contribution.path for observation in node.parameters.observations}
+        for observation in node.parameters.observations:
+            for hop in observation.path:
+                required.update((hop.from_entity_ref.path, hop.to_entity_ref.path))
+        actual = {source.definition.ref.path for source in node.sources}
+        if not required <= actual:
+            _fail("all frozen relative Metric sources", repr(sorted(actual)))
     elif node.sources:
         _fail("source dependencies only for source-binding methods", node.identity)
     if type(node.retained_endpoints) is not tuple or any(

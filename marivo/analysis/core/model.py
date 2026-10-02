@@ -7,6 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, NoReturn, TypeAlias
 
+from marivo.analysis.anchors import CalendarWindow, ElapsedWindow
 from marivo.analysis.core.domain_captures import (
     EntryAxisCapture,
     EventCapture,
@@ -637,6 +638,28 @@ class JourneyPart:
 
 
 @dataclass(frozen=True, slots=True)
+class AnchorDomainPart:
+    binding: Binding
+    preparation: OccurrencePart
+    during_start: str
+    during_end: str
+    journey: JourneyPart | None = None
+    components: tuple[str, ...] = ("started_at", "sequence_int", "sequence_enum")
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class AnchorObservationPart:
+    binding: Binding
+    domain: AnchorDomainPart
+    window: ElapsedWindow | CalendarWindow
+    component_roots: tuple[Ref[EntityKind], ...]
+    component_types: tuple[str, ...]
+    components: tuple[str, ...]
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
 class EntryAxesPart:
     binding: Binding
     cohort_start: str
@@ -691,7 +714,9 @@ class FindingPolicyPart:
 
 
 Part: TypeAlias = (
-    EntryAxesPart
+    AnchorDomainPart
+    | AnchorObservationPart
+    | EntryAxesPart
     | FunnelPart
     | FunnelComparisonPart
     | FunnelAllocationPart
@@ -716,6 +741,7 @@ Part: TypeAlias = (
     | PairCountsPart
 )
 PartRole: TypeAlias = Literal[
+    "anchor",
     "history",
     "history_view",
     "entry_axes",
@@ -754,6 +780,8 @@ PartRole: TypeAlias = Literal[
 
 
 def part_role(part: Part) -> PartRole:
+    if isinstance(part, (AnchorDomainPart, AnchorObservationPart)):
+        return "anchor"
     if isinstance(part, EntryAxesPart):
         return "entry_axes"
     if isinstance(part, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart)):
@@ -798,6 +826,11 @@ def part_role(part: Part) -> PartRole:
 
 
 def validate_part(part: Part) -> None:
+    if isinstance(part, (AnchorDomainPart, AnchorObservationPart)):
+        from marivo.analysis.core.anchor_rules import validate as validate_anchor
+
+        validate_anchor(part)
+        return
     if isinstance(
         part,
         (EntryAxesPart, FunnelPart, FunnelComparisonPart, FunnelAllocationPart, FindingPolicyPart),

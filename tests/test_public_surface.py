@@ -139,6 +139,14 @@ SEMANTIC_PUBLIC = {
 }
 
 ANALYSIS_PUBLIC = {
+    "Duration",
+    "duration",
+    "ElapsedWindow",
+    "elapsed",
+    "CalendarWindow",
+    "calendar_days",
+    "LogicalAnchorDomain",
+    "MaterializedAnchorDomain",
     "LogicalAttributionResult",
     "LogicalFunnelResult",
     "MaterializedFunnelResult",
@@ -342,7 +350,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "b297ca5869511323c07a29bf679062ba05293b621b585540928ac5ba5ee36cda"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "257d5848c42bb5c7ad393455329362d7d9c91dba3b0f36a5d7fcbe58eab3a014"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

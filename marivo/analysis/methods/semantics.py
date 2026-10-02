@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 
 MethodName: TypeAlias = Literal[
+    "anchor.bind",
+    "anchor.observe",
     "history.replay",
     "history.in_state",
     "history.distribution",
@@ -153,6 +155,10 @@ class MethodKey:
 
 def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     """Map closed parameter variants to exactly one concrete method identity."""
+    if isinstance(params, rules.AnchorBind):
+        return MethodKey("anchor.bind")
+    if isinstance(params, rules.AnchorObserve):
+        return MethodKey("anchor.observe")
     if isinstance(
         params,
         (
@@ -330,6 +336,8 @@ class MethodSemantics:
     def persistent_state_kind(self) -> PersistentStateKind | None:
         """Return the connected durable state kind; absence grants no publication."""
         kinds: dict[MethodName, PersistentStateKind] = {
+            "anchor.bind": "none",
+            "anchor.observe": "none",
             "history.replay": "canonical_history",
             "history.in_state": "none",
             "history.distribution": "history_view",
@@ -429,6 +437,8 @@ class MethodSemantics:
                     repr(output),
                     "Preserve exact counts and float64 rate finishes.",
                 )
+            return
+        if isinstance(params, (rules.AnchorBind, rules.AnchorObserve)):
             return
         if isinstance(params, (rules.HistoryView, rules.HistoryRead, rules.HistoryAxesPrepare)):
             from marivo.analysis.methods.history_view_physical import (
@@ -759,6 +769,8 @@ class MethodSemantics:
     @property
     def rule(self) -> rules.RuleId:
         name = self.key.name
+        if name.startswith("anchor."):
+            return "anchor@v1"
         if name.startswith("history.") and name != "history.replay":
             return "history_view@v1"
         if name == "history.replay":
@@ -1153,6 +1165,10 @@ class MethodSemantics:
             from marivo.analysis.core.funnel_rules import derive
 
             return derive(inputs, params)
+        if isinstance(params, (rules.AnchorBind, rules.AnchorObserve)):
+            from marivo.analysis.core.anchor_rules import derive as derive_anchor
+
+            return derive_anchor(inputs, params)
         if isinstance(params, (rules.JourneyDuration, rules.JourneyCompleted, rules.JourneyRead)):
             return rules._journey_view(inputs, params)
         if isinstance(params, (rules.HistoryView, rules.HistoryRead, rules.HistoryAxesPrepare)):
@@ -1249,6 +1265,8 @@ CONNECTED_METHODS = (
             "funnel_ratio_mix",
         )
     ),
+    MethodSemantics(MethodKey("anchor.bind"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("anchor.observe"), "analysis.core.rules"),
     MethodSemantics(MethodKey("journey.match"), "analysis.core.rules"),
     MethodSemantics(MethodKey("journey.duration"), "analysis.core.rules"),
     MethodSemantics(MethodKey("journey.completed"), "analysis.core.rules"),

@@ -747,6 +747,43 @@ Store 7 保存 assignment、reach、覆盖、映射、精度和归约状态。fi
 微秒）；边界与顺序使用捕获时间，精度下降造成的同刻仍需业务顺序。整个执行共享
 600 秒期限。本阶段不授予 funnel、Lifecycle、Anchor、远端后端或同 wheel 完整 R7 资格。
 
+## 相对每个 Anchor 观察
+
+Anchor 表示一个 Event 开始或一个已保留 Journey 的开始。同一 Subject 的多个开始保持
+独立。运行示例前，在语义项目中声明 Event participant、完整 Subject 映射、Metric 和关系。
+
+```python
+from zoneinfo import ZoneInfo
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+session = mv.session.get_or_create("anchor-revenue", report_timezone="UTC")
+customers = session.members(ms.ref.entity("commerce.subjects"))
+anchors = session.anchors(
+    ms.participant_role(event=ms.ref.event("commerce.started"), name="subject"),
+    population=customers,
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    business_order=ms.ref.business_order("commerce.order"),
+)
+elapsed_week = mv.elapsed(mv.duration(hours=168))
+civil_week = mv.calendar_days(7, ZoneInfo("America/New_York"))
+relative = anchors.observe(
+    ms.ref.metric("commerce.revenue"),
+    within=elapsed_week,
+    via=ms.ref.relationship("commerce.participant"),
+).execute()
+relative.show()
+relative.contract().show()
+selected = relative.where(relative.value.is_defined()).execute()
+selected.members().execute().show()
+```
+
+窗口不包含 deadline，并按完整身份排除 Anchor occurrence。Calendar 保持本地墙上时间，
+DST 导致不存在或有歧义的 deadline 会返回具体修复。Event elapsed 观察使用 Ibis；calendar
+和当前 Journey 起点先准备有界候选，再在本地消费。重叠窗口分别保留贡献使用绑定，删除
+Anchor 坐标不能取得原状态 rollup。固定续算只消费已保留输入，不能引入新的 live Metric。
+Retention 不属于本轮 R7.7。
+
 ## 精确漏斗比较与证据
 
 两期使用同一显式总体上的 first-per-subject Journey。pattern、matching 和定义必须
