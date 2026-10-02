@@ -27,7 +27,6 @@ from marivo.analysis.domains.contracts import (
     EventJourneySemantics,
     EventTimeToEventSemantics,
 )
-from marivo.analysis.domains.lifecycle_reducers import InState, in_state
 from marivo.analysis.event import (
     EventPattern,
     EveryStart,
@@ -39,7 +38,7 @@ from marivo.analysis.event import (
     step,
 )
 from marivo.analysis.funnel import FunnelLossRate, funnel_loss_rate
-from marivo.analysis.lifecycle import FromInception, from_inception
+from marivo.analysis.lifecycle import FromInception, InState, from_inception, in_state
 from marivo.analysis.session._history_lifecycle import HistoryLifecycle
 from marivo.analysis.session._journey_events import JourneyEvents
 from marivo.analysis.subject import DroppedBefore, dropped_before
@@ -147,8 +146,8 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "LogicalHistoryResult",
             "result = session.lifecycle.replay(model, population=members, window=window, seed=from_inception(), completeness=lifecycle_completeness)",
             ("session", "model", "members", "window", "from_inception", "lifecycle_completeness"),
-            "Capture modeled triggers once through Ibis, then scan from real inception to exclusive end. Retain every Subject, full transitions, violations and coverage. Published History recovers without source or current Semantic. No R7.6 views or remote qualification.",
-            ("session.lifecycle.replay",),
+            "Capture modeled triggers once through Ibis, then scan from real inception to exclusive end. Retain every Subject, full transitions, violations and coverage. Published History recovers without source or current Semantic. History owns checkpoint truth, distribution, transitions, violations, intervals and exact completed-fragment dwell. No remote qualification.",
+            (),
         ),
     ):
         descriptors.append(

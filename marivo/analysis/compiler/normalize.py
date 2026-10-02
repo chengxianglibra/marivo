@@ -24,11 +24,6 @@ from marivo.analysis.domains.contracts import (
     EventSelectionPayload,
     EventTimeToEventPayload,
 )
-from marivo.analysis.domains.lifecycle import LifecyclePayload
-from marivo.analysis.domains.lifecycle_reducers import (
-    LifecycleReducerPayload,
-    LifecycleSelectionPayload,
-)
 from marivo.analysis.observation.contracts import (
     MetricPayload,
     PopulationPayload,
@@ -98,7 +93,6 @@ def _input_kind(has_source: bool, has_artifact: bool) -> Literal["source", "arti
 _INPUT_ONLY_PAYLOADS = (
     EventTimeToEventPayload,
     EventSelectionPayload,
-    LifecycleSelectionPayload,
     RetainedRowsPayload,
     RetainedFoldPayload,
     CorrelatePayload,
@@ -205,7 +199,7 @@ def _required_entities(
                 path(entity, dimension.entity_ref.path)
                 if columns is not None:
                     columns.axis(dimension)
-        elif isinstance(payload, (EventPayload, LifecyclePayload)):
+        elif isinstance(payload, (EventPayload,)):
             for step in payload.definition.steps:
                 ids.update(path_entities(registry, step.source.ref.path, (step.participant_path,)))
                 if columns is not None:
@@ -215,7 +209,7 @@ def _required_entities(
                     columns.body(
                         step.step.event.kind, step.step.event.path, (step.source.ref.path,)
                     )
-        elif isinstance(payload, (EventFunnelPayload, LifecycleReducerPayload)):
+        elif isinstance(payload, (EventFunnelPayload,)):
             for event_axis in payload.axes:
                 ids.update(path_entities(registry, event_axis.subject.ref.path, (event_axis.path,)))
                 if columns is not None:
@@ -293,7 +287,6 @@ def _required_entities(
             (
                 EventTimeToEventPayload,
                 EventSelectionPayload,
-                LifecycleSelectionPayload,
                 RetainedRowsPayload,
                 RetainedFoldPayload,
                 CorrelatePayload,
@@ -329,7 +322,7 @@ def _required_entities(
                 and root.payload.entity.ref.path == entity
             )
             or (
-                isinstance(root.payload, (EventPayload, LifecyclePayload))
+                isinstance(root.payload, (EventPayload,))
                 and any(
                     entity
                     in path_entities(registry, step.source.ref.path, (step.participant_path,))
@@ -393,15 +386,7 @@ def captured_parameters(dataset: LogicalDataset) -> tuple[BoundSourceParametersV
     for root in logical_roots(dataset):
         payload = root.payload
         if isinstance(
-            payload,
-            (
-                PopulationPayload,
-                MetricPayload,
-                EventPayload,
-                LifecyclePayload,
-                EventFunnelPayload,
-                LifecycleReducerPayload,
-            ),
+            payload, (PopulationPayload, MetricPayload, EventPayload, EventFunnelPayload)
         ):
             for capture in payload.captures:
                 previous = found.setdefault(capture.entity_ref.path, capture)

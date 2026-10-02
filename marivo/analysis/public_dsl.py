@@ -31,6 +31,7 @@ from marivo.analysis._time_grid import GridWindow as GridWindow
 from marivo.analysis._time_grid import TimeGrid as TimeGrid
 from marivo.analysis._time_grid import time_grid as time_grid
 from marivo.analysis.core.graph import FixedLeaf, MethodNode, method_node, retained_nodes
+from marivo.analysis.core.history_types import HistoryField
 from marivo.analysis.core.model import (
     AttributionPart,
     Coordinate,
@@ -40,6 +41,7 @@ from marivo.analysis.core.model import (
     FunnelComparisonPart,
     FunnelPart,
     HistoryPart,
+    HistoryViewPart,
     JourneyPart,
     ObservedQuantity,
     OriginalStatePart,
@@ -61,7 +63,9 @@ from marivo.analysis.core.rules import (
     FunnelField,
     FunnelRead,
     FunnelReduce,
+    HistoryRead,
     HistoryReplay,
+    HistoryView,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -81,6 +85,7 @@ from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.event import PatternStep
 from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
 from marivo.analysis.funnel import FunnelLossRate
+from marivo.analysis.lifecycle import InState
 from marivo.analysis.materialization.graph_dataset import GraphDataset
 from marivo.analysis.materialization.graph_fields import (
     BooleanField,
@@ -327,6 +332,14 @@ def _kind(node: Relation) -> str:
         return "funnel_read"
     if isinstance(definition.parameters, FunnelAttribute):
         return "attribution"
+    if isinstance(definition.parameters, HistoryRead):
+        return "history_read"
+    if isinstance(definition.parameters, HistoryView):
+        return "history_" + definition.parameters.request.kind
+    if isinstance(definition.parameters, PartsTransport) and definition.signature.quantity is None:
+        part = next((p for p in definition.signature.parts if isinstance(p, HistoryViewPart)), None)
+        if part is not None:
+            return "history_" + part.request.kind
     if isinstance(definition.parameters, HistoryReplay):
         return "history"
     if isinstance(definition.parameters, JourneyMatch):
@@ -498,7 +511,27 @@ class _Value:
         roles = tuple(part_role(part) for part in signature.parts)
         names: tuple[str, ...]
         if kind == "history":
-            names = ()
+            names = ("read", "distribution", "transitions", "violations", "intervals", "dwell")
+        elif kind in (
+            "history_distribution",
+            "history_transitions",
+            "history_dwell",
+            "history_violations",
+            "history_intervals",
+        ):
+            from marivo.analysis.core.history_rules import FIELDS
+
+            names = (
+                *FIELDS[kind.removeprefix("history_")],
+                "where",
+                *(
+                    ("subjects", "members")
+                    if kind in ("history_violations", "history_intervals")
+                    else ()
+                ),
+            )
+        elif kind in ("history_read", "history_in_state"):
+            names = ("where", "summarize", *(("members",) if "subject" in roles else ()))
         elif kind == "journey":
             names = (
                 "time_to_event",
@@ -600,6 +633,11 @@ class _Value:
             names = tuple(name for name in names if name != "rollup")
         if isinstance(self, _CountRelation):
             names = tuple(dict.fromkeys((*names, "group_by", "summarize")))
+        if (
+            signature.quantity is not None
+            and signature.quantity.method_version == "history.read@v1"
+        ):
+            names = tuple(name for name in names if name != "group_by")
         if not fixed and kind not in ("members", "read", "group", "correlate"):
             names = (*names, "execute")
         if isinstance(self, (LogicalDifferenceRelation, MaterializedDifferenceRelation)):
@@ -651,10 +689,15 @@ class _Value:
         ):
             names = (*names, "members")
         if isinstance(self._node.root.value_type, DurationType) and (
-            any(isinstance(part, JourneyPart) for part in signature.parts)
+            any(isinstance(part, (JourneyPart, HistoryViewPart)) for part in signature.parts)
             or isinstance(signature.quantity, RowStatisticQuantity)
         ):
             names = tuple(name for name in names if name not in ("rank", "compare", "ratio"))
+            if any(
+                isinstance(part, HistoryViewPart) and part.request.kind == "dwell"
+                for part in signature.parts
+            ):
+                names = tuple(name for name in names if name != "summarize")
         if self._materialize_before_continuing():
             names = ("execute",)
         required = tuple(role for role in roles if role != "subject")
@@ -696,6 +739,26 @@ class _Value:
                         (self._dataset.verified().primary.schema.metadata or {})
                         .get(b"r7.precision", b"unavailable")
                         .decode()[:2048],
+                    )
+                )
+        view = next((p for p in signature.parts if isinstance(p, HistoryViewPart)), None)
+        if view is not None:
+            facts.extend(
+                (
+                    ("history_view", view.request.kind),
+                    ("window", view.history.window_start + "/" + view.history.window_end),
+                    ("complete_domain", str(view.complete)),
+                    (
+                        "time_precision",
+                        "captured microseconds; HALF_EVEN once after exact Fraction interpolation",
+                    ),
+                )
+            )
+            if view.request.kind == "dwell":
+                facts.append(
+                    (
+                        "estimand",
+                        "completed_window_fragment_duration@v1; left-clipped completed included; censored excluded",
                     )
                 )
         journey = next((p for p in signature.parts if isinstance(p, JourneyPart)), None)
@@ -1130,7 +1193,9 @@ class _Value:
         for name in names:
             member = getattr(type(self), name, None)
             if isinstance(member, property):
-                if name in (
+                if any(
+                    isinstance(p, HistoryViewPart) for p in self._node.root.signature.parts
+                ) or name in (
                     "values",
                     "ranks",
                     "contribution",
@@ -1533,20 +1598,7 @@ class _CountRelation(_Value):
         )
 
 
-class _MaterializedValue(_Value):
-    @property
-    def state(self) -> MaterializedDatasetState:
-        """Return the exact committed Artifact and Run identity.
-
-        Args:
-            None.
-        Returns: The committed MaterializedDatasetState.
-        Example: ``result = relation.state``.
-        Constraints: Only materialized values have committed Artifact state.
-        """
-        assert self._dataset is not None
-        return self._dataset.state
-
+class _MaterializedRead(_Value):
     def show(self, *, max_output_bytes: int | None = None) -> None:
         """Show bounded contract facts and a preview of the exact committed result.
 
@@ -1613,6 +1665,21 @@ class _MaterializedValue(_Value):
         """
         assert self._dataset is not None
         return self._dataset.to_pandas()
+
+
+class _MaterializedValue(_MaterializedRead):
+    @property
+    def state(self) -> MaterializedDatasetState:
+        """Return the exact committed Artifact and Run identity.
+
+        Args:
+            None.
+        Returns: The committed MaterializedDatasetState.
+        Example: ``result = relation.state``.
+        Constraints: Only materialized values have committed Artifact state.
+        """
+        assert self._dataset is not None
+        return self._dataset.state
 
 
 class _CohortDomain(_Value):
@@ -3531,6 +3598,25 @@ def wrap_materialized(
         return MaterializedFunnelComparisonResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "funnel_read":
         return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "history_distribution":
+        return MaterializedStateDistributionResult(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "history_transitions":
+        return MaterializedTransitionSummary(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "history_dwell":
+        return MaterializedDwellSummary(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "history_violations":
+        return MaterializedViolationResult(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "history_intervals":
+        return MaterializedStateIntervalResult(_TOKEN, node, runtime, dataset=dataset)
+    if kind in ("history_read", "history_in_state"):
+        typ = node.root.value_type
+        if typ == ScalarType("boolean"):
+            return MaterializedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
+        if typ == ScalarType("string"):
+            return MaterializedCategoryRelation(_TOKEN, node, runtime, dataset=dataset)
+        if typ == ScalarType("timestamp"):
+            return MaterializedTemporalRelation(_TOKEN, node, runtime, dataset=dataset)
+        return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
     if kind == "history":
         return MaterializedHistoryResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "journey":
@@ -4507,7 +4593,112 @@ class _Journey(_Value):
         return LogicalBooleanRelation(_TOKEN, node, self._runtime, inputs=(self,))
 
 
-class LogicalHistoryResult(_Value):
+class _History(_Value):
+    def read(self, field: InState) -> LogicalBooleanRelation:
+        """Read checkpoint truth on the complete original Subject domain.
+
+        Args: field: Exact in_state descriptor with an aware checkpoint.
+        Returns: A LogicalBooleanRelation preserving Unknown coverage.
+        Example: ``truth = history.read(mv.in_state(paid, at=checkpoint))``.
+        Constraints: State belongs to the frozen model; end reads its left limit.
+        """
+        from marivo.analysis.core.history_types import StateAt
+        from marivo.analysis.materialization.graph_history import view
+
+        part = next(p for p in self._node.root.signature.parts if isinstance(p, HistoryPart))
+        assert part.preparation.model is not None
+        if type(field) is not InState or field.state.model != part.preparation.model.ref:
+            raise _reject(
+                "the exact retained model state",
+                repr(field),
+                "Use ms.model_state for this History model.",
+            )
+        node = view(self._node, StateAt(field.state.name, field.at.isoformat()))
+        return LogicalBooleanRelation(_TOKEN, node, self._runtime, inputs=(self,))
+
+    def distribution(
+        self, *, at: tuple[datetime, ...], axes: tuple[Ref[DimensionKind], ...] = ()
+    ) -> LogicalStateDistributionResult:
+        """Count known states at exact historical checkpoints.
+
+        Args: at: Unique aware checkpoints inside the report window. axes: Governed Dimensions.
+        Returns: A LogicalStateDistributionResult with conditional seeded shares.
+        Example: ``result = history.distribution(at=(checkpoint,))``.
+        Constraints: Historical axes bind at each checkpoint; fixed missing axes reject.
+        """
+        from marivo.analysis.core.history_types import Distribution
+        from marivo.analysis.lifecycle import instant
+        from marivo.analysis.materialization.graph_history import distribution
+
+        if type(at) is not tuple or not at:
+            raise _reject(
+                "a nonempty tuple of aware checkpoints", repr(at), "Pass at=(checkpoint,)."
+            )
+        node = distribution(
+            self._node, Distribution(tuple(instant(point).isoformat() for point in at)), axes
+        )
+        return LogicalStateDistributionResult(_TOKEN, node, self._runtime, inputs=(self,))
+
+    def transitions(self) -> LogicalTransitionSummary:
+        """Project retained transitions without replaying the origin.
+
+        Args: None.
+        Returns: A LogicalTransitionSummary over the exact retained domain.
+        Example: ``result = history.transitions()``.
+        Constraints: Requires complete method-owned canonical History parts.
+        """
+        from marivo.analysis.core.history_types import Transitions
+        from marivo.analysis.materialization.graph_history import view
+
+        return LogicalTransitionSummary(
+            _TOKEN, view(self._node, Transitions()), self._runtime, inputs=(self,)
+        )
+
+    def violations(self) -> LogicalViolationResult:
+        """Project retained violations without replaying the origin.
+
+        Args: None.
+        Returns: A LogicalViolationResult over the exact retained domain.
+        Example: ``result = history.violations()``.
+        Constraints: Requires complete method-owned canonical History parts.
+        """
+        from marivo.analysis.core.history_types import Violations
+        from marivo.analysis.materialization.graph_history import view
+
+        return LogicalViolationResult(
+            _TOKEN, view(self._node, Violations()), self._runtime, inputs=(self,)
+        )
+
+    def intervals(self) -> LogicalStateIntervalResult:
+        """Project retained intervals without replaying the origin.
+
+        Args: None.
+        Returns: A LogicalStateIntervalResult over the exact retained domain.
+        Example: ``result = history.intervals()``.
+        Constraints: Requires complete method-owned canonical History parts.
+        """
+        from marivo.analysis.core.history_types import Intervals
+        from marivo.analysis.materialization.graph_history import view
+
+        return LogicalStateIntervalResult(
+            _TOKEN, view(self._node, Intervals()), self._runtime, inputs=(self,)
+        )
+
+    def dwell(self) -> LogicalDwellSummary:
+        """Project retained dwell without replaying the origin.
+
+        Args: None.
+        Returns: A LogicalDwellSummary over the exact retained domain.
+        Example: ``result = history.dwell()``.
+        Constraints: Requires complete method-owned canonical History parts.
+        """
+        from marivo.analysis.core.history_types import Dwell
+        from marivo.analysis.materialization.graph_history import view
+
+        return LogicalDwellSummary(_TOKEN, view(self._node, Dwell()), self._runtime, inputs=(self,))
+
+
+class LogicalHistoryResult(_History):
     """Logical full-Subject canonical Lifecycle History."""
 
     def execute(self) -> MaterializedHistoryResult:
@@ -4521,8 +4712,8 @@ class LogicalHistoryResult(_Value):
         return MaterializedHistoryResult(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedHistoryResult(_MaterializedValue):
-    """Verified source-free History; domain views are a later implementation phase."""
+class MaterializedHistoryResult(_History, _MaterializedValue):
+    """Verified source-free canonical History with retained-state projections."""
 
 
 class LogicalJourneyResult(_Journey):
@@ -5167,6 +5358,517 @@ class MaterializedFunnelComparisonResult(_FunnelComparison, _MaterializedValue):
     """Fixed period comparison with original counts and source-free attribution."""
 
 
+class _HistoryViewResult(_Value):
+    def _field(self, field: HistoryField) -> Relation:
+        from marivo.analysis.methods.history_view_physical import output_type
+
+        if self._dataset is not None:
+            self._dataset.verified()
+        params = HistoryRead(field)
+        return self._node._with(
+            method_node((self._node._edge(),), params, value_type=output_type(params))
+        )
+
+
+class _HistoryInstance(_HistoryViewResult):
+    def subjects(self) -> SubjectBinding:
+        """Bind the instance domain to the sole exact model Subject.
+
+        Args: None.
+        Returns: The producer-owned total SubjectBinding.
+        Example: ``binding = violations.subjects()``.
+        Constraints: The binding retains complete keys and never reads source rows.
+        """
+        return self.subject_binding
+
+    def members(
+        self, *, through: SubjectBinding
+    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+        """Project the set image of selected instance Subjects.
+
+        Args: through: Exact mapping acquired from subjects().
+        Returns: A logical source or fixed AnalysisDomain.
+        Example: ``members = selected.members(through=violations.subjects())``.
+        Constraints: Instance multiplicity does not multiply Subject identities.
+        """
+        node = self._subject_members(through)
+        if self._has_fixed():
+            return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
+        return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
+
+
+class _StateDistributionResult(_HistoryViewResult):
+    """Typed fields of the retained StateDistributionResult domain."""
+
+    @property
+    def known_state_count(self) -> LogicalNumericRelation:
+        """Read the bound known_state_count relation.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over this exact view domain.
+        Example: ``values = result.known_state_count``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._field("known_state_count"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def seeded_subject_count(self) -> LogicalNumericRelation:
+        """Read the bound seeded_subject_count relation.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over this exact view domain.
+        Example: ``values = result.seeded_subject_count``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._field("seeded_subject_count"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def coverage_censored_count(self) -> LogicalNumericRelation:
+        """Read the bound coverage_censored_count relation.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over this exact view domain.
+        Example: ``values = result.coverage_censored_count``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._field("coverage_censored_count"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def share_among_seeded(self) -> LogicalNumericRelation:
+        """Read the bound share_among_seeded relation.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over this exact view domain.
+        Example: ``values = result.share_among_seeded``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._field("share_among_seeded"), self._runtime, inputs=(self,)
+        )
+
+    def where(self, predicate: BoundPredicate) -> LogicalStateDistributionResult:
+        """Select exact view rows using owned typed fields.
+
+        Args: predicate: Closed predicate on corresponding field relations.
+        Returns: A LogicalStateDistributionResult preserving original scope and sufficient parts.
+        Example: ``selected = result.where(predicate)``.
+        Constraints: Every predicate input must cover the receiver; Unknown rejects.
+        """
+        return LogicalStateDistributionResult(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+
+class LogicalStateDistributionResult(_StateDistributionResult):
+    """Logical retained StateDistributionResult projection."""
+
+    def execute(self) -> MaterializedStateDistributionResult:
+        """Evaluate and atomically publish this exact History view.
+
+        Args: None.
+        Returns: A MaterializedStateDistributionResult with receipt-bound state.
+        Example: ``fixed = result.execute()``.
+        Constraints: Fixed execution never reopens Semantic or source connections.
+        """
+        return MaterializedStateDistributionResult(
+            _TOKEN, self._node, self._runtime, dataset=self._run()
+        )
+
+
+class MaterializedStateDistributionResult(_StateDistributionResult, _MaterializedValue):
+    """Verified fixed StateDistributionResult with retained continuations."""
+
+
+class _TransitionSummary(_HistoryViewResult):
+    """Typed fields of the retained TransitionSummary domain."""
+
+    @property
+    def count(self) -> LogicalNumericRelation:
+        """Read the bound count relation.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over this exact view domain.
+        Example: ``values = result.count``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalNumericRelation(_TOKEN, self._field("count"), self._runtime, inputs=(self,))
+
+    @property
+    def share_of_modeled_transitions(self) -> LogicalNumericRelation:
+        """Read the bound share_of_modeled_transitions relation.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over this exact view domain.
+        Example: ``values = result.share_of_modeled_transitions``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._field("share_of_modeled_transitions"), self._runtime, inputs=(self,)
+        )
+
+    def where(self, predicate: BoundPredicate) -> LogicalTransitionSummary:
+        """Select exact view rows using owned typed fields.
+
+        Args: predicate: Closed predicate on corresponding field relations.
+        Returns: A LogicalTransitionSummary preserving original scope and sufficient parts.
+        Example: ``selected = result.where(predicate)``.
+        Constraints: Every predicate input must cover the receiver; Unknown rejects.
+        """
+        return LogicalTransitionSummary(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+
+class LogicalTransitionSummary(_TransitionSummary):
+    """Logical retained TransitionSummary projection."""
+
+    def execute(self) -> MaterializedTransitionSummary:
+        """Evaluate and atomically publish this exact History view.
+
+        Args: None.
+        Returns: A MaterializedTransitionSummary with receipt-bound state.
+        Example: ``fixed = result.execute()``.
+        Constraints: Fixed execution never reopens Semantic or source connections.
+        """
+        return MaterializedTransitionSummary(_TOKEN, self._node, self._runtime, dataset=self._run())
+
+
+class MaterializedTransitionSummary(_TransitionSummary, _MaterializedValue):
+    """Verified fixed TransitionSummary with retained continuations."""
+
+
+class _DwellSummary(_HistoryViewResult):
+    """Typed fields of the retained DwellSummary domain."""
+
+    @property
+    def interval_count(self) -> LogicalNumericRelation:
+        """Read the bound interval_count relation.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over this exact view domain.
+        Example: ``values = result.interval_count``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._field("interval_count"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def completed_count(self) -> LogicalNumericRelation:
+        """Read the bound completed_count relation.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over this exact view domain.
+        Example: ``values = result.completed_count``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._field("completed_count"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def right_censored_count(self) -> LogicalNumericRelation:
+        """Read the bound right_censored_count relation.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over this exact view domain.
+        Example: ``values = result.right_censored_count``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._field("right_censored_count"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def coverage_censored_count(self) -> LogicalNumericRelation:
+        """Read the bound coverage_censored_count relation.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over this exact view domain.
+        Example: ``values = result.coverage_censored_count``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._field("coverage_censored_count"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def left_clipped_completed_count(self) -> LogicalNumericRelation:
+        """Read the bound left_clipped_completed_count relation.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over this exact view domain.
+        Example: ``values = result.left_clipped_completed_count``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._field("left_clipped_completed_count"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def mean_duration(self) -> LogicalNumericRelation:
+        """Read the bound mean_duration relation.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over this exact view domain.
+        Example: ``values = result.mean_duration``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._field("mean_duration"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def median_duration(self) -> LogicalNumericRelation:
+        """Read the bound median_duration relation.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over this exact view domain.
+        Example: ``values = result.median_duration``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._field("median_duration"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def p90_duration(self) -> LogicalNumericRelation:
+        """Read the bound p90_duration relation.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over this exact view domain.
+        Example: ``values = result.p90_duration``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._field("p90_duration"), self._runtime, inputs=(self,)
+        )
+
+    def where(self, predicate: BoundPredicate) -> LogicalDwellSummary:
+        """Select exact view rows using owned typed fields.
+
+        Args: predicate: Closed predicate on corresponding field relations.
+        Returns: A LogicalDwellSummary preserving original scope and sufficient parts.
+        Example: ``selected = result.where(predicate)``.
+        Constraints: Every predicate input must cover the receiver; Unknown rejects.
+        """
+        return LogicalDwellSummary(_TOKEN, self._select(predicate), self._runtime, inputs=(self,))
+
+
+class LogicalDwellSummary(_DwellSummary):
+    """Logical retained DwellSummary projection."""
+
+    def execute(self) -> MaterializedDwellSummary:
+        """Evaluate and atomically publish this exact History view.
+
+        Args: None.
+        Returns: A MaterializedDwellSummary with receipt-bound state.
+        Example: ``fixed = result.execute()``.
+        Constraints: Fixed execution never reopens Semantic or source connections.
+        """
+        return MaterializedDwellSummary(_TOKEN, self._node, self._runtime, dataset=self._run())
+
+
+class MaterializedDwellSummary(_DwellSummary, _MaterializedValue):
+    """Verified fixed DwellSummary with retained continuations."""
+
+
+class _ViolationResult(_HistoryInstance):
+    """Typed fields of the retained ViolationResult domain."""
+
+    @property
+    def trigger(self) -> LogicalCategoryRelation:
+        """Read the bound trigger relation.
+
+        Args: None.
+        Returns: A LogicalCategoryRelation over this exact view domain.
+        Example: ``values = result.trigger``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalCategoryRelation(
+            _TOKEN, self._field("trigger"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def occurred_at(self) -> LogicalTemporalRelation:
+        """Read the bound occurred_at relation.
+
+        Args: None.
+        Returns: A LogicalTemporalRelation over this exact view domain.
+        Example: ``values = result.occurred_at``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalTemporalRelation(
+            _TOKEN, self._field("occurred_at"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def state_at_event(self) -> LogicalCategoryRelation:
+        """Read the bound state_at_event relation.
+
+        Args: None.
+        Returns: A LogicalCategoryRelation over this exact view domain.
+        Example: ``values = result.state_at_event``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalCategoryRelation(
+            _TOKEN, self._field("state_at_event"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def kind(self) -> LogicalCategoryRelation:
+        """Read the bound kind relation.
+
+        Args: None.
+        Returns: A LogicalCategoryRelation over this exact view domain.
+        Example: ``values = result.kind``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalCategoryRelation(_TOKEN, self._field("kind"), self._runtime, inputs=(self,))
+
+    def where(self, predicate: BoundPredicate) -> LogicalViolationResult:
+        """Select exact view rows using owned typed fields.
+
+        Args: predicate: Closed predicate on corresponding field relations.
+        Returns: A LogicalViolationResult preserving original scope and sufficient parts.
+        Example: ``selected = result.where(predicate)``.
+        Constraints: Every predicate input must cover the receiver; Unknown rejects.
+        """
+        return LogicalViolationResult(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+
+class LogicalViolationResult(_ViolationResult):
+    """Logical retained ViolationResult projection."""
+
+    def execute(self) -> MaterializedViolationResult:
+        """Evaluate and atomically publish this exact History view.
+
+        Args: None.
+        Returns: A MaterializedViolationResult with receipt-bound state.
+        Example: ``fixed = result.execute()``.
+        Constraints: Fixed execution never reopens Semantic or source connections.
+        """
+        return MaterializedViolationResult(_TOKEN, self._node, self._runtime, dataset=self._run())
+
+
+class MaterializedViolationResult(_ViolationResult, _MaterializedValue):
+    """Verified fixed ViolationResult with retained continuations."""
+
+
+class _StateIntervalResult(_HistoryInstance):
+    """Typed fields of the retained StateIntervalResult domain."""
+
+    @property
+    def state(self) -> LogicalCategoryRelation:
+        """Read the bound state relation.
+
+        Args: None.
+        Returns: A LogicalCategoryRelation over this exact view domain.
+        Example: ``values = result.state``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalCategoryRelation(_TOKEN, self._field("state"), self._runtime, inputs=(self,))
+
+    @property
+    def start(self) -> LogicalTemporalRelation:
+        """Read the bound start relation.
+
+        Args: None.
+        Returns: A LogicalTemporalRelation over this exact view domain.
+        Example: ``values = result.start``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalTemporalRelation(_TOKEN, self._field("start"), self._runtime, inputs=(self,))
+
+    @property
+    def end(self) -> LogicalTemporalRelation:
+        """Read the bound end relation.
+
+        Args: None.
+        Returns: A LogicalTemporalRelation over this exact view domain.
+        Example: ``values = result.end``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalTemporalRelation(_TOKEN, self._field("end"), self._runtime, inputs=(self,))
+
+    @property
+    def observed_duration(self) -> LogicalNumericRelation:
+        """Read the bound observed_duration relation.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over this exact view domain.
+        Example: ``values = result.observed_duration``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._field("observed_duration"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def left_clipped(self) -> LogicalBooleanRelation:
+        """Read the bound left_clipped relation.
+
+        Args: None.
+        Returns: A LogicalBooleanRelation over this exact view domain.
+        Example: ``values = result.left_clipped``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalBooleanRelation(
+            _TOKEN, self._field("left_clipped"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def status(self) -> LogicalCategoryRelation:
+        """Read the bound status relation.
+
+        Args: None.
+        Returns: A LogicalCategoryRelation over this exact view domain.
+        Example: ``values = result.status``.
+        Constraints: Uses retained method state; this does not read new source facts.
+        """
+        return LogicalCategoryRelation(_TOKEN, self._field("status"), self._runtime, inputs=(self,))
+
+    def where(self, predicate: BoundPredicate) -> LogicalStateIntervalResult:
+        """Select exact view rows using owned typed fields.
+
+        Args: predicate: Closed predicate on corresponding field relations.
+        Returns: A LogicalStateIntervalResult preserving original scope and sufficient parts.
+        Example: ``selected = result.where(predicate)``.
+        Constraints: Every predicate input must cover the receiver; Unknown rejects.
+        """
+        return LogicalStateIntervalResult(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+
+class LogicalStateIntervalResult(_StateIntervalResult):
+    """Logical retained StateIntervalResult projection."""
+
+    def execute(self) -> MaterializedStateIntervalResult:
+        """Evaluate and atomically publish this exact History view.
+
+        Args: None.
+        Returns: A MaterializedStateIntervalResult with receipt-bound state.
+        Example: ``fixed = result.execute()``.
+        Constraints: Fixed execution never reopens Semantic or source connections.
+        """
+        return MaterializedStateIntervalResult(
+            _TOKEN, self._node, self._runtime, dataset=self._run()
+        )
+
+
+class MaterializedStateIntervalResult(_StateIntervalResult, _MaterializedRead):
+    """Verified fixed StateIntervalResult with retained continuations."""
+
+
 def new_history(node: Relation, runtime: DatasetRuntime) -> LogicalHistoryResult:
     """Wrap the exact canonical History graph without evaluating it."""
     return LogicalHistoryResult(_TOKEN, node, runtime)
@@ -5179,6 +5881,11 @@ def new_journeys(node: Relation, runtime: DatasetRuntime) -> LogicalJourneyResul
 
 PublicMaterialized: TypeAlias = (
     MaterializedHistoryResult
+    | MaterializedStateDistributionResult
+    | MaterializedTransitionSummary
+    | MaterializedDwellSummary
+    | MaterializedViolationResult
+    | MaterializedStateIntervalResult
     | MaterializedFunnelResult
     | MaterializedFunnelComparisonResult
     | MaterializedJourneyResult

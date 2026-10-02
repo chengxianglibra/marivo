@@ -173,7 +173,6 @@ def make_lazy_sources(
         "execute_population",
         "execute_metric",
         "execute_event",
-        "execute_lifecycle",
         "show",
         "to_pandas",
         "evidence_digest",

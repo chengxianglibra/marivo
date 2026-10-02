@@ -21,12 +21,6 @@ from marivo.analysis.domains.contracts import (
     EventTimeToEventPayload,
     EventTimeToEventSemantics,
 )
-from marivo.analysis.domains.lifecycle import LifecyclePayload, LifecycleSemantics
-from marivo.analysis.domains.lifecycle_reducers import (
-    REDUCER_TYPES,
-    LifecycleReducerPayload,
-    LifecycleSelectionPayload,
-)
 from marivo.analysis.event import FirstPerSubject
 from marivo.analysis.observation.contracts import (
     EntityPresentMetricSemantics,
@@ -51,7 +45,7 @@ def legacy_source_migration_stage(operator_id: str) -> Literal[7, 8] | None:
     """Return the remaining domain owner, or None for a retired R5 route."""
     if operator_id == "event.compare":
         return None
-    if operator_id.startswith(("session.events.", "event.", "session.lifecycle.", "lifecycle.")):
+    if operator_id.startswith(("session.events.", "event.")):
         return 7
     if operator_id.startswith(
         (
@@ -464,20 +458,6 @@ def _trino_event_reason(definition: EventDefinition) -> str | None:
     return None
 
 
-def _lifecycle_reason(definition: EventDefinition, backend: BackendName = "postgres") -> str | None:
-    if len(definition.steps) != 2 or _postgres_event_reason(definition) is not None:
-        return (
-            f"{backend} Lifecycle replay currently requires two trigger Events with exact "
-            "int64 subject and occurrence identities and unversioned table sources"
-        )
-    if backend in ("trino", "clickhouse") and (
-        len(definition.entity.identity_signature) != 1
-        or any(len(step.identity) != 1 for step in definition.steps)
-    ):
-        return f"{backend} Lifecycle currently qualifies one int64 component per subject and occurrence identity"
-    return None
-
-
 def _postgres_continuation_reason(dataset: LogicalDataset) -> str | None:
     if len(dataset._inputs) == 1:
         incoming = dataset._inputs[0]
@@ -485,9 +465,7 @@ def _postgres_continuation_reason(dataset: LogicalDataset) -> str | None:
             payload = incoming._root.payload
             if isinstance(payload, EventPayload):
                 return _postgres_event_reason(payload.definition)
-            if isinstance(payload, LifecyclePayload):
-                return _lifecycle_reason(payload.definition)
-    return "this PostgreSQL continuation requires one directly admitted Event or Lifecycle source"
+    return "this PostgreSQL continuation requires one directly admitted Event source"
 
 
 def _trino_continuation_reason(dataset: LogicalDataset) -> str | None:
@@ -549,23 +527,8 @@ def source_unsupported_reason(dataset: LogicalDataset, backend: str) -> str | No
                 "assignment, and complete assertions; this backend has no validated "
                 "matching lowering"
             )
-        if isinstance(root.payload, LifecyclePayload):
-            if execution.backend in ("postgres", "trino", "clickhouse"):
-                return _lifecycle_reason(root.payload.definition, execution.backend)
-            return (
-                "Lifecycle replay requires validated source-side recursive replay and "
-                "equal-time confluence proof; this "
-                "read-only backend has no admitted implementation"
-            )
         if isinstance(
-            root.payload,
-            (
-                EventFunnelPayload,
-                EventTimeToEventPayload,
-                EventSelectionPayload,
-                LifecycleReducerPayload,
-                LifecycleSelectionPayload,
-            ),
+            root.payload, (EventFunnelPayload, EventTimeToEventPayload, EventSelectionPayload)
         ):
             if execution.backend == "postgres":
                 return _postgres_continuation_reason(dataset)
@@ -574,7 +537,7 @@ def source_unsupported_reason(dataset: LogicalDataset, backend: str) -> str | No
             ):
                 return _trino_continuation_reason(dataset)
             return (
-                "this Event/Lifecycle continuation requires an admitted source-private "
+                "this Event continuation requires an admitted source-private "
                 "implementation or complete retained input authority"
             )
     reason = _source_admissions().get(execution.backend)
@@ -584,7 +547,6 @@ def source_unsupported_reason(dataset: LogicalDataset, backend: str) -> str | No
 _ROW_METHODS = frozenset(
     {
         "event.where",
-        "lifecycle.where",
         "candidate.where",
         "candidate.rank",
         "candidate.limit",
@@ -634,25 +596,8 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
             (*_DUCKDB, *postgres_event, *clickhouse_event, *trino_event),
             None,
         )
-    if isinstance(root.payload, LifecyclePayload):
-        source_lifecycle = tuple(
-            BackendRegistration(backend, source=True)
-            for backend in ("postgres", "trino", "clickhouse")
-            if _lifecycle_reason(root.payload.definition, backend) is None
-        )
-        return ImplementationRegistration(
-            root.operator_id, roles, (*_DUCKDB, *source_lifecycle), None
-        )
     if isinstance(
-        root.payload,
-        (
-            LifecyclePayload,
-            LifecycleReducerPayload,
-            LifecycleSelectionPayload,
-            EventFunnelPayload,
-            EventTimeToEventPayload,
-            EventSelectionPayload,
-        ),
+        root.payload, (EventFunnelPayload, EventTimeToEventPayload, EventSelectionPayload)
     ):
         postgres_continuation: tuple[BackendRegistration, ...] = (
             (BackendRegistration("postgres", source=True),)
@@ -676,7 +621,6 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
     if dataset._inputs and root.operator_id.startswith(
         (
             "event.",
-            "lifecycle.",
             "metric.",
             "delta.",
             "attribution.",
@@ -819,8 +763,6 @@ def admit_retained_rows(dataset: Dataset) -> None:
     if not isinstance(
         semantics,
         (
-            LifecycleSemantics,
-            *REDUCER_TYPES,
             EventJourneySemantics,
             EventFunnelSemantics,
             EventTimeToEventSemantics,

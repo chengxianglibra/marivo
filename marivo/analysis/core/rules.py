@@ -12,6 +12,7 @@ from marivo.analysis.core.domain_captures import (
     OrderCapture,
     StateModelCapture,
 )
+from marivo.analysis.core.history_types import Distribution, HistoryField, HistoryRequest
 from marivo.analysis.core.model import (
     AttributionPart,
     Binding,
@@ -36,6 +37,8 @@ from marivo.analysis.core.model import (
     FunnelAllocationPart,
     FunnelComparisonPart,
     FunnelPart,
+    HistoryPart,
+    HistoryViewPart,
     JourneyPart,
     MissingCoordinate,
     Obligation,
@@ -96,6 +99,7 @@ from marivo.semantic.runtime_metric import RuntimeMetricExpr, SliceValue
 RuleId: TypeAlias = Literal[
     "funnel@v1",
     "history_replay@v1",
+    "history_view@v1",
     "journey_match@v1",
     "journey_view@v1",
     "occurrence_prepare@v1",
@@ -447,6 +451,26 @@ class HistoryReplay:
 
 
 @dataclass(frozen=True, slots=True)
+class HistoryView:
+    output: DomainSignature
+    request: HistoryRequest
+    kind: Literal["history_view"] = "history_view"
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryRead:
+    field: HistoryField
+    kind: Literal["history_read"] = "history_read"
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryAxesPrepare:
+    history: HistoryPart
+    request: Distribution
+    kind: Literal["history_axes"] = "history_axes"
+
+
+@dataclass(frozen=True, slots=True)
 class JourneyMatch:
     output: DomainSignature
     steps: tuple[str, ...]
@@ -565,6 +589,9 @@ RuleParameters: TypeAlias = (
     | FunnelRead
     | FunnelAttribute
     | HistoryReplay
+    | HistoryView
+    | HistoryRead
+    | HistoryAxesPrepare
     | JourneyMatch
     | JourneyDuration
     | JourneyCompleted
@@ -2584,7 +2611,10 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
         )
     parts = tuple(
         replace(part, complete=False)
-        if isinstance(part, (JourneyPart, FunnelPart, FunnelComparisonPart, FunnelAllocationPart))
+        if isinstance(
+            part,
+            (JourneyPart, FunnelPart, FunnelComparisonPart, FunnelAllocationPart, HistoryViewPart),
+        )
         and params.mode in ("where", "limit")
         else part
         for part in (require_part(source, role) for role in params.retained_roles)

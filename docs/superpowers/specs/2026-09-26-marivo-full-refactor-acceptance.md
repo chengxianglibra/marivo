@@ -1780,3 +1780,64 @@ selected-Subject observation, R7.7–R7.9/full R7, same-wheel, remote and R8–R
 qualification remain separate. AGENTS.md, packaged skills and the R7.1 historical
 snapshot are unchanged. Work remains uncommitted; no push, publication, release,
 release-check or MinIO occurred.
+
+## R7.6 bounded local implementation acceptance (2026-10-02)
+
+Baseline: clean `panda@09c0c488738816e02fdea785df72120aa4269e40` (R7.5).
+The [R7.6 evidence index](2026-10-02-marivo-r76-evidence-index.md) and
+[qualification record](2026-10-02-marivo-r76-qualification.json) own the current
+scope, original cell IDs, receipts and code hashes. Six History views and five
+Logical/Materialized result pairs now use the unique graph/method registry,
+Runtime and Store 7. State reads retain every Subject, distinguishing defined
+state/NotStarted from Unknown and honoring end's left limit. Canonical transitions
+retain zero pairs, self-transitions and zero-duration facts. Source-prepared
+checkpoint axes bind historical versions and complete tuples on the original
+member domain; fixed continuations reject missing proofs. Instance filtering
+preserves original interval/occurrence identity and Subject bindings; summaries
+cannot reconstruct Subjects or transition traces.
+
+V10/V11 pass independent raw-event, checkpoint, clipped-interval and Fraction
+oracles. Dwell counts completed window fragments, including left-clipped completed
+fragments, and excludes right/coverage-censored duration. Integer captured ticks,
+exact interpolation, one HALF_EVEN finish, checked int64 and empty completed-set
+policy apply. Interval row.mean retains exact sum/count; group means or p90s
+cannot be pooled. Accepted native UTC/us capture and possible ns loss remain
+disclosed. State/interval/violation Subject images enter F13 same-Run original
+count:int64 and sum:float64 observation after every source dependency is prepared.
+Empty selection, original scope/components, source ordering and the existing
+materialization boundary have executable checks. Further Metric families retain
+separate qualification.
+
+All **1620 original P11–P16 cells** and **810 P24/P36/P49 History-consumer cells**
+pass across the 9 full key profiles, 10 time/source profiles and source/fixed/cold
+phases. Original requirements and later P24/P36/P49 responsibilities remain in the
+record. A10 table and Parquet each run producer, fixed continuation and cold
+recovery in independent processes. Sources are removed; Semantic loading,
+source/DuckDB connections and replay are poisoned. Each offline journey actually
+executes **109 disclosed fixed K entries** and cold recovery exactly matches
+**119 Artifact outputs**. Required-part/schema/binding/version damage rejects at
+recovery, continuation and exact hit before a new Run. Cancellation, deadline
+and publication faults preserve prior Artifacts under the existing atomic
+Artifact/Evidence/Findings/terminal transaction.
+
+R7.5's remaining exclusive Lifecycle reducers, compiler and four codec/publication
+modules are physically deleted together with their dedicated dispatch/descriptor
+consumers. Independent legacy numeric/business counterexamples now use the public
+History path. Actual shared Event/R8 consumers remain. Exports, precise typing,
+native Help/budgets, current K/repair, API and executed English/Chinese latest
+examples are aligned. AGENTS.md, packaged skills and the historical snapshot are
+unchanged. The evidence index records final gates, failed attempts and repairs
+separately; failed attempts grant no accepted cells.
+
+The bounded local R7.6 implementation is complete. R7.7–R7.9/full R7, same-wheel,
+remote and R8–R10 acceptance remain separate. No commit, push, release,
+release-check, MinIO, installed-wheel or remote execution occurred.
+
+R7.6 exit: **49 focused Runtime tests** pass on the final implementation; A10
+passes **2 three-process journeys** using public Evidence references. Affected
+R7.2–R7.5 regressions have **257 distinct passing tests**, with the repaired
+temporary cold-import failure disclosed separately. Final make check-agent passes
+lint/import contracts, **429 typed modules**, **5302 default tests with 5 skips**
+and API generation. The latest site builds **321 pages** and both install scripts;
+git diff --check passes. Matrix retries, overlapping gates and unqualified phases
+are not counted as additional accepted cells.

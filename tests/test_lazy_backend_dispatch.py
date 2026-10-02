@@ -79,7 +79,6 @@ from marivo.analysis.materialization.execution import resolve_execution
 from marivo.analysis.materialization.errors import MaterializationError
 assert resolve_execution("unknown") is None
 assert resolve_execution("trino") is None
-import marivo.analysis.materialization.lifecycle_publication
 assert "marivo.analysis.materialization.postgres_execution" not in sys.modules
 assert resolve_execution("postgres") is None
 assert "marivo.analysis.materialization.postgres_execution" not in sys.modules

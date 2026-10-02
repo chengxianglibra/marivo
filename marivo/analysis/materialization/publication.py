@@ -8,10 +8,6 @@ from marivo.analysis.compiler.normalize import artifact_inputs, logical_roots
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
 from marivo.analysis.domains.contracts import EventPayload, EventSelectionPayload
-from marivo.analysis.domains.lifecycle import LifecyclePayload
-from marivo.analysis.domains.lifecycle_reducers import (
-    LifecycleSelectionPayload,
-)
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
     MaterializationContract,
@@ -103,10 +99,7 @@ def make_descriptor(
         _selection_population_authority(
             dataset, input_descriptors or (() if inherited is None else (inherited,)), validations
         )
-        if any(
-            isinstance(root.payload, (EventSelectionPayload, LifecycleSelectionPayload))
-            for root in roots
-        )
+        if any(isinstance(root.payload, (EventSelectionPayload,)) for root in roots)
         or (
             inherited is not None
             and inherited.subject_selection_evidence is not None
@@ -121,11 +114,7 @@ def make_descriptor(
             else inherited.population_authority.definition_fingerprint
         )
         for root in roots:
-            if root.operator_id in (
-                "session.observe",
-                "session.events.match",
-                "session.lifecycle.replay",
-            ):
+            if root.operator_id in ("session.observe", "session.events.match"):
                 selected = root.inputs[0].root
                 population_definition = (
                     inherited.definition_fingerprint
@@ -139,17 +128,15 @@ def make_descriptor(
             row_set_contract=dataset.row_set_contract,
             realized_schema=storage.realized_schema,
             bounded_lineage=dataset._lineage,
-            semantic_dependency_digest=(
-                semantic_dependency_digest(
-                    dataset,
-                    retained_semantic_digests={
-                        leaf.state.artifact_ref.ref: inherited.semantic_dependency_digest
-                        for leaf in artifact_inputs(dataset)
-                    },
-                )
-                if isinstance(dataset._owner, ObservationOwner)
-                else inherited.semantic_dependency_digest
-            ),
+            semantic_dependency_digest=semantic_dependency_digest(
+                dataset,
+                retained_semantic_digests={
+                    leaf.state.artifact_ref.ref: inherited.semantic_dependency_digest
+                    for leaf in artifact_inputs(dataset)
+                },
+            )
+            if isinstance(dataset._owner, ObservationOwner)
+            else inherited.semantic_dependency_digest,
             population_authority=selection_authority
             or replace(
                 inherited.population_authority,
@@ -175,18 +162,13 @@ def make_descriptor(
                 warning_check_count=0,
             ),
             comparison_basis=basis,
-            lifecycle_evidence=inherited.lifecycle_evidence
-            if dataset.kind in ("lifecycle", "population")
-            else None,
             event_evidence=inherited.event_evidence if dataset.kind == "event" else None,
             subject_selection_evidence=inherited.subject_selection_evidence
             if dataset.kind == "population"
             else None,
-            candidate_evidence=(
-                inherited.candidate_evidence
-                if dataset.row_contract.shape_id.family_id == "candidate"
-                else None
-            ),
+            candidate_evidence=inherited.candidate_evidence
+            if dataset.row_contract.shape_id.family_id == "candidate"
+            else None,
         )
     if selection_authority is not None:
         return ArtifactDescriptor(
@@ -213,9 +195,7 @@ def make_descriptor(
             comparison_basis=basis,
         )
     owning_root = current_root
-    while not isinstance(
-        owning_root.payload, (PopulationPayload, MetricPayload, EventPayload, LifecyclePayload)
-    ):
+    while not isinstance(owning_root.payload, (PopulationPayload, MetricPayload, EventPayload)):
         # A retained row/fold suffix keeps the nearest observation's selected
         # membership. Earlier observations may have a different Population.
         if len(owning_root.inputs) != 1 or not isinstance(
@@ -232,7 +212,7 @@ def make_descriptor(
     population: LogicalRootHandle | None
     if isinstance(current_payload, PopulationPayload):
         population = owning_root
-    elif isinstance(current_payload, (MetricPayload, EventPayload, LifecyclePayload)):
+    elif isinstance(current_payload, (MetricPayload, EventPayload)):
         population = next(
             (
                 root
@@ -377,7 +357,7 @@ def _selection_population_authority(
                 definition_fingerprint=value.definition_fingerprint,
                 validation_results=validations,
             )
-        if isinstance(payload, (MetricPayload, EventPayload, LifecyclePayload)):
+        if isinstance(payload, (MetricPayload, EventPayload)):
             return replace(
                 authority,
                 definition_fingerprint=payload.definition.population_definition,

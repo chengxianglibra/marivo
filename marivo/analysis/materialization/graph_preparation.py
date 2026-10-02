@@ -27,6 +27,7 @@ from marivo.analysis.core.model import (
     FunnelAllocationPart,
     FunnelComparisonPart,
     FunnelPart,
+    HistoryViewPart,
     OriginalStatePart,
 )
 from marivo.analysis.core.rules import (
@@ -37,7 +38,10 @@ from marivo.analysis.core.rules import (
     FunnelCompare,
     FunnelRead,
     FunnelReduce,
+    HistoryAxesPrepare,
+    HistoryRead,
     HistoryReplay,
+    HistoryView,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -299,6 +303,9 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 (
                     PreparedObservation,
                     HistoryReplay,
+                    HistoryView,
+                    HistoryRead,
+                    HistoryAxesPrepare,
                     JourneyMatch,
                     JourneyDuration,
                     JourneyCompleted,
@@ -310,7 +317,9 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 ),
             )
             or any(
-                isinstance(p, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart))
+                isinstance(
+                    p, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart, HistoryViewPart)
+                )
                 for e in item.stage.node.inputs
                 for p in e.node.signature.parts
             )
@@ -321,14 +330,14 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 and item.stage.node.parameters.opportunity_domain.kind == "journey"
             )
             or (
-                item.stage.node.inputs[0].node.signature.domain.kind == "journey"
+                item.stage.node.inputs[0].node.signature.domain.kind in ("journey", "interval")
                 and isinstance(item.stage.node.parameters, (PartsTransport, RowState))
             )
             or (
                 isinstance(item.stage.node.parameters, MapCorrespond)
                 and item.stage.node.parameters.mode == "subjects"
                 and item.stage.node.inputs[0].node.signature.domain.kind
-                in ("occurrence", "journey")
+                in ("occurrence", "journey", "interval")
             )
         )
         for item in locals_
@@ -355,7 +364,10 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
         check()
         params = stage.node.parameters if isinstance(stage.node, MethodNode) else None
         if (
-            not isinstance(params, (OccurrencePrepare, PreparedObservation, FunnelAxesPrepare))
+            not isinstance(
+                params,
+                (OccurrencePrepare, PreparedObservation, FunnelAxesPrepare, HistoryAxesPrepare),
+            )
             and stage.node.identity not in originals
             and stage.output not in local_source_inputs
         ):
@@ -369,7 +381,21 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             keys=tuple(key.column for key in stage.layout.keys),
             validate_cells=False,
         )
-        if isinstance(params, FunnelAxesPrepare):
+        if isinstance(params, HistoryAxesPrepare):
+            assert isinstance(stage.node, MethodNode)
+            from marivo.analysis.materialization.history_views import (
+                axes_result as history_axes_result,
+            )
+
+            table = table.replace_schema_metadata(
+                {
+                    b"r7.capture_authority": json.dumps(
+                        source.domain_authority, sort_keys=True
+                    ).encode()
+                }
+            )
+            results[stage.output] = history_axes_result(stage.node, table, stage.node.identity)
+        elif isinstance(params, FunnelAxesPrepare):
             assert isinstance(stage.node, MethodNode)
             from marivo.analysis.materialization.funnel_execution import axes_result
 
@@ -405,7 +431,15 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
     for item in locals_:
         check()
         params = item.stage.node.parameters
-        if isinstance(params, (FunnelReduce, FunnelCompare, FunnelRead, FunnelAttribute)):
+        if isinstance(params, (HistoryView, HistoryRead)):
+            from marivo.analysis.materialization.history_views import execute as history_view
+
+            results[item.stage.output] = history_view(
+                item.stage.node,
+                tuple(results[key] for key in item.stage.inputs),
+                item.stage.node.identity,
+            )
+        elif isinstance(params, (FunnelReduce, FunnelCompare, FunnelRead, FunnelAttribute)):
             from marivo.analysis.materialization.funnel_execution import execute as execute_funnel
 
             results[item.stage.output] = execute_funnel(

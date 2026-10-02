@@ -19,10 +19,6 @@ def ordered_relation(
     rows: DatasetRowSetContract,
 ) -> ir.Table:
 
-    if row.shape_id.family_id == "lifecycle":
-        from marivo.analysis.compiler.lifecycle_reducers import canonical_rows
-
-        return canonical_rows(table, row)
     if row.shape_id.family_id == "event":
         from marivo.analysis.compiler.event import canonical_event_rows
         from marivo.analysis.compiler.event_reducers import (

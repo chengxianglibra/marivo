@@ -18,6 +18,7 @@ from marivo.analysis.core.rules import (
     FunnelAxesPrepare,
     FunnelCompare,
     FunnelRead,
+    HistoryAxesPrepare,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
@@ -405,6 +406,11 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
                     f"all captured participant dependencies for {sorted(required)}",
                     repr(sorted(actual)),
                 )
+    elif isinstance(node.parameters, HistoryAxesPrepare):
+        if {s.identity for s in node.sources} != {
+            identity for axis in node.parameters.request.axes for identity in axis.source_ids
+        }:
+            _fail("all exact checkpoint-axis path dependencies", node.identity)
     elif isinstance(node.parameters, FunnelAxesPrepare):
         if {s.identity for s in node.sources} != {
             identity for axis in node.parameters.axes for identity in axis.source_ids
@@ -455,6 +461,7 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
                 FunnelCompare,
                 FunnelRead,
                 FunnelAxesPrepare,
+                HistoryAxesPrepare,
                 FunnelAttribute,
                 AttributionDerive,
                 CellDerive,

@@ -15,7 +15,7 @@ from marivo.refs import ref
 from marivo.semantic.event import participant_role
 from marivo.semantic.state_model import ModelStateHandle
 from tests.lazy_event_runtime_fixtures import journey
-from tests.lazy_lifecycle_fixtures import END, MODEL, START, history, sources_without_io
+from tests.state_model_test_context import END, MODEL, START, sources_without_io
 
 
 def example_inputs(
@@ -74,7 +74,6 @@ def example_inputs(
         multi_metric=source.observe((revenue, count_metric)).with_dimensions(region),
         time_metric=time_metric,
         events=events,
-        lifecycle=history(source),
         pattern=sequence(start_step, finish_step),
         start_role=start_role,
         start_step=start_step,

@@ -20,7 +20,10 @@ from marivo.analysis.core.rules import (
     FunnelCompare,
     FunnelRead,
     FunnelReduce,
+    HistoryAxesPrepare,
+    HistoryRead,
     HistoryReplay,
+    HistoryView,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -58,6 +61,8 @@ from marivo.analysis.methods.physical import (
 from marivo.analysis.methods.semantics import MethodKey
 
 PARTS: tuple[PartRole, ...] = (
+    "history",
+    "history_view",
     "funnel_state",
     "finding_policy",
     "occurrences",
@@ -871,6 +876,10 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         )
 
         return funnel_implementations(method)
+    if method.name.startswith("history.") and method.name != "history.replay":
+        from marivo.analysis.methods.history_view_physical import implementations as history_views
+
+        return history_views(method)
     if method.name == "history.replay":
         from marivo.analysis.methods.history_physical import (
             implementations as history_implementations,
@@ -910,9 +919,10 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             for item in implementations(MethodKey("cell.difference"))
         )
     from marivo.analysis.methods.domain_preparation import consumers
+    from marivo.analysis.methods.history_view_physical import consumers as history_consumers
     from marivo.analysis.methods.journey_physical import consumers as journey_consumers
 
-    return (
+    declarations = (
         *consumers(method),
         *journey_consumers(method),
         *tuple(
@@ -975,6 +985,9 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             )
         ),
     )
+
+    keys = {item.key for item in declarations}
+    return (*declarations, *(item for item in history_consumers(method) if item.key not in keys))
 
 
 def specialize_arity(implementation: Implementation, arity: int) -> Implementation:
@@ -1207,6 +1220,9 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             FunnelRead,
             FunnelAttribute,
             HistoryReplay,
+            HistoryView,
+            HistoryRead,
+            HistoryAxesPrepare,
             JourneyMatch,
             JourneyDuration,
             JourneyCompleted,

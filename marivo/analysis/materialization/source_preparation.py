@@ -44,13 +44,6 @@ from marivo.analysis.domains.contracts import (
     EventSelectionPayload,
     EventTimeToEventPayload,
 )
-from marivo.analysis.domains.lifecycle import (
-    LifecyclePayload,
-)
-from marivo.analysis.domains.lifecycle_reducers import (
-    LifecycleReducerPayload,
-    LifecycleSelectionPayload,
-)
 from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
@@ -445,21 +438,14 @@ def _compile_recipe(
         for reference, record in records.items()
         if record.descriptor.event_evidence is not None
     }
-    event_coverages.update(
-        {
-            reference: record.descriptor.lifecycle_evidence.coverage
-            for reference, record in records.items()
-            if record.descriptor.lifecycle_evidence is not None
-        }
-    )
     if isinstance(source_dataset, LogicalDataset):
         from marivo.analysis.datasets.descriptors import _canonical_digest
 
         for event_root in logical_roots(source_dataset):
-            if isinstance(event_root.payload, (EventPayload, LifecyclePayload)):
+            if isinstance(event_root.payload, (EventPayload,)):
                 event_coverages[event_root.definition_fingerprint] = backend.resolve_coverage(
                     event_root.payload.definition,
-                    require_source_origin=isinstance(event_root.payload, LifecyclePayload),
+                    require_source_origin=False,
                     provider=self.event_coverage_provider,
                     source_binding_fingerprint=_canonical_digest(
                         tuple(capture.identity_payload() for capture in event_root.payload.captures)
@@ -532,7 +518,7 @@ def _compile_recipe(
                         if value.state.artifact_ref.ref == reference
                     ),
                 )
-                if descriptor.row_contract.shape_id.family_id in ("metric", "lifecycle")
+                if descriptor.row_contract.shape_id.family_id in ("metric",)
                 else {}
             )
             scans[reference] = CompiledArtifactScan(table, entity, tuple(retained_parts.items()))
@@ -552,15 +538,13 @@ def _compile_recipe(
             explicit_correlation=source_step.binding.adapter in {"sqlite", "mysql", "clickhouse"},
             emulate_full_join=source_step.binding.adapter == "postgres",
             scalar_masks=source_step.binding.adapter in {"sqlite", "mysql"},
-            lifecycle_dialect=(
-                "postgres"
-                if source_step.binding.adapter == "postgres"
-                else "trino"
-                if source_step.binding.adapter == "trino"
-                else "clickhouse"
-                if source_step.binding.adapter == "clickhouse"
-                else "duckdb"
-            ),
+            event_dialect="postgres"
+            if source_step.binding.adapter == "postgres"
+            else "trino"
+            if source_step.binding.adapter == "trino"
+            else "clickhouse"
+            if source_step.binding.adapter == "clickhouse"
+            else "duckdb",
             ranked_event_successors=source_step.binding.adapter == "trino",
         )
     return recipe, engine_inputs
@@ -607,19 +591,11 @@ def _open_special_relations(
         and isinstance(root, LogicalRootHandle)
         and (
             isinstance(root.payload, EventPayload)
-            or (selected.backend == "clickhouse" and isinstance(root.payload, LifecyclePayload))
             or (
                 selected.backend in ("postgres", "trino")
                 and isinstance(
                     root.payload,
-                    (
-                        LifecyclePayload,
-                        LifecycleReducerPayload,
-                        LifecycleSelectionPayload,
-                        EventFunnelPayload,
-                        EventTimeToEventPayload,
-                        EventSelectionPayload,
-                    ),
+                    (EventFunnelPayload, EventTimeToEventPayload, EventSelectionPayload),
                 )
             )
         )
@@ -797,17 +773,6 @@ def parquet_parts(
             )
         else:
             component_schema(descriptor.row_contract, part.role, schema)
-            if str(descriptor.row_contract.shape_id) == "lifecycle/history@v1":
-                from marivo.analysis.materialization.lifecycle_publication import (
-                    validate_relation,
-                )
-
-                validate_relation(
-                    backend,
-                    table,
-                    descriptor.row_contract,
-                    part.role,
-                )
         count: object = backend.read_scalar(
             backend.prepare(table.count(), role="engine_check.part_count")
         )

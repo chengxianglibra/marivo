@@ -264,6 +264,16 @@ ANALYSIS_PUBLIC = {
     "LogicalEventDataset",
     "MaterializedEventDataset",
     "LogicalHistoryResult",
+    "LogicalStateDistributionResult",
+    "MaterializedStateDistributionResult",
+    "LogicalTransitionSummary",
+    "MaterializedTransitionSummary",
+    "LogicalViolationResult",
+    "MaterializedViolationResult",
+    "LogicalStateIntervalResult",
+    "MaterializedStateIntervalResult",
+    "LogicalDwellSummary",
+    "MaterializedDwellSummary",
     "MaterializedHistoryResult",
     "AnalysisPredicate",
     "ForecastHorizon",
@@ -332,7 +342,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "bed28db5c7881a3b5201c01db9639bd4e7b19fce8b6b839b0f5f06153fccbcb0"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "b297ca5869511323c07a29bf679062ba05293b621b585540928ac5ba5ee36cda"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

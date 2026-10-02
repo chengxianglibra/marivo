@@ -129,6 +129,7 @@ def read_result(root: Path, descriptor: Descriptor) -> ExchangeResult:
                     "occurrence_inputs",
                     "canonical_history",
                     "journey_assignment",
+                    "history_view",
                     "entry_axes",
                     "funnel_components",
                     "funnel_comparison",

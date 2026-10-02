@@ -36,6 +36,7 @@ from marivo.analysis.core.model import (
     FunnelAllocationPart,
     FunnelComparisonPart,
     FunnelPart,
+    HistoryViewPart,
     SubjectPart,
 )
 from marivo.analysis.core.predicates import ValuePredicate
@@ -464,11 +465,19 @@ class MemberGraph:
                         and node.parameters.opportunity_domain.kind == "journey"
                     )
                     or (
-                        node.inputs[0].node.signature.domain.kind == "journey"
+                        node.inputs[0].node.signature.domain.kind in ("journey", "interval")
                         and isinstance(node.parameters, (MapCorrespond, PartsTransport, RowState))
                     )
                     or any(
-                        isinstance(p, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart))
+                        isinstance(
+                            p,
+                            (
+                                FunnelPart,
+                                FunnelComparisonPart,
+                                FunnelAllocationPart,
+                                HistoryViewPart,
+                            ),
+                        )
                         for e in node.inputs
                         for p in e.node.signature.parts
                     )
@@ -480,6 +489,13 @@ class MemberGraph:
                         "funnel.read",
                         "funnel_ratio_mix",
                         "history.replay",
+                        "history.in_state",
+                        "history.distribution",
+                        "history.transitions",
+                        "history.violations",
+                        "history.intervals",
+                        "history.dwell",
+                        "history.read",
                         "journey.match",
                         "journey.duration",
                         "journey.completed",

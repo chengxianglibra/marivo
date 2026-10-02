@@ -1,7 +1,7 @@
 # R7.1 contract freeze and consumer migration ledger
 
 Date: 2026-10-01. Status: R7.1 contract/static freeze complete; R7.2 private
-preparation implemented and qualified as recorded below; R7.3, R7.4 and R7.5 implementations are recorded below; R7.6-R7.9 remain pending. This ledger indexes sole owners and responsibility;
+preparation implemented and qualified as recorded below; R7.3-R7.6 implementations are recorded below; R7.7-R7.9 remain pending. This ledger indexes sole owners and responsibility;
 it is not another public API or method registry and grants no Runtime qualification.
 
 ## Actual baseline and accepted decisions
@@ -357,3 +357,42 @@ R7.5 uses one graph/registry/Runtime/Store 7 route. Zero Findings, the shared
 existing atomic publication transaction remain the sole owners. Six views,
 Duration statistics, selected-Subject observation and A10's complete journey are
 R7.6 work. AGENTS.md, packaged skills and the historical snapshot are unchanged.
+
+## R7.6 History consumers and retirement amendment (2026-10-02)
+
+Entry: clean `panda@09c0c488738816e02fdea785df72120aa4269e40`. The
+[R7.6 evidence index](2026-10-02-marivo-r76-evidence-index.md) and
+[qualification record](2026-10-02-marivo-r76-qualification.json) supersede only
+the R7.5 rows that named a future R7.6 exit. Historical baseline paths and
+requirement IDs above remain unchanged; they are not current import targets.
+
+F09 and the R7.6 parts of F06/F13 are implemented by six History methods, exact
+completed-fragment statistics and state/interval/violation Subject image into
+source-prepared original count/sum observation. One graph/registry/Runtime/Store 7
+route owns all operations. Source preparation precedes local consumption;
+fixed continuation verifies existing state and cannot load Semantic, connect to
+sources, replay or acquire missing checkpoint axes. Duration summary fields do
+not permit averaging group means or p90s. Current interval mean retains sum/count.
+
+| Node | Replacement execution | Old consumers unreachable | Physical deletion / actual shared owner |
+| --- | --- | --- | --- |
+| M07 | Six public Logical/Materialized History views and exact field/Subject continuations pass source/fixed/cold | No old Lifecycle registration, payload/semantics, select_subjects or replay constructor | domains/lifecycle.py and lifecycle_reducers.py deleted; InState/in_state owned by analysis/lifecycle.py with the original signature |
+| M08 | Canonical trace drives transition, checkpoint, interval and dwell projections | No old reducer compiler/placement/lowering branch | compiler/lifecycle_reducers.py deleted; earlier replay/array compiler deletion remains in force |
+| M09 | Closed HistoryViewPart, trace validation and graph receipts own exchange/recovery/hit | Dedicated descriptor field, lifecycle codec/publication and reducer codec callers removed, no dual read | Four remaining exclusive lifecycle codec/publication modules deleted; generic legacy rejection retained |
+| M10/M11 | Existing graph source preparation/local execution and atomic publication | All remaining Lifecycle-specific bundle/schema/summary/retained/dispatch consumers removed | Actual Event backend adapters and R8 Forecast/Association consumers preserved; event_dialect describes their actual owner |
+| M12/M13 | Eight registered History methods including axes/read, explicit physical qualification and typed part/domain derivation | No Lifecycle Dataset fallback, hidden replay or fixed DuckDB | Shared compiler, exchange, graph Store and Event/R8 admissions remain; no wholesale Event deletion claim |
+| M15 | Ten new result exports, specific fields/typing, Help/K/repairs/API and latest executable EN/ZH examples | Old Dataset History targets absent; one InState entry | Native disclosure owners updated; packaged skills and AGENTS.md unchanged under the explicit user boundary |
+| M16 | Independent raw-event/checkpoint/transition/clipped-interval/Fraction/Subject oracles and fresh offline workers | Six obsolete reducer test files, reducer worker and obsolete fixtures no longer collect | Independent numeric/business counterexamples transferred to new public Runtime tests; minimal shared StateModel authoring fixture retained; remote acceptance remains R9 |
+
+All **1620 P11–P16** and **810 P24/P36/P49 History** original cells are accepted
+within their recorded local source/fixed/cold shapes. Original V01–V18 profile
+requirements remain listed. V10/V11 are qualified for R7.6; V18 has local A10
+table/Parquet evidence, while same-wheel/full R7 remain unverified. Each A10
+offline process executes all **109** current fixed K entries and cold recovery
+matches **119** Artifact references. P24 Anchor/retention duties remain R7.7/R7.8,
+P36/P49 Journey duties retain R7.3, and further Metric/Anchor families remain later
+work. This does not close every M01–M16 node or grant R7.9/R8–R10 acceptance.
+
+R7.6 bounded local implementation is complete. Receipt failures and repairs are
+separate from accepted cells in the evidence index. No commit, push, publication,
+release, installed-wheel or remote qualification occurred.

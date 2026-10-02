@@ -91,9 +91,6 @@ def _payload_check(
                     "event_funnel.additive_components",
                     "metric.sufficient_components",
                     "delta.sufficient_components",
-                    "lifecycle_legal_transition_trace",
-                    "lifecycle_subject_coverage",
-                    "lifecycle_violation_trace",
                 ):
                     if (
                         hashlib.sha256(batch.schema.serialize().to_pybytes()).hexdigest()

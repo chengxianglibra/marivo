@@ -13,6 +13,7 @@ from marivo.analysis.core.domain_captures import (
     OrderCapture,
     StateModelCapture,
 )
+from marivo.analysis.core.history_types import HistoryRequest
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridVersionSelection
 from marivo.analysis.domains.completeness import CompletenessDeclaration
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
@@ -613,6 +614,15 @@ class HistoryPart:
 
 
 @dataclass(frozen=True, slots=True)
+class HistoryViewPart:
+    binding: Binding
+    history: HistoryPart
+    request: HistoryRequest
+    complete: bool = True
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
 class JourneyPart:
     binding: Binding
     preparation: OccurrencePart
@@ -687,6 +697,7 @@ Part: TypeAlias = (
     | FunnelAllocationPart
     | FindingPolicyPart
     | HistoryPart
+    | HistoryViewPart
     | JourneyPart
     | OccurrencePart
     | AttributionPart
@@ -706,6 +717,7 @@ Part: TypeAlias = (
 )
 PartRole: TypeAlias = Literal[
     "history",
+    "history_view",
     "entry_axes",
     "funnel_state",
     "finding_policy",
@@ -748,6 +760,8 @@ def part_role(part: Part) -> PartRole:
         return "funnel_state"
     if isinstance(part, FindingPolicyPart):
         return "finding_policy"
+    if isinstance(part, HistoryViewPart):
+        return "history_view"
     if isinstance(part, HistoryPart):
         return "history"
     if isinstance(part, JourneyPart):
@@ -791,6 +805,11 @@ def validate_part(part: Part) -> None:
         from marivo.analysis.core.funnel_rules import validate
 
         validate(part)
+        return
+    if isinstance(part, HistoryViewPart):
+        from marivo.analysis.core.history_rules import validate as validate_history_view
+
+        validate_history_view(part)
         return
     if isinstance(part, HistoryPart):
         from datetime import datetime

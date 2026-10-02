@@ -57,11 +57,6 @@ from marivo.analysis.domains.completeness import (
 )
 from marivo.analysis.domains.event import LogicalEventDataset as LogicalEventDataset
 from marivo.analysis.domains.event import MaterializedEventDataset as MaterializedEventDataset
-from marivo.analysis.domains.lifecycle import (
-    MaterializedLifecycleDataset as MaterializedLifecycleDataset,
-)
-from marivo.analysis.domains.lifecycle_reducers import InState as InState
-from marivo.analysis.domains.lifecycle_reducers import in_state as in_state
 from marivo.analysis.errors import EvidenceIntegrityError as EvidenceIntegrityError
 from marivo.analysis.event import EventPattern as EventPattern
 from marivo.analysis.event import EveryStart as EveryStart
@@ -78,7 +73,9 @@ from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
 from marivo.analysis.funnel import FunnelLossRate as FunnelLossRate
 from marivo.analysis.funnel import funnel_loss_rate as funnel_loss_rate
 from marivo.analysis.lifecycle import FromInception as FromInception
+from marivo.analysis.lifecycle import InState as InState
 from marivo.analysis.lifecycle import from_inception as from_inception
+from marivo.analysis.lifecycle import in_state as in_state
 from marivo.analysis.materialization.graph_fields import all_of as all_of
 from marivo.analysis.materialization.graph_fields import any_of as any_of
 from marivo.analysis.materialization.graph_fields import not_ as not_
@@ -145,6 +142,7 @@ from marivo.analysis.public_dsl import (
 )
 from marivo.analysis.public_dsl import LogicalCompletedJourneys as LogicalCompletedJourneys
 from marivo.analysis.public_dsl import LogicalDifferenceRelation as LogicalDifferenceRelation
+from marivo.analysis.public_dsl import LogicalDwellSummary as LogicalDwellSummary
 from marivo.analysis.public_dsl import LogicalEventDurationResult as LogicalEventDurationResult
 from marivo.analysis.public_dsl import LogicalFixedAnalysisDomain as LogicalFixedAnalysisDomain
 from marivo.analysis.public_dsl import (
@@ -173,10 +171,16 @@ from marivo.analysis.public_dsl import (
 from marivo.analysis.public_dsl import (
     LogicalSelectedTemporalRelation as LogicalSelectedTemporalRelation,
 )
+from marivo.analysis.public_dsl import (
+    LogicalStateDistributionResult as LogicalStateDistributionResult,
+)
+from marivo.analysis.public_dsl import LogicalStateIntervalResult as LogicalStateIntervalResult
 from marivo.analysis.public_dsl import LogicalStatisticRelation as LogicalStatisticRelation
 from marivo.analysis.public_dsl import LogicalTable as LogicalTable
 from marivo.analysis.public_dsl import LogicalTemporalRelation as LogicalTemporalRelation
 from marivo.analysis.public_dsl import LogicalTimeAnalysisDomain as LogicalTimeAnalysisDomain
+from marivo.analysis.public_dsl import LogicalTransitionSummary as LogicalTransitionSummary
+from marivo.analysis.public_dsl import LogicalViolationResult as LogicalViolationResult
 from marivo.analysis.public_dsl import MaterializedAnalysisDomain as MaterializedAnalysisDomain
 from marivo.analysis.public_dsl import (
     MaterializedAssociationResult as MaterializedAssociationResult,
@@ -198,6 +202,7 @@ from marivo.analysis.public_dsl import (
 from marivo.analysis.public_dsl import (
     MaterializedDifferenceRelation as MaterializedDifferenceRelation,
 )
+from marivo.analysis.public_dsl import MaterializedDwellSummary as MaterializedDwellSummary
 from marivo.analysis.public_dsl import (
     MaterializedEventDurationResult as MaterializedEventDurationResult,
 )
@@ -235,6 +240,12 @@ from marivo.analysis.public_dsl import (
     MaterializedSelectedTemporalRelation as MaterializedSelectedTemporalRelation,
 )
 from marivo.analysis.public_dsl import (
+    MaterializedStateDistributionResult as MaterializedStateDistributionResult,
+)
+from marivo.analysis.public_dsl import (
+    MaterializedStateIntervalResult as MaterializedStateIntervalResult,
+)
+from marivo.analysis.public_dsl import (
     MaterializedStatisticRelation as MaterializedStatisticRelation,
 )
 from marivo.analysis.public_dsl import MaterializedTable as MaterializedTable
@@ -242,6 +253,10 @@ from marivo.analysis.public_dsl import MaterializedTemporalRelation as Materiali
 from marivo.analysis.public_dsl import (
     MaterializedTimeAnalysisDomain as MaterializedTimeAnalysisDomain,
 )
+from marivo.analysis.public_dsl import (
+    MaterializedTransitionSummary as MaterializedTransitionSummary,
+)
+from marivo.analysis.public_dsl import MaterializedViolationResult as MaterializedViolationResult
 from marivo.analysis.public_dsl import OneToOneCorrespondence as OneToOneCorrespondence
 from marivo.analysis.public_dsl import ReferenceWeights as ReferenceWeights
 from marivo.analysis.public_dsl import RootRoute as RootRoute
@@ -325,6 +340,16 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "LogicalEventDataset",
     "MaterializedEventDataset",
     "LogicalHistoryResult",
+    "LogicalStateDistributionResult",
+    "MaterializedStateDistributionResult",
+    "LogicalTransitionSummary",
+    "MaterializedTransitionSummary",
+    "LogicalDwellSummary",
+    "MaterializedDwellSummary",
+    "LogicalViolationResult",
+    "MaterializedViolationResult",
+    "LogicalStateIntervalResult",
+    "MaterializedStateIntervalResult",
     "MaterializedHistoryResult",
     "AnalysisPredicate",
     "ForecastHorizon",

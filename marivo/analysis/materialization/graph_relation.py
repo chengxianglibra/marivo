@@ -400,7 +400,7 @@ class Relation:
                 "where",
                 self.root.signature.domain,
                 tuple(part_role(part) for part in self.root.signature.parts),
-                True,
+                self.root.signature.quantity is not None,
                 (predicate,),
                 field_kind,
                 external_predicate=bool(dependencies),
@@ -570,6 +570,8 @@ class Relation:
     def comparison_error(self) -> str | None:
         """Return the static numerical qualification failure, if any."""
         quantity = self.root.signature.quantity
+        if quantity is not None and quantity.method_version == "history.read@v1":
+            return "History owned fields currently qualify selection and current-row statistics without comparison endpoints"
         if isinstance(self.root.value_type, DurationType) and isinstance(
             quantity, RowStatisticQuantity
         ):
@@ -823,6 +825,16 @@ class Relation:
         *,
         coordinates: tuple[Coordinate, ...] = (),
     ) -> Relation:
+        from marivo.analysis.core.model import HistoryViewPart
+
+        if isinstance(self.root.value_type, DurationType) and any(
+            isinstance(part, HistoryViewPart) and part.request.kind == "dwell"
+            for part in self.root.signature.parts
+        ):
+            raise _reject(
+                "Dwell Duration summaries cannot be averaged or pooled; "
+                "summarize the completed interval observed_duration rows instead"
+            )
         definition = digest("row." + method + self.root.fingerprint)
         domain = DomainSignature(
             self.root.signature.domain.binding,

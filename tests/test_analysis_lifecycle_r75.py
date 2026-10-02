@@ -228,8 +228,8 @@ def test_frozen_public_signature_and_disclosure():
     )
     assert {"LogicalHistoryResult", "MaterializedHistoryResult"} <= set(mv.__all__)
     assert "LogicalLifecycleDataset" not in mv.__all__
-    assert not hasattr(mv.LogicalHistoryResult, "read")
-    assert not hasattr(mv.MaterializedHistoryResult, "distribution")
+    assert hasattr(mv.LogicalHistoryResult, "read")
+    assert hasattr(mv.MaterializedHistoryResult, "distribution")
     text = render(lambda: marivo.help("analysis.lifecycle.replay"))
     assert "population" in text and "LogicalHistoryResult" in text
     assert "LogicalLifecycleDataset" not in text
@@ -608,19 +608,19 @@ def test_legacy_history_retirement_preserves_shared_owners():
         "compiler/lifecycle_array.py",
         "materialization/lifecycle_bundle.py",
         "materialization/lifecycle_integrity.py",
-    ):
-        assert not (Path("marivo/analysis") / name).exists()
-    for name in (
         "compiler/lifecycle_reducers.py",
         "domains/lifecycle_reducers.py",
         "materialization/lifecycle_reducer_codec.py",
+        "materialization/lifecycle_codec.py",
+        "materialization/lifecycle_publication.py",
+        "domains/lifecycle.py",
+    ):
+        assert not (Path("marivo/analysis") / name).exists()
+    for name in (
         "compiler/event.py",
         "operators/forecast_contracts.py",
     ):
         assert (Path("marivo/analysis") / name).exists()
-    assert "make_replay" not in vars(
-        __import__("marivo.analysis.domains.lifecycle", fromlist=["*"])
-    )
     from marivo.analysis._capabilities.registry import REGISTRY
 
     assert "lifecycle_dataset" not in REGISTRY.canonical_ids()

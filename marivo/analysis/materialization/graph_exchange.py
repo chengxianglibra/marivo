@@ -117,6 +117,7 @@ class ExchangeContract:
                     "ranking_domain",
                     "partitions",
                     "ordering",
+                    "history_view",
                     "entry_axes",
                     "funnel_state",
                     "finding_policy",
@@ -133,8 +134,10 @@ class ExchangeContract:
                 "none",
                 "occurrence_inputs",
                 "canonical_history",
+                "history_view",
                 "journey_assignment",
                 "entry_axes",
+                "history_view",
                 "funnel_components",
                 "funnel_comparison",
                 "funnel_allocation",
@@ -407,7 +410,7 @@ def collect(
             ),
             None,
         )
-        if declared.role in ("entry_axes", "funnel_state", "finding_policy"):
+        if declared.role in ("history_view", "entry_axes", "funnel_state", "finding_policy"):
             if (
                 declared.key_fields
                 or part.table.num_rows != 1
@@ -529,6 +532,10 @@ def collect(
             )
         ):
             raise _invalid("retained fold kind differs from the declared original quantity")
+    if any(part.role == "history_view" for part in parts):
+        from marivo.analysis.materialization.history_views import validate as validate_view
+
+        validate_view(contract, primary, parts)
     if any(part.role == "history" for part in parts):
         from marivo.analysis.materialization.history_execution import validate as validate_history
 
@@ -629,6 +636,7 @@ def collect(
                 raise _invalid("display method status differs")
         elif contract.state_kind in (
             "entry_axes",
+            "history_view",
             "funnel_components",
             "funnel_comparison",
             "funnel_allocation",

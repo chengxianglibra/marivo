@@ -23,10 +23,7 @@ from marivo.analysis.observation.distribution_contracts import (
 
 def independent_contracts(row: DatasetRowContract) -> dict[str, str]:
     """Derive exact role and protocol ownership from the admitted family semantics."""
-    from marivo.analysis.domains.lifecycle import ROLES, LifecycleSemantics
 
-    if isinstance(row.family_semantics, LifecycleSemantics):
-        return dict(zip(ROLES, ROLES, strict=True))
     return {
         **{
             role: f"{row.shape_id.family_id}.distinct_membership"

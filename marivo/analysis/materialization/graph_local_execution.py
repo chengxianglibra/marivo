@@ -34,6 +34,8 @@ from marivo.analysis.core.rules import (
     FunnelCompare,
     FunnelRead,
     FunnelReduce,
+    HistoryRead,
+    HistoryView,
     MapCorrespond,
     OriginalReduce,
     PartsTransport,
@@ -511,7 +513,14 @@ def _transport_stage(
         selected_keys = set(ordered[: params.limit_count])
         keep = [tuple(row[k] for k in keys) in selected_keys for row in source.primary.to_pylist()]
     filtered = source.primary.filter(pa.array(keep, type=pa.bool_()))
-    columns = (*keys, "value", "cell_tag", "cell_reason") if params.keep_quantity else keys
+    columns = (
+        (*keys, "value", "cell_tag", "cell_reason")
+        if params.keep_quantity
+        else source.primary.column_names
+        if source.contract.signature.quantity is None
+        and any(p.role == "history_view" for p in source.parts)
+        else keys
+    )
     primary = filtered.select(columns)
     if params.attribution_view is not None:
         allocation = next(p.table for p in source.parts if p.role == "allocation")
@@ -556,6 +565,7 @@ def _transport_stage(
             parts.append(prior)
             continue
         if role in (
+            "history_view",
             "fixed_reference",
             "reference_proof",
             "strata",
@@ -1829,6 +1839,8 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                     ReferenceDerive,
                     DisplayRank,
                     DisplayTable,
+                    HistoryView,
+                    HistoryRead,
                     FunnelReduce,
                     FunnelCompare,
                     FunnelRead,
@@ -1850,6 +1862,13 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
         if (
             name
             not in (
+                "history.in_state",
+                "history.distribution",
+                "history.transitions",
+                "history.violations",
+                "history.intervals",
+                "history.dwell",
+                "history.read",
                 "funnel.reduce",
                 "funnel.compare",
                 "funnel.read",
@@ -1920,6 +1939,8 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                     ReferenceDerive,
                     DisplayRank,
                     DisplayTable,
+                    HistoryView,
+                    HistoryRead,
                     FunnelReduce,
                     FunnelCompare,
                     FunnelRead,
@@ -1990,7 +2011,11 @@ def execute_verified_fixed(
             check for check in lowered.admitted.checks if check.node_id == stage.stage.node.identity
         )
         name = stage.stage.node.method.name
-        if isinstance(
+        if isinstance(stage.stage.node.parameters, (HistoryView, HistoryRead)):
+            from marivo.analysis.materialization.history_views import execute as history_view
+
+            result = history_view(stage.stage.node, values, binding)
+        elif isinstance(
             stage.stage.node.parameters, (FunnelReduce, FunnelCompare, FunnelRead, FunnelAttribute)
         ):
             from marivo.analysis.materialization.funnel_execution import execute as execute_funnel

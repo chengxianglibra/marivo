@@ -33,10 +33,6 @@ from marivo.analysis.materialization.errors import (
 )
 from marivo.analysis.materialization.errors import _execution_error as _error
 from marivo.analysis.materialization.execution_state import ExecutionProgress, StageResult
-from marivo.analysis.materialization.lifecycle_reducer_codec import (
-    LifecycleReducerEvidence,
-    LifecycleSelectionEvidence,
-)
 from marivo.analysis.materialization.publication import make_descriptor
 from marivo.analysis.materialization.resources import (
     discharge_resources,
@@ -144,7 +140,6 @@ def prepare_publication(
 ) -> tuple[ArtifactDescriptor, tuple[Finding, ...]]:
     _validate_consumed_receipts(self, plan)
     descriptor = _base_descriptor(self, plan, stage, evidence, progress)
-    descriptor = _lifecycle_descriptor(self, plan, stage, evidence, descriptor, policy)
     dataset = plan.dataset
     if dataset.kind == "event":
         return _event_descriptor(self, plan, evidence, descriptor, policy), ()
@@ -242,45 +237,6 @@ def _base_descriptor(
             )
     self._event("temporal_authority")
     return replace(descriptor, temporal_execution=tuple(temporal[key] for key in sorted(temporal)))
-
-
-def _lifecycle_descriptor(
-    self: DatasetRuntime,
-    plan: ExecutionPlan,
-    stage: StageResult,
-    evidence: ExecutionEvidence,
-    descriptor: ArtifactDescriptor,
-    policy: ReadPolicy,
-) -> ArtifactDescriptor:
-    dataset = plan.dataset
-    if dataset.kind == "lifecycle" or (
-        dataset.kind == "population"
-        and isinstance(evidence.lifecycle_summary, LifecycleSelectionEvidence)
-    ):
-        if (
-            isinstance(evidence.lifecycle_summary, LifecycleReducerEvidence)
-            and plan.physical.local_steps
-        ):
-            from marivo.analysis.materialization.lifecycle_reducer_publication import (
-                summary_from_batches as lifecycle_batch_summary,
-            )
-
-            evidence.lifecycle_summary = lifecycle_batch_summary(
-                _audit_batches(self, descriptor, policy),
-                evidence.lifecycle_summary,
-            )
-        if isinstance(evidence.lifecycle_summary, LifecycleSelectionEvidence):
-            evidence.lifecycle_summary = replace(
-                evidence.lifecycle_summary,
-                row_count=stage.storage.primary_receipt.realized_row_count,
-            )
-        from marivo.analysis.materialization.lifecycle_codec import (
-            validate_descriptor as validate_lifecycle,
-        )
-
-        descriptor = replace(descriptor, lifecycle_evidence=evidence.lifecycle_summary)
-        validate_lifecycle(descriptor)
-    return descriptor
 
 
 def _event_descriptor(
