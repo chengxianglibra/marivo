@@ -603,6 +603,16 @@ class OccurrencePart:
 
 
 @dataclass(frozen=True, slots=True)
+class HistoryPart:
+    binding: Binding
+    preparation: OccurrencePart
+    capture_domain: DomainSignature
+    window_start: str
+    window_end: str
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
 class JourneyPart:
     binding: Binding
     preparation: OccurrencePart
@@ -676,6 +686,7 @@ Part: TypeAlias = (
     | FunnelComparisonPart
     | FunnelAllocationPart
     | FindingPolicyPart
+    | HistoryPart
     | JourneyPart
     | OccurrencePart
     | AttributionPart
@@ -694,6 +705,7 @@ Part: TypeAlias = (
     | PairCountsPart
 )
 PartRole: TypeAlias = Literal[
+    "history",
     "entry_axes",
     "funnel_state",
     "finding_policy",
@@ -736,6 +748,8 @@ def part_role(part: Part) -> PartRole:
         return "funnel_state"
     if isinstance(part, FindingPolicyPart):
         return "finding_policy"
+    if isinstance(part, HistoryPart):
+        return "history"
     if isinstance(part, JourneyPart):
         return "journey"
     if isinstance(part, OccurrencePart):
@@ -777,6 +791,32 @@ def validate_part(part: Part) -> None:
         from marivo.analysis.core.funnel_rules import validate
 
         validate(part)
+        return
+    if isinstance(part, HistoryPart):
+        from datetime import datetime
+
+        validate_part(part.preparation)
+        if (
+            part.version != "v1"
+            or part.preparation.model is None
+            or part.preparation.start is not None
+            or part.preparation.end != part.window_end
+            or part.preparation.order_use != "prepare"
+            or part.preparation.events != part.preparation.model.triggers
+            or part.preparation.order != part.preparation.model.order
+            or part.capture_domain.binding != part.binding
+            or part.preparation.binding != part.binding
+            or part.capture_domain.kind != "occurrence"
+            or datetime.fromisoformat(part.window_start).utcoffset() is None
+            or not datetime.fromisoformat(part.window_start)
+            < datetime.fromisoformat(part.window_end)
+        ):
+            reject(
+                "exact canonical History declaration",
+                repr(part),
+                "Rebuild replay from bound captures.",
+                "core.history",
+            )
         return
     if isinstance(part, JourneyPart):
         from datetime import datetime

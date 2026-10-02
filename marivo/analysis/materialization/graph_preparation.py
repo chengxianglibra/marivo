@@ -37,6 +37,7 @@ from marivo.analysis.core.rules import (
     FunnelCompare,
     FunnelRead,
     FunnelReduce,
+    HistoryReplay,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -297,6 +298,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 item.stage.node.parameters,
                 (
                     PreparedObservation,
+                    HistoryReplay,
                     JourneyMatch,
                     JourneyDuration,
                     JourneyCompleted,
@@ -416,6 +418,14 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
 
             results[item.stage.output] = journey_view(
                 item.stage.node, results[item.stage.inputs[0]], item.stage.node.identity
+            )
+        elif isinstance(params, HistoryReplay):
+            from marivo.analysis.materialization.history_execution import execute as replay_history
+
+            results[item.stage.output] = replay_history(
+                item.stage.node,
+                tuple(results[key] for key in item.stage.inputs),
+                item.stage.node.identity,
             )
         elif isinstance(params, JourneyMatch):
             from marivo.analysis.materialization.journey_execution import execute as match_journeys

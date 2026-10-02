@@ -80,24 +80,141 @@ def setup_lifecycle(
 
 
 def history(
-    sources: LazySources, *, complete: bool = True, population: PopulationInput | None = None
+    sources: LazySources,
+    *,
+    complete: bool = True,
+    population: PopulationInput | None = None,
+    window=None,
 ) -> LogicalLifecycleDataset:
-    return sources.lifecycle.replay(
-        MODEL,
-        window=time_scope(start=START.isoformat(), end=END.isoformat()),
-        seed=FromInception(),
-        population=population,
-        completeness=(
+    """Build only the legacy pure declaration demanded by internal R7.6 reducers.
+
+    This fixture cannot compile, execute or recover a History producer.
+    """
+    import json
+    from dataclasses import asdict
+
+    from marivo.analysis.datasets import descriptors as d
+    from marivo.analysis.datasets.base import _make_logical_dataset
+    from marivo.analysis.datasets.handles import LogicalRootHandle
+    from marivo.analysis.datasets.registry import DatasetFamilyRegistry
+    from marivo.analysis.domains.contracts import journey_semantics
+    from marivo.analysis.domains.event import EventPayload, make_match
+    from marivo.analysis.domains.lifecycle import (
+        LifecyclePayload,
+        LifecycleSemantics,
+        history_contracts,
+        register_lifecycle,
+    )
+    from marivo.analysis.event import first_per_subject, sequence, step
+    from marivo.analysis.observation.contracts import producer_contract
+    from marivo.semantic.event import participant_role
+
+    owner = sources._owner
+    registry = DatasetFamilyRegistry()
+    for registration in sources._registry.registrations:
+        registry.register(registration)
+    register_lifecycle(registry, sources._registry.get("event").ids)
+    registry.freeze()
+    model_ref = MODEL
+    model_ir = owner.semantic_registry.state_models[MODEL.path]
+    states = tuple(state.name for state in model_ir.states)
+    initials = tuple(state.name for state in model_ir.states if state.initial)
+    window = window or time_scope(start=START.isoformat(), end=END.isoformat())
+    seed = FromInception()
+    completeness = (
+        (
             SourceOriginCompletenessDeclarationV1(
                 inputs=(ref.event("sales.started"), ref.event("sales.finished")),
                 source_origin_ref=ref.datasource("warehouse"),
-                complete_through=END,
-                rationale="Fixture source-origin completeness.",
+                complete_through=window.end,
+                rationale="Internal reducer fixture origin.",
             ),
         )
         if complete
-        else (),
+        else ()
     )
+    triggers = tuple(
+        dict.fromkeys(
+            [item.trigger for item in model_ir.inceptions]
+            + [item.trigger for item in model_ir.transitions]
+        )
+    )
+    keys = {trigger: f"trigger_{index}" for index, trigger in enumerate(triggers)}
+    pattern = sequence(
+        *(
+            step(
+                participant=participant_role(
+                    event=ref.event(trigger.event_ref), name=trigger.participant_role
+                ),
+                key=keys[trigger],
+            )
+            for trigger in triggers
+        )
+    )
+    event = make_match(
+        owner,
+        registry,
+        pattern,
+        cohort_window=window,
+        completion_through=window.end,
+        matching=first_per_subject(),
+        population=population,
+        completeness=completeness,
+    )
+    assert isinstance(event._root, LogicalRootHandle) and isinstance(
+        event._root.payload, EventPayload
+    )
+    source = event._root.payload
+    if source.definition.entity.ref.path != model_ir.subject:
+        raise ValueError(
+            "all triggers at the exact StateModel subject", "different trigger subject"
+        )
+    transitions = tuple(
+        (item.from_state, keys[item.trigger], item.to_state) for item in model_ir.transitions
+    )
+    if len({(a, b) for a, b, _ in transitions}) != len(transitions) or any(
+        a not in states or c not in states for a, _, c in transitions
+    ):
+        raise ValueError(
+            "deterministic transitions between declared states", "invalid transition rules"
+        )
+    semantics = LifecycleSemantics(
+        _token=d._CORE_TOKEN,
+        source_json=json.dumps(asdict(journey_semantics(source.definition)), sort_keys=True),
+        model_ref=model_ref.path,
+        states=states,
+        initial=initials[0],
+        terminals=tuple(state.name for state in model_ir.states if state.terminal),
+        inceptions=tuple(keys[item.trigger] for item in model_ir.inceptions),
+        transitions=transitions,
+        seed_fingerprint=seed.fingerprint,
+    )
+    payload = LifecyclePayload(
+        _token=d._CORE_TOKEN,
+        definition=source.definition,
+        semantics=semantics,
+        captures=source.captures,
+    )
+    row, rows = history_contracts(payload, registry.get("lifecycle").ids)
+    result = _make_logical_dataset(
+        owner=owner,
+        registry=registry,
+        family_id="lifecycle",
+        operator_id="session.lifecycle.replay",
+        inputs=event._inputs,
+        input_roles=("population",),
+        row_contract=row,
+        row_set_contract=rows,
+        payload=payload,
+        requirements=("lifecycle.exact_subject_membership@v1", "lifecycle.native_replay@v1"),
+        dependency_facts=(
+            model_ref.key,
+            *(item.step.event.key for item in source.definition.steps),
+        ),
+        contract_versions=producer_contract("session.lifecycle.replay").versions,
+    )
+    assert isinstance(result, LogicalLifecycleDataset)
+    return result
 
 
 def receipt(

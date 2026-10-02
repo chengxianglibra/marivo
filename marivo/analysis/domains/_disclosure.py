@@ -27,8 +27,7 @@ from marivo.analysis.domains.contracts import (
     EventJourneySemantics,
     EventTimeToEventSemantics,
 )
-from marivo.analysis.domains.lifecycle import LifecycleSemantics
-from marivo.analysis.domains.lifecycle_reducers import REDUCER_TYPES, InState, in_state
+from marivo.analysis.domains.lifecycle_reducers import InState, in_state
 from marivo.analysis.event import (
     EventPattern,
     EveryStart,
@@ -41,8 +40,8 @@ from marivo.analysis.event import (
 )
 from marivo.analysis.funnel import FunnelLossRate, funnel_loss_rate
 from marivo.analysis.lifecycle import FromInception, from_inception
+from marivo.analysis.session._history_lifecycle import HistoryLifecycle
 from marivo.analysis.session._journey_events import JourneyEvents
-from marivo.analysis.session._lazy_sources import LazyLifecycle
 from marivo.analysis.subject import DroppedBefore, dropped_before
 from marivo.refs import SemanticKind
 
@@ -61,11 +60,6 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             (EventJourneySemantics, EventFunnelSemantics, EventTimeToEventSemantics),
             "Legacy Event results retained for consumers awaiting R7 migration.",
         ),
-        (
-            "lifecycle",
-            (LifecycleSemantics, *REDUCER_TYPES),
-            "From-inception state history with distribution, transition, dwell and violation projections.",
-        ),
     ):
         f = registry.get(fid)
         target = fid + "_dataset"
@@ -75,12 +69,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 f,
                 summary=summary,
                 variants=variants,
-                acquisition=(
-                    "Retained legacy Event results; new matching returns JourneyResult."
-                    if fid == "event"
-                    else "Construct via session.lifecycle.replay(...)."
-                )
-                + " Reducers remain in the same family.",
+                acquisition="Retained legacy Event results; new matching returns JourneyResult. Reducers remain in the same family.",
                 constraints=(
                     "Raw Entity identities remain private until explicit authorized terminal row reads.",
                     "Right censoring and coverage censoring differ; membership selection requires exact complete identities.",
@@ -138,23 +127,27 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
         ),
         (
             "lifecycle.replay",
-            LazyLifecycle.replay,
+            HistoryLifecycle.replay,
             "session.lifecycle.replay",
             (
-                P("model", "Choose an exact current StateModel ref or catalog entry."),
+                P("model", "Choose an exact loaded StateModel Ref."),
+                P(
+                    "population",
+                    "Use an explicit logical same-Session Subject domain.",
+                    ("session.members",),
+                ),
                 P("window", "Choose an explicit aware replay window.", ("time_scope",)),
                 P("seed", "Use from_inception(); no ad-hoc state snapshot.", ("from_inception",)),
-                P("population", "Use exact admitted membership or None.", ("population",)),
                 P(
                     "completeness",
                     "Supply source-origin declarations for the model's trigger Events.",
                     ("SourceOriginCompletenessDeclarationV1",),
                 ),
             ),
-            "LogicalLifecycleDataset",
-            "result = session.lifecycle.replay(model, window=window, seed=from_inception(), completeness=lifecycle_completeness)",
-            ("session", "model", "window", "from_inception", "lifecycle_completeness"),
-            "Replay requires from-inception history and exact trigger coverage. PostgreSQL, Trino Iceberg and ClickHouse MergeTree support two triggers over unversioned int64 tables (one identity component on Trino/ClickHouse). Execute history before remote retained continuations; direct reducers also support PostgreSQL.",
+            "LogicalHistoryResult",
+            "result = session.lifecycle.replay(model, population=members, window=window, seed=from_inception(), completeness=lifecycle_completeness)",
+            ("session", "model", "members", "window", "from_inception", "lifecycle_completeness"),
+            "Capture modeled triggers once through Ibis, then scan from real inception to exclusive end. Retain every Subject, full transitions, violations and coverage. Published History recovers without source or current Semantic. No R7.6 views or remote qualification.",
             ("session.lifecycle.replay",),
         ),
     ):
@@ -226,73 +219,6 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
             "result = events.select_subjects(dropped_before(step=finish_step))",
             ("events", "dropped_before", "finish_step"),
             "Legacy Event membership consumer. New Journeys use read(dropped_before(...)), where and members; old backend qualifications do not transfer.",
-        ),
-        (
-            "lifecycle",
-            "distribution",
-            "lifecycle_dataset.distribution",
-            ("lifecycle.distribution",),
-            (
-                P(
-                    "at",
-                    "Choose a nonempty tuple of unique aware instants within the replay window.",
-                ),
-                P("axes", "Choose stable Dimensions at the requested checkpoints."),
-            ),
-            "LogicalLifecycleDataset",
-            "result = lifecycle.distribution(at=(end,))",
-            ("lifecycle", "end"),
-            "Read exact state at each checkpoint from retained intervals.",
-        ),
-        (
-            "lifecycle",
-            "transitions",
-            "lifecycle_dataset.transitions",
-            ("lifecycle.transitions",),
-            (),
-            "LogicalLifecycleDataset",
-            "result = lifecycle.transitions()",
-            ("lifecycle",),
-            "Read the lossless transition trace; no replay of original Events.",
-        ),
-        (
-            "lifecycle",
-            "dwell",
-            "lifecycle_dataset.dwell",
-            ("lifecycle.dwell",),
-            (),
-            "LogicalLifecycleDataset",
-            "result = lifecycle.dwell()",
-            ("lifecycle",),
-            "Completed window-fragment dwell duration; disclose left clipping and right/coverage censoring.",
-        ),
-        (
-            "lifecycle",
-            "violations",
-            "lifecycle_dataset.violations",
-            ("lifecycle.violations",),
-            (),
-            "LogicalLifecycleDataset",
-            "result = lifecycle.violations()",
-            ("lifecycle",),
-            "Read exact violation evidence from the retained trace.",
-        ),
-        (
-            "lifecycle",
-            "select_subjects",
-            "lifecycle_dataset.select_subjects",
-            ("lifecycle.select_subjects",),
-            (
-                P(
-                    "selection",
-                    "Construct in_state with an exact model state handle and aware checkpoint.",
-                    ("in_state",),
-                ),
-            ),
-            "LogicalPopulationDataset",
-            "result = lifecycle.select_subjects(in_state(done_state, at=end))",
-            ("lifecycle", "in_state", "done_state", "end"),
-            "Select exact checkpoint membership, rejecting incompatible models or incomplete coverage.",
         ),
     )
     for fid, name, target, registrations, parameters, output, code, requires, constraint in methods:

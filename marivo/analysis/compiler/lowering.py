@@ -2089,48 +2089,10 @@ class _Compiler:
         return self._evaluate(definition, membership)
 
     def _lifecycle_history(self, root: LogicalRootHandle, payload: LifecyclePayload) -> _Rows:
-        from marivo.analysis.compiler.event_sources import lower_event_sources
-        from marivo.analysis.compiler.lifecycle import compile_replay
-
-        previous = self._visit(root.inputs[0].root)
-        identity = previous.expression["entity_identity"]
-        if not isinstance(identity, ir.StructValue):
-            raise compilation_error("exact subject identity", "invalid Lifecycle membership")
-        membership = previous.expression.select(
-            **{name: identity[name] for name in payload.definition.entity.primary_key}
+        raise compilation_error(
+            "session.lifecycle.replay(model, population=members, window=window, seed=from_inception())",
+            "retired Lifecycle Dataset producer",
         )
-
-        def freeze(table: ir.Table) -> ir.Table:
-            self._flush_validations()
-            name = f"__mv_lifecycle_{len(self.preparations)}"
-            self.preparations.append(CompiledRelationFence(name, table, id(root)))
-            return ibis.table(table.schema(), name=name)
-
-        membership = freeze(membership)
-        occurrences = lower_event_sources(
-            payload.definition,
-            self.owner,
-            self.tables,
-            membership,
-            freeze=freeze,
-            add_validation=self.validations.append,
-            from_inception=True,
-        )
-        coverage = self.event_coverages.get(root.definition_fingerprint) or resolve_event_coverage(
-            payload.definition, require_source_origin=True
-        )
-        table, parts, checks = compile_replay(
-            occurrences,
-            membership,
-            payload.semantics,
-            coverage,
-            freeze=freeze,
-            dialect=self.lifecycle_dialect,
-        )
-        self.validations.extend(checks)
-        self.lifecycle_coverage = coverage
-        self.event_coverages[root.definition_fingerprint] = coverage
-        return _Rows(table, membership, payload.definition.entity, parts=parts)
 
     def _event_journey(self, root: LogicalRootHandle, payload: EventPayload) -> _Rows:
         from marivo.analysis.compiler.event import compile_event_match, event_output_proof

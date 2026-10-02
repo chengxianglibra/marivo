@@ -230,10 +230,10 @@ constructors are documented inline to support case-insensitive filesystems.
 .. autoclass:: MaterializedEventDataset
    :members:
 
-.. autoclass:: LogicalLifecycleDataset
+.. autoclass:: LogicalHistoryResult
    :members:
 
-.. autoclass:: MaterializedLifecycleDataset
+.. autoclass:: MaterializedHistoryResult
    :members:
 
 .. autoclass:: AnalysisPredicate

@@ -7,45 +7,29 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
-from marivo._temporal import TimeScope
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.base import (
     LogicalDataset,
     MaterializedDataset,
     _dataset_repr,
-    _make_logical_dataset,
 )
 from marivo.analysis.datasets.errors import DatasetConstructionError
-from marivo.analysis.datasets.handles import CanonicalValue, LogicalRootHandle, _LogicalNodePayload
+from marivo.analysis.datasets.handles import CanonicalValue, _LogicalNodePayload
 from marivo.analysis.datasets.registry import DatasetFamilyRegistration, DatasetFamilyRegistry
 from marivo.analysis.datasets.state import MaterializedDatasetState, _validate_materialized_state
-from marivo.analysis.domains.completeness import (
-    CompletenessDeclaration,
-    SourceOriginCompletenessDeclarationV1,
-)
 from marivo.analysis.domains.contracts import (
     EventDefinition,
     EventJourneySemantics,
-    EventPayload,
     decode_journey_semantics,
-    journey_semantics,
 )
-from marivo.analysis.domains.event import make_match
-from marivo.analysis.domains.subject import PopulationInput
-from marivo.analysis.event import first_per_subject, sequence, step
 from marivo.analysis.lifecycle import FromInception
 from marivo.analysis.observation.contracts import (
     IDENTITY_FIELD_ID,
-    ObservationOwner,
     RetainedRowsPayload,
     identity_field,
     owner_of,
-    producer_contract,
 )
 from marivo.analysis.observation.source_bindings import BoundSourceParametersV1
-from marivo.refs import Ref, SemanticKind, StateModelKind, ref
-from marivo.semantic.catalog import StateModelEntry
-from marivo.semantic.event import participant_role
 
 if TYPE_CHECKING:
     import pandas
@@ -412,146 +396,6 @@ def history_contracts(
         ),
     )
     return row, rows
-
-
-def make_replay(
-    owner: ObservationOwner,
-    registry: DatasetFamilyRegistry,
-    model: Ref[StateModelKind] | StateModelEntry,
-    *,
-    window: TimeScope,
-    seed: FromInception,
-    population: PopulationInput | None = None,
-    completeness: tuple[CompletenessDeclaration, ...] = (),
-) -> LogicalLifecycleDataset:
-    if isinstance(model, StateModelEntry) and model._catalog is not owner.catalog_identity:
-        raise lifecycle_error(
-            "a StateModel entry from the exact current catalog", "foreign catalog entry"
-        )
-    model_ref = model.ref if isinstance(model, StateModelEntry) else model
-    if (
-        type(model_ref) is not Ref
-        or model_ref.kind is not SemanticKind.STATE_MODEL
-        or model_ref not in owner.sidecar.catalog_refs
-    ):
-        raise lifecycle_error(
-            "an exact current StateModel entry or ref", "invalid or unloaded model"
-        )
-    model_ir = owner.semantic_registry.state_models.get(model_ref.path)
-    if (
-        model_ir is None
-        or model_ir.semantic_id != model_ref.path
-        or type(seed) is not FromInception
-        or seed != FromInception()
-    ):
-        raise lifecycle_error(
-            "a loaded StateModel and exact from_inception seed", "invalid replay authority"
-        )
-    if type(completeness) is not tuple or any(
-        type(item) is not SourceOriginCompletenessDeclarationV1 for item in completeness
-    ):
-        raise lifecycle_error(
-            "source-origin completeness declarations", "bounded or invalid inception coverage"
-        )
-    if (
-        not isinstance(window, TimeScope)
-        or not isinstance(window.start, datetime)
-        or not isinstance(window.end, datetime)
-    ):
-        raise lifecycle_error("an aware datetime window", "invalid replay window")
-    states = tuple(state.name for state in model_ir.states)
-    initials = tuple(state.name for state in model_ir.states if state.initial)
-    if (
-        not states
-        or len(set(states)) != len(states)
-        or len(initials) != 1
-        or not model_ir.inceptions
-    ):
-        raise lifecycle_error(
-            "unique closed states, one initial state and inception triggers", "invalid StateModel"
-        )
-    triggers = tuple(
-        dict.fromkeys(
-            [item.trigger for item in model_ir.inceptions]
-            + [item.trigger for item in model_ir.transitions]
-        )
-    )
-    keys = {trigger: f"trigger_{index}" for index, trigger in enumerate(triggers)}
-    pattern = sequence(
-        *(
-            step(
-                participant=participant_role(
-                    event=ref.event(trigger.event_ref), name=trigger.participant_role
-                ),
-                key=keys[trigger],
-            )
-            for trigger in triggers
-        )
-    )
-    event = make_match(
-        owner,
-        registry,
-        pattern,
-        cohort_window=window,
-        completion_through=window.end,
-        matching=first_per_subject(),
-        population=population,
-        completeness=completeness,
-    )
-    assert isinstance(event._root, LogicalRootHandle) and isinstance(
-        event._root.payload, EventPayload
-    )
-    source = event._root.payload
-    if source.definition.entity.ref.path != model_ir.subject:
-        raise lifecycle_error(
-            "all triggers at the exact StateModel subject", "different trigger subject"
-        )
-    transitions = tuple(
-        (item.from_state, keys[item.trigger], item.to_state) for item in model_ir.transitions
-    )
-    if len({(a, b) for a, b, _ in transitions}) != len(transitions) or any(
-        a not in states or c not in states for a, _, c in transitions
-    ):
-        raise lifecycle_error(
-            "deterministic transitions between declared states", "invalid transition rules"
-        )
-    semantics = LifecycleSemantics(
-        _token=d._CORE_TOKEN,
-        source_json=json.dumps(asdict(journey_semantics(source.definition)), sort_keys=True),
-        model_ref=model_ref.path,
-        states=states,
-        initial=initials[0],
-        terminals=tuple(state.name for state in model_ir.states if state.terminal),
-        inceptions=tuple(keys[item.trigger] for item in model_ir.inceptions),
-        transitions=transitions,
-        seed_fingerprint=seed.fingerprint,
-    )
-    payload = LifecyclePayload(
-        _token=d._CORE_TOKEN,
-        definition=source.definition,
-        semantics=semantics,
-        captures=source.captures,
-    )
-    row, rows = history_contracts(payload, registry.get("lifecycle").ids)
-    result = _make_logical_dataset(
-        owner=owner,
-        registry=registry,
-        family_id="lifecycle",
-        operator_id="session.lifecycle.replay",
-        inputs=event._inputs,
-        input_roles=("population",),
-        row_contract=row,
-        row_set_contract=rows,
-        payload=payload,
-        requirements=("lifecycle.exact_subject_membership@v1", "lifecycle.native_replay@v1"),
-        dependency_facts=(
-            model_ref.key,
-            *(item.step.event.key for item in source.definition.steps),
-        ),
-        contract_versions=producer_contract("session.lifecycle.replay").versions,
-    )
-    assert isinstance(result, LogicalLifecycleDataset)
-    return result
 
 
 def validate_lifecycle_semantics(semantics: LifecycleSemantics) -> None:

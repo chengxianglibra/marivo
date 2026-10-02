@@ -975,7 +975,7 @@ identity, their own executing identity and both versions.
 | funnel.reduce@v1 / axes | funnel_components | assignment binding, step/axis domain, seven counts, three rate Cells, entry-time axes and complete-partition evidence |
 | funnel.compare@v1 / ordered current/baseline | funnel_comparison | both endpoint components/domains and funnel-period compatibility; read preserves the bound endpoint roles |
 | funnel_ratio_mix@v1 / target, axes, mode, Top-K | funnel_allocation | both full component partitions, target, common mapping/masks, all resolutions, allocated sides/error bounds and original reconciliation scope |
-| history.replay@v1 / model, from_inception, report window | canonical_history | exact full Subject domain/classification, inception/known-prefix/coverage, clipped intervals with original boundaries, all legal transitions and occurrence violations |
+| history.replay@v1 / full members + occurrence preparation, model, from_inception, report window | canonical_history | exact full Subject domain/classification, inception/known-prefix/coverage, clipped intervals with original boundaries, all legal transitions and occurrence violations |
 | history.in_state@v1 / state, checkpoint | history_truth | full Subject ledger, state/interval and end-left-limit authority; missing interval is not missing Subject |
 | history.distribution@v1 / checkpoints, axes | state_distribution | checkpoint/state/actual-axis target domain, checkpoint axes, exact Subject classifications and count components |
 | history.transitions@v1 / report window | transition_summary | complete declared pair domain and all legal trace entries, self/zero-duration included |
@@ -1242,3 +1242,23 @@ Private funnel Delta/Attribution registrations, dispatch, extractor consumers an
 exclusive codecs are physically removed. Remaining Event/Lifecycle shared code
 awaits its owning phase. Detailed validation and physical requirement statuses are
 in the R7.4 evidence index; later phases, same-wheel and remote qualification remain separate.
+
+### R7.5 canonical History publication
+
+`history.replay@v1` publishes `canonical_history` with one closed `HistoryPart@v1`
+row for every complete Subject key. Primary classification/inception/known-through
+and the state vector are reproduced from the typed retained trace. Initial exchange,
+publication, public Artifact reads and cold recovery verify frozen model/input/order,
+coverage, precision, schema/full keys, state/part versions and every projection.
+Unknown-origin/follow-up evaluations retain occurrences without inventing initial
+state or legal/violation assertions; a proved terminal prefix remains absorbing.
+The receipt owner reads Arrow/Parquet only; it does not attach DuckDB, load current
+Semantic or invoke replay. Missing, corrupt, swapped or wrong-bound parts fail before
+any new Run. The existing Artifact/Evidence/zero-Findings/terminal transaction and
+single execution deadline own publication and failure cleanup.
+
+Only this replay registration is active in R7.5. `history.in_state`, distribution,
+transitions, violations, intervals and dwell remain R7.6 targets. Old Lifecycle
+Dataset construction, production and public recovery are closed; the remaining
+private schema/reducer declarations are recorded in the R7 migration ledger and
+are not a compatibility route.

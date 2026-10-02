@@ -19,6 +19,7 @@ from marivo.analysis.core.rules import (
     FunnelCompare,
     FunnelRead,
     FunnelReduce,
+    HistoryReplay,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -307,6 +308,7 @@ def plan(
                 or isinstance(
                     node.parameters,
                     (
+                        HistoryReplay,
                         JourneyMatch,
                         JourneyDuration,
                         JourneyCompleted,

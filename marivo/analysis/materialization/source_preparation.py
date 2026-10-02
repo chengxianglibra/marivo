@@ -46,7 +46,6 @@ from marivo.analysis.domains.contracts import (
 )
 from marivo.analysis.domains.lifecycle import (
     LifecyclePayload,
-    LifecycleSemantics,
 )
 from marivo.analysis.domains.lifecycle_reducers import (
     LifecycleReducerPayload,
@@ -661,12 +660,7 @@ def _open_special_relations(
 
             if not isinstance(backend, ClickHouseExecutionAdapter):
                 raise _error("implementation_registration", run_ref)
-            if isinstance(root.payload, LifecyclePayload):
-                semantics = source_step.dataset.row_contract.family_semantics
-                if not isinstance(semantics, LifecycleSemantics):
-                    raise _error("implementation_registration", run_ref)
-                validations.extend(backend.open_lifecycle_bundle(recipe, semantics))
-            elif isinstance(root.payload, EventPayload):
+            if isinstance(root.payload, EventPayload):
                 validations.extend(
                     backend.open_event_bundle(
                         recipe,

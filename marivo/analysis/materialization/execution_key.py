@@ -65,6 +65,7 @@ _WIRE_TAGS: dict[type[object], str] = {
     core_model.FunnelComparisonPart: "funnel_comparison_part",
     core_model.FunnelAllocationPart: "funnel_allocation_part",
     core_model.FindingPolicyPart: "finding_policy_part",
+    core_model.HistoryPart: "history_part",
     core_model.JourneyPart: "journey_part",
     core_model.OccurrencePart: "occurrence_part",
     core_model.AttributionPart: "attribution_part",

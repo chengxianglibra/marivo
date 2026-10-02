@@ -132,6 +132,7 @@ class ExchangeContract:
             not in (
                 "none",
                 "occurrence_inputs",
+                "canonical_history",
                 "journey_assignment",
                 "entry_axes",
                 "funnel_components",
@@ -528,6 +529,10 @@ def collect(
             )
         ):
             raise _invalid("retained fold kind differs from the declared original quantity")
+    if any(part.role == "history" for part in parts):
+        from marivo.analysis.materialization.history_execution import validate as validate_history
+
+        validate_history(contract, primary, parts)
     if any(part.role == "journey" for part in parts):
         from marivo.analysis.materialization.journey_execution import validate as validate_journey
 
@@ -645,6 +650,12 @@ def collect(
         elif contract.state_kind == "cohort":
             if any(value != "accepted" for value in states.values()):
                 raise _invalid("cohort state contains an unaccepted target")
+        elif contract.state_kind == "canonical_history":
+            if any(
+                states[tuple(row[key] for key in contract.key_fields)] != row["classification"]
+                for row in primary.to_pylist()
+            ):
+                raise _invalid("canonical History state vector differs from its Subject ledger")
         else:
             _verify_single_state_part(contract, parts, primary, states)
     if any(

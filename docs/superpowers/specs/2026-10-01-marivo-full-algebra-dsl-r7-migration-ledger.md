@@ -1,7 +1,7 @@
 # R7.1 contract freeze and consumer migration ledger
 
 Date: 2026-10-01. Status: R7.1 contract/static freeze complete; R7.2 private
-preparation implemented and qualified as recorded below; R7.3 and R7.4 implementations are recorded below; R7.5-R7.9 remain pending. This ledger indexes sole owners and responsibility;
+preparation implemented and qualified as recorded below; R7.3, R7.4 and R7.5 implementations are recorded below; R7.6-R7.9 remain pending. This ledger indexes sole owners and responsibility;
 it is not another public API or method registry and grants no Runtime qualification.
 
 ## Actual baseline and accepted decisions
@@ -328,3 +328,32 @@ passed; repeated tests are not counted as additional unique qualification.
 `make check-agent` passed (5367 default tests, 5 skipped; 429 typed modules,
 lint/import contracts and API docs). Site build passed 321 pages and final
 `git diff --check` passed. R7.4 is complete in this finite local scope.
+
+## R7.5 canonical History dispositions (2026-10-02)
+
+The [evidence index](2026-10-02-marivo-r75-evidence-index.md) and
+[qualification record](2026-10-02-marivo-r75-qualification.json) own current
+R7.5 execution evidence. All original 270 P10 IDs remain, covering every frozen
+key/time/source profile through source, verified published read and cold read.
+F/C never construct a new fixed replay. V10/V11 and full R7/same-wheel requirements
+remain explicitly deferred with their original IDs.
+
+| Migration node | Current disposition | Actual retained consumer and exit |
+| --- | --- | --- |
+| M07 make_replay / LazyLifecycle / public family registration | Removed; public exports are LogicalHistoryResult/MaterializedHistoryResult, exact Ref and required logical Subject domain. Runtime/public recovery reject old family before Run/source/receipt work. | lifecycle.py private semantics, payload, history_contracts and register_lifecycle are used by internal R7.6 reducer contracts and test-only declarations; exit R7.6. They have no public source facade, producer or recovery route. |
+| M08 compiler/lifecycle.py and lifecycle_array.py | Physically deleted; no recursive SQL, confluence/permutation or ID-order replay. | compiler/lifecycle_reducers.py remains for R7.6 pure lowering/numeric tests; it cannot compile an origin History producer. Exit R7.6. |
+| M09 native_summary / inspect_history | Deleted; new canonical History validation uses typed records and Arrow/Parquet only. | lifecycle_publication.py part_schema/validate_relation are used by retained.py and source_preparation.py private reducer part admission. lifecycle_codec pure decode and reducer codec/publication declarations are used by contracts.py and lifecycle_reducer_codec.py. Exit R7.6; no independent recovery qualification. |
+| M10 lifecycle_bundle.py / lifecycle_integrity.py and ClickHouse lifecycle-only overrides | Physically deleted, including callers and dedicated integrity text statements. | Shared Event bundles, Event SQL adapters and R8 consumers remain with their actual owners. No wholesale M10 deletion claim. |
+| V09 old replay tests | Exclusive legacy construction/native/runtime/remote replay acceptance tests retired; independent business cases now live in test_analysis_lifecycle_r75.py with scalar oracle and actual business order. | Private reducer contract/numeric oracles remain. Old History-dependent reducer Runtime tests are deferred, not passing current acceptance; exit/rewrite R7.6. |
+
+The test-only `tests/lazy_lifecycle_fixtures.py::history` builds only a private
+retained declaration for those R7.6 contract/numeric consumers. It cannot use a
+production replay constructor, compile an origin History or recover a public old
+Artifact. Shared R8 Forecast/Association/Event owners are preserved. M07-M10 are
+not claimed wholesale complete while the named R7.6 consumers remain.
+
+R7.5 uses one graph/registry/Runtime/Store 7 route. Zero Findings, the shared
+600-second deadline, source-first input preparation, receipt verification and the
+existing atomic publication transaction remain the sole owners. Six views,
+Duration statistics, selected-Subject observation and A10's complete journey are
+R7.6 work. AGENTS.md, packaged skills and the historical snapshot are unchanged.

@@ -25,7 +25,6 @@ from marivo.analysis.domains.completeness import (
     resolve_event_coverage,
 )
 from marivo.analysis.domains.contracts import EventDefinition
-from marivo.analysis.domains.lifecycle import LifecycleSemantics
 from marivo.analysis.materialization.errors import (
     MaterializationError,
     source_type_errors,
@@ -33,10 +32,8 @@ from marivo.analysis.materialization.errors import (
 )
 from marivo.analysis.materialization.event_bundle import EventBundleStream
 from marivo.analysis.materialization.execution import BatchStream, Parameter, Statement
-from marivo.analysis.materialization.lifecycle_bundle import LifecycleBundle
 from marivo.analysis.materialization.scalar_sql_execution import (
     ScalarExecutionAdapter,
-    ScalarStatement,
 )
 from marivo.analysis.operators.clickhouse_support import supported_type
 from marivo.datasource.timezone import DatasourceEngineTimezone
@@ -120,8 +117,6 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         self._event_bundle: EventBundleStream | None = None
         self._event_primary: ops.Node | None = None
         self._source_engines: set[str] = set()
-        self.lifecycle_bundle: LifecycleBundle | None = None
-        self._lifecycle_compiling = False
 
     def open_event_bundle(
         self, recipe: CompiledDataset, *, step_keys: tuple[str, ...]
@@ -163,66 +158,6 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         self._event_primary = recipe.expression.op()
         return stream.validations
 
-    def open_lifecycle_bundle(
-        self, recipe: CompiledDataset, semantics: LifecycleSemantics
-    ) -> tuple[tuple[str, int], ...]:
-        self._check()
-        if self.lifecycle_bundle is not None or self._source_engines != {"MergeTree"}:
-            raise self.unsupported("Lifecycle requires an unopened qualified MergeTree source")
-        if (
-            self.read_scalar(
-                self.statement(
-                    "SELECT getSetting('enable_shared_storage_snapshot_in_query')",
-                    role="engine_check.lifecycle_snapshot",
-                )
-            )
-            != 1
-        ):
-            raise self.unsupported("Lifecycle requires shared storage snapshots within a query")
-        self._lifecycle_compiling = True
-        self.lifecycle_bundle = LifecycleBundle(self, recipe, semantics)
-        return self.lifecycle_bundle.validations
-
-    def _prepare(
-        self,
-        expression: ir.Expr,
-        *,
-        role: str,
-        params: Mapping[ir.Scalar, Parameter] | None = None,
-    ) -> ScalarStatement:
-        if not self._lifecycle_compiling:
-            return super()._prepare(expression, role=role, params=params)
-        from marivo.analysis.compiler.event_time import _localize_utc
-
-        self._check()
-        localize = type(_localize_utc("UTC", ibis.timestamp("2000-01-01")).op())
-        if any(
-            not isinstance(node, localize)
-            for node in expression.op().find((ops.InMemoryTable, ops.ScalarUDF, ops.AggUDF))
-        ):
-            raise self.unsupported("Lifecycle uploads or ungoverned UDFs")
-        return ScalarStatement(
-            self._compile_sql(expression, params=params),
-            (),
-            expression.as_table().schema().to_pyarrow(),
-            role,
-            self._context,
-            native_structs=True,
-        )
-
-    def _compile_sql(
-        self, expression: ir.Expr, *, params: Mapping[ir.Scalar, Parameter] | None = None
-    ) -> str:
-        if self._lifecycle_compiling:
-            from marivo.analysis.materialization.clickhouse_event_sql import (
-                compile_event_expression,
-            )
-
-            if params is not None:
-                raise self.unsupported("parameterized Lifecycle relation")
-            return compile_event_expression(expression)
-        return super()._compile_sql(expression, params=params)
-
     def event_bundle_proof(self) -> pa.Table:
         self._check()
         if self._event_bundle is None:
@@ -237,12 +172,6 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
     ) -> BatchStream:
-        if (
-            isinstance(value, ir.Table)
-            and self.lifecycle_bundle is not None
-            and self.lifecycle_bundle.certifies(value)
-        ):
-            return self.lifecycle_bundle.stream(value)
         if (
             isinstance(value, ir.Expr)
             and self._event_bundle is not None
@@ -278,8 +207,6 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         return result
 
     def _lower(self, expression: ir.Expr) -> ir.Expr:
-        if self._lifecycle_compiling:
-            return expression
         from marivo.analysis.materialization.temporal_sql import lower_temporal
 
         expression = lower_temporal(expression, self.engine)
@@ -444,8 +371,6 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         try:
             with ExitStack() as stack:
                 stack.callback(self._clickhouse.disconnect)
-                if self.lifecycle_bundle is not None:
-                    stack.callback(self.lifecycle_bundle.close)
                 for cursor in tuple(self._cursors):
                     stack.callback(cursor.close)
                 for stream in tuple(self._streams):

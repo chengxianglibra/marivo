@@ -1215,6 +1215,33 @@ reject rather than reading lineage/current Semantic.
 
 ### Replay, History views and retained truth
 
+R7.5 implements `session.lifecycle.replay(model, population=members, window=window,
+seed=from_inception(), completeness=())` and the paired LogicalHistoryResult /
+MaterializedHistoryResult. Population is a required logical same-Session Subject
+domain; the model is an exact Ref and owns business order. Catalog entries, fixed
+membership, legacy PopulationInput and call-level order overrides reject before
+business reads or Run allocation. The graph explicitly consumes both complete
+members and occurrence preparation. Construction and planning read no business rows.
+
+Every distinct modeled Event is captured once. Source preparation completes before
+registered local replay consumes the captured inputs under the shared 600-second
+deadline. Only a tied group reached after a proved terminal prefix can be retained
+as a set, with invariant per-occurrence state and violation identities. Other ties
+require unique business order; IDs and physical/declaration order cannot resolve them.
+
+The closed HistoryPart@v1 is keyed by the complete Subject key, including empty
+lists for no-event/no-interval Subjects. It retains all trigger evaluations,
+pre-inception dispositions, legal/self/zero-duration transition trace, violations,
+raw/clipped interval boundaries, exact observed ticks and known-prefix coverage.
+Arrow/Parquet publication and recovery reproduce these projections from the saved
+trace without replaying origin or connecting to source/current Semantic. Violations
+use the existing zero-Findings policy. Precision follows the R7.2 capture conversion
+and retained loss disclosure. There are no replay row, memory or tie-width quotas.
+
+The six views and subsequent Duration/Subject observation rules below are R7.6
+targets. R7.5 exposes only execution, terminal reading, contract and evidence actions;
+its dynamic contract does not disclose those views.
+
 Replay starts at real inception, which may precede the report window; only
 source-origin authority proves its absence. A complete origin history with a
 modeled trigger but no required inception fails atomically. Complete origin
@@ -1222,6 +1249,12 @@ with no modeled trigger is NotStarted and creates no initial-state interval;
 insufficient origin is Unknown. Pre-inception observed triggers remain captured
 with pre_inception disposition and cannot establish/advance state. They are not
 legal transitions or post-inception illegal-transition assertions.
+Without origin authority, even an observed inception has unknown_origin disposition
+with no state, inception, interval or legal/violation assertion. Beyond the proved
+prefix, nonterminal follow-up has unknown_followup disposition and preserves the
+known prefix without inventing transitions. A terminal state reached inside the
+proved prefix remains absorbing, so later invariant terminal violations can still
+be retained as a set despite incomplete follow-up. Coverage remains censored.
 After known inception, illegal_transition records the exact trigger and keeps
 state; transition_from_terminal records its own occurrence and also keeps state.
 Legal transitions include self-transitions and zero-duration intermediate states.

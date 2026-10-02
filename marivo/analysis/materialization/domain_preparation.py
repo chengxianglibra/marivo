@@ -14,7 +14,7 @@ from pydantic import TypeAdapter, ValidationError
 from marivo.analysis.core.domain_captures import CaptureAuthority, EventPrecision, fail
 from marivo.analysis.core.model import OccurrencePart
 from marivo.analysis.core.rules import OccurrencePrepare
-from marivo.analysis.methods.domain_coverage import FACTS, coverage
+from marivo.analysis.methods.domain_coverage import FACTS, CoverageFact, coverage
 
 if TYPE_CHECKING:
     from marivo.analysis.core.graph import MethodNode
@@ -175,43 +175,6 @@ def validate_exchange(
     subject = next((part.table for part in parts if part.role == "subject"), None)
     if occurrence is None or subject is None:
         fail("required_parts", "occurrence or Subject part missing", stage="recovery")
-    metadata = primary.schema.metadata or {}
-    try:
-        authority = AUTHORITY.validate_json(metadata[b"r7.capture_authority"])
-        precision = PRECISION.validate_json(metadata[b"r7.precision"])
-        facts = FACTS.validate_json(metadata[b"r7.coverage"])
-    except (KeyError, ValueError, TypeError, ValidationError) as error:
-        fail(
-            "required_parts",
-            f"capture/precision/coverage metadata missing: {type(error).__name__}",
-            stage="recovery",
-        )
-    if (
-        {item.event for item in precision} != {event.ref.path for event in declaration.events}
-        or len(precision) != len(declaration.events)
-        or {item.event for item in facts} != {event.ref.path for event in declaration.events}
-        or len(facts) != len(declaration.events)
-    ):
-        fail("input_binding", "retained authority or Event metadata differs", stage="recovery")
-    payload = json.loads(metadata[b"r7.capture_authority"])
-    payload.pop("digest", None)
-    if (
-        authority.digest != hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
-        or not authority.capture_id
-        or (authority.kind == "immutable_manifest") != bool(authority.files)
-        or any(
-            len(file.sha256) != 64 or file.bytes < 0 or not file.source_id or not file.path
-            for file in authority.files
-        )
-    ):
-        fail("input_binding", "damaged capture authority/manifest", stage="recovery")
-    if any(
-        item.effective_unit != "us"
-        or item.possible_loss != (item.declared_unit == "ns" or item.source_unit == "ns")
-        or not item.behavior
-        for item in precision
-    ):
-        fail("physical_qualification", "damaged retained precision disclosure", stage="recovery")
     params = OccurrencePrepare(
         contract.signature.domain,
         declaration.events,
@@ -223,17 +186,7 @@ def validate_exchange(
         declaration.order_use,
         declaration.terminal_state,
     )
-    if facts != coverage(
-        params, tuple(item.observed for item in facts if item.observed is not None)
-    ) or any(
-        item.observed is not None and item.observed.source_revision != authority.digest
-        for item in facts
-    ):
-        fail(
-            "coverage_binding",
-            "retained coverage differs from its bound declarations/receipts",
-            stage="recovery",
-        )
+    validate_metadata(params, primary.schema.metadata or {})
     if occurrence.schema.field("occurrences__occurred_at").type != pa.timestamp("us", tz="UTC"):
         fail(
             "physical_qualification",
@@ -279,3 +232,56 @@ def fixed(node: MethodNode, selected: ExchangeResult, binding: str) -> ExchangeR
     return from_arrow(
         selected.primary, contract, parts=selected.parts, method_state=selected.method_state
     )
+
+
+def validate_metadata(
+    params: OccurrencePrepare, metadata: dict[bytes, bytes]
+) -> tuple[CoverageFact, ...]:
+    try:
+        authority = AUTHORITY.validate_json(metadata[b"r7.capture_authority"])
+        precision = PRECISION.validate_json(metadata[b"r7.precision"])
+        facts = FACTS.validate_json(metadata[b"r7.coverage"])
+    except (KeyError, ValueError, TypeError, ValidationError) as error:
+        fail(
+            "required_parts",
+            f"capture/precision/coverage metadata missing: {type(error).__name__}",
+            stage="recovery",
+        )
+    if (
+        {item.event for item in precision} != {event.ref.path for event in params.events}
+        or len(precision) != len(params.events)
+        or {item.event for item in facts} != {event.ref.path for event in params.events}
+        or len(facts) != len(params.events)
+    ):
+        fail("input_binding", "retained authority or Event metadata differs", stage="recovery")
+    payload = json.loads(metadata[b"r7.capture_authority"])
+    payload.pop("digest", None)
+    if (
+        authority.digest != hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+        or not authority.capture_id
+        or (authority.kind == "immutable_manifest") != bool(authority.files)
+        or any(
+            len(file.sha256) != 64 or file.bytes < 0 or not file.source_id or not file.path
+            for file in authority.files
+        )
+    ):
+        fail("input_binding", "damaged capture authority/manifest", stage="recovery")
+    if any(
+        item.effective_unit != "us"
+        or item.possible_loss != (item.declared_unit == "ns" or item.source_unit == "ns")
+        or not item.behavior
+        for item in precision
+    ):
+        fail("physical_qualification", "damaged retained precision disclosure", stage="recovery")
+    if facts != coverage(
+        params, tuple(item.observed for item in facts if item.observed is not None)
+    ) or any(
+        item.observed is not None and item.observed.source_revision != authority.digest
+        for item in facts
+    ):
+        fail(
+            "coverage_binding",
+            "retained coverage differs from its bound declarations/receipts",
+            stage="recovery",
+        )
+    return facts

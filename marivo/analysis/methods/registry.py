@@ -90,6 +90,13 @@ class MethodRegistration:
                         repr(implementation.key),
                         "Bind receiver and category.",
                     )
+            elif rule == "history_replay@v1":
+                if input_count != 2:
+                    reject(
+                        "two ordered History inputs",
+                        repr(implementation.key),
+                        "Bind members and occurrences.",
+                    )
             elif rule == "map_correspond@v1" or self.semantics.key.name == "parts_transport":
                 if input_count not in (1, 2):
                     reject(

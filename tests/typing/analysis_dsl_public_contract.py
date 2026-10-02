@@ -12,6 +12,15 @@ if TYPE_CHECKING:
     session = mv.session.get_or_create("typing-public", report_timezone="UTC")
     members = session.members(ms.ref.entity("sales.customer"))
     assert_type(members, mv.LogicalAnalysisDomain)
+    history = session.lifecycle.replay(
+        ms.ref.state_model("sales.lifecycle"),
+        population=members,
+        window=mv.time_scope(start="2026-08-01T00:00:00+00:00", end="2026-09-01T00:00:00+00:00"),
+        seed=mv.from_inception(),
+    )
+    assert_type(history, mv.LogicalHistoryResult)
+    assert_type(history.execute(), mv.MaterializedHistoryResult)
+    assert_type(history.contract(), mv.AnalysisContract)
     approximate_count = mv.runtime_metric.aggregate(
         ms.ref.measure("sales.order.amount"), agg="approx_count_distinct", label="distinct"
     )

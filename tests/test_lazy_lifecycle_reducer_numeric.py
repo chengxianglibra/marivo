@@ -63,12 +63,10 @@ def primary(
 
 def test_dwell_completed_clipped_fragments_and_exact_quantiles(backend: Backend) -> None:
     from marivo.analysis import time_scope
-    from marivo.analysis.lifecycle import FromInception
 
-    h = sources_without_io().lifecycle.replay(
-        MODEL,
+    h = history(
+        sources_without_io(),
         window=time_scope(start=START.isoformat(), end=(START + timedelta(days=3)).isoformat()),
-        seed=FromInception(),
     )
     table = primary(
         backend,

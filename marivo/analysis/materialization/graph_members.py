@@ -479,6 +479,7 @@ class MemberGraph:
                         "funnel.compare",
                         "funnel.read",
                         "funnel_ratio_mix",
+                        "history.replay",
                         "journey.match",
                         "journey.duration",
                         "journey.completed",

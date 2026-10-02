@@ -39,6 +39,7 @@ from marivo.analysis.core.model import (
     FunnelAllocationPart,
     FunnelComparisonPart,
     FunnelPart,
+    HistoryPart,
     JourneyPart,
     ObservedQuantity,
     OriginalStatePart,
@@ -60,6 +61,7 @@ from marivo.analysis.core.rules import (
     FunnelField,
     FunnelRead,
     FunnelReduce,
+    HistoryReplay,
     JourneyCompleted,
     JourneyDuration,
     JourneyMatch,
@@ -325,6 +327,8 @@ def _kind(node: Relation) -> str:
         return "funnel_read"
     if isinstance(definition.parameters, FunnelAttribute):
         return "attribution"
+    if isinstance(definition.parameters, HistoryReplay):
+        return "history"
     if isinstance(definition.parameters, JourneyMatch):
         return "journey"
     if isinstance(definition.parameters, JourneyDuration):
@@ -493,7 +497,9 @@ class _Value:
         kind, fixed = _kind(self._node), self._dataset is not None
         roles = tuple(part_role(part) for part in signature.parts)
         names: tuple[str, ...]
-        if kind == "journey":
+        if kind == "history":
+            names = ()
+        elif kind == "journey":
             names = (
                 "time_to_event",
                 "subjects",
@@ -674,6 +680,24 @@ class _Value:
                     "Execute this local result first; use the materialized result for further operations.",
                 )
             )
+        history = next((p for p in signature.parts if isinstance(p, HistoryPart)), None)
+        if history is not None:
+            facts.extend(
+                (
+                    ("statistical_unit", "Subject"),
+                    ("seed", "from_inception"),
+                    ("window", history.window_start + "/" + history.window_end),
+                )
+            )
+            if self._dataset is not None:
+                facts.append(
+                    (
+                        "captured_precision",
+                        (self._dataset.verified().primary.schema.metadata or {})
+                        .get(b"r7.precision", b"unavailable")
+                        .decode()[:2048],
+                    )
+                )
         journey = next((p for p in signature.parts if isinstance(p, JourneyPart)), None)
         if journey is not None:
             facts.extend(
@@ -3507,6 +3531,8 @@ def wrap_materialized(
         return MaterializedFunnelComparisonResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "funnel_read":
         return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "history":
+        return MaterializedHistoryResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "journey":
         return MaterializedJourneyResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "event_duration":
@@ -4481,6 +4507,24 @@ class _Journey(_Value):
         return LogicalBooleanRelation(_TOKEN, node, self._runtime, inputs=(self,))
 
 
+class LogicalHistoryResult(_Value):
+    """Logical full-Subject canonical Lifecycle History."""
+
+    def execute(self) -> MaterializedHistoryResult:
+        """Execute replay and atomically retain the complete canonical History.
+
+        Args: None.
+        Returns: A MaterializedHistoryResult with the full Subject ledger and trace.
+        Example: ``fixed = history.execute()``.
+        Constraints: Source preparation and local replay share one deadline and input capture.
+        """
+        return MaterializedHistoryResult(_TOKEN, self._node, self._runtime, dataset=self._run())
+
+
+class MaterializedHistoryResult(_MaterializedValue):
+    """Verified source-free History; domain views are a later implementation phase."""
+
+
 class LogicalJourneyResult(_Journey):
     """Unexecuted canonical Journey matching in the governed graph."""
 
@@ -5123,13 +5167,19 @@ class MaterializedFunnelComparisonResult(_FunnelComparison, _MaterializedValue):
     """Fixed period comparison with original counts and source-free attribution."""
 
 
+def new_history(node: Relation, runtime: DatasetRuntime) -> LogicalHistoryResult:
+    """Wrap the exact canonical History graph without evaluating it."""
+    return LogicalHistoryResult(_TOKEN, node, runtime)
+
+
 def new_journeys(node: Relation, runtime: DatasetRuntime) -> LogicalJourneyResult:
     """Bind the public Journey receiver to its governed graph."""
     return LogicalJourneyResult(_TOKEN, node, runtime)
 
 
 PublicMaterialized: TypeAlias = (
-    MaterializedFunnelResult
+    MaterializedHistoryResult
+    | MaterializedFunnelResult
     | MaterializedFunnelComparisonResult
     | MaterializedJourneyResult
     | MaterializedEventDurationResult

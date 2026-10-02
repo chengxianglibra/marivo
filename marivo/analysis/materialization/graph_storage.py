@@ -119,12 +119,15 @@ def read_result(root: Path, descriptor: Descriptor) -> ExchangeResult:
         statuses = pa.Table.from_arrays(
             [
                 *(primary.column(key) for key in keys),
-                pa.array(["accepted"] * len(primary), type=pa.string())
+                primary.column("classification")
+                if state.kind == "canonical_history"
+                else pa.array(["accepted"] * len(primary), type=pa.string())
                 if descriptor.method_state.kind
                 in (
                     "cohort",
                     "table",
                     "occurrence_inputs",
+                    "canonical_history",
                     "journey_assignment",
                     "entry_axes",
                     "funnel_components",

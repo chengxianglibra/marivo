@@ -263,8 +263,8 @@ ANALYSIS_PUBLIC = {
     "MaterializedCandidateDataset",
     "LogicalEventDataset",
     "MaterializedEventDataset",
-    "LogicalLifecycleDataset",
-    "MaterializedLifecycleDataset",
+    "LogicalHistoryResult",
+    "MaterializedHistoryResult",
     "AnalysisPredicate",
     "ForecastHorizon",
     "ForecastModel",
@@ -332,7 +332,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "37cfd93f36c07190b542fdbdfa158911abdd9e524084c1a41739560786c8f182"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "bed28db5c7881a3b5201c01db9639bd4e7b19fce8b6b839b0f5f06153fccbcb0"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

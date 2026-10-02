@@ -158,6 +158,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.MaterializedFunnelResult,
         dsl.LogicalFunnelComparisonResult,
         dsl.MaterializedFunnelComparisonResult,
+        dsl.LogicalHistoryResult,
+        dsl.MaterializedHistoryResult,
         dsl.LogicalJourneyResult,
         dsl.MaterializedJourneyResult,
         dsl.LogicalEventDurationResult,
@@ -222,6 +224,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             dsl.MaterializedFunnelResult: "funnel.execute()",
             dsl.LogicalFunnelComparisonResult: "current.compare(baseline)",
             dsl.MaterializedFunnelComparisonResult: "change.execute()",
+            dsl.LogicalHistoryResult: "session.lifecycle.replay(model, population=members, window=window, seed=mv.from_inception())",
+            dsl.MaterializedHistoryResult: "history.execute()",
             dsl.LogicalJourneyResult: "session.events.match(pattern, population=members, cohort_window=window, completion_through=end, matching=mv.first_per_subject())",
             dsl.MaterializedJourneyResult: "journeys.execute()",
             dsl.LogicalEventDurationResult: "journeys.time_to_event(from_step=start, to_step=finish)",
@@ -272,7 +276,11 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             else "Construct through session.members() or the returned typed relation."
         )
         producers = (
-            ("dsl.Journey.funnel",)
+            ("lifecycle.replay",)
+            if type_value is dsl.LogicalHistoryResult
+            else ("dsl.LogicalHistoryResult.execute",)
+            if type_value is dsl.MaterializedHistoryResult
+            else ("dsl.Journey.funnel",)
             if type_value is dsl.LogicalFunnelResult
             else ("dsl.LogicalFunnelResult.execute",)
             if type_value is dsl.MaterializedFunnelResult
@@ -337,7 +345,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 summary=f"Governed Analysis {name} value type.",
                 acquisition=acquisition,
                 producers=("session.artifact",) if name.startswith("Materialized") else producers,
-                consumers=("dsl.Funnel.read", "dsl.FunnelResult.compare")
+                consumers=("dsl.LogicalHistoryResult.execute", "dsl.Value.contract")
+                if type_value in (dsl.LogicalHistoryResult, dsl.MaterializedHistoryResult)
+                else ("dsl.Funnel.read", "dsl.FunnelResult.compare")
                 if type_value in (dsl.LogicalFunnelResult, dsl.MaterializedFunnelResult)
                 else ("dsl.Funnel.read", "dsl.FunnelComparison.attribute")
                 if type_value

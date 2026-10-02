@@ -83,8 +83,8 @@ EXPECTED_EXPORTS = (
     "MaterializedCandidateDataset",
     "LogicalEventDataset",
     "MaterializedEventDataset",
-    "LogicalLifecycleDataset",
-    "MaterializedLifecycleDataset",
+    "LogicalHistoryResult",
+    "MaterializedHistoryResult",
     "AnalysisPredicate",
     "ForecastHorizon",
     "ForecastModel",
@@ -246,7 +246,6 @@ EXPECTED_SHAPES = {
         "driver-axis",
     ),
     "event": ("journey", "funnel", "time-to-event"),
-    "lifecycle": ("history", "distribution", "transitions", "dwell", "violations"),
 }
 
 # Required leaves from the four owning designs, including the accepted route repair.
@@ -293,7 +292,6 @@ REQUIRED_TARGETS = frozenset(
         "discovery.interesting_windows",
         "discovery.entity_outliers",
         "event_dataset",
-        "lifecycle_dataset",
         "events.match",
         "event_matching",
         "event_matching.first_per_subject",
@@ -302,11 +300,6 @@ REQUIRED_TARGETS = frozenset(
         "event_dataset.time_to_event",
         "event_dataset.select_subjects",
         "lifecycle.replay",
-        "lifecycle_dataset.distribution",
-        "lifecycle_dataset.transitions",
-        "lifecycle_dataset.dwell",
-        "lifecycle_dataset.violations",
-        "lifecycle_dataset.select_subjects",
         "dropped_before",
         "in_state",
         "funnel_loss_rate",
@@ -383,7 +376,6 @@ def test_exact_export_bindings_and_required_native_targets(
     for forbidden in (
         "PopulationDataset",
         "EventDataset",
-        "LifecycleDataset",
         "events.occurrence_bounds",
         "hypothesis_test",
     ):
@@ -585,27 +577,6 @@ EXPECTED_VARIANT_FIELDS = {
     ),
     "EventFunnelSemantics": ("axis_dependency_fingerprints", "axis_refs", "journey_json", "kind"),
     "EventTimeToEventSemantics": ("from_step_json", "journey_json", "kind", "to_step_json"),
-    "LifecycleSemantics": (
-        "inceptions",
-        "initial",
-        "kind",
-        "model_ref",
-        "seed_fingerprint",
-        "source_json",
-        "states",
-        "terminals",
-        "transitions",
-    ),
-    "DistributionSemantics": (
-        "at",
-        "axis_dependency_fingerprints",
-        "axis_refs",
-        "history_json",
-        "kind",
-    ),
-    "TransitionsSemantics": ("history_json", "kind"),
-    "DwellSemantics": ("estimand", "history_json", "kind"),
-    "ViolationsSemantics": ("history_json", "kind"),
 }
 
 
@@ -636,7 +607,7 @@ def test_expected_parameter_acquisition_and_default_contracts(
             "business_order",
             "completeness",
         ),
-        "lifecycle.replay": ("model", "window", "seed", "population", "completeness"),
+        "lifecycle.replay": ("model", "population", "window", "seed", "completeness"),
     }
     for target, parameters in expected.items():
         descriptor = disclosure.by_canonical_id(target)
