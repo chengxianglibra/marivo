@@ -39,16 +39,20 @@ from marivo.analysis.core.model import (
     FunnelComparisonPart,
     FunnelPart,
     HistoryViewPart,
+    InstanceRetentionPart,
     SubjectPart,
+    SubjectRetentionPart,
 )
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorObserve,
+    AnchorRetention,
     BindProject,
     MapCorrespond,
     PartsTransport,
     PreparedObservation,
+    RetentionBySubject,
     RowState,
     entity_members,
 )
@@ -494,13 +498,25 @@ class MemberGraph:
                                 FunnelPart,
                                 FunnelComparisonPart,
                                 FunnelAllocationPart,
+                                InstanceRetentionPart,
+                                SubjectRetentionPart,
                                 HistoryViewPart,
                             ),
                         )
                         for e in node.inputs
                         for p in e.node.signature.parts
                     )
-                    or isinstance(node.parameters, PreparedObservation)
+                    or (
+                        isinstance(node.parameters, AnchorRetention)
+                        and (
+                            isinstance(node.parameters.window, CalendarWindow)
+                            or any(
+                                isinstance(p, AnchorDomainPart) and p.journey is not None
+                                for p in node.inputs[0].node.signature.parts
+                            )
+                        )
+                    )
+                    or isinstance(node.parameters, (RetentionBySubject, PreparedObservation))
                     or node.method.name
                     in (
                         "funnel.reduce",

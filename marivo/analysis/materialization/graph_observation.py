@@ -729,9 +729,11 @@ def observe_members(
         parameters = replace(parameters, capture_versions=True)
     observation_inputs: tuple[Edge, ...] = (Edge("subject", member_root),)
     local_populations = tuple(
-        node.inputs[0].node
-        for node in topology(member_root)
-        if isinstance(node, MethodNode) and isinstance(node.parameters, OccurrencePrepare)
+        {
+            node.inputs[0].node.identity: node.inputs[0].node
+            for node in topology(member_root)
+            if isinstance(node, MethodNode) and isinstance(node.parameters, OccurrencePrepare)
+        }.values()
     )
     prepared_parameters = None
     if local_populations:

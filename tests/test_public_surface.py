@@ -146,6 +146,14 @@ ANALYSIS_PUBLIC = {
     "CalendarWindow",
     "calendar_days",
     "LogicalAnchorDomain",
+    "AnyAnchor",
+    "EveryAnchor",
+    "any_anchor",
+    "every_anchor",
+    "LogicalRetentionResult",
+    "MaterializedRetentionResult",
+    "LogicalSubjectRetentionResult",
+    "MaterializedSubjectRetentionResult",
     "MaterializedAnchorDomain",
     "LogicalAttributionResult",
     "LogicalFunnelResult",
@@ -350,7 +358,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "257d5848c42bb5c7ad393455329362d7d9c91dba3b0f36a5d7fcbe58eab3a014"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "b4e8193d03516095dbfabee5a457ab93b85e47f46798d0e59878452653d27b05"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

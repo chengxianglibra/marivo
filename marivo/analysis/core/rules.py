@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass, replace
 from typing import Literal, TypeAlias
 
-from marivo.analysis.anchors import CalendarWindow, ElapsedWindow
+from marivo.analysis.anchors import AnyAnchor, CalendarWindow, ElapsedWindow, EveryAnchor
 from marivo.analysis.core.domain_captures import (
     EntryAxisCapture,
     EventCapture,
@@ -98,6 +98,7 @@ from marivo.semantic.metric_graph import (
 from marivo.semantic.runtime_metric import RuntimeMetricExpr, SliceValue
 
 RuleId: TypeAlias = Literal[
+    "retention@v1",
     "anchor@v1",
     "funnel@v1",
     "history_replay@v1",
@@ -601,8 +602,21 @@ class AnchorObserve:
     composition: OriginalRatio | OccurrenceCombine | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class AnchorRetention:
+    window: ElapsedWindow | CalendarWindow
+
+
+@dataclass(frozen=True, slots=True)
+class RetentionBySubject:
+    output: DomainSignature
+    rule: AnyAnchor | EveryAnchor
+
+
 RuleParameters: TypeAlias = (
-    AnchorBind
+    AnchorRetention
+    | RetentionBySubject
+    | AnchorBind
     | AnchorObserve
     | FunnelAxesPrepare
     | FunnelReduce
@@ -2648,7 +2662,7 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
             "Preserve the domain; changed inputs or selections require a registered transport mapping.",
             "core.parts_transport.domain",
         )
-    parts = tuple(
+    parts: tuple[Part, ...] = tuple(
         replace(part, complete=False)
         if isinstance(
             part,
@@ -2659,6 +2673,9 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
         for part in (require_part(source, role) for role in params.retained_roles)
         if not isinstance(part, FindingPolicyPart)
     )
+    from marivo.analysis.core.retention_rules import transport as retention_transport
+
+    parts = tuple(retention_transport(part, params) for part in parts)
     if any(isinstance(p, (AttributionPart, FunnelAllocationPart)) for p in parts):
         parts = tuple(
             replace(

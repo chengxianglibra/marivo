@@ -1332,3 +1332,32 @@ The R7.7 qualification record preserves the original P48 native target and every
 mandatory ID. Tested local execution, fixed continuations and cold recovery do not
 silently replace an unverified native or fixed-method target. Full R7, same-wheel,
 retention and remote acceptance keep their later owners.
+
+## R7.8 retained retention scope
+
+`anchor.retention@v1` and `retention.by_subject@v1` use the existing graph,
+Runtime and Store 7. The `retention` scope part is one canonical typed ledger,
+independent of the selected primary row set. It contains the complete original
+Anchor identities, Subject fibers, starts/deadlines, captured sequence values,
+Journey assignments where applicable, qualifying return-use identities, exact
+Event-bound coverage and the full three-valued partition. The frozen graph binds
+the return capture domain, relative window and explicit Subject quantifier.
+
+Primary Boolean Cells and their status state vector are verified against that
+ledger. Recovery validates exact identities, own-occurrence exclusion, captured
+order, window membership, coverage bindings, complete fibers and truth. Status
+selection retains the full scope; it never changes the denominator or bounds.
+Declaration and observed coverage intervals are retained under the exact return
+capture binding and checked for continuous coverage of each instance window.
+Gaps cannot establish false status. Predicates on another bound input remain
+general selections and cannot certify the receiver's unknown status.
+Subject quantification creates a separately identified full Subject-image Omega.
+Empty Omega retains empty status sets and Undefined bounds.
+
+Event elapsed witness selection runs in Ibis; calendar and Journey inputs follow
+source preparation before local consumption. Every source read completes before
+local retention, quantification or status transport starts. Fixed status views and
+quantification consume verified retained parts without loading current semantics,
+opening a datasource or rematching Journeys. A starts-only Anchor Artifact lacks
+return inputs and rejects retention construction before a Run. Fixed retention
+kernel qualification remains unfinished; continuation evidence cannot replace it.

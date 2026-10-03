@@ -1,7 +1,7 @@
 # R7.1 contract freeze and consumer migration ledger
 
 Date: 2026-10-01. Status: R7.1 contract/static freeze complete; R7.2 private
-preparation implemented and qualified as recorded below; R7.3-R7.6 implementations are recorded below; R7.7 bounded implementation and remaining qualifications are recorded below; R7.8-R7.9 remain pending. This ledger indexes sole owners and responsibility;
+preparation implemented and qualified as recorded below; R7.3-R7.6 implementations are recorded below; R7.7 bounded implementation and remaining qualifications are recorded below; R7.8 bounded retention implementation is recorded below; R7.9 remains pending. This ledger indexes sole owners and responsibility;
 it is not another public API or method registry and grants no Runtime qualification.
 
 ## Actual baseline and accepted decisions
@@ -429,3 +429,26 @@ continuations. Event fixed-bind and fixed anchor.observe targets without retaine
 have no falsely qualified physical registration; the outstanding mandatory targets are
 listed in the acceptance record. Retention/any-every/full A13, R7.9 same-wheel and R9
 remote responsibilities remain unchanged. No commit, push or release occurred.
+
+
+## R7.8 retention disposition (2026-10-03)
+
+F11 now has a public instance retention producer, explicit any/every Subject
+quantifier, retained full Omega/partition/coverage/fibers, status views and exact
+known-true member images. `anchor.retention@v1` owns return capture and truth;
+`retention.by_subject@v1` owns the newly fixed Subject image. The existing graph,
+method registry, Runtime, Store 7 exchange and receipt path remain the sole owners.
+Event elapsed witnesses use Ibis; calendar/Journey use fully prepared local inputs.
+
+V12, V14-V15 and the retention part of A13 have bounded Runtime counterexamples,
+three-process source/offline/cold tests, corruption and atomic-publication checks.
+See `2026-10-03-marivo-r78-evidence-index.md` and its qualification record for exact
+commands, actual kernels and original mandatory cell dispositions. P24 status/image
+and P50 retained-scope duties are recorded as retention transports, not kernels.
+
+MaterializedAnchorDomain remains starts-only. The chosen current-interface boundary
+rejects retention construction without complete return inputs before a Run; it adds
+no capture API. Original P19/P20 fixed-retention targets remain unfinished. Inherited
+R7.7 targets, unexecuted original profile cells, full A13/R7, same-wheel and remote
+qualification keep their existing owners. No legacy reducer module is deleted solely
+because the new retention path exists. AGENTS.md and packaged skills are unchanged.

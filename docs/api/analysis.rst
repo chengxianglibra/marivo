@@ -546,3 +546,42 @@ Anchor cannot introduce a new live Metric dependency.
 .. automethod:: MaterializedAnchorDomain.observe
 
 .. automethod:: MaterializedAnchorDomain.subjects
+
+Retention and Subject quantification
+------------------------------------
+
+.. autofunction:: any_anchor
+
+.. autofunction:: every_anchor
+
+.. autoclass:: AnyAnchor
+   :members:
+
+.. autoclass:: EveryAnchor
+   :members:
+
+.. autoclass:: LogicalRetentionResult
+   :members:
+
+.. autoclass:: MaterializedRetentionResult
+   :members:
+
+.. autoclass:: LogicalSubjectRetentionResult
+   :members:
+
+.. autoclass:: MaterializedSubjectRetentionResult
+   :members:
+
+.. automethod:: LogicalAnchorDomain.retention
+
+.. automethod:: MaterializedAnchorDomain.retention
+
+.. automethod:: LogicalRetentionResult.by_subject
+
+.. automethod:: MaterializedRetentionResult.by_subject
+
+.. automethod:: LogicalRetentionResult.known_true
+
+.. automethod:: LogicalRetentionResult.known_false
+
+.. automethod:: LogicalRetentionResult.unknown

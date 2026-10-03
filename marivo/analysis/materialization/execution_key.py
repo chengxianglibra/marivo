@@ -10,7 +10,7 @@ from typing import TypeAlias
 
 from pydantic import TypeAdapter
 
-from marivo.analysis.anchors import CalendarWindow, Duration, ElapsedWindow
+from marivo.analysis.anchors import AnyAnchor, CalendarWindow, Duration, ElapsedWindow, EveryAnchor
 from marivo.analysis.compiler.graph_plan import GraphPlan, LocalMethodStage, SourceMethodStage
 from marivo.analysis.core import history_types
 from marivo.analysis.core import model as core_model
@@ -59,6 +59,10 @@ _CAPTURE_WIRE: TypeAdapter[EntryAxisCapture | EventCapture | OrderCapture | Stat
 )
 
 _WIRE_TAGS: dict[type[object], str] = {
+    AnyAnchor: "any_anchor",
+    EveryAnchor: "every_anchor",
+    core_model.InstanceRetentionPart: "instance_retention_part",
+    core_model.SubjectRetentionPart: "subject_retention_part",
     Duration: "duration",
     ElapsedWindow: "elapsed_window",
     CalendarWindow: "calendar_window",

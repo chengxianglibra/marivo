@@ -7,7 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, NoReturn, TypeAlias
 
-from marivo.analysis.anchors import CalendarWindow, ElapsedWindow
+from marivo.analysis.anchors import AnyAnchor, CalendarWindow, ElapsedWindow, EveryAnchor
 from marivo.analysis.core.domain_captures import (
     EntryAxisCapture,
     EventCapture,
@@ -660,6 +660,26 @@ class AnchorObservationPart:
 
 
 @dataclass(frozen=True, slots=True)
+class InstanceRetentionPart:
+    binding: Binding
+    anchors: AnchorDomainPart
+    returning: OccurrencePart
+    returning_domain: DomainSignature
+    window: ElapsedWindow | CalendarWindow
+    selection: Literal["full", "true", "false", "unknown", "predicate"] = "full"
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class SubjectRetentionPart:
+    binding: Binding
+    instances: InstanceRetentionPart
+    rule: AnyAnchor | EveryAnchor
+    selection: Literal["full", "true", "false", "unknown", "predicate"] = "full"
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
 class EntryAxesPart:
     binding: Binding
     cohort_start: str
@@ -714,7 +734,9 @@ class FindingPolicyPart:
 
 
 Part: TypeAlias = (
-    AnchorDomainPart
+    InstanceRetentionPart
+    | SubjectRetentionPart
+    | AnchorDomainPart
     | AnchorObservationPart
     | EntryAxesPart
     | FunnelPart
@@ -741,6 +763,7 @@ Part: TypeAlias = (
     | PairCountsPart
 )
 PartRole: TypeAlias = Literal[
+    "retention",
     "anchor",
     "history",
     "history_view",
@@ -780,6 +803,8 @@ PartRole: TypeAlias = Literal[
 
 
 def part_role(part: Part) -> PartRole:
+    if isinstance(part, (InstanceRetentionPart, SubjectRetentionPart)):
+        return "retention"
     if isinstance(part, (AnchorDomainPart, AnchorObservationPart)):
         return "anchor"
     if isinstance(part, EntryAxesPart):
@@ -826,6 +851,11 @@ def part_role(part: Part) -> PartRole:
 
 
 def validate_part(part: Part) -> None:
+    if isinstance(part, (InstanceRetentionPart, SubjectRetentionPart)):
+        from marivo.analysis.core.retention_rules import validate as validate_retention
+
+        validate_retention(part)
+        return
     if isinstance(part, (AnchorDomainPart, AnchorObservationPart)):
         from marivo.analysis.core.anchor_rules import validate as validate_anchor
 

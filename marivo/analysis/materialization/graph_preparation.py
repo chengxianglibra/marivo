@@ -28,11 +28,14 @@ from marivo.analysis.core.model import (
     FunnelComparisonPart,
     FunnelPart,
     HistoryViewPart,
+    InstanceRetentionPart,
     OriginalStatePart,
+    SubjectRetentionPart,
 )
 from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorObserve,
+    AnchorRetention,
     DisplayRank,
     DisplayTable,
     FunnelAttribute,
@@ -53,6 +56,7 @@ from marivo.analysis.core.rules import (
     OccurrencePrepare,
     PartsTransport,
     PreparedObservation,
+    RetentionBySubject,
     RowState,
 )
 from marivo.analysis.domains.completeness import EventCoverageRequestV1
@@ -303,6 +307,8 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             isinstance(
                 item.stage.node.parameters,
                 (
+                    AnchorRetention,
+                    RetentionBySubject,
                     AnchorBind,
                     AnchorObserve,
                     PreparedObservation,
@@ -322,7 +328,15 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             )
             or any(
                 isinstance(
-                    p, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart, HistoryViewPart)
+                    p,
+                    (
+                        InstanceRetentionPart,
+                        SubjectRetentionPart,
+                        FunnelPart,
+                        FunnelComparisonPart,
+                        FunnelAllocationPart,
+                        HistoryViewPart,
+                    ),
                 )
                 for e in item.stage.node.inputs
                 for p in e.node.signature.parts
@@ -377,6 +391,8 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             not isinstance(
                 params,
                 (
+                    AnchorRetention,
+                    RetentionBySubject,
                     AnchorBind,
                     AnchorObserve,
                     OccurrencePrepare,
@@ -465,6 +481,17 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             )
             if capture is not None:
                 table = table.replace_schema_metadata(capture.primary.schema.metadata)
+        if isinstance(params, AnchorRetention):
+            from marivo.analysis.materialization.retention_execution import native_result
+
+            assert isinstance(stage.node, MethodNode)
+            input_id = stage.node.inputs[1].node.identity
+            native_capture = next(
+                result
+                for output, result in results.items()
+                if relations[output].node.identity == input_id
+            )
+            results[stage.output] = native_result(stage.node, table, native_capture)
         if (
             isinstance(stage.node, MethodNode)
             and not isinstance(params, PreparedObservation)
@@ -496,6 +523,14 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             )
             results[item.stage.output] = bind_anchor(
                 item.stage.node, results[item.stage.inputs[0]], item.stage.node.identity, captured
+            )
+        elif isinstance(params, (AnchorRetention, RetentionBySubject)):
+            from marivo.analysis.materialization.retention_execution import execute as retention
+
+            results[item.stage.output] = retention(
+                item.stage.node,
+                tuple(results[key] for key in item.stage.inputs),
+                item.stage.node.identity,
             )
         elif isinstance(params, AnchorObserve):
             from marivo.analysis.materialization.anchor_execution import observe as observe_anchor

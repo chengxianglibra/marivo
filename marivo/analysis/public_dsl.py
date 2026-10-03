@@ -30,7 +30,7 @@ from marivo.analysis._time_grid import GridEndpoint as GridEndpoint
 from marivo.analysis._time_grid import GridWindow as GridWindow
 from marivo.analysis._time_grid import TimeGrid as TimeGrid
 from marivo.analysis._time_grid import time_grid as time_grid
-from marivo.analysis.anchors import CalendarWindow, ElapsedWindow
+from marivo.analysis.anchors import AnyAnchor, CalendarWindow, ElapsedWindow, EveryAnchor
 from marivo.analysis.core.graph import FixedLeaf, MethodNode, method_node, retained_nodes
 from marivo.analysis.core.history_types import HistoryField
 from marivo.analysis.core.model import (
@@ -45,18 +45,21 @@ from marivo.analysis.core.model import (
     FunnelPart,
     HistoryPart,
     HistoryViewPart,
+    InstanceRetentionPart,
     JourneyPart,
     ObservedQuantity,
     OriginalStatePart,
     RolledQuantity,
     RowStatisticQuantity,
     SubjectPart,
+    SubjectRetentionPart,
     part_role,
 )
 from marivo.analysis.core.predicates import DurationLiteral, TemporalLiteral, ValuePredicate
 from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorObserve,
+    AnchorRetention,
     AssociationScore,
     BindProject,
     CellDerive,
@@ -82,11 +85,16 @@ from marivo.analysis.core.rules import (
     PartsTransport,
     PreparedObservation,
     ReferenceDerive,
+    RetentionBySubject,
     RowState,
     TimeProduct,
 )
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint, bind_grid
 from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.domains.completeness import (
+    BoundedCompletenessDeclarationV1,
+    SourceOriginCompletenessDeclarationV1,
+)
 from marivo.analysis.event import PatternStep
 from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
 from marivo.analysis.funnel import FunnelLossRate
@@ -105,6 +113,7 @@ from marivo.analysis.materialization.graph_fields import (
     ScalarPredicate,
     StatePredicate,
     TemporalField,
+    not_,
     root_route,
     root_routes,
 )
@@ -328,6 +337,10 @@ class AnalysisContract:
 
 
 def _kind(node: Relation) -> str:
+    if isinstance(node.definition.parameters, AnchorRetention):
+        return "retention"
+    if isinstance(node.definition.parameters, RetentionBySubject):
+        return "subject_retention"
     if isinstance(node.definition.parameters, AnchorBind):
         return "anchor"
     if isinstance(node.definition.parameters, AnchorObserve):
@@ -519,7 +532,15 @@ class _Value:
         kind, fixed = _kind(self._node), self._dataset is not None
         roles = tuple(part_role(part) for part in signature.parts)
         names: tuple[str, ...]
-        if kind == "history":
+        if kind in ("retention", "subject_retention"):
+            names = (
+                "status",
+                "known_true",
+                "known_false",
+                "unknown",
+                *(("by_subject",) if kind == "retention" else ()),
+            )
+        elif kind == "history":
             names = ("read", "distribution", "transitions", "violations", "intervals", "dwell")
         elif kind in (
             "history_distribution",
@@ -699,6 +720,30 @@ class _Value:
             and "members" not in names
         ):
             names = (*names, "members")
+        retention = next(
+            (
+                p
+                for p in signature.parts
+                if isinstance(p, (InstanceRetentionPart, SubjectRetentionPart))
+            ),
+            None,
+        )
+        if retention is not None:
+            if isinstance(self, _Retention):
+                names = (
+                    "status",
+                    "known_true",
+                    "known_false",
+                    "unknown",
+                    *(("by_subject",) if isinstance(retention, InstanceRetentionPart) else ()),
+                    *(("execute",) if not fixed else ()),
+                )
+            else:
+                names = (
+                    "where",
+                    *(("members",) if retention.selection == "true" else ()),
+                    *(("execute",) if not fixed else ()),
+                )
         if "anchor" in roles and signature.quantity is not None:
             names = (
                 "where",
@@ -907,6 +952,32 @@ class _Value:
                     )
                 )
 
+        retention = next(
+            (
+                p
+                for p in signature.parts
+                if isinstance(p, (InstanceRetentionPart, SubjectRetentionPart))
+            ),
+            None,
+        )
+        if retention is not None:
+            facts.extend(
+                (
+                    ("population", "fixed original Omega; status views preserve its denominator"),
+                    ("selection", retention.selection),
+                )
+            )
+            if isinstance(retention, SubjectRetentionPart):
+                facts.append(("subject_rule", retention.rule.kind))
+            if self._dataset is not None:
+                from marivo.analysis.materialization.retention_execution import read, summary
+
+                exchange = self._dataset.verified()
+                facts.extend(
+                    summary(
+                        read(next(p for p in exchange.parts if p.role == "retention")), retention
+                    )
+                )
         if self._node.comparison_error is not None:
             facts.append(("comparison_unavailable", self._node.comparison_error))
         params = self._node.definition.parameters
@@ -1162,6 +1233,34 @@ class _Value:
         return subject_binding(self._node.root.signature.domain, part)
 
     def _subject_members(self, through: SubjectBinding | None) -> Relation:
+        retention = next(
+            (
+                p
+                for p in self._node.root.signature.parts
+                if isinstance(p, (InstanceRetentionPart, SubjectRetentionPart))
+            ),
+            None,
+        )
+        if retention is not None and retention.selection != "true":
+            from marivo.analysis.core.domain_captures import DomainPreparationError
+
+            raise DomainPreparationError(
+                "r7.retention_members",
+                "construction",
+                "a selected decidable true retention status",
+                retention.selection,
+                "Select retention.known_true(), then use its exact SubjectBinding for instance status.",
+            )
+        if (
+            retention is not None
+            and isinstance(retention, InstanceRetentionPart)
+            and through is None
+        ):
+            raise _reject(
+                "the retained Anchor SubjectBinding",
+                "missing through",
+                "Pass through=selected.subject_binding.",
+            )
         if through is not None and (
             type(through) is not SubjectBinding or through != self.subject_binding
         ):
@@ -3691,6 +3790,10 @@ def wrap_materialized(
         if typ == ScalarType("timestamp"):
             return MaterializedTemporalRelation(_TOKEN, node, runtime, dataset=dataset)
         return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "retention":
+        return MaterializedRetentionResult(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "subject_retention":
+        return MaterializedSubjectRetentionResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "anchor":
         return MaterializedAnchorDomain(_TOKEN, node, runtime, dataset=dataset)
     if kind == "history":
@@ -6001,6 +6104,31 @@ class _AnchorDomain(_Value):
             inputs=(self,),
         )
 
+    def retention(
+        self,
+        returning: ParticipantRoleHandle,
+        *,
+        within: ElapsedWindow | CalendarWindow,
+        completeness: tuple[
+            BoundedCompletenessDeclarationV1 | SourceOriginCompletenessDeclarationV1, ...
+        ] = (),
+    ) -> LogicalRetentionResult:
+        """Classify returns on the fixed complete Anchor instance population.
+
+        Args:
+            returning: Exact Event participant role of the Anchor Subject.
+            within: Required positive elapsed or calendar window.
+            completeness: Exact bound return-Event coverage declarations.
+        Returns: A LogicalRetentionResult with retained true, false and unknown status.
+        Example: ``result = anchors.retention(buyer, within=mv.elapsed(mv.duration(hours=168)))``.
+        Constraints: Unknown stays in Omega; fixed starts cannot introduce live return input.
+        """
+        from marivo.analysis.materialization.graph_retention import bind
+
+        return LogicalRetentionResult(
+            _TOKEN, bind(self._node, returning, within, completeness), self._runtime, inputs=(self,)
+        )
+
     def subjects(self, role: ParticipantRoleHandle) -> SubjectBinding:
         """Return the exact retained Anchor-to-Subject mapping.
 
@@ -6037,6 +6165,117 @@ class MaterializedAnchorDomain(_AnchorDomain, _MaterializedValue):
     """Receipt-bound Anchor instances with source-free reads."""
 
 
+class _Retention(_Value):
+    @property
+    def status(self) -> LogicalBooleanRelation:
+        """Read the exact retained three-valued status relation.
+
+        Args: None.
+        Returns: A BooleanRelation on the original full Omega.
+        Example: ``status = retention.status``.
+        Constraints: Unknown means insufficient follow-up; no implicit truth conversion.
+        """
+        node = self._node._with(
+            method_node(
+                (self._node._edge(),),
+                PartsTransport(
+                    "view", self._node.root.signature.domain, ("subject", "retention"), True
+                ),
+                value_type=ScalarType("boolean"),
+            )
+        )
+        return LogicalBooleanRelation(_TOKEN, node, self._runtime, inputs=(self,))
+
+    def known_true(self) -> LogicalSelectedBooleanRelation:
+        """Select decidable true status while retaining the original population.
+
+        Args: None.
+        Returns: A selected BooleanRelation suitable for exact Subject projection.
+        Example: ``selected = retention.known_true()``.
+        Constraints: Instance members require selected.subject_binding; bounds remain unchanged.
+        """
+        status = self.status
+        known = status.where(status.value.is_defined())
+        return known.where(known.value.eq(True))
+
+    def known_false(self) -> LogicalSelectedBooleanRelation:
+        """Select decidable false status while retaining the original population.
+
+        Args: None.
+        Returns: A selected BooleanRelation of false instances or Subjects.
+        Example: ``selected = retention.known_false()``.
+        Constraints: This view cannot produce known-true members or redefine bounds.
+        """
+        status = self.status
+        known = status.where(status.value.is_defined())
+        return known.where(known.value.eq(False))
+
+    def unknown(self) -> LogicalSelectedBooleanRelation:
+        """Select insufficient-follow-up status without dropping it from Omega.
+
+        Args: None.
+        Returns: A selected BooleanRelation retaining Unknown Cells.
+        Example: ``pending = retention.unknown()``.
+        Constraints: Unknown selection cannot produce exact known-true members.
+        """
+        status = self.status
+        return status.where(not_(status.value.is_defined()))
+
+
+class _InstanceRetention(_Retention):
+    def by_subject(self, *, rule: AnyAnchor | EveryAnchor) -> LogicalSubjectRetentionResult:
+        """Fix the complete Subject image and explicitly quantify its Anchor fibers.
+
+        Args: rule: Required mv.any_anchor() or mv.every_anchor() rule.
+        Returns: A LogicalSubjectRetentionResult on a new Subject-image Omega.
+        Example: ``subjects = retention.by_subject(rule=mv.any_anchor())``.
+        Constraints: Consumes every retained Anchor status; there is no default rule.
+        """
+        from marivo.analysis.materialization.graph_retention import by_subject
+
+        return LogicalSubjectRetentionResult(
+            _TOKEN, by_subject(self._node, rule), self._runtime, inputs=(self,)
+        )
+
+
+class LogicalRetentionResult(_InstanceRetention):
+    """Unexecuted retention on the original full Anchor population."""
+
+    def execute(self) -> MaterializedRetentionResult:
+        """Execute and atomically retain the complete instance truth partition.
+
+        Args: None.
+        Returns: A MaterializedRetentionResult.
+        Example: ``result = retention.execute()``.
+        Constraints: Source execution is fresh; no unknown instances leave the denominator.
+        """
+        return MaterializedRetentionResult(_TOKEN, self._node, self._runtime, dataset=self._run())
+
+
+class MaterializedRetentionResult(_InstanceRetention, _MaterializedValue):
+    """Verified instance truth and complete scope for source-free continuation."""
+
+
+class LogicalSubjectRetentionResult(_Retention):
+    """Unexecuted explicit Subject-image retention."""
+
+    def execute(self) -> MaterializedSubjectRetentionResult:
+        """Execute the explicit quantifier on complete retained Anchor fibers.
+
+        Args: None.
+        Returns: A MaterializedSubjectRetentionResult.
+        Example: ``result = subjects.execute()``.
+        Constraints: Fixed execution uses retained instances only; unknown remains in Omega.
+        """
+        return MaterializedSubjectRetentionResult(
+            _TOKEN, self._node, self._runtime, dataset=self._run()
+        )
+
+
+class MaterializedSubjectRetentionResult(_Retention, _MaterializedValue):
+    """Verified Subject retention with original instance fibers and explicit rule."""
+
+
 def new_history(node: Relation, runtime: DatasetRuntime) -> LogicalHistoryResult:
     """Wrap the exact canonical History graph without evaluating it."""
     return LogicalHistoryResult(_TOKEN, node, runtime)
@@ -6048,7 +6287,9 @@ def new_journeys(node: Relation, runtime: DatasetRuntime) -> LogicalJourneyResul
 
 
 PublicMaterialized: TypeAlias = (
-    MaterializedAnchorDomain
+    MaterializedRetentionResult
+    | MaterializedSubjectRetentionResult
+    | MaterializedAnchorDomain
     | MaterializedHistoryResult
     | MaterializedStateDistributionResult
     | MaterializedTransitionSummary

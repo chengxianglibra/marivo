@@ -11,12 +11,15 @@ from marivo.analysis.core.model import (
     FunnelComparisonPart,
     FunnelPart,
     HistoryViewPart,
+    InstanceRetentionPart,
     Obligation,
+    SubjectRetentionPart,
     reject,
 )
 from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorObserve,
+    AnchorRetention,
     FunnelAttribute,
     FunnelAxesPrepare,
     FunnelCompare,
@@ -33,6 +36,7 @@ from marivo.analysis.core.rules import (
     MapCorrespond,
     PartsTransport,
     PreparedObservation,
+    RetentionBySubject,
     RowState,
 )
 from marivo.analysis.methods.physical import (
@@ -223,6 +227,8 @@ def plan(
                 and not isinstance(
                     node.parameters,
                     (
+                        AnchorRetention,
+                        RetentionBySubject,
                         AnchorBind,
                         AnchorObserve,
                         PreparedObservation,
@@ -248,7 +254,7 @@ def plan(
                     and isinstance(node.parameters, (MapCorrespond, PartsTransport, RowState))
                 )
                 and not any(
-                    isinstance(p, HistoryViewPart)
+                    isinstance(p, (HistoryViewPart, InstanceRetentionPart, SubjectRetentionPart))
                     for e in node.inputs
                     for p in e.node.signature.parts
                 )
@@ -309,7 +315,9 @@ def plan(
                 in ("occurrence", "journey", "interval", "anchor")
             )
             local_consumer = (
-                (isinstance(node.parameters, AnchorBind) and route != "ibis")
+                (isinstance(node.parameters, AnchorRetention) and route != "ibis")
+                or isinstance(node.parameters, RetentionBySubject)
+                or (isinstance(node.parameters, AnchorBind) and route != "ibis")
                 or (
                     isinstance(node.parameters, PartsTransport)
                     and node.parameters.mode == "cohort"
@@ -326,6 +334,8 @@ def plan(
                                 FunnelPart,
                                 FunnelComparisonPart,
                                 FunnelAllocationPart,
+                                InstanceRetentionPart,
+                                SubjectRetentionPart,
                                 HistoryViewPart,
                             ),
                         )

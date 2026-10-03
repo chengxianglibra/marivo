@@ -1,0 +1,904 @@
+{
+  "acceptance": "bounded authorized implementation complete; original R7.8/A13 qualification incomplete",
+  "bounded_execution_cases": [
+    {
+      "candidate": "iteration; integer fixture results only",
+      "cold_exact_hits": 22,
+      "cold_kernels": [],
+      "cold_retention_execution_guarded": true,
+      "config": {
+        "form": "table",
+        "occurrence": "c",
+        "subject": "c",
+        "unit": "us",
+        "zone": "UTC"
+      },
+      "fixed_kernels": [
+        "P21",
+        "P22"
+      ],
+      "fixed_outputs": 22,
+      "key_profile": "K33",
+      "original_cold_reads": 4,
+      "receipt": {
+        "path": "docs/superpowers/specs/evidence/r78-matrix/c-c-table-us-UTC.json",
+        "sha256": "7cfc4013f0a4fc6c7c70ede508637059c3bbceea060c7e944a28ff13e8a2f8b9"
+      },
+      "semantic_and_source_loads_guarded": true,
+      "snapshot_and_validity_axes": false,
+      "source_files_deleted": [
+        "source.duckdb",
+        "*.parquet"
+      ],
+      "source_kernels": [
+        "P19",
+        "P20",
+        "P21",
+        "P22"
+      ],
+      "source_method_bindings": {
+        "P19": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P20": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P21": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        },
+        "P22": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        }
+      },
+      "status": "passed_bounded",
+      "time_profile": "T01"
+    },
+    {
+      "candidate": "iteration; integer fixture results only",
+      "cold_exact_hits": 22,
+      "cold_kernels": [],
+      "cold_retention_execution_guarded": true,
+      "config": {
+        "form": "table",
+        "occurrence": "i",
+        "subject": "c",
+        "unit": "us",
+        "zone": "UTC"
+      },
+      "fixed_kernels": [
+        "P21",
+        "P22"
+      ],
+      "fixed_outputs": 22,
+      "key_profile": "K32",
+      "original_cold_reads": 4,
+      "receipt": {
+        "path": "docs/superpowers/specs/evidence/r78-matrix/c-i-table-us-UTC.json",
+        "sha256": "90cb15b5d3db5ba0afbfb3c992fe086a30405ae926ac434722719a9959cd4816"
+      },
+      "semantic_and_source_loads_guarded": true,
+      "snapshot_and_validity_axes": false,
+      "source_files_deleted": [
+        "source.duckdb",
+        "*.parquet"
+      ],
+      "source_kernels": [
+        "P19",
+        "P20",
+        "P21",
+        "P22"
+      ],
+      "source_method_bindings": {
+        "P19": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P20": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P21": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        },
+        "P22": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        }
+      },
+      "status": "passed_bounded",
+      "time_profile": "T01"
+    },
+    {
+      "candidate": "iteration; integer fixture results only",
+      "cold_exact_hits": 22,
+      "cold_kernels": [],
+      "cold_retention_execution_guarded": true,
+      "config": {
+        "form": "table",
+        "occurrence": "s",
+        "subject": "c",
+        "unit": "us",
+        "zone": "UTC"
+      },
+      "fixed_kernels": [
+        "P21",
+        "P22"
+      ],
+      "fixed_outputs": 22,
+      "key_profile": "K31",
+      "original_cold_reads": 4,
+      "receipt": {
+        "path": "docs/superpowers/specs/evidence/r78-matrix/c-s-table-us-UTC.json",
+        "sha256": "831f4b169d929f6c83b2b449cab71cd1392cad25e9693fef814db34275378062"
+      },
+      "semantic_and_source_loads_guarded": true,
+      "snapshot_and_validity_axes": false,
+      "source_files_deleted": [
+        "source.duckdb",
+        "*.parquet"
+      ],
+      "source_kernels": [
+        "P19",
+        "P20",
+        "P21",
+        "P22"
+      ],
+      "source_method_bindings": {
+        "P19": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P20": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P21": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        },
+        "P22": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        }
+      },
+      "status": "passed_bounded",
+      "time_profile": "T01"
+    },
+    {
+      "candidate": "iteration; integer fixture results only",
+      "cold_exact_hits": 22,
+      "cold_kernels": [],
+      "cold_retention_execution_guarded": true,
+      "config": {
+        "form": "table",
+        "occurrence": "c",
+        "subject": "i",
+        "unit": "us",
+        "zone": "UTC"
+      },
+      "fixed_kernels": [
+        "P21",
+        "P22"
+      ],
+      "fixed_outputs": 22,
+      "key_profile": "K23",
+      "original_cold_reads": 4,
+      "receipt": {
+        "path": "docs/superpowers/specs/evidence/r78-matrix/i-c-table-us-UTC.json",
+        "sha256": "c723fc7f39cc6d224b53d20ae8b6a2911287a0707fe3feb0bc50b19fdd3229d7"
+      },
+      "semantic_and_source_loads_guarded": true,
+      "snapshot_and_validity_axes": false,
+      "source_files_deleted": [
+        "source.duckdb",
+        "*.parquet"
+      ],
+      "source_kernels": [
+        "P19",
+        "P20",
+        "P21",
+        "P22"
+      ],
+      "source_method_bindings": {
+        "P19": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P20": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P21": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        },
+        "P22": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        }
+      },
+      "status": "passed_bounded",
+      "time_profile": "T01"
+    },
+    {
+      "candidate": "iteration; integer fixture results only",
+      "cold_exact_hits": 22,
+      "cold_kernels": [],
+      "cold_retention_execution_guarded": true,
+      "config": {
+        "form": "parquet",
+        "occurrence": "i",
+        "subject": "i",
+        "unit": "ns",
+        "zone": "UTC"
+      },
+      "fixed_kernels": [
+        "P21",
+        "P22"
+      ],
+      "fixed_outputs": 22,
+      "key_profile": "K22",
+      "original_cold_reads": 4,
+      "receipt": {
+        "path": "docs/superpowers/specs/evidence/r78-matrix/i-i-parquet-ns-UTC.json",
+        "sha256": "da51afa3d895b2ccfcd28bc3a94786417ae2eedb90e18dd3edca131ab079fb49"
+      },
+      "semantic_and_source_loads_guarded": true,
+      "snapshot_and_validity_axes": false,
+      "source_files_deleted": [
+        "source.duckdb",
+        "*.parquet"
+      ],
+      "source_kernels": [
+        "P19",
+        "P20",
+        "P21",
+        "P22"
+      ],
+      "source_method_bindings": {
+        "P19": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='parquet', table_kind='parquet', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P20": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='parquet', table_kind='parquet', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P21": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='parquet', table_kind='parquet', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        },
+        "P22": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='parquet', table_kind='parquet', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        }
+      },
+      "status": "passed_bounded",
+      "time_profile": "T09"
+    },
+    {
+      "candidate": "iteration; integer fixture results only",
+      "cold_exact_hits": 22,
+      "cold_kernels": [],
+      "cold_retention_execution_guarded": true,
+      "config": {
+        "form": "parquet",
+        "occurrence": "i",
+        "subject": "i",
+        "unit": "us",
+        "zone": "America/New_York"
+      },
+      "fixed_kernels": [
+        "P21",
+        "P22"
+      ],
+      "fixed_outputs": 22,
+      "key_profile": "K22",
+      "original_cold_reads": 4,
+      "receipt": {
+        "path": "docs/superpowers/specs/evidence/r78-matrix/i-i-parquet-us-America_New_York.json",
+        "sha256": "fdab44a55142a6455fb1854ae4324a9f7b635a534c765a5e2ca4b96090b050df"
+      },
+      "semantic_and_source_loads_guarded": true,
+      "snapshot_and_validity_axes": false,
+      "source_files_deleted": [
+        "source.duckdb",
+        "*.parquet"
+      ],
+      "source_kernels": [
+        "P19",
+        "P20",
+        "P21",
+        "P22"
+      ],
+      "source_method_bindings": {
+        "P19": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='parquet', table_kind='parquet', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P20": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='parquet', table_kind='parquet', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P21": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='parquet', table_kind='parquet', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        },
+        "P22": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='parquet', table_kind='parquet', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        }
+      },
+      "status": "passed_bounded",
+      "time_profile": "T08"
+    },
+    {
+      "candidate": "iteration; integer fixture results only",
+      "cold_exact_hits": 22,
+      "cold_kernels": [],
+      "cold_retention_execution_guarded": true,
+      "config": {
+        "form": "table",
+        "occurrence": "i",
+        "subject": "i",
+        "unit": "us",
+        "zone": "UTC"
+      },
+      "fixed_kernels": [
+        "P21",
+        "P22"
+      ],
+      "fixed_outputs": 22,
+      "key_profile": "K22",
+      "original_cold_reads": 4,
+      "receipt": {
+        "path": "docs/superpowers/specs/evidence/r78-matrix/i-i-table-us-UTC.json",
+        "sha256": "3481f05693bdad97b4c2f1a878ef7ba5ed22bd1bc38fd1f6404d2fb8d9841150"
+      },
+      "semantic_and_source_loads_guarded": true,
+      "snapshot_and_validity_axes": false,
+      "source_files_deleted": [
+        "source.duckdb",
+        "*.parquet"
+      ],
+      "source_kernels": [
+        "P19",
+        "P20",
+        "P21",
+        "P22"
+      ],
+      "source_method_bindings": {
+        "P19": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P20": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P21": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        },
+        "P22": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        }
+      },
+      "status": "passed_bounded",
+      "time_profile": "T01"
+    },
+    {
+      "candidate": "iteration; integer fixture results only",
+      "cold_exact_hits": 22,
+      "cold_kernels": [],
+      "cold_retention_execution_guarded": true,
+      "config": {
+        "form": "table",
+        "occurrence": "s",
+        "subject": "i",
+        "unit": "us",
+        "zone": "UTC"
+      },
+      "fixed_kernels": [
+        "P21",
+        "P22"
+      ],
+      "fixed_outputs": 22,
+      "key_profile": "K21",
+      "original_cold_reads": 4,
+      "receipt": {
+        "path": "docs/superpowers/specs/evidence/r78-matrix/i-s-table-us-UTC.json",
+        "sha256": "5178530cbc04c55852da3c2e64c344c83cec6505ad973b11df4d02eebf94924b"
+      },
+      "semantic_and_source_loads_guarded": true,
+      "snapshot_and_validity_axes": false,
+      "source_files_deleted": [
+        "source.duckdb",
+        "*.parquet"
+      ],
+      "source_kernels": [
+        "P19",
+        "P20",
+        "P21",
+        "P22"
+      ],
+      "source_method_bindings": {
+        "P19": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P20": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P21": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        },
+        "P22": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        }
+      },
+      "status": "passed_bounded",
+      "time_profile": "T01"
+    },
+    {
+      "candidate": "iteration; integer fixture results only",
+      "cold_exact_hits": 22,
+      "cold_kernels": [],
+      "cold_retention_execution_guarded": true,
+      "config": {
+        "form": "table",
+        "occurrence": "c",
+        "subject": "s",
+        "unit": "us",
+        "zone": "UTC"
+      },
+      "fixed_kernels": [
+        "P21",
+        "P22"
+      ],
+      "fixed_outputs": 22,
+      "key_profile": "K13",
+      "original_cold_reads": 4,
+      "receipt": {
+        "path": "docs/superpowers/specs/evidence/r78-matrix/s-c-table-us-UTC.json",
+        "sha256": "9d22ca951c2f56026a2ea5faaf9888180c7302958259deeb4036306467d5b1b6"
+      },
+      "semantic_and_source_loads_guarded": true,
+      "snapshot_and_validity_axes": false,
+      "source_files_deleted": [
+        "source.duckdb",
+        "*.parquet"
+      ],
+      "source_kernels": [
+        "P19",
+        "P20",
+        "P21",
+        "P22"
+      ],
+      "source_method_bindings": {
+        "P19": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P20": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P21": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        },
+        "P22": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        }
+      },
+      "status": "passed_bounded",
+      "time_profile": "T01"
+    },
+    {
+      "candidate": "iteration; integer fixture results only",
+      "cold_exact_hits": 22,
+      "cold_kernels": [],
+      "cold_retention_execution_guarded": true,
+      "config": {
+        "form": "table",
+        "occurrence": "i",
+        "subject": "s",
+        "unit": "us",
+        "zone": "UTC"
+      },
+      "fixed_kernels": [
+        "P21",
+        "P22"
+      ],
+      "fixed_outputs": 22,
+      "key_profile": "K12",
+      "original_cold_reads": 4,
+      "receipt": {
+        "path": "docs/superpowers/specs/evidence/r78-matrix/s-i-table-us-UTC.json",
+        "sha256": "2694e199cfe8766eefb750e1b8a0b07b8c406b379077c45fd44f8f9bd44c1efa"
+      },
+      "semantic_and_source_loads_guarded": true,
+      "snapshot_and_validity_axes": false,
+      "source_files_deleted": [
+        "source.duckdb",
+        "*.parquet"
+      ],
+      "source_kernels": [
+        "P19",
+        "P20",
+        "P21",
+        "P22"
+      ],
+      "source_method_bindings": {
+        "P19": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P20": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P21": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        },
+        "P22": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        }
+      },
+      "status": "passed_bounded",
+      "time_profile": "T01"
+    },
+    {
+      "candidate": "iteration; integer fixture results only",
+      "cold_exact_hits": 22,
+      "cold_kernels": [],
+      "cold_retention_execution_guarded": true,
+      "config": {
+        "form": "table",
+        "occurrence": "s",
+        "subject": "s",
+        "unit": "us",
+        "zone": "UTC"
+      },
+      "fixed_kernels": [
+        "P21",
+        "P22"
+      ],
+      "fixed_outputs": 22,
+      "key_profile": "K11",
+      "original_cold_reads": 4,
+      "receipt": {
+        "path": "docs/superpowers/specs/evidence/r78-matrix/s-s-table-us-UTC.json",
+        "sha256": "9bd9c17fdb3d21439b7f2586be9400a2c538be024c9e17a32a8e73c98d4a95f9"
+      },
+      "semantic_and_source_loads_guarded": true,
+      "snapshot_and_validity_axes": false,
+      "source_files_deleted": [
+        "source.duckdb",
+        "*.parquet"
+      ],
+      "source_kernels": [
+        "P19",
+        "P20",
+        "P21",
+        "P22"
+      ],
+      "source_method_bindings": {
+        "P19": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P20": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P21": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        },
+        "P22": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        }
+      },
+      "status": "passed_bounded",
+      "time_profile": "T01"
+    }
+  ],
+  "branch": "panda",
+  "candidate_file_sha256": {
+    "docs/api/analysis.rst": "c19b48649c3d55a8d06b92404bb19269acc6224e87096e56d7176ada51be60f1",
+    "docs/specs/analysis/python-analysis-design.md": "684f9d84abb63dc18ef0cebdbe5a3dc36b04fe94fecd8f80c8db1f116c31d35d",
+    "docs/specs/analysis/session-state-and-runtime.md": "ca3ac210a2459f75bddc32cc2fa3077b06d62075c31c5ddaf1b383304c824bf1",
+    "docs/superpowers/specs/2026-10-01-marivo-full-algebra-dsl-r7-implementation-plan.md": "ac9f4f15944c5932604f8e50e64a5194828649e0af938924116d6b996313c3dc",
+    "docs/superpowers/specs/2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md": "39ac2339d7f91bde42be5523b63b775189ead27bb2d13ebf7a802b41a87fcd71",
+    "marivo/analysis/__init__.py": "d0774536fc1ec580e2bfb8817f4ef0b32afb3a53bb2f0f5298bb330accacc494",
+    "marivo/analysis/_public.py": "5785b9950e0043d5fbe429586b5946940069eb8723bbeeab6f8ceca03a7026b4",
+    "marivo/analysis/anchors.py": "d2f81d74bd8a9f004be2b464fb0cdb022a774fec376e46697ae5a9f80ad43c10",
+    "marivo/analysis/compiler/graph_lowering.py": "41d301f45ba17df339825ca1cae8faed00d11e65f57f10abea81e86e924b9956",
+    "marivo/analysis/compiler/graph_plan.py": "267d3d70052ed874ef0982f0f96a24a6709da4d980538080512e3284d9350834",
+    "marivo/analysis/compiler/retention.py": "c2f2de3771d9651798202fa0440ddf8f9ef00cadf331b349c3816b3028dcc8b4",
+    "marivo/analysis/core/model.py": "2d0c8f74d586ac5cd8c24636512f616c605e4cfe4b0f589bc85ef70e25d92aad",
+    "marivo/analysis/core/retention_rules.py": "25b0303a3f4294c59b3aefe08f99666fd0b2502c65be13f100f91462f0ded45a",
+    "marivo/analysis/core/rules.py": "5cbed8a42c7cafc073655d672d4c5b4db2b23f2ada071f913d890bbab8450036",
+    "marivo/analysis/materialization/execution_key.py": "409edf63fc9f9b77f5431719820a1e0f398174fd799feec680f401a3738d337e",
+    "marivo/analysis/materialization/graph_exchange.py": "a550ec36b05bac35151d3dffb606686cc16ad9abe5db31237f3089af9dfff972",
+    "marivo/analysis/materialization/graph_local_execution.py": "6adf09b9159ccdfa6ca4aa41eb3cc32f08709eb8d05dae9e0e5f0f40645103d1",
+    "marivo/analysis/materialization/graph_members.py": "31df1dff92accbcd8ba0e050dec4c101ff540d3fddb3ddb6a128d566d7bfe4f5",
+    "marivo/analysis/materialization/graph_observation.py": "70d6c267089233392321fbbdd800cd9f2382711fa1bc69d48efe863bbf4206dc",
+    "marivo/analysis/materialization/graph_preparation.py": "d3a9a53d8bb207e0e2e1bdc5b3a9f153f2c291eaeb1d767c43b67f4b241a1802",
+    "marivo/analysis/materialization/graph_protocol.py": "fbec930fc644e885c1128bd01683143154870e068becf8fbeef5d85031dd4c00",
+    "marivo/analysis/materialization/graph_retention.py": "43f1ce342bd29596dd303e376a6e5cc8dcd730cd8e2a1cf5f8299ff24d7d9d8a",
+    "marivo/analysis/materialization/retention_execution.py": "62f0e2fc0975e9e364f98ae2db545d14a4c5b7564f5ace02750ae68b039e4ef2",
+    "marivo/analysis/methods/builtin.py": "f4e6b6a54ecae94a13d5100e21b60ef2ac1611c83623f15ca76568cc2dd273b0",
+    "marivo/analysis/methods/retention_physical.py": "d71f8f05c0b8fc516b8b382c7f1ec18681e584bb7a58c68aca419aa83a65424a",
+    "marivo/analysis/methods/semantics.py": "e68bb00734624484bf0e79e89902fe8274494f9df9302073beaf80e9f29d1293",
+    "marivo/analysis/public_dsl.py": "a338170c403844770f59c0c57a1dd939dad5b312dbb8254d68bdb702fd4c0979",
+    "marivo/analysis/session/_public_disclosure.py": "b06f5aa3abc2c0d98261623034b701171df5eabdda4a4e9cdc1a278fee41d47b",
+    "site/src/content/docs/docs/latest/concepts/analysis-workflow.mdx": "12a3343d4858e0c20e3a29862b1e8b18a9e987f2f85cb3caf1d22934cbec6b7f",
+    "site/src/content/docs/zh-cn/docs/latest/concepts/analysis-workflow.mdx": "95d5f7f3b996262029970618bdf688517df52a9e135ba7037aebacb2c3ddb536",
+    "tests/retention_r78_fixtures.py": "9cbd9d6ab86c1a499ba699fff1345ef6c47d352c4eea4ceff80ce5375e1f5c99",
+    "tests/retention_r78_worker.py": "36474b1be78edfe9d6cebcef30ff7b309040ea3e8b6ee59f028578a55b7bb088",
+    "tests/test_agent_api_drift.py": "aa61d378db2bcb00af74ef52ef1b5581e554d6b3782a578857d4e65fee93264e",
+    "tests/test_analysis_anchors_r77.py": "c8c67c43420854bb46b58308f86f22f3f7404f9f25ce30ebad4f5338780eb5f0",
+    "tests/test_analysis_methods_r32.py": "f1f7192ecbef3b8fe28cbb9b3376846d828ab443f98a0913bb6076c2b103ef94",
+    "tests/test_analysis_retention_r78.py": "19938c921a254caaeae6910d93a5798f920134b6313d91b8c855e1c05bc43c01",
+    "tests/test_analysis_retention_r78_evidence.py": "2cb07ec25d7b8885cb05cd0b27883e06b6d318e27aa7ca5ae5a2fbab12311c64",
+    "tests/test_cutover_documentation_examples.py": "344ce4035b708f9633f588a20e66e87ff311e5ad60da1bb1fd42127e1c41b12a",
+    "tests/test_lazy_disclosure.py": "8e5e62ea7c649d3b38c931c772b6e0021f5aa4c8760d677d9f959ffbd84ccdd9",
+    "tests/test_public_surface.py": "3a1f87e9aab5b2cf6d634c72437e4460eed5ab2848ab59dc44cd528656a61e4b",
+    "tests/typing/analysis_anchors_r77_contract.py": "5e566cb735c4d5d9a4346ebb61075ac5205cba5e506bf386b2106f3c40ddba86"
+  },
+  "concurrent_change": "4c6516e626 untracked existing R7.7 qualification records; preserved without edits",
+  "counts": {
+    "bounded_cold_exact_hits": 242,
+    "bounded_fixed_continuation_outputs": 242,
+    "bounded_fixed_kernel_outputs": 22,
+    "bounded_matrix_cases_passed": 11,
+    "bounded_original_cold_reads": 44,
+    "bounded_source_kernel_outputs": 44,
+    "final_runtime_boundary_tests_passed": 50,
+    "final_strengthened_cases_passed": 1,
+    "matrix_cases_not_run": 79,
+    "original_r78_cells": 1080,
+    "original_shared_cells": 540,
+    "qualification_passed": 0,
+    "qualification_unverified": 1080,
+    "starts_only_fixed_kernel_targets_unverified": 180
+  },
+  "date": "2026-10-03",
+  "development_failures": "Earlier snapshot, transport, typing, order and fixture failures were repaired and superseded by final passing checks; they are not acceptance evidence.",
+  "entry": {
+    "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "head": "bd51f4dc5c5d327685a84f6b7d1dd9b9183d40a1",
+    "status": ""
+  },
+  "environment": {
+    "duckdb": "1.5.3",
+    "ibis-framework": "12.0.0",
+    "pyarrow": "25.0.1",
+    "pytest": "9.0.3",
+    "python": "3.12.13"
+  },
+  "excluded_actions": [
+    "commit",
+    "push",
+    "release",
+    "MinIO",
+    "full release-check",
+    "AGENTS.md edits",
+    "packaged skill edits"
+  ],
+  "final_cold_command": "MARIVO_R78_EVIDENCE_DIR=\"$PWD/docs/superpowers/specs/evidence/r78-final\" make runtime-test TESTS='tests/test_analysis_retention_r78.py::test_profiles_source_fixed_cold[table-us-UTC-i-i]'",
+  "final_runtime_command": "make runtime-test TESTS='tests/test_analysis_retention_r78.py -k \"not profiles_source_fixed_cold\"'",
+  "final_strengthened_execution_cases": [
+    {
+      "candidate": "final after review repairs",
+      "cold_exact_hits": 22,
+      "cold_kernels": [],
+      "cold_retention_execution_guarded": true,
+      "config": {
+        "form": "table",
+        "occurrence": "i",
+        "subject": "i",
+        "unit": "us",
+        "zone": "UTC"
+      },
+      "fixed_kernels": [
+        "P21",
+        "P22"
+      ],
+      "fixed_outputs": 22,
+      "key_profile": "K22",
+      "original_cold_reads": 4,
+      "receipt": {
+        "path": "docs/superpowers/specs/evidence/r78-final/i-i-table-us-UTC.json",
+        "sha256": "3481f05693bdad97b4c2f1a878ef7ba5ed22bd1bc38fd1f6404d2fb8d9841150"
+      },
+      "semantic_and_source_loads_guarded": true,
+      "snapshot_and_validity_axes": false,
+      "source_files_deleted": [
+        "source.duckdb",
+        "*.parquet",
+        "models/"
+      ],
+      "source_kernels": [
+        "P19",
+        "P20",
+        "P21",
+        "P22"
+      ],
+      "source_method_bindings": {
+        "P19": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P20": {
+          "implementation": "r78.anchor.retention@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "anchor.retention@v1"
+        },
+        "P21": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        },
+        "P22": {
+          "implementation": "r78.retention.by_subject@v1.SourceShape(backend='duckdb', form='table', table_kind='native', time=TimeShape(kind='instant', unit='us', timezone='UTC')).ibis_python@v1",
+          "method": "retention.by_subject@v1"
+        }
+      },
+      "status": "passed_bounded",
+      "time_profile": "T01"
+    }
+  ],
+  "fixed_input_boundary": "No new capture API. Starts-only MaterializedAnchorDomain.retention rejects before I/O or Run; fixed RetentionResult status, selection and by_subject remain supported.",
+  "historical_snapshot_sha256": "901c2811828008216bab6c953f137cd90e6cfb1b376d86f5e6296c5eb43c42cb",
+  "inherited_unfinished_r77": {
+    "bounded_passed": 2856,
+    "disposition": "unchanged; no promotion by R7.8",
+    "original_cells": 6750,
+    "p48_source_native_targets": 90,
+    "starts_only_fixed_targets": 2070,
+    "unverified": 3894
+  },
+  "matrix_command": "MARIVO_R78_EVIDENCE_DIR=\"$PWD/.local/r78-evidence\" make runtime-test TESTS='tests/test_analysis_retention_r78.py -k \"profiles_source_fixed_cold and (table-us-UTC or (parquet-us-America and i-i) or (parquet-ns-UTC and i-i))\"'",
+  "observed_head": "4c6516e626986f910e0c724561b73f9327531235",
+  "qualification_payload": {
+    "data": "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",
+    "encoding": "zlib-rfc1950+base64",
+    "sha256_uncompressed": "2c9c7b824718bd096e78c90fa1665e966c4cdf94631208d55c31b04d442c4fa3",
+    "uncompressed_bytes": 212485
+  },
+  "review_repairs": {
+    "base_head": "4c6516e626986f910e0c724561b73f9327531235",
+    "check_agent_passed": 5349,
+    "check_agent_skipped": 5,
+    "confirmed": 3,
+    "focused_runtime_regressions": 16,
+    "focused_typing_source_files": 3,
+    "full_r78_boundary_runtime": 50,
+    "initial_failures": "The reviewed standalone probes reproduced all three issues. The first coverage regression used the wrong declaration constructor, and the first focused typing run required MethodNode narrowing. Both were corrected and superseded by final passing checks.",
+    "issues": [
+      {
+        "priority": 1,
+        "problem": "return capture selected an earlier Entity ancestor",
+        "repair": "reuse the matching Anchor OccurrencePrepare input population"
+      },
+      {
+        "priority": 1,
+        "problem": "a weaker declaration discarded sufficient observed coverage",
+        "repair": "evaluate continuous exact-bound declaration and observed intervals per Anchor; preserve gaps"
+      },
+      {
+        "priority": 2,
+        "problem": "an external is-defined predicate certified receiver Unknown",
+        "repair": "only receiver input index 0 can grant the Unknown certificate"
+      }
+    ],
+    "regression_owners": [
+      "test_known_true_subject_image_then_source_preparation",
+      "test_retention_combines_exact_coverage_intervals",
+      "test_external_unknown_predicate_keeps_receiver_truth"
+    ],
+    "resolved": 3,
+    "reviewed_content_manifest_sha256": "b5e5030755dbb61bbdb72e2dc3c2edd547f3a21fff4a2b0e7884a0ba963201aa",
+    "scope": "No promotion of the original 1080 R7.8 or 540 shared target cells; existing R7.7 records unchanged.",
+    "source_free_cold_profile_cases": 1
+  },
+  "schema": "marivo.r78-qualification/v1",
+  "unverified": [
+    "79 original key/time worker cases",
+    "full snapshot/validity axes within each original key/time case; four separate final Runtime cases passed",
+    "original fixed anchor.retention kernels (180 cells)",
+    "original cold target qualification beyond exact hits for tested outputs",
+    "whole current A13 matrix",
+    "inherited R7.7 unfinished requirements",
+    "same-wheel installed-package recovery",
+    "remote backend",
+    "full R7 or release acceptance"
+  ],
+  "validation": {
+    "check_agent": {
+      "api_docs": true,
+      "candidate": "after review repairs",
+      "imports": true,
+      "lint": true,
+      "status": "passed",
+      "tests_passed": 5349,
+      "tests_skipped": 5,
+      "typing": true
+    },
+    "r77_native_regression": {
+      "candidate": "pre-review focused slice; final R7.8 native and bilingual examples are part of the 50-case Runtime run",
+      "status": "passed",
+      "tests_passed": 6
+    },
+    "raw_logs": [
+      {
+        "path": "docs/superpowers/specs/evidence/r78-validation/cold-final.log",
+        "sha256": "e7bccc5d56b4cebb9efc939ac02c8aae1042287296a8398897e2b05e74aa6902"
+      },
+      {
+        "path": "docs/superpowers/specs/evidence/r78-validation/fix-before.log",
+        "sha256": "35ffe3511162bbe38dbe4cf6f343382320544d2612e0de575eb69f0f70659711"
+      },
+      {
+        "path": "docs/superpowers/specs/evidence/r78-validation/fix-cold.log",
+        "sha256": "fade9a9484d447a94ce91924e8fd0e65a0b1018a186caa4f3c89a16021952cfd"
+      },
+      {
+        "path": "docs/superpowers/specs/evidence/r78-validation/fix-gate.log",
+        "sha256": "7a4be62901bcafe92cd149b241d4a776255bdefbf054b92d09048c3ecc58e899"
+      },
+      {
+        "path": "docs/superpowers/specs/evidence/r78-validation/fix-regression.log",
+        "sha256": "6ad3536ea06d0d9ca7222f93490d4d594067dcf62806ac4ebe22fd1cdcdba35a"
+      },
+      {
+        "path": "docs/superpowers/specs/evidence/r78-validation/fix-runtime.log",
+        "sha256": "0d81daea7fc49d9c21a0556d8db95bbfb815331a77f08d0160308a015031a918"
+      },
+      {
+        "path": "docs/superpowers/specs/evidence/r78-validation/fix-typing.log",
+        "sha256": "8228fcc5ce46d42d01caf3cd941f4e9c5f2bcc372bb5b147a2f0572d2dd675a8"
+      },
+      {
+        "path": "docs/superpowers/specs/evidence/r78-validation/gate.log",
+        "sha256": "596e5dff36ed34130457d49c0bc854a2f09379fa9a0c8ba6f5e5ca7731cce391"
+      },
+      {
+        "path": "docs/superpowers/specs/evidence/r78-validation/matrix.log",
+        "sha256": "12df935240b1c8b1ab4743e578752c500db43f839d8c8c5e594839050ce63f35"
+      },
+      {
+        "path": "docs/superpowers/specs/evidence/r78-validation/regression.log",
+        "sha256": "f005c9d7b574c36c1061523d955e92a1b2841175cef67fa388b7aa28029b0c91"
+      },
+      {
+        "path": "docs/superpowers/specs/evidence/r78-validation/runtime-complete.log",
+        "sha256": "2483615c19d7bd9f223c7b60a937126671d6db6181b2b7ac20c009e9ac759f7d"
+      },
+      {
+        "path": "docs/superpowers/specs/evidence/r78-validation/site-final.log",
+        "sha256": "830dc667ef391ebf3ce11d69ef46b6e4824c14ff1c0d6f5c15fe65d3fb00999d"
+      }
+    ],
+    "site_build": {
+      "candidate": "pre-review; latest examples executed again in the final Runtime run and API docs rebuilt by the final gate",
+      "command": "npm --prefix site run build",
+      "status": "passed"
+    }
+  }
+}

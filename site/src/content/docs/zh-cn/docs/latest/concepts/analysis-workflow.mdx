@@ -784,6 +784,48 @@ DST 导致不存在或有歧义的 deadline 会返回具体修复。Event elapse
 Anchor 坐标不能取得原状态 rollup。固定续算只消费已保留输入，不能引入新的 live Metric。
 Retention 不属于本轮 R7.7。
 
+## 固定 Anchor 总体上的留存
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+session = mv.session.get_or_create("anchor-retention", report_timezone="UTC")
+population = session.members(ms.ref.entity("commerce.subjects"))
+starting = ms.participant_role(event=ms.ref.event("commerce.started"), name="subject")
+returning = ms.participant_role(event=ms.ref.event("commerce.finished"), name="subject")
+anchors = session.anchors(
+    starting,
+    population=population,
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    business_order=ms.ref.business_order("commerce.order"),
+)
+retention = anchors.retention(
+    returning, within=mv.elapsed(mv.duration(hours=168))
+).execute()
+retention.show()
+retention.contract().show()
+selected = retention.known_true().execute()
+selected.members(through=selected.subject_binding).execute().show()
+subjects = retention.by_subject(rule=mv.any_anchor()).execute()
+subjects.known_true().members().execute().show()
+```
+
+即使后续覆盖不完整，观察到合格返回也是真。只有精确绑定 returning Event、来源、
+版本的完整性覆盖整个半开窗口，未观察到返回才是假；否则为 Unknown。
+有完整性声明时通过 `completeness=` 传入。原实例 Ω 保留未知项：25 真、5 假、
+70 未知的界为 `[0.25, 0.95]`；空 Ω 的界为 Undefined。状态视图保持原分母与界。
+
+`any_anchor()` 和 `every_anchor()` 显式将 Subject 像固定为新 Ω。一真一未知在 any
+下为真、every 下未知；一假一未知在 any 下未知、every 下为假。没有 Anchor 的
+Subject 不进入该像。只有已选中的真状态能产生成员。实例状态需要精确 SubjectBinding；
+Subject 状态无需 `through`。结果不提供界的算术或 rollup。
+
+在 Anchor 仍为逻辑对象时构造留存。MaterializedAnchorDomain 仅保留 starts，
+会在执行前拒绝新增 return 输入。已物化留存结果保留完整真值、覆盖与实例纤维，支持
+断源状态选择和量化。R7.8 证据记录区分已验证的有界执行和原 fixed-retention 资格中
+未完成的目标；同 wheel、远端与完整 R7 验收仍独立。
+
 ## 精确漏斗比较与证据
 
 两期使用同一显式总体上的 first-per-subject Journey。pattern、matching 和定义必须

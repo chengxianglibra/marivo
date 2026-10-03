@@ -2263,3 +2263,42 @@ The execute deadline remains one shared 600-second budget across all stages.
 The R7.7 evidence index records tested routes and original mandatory cells separately.
 Retention, Subject any/every, complete A13, same-wheel and remote qualification remain
 at their existing R7.8/R7.9/R9 owners. AGENTS.md and packaged skills are unchanged.
+
+### R7.8 implementation amendment (2026-10-03)
+
+`AnchorDomain.retention` now binds a returning ParticipantRoleHandle on the same
+Subject and captures its finite occurrence envelope before local consumption.
+The return capture reuses the Anchor preparation's exact population, including
+logical member filters, rather than an earlier Entity ancestor.
+Event-origin elapsed witness selection uses public Ibis joins. Calendar and
+Journey origins consume fully captured inputs through `ibis_python`. Qualifying
+returns make an instance true even with partial follow-up. Absence is false only
+when exact Event/source/version coverage includes the entire half-open window;
+otherwise its Cell is `Unknown(insufficient_followup)`.
+Exact-bound declarations and observed receipts are evaluated per Anchor window.
+Overlapping or adjacent intervals can establish continuous coverage; a weaker
+declaration cannot discard an observed proof, and a gap remains unknown.
+
+`LogicalRetentionResult` / `MaterializedRetentionResult` retain the original
+instance Omega, complete truth partition, exact starts/deadlines, return witnesses,
+coverage and Subject map. Their `status`, `known_true()`, `known_false()` and
+`unknown()` views retain the original denominator and deterministic bounds.
+An external status predicate filters the receiver without certifying that the
+receiver's own Cells are unknown; only its own status predicate grants that proof.
+`by_subject(rule=mv.any_anchor())` or `by_subject(rule=mv.every_anchor())` fixes the
+nonempty-fiber Subject image as a new Omega and returns the paired
+SubjectRetentionResult family.
+A true selected instance status requires its exact SubjectBinding for `members()`;
+a true selected Subject status requires no mapping argument. Other selections
+reject member projection. Bounds have no arithmetic or rollup operations.
+
+The current MaterializedAnchorDomain retains starts and cannot acquire unseen
+return occurrences. Calling retention on it rejects before source access or Run
+allocation, with guidance to construct retention before executing Anchors.
+Materialized retention results support source-free quantification and status
+continuations from their verified complete ledger. Missing or corrupt parts reject
+before continuation. This amendment adds no capture API or compatibility path.
+
+The R7.8 evidence index separates actual kernels, transport/read checks and the
+original mandatory qualifications. Starts-only fixed retention, inherited R7.7
+unfinished targets, same-wheel, remote and full R7/A13 acceptance remain unverified.

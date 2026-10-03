@@ -192,6 +192,14 @@ def test_readiness_render_contains_available(semantic_project_factory) -> None:
 
 def test_analysis_public_exports_are_ordered_default_workflow_surface() -> None:
     expected = [
+        "AnyAnchor",
+        "EveryAnchor",
+        "any_anchor",
+        "every_anchor",
+        "LogicalRetentionResult",
+        "MaterializedRetentionResult",
+        "LogicalSubjectRetentionResult",
+        "MaterializedSubjectRetentionResult",
         "Duration",
         "ElapsedWindow",
         "CalendarWindow",
