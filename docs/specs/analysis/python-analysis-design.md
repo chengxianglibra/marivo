@@ -2283,3 +2283,133 @@ before continuation. This amendment adds no capture API or compatibility path.
 The R7.8 evidence index separates actual kernels, transport/read checks and the
 original mandatory qualifications. Starts-only fixed retention, inherited R7.7
 unfinished targets, same-wheel, remote and full R7/A13 acceptance remain unverified.
+
+## R8.1 frozen statistical Relation API target
+
+The 2026-10-03 R8.1 freeze is a documentation/static contract, not an importable
+API or an execution qualification. It supersedes the old statistical Dataset
+receiver/container contracts. The [R8 migration ledger](../../superpowers/specs/2026-10-03-marivo-full-algebra-dsl-r8-migration-ledger.md)
+owns migration status; operators own formulas, numeric/Cell rules and parts;
+Runtime owns execution, publication and recovery; timezone owns grid authority.
+The five old wrappers MetricDiscovery.point_anomalies/interesting_windows/
+entity_outliers and DeltaDiscovery.period_shifts/driver_axes are actively
+withdrawn at R8.5 after the replacement gates close. They have no compatibility
+redirect. Deviation/runs and explicit selection/attribute do not inherit their
+absolute-score, rolling-window, threshold or axis-screening heuristics.
+
+### Concrete receivers, overloads and views
+
+For this section only, LNumeric is the closed union of LogicalNumericRelation,
+LogicalRatioRelation, LogicalRolledNumericRelation, LogicalRolledRatioRelation,
+LogicalDifferenceRelation, LogicalSelectedNumericRelation,
+LogicalSelectedDifferenceRelation and LogicalStatisticRelation. MNumeric is
+their Materialized counterparts, including MaterializedGroupedNumericRelation.
+LCategory/MCategory are Logical/MaterializedCategoryRelation and their Selected
+variants. These notation aliases are not new Python exports or Help targets.
+Numeric admission excludes bool, Duration, date and timestamp for deviation,
+correlation and forecast; runs accepts an admitted int64/float64/Decimal receiver
+and a unit-compatible predicate. A numerical class carrying Duration does not
+silently acquire statistical-method admission.
+
+Each concrete receiver in LNumeric/MNumeric owns the following signatures. All
+construction returns a Logical result, including construction from fixed inputs:
+
+```text
+LNumeric.deviation(*, method: Literal["zscore", "mad"],
+    partition_by: tuple[LCategory | MCategory, ...] = ()) -> LogicalDeviationResult
+MNumeric.deviation(*, method: Literal["zscore", "mad"],
+    partition_by: tuple[LCategory | MCategory, ...] = ()) -> LogicalDeviationResult
+LNumeric.runs(*, where: BoundPredicate) -> LogicalTimeRunResult
+MNumeric.runs(*, where: BoundPredicate) -> LogicalTimeRunResult
+LNumeric.correlate(*others: LNumeric | MNumeric,
+    method: Literal["pearson", "spearman", "kendall"] = "pearson",
+    lag_range: range | None = None) -> LogicalAssociationResult
+MNumeric.correlate(*others: LNumeric | MNumeric,
+    method: Literal["pearson", "spearman", "kendall"] = "pearson",
+    lag_range: range | None = None) -> LogicalAssociationResult
+LNumeric.forecast(*, horizon: ForecastHorizon, model: ForecastModel = naive(),
+    interval_level: float = 0.95) -> LogicalForecastResult
+MNumeric.forecast(*, horizon: ForecastHorizon, model: ForecastModel = naive(),
+    interval_level: float = 0.95) -> LogicalForecastResult
+```
+
+A Logical receiver whose closure is fixed-only may consume corresponding fixed
+categories, predicates and other fixed-only Logical numeric inputs. Source
+closures may consume source Logical dependencies only. Annotation variants do
+not establish mode: classification visits every dependency, including category
+and predicate leaves, and rejects mixed/foreign-Session inputs before reads or
+Run allocation. No Dataset input overload, column-name lookup or callback exists.
+
+The new result types are Logical/MaterializedDeviationResult,
+Logical/MaterializedTimeRunResult and Logical/MaterializedForecastResult.
+Logical/MaterializedAssociationResult extend their existing family. The exact
+field table below applies to both full and selected results. Every field is an
+owned projection, never an independently reconstructed observation:
+
+| Result | Logical field types | Materialized field types | Quantity/authority |
+| --- | --- | --- | --- |
+| Deviation | observed/reference/deviation/score: LogicalNumericRelation | same fields: MaterializedNumericRelation | observed retains input quantity and actual K; reference/deviation are new fitted quantities in the input unit; score is dimensionless |
+| TimeRun | start/end: LogicalTemporalRelation; count/duration: LogicalNumericRelation | corresponding MaterializedTemporalRelation/MaterializedNumericRelation | count is int64; duration carries DurationType("us") from the current bound grid; start/end are frozen instants |
+| Association | coefficient: LogicalCoefficientRelation; selected: LogicalBooleanRelation | coefficient: existing MaterializedCoefficientRelation; selected: MaterializedBooleanRelation | coefficient is a descriptive row statistic; selected is the frozen winning-lag flag |
+| Forecast | prediction/lower/upper: LogicalNumericRelation | same fields: MaterializedNumericRelation | ModelPrediction and PredictionIntervalBound, never Observed quantity |
+
+LogicalCoefficientRelation is the necessary Logical counterpart of the existing
+coefficient family, not another Association family. Numeric view classes do not
+grant original Metric rollup/attribute: derivation and contract() require the
+actual quantity and retained parts. TimeRun.duration reuses the current Duration
+physical/predicate contracts; it is not a Journey duration result and has no
+Journey denominator or new Duration ranking/statistics directory.
+
+For each of the four result families R:
+`LogicalR.where(predicate: BoundPredicate) -> LogicalR`,
+`MaterializedR.where(predicate: BoundPredicate) -> LogicalR`, and
+`LogicalR.execute() -> MaterializedR`. Predicates consume owned or exactly
+corresponding fields. Selection restricts all result views together while
+retaining original fit, grid/condition, search or training scope. Logical
+projections can compose before the single public execute boundary; Materialized
+projections bind the same immutable Artifact and receipts. Coefficient selection
+keeps the existing coefficient-selection family and its new current-row
+summarize/rank/table obligations, without granting members or original rollup.
+
+ForecastHorizon, ForecastModel, periods(1..1000), naive(), drift(), and
+seasonal_naive(periods=s>1) retain their factory-only values and exact names.
+The correlate default changes from Spearman to Pearson: existing J4/A04 examples
+and regression inputs must explicitly request method="spearman" when migrated.
+No alias preserves the old default or the old multi-Metric Dataset receiver.
+
+### Type examples and disclosure obligations
+
+These are future type/execution requirements, not runnable R8.1 tests:
+
+```python
+# Given same-Session, same-mode, exactly corresponding numeric inputs:
+scored = change.deviation(method="mad")  # LogicalDeviationResult
+defined = scored.where(scored.score.value.is_defined())
+selected = defined.where(defined.score.value.gt(3))
+next_members = selected.observed.members()  # Requires actual Subject parts.
+segments = daily.runs(where=daily.value.lt(-0.20))  # LogicalTimeRunResult
+associations = a.correlate(b, c, method="spearman")
+chosen = associations.where(associations.selected.value.eq(True))
+future = daily.forecast(horizon=mv.periods(4), model=mv.drift())
+fixed = future.execute()  # MaterializedForecastResult
+```
+
+Positive examples cover each concrete receiver and Logical/Materialized result
+projection. Negative examples reject omitted deviation method, invalid Literal,
+list partition_by, foreign categories/predicates, bool interval_level, raw int
+horizon, model strings, Dataset/column inputs, 1/17 correlation quantities,
+duplicate quantity identity, mixed closures and foreign Sessions. Shape/parts,
+not Python numeric inheritance, reject scalar correlation, Entity runs, explicit
+Entity/category lag, incomplete grid and forecast history/future continuation.
+Static negative typing targets cover required/Literal/tuple/horizon/model/input
+types. Session identity, closure mode, arity, parts and bool interval_level are
+runtime rejection targets: Python typing admits bool as float and cannot prove
+those state-dependent conditions. The two proof classes must stay separate.
+
+Each concrete public symbol resolves beneath analysis.dsl.<ConcreteType> through
+the existing native Help registry; factory targets retain analysis.forecast_models
+and their focused callable leaves. No statistical namespace, alias index or
+renderer inventory is introduced. The new methods/types become exports/Help
+only in the package that connects their full public execute/Store/recovery path.
+F14 budgets and state-aware cards/errors are owned by the Runtime disclosure
+section; English/Chinese latest examples and API/CLI align at that same boundary.

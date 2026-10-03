@@ -2,8 +2,8 @@
 
 Date: 2026-10-03
 
-Status: implementation plan only. R8.1–R8.6 are not implemented or qualified by
-this document. The accepted 2026-10-02 C14 scope revision is the planning input;
+Status: R8.1 documentation/static freeze complete. R8.2–R8.6 are not implemented
+or qualified by this document. The accepted 2026-10-02 C14 scope revision is the planning input;
 static inventory, Runtime, installed-wheel, backend and real-Agent evidence
 remain separate.
 
@@ -70,6 +70,8 @@ concentration、通用 search/planner、跨源 mixed、任意 callback、因果/
 提供保留的方法、配对/选择规则和预测公式。R8.1 将其适用内容归入当前 owning specs，
 逐项处理新 Relation 输入与旧 Dataset/codec 的冲突；旧容器、family 分派和序列化不是保留要求。
 方法语义只保留一个权威，Help 不另建公式清单，本文中的摘要不形成第二份公式 owner。
+R8.1 冻结后的规范已归入 [Operators owner](../../specs/analysis/operators-and-frames.md#r81-frozen-statistical-method-rules)；
+旧文档顶部交接声明保留历史输入身份，不再拥有新 Relation 的方法规则。
 
 ## 2. 必须闭合的公开契约、状态与续算
 
@@ -366,8 +368,10 @@ Artifact、所有 RequiredParts、Evidence、Findings 和 terminal Run 在同一
 ## 4. R8.1 契约与迁移冻结清单
 
 R8.1 只完成文档/静态冻结，不授予任何新 Runtime、backend 或 wheel 资格。
-拟产物为 R8 migration ledger、consumer snapshot 和 evidence index；实施时创建并
-记录实际名字、SHA/输入 hash 与生成方式，本文不把尚未创建的文件链接为已存在证据。
+实际产物为 [R8 migration ledger](2026-10-03-marivo-full-algebra-dsl-r8-migration-ledger.md)、
+[consumer snapshot](2026-10-03-marivo-r81-consumer-snapshot.json) 和
+[evidence index](2026-10-03-marivo-r81-evidence-index.md)。记录实际基线、输入 hashes、
+生成方式和静态验证；所有新执行资格仍为 planned 或明确 blocked。
 
 | ID | 冻结项 | 唯一落点与出口 |
 | --- | --- | --- |

@@ -328,3 +328,61 @@ be represented exactly in that carrier fails with `r7.window_precision`; no tick
 truncation is allowed. This does not retract R7.2's disclosed source ns-to-us loss.
 The calendar source envelope is conservative and finite; only actual Anchor
 wall-time deadlines determine selection, after all source preparation has ended.
+
+## R8.1 frozen statistical grid authority
+
+R8.1 freezes these temporal targets without qualifying a new method. This is the
+sole owner of grid identity, adjacency, precision and future continuation for
+R8; numerical methods cannot reinterpret time. The current BoundTimeGrid uses
+UTC datetime microsecond boundaries and explicitly declares precision="us".
+Source s/ms/us/ns representations and capture conversions are separate physical
+profiles; an ns source does not grant ns BoundTimeGrid or Duration precision.
+Existing conversion/ambiguity contracts remain authoritative.
+
+A complete retained r8.grid_cells/v1 table binds the grid identity, original and
+actual cell boundaries, ordered cell identity/ordinal, partial flag, report and
+boundary timezones, grain, certified-calendar snapshot digest, exact coverage
+and source/capture authority. Each series has a complete original composite
+coordinate->cell mapping. Metadata containing a grid object without the mapping
+cannot admit a new time method. Numeric observation and aligned Difference
+transport this mapping only with their proven original full-domain correspondence;
+score projections keep the same grid/keys. Ordinary row deletion revokes that
+proof, even if it retained a contiguous subset. Runs rejects incomplete edge
+cells and missing/duplicate physical rows; legal unavailable cells remain explicit.
+
+Adjacent means consecutive captured grid cells whose actual end equals the next
+start, within one full non-time tuple. Builtin civil-day DST changes produce
+actual 23/25-hour spans. Certified periods may have unequal lengths but use
+captured consecutive period coordinates and boundaries. Run count is cell count;
+duration is the exact UTC microsecond end-start. TimeRun start/end carry timestamp
+values and the same frozen timezone/precision authority; no count-based duration,
+wall-clock subtraction or current-calendar lookup is allowed. Left/right scope
+boundaries are observation limits, not proof that a condition resolved.
+
+For Association +k pairs the left cell ordinal i with right ordinal i+k in the
+same captured series/grid. Coordinate-based boundary loss and Null-pair deletion
+are distinct counts; no retained-row shift or cross-series pairing is permitted.
+Explicit lag is not admitted by a mere timestamp column or non-time Entity/group
+shape. The shared grid and pairing receipt must prove complete correspondence;
+independent captures cannot create common observation authority from equal labels.
+
+Forecast training and future cells use one exact captured continuation authority.
+Builtin continuation uses the bound grain/timezones and certified civil boundary
+rules; semantic calendars require actual certified future periods through the
+requested horizon. Capture the future cell table before local forecast execution
+and before Artifact publication. Every series has the same complete history and
+future sequence, with no partial cells or missing extension. Future horizon
+ordinals identify approved cells, not elapsed hours or an inferred calendar.
+Ambiguous/nonexistent civil boundaries follow existing rejection; no shifted
+local deadline or DST fold guess is introduced. Source-offline recovery validates
+captured cells, calendar digest, identity, count, adjacency and precision only;
+it never loads a current Semantic calendar to manufacture continuation.
+
+Required local time profiles distinguish native-table us and Parquet source
+s/ms/us/ns, UTC and America/New_York report authority, complete builtin days
+(including both DST transitions) and certified unequal periods. Non-time positive
+profiles remain separate. Negative requirements include partial edges, removed or
+duplicated cells, wrong calendar/zone/grid identity, uncaptured future horizon,
+misleading timestamp precision and false completeness receipts. Unsupported or
+unfinished exact profiles remain mandatory blocked cells rather than acquiring
+qualification from another time/source form.

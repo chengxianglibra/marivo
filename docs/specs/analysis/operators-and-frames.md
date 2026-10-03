@@ -1329,3 +1329,300 @@ Private funnel Delta/Attribution registrations, dispatch, extractor consumers an
 exclusive codecs are physically removed. Remaining Event/Lifecycle shared code
 awaits its owning phase. Detailed validation and physical requirement statuses are
 in the R7.4 evidence index; later phases, same-wheel and remote qualification remain separate.
+
+## R8.1 frozen statistical method rules
+
+This section is the sole normative R8 formula, Cell, numeric, RequiredParts and
+K owner. It is an inactive target until the corresponding R8.2/R8.3/R8.4 public
+consumer is qualified. The old typed-operators Dataset containers, family
+codec/dispatch, generated-float-only rule and local capacity/Entity restrictions
+do not override this Relation contract or already accepted fixed R4 Spearman.
+The API owner defines concrete receivers; Runtime/timezone define execution and
+temporal authority. All following method/state contracts are version 1.
+
+### Deviation fit, Cell table and irreversible scope
+
+`deviation.zscore@v1` fits c=mean(x) and s=sqrt(mean((x-c)^2)) over Defined finite
+values in each explicitly authored category tuple. `deviation.mad@v1` fits the
+median c and s=(7413/5000)*median(abs(x-c)). If raw MAD is exactly zero, s is the
+mean absolute deviation around the same c, with no 1.4826 factor. The scale
+branch is closed: population_stddev, scaled_mad, mean_absolute_deviation.
+Even-sample medians are exact means of the two central original values.
+Empty partition_by means one fit over the entire current receiver domain;
+Null categories are real partition coordinates and other coordinates never
+implicitly partition the fit. Every row has equal weight.
+
+| Original Cell / fit | observed | reference | deviation | score |
+| --- | --- | --- | --- | --- |
+| Defined finite, n>=2 and raw scale>0 | original Defined | Defined c | Defined x-c | Defined (x-c)/s |
+| Defined finite, n=1 | original Defined | Defined c=x | Defined zero | Undefined(insufficient_samples) |
+| Defined finite, n>=2 and raw scale=0 | original Defined | Defined c | Defined x-c | Undefined(zero_scale) |
+| Null / Undefined / Unknown, n>0 | original tag/reason | Defined c | original tag/reason | original tag/reason |
+| Null / Undefined / Unknown, n=0 | original tag/reason | Undefined(no_valid_samples) | original tag/reason | original tag/reason |
+
+An empty receiver has no synthetic row. Its fit scope records original_count=0,
+n=0 and no_valid_samples. Nonfinite Defined, malformed/duplicate identity,
+foreign correspondence or false coverage claims are hard failures, not excluded
+samples. Per-partition original_count equals defined+null+undefined+unknown;
+n equals finite Defined count. original_count and n are separately disclosed.
+observed retains original unit, quantity/identity, Subject and actual authorized
+parts; reference/deviation retain the unit but have new fitted quantities; score
+is dimensionless. The three derived quantities have no original rollup/attribute.
+
+Fit scope is frozen at the node. where on the result selects all four views;
+rank/limit uses existing RankingResult and preserves n/c/s/branch/input bindings.
+Neither rewrites the original fitted domain. where-before-deviation creates a
+new fit. Explicit shared input/fit nodes execute once per DAG/Run; separately
+constructed equal definitions are not common-subexpression merged. Subject
+projection from selected observed uses its real original mapping, never scores
+or display row positions.
+
+### r8_numeric_v1: widened arithmetic and one finish
+
+Required input families are int64, finite float64 and Decimal(p,s),
+1<=p<=38 and 0<=s<=p. Each vector retains one exact physical input type; bool,
+Duration/date/timestamp are not statistical numerics. Counts and horizon/lag
+ordinals are checked int64. Integer sums, differences, squares, products,
+medians, means, covariance, innovations and variance use widened integer/Fraction
+state before finishing. Decimal inputs are validated at their captured (p,s),
+then converted losslessly to scaled-integer/rational intermediates. 1.4826 is the
+exact rational 7413/5000, not a binary float literal. No input rounding or ambient
+process Decimal context is permitted.
+
+| Input / output | observed | reference/deviation and forecast prediction/lower/upper | score / coefficient |
+| --- | --- | --- | --- |
+| int64 | int64 | finite float64, one nearest representable finish from widened intermediates | finite float64 |
+| float64 | exact captured binary64 | finite float64, stable centered/scaled arithmetic | finite float64 |
+| Decimal(p,s) | original Decimal(p,s) | Decimal(38,max(s,6)), one ROUND_HALF_EVEN finish | finite float64, one explicit final projection |
+
+Center and x-c, innovations and point predictions use unrounded internal values;
+rounding the displayed center before scoring is forbidden. The raw exact
+variance/MAD/fallback value decides scale=0, never its displayed rounded value.
+For float64, constant/zero tests compare original finite binary64 values and
+exact centered identities. Exact binary64-as-rational raw facts are the independent
+oracle; stable floating implementations must prove the final bound below for
+extreme/near-cancelling/subnormal inputs, row orders and batching.
+
+Irrational sqrt and inverse-normal finish use an isolated ROUND_HALF_EVEN Decimal
+working context with Emin=-999999, Emax=999999 and at least 120 significant digits.
+For inverse-normal probability p=(1+level)/2, level is its exact binary64 ratio;
+start precision is 120+max(0,-floor(log10(min(level,1-level)))). Do not round p to
+0, 0.5 or 1 before inversion. Directed enclosing bounds certify the published
+rounding/error. If a final rounding boundary is unresolved, refine this same
+numeric algorithm by 40 digits under the existing execute deadline; this is not
+an implementation/route retry. No unproved exact irrational claim is allowed.
+
+For independent mathematical result r, float64 acceptance is
+abs(actual-r)<=R(r), R(r)=1e-12*(1+abs(r)), evaluated without float overflow.
+Decimal acceptance requires the specified HALF_EVEN value at output scale;
+the disclosed error is at most half the output quantum plus the certified
+transcendental enclosure error. Exact rational finishes settle ties exactly;
+transcendental rounding is certified before publication. Numerical bounds are
+separate from upstream sampling/semantic approximation and business Unknown.
+A finite output that cannot meet its bound remains unqualified. Stored precision,
+nonfinite output, count overflow or unrepresentable final unit value reject the
+whole action. No saturation, epsilon clamp, implicit Decimal rescale or runtime
+replacement of a required family by "unsupported" closes its requirement.
+
+Correlation permits all ordered pairs of I/F/D input families, including
+unequal Decimal precision/scale across endpoints: each endpoint retains its own
+original type. Cross-endpoint products/centerings use lossless rational
+intermediates, not a common float input cast. Spearman/Kendall rank/compare each
+vector in its original exact order; ranks are exact half-integers. This does not
+authorize within-vector mixed values or cross-family predicate/partition coercion.
+Unary deviation/forecast have no heterogeneous-vector overload. A source-native
+physical route must qualify the same exact ordered types and error contract.
+The future physical precision variant certified_statistical is restricted to the
+eight deviation/association/forecast methods and binds r8_numeric_v1 with exact
+input types, widened state and declared rounded outputs. It is distinct from
+the existing exact, checked_int64 and finite_float64 variants. Extending this
+closed variant must not weaken the existing Decimal-exact admission for other
+methods; time.runs keeps exact classification/tick facts with checked counts.
+Current physical declarations cannot yet express this statistical certificate;
+the exact R8 Decimal/transcendental routes remain pending R8.2/R8.4 connection.
+
+Independent oracles use original integers/Decimals/binary64 ratios, sorted order
+statistics, centered rational sums, pair counts and the model equations below.
+They do not import product numeric helpers, use Candidate absolute scores as a
+signed-score oracle, or compare implementations sharing one arithmetic helper.
+Root/quantile oracle enclosures use separately authored high-precision definitions.
+
+### Runs classification and maximal segments
+
+`time.runs@v1` consumes the complete original grid and every predicate dependency
+with corresponding complete typed keys. Pure Entity/scalar or arbitrary timestamp
+columns do not qualify. Each non-time tuple is a separate sequence. Validate
+physical missing/duplicate/partial cells and false coverage as hard violations;
+only an explicitly retained unavailable original cell is a legal gap. Ordinary
+where that removed time cells revokes completeness and blocks subsequent runs,
+even if surviving coordinates happen to look consecutive.
+
+Each predicate leaf is evaluated before composition. Numeric comparison of a
+non-Defined required Cell is unavailable with that Cell's reason; state predicates
+are total according to their existing tag semantics. Type/unit/owner/correspondence
+errors remain hard failures. Composition is closed: if any dependency is
+unavailable, the composite is unavailable; otherwise evaluate the Boolean tree
+normally. There is no short-circuit masking of an unavailable sibling. This
+classifier is specific to runs and does not weaken ordinary where's strict rule.
+
+Enumerate all original cells in grid order. false, unavailable or a recorded gap
+ends the current true segment. Emit every maximal true segment as
+[first_cell.start,last_cell.end), count=number of cells, duration=end-start in
+exact grid microsecond ticks. Crossing a reader batch carries the unfinished
+segment and last grid identity; a batch boundary is not a terminator. DST and
+certified unequal periods use actual UTC boundaries, never count*24h.
+Run identity binds series/grid, condition definition/version and all dependency
+bindings, plus start/end cell identities. Closed left/right termination kinds
+are false, unavailable and scope_boundary, with the terminating cell/reason when
+present. scope_boundary means observation ended, not that the business condition
+resolved. Two-sided adjacent opposite-sign true cells remain one segment.
+
+Retain true/false/unavailable counts for the whole grid, including zero output;
+all-unavailable and evaluated-zero are distinct. Post-run where/rank/table selects
+segments and never resegments. count can rank; duration supports existing
+unitized predicates, with no new Duration ranking directory. Subject images
+exist only through original retained SubjectBinding and run->cell->Subject parts.
+Projection deduplicates Subjects under existing set rules without changing run
+multiplicity; global Time sequences have no members capability.
+
+### Association pairing, statuses, lag and selection
+
+`association.pearson@v1`, `association.spearman@v1` and
+`association.kendall@v1` consume 2..16 distinct single-quantity inputs in request
+order. Every unordered index pair a<b is evaluated. Quantity identity, not label,
+establishes distinctness. Require the same exact complete observation instance
+set/coordinate authority and realized unique composite keys; independent source
+captures with merely equal row counts/Entity declarations do not prove pairing.
+Entity/category rows are statistical units. Time is paired by point, and each
+category*time tuple is a separate series. Scalar is rejected.
+
+None means one zero lag. A nonempty range supplies signed int64 offsets only;
+explicit lag is rejected on Entity/category even for range(0,1). +k pairs A(t)
+with B(t+k) on original grid ordinals and certified coordinates, without crossing
+series or collapsing missing rows. Input request order determines direction.
+For each pair/lag/series: input-matched=boundary_drop and null+complete=matched.
+Only ordinary Null is pairwise deleted after alignment. Undefined/Unknown,
+nonfinite Defined, duplicate keys or malformed domains fail atomically.
+
+For complete pairs x,y, Pearson is Sxy/sqrt(Sxx*Syy), where Sxy is the centered
+cross-product sum and Sxx/Syy are centered square sums. Spearman is this Pearson
+formula on globally assigned average ranks of each complete paired vector.
+Kendall tau-b is (C-D)/sqrt((C+D+T_x)*(C+D+T_y)); C/D count concordant/discordant
+unordered observation pairs, T_x/T_y count ties in only that endpoint, and pairs
+tied in both are excluded from both factors. Batch-local ranks/coefficient merges
+and quadratic source SQL pair joins are forbidden substitutes.
+
+Status precedence is insufficient_pairs when complete<2, then constant_both,
+constant_a, constant_b, otherwise valid. Invalid candidates carry Undefined
+coefficient with their closed reason and selected=False, never NaN or zero.
+A valid candidate requires finite coefficient in [-1,1]; any rounding enclosure
+used to finish an endpoint coefficient must be retained, with no arbitrary
+near-one clamp. Every pair/series needs >=1 valid lag or the entire call rejects.
+Exactly one valid lag wins by (-abs(coefficient),abs(lag),lag), selection version
+association.max_abs_coefficient_min_abs_lag_min_signed_lag@v1. All invalid and
+valid candidates remain. Pair*lag*series ceiling is 4096, checked statically when
+known and at execution otherwise; it is unrelated to input rows/bytes/memory.
+where does not recompute coefficients, selected flags or original search_summary.
+Coefficient summarize describes current coefficient rows; it is not pooled
+correlation, original rollup, Entity selection, causality or inference.
+
+### Forecast model and interval equations
+
+`forecast.naive@v1`, `forecast.drift@v1` and `forecast.seasonal_naive@v1` consume
+one complete consecutive time or category*time quantity. All series share the
+same captured training grid and approved future grid. Every required training
+Cell is Defined/finite. Reject duplicates, missing/partial cells, all other Cell
+tags, unapproved continuation and pooling across series. Horizon is periods(1..1000),
+level is a finite float in (0,1), seasonal length is an integer s>1 excluding bool.
+Minimum n is 2, 3 and s+1 respectively.
+
+For series y[1..n] and future ordinal h>=1, normal_residual@v1 is normative:
+
+```text
+naive:
+  prediction[h] = y[n]
+  innovation[t] = y[t]-y[t-1], t=2..n
+  df=n-1; sigma2=sum(innovation[t]^2)/df
+  variance[h]=sigma2*h
+
+drift:
+  slope=(y[n]-y[1])/(n-1)
+  prediction[h]=y[n]+h*slope
+  innovation[t]=y[t]-y[t-1]-slope, t=2..n
+  df=n-2; sigma2=sum(innovation[t]^2)/df
+  variance[h]=sigma2*h*(1+h/(n-1))
+
+seasonal_naive(s):
+  prediction[h]=y[n-s+((h-1) mod s)+1]
+  innovation[t]=y[t]-y[t-s], t=s+1..n
+  df=n-s; sigma2=sum(innovation[t]^2)/df
+  variance[h]=sigma2*(floor((h-1)/s)+1)
+
+z=Phi^-1((1+level)/2)
+margin[h]=z*sqrt(variance[h])
+lower[h]=prediction[h]-margin[h]; upper[h]=prediction[h]+margin[h]
+```
+
+Naive/seasonal innovations are not demeaned, including a constant nonzero vector.
+Drift removes only its first/last fitted increment and uses df=n-2, not residuals
+of a regression on levels. Exact-zero variance is allowed only when every required
+innovation is exactly zero. Unavailable/negative variance or a nonfinite required
+point/bound aborts all horizons and series. A rounded interval can coincide at a
+coarse Decimal quantum without asserting zero innovation: retain nonzero raw
+variance and rounding error, never label it exact_zero. Missing variance never
+becomes a zero-width interval.
+
+Prediction is ModelPrediction; bounds are PredictionIntervalBound. Their domain
+is the same captured future grid. where synchronizes the three views while
+retaining original training authority; prediction rank/table and current-row
+descriptive statistics do not authorize summing bounds into a total interval.
+Assumption contract is zero_mean_uncorrelated_homoskedastic_normal_innovations@v1,
+with drift mean-increment estimation uncertainty. These are nominal prediction
+intervals for future observations, not mean confidence intervals, empirical
+calibration, causal effects or a guarantee from numerical admission.
+
+### RequiredParts, transformations and closed failures
+
+Part schemas are frozen under r8.<role>/v1, with typed composite keys, explicit
+binding/definition/scope/version and separate schema/row-count/receipt. Rational
+facts use reduced signed numerator and positive denominator decimal strings;
+bounded-root facts bind the exact radicand and directed Decimal endpoints. These
+are closed scalar records, not arbitrary reason dictionaries or public exports.
+
+| Role | Required columns/facts and keys | Producer / transport |
+| --- | --- | --- |
+| fit_inputs | original key, partition tuple, Cell value/tag/reason, input/grid/Subject binding; full original scope | Deviation captures once; selection retains full authority |
+| fit_state | partition key, original/tag counts/n, center, raw scale/variance, scale branch, numeric policy, median/order witnesses and input digest | Deviation; immutable through where/rank/limit |
+| grid_cells | grid/cell identity, ordinal, original/actual start/end, partial, precision, coverage; per-series complete coordinate map | shared temporal capture; numeric/difference/score transport only if completeness survives |
+| condition_cells | series/cell key, dependency bindings, true/false/unavailable and closed reasons | Runs; full classification scope survives selected outputs |
+| run_cells | run identity, ordered cell identities, start/end/count/duration and two termination witnesses | Runs; select by run identity, never resegment |
+| subject_map | original complete Subject tuple, input cell/instance and run/observed mapping when available | actual Subject owner; never synthesize from public numeric keys |
+| pair_inputs | ordered quantity/pair/series/lag, full correspondence bindings, captured pair values/tags and pairing counts | Association; fixed method requires these inputs, transport-only does not qualify the kernel |
+| association_state | every candidate key, counts/status/coefficient/selected, input quantity contracts and original search_summary/selection version | Association; selected current rows retain original search authority |
+| training_inputs | series/cell key, full training values, training grid and quantity binding | Forecast; no source/calendar reconstruction |
+| forecast_state | series key, model/season/n/innovation count/df/slope/sigma2/zero flag/numeric policy; each horizon variance | Forecast; per-series facts, not only min/max summaries |
+| future_cells | approved future grid/cell keys, ordinal/start/end, horizon mapping and continuation authority | temporal owner; immutable through forecast selection |
+| finding_policy | exact producer/state/extractor/policy/input/scope and count/digest authority | common Runtime owner, including no-Findings policy |
+
+Selected main rows and selected field tables have the same typed current keys;
+full fit/classification/search/training authority tables keep their original keys
+and explicit scope. Their PartTransform is select_output_retain_scope@v1.
+Original observed parts transport only when their existing rule remains true.
+Selection revokes complete-time-grid admission for a new runs/forecast kernel;
+output transport cannot manufacture lost full inputs. Recovery validates key,
+version, receipts, scope linkage, counts, witnesses and numeric equations against
+retained state; it must not refit, rerank, resegment, reselect lag or reforecast
+to replace missing/damaged parts. Actual K is the intersection of these parts,
+quantity and requested parameters, not the Result family name.
+
+The future typed error family subclasses AnalysisError with code, operation,
+method/version, exact input identity, expected, received and repair. Closed codes
+are r8.input_identity, r8.input_mode, r8.cell_policy, r8.grid_incomplete,
+r8.correspondence, r8.numeric_unqualified, r8.numeric_overflow,
+r8.no_valid_candidate, r8.candidate_ceiling, r8.forecast_history,
+r8.future_grid, r8.retained_part and r8.numeric_precision. Unavailable scoring is
+Cell state, not an execution error. Each code binds actual missing parts/types,
+keys, counts or registered qualification; repair uses current state and names
+an exact reconstruction/parameter action. Timeout/cancel/resource errors reuse
+the existing Runtime owner. There is no generic ValueError or hardcoded repair
+catalog substituted for these structured facts.
