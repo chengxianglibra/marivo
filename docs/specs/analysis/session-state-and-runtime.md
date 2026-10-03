@@ -1361,3 +1361,194 @@ quantification consume verified retained parts without loading current semantics
 opening a datasource or rematching Journeys. A starts-only Anchor Artifact lacks
 return inputs and rejects retention construction before a Run. Fixed retention
 kernel qualification remains unfinished; continuation evidence cannot replace it.
+
+## R8.1 frozen statistical execution and disclosure
+
+This is the sole inactive R8 execution/publication/recovery target. R8.1 adds no
+method registration, producer implementation, new public API or qualification.
+The [R8 migration ledger](../../superpowers/specs/2026-10-03-marivo-full-algebra-dsl-r8-migration-ledger.md)
+records exact planned/blocked cells and migration responsibilities. Operator
+r8.<role>/v1 schemas and timezone grid facts are prerequisites, not satisfied by
+this document or by historical Dataset success.
+
+### Exact keys, prepared inputs and sharing
+
+Each method uses the existing MethodRegistry and the exact QualificationKey
+fields (method/version, ordered input_types, ordered input_domains, shape,
+route). SourceShape is (backend="duckdb", form="table"/"parquet",
+table_kind="native"/"parquet", time=NoTime or TimeShape("instant", captured
+source s/ms/us/ns, captured zone)). FixedShape contains only its captured time
+shape; source backend/form are origin evidence, not extra fixed-key fields.
+Complete calendar/grid authority remains a checked bound part in addition to
+this physical time shape. Decimal precision/scale and ordered heterogeneous
+correlation types participate in the key. Implementation IDs are frozen as
+`r8-<method-name-with-dots-replaced-by-hyphens>-<route>-v1`, where method names
+are the exact nine operator-owned names and route is ibis/ibis_python/
+artifact_python. Only Pearson/Spearman have native ibis targets; the other
+seven have ibis_python/artifact_python targets. These IDs are inactive targets,
+not Qualified entries or evidence IDs. State/numeric policy versions and bound
+RequiredParts/checks also enter execution/capture identity; they are not invented
+QualificationKey fields. Store remains
+7; graph-dag-v1 and continuation/execution-key v2 remain the envelopes. New
+closed r8 part variants and explicit v1 method/state contracts extend them;
+there is no generic statistical payload or legacy Dataset codec fallback.
+
+Select qualified full-Ibis Pearson/Spearman first only if the exact route meets
+all pairing, numeric, retained-input and output contracts. Otherwise select the
+qualified ibis_python preparation/local route before execution. Deviation,
+MAD/global ranking, runs, Kendall and forecast target complete projected Ibis
+preparation then their registered local methods. Fixed methods use
+artifact_python with checked Arrow/Parquet inputs. No compile/read/compute
+failure changes route, sampler, batch scope, algorithm or problem. Record every
+actual reader/submission/exchange and method invocation separately.
+
+Input/output stage contracts carry complete typed keys, Cells, grid/Subject
+mapping and method-required columns; cross-batch schemas/types are invariant.
+Logical construction, Help and planning do no business reads, Session Store
+writes or Run allocation. Known mixed closures, foreign Session/input identity,
+unsupported shape and missing fixed parts reject before those effects. Data
+uniqueness/coverage/finite checks execute at registered consume/publish stages.
+
+Source-dependent top-level execute obtains a new realization; repeated edges to
+one explicit node share its preparation/kernel in the same DAG/Run. Distinct
+node identities do not merge merely because definitions match. Multiple owned
+fields reference one fitted/statistical producer and do not recalculate it.
+Fixed exact hits bind all ordered Artifact inputs, implementation/numeric/time
+versions, parameters, current receipts, full RequiredParts/check results and
+output scope, without another source read or Run.
+
+F11's mandatory chain is change->deviation->where->observed.members->observe->
+summarize in one Logical DAG. Before any local score/Subject selection, collect
+and prepare every later observation's contributions, captured member support,
+relationship path, historical axes, time envelope and complete composite keys.
+The prepared-observation identity binds the original Subject domain, Metric
+and source definition fingerprints, path/time/quantity/component contracts and
+shared source dependencies. Restriction uses the selected real Subject image
+and then the same registered local aggregation. A population scalar without
+per-Subject support cannot substitute. No upload, source-after-local, Candidate
+membership or fixed/live mixture is allowed. TimeRun boundary reads may inform
+an explicit new time_scope/execute, which creates a new realization with the old
+Evidence association; reading a boundary itself creates no query.
+
+Baseline prepared observation currently rejects grid/cumulative/fold and some
+Decimal states. Mandatory expanded time/Decimal F11 cells remain blocked pending
+R8.2 preparation/transport implementation. An allowlist change cannot qualify
+this chain. Missing captured grid/pair/training/future parts similarly blocks a
+new fixed kernel; existing where/rank/table transport is separately recorded.
+R7 gaps and user-skipped qualifications remain unchanged.
+
+### Deadline, cost observations and atomic failure
+
+Reuse r7_execute_v1: one private 600-monotonic-second execute deadline, from
+entry through admission, preparation, source/exchange, receipt/exact-hit checks,
+all numeric computation/refinement and precommit publication validation. No new
+public budget argument or stage/batch clock exists. Below/at/above boundary
+requirements retain the existing strict expiry test elapsed>600. Native source
+cancellation, local cancellation points and reader cleanup must enforce the same
+remaining deadline. Cancellation/timeout/bad or late batch/compute/close errors
+abort uncommitted publication and release owned resources. Durable committed
+success remains success after a subsequent deadline; unknown commit uses the
+existing Store reconciliation owner.
+
+The Association candidate ceiling is 4096 pair*lag*series, independently owned
+by its method. Shared Finding cap remains 1000. Neither is an input row/byte or
+workspace memory quota. Record actual input rows/columns/decoded bytes,
+Arrow/pandas/numeric simultaneous buffers, preparation/kernel elapsed time,
+output/part bytes and submit/cancel facts. No capacity estimate admits or rejects
+otherwise valid complete input. Spearman/MAD use full global vectors/order,
+forecast keeps full history, and runs carries unfinished batch state. A batched
+source exchange is not evidence of a streaming numeric kernel. Resource failure
+never silently truncates, samples or substitutes a different implementation.
+
+### Closed Finding authority and transaction
+
+| Producer | Extractor / policy | Eligibility and full deterministic order |
+| --- | --- | --- |
+| association.pearson/spearman/kendall@v1 | graph.association_findings@v1 / bounded_descriptive_findings@v1 | every valid candidate, including nonselected lags; abs(coefficient) descending, then complete typed candidate key |
+| forecast.naive/drift/seasonal_naive@v1 | graph.forecast_findings@v1 / bounded_prediction_findings@v1 | every valid future point; complete typed series/future key order |
+| deviation.zscore/mad@v1 and time.runs@v1 | graph.no_findings@v1 / zero_findings@v1 | eligible/emitted/truncated=0; validated empty set digest |
+
+Nonzero policies have cap=1000, emitted=min(eligible,1000),
+truncated=eligible-emitted, counted before cap. An eligible-zero input retains
+its actual extractor/policy authority. All ordered quantity/input/scope bindings
+and the exact policy's complete eligible set are captured before output selection.
+Derived selection transports the producer's original capped scalar bodies,
+policy and Evidence authority with its current selected-output binding. Finding
+identities/set digest are rebound to the derived Artifact while retaining the
+original producer, full eligibility scope and source-Artifact/capture linkage.
+Counts, body order and original selected-lag flags remain unchanged. This is
+transport, not a new extractor: it must not regenerate a selected-only set or
+validate selected main rows as the producer's full domain. All reads check both
+the original authority and derived Artifact binding.
+
+Reuse the exact AssociationFindingValueV1 and ForecastPointFindingValueV1 scalar
+body fields and lag variants. The Artifact authority additionally proves each
+pair/series's complete count equations, scope, selected-lag version and each
+forecast series/horizon's innovation/df/variance/assumption contract. Forecast
+quality is validated per series, not only through a min/max summary. Numeric
+facts carry the r8_numeric_v1 output type/error, not a float-only body assumption.
+Deviation/Run Evidence reports statistical/condition facts and unavailable
+reasons; it makes no automatic causal, significance or recommendation Finding.
+
+The old AssociationFindingSubjectV1 and MetricFindingSubjectV1 are Metric-only.
+R8 freezes AssociationFindingSubjectV2 with ordered a/b quantity bindings, and
+ForecastFindingSubjectV2 with its quantity binding. The internal binding is the
+closed union ObservedGraphQuantityV1, DerivedGraphQuantityV1,
+RowStatisticGraphQuantityV1 and RolledGraphQuantityV1, matching current core
+quantity kinds. Each contains exact quantity identity, definition fingerprint,
+unit, exact value type and approximation identity. Observed additionally binds
+its closed catalog Metric Ref or runtime Metric expression identity and its
+graph/contribution fingerprint; Rolled binds its original quantity identity and
+contribution identity. Derived binds method/version and ordered input quantity
+identities; RowStatistic binds method/version, input quantity/domain and
+weighting. None requires a catalog Metric when its real quantity is derived,
+runtime-authored or a row statistic. No invented Metric Ref,
+raw Subject key, universal dict or additional top-level export is permitted.
+The subject discriminator changes to graph-association-v2/graph-forecast-v2;
+value bodies remain their existing closed v1 variants. Old Dataset subjects and
+read dispatch do not become a second recovery authority for new graph results.
+
+Finding identity binds Session/Artifact, producer/state/extractor/policy versions,
+ordered roles and capture/Artifact realization identities, definition and original
+scope, public coordinates, complete canonical key and body digest. Artifact,
+RequiredParts, Evidence, complete capped Findings and terminal Run publish in
+one existing transaction. Public digest/page/single read, source-offline cold
+read and fixed exact hit validate schemas/receipts/key sets, body/subject bindings,
+full-set digest/order/count/truncation, producer policy and original/current
+scope linkage. Corruption rejects; recovery never reruns the statistical method,
+loads current Semantic/calendar, opens DuckDB or repairs an old Artifact.
+
+### F14: bounded disclosure and repairs
+
+Use the current native Help coordinator and ANALYSIS_HELP_RENDER_BUDGETS:
+root 32 lines/3000 codepoints/8 routes/0 examples; decision_hub
+44/4500/10/0; navigation 64/6500/18/0; exact_callable 104/9000/10/1;
+public_type 72/7000/12/0; current_briefing 72/7000/6/1. These are the existing
+owner's budgets, not new renderer constants. New callable leaves have one
+English minimal public example and independently resolve beneath their concrete
+dsl type; discovery stays progressive beneath analysis. No live target teaches
+an unconnected method in R8.1.
+
+Every Result has a bounded single-line repr with family and identity, pointing
+to show(). show() uses the existing 8192-byte/50-row bounded card protocol with
+deterministic typed order and explicit truncation/recovery action. Deviation
+shows original/valid counts, fit/scale branch and unavailable scores; TimeRun
+shows full classification counts, actual elapsed boundary/termination and Subject
+availability; Association shows observation unit, pairing/search and selected
+scope; Forecast shows model/history/future/df/variance/nominal assumptions.
+contract() exposes only mechanically valid actions for the current parts/quantity.
+Static API facts belong to Help, current K to contract, concrete repair to typed
+errors; none injects an analysis plan or duplicates the capability matrix.
+
+Error codes and fields come from the operators owner. Populate expected/received
+from actual typed keys, required/captured parts, input and registered route facts;
+repair names the appropriate original grid, corresponding owned view, complete
+history or explicit new capture. No source repair of fixed state, implicit impute,
+statistics-to-contribution interpretation or recommendation from unavailable
+scores. Existing errors must not advertise a placeholder method.
+
+Each R8 implementation package aligns its actual exports/API/help registry,
+dynamic K/errors, independent drift/reachability/budget tests, CLI and latest
+English/Chinese site examples before public connection. R8.5 closes remaining
+retirement. Packaged skills remain untouched without explicit approval of a
+concrete proposed diff; M17 records their workflow responsibility separately.
