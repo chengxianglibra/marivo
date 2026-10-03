@@ -639,7 +639,6 @@ def test_finding_swap_binding_and_receipt_reject(funnel_public, fault):
 def test_private_funnel_chain_is_physically_retired():
     from pathlib import Path
 
-    from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
     from marivo.analysis.observation.contracts import make_family_registry, make_ids
     from marivo.analysis.operators.registry import legacy_source_migration_stage
 
@@ -660,9 +659,7 @@ def test_private_funnel_chain_is_physically_retired():
         assert not (root / file).exists()
     families = make_family_registry(make_ids(()))
     assert not {"delta", "attribution"} & {f.family_id for f in families.registrations}
-    assert not hasattr(LogicalEventDataset, "compare") and not hasattr(
-        MaterializedEventDataset, "compare"
-    )
+    assert not (root / "domains/event.py").exists()
     assert legacy_source_migration_stage("funnel_delta.attribute") is None
     assert (root / "operators/attribute_values.py").exists()
 

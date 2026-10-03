@@ -11,27 +11,10 @@ from marivo.analysis.materialization.source_preparation import prepared_source
 from marivo.analysis.observation.predicates import eq
 from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
 from marivo.refs import ref
-from tests.lazy_event_runtime_fixtures import journey, setup_event
 from tests.lazy_local_fixtures import setup_local
 from tests.test_lazy_distinct_runtime import _setup as setup_distinct
 
 pytestmark = pytest.mark.runtime
-
-
-def test_event_source_route_rejects_before_run_and_source_open(tmp_path: Path) -> None:
-    runtime, sources, _database = setup_event(tmp_path)
-    logical = journey(sources)
-    with (
-        patch(
-            "marivo.analysis.materialization.source_stage.prepared_source",
-            side_effect=AssertionError("source opened"),
-        ),
-        pytest.raises(MaterializationError, match="R7 migration") as caught,
-    ):
-        logical.execute()
-    assert caught.value.stage == "source_admission"
-    assert runtime.last_run_ref is None
-    assert runtime.statistics.submissions == []
 
 
 def test_attribution_source_route_rejects_before_run(tmp_path: Path) -> None:

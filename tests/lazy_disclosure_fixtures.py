@@ -14,7 +14,6 @@ from marivo.analysis.session._lazy_sources import LazySources
 from marivo.refs import ref
 from marivo.semantic.event import participant_role
 from marivo.semantic.state_model import ModelStateHandle
-from tests.lazy_event_runtime_fixtures import journey
 from tests.state_model_test_context import END, MODEL, START, sources_without_io
 
 
@@ -56,7 +55,6 @@ def example_inputs(
             rationale="Explicit source-origin coverage",
         ),
     )
-    events = journey(source)
     environment: dict[str, object] = {
         e.name: e.implementation for p in disclosure.providers for e in p.exports
     }
@@ -73,7 +71,6 @@ def example_inputs(
         customer=ref.entity("sales.customers"),
         multi_metric=source.observe((revenue, count_metric)).with_dimensions(region),
         time_metric=time_metric,
-        events=events,
         pattern=sequence(start_step, finish_step),
         start_role=start_role,
         start_step=start_step,

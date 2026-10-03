@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from datetime import datetime
 from math import isfinite
@@ -12,21 +12,9 @@ import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
-import pyarrow as pa
 
-from marivo.analysis.compiler.nodes import (
-    CompiledDataset,
-    CompiledRelationFence,
-    CompiledValidation,
-)
 from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.domains.completeness import (
-    EventCoverageProvider,
-    EventCoverageResolution,
-    resolve_event_coverage,
-)
-from marivo.analysis.domains.contracts import EventDefinition
 from marivo.analysis.materialization.errors import (
     MaterializationError,
     source_type_errors,
@@ -35,7 +23,6 @@ from marivo.analysis.materialization.errors import (
 from marivo.analysis.materialization.execution import Parameter
 from marivo.analysis.materialization.scalar_sql_execution import (
     ScalarExecutionAdapter,
-    ScalarStatement,
 )
 from marivo.analysis.operators.trino_support import supported_type
 from marivo.datasource.engines.trino import _trino_namespace
@@ -43,7 +30,6 @@ from marivo.datasource.timezone import DatasourceEngineTimezone
 
 if TYPE_CHECKING:
     from ibis.backends.trino import Backend
-    from trino.client import TrinoRequest
 
 
 class _NativeCursor(Protocol):
@@ -110,207 +96,8 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
         super().__init__(backend, run_ref=run_ref)
         self._trino = backend
         self._cursors: set[TrinoCursor] = set()
-        self._event_prefix: str | None = None
-        self._event_request: TrinoRequest | None = None
-        self._event_counts: dict[ops.Node, ops.Node] = {}
         self._source_connectors: set[str] = set()
         self._source_kinds: set[str] = set()
-
-    def open_event_relations(self, recipe: CompiledDataset) -> tuple[tuple[str, int], ...]:
-        from trino import constants
-
-        from marivo.analysis.materialization.trino_event_sql import compile_event_expression
-
-        self._check()
-        if self._event_prefix is not None:
-            raise self.unsupported("Event source already opened")
-        if self._source_connectors != {"iceberg"} or self._source_kinds != {"BASE TABLE"}:
-            raise self.unsupported("Event snapshots require qualified Iceberg base tables")
-        self.submit(
-            self.statement(
-                "SET SESSION distinct_aggregations_strategy = 'single_step'",
-                role="event_source.planning",
-            )
-        )
-        request: TrinoRequest = self._trino.con._create_request()
-        self._event_request = request
-        control = "START TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
-        with self.submission("event_source.snapshot", control):
-            response = request.post(control)
-            status = request.process(response)
-            transaction = response.headers.get(constants.HEADER_STARTED_TRANSACTION)
-            if transaction:
-                request.transaction_id = transaction
-            while status.next_uri:
-                response = request.get(status.next_uri)
-                transaction = (
-                    response.headers.get(constants.HEADER_STARTED_TRANSACTION) or transaction
-                )
-                if transaction:
-                    request.transaction_id = transaction
-                status = request.process(response)
-            if not transaction:
-                raise self.unsupported("Trino did not establish a read-only transaction")
-            request.transaction_id = transaction
-        preparations = recipe.preparations or recipe.validations
-        ctes = [
-            f"{_identifier(item.relation_name)} AS ({compile_event_expression(item.expression)})"
-            for item in preparations
-            if isinstance(item, CompiledRelationFence)
-        ]
-        self._event_prefix = "WITH " + ", ".join(ctes) + " "
-        accepted: list[tuple[str, int]] = []
-        for check in preparations:
-            if not isinstance(check, CompiledValidation):
-                continue
-            self._prepare_event_counts(check.expression)
-            checked = self.read_table(self.prepare(check.expression, role=check.name))
-            violations = checked["violations"][0].as_py() if checked.num_rows == 1 else None
-            if type(violations) is not int or violations != 0:
-                raise self.error(
-                    check.expected or "zero Event source violations",
-                    f"Event validation failed: {check.name}",
-                    check.repair or "Repair the governed Event source rows.",
-                    stage="output_validation",
-                )
-            accepted.append((check.name, 0))
-        return tuple(accepted)
-
-    def _prepare_event_counts(self, expression: ir.Expr) -> None:
-        # Trino inlines CTEs. Submit each independent scalar assertion in the
-        # same snapshot instead of duplicating the complete match across a
-        # large UNION query. Only violation counts leave the source here.
-        for node in expression.op().find(ops.Aggregate):
-            if (
-                not isinstance(node.parent, ops.Union)
-                or node.parent.schema.names != ("violations",)
-                or node.groups
-                or len(node.metrics) != 1
-                or not isinstance(next(iter(node.metrics.values())), ops.Sum)
-                or any(
-                    union.distinct
-                    for union in node.parent.find(ops.Union)
-                    if union.schema.names == ("violations",)
-                )
-                or node in self._event_counts
-            ):
-                continue
-
-            def leaves(relation: ops.Relation) -> Iterator[ops.Relation]:
-                if isinstance(relation, ops.Union):
-                    yield from leaves(relation.left)
-                    yield from leaves(relation.right)
-                else:
-                    yield relation
-
-            total = 0
-            for index, part in enumerate(leaves(node.parent)):
-                value = self.read_table(
-                    self.prepare(part.to_expr(), role=f"event.output.check.{index}")
-                )
-                count = value["violations"][0].as_py() if value.num_rows == 1 else None
-                if type(count) is not int or count < 0:
-                    raise self.unsupported("invalid Event assertion count")
-                total += count
-            self._event_counts[node] = (
-                ibis.literal(total, type="int64").name(node.schema.names[0]).as_table().op()
-            )
-
-    def _close_event_snapshot(self) -> None:
-        if self._event_request is not None:
-            try:
-                if self._event_request.transaction_id not in (None, "NONE"):
-                    self.submit(self.statement("ROLLBACK", role="event_source.snapshot_close"))
-            finally:
-                self._event_request.transaction_id = None
-                self._event_request = None
-
-    def _prepare(
-        self,
-        expression: ir.Expr,
-        *,
-        role: str,
-        params: Mapping[ir.Scalar, Parameter] | None = None,
-    ) -> ScalarStatement:
-        if self._event_prefix is None:
-            return super()._prepare(expression, role=role, params=params)
-        from marivo.analysis.compiler.event_time import _localize_utc
-
-        self._check()
-        localize = type(_localize_utc("UTC", ibis.timestamp("2000-01-01")).op())
-        if any(
-            not isinstance(node, localize)
-            for node in expression.op().find((ops.InMemoryTable, ops.ScalarUDF, ops.AggUDF))
-        ):
-            raise self.unsupported("Event uploads or ungoverned UDFs")
-        table = expression.as_table()
-        if role == "event.reducer_summary":
-            self._prepare_event_counts(table)
-        if self._event_counts:
-            table = table.op().replace(self._event_counts).to_expr()
-        return ScalarStatement(
-            self._compile_sql(table, params=params),
-            (),
-            table.schema().to_pyarrow(),
-            role,
-            self._context,
-            native_structs=True,
-        )
-
-    def decode_cell(self, value: object, dtype: pa.DataType) -> object:
-        if self._event_prefix is not None and pa.types.is_struct(dtype) and value is not None:
-            if not isinstance(value, (tuple, list)) or len(value) != len(dtype):
-                raise self.error(
-                    "a native ROW matching the declared identity",
-                    "invalid ROW transport",
-                    "Correct the source identity transport before publication.",
-                    stage="output_validation",
-                )
-            return {
-                field.name: self.decode_cell(item, field.type)
-                for field, item in zip(dtype, value, strict=True)
-            }
-        return super().decode_cell(value, dtype)
-
-    def _compile_sql(
-        self,
-        expression: ir.Expr,
-        *,
-        params: Mapping[ir.Scalar, Parameter] | None = None,
-    ) -> str:
-        if self._event_prefix is None:
-            return super()._compile_sql(expression, params=params)
-        if params is not None:
-            raise self.unsupported("parameterized Event relation")
-        import sqlglot
-
-        from marivo.analysis.materialization.trino_event_sql import compile_event_expression
-
-        query = sqlglot.parse_one(compile_event_expression(expression), read="trino")
-        prefix = sqlglot.parse_one(self._event_prefix + "SELECT 1", read="trino").args["with_"]
-        existing = query.args.get("with_")
-        if existing is not None:
-            prefix.set("expressions", [*prefix.expressions, *existing.expressions])
-        query.set("with_", prefix)
-        return query.sql(dialect="trino")
-
-    def resolve_coverage(
-        self,
-        definition: EventDefinition,
-        *,
-        provider: EventCoverageProvider | None,
-        source_binding_fingerprint: str,
-        execution_domain_id: str,
-        require_source_origin: bool,
-    ) -> EventCoverageResolution:
-        if provider is not None:
-            raise self.unsupported("Trino Event coverage provider")
-        return resolve_event_coverage(
-            definition,
-            source_binding_fingerprint=source_binding_fingerprint,
-            execution_domain_id=execution_domain_id,
-            require_source_origin=require_source_origin,
-        )
 
     def cursor(self, *, stream: bool) -> TrinoCursor:
         self._check()
@@ -319,8 +106,6 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
         return result
 
     def _lower(self, expression: ir.Expr) -> ir.Expr:
-        if self._event_prefix is not None:
-            return expression
         from marivo.analysis.materialization.temporal_sql import lower_temporal
 
         expression = lower_temporal(expression, self.engine)
@@ -447,7 +232,6 @@ class TrinoExecutionAdapter(ScalarExecutionAdapter):
         try:
             with ExitStack() as stack:
                 stack.callback(self._trino.disconnect)
-                stack.callback(self._close_event_snapshot)
                 for cursor in tuple(self._cursors):
                     stack.callback(cursor.close)
                 for stream in tuple(self._streams):

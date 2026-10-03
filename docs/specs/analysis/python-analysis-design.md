@@ -963,32 +963,14 @@ the unchanged private Arrow struct. Exact linear-interpolation distribution
 state is qualified on all five remote backends. Percentile status-time folds
 and remote `duckdb_tdigest@v1` remain unqualified. Entity Pearson and Spearman
 correlation now reduce complete source-private pairs on all five remote backends;
-Kendall remains a complete-input local continuation. PostgreSQL admits exact
-Event journeys with two or three steps over unversioned tables with int64 subject and occurrence identities.
-The retained legacy PostgreSQL Event time-to-event and subject selection records do not qualify the new R7 graph. Complete PostgreSQL funnel inputs can continue through the
-existing retained comparison and attribution path. PostgreSQL journey queries
-use one read-only materialized CTE bundle.
-
-ClickHouse and Trino admit exact two-step Event journeys with first-per-subject
-or every-start shared/exclusive matching over the same identity/table shape.
-ClickHouse uses a single packet query with materialized CTEs; the reader must
-be allowed to set `enable_materialized_cte=1` while remaining read-only. Trino
-uses a read-only repeatable-read transaction and separate source count assertions
-to avoid duplicating the complete match beyond its stage budget. Its live
-acceptance uses Iceberg. Neither path transfers raw occurrences for local matching.
-Trino also admits direct ungrouped funnels, first-per-subject time-to-event and
-subject selection, plus complete ungrouped funnel comparison through the existing
-local continuation. Its grouped funnel reconciliation exceeds the 150-stage
-acceptance limit (306 stages), so grouped funnels and dependent attribution remain
-closed. The old Lifecycle recursive/array replay and dedicated native integrity
-routes have been retired. R7.5 canonical History uses DuckDB table/local Parquet
-Ibis preparation followed by registered local replay, with source-free Arrow/Parquet
-recovery. R7.6 qualifies the six History views and exact Duration/Subject observation
-continuations on these local forms. Remote History backends remain unqualified.
-ClickHouse direct Event reducers and selection remain closed after planner/memory qualification failures. SQLite
-and MySQL C9 methods remain closed. These are exact implementation qualifications, not claims
-that other engines cannot implement the underlying algorithms. Other Event and
-Lifecycle shapes reject through the method registry before source execution.
+Kendall remains a complete-input local continuation. R7's public Journey,
+funnel, History, Anchor and retention producers use the unified graph/method
+registry on DuckDB native tables and local Parquet. The old PostgreSQL,
+ClickHouse and Trino Event packet/CTE routes and their dedicated reducers,
+coverage/codec/publication consumers are retired in R7.9. Their historical
+acceptance does not qualify the current graph. Remote Event/History methods
+remain R9 requirements. Fixed continuations consume only their retained parts;
+starts-only Anchors cannot acquire missing return-event or Metric inputs.
 Sampling, Entity candidates, and source
 driver screening remain unsupported on these backends. Remote
 retained import stays disabled. Cumulative Metric graphs and semantic calendar buckets were
@@ -1224,9 +1206,8 @@ captured during construction and are not reread at execution.
 ## Row meaning and ownership
 
 Remaining legacy Dataset families are Population, Metric, Association, Forecast,
-Candidate and Event. R7.5 History uses the typed graph family. R6 uses typed Relation/Difference/AttributionResult
-variants. The private R7 funnel comparison/allocation shapes have their own owner
-and are not public Delta/Attribution Dataset exports. Each admitted shape has paired Logical
+Candidate. R7 Journey, funnel, History, Anchor and retention use the typed graph.
+R6 uses typed Relation/Difference/AttributionResult variants. Each admitted shape has paired Logical
 and Materialized classes. Shape, schema, coordinate/key fields, row cardinality,
 ordering, authority and definition identity are explicit immutable contracts.
 

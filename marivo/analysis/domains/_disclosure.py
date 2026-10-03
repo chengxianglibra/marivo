@@ -10,7 +10,6 @@ from marivo.analysis._capabilities.dataset_model import (
     ExampleInput,
     ExportInput,
     bind,
-    family,
     operation,
     value_type,
 )
@@ -21,11 +20,6 @@ from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.analysis.domains.completeness import (
     BoundedCompletenessDeclarationV1,
     SourceOriginCompletenessDeclarationV1,
-)
-from marivo.analysis.domains.contracts import (
-    EventFunnelSemantics,
-    EventJourneySemantics,
-    EventTimeToEventSemantics,
 )
 from marivo.analysis.event import (
     EventPattern,
@@ -49,36 +43,9 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
     parameters: tuple[P, ...]
     requires: tuple[str, ...]
     registrations: tuple[str, ...]
-    variants: tuple[type[object], ...]
     value: object
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
-    for fid, variants, summary in (
-        (
-            "event",
-            (EventJourneySemantics, EventFunnelSemantics, EventTimeToEventSemantics),
-            "Legacy Event results retained for consumers awaiting R7 migration.",
-        ),
-    ):
-        f = registry.get(fid)
-        target = fid + "_dataset"
-        descriptors.append(
-            family(
-                target,
-                f,
-                summary=summary,
-                variants=variants,
-                acquisition="Retained legacy Event results; new matching returns JourneyResult. Reducers remain in the same family.",
-                constraints=(
-                    "Raw Entity identities remain private until explicit authorized terminal row reads.",
-                    "Right censoring and coverage censoring differ; membership selection requires exact complete identities.",
-                    "Logical reuse shares the plan; materialized continuations consume only their retained roles.",
-                ),
-            )
-        )
-        exports.extend(
-            ExportInput(t.__name__, t, target) for t in (f.logical_type, f.materialized_type)
-        )
 
     for target, value, entry, parameters, output, code, requires, constraint, registrations in (
         (
@@ -122,7 +89,7 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 "event_completeness",
             ),
             "DuckDB native tables and local Parquet prepare captured occurrences before canonical local matching. Fixed continuations consume assignment, reach and coverage without rematching. Execute a prepared Metric observation or Duration statistic before further operations. No remote backend qualification.",
-            ("session.events.match",),
+            (),
         ),
         (
             "lifecycle.replay",
@@ -161,80 +128,6 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 summary=constraint,
                 discovery_group="entry",
                 related=("session.get_or_create", "catalog.require", "catalog.readiness"),
-                parameters=parameters,
-                output=output,
-                constraints=(constraint,),
-                effects=CONSTRUCTION_EFFECT,
-                failures=CONSTRUCTION_FAILURES,
-                example=ExampleInput(code, requires, "result", output),
-                registration_ids=registrations,
-            )
-        )
-
-    methods = (
-        (
-            "event",
-            "funnel",
-            "event_dataset.funnel",
-            ("event.funnel",),
-            (
-                P(
-                    "axes",
-                    "Choose stable governed non-time Dimensions for complete journey partitions.",
-                ),
-            ),
-            "LogicalEventDataset",
-            "result = events.funnel()",
-            ("events",),
-            "Legacy Event funnel with fixed denominators and censoring counts. Its PostgreSQL/Trino qualification does not grant new JourneyResult funnels.",
-        ),
-        (
-            "event",
-            "time_to_event",
-            "event_dataset.time_to_event",
-            ("event.time_to_event",),
-            (
-                P("from_step", "Use an exact source-pattern step."),
-                P("to_step", "Use a later exact source-pattern step."),
-            ),
-            "LogicalEventDataset",
-            "result = events.time_to_event(from_step=start_step, to_step=finish_step)",
-            ("events", "start_step", "finish_step"),
-            "Legacy pair-local duration consumer. New JourneyResult uses its typed time_to_event; old backend qualifications do not transfer.",
-        ),
-        (
-            "event",
-            "select_subjects",
-            "event_dataset.select_subjects",
-            ("event.select_subjects",),
-            (
-                P(
-                    "selection",
-                    "Construct dropped_before for an exact non-initial source step.",
-                    ("dropped_before",),
-                ),
-            ),
-            "LogicalPopulationDataset",
-            "result = events.select_subjects(dropped_before(step=finish_step))",
-            ("events", "dropped_before", "finish_step"),
-            "Legacy Event membership consumer. New Journeys use read(dropped_before(...)), where and members; old backend qualifications do not transfer.",
-        ),
-    )
-    for fid, name, target, registrations, parameters, output, code, requires, constraint in methods:
-        f = registry.get(fid)
-        bindings = tuple(bind(getattr(t, name), t) for t in (f.logical_type, f.materialized_type))
-        descriptors.append(
-            operation(
-                target,
-                "dataset." + name,
-                bindings[0].implementation,
-                bindings=bindings,
-                summary=constraint,
-                discovery_group="methods.compare"
-                if name in ("compare", "attribute")
-                else "methods.events"
-                if fid == "event"
-                else "methods.lifecycle",
                 parameters=parameters,
                 output=output,
                 constraints=(constraint,),

@@ -199,6 +199,7 @@ def test_public_member_read_and_category_selection(
     selected = read.where(read.value.eq("west")).execute()
 
     assert isinstance(selected, mv.MaterializedSelectedCategoryRelation)
+    assert selected.to_pandas()["value"].tolist() == ["west"]
     actions = selected.contract().actions
     assert tuple(action.call for action in actions) == (
         "relation.where(predicate)",

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Literal
 from uuid import uuid4
+
+import ibis.expr.datatypes as dt
 
 from marivo._temporal import TimeScope
 from marivo.analysis.core.domain_captures import EventCapture, OrderCapture, StateModelCapture, fail
@@ -20,17 +22,192 @@ from marivo.analysis.core.graph import (
 )
 from marivo.analysis.core.model import Coordinate, DomainSignature
 from marivo.analysis.core.rules import JourneyMatch, OccurrencePrepare, entity_candidates
+from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.domains.completeness import CompletenessDeclaration
-from marivo.analysis.domains.event import _normalize_steps
-from marivo.analysis.event import EventPattern, EveryStart, FirstPerSubject
+from marivo.analysis.domains.errors import event_error
+from marivo.analysis.event import EventPattern, EveryStart, FirstPerSubject, PatternStep
 from marivo.analysis.materialization.graph_observation import _window_bounds
 from marivo.analysis.materialization.graph_preflight import preflight_entities
 from marivo.analysis.materialization.graph_protocol import digest, schema_text
 from marivo.analysis.materialization.graph_relation import LiveBinding, Relation
 from marivo.analysis.methods.physical import ScalarType, TimeShape
-from marivo.analysis.observation.contracts import ObservationOwner
-from marivo.refs import BusinessOrderKind, Ref, StateModelKind, ref
-from marivo.semantic.validator import normalize_target_dimension, normalize_target_relationship
+from marivo.analysis.observation import coordinates
+from marivo.analysis.observation.contracts import ObservationOwner, path_dependency_fingerprint
+from marivo.refs import BusinessOrderKind, Ref, SemanticKind, StateModelKind, ref
+from marivo.semantic.event import ParticipantRoleHandle
+from marivo.semantic.ir import TargetDimensionContract, TargetEntityContract
+from marivo.semantic.metric_graph_lowering import dependency_digest
+from marivo.semantic.validator import (
+    normalize_target_dimension,
+    normalize_target_entity,
+    normalize_target_relationship,
+)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class PreparedPatternStep:
+    step: PatternStep
+    source: TargetEntityContract
+    identity: tuple[TargetDimensionContract, ...]
+    occurred_at: TargetDimensionContract
+    subject: TargetEntityContract
+    participant_path: tuple[str, ...]
+    event_fingerprint: str
+
+
+def _normalize_steps(
+    owner: ObservationOwner, pattern: EventPattern
+) -> tuple[PreparedPatternStep, ...]:
+    if (
+        type(pattern) is not EventPattern
+        or not pattern.steps
+        or any(type(step) is not PatternStep for step in pattern.steps)
+    ):
+        raise event_error("a non-empty exact EventPattern of exact PatternSteps", "invalid Pattern")
+    try:
+        EventPattern.model_validate_json(pattern.model_dump_json())
+    except (TypeError, ValueError) as exc:
+        raise event_error(
+            "a fully validated immutable EventPattern", "invalid Pattern values"
+        ) from exc
+    if len({step.key for step in pattern.steps}) != len(pattern.steps):
+        raise event_error("unique ordered Pattern step keys", "duplicate step keys")
+    result: list[PreparedPatternStep] = []
+    for step in pattern.steps:
+        if (
+            type(step.participant) is not ParticipantRoleHandle
+            or type(step.event) is not Ref
+            or step.event.kind is not SemanticKind.EVENT
+        ):
+            raise event_error("exact governed Event participant role", "invalid participant")
+        event = owner.semantic_registry.events.get(step.event.path)
+        if event is None or step.event not in owner.sidecar.catalog_refs:
+            raise event_error(
+                "an exact Event from the current semantic registry", "Event is not loaded"
+            )
+        participant = next(
+            (item for item in event.participants if item.name == step.participant.name), None
+        )
+        if participant is None or participant.cardinality != "one":
+            raise event_error(
+                "an exact cardinality-one participant declared by the Event",
+                "missing or optional participant",
+            )
+        path = tuple(participant.path or ())
+        endpoint = event.source_entity
+        for name in path:
+            relationship = owner.semantic_registry.relationships.get(name)
+            if relationship is None or relationship.from_entity != endpoint:
+                raise event_error(
+                    "a continuous directed participant path", "broken Event participant path"
+                )
+            endpoint = relationship.to_entity
+        if not coordinates.path_is_functional(owner.semantic_registry, event.source_entity, path):
+            raise event_error(
+                "a governed to-one participant path",
+                "participant path lacks exact identity authority",
+            )
+        source = normalize_target_entity(owner.semantic_registry, event.source_entity)
+        subject = normalize_target_entity(owner.semantic_registry, endpoint)
+        if not subject.identity_signature:
+            raise event_error(
+                "a complete non-empty subject primary key", "source-only participant Entity"
+            )
+        raw_identity = tuple(
+            normalize_target_dimension(owner.semantic_registry, name) for name in event.identity
+        )
+        if (
+            not raw_identity
+            or len({item.ref.path for item in raw_identity}) != len(raw_identity)
+            or any(item.entity_ref != source.ref or item.is_time_dimension for item in raw_identity)
+        ):
+            raise event_error(
+                "non-empty distinct identity Dimensions on the occurrence source",
+                "invalid Event identity",
+            )
+        # Event identity is non-null by its owning semantic contract even when
+        # the physical source permits nulls; action-time scalar proofs enforce it.
+        identity = tuple(
+            replace(
+                item,
+                logical_type=(
+                    "unknown"
+                    if item.logical_type == "unknown"
+                    else str(dt.dtype(item.logical_type).copy(nullable=True))
+                ),
+                nullable=False,
+            )
+            for item in raw_identity
+        )
+        instant = normalize_target_dimension(owner.semantic_registry, event.occurred_at)
+        if (
+            instant.entity_ref != source.ref
+            or not instant.is_time_dimension
+            or instant.logical_type != "timestamp"
+        ):
+            raise event_error(
+                "a governed timestamp occurrence axis on the Event source",
+                "invalid Event time authority",
+            )
+        if result and (
+            subject.ref != result[0].subject.ref
+            or subject.identity_signature != result[0].subject.identity_signature
+        ):
+            raise event_error(
+                "one exact subject Entity and ordered identity signature",
+                "Pattern participant subjects differ",
+            )
+        if result and tuple(item.logical_type for item in identity) != tuple(
+            item.logical_type for item in result[0].identity
+        ):
+            raise event_error(
+                "homogeneous occurrence identity arity and ordered logical types",
+                "incompatible Event identity signatures",
+            )
+        body = owner.sidecar.bodies.get(step.event)
+        if body is None:
+            raise event_error("a frozen executable Event predicate", "missing Event body")
+        dependency = dependency_digest(
+            owner.semantic_registry,
+            sidecar=owner.sidecar,
+            dimension_ids=(*event.identity, event.occurred_at),
+            semantic_refs=tuple(binding.to_ref() for binding in body.bindings),
+        )
+        fingerprint = d._canonical_digest(
+            (
+                "event.source-definition@v1",
+                event.semantic_id,
+                event.source_entity,
+                event.identity,
+                event.occurred_at,
+                tuple((item.name, item.path, item.cardinality) for item in event.participants),
+                event.predicate_kind,
+                event.body_ast_hash,
+                body.body_ast_hash,
+                tuple(
+                    (binding.field_ref.kind.value, binding.field_ref.path, binding.entity_position)
+                    for binding in body.bindings
+                ),
+                dependency.digest,
+                path_dependency_fingerprint(
+                    owner,
+                    source.ref.path,
+                    tuple(tuple(item.path or ()) for item in event.participants),
+                ),
+            )
+        )
+        result.append(
+            PreparedPatternStep(
+                step,
+                source,
+                identity,
+                instant,
+                subject,
+                path,
+                fingerprint,
+            )
+        )
+    return tuple(result)
 
 
 def prepare(

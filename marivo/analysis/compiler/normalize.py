@@ -18,12 +18,6 @@ from marivo.analysis.datasets.handles import (
     _LogicalNodePayload,
     _validate_logical_root,
 )
-from marivo.analysis.domains.contracts import (
-    EventFunnelPayload,
-    EventPayload,
-    EventSelectionPayload,
-    EventTimeToEventPayload,
-)
 from marivo.analysis.observation.contracts import (
     MetricPayload,
     PopulationPayload,
@@ -91,8 +85,6 @@ def _input_kind(has_source: bool, has_artifact: bool) -> Literal["source", "arti
 
 
 _INPUT_ONLY_PAYLOADS = (
-    EventTimeToEventPayload,
-    EventSelectionPayload,
     RetainedRowsPayload,
     RetainedFoldPayload,
     CorrelatePayload,
@@ -199,22 +191,6 @@ def _required_entities(
                 path(entity, dimension.entity_ref.path)
                 if columns is not None:
                     columns.axis(dimension)
-        elif isinstance(payload, (EventPayload,)):
-            for step in payload.definition.steps:
-                ids.update(path_entities(registry, step.source.ref.path, (step.participant_path,)))
-                if columns is not None:
-                    columns.route(step.participant_path)
-                    for axis in (*step.identity, step.occurred_at):
-                        columns.axis(axis)
-                    columns.body(
-                        step.step.event.kind, step.step.event.path, (step.source.ref.path,)
-                    )
-        elif isinstance(payload, (EventFunnelPayload,)):
-            for event_axis in payload.axes:
-                ids.update(path_entities(registry, event_axis.subject.ref.path, (event_axis.path,)))
-                if columns is not None:
-                    columns.route(event_axis.path)
-                    columns.axis(event_axis.dimension)
         elif isinstance(payload, MetricPayload):
             definition = payload.definition
             entity = definition.entity.ref.path
@@ -285,8 +261,6 @@ def _required_entities(
         elif not isinstance(
             payload,
             (
-                EventTimeToEventPayload,
-                EventSelectionPayload,
                 RetainedRowsPayload,
                 RetainedFoldPayload,
                 CorrelatePayload,
@@ -322,7 +296,7 @@ def _required_entities(
                 and root.payload.entity.ref.path == entity
             )
             or (
-                isinstance(root.payload, (EventPayload,))
+                isinstance(root.payload, ())
                 and any(
                     entity
                     in path_entities(registry, step.source.ref.path, (step.participant_path,))
@@ -385,9 +359,7 @@ def captured_parameters(dataset: LogicalDataset) -> tuple[BoundSourceParametersV
     found: dict[str, BoundSourceParametersV1] = {}
     for root in logical_roots(dataset):
         payload = root.payload
-        if isinstance(
-            payload, (PopulationPayload, MetricPayload, EventPayload, EventFunnelPayload)
-        ):
+        if isinstance(payload, (PopulationPayload, MetricPayload)):
             for capture in payload.captures:
                 previous = found.setdefault(capture.entity_ref.path, capture)
                 if previous.exact_value_digest != capture.exact_value_digest:

@@ -16,8 +16,6 @@ import ibis.expr.types as ir
 from marivo.analysis.compiler.distinct_fold import fold_memberships
 from marivo.analysis.compiler.distribution import frequency_quantile, source_quantile
 from marivo.analysis.compiler.errors import compilation_error
-from marivo.analysis.compiler.event_continuation import canonical_rows as canonical_event_rows
-from marivo.analysis.compiler.event_continuation import result_proof as event_result_proof
 from marivo.analysis.compiler.nodes import (
     CompiledArtifactScan,
     CompiledDataset,
@@ -63,15 +61,6 @@ from marivo.analysis.datasets.handles import (
     CanonicalValue,
     LogicalRootHandle,
     MaterializedScanLeafHandle,
-)
-from marivo.analysis.domains.completeness import EventCoverageResolution, resolve_event_coverage
-from marivo.analysis.domains.contracts import (
-    EventFunnelPayload,
-    EventFunnelSemantics,
-    EventPayload,
-    EventSelectionPayload,
-    EventTimeToEventPayload,
-    EventTimeToEventSemantics,
 )
 from marivo.analysis.observation.contracts import (
     EntityPresentMetricSemantics,
@@ -653,7 +642,6 @@ class _Compiler:
         tables: Mapping[str, ir.Table],
         scans: Mapping[str, CompiledArtifactScan],
         source_owner: ObservationOwner | None = None,
-        event_coverages: Mapping[str, EventCoverageResolution] | None = None,
         read_timezone: str | None = None,
         read_timezone_source: Literal["engine", "system_fallback"] = "engine",
         dependencies: SourceDependencies | None = None,
@@ -662,8 +650,6 @@ class _Compiler:
         explicit_correlation: bool = False,
         emulate_full_join: bool = False,
         scalar_masks: bool = False,
-        event_dialect: Literal["duckdb", "postgres", "trino", "clickhouse"] = "duckdb",
-        ranked_event_successors: bool = False,
         scalar_single_identity: bool = False,
     ) -> None:
         self.dataset = dataset
@@ -676,8 +662,6 @@ class _Compiler:
         self.explicit_correlation = explicit_correlation
         self.emulate_full_join = emulate_full_join
         self.scalar_masks = scalar_masks
-        self.event_dialect = event_dialect
-        self.ranked_event_successors = ranked_event_successors
         self.scalar_single_identity = scalar_single_identity
         self.time_authorities: dict[tuple[str, str], SourceTimeAuthority] = {}
         self.version_selections: dict[str, CanonicalValue] = {}
@@ -704,15 +688,6 @@ class _Compiler:
         self.association_proof: ir.Table | None = None
         self.candidate_proof: ir.Table | None = None
         self.candidate_definition: CandidateDefinition | DriverCandidateDefinition | None = None
-        self.event_proof: ir.Table | None = None
-        self.event_coverage: EventCoverageResolution | None = None
-        self.event_coverages = dict(event_coverages or {})
-        self.event_reducer_coverage: EventCoverageResolution | None = None
-        self.selection_proof: ir.Table | None = None
-        self.selection_coverage: EventCoverageResolution | None = None
-        self.selection_payload: EventSelectionPayload | None = None
-        self.selection_input_definition: str | None = None
-        self.event_proofs: dict[int, ir.Table] = {}
         self.validation_occurrences: dict[str, int] = {}
         self.preparations: list[CompiledValidation | CompiledRelationFence] = []
         self.prepared_validation_count = 0
@@ -2079,135 +2054,6 @@ class _Compiler:
         )
         return self._evaluate(definition, membership)
 
-    def _event_journey(self, root: LogicalRootHandle, payload: EventPayload) -> _Rows:
-        from marivo.analysis.compiler.event import compile_event_match, event_output_proof
-        from marivo.analysis.compiler.event_sources import lower_event_sources
-        from marivo.analysis.domains.contracts import journey_identity_digest, journey_semantics
-
-        definition = payload.definition
-        previous = self._visit(root.inputs[0].root)
-        identity = previous.expression["entity_identity"]
-        if not isinstance(identity, ir.StructValue):
-            raise compilation_error("exact selected subject identities", "invalid Event membership")
-        membership = previous.expression.select(
-            **{name: identity[name] for name in definition.entity.primary_key}
-        )
-
-        def freeze(table: ir.Table) -> ir.Table:
-            self._flush_validations()
-            name = f"__mv_event_{len(self.preparations)}"
-            self.preparations.append(CompiledRelationFence(name, table, id(root)))
-            return ibis.table(table.schema(), name=name)
-
-        membership = freeze(membership)
-        occurrences = lower_event_sources(
-            definition,
-            self.owner,
-            self.tables,
-            membership,
-            freeze=freeze,
-            add_validation=self.validations.append,
-        )
-        coverage = self.event_coverages.get(root.definition_fingerprint)
-        if coverage is None:
-            coverage = resolve_event_coverage(definition)
-        start, end = definition.cohort_window.start, definition.cohort_window.end
-        if not isinstance(start, datetime) or not isinstance(end, datetime):
-            raise compilation_error("aware Event window instants", "invalid cohort window")
-        table, checks, _ = compile_event_match(
-            occurrences,
-            matching=definition.matching,
-            cohort_start=start,
-            cohort_end=end,
-            completion_through=definition.completion_through,
-            definition_digest=journey_identity_digest(journey_semantics(definition)),
-            coverage_complete=coverage.complete,
-            ranked_successors=self.ranked_event_successors,
-            require_int64_identities=self.event_dialect in ("postgres", "trino", "clickhouse"),
-        )
-        self.validations.extend(checks)
-        table = freeze(table)
-        self.event_proof = event_output_proof(
-            table,
-            step_keys=tuple(step.step.key for step in definition.steps),
-            event_refs=tuple(step.step.event.path for step in definition.steps),
-            matching=definition.matching,
-            cohort_start=start,
-            cohort_end=end,
-            completion_through=definition.completion_through,
-            definition_digest=journey_identity_digest(journey_semantics(definition)),
-            coverage_complete=coverage.complete,
-        )
-        self.event_coverages[root.definition_fingerprint] = coverage
-        self.event_proofs[id(root)] = self.event_proof
-        self.validations.append(
-            CompiledValidation("event.journey.output", self.event_proof.select("violations"))
-        )
-        self.event_coverage = coverage
-        return _Rows(table, membership, definition.entity)
-
-    def _event_reducer(
-        self,
-        root: LogicalRootHandle,
-        payload: EventFunnelPayload | EventTimeToEventPayload | EventSelectionPayload,
-    ) -> _Rows:
-        from marivo.analysis.compiler.event_continuation import reduce_event
-
-        previous = self._visit(root.inputs[0].root)
-        incoming = root.inputs[0].root
-        key = (
-            incoming.artifact_ref.ref
-            if isinstance(incoming, MaterializedScanLeafHandle)
-            else incoming.definition_fingerprint
-        )
-        coverage = self.event_coverages.get(key)
-        if coverage is None:
-            raise compilation_error(
-                "exact retained Event coverage", "missing journey coverage authority"
-            )
-
-        def freeze(table: ir.Table) -> ir.Table:
-            self._flush_validations()
-            name = f"__mv_event_reducer_{len(self.preparations)}"
-            self.preparations.append(CompiledRelationFence(name, table, id(root)))
-            return ibis.table(table.schema(), name=name)
-
-        table = freeze(previous.expression)
-        if isinstance(payload, EventFunnelPayload) and payload.axes:
-            from marivo.analysis.compiler.event_axes import lower_event_axes
-
-            table = lower_event_axes(
-                table,
-                payload.axes,
-                self.owner,
-                self.tables,
-                step_key=payload.semantics.journey.pattern.steps[0].key,
-                freeze=freeze,
-                add_validation=self.validations.append,
-            )
-        result, checks, proof = reduce_event(table, payload, coverage)
-        self.validations.extend(checks)
-        self.validations.append(
-            CompiledValidation("event.reducer.output", proof.select("violations"))
-        )
-        if isinstance(payload, EventSelectionPayload):
-            self.selection_proof = proof
-            self.selection_coverage = coverage
-            self.selection_payload = payload
-            self.selection_input_definition = self.datasets[id(incoming)].definition_fingerprint
-            result = freeze(result)
-            identity = result.entity_identity
-            if not isinstance(identity, ir.StructValue):
-                raise compilation_error(
-                    "complete selected identity tuple", "invalid selection output"
-                )
-            membership = result.select(
-                **{name: identity[name] for name in previous.entity.primary_key}
-            )
-            return _Rows(result, membership, previous.entity)
-        self.event_reducer_coverage = coverage
-        return _Rows(result, previous.membership, previous.entity)
-
     def _visit(self, root: LogicalRootHandle | MaterializedScanLeafHandle) -> _Rows:
         if isinstance(root, MaterializedScanLeafHandle):
             scan = self.scans.get(root.artifact_ref.ref)
@@ -2217,7 +2063,7 @@ class _Compiler:
                 scan is None
                 or not isinstance(dataset, MaterializedDataset)
                 or (
-                    root.shape_id.family_id not in ("population", "delta", "event")
+                    root.shape_id.family_id not in ("population", "delta")
                     and not (
                         root.shape_id.family_id == "candidate"
                         and root.shape_id.local_shape_id in ("entity-outlier", "driver-axis")
@@ -2242,8 +2088,6 @@ class _Compiler:
                     "unsupported retained source input",
                 )
             table, entity = scan.expression, scan.entity
-            if isinstance(semantics, (EventFunnelSemantics, EventTimeToEventSemantics)):
-                self.event_reducer_coverage = self.event_coverages.get(root.artifact_ref.ref)
             if root.shape_id.family_id in ("metric", "delta"):
                 table, checks = _lower_retained_scan(dataset.row_contract, table, dict(scan.parts))
                 self.validations.extend(checks)
@@ -2276,7 +2120,7 @@ class _Compiler:
                 )
             membership = table.select(**{name: identity[name] for name in entity.primary_key})
             if (
-                root.shape_id.family_id in ("delta", "event")
+                root.shape_id.family_id in ("delta",)
                 or root.shape_id.local_shape_id == "driver-axis"
             ):
                 # Complete row keys are validated separately; driver rows may
@@ -2298,12 +2142,6 @@ class _Compiler:
         payload = root.payload
         if isinstance(payload, PopulationPayload):
             result = self._population(root, payload)
-        elif isinstance(payload, EventPayload):
-            result = self._event_journey(root, payload)
-        elif isinstance(
-            payload, (EventFunnelPayload, EventTimeToEventPayload, EventSelectionPayload)
-        ):
-            result = self._event_reducer(root, payload)
         elif isinstance(payload, DriverCandidatePayload):
             from marivo.analysis.compiler.attribution import prepare_expanded_driver
             from marivo.analysis.compiler.driver_candidate import lower_driver_candidate
@@ -2548,7 +2386,6 @@ class _Compiler:
 
     def compile(self) -> CompiledDataset:
         rows = self._visit(self.dataset._root)
-        root = self.dataset._root
         primary = tuple(field.name for field in self.dataset.schema.columns)
         parts = retained_part_specs(self.dataset.row_contract)
         hidden = _state_projection(self.dataset.row_contract)
@@ -2562,9 +2399,7 @@ class _Compiler:
         if key_names:
             self._unique("dataset.final_row_key_unique", expression, key_names)
         ordering = self.dataset.row_set_contract.ordering
-        if self.dataset.row_contract.shape_id.family_id == "event":
-            expression = canonical_event_rows(expression, self.dataset.row_contract)
-        elif isinstance(ordering, _OrderedOrdering):
+        if isinstance(ordering, _OrderedOrdering):
             field_names = {field.field_id: field.name for field in self.dataset.schema.columns}
             terms = tuple(
                 (field_names[term.field_id], term.direction, term.nulls) for term in ordering.terms
@@ -2608,25 +2443,6 @@ class _Compiler:
             candidate_definition=self.candidate_definition
             if self.dataset.kind == "candidate"
             else None,
-            event_proof=self.event_proofs.get(id(root)),
-            event_coverage=self.event_coverages.get(root.definition_fingerprint)
-            if isinstance(root, LogicalRootHandle)
-            else None,
-            event_reducer_proof=event_result_proof(
-                expression,
-                self.dataset.row_contract,
-                filtered=isinstance(root, LogicalRootHandle) and root.operator_id == "event.where",
-            )
-            if isinstance(
-                self.dataset.row_contract.family_semantics,
-                (EventFunnelSemantics, EventTimeToEventSemantics),
-            )
-            else None,
-            event_reducer_coverage=self.event_reducer_coverage,
-            selection_proof=self.selection_proof if self.dataset.kind == "population" else None,
-            selection_coverage=self.selection_coverage,
-            selection_payload=self.selection_payload,
-            selection_input_definition=self.selection_input_definition,
         )
 
 
@@ -2637,7 +2453,6 @@ def compile_dataset(
     dependencies: SourceDependencies | None = None,
     scans: Mapping[str, CompiledArtifactScan] | None = None,
     source_owner: ObservationOwner | None = None,
-    event_coverages: Mapping[str, EventCoverageResolution] | None = None,
     read_timezone: str | None = None,
     read_timezone_source: Literal["engine", "system_fallback"] = "engine",
     replay_exact_quantile: bool = False,
@@ -2645,8 +2460,6 @@ def compile_dataset(
     explicit_correlation: bool = False,
     emulate_full_join: bool = False,
     scalar_masks: bool = False,
-    event_dialect: Literal["duckdb", "postgres", "trino", "clickhouse"] = "duckdb",
-    ranked_event_successors: bool = False,
     scalar_single_identity: bool = False,
 ) -> CompiledDataset:
     """Lower a logical Dataset using exact source tables without executing or reading rows."""
@@ -2655,7 +2468,6 @@ def compile_dataset(
         tables,
         {} if scans is None else scans,
         source_owner,
-        event_coverages,
         read_timezone,
         read_timezone_source,
         dependencies,
@@ -2664,8 +2476,6 @@ def compile_dataset(
         explicit_correlation,
         emulate_full_join,
         scalar_masks,
-        event_dialect,
-        ranked_event_successors,
         scalar_single_identity,
     ).compile()
 
@@ -2788,7 +2598,6 @@ def compile_retained_rows(
     *,
     parts: Mapping[str, ir.Table] | None = None,
     input_parts: Mapping[str, Mapping[str, ir.Table]] | None = None,
-    event_coverages: Mapping[str, EventCoverageResolution] | None = None,
 ) -> CompiledDataset:
     """Compose exact row/state operations over one immutable engine Artifact."""
     from marivo.analysis.operators.registry import admit_retained_rows
@@ -2800,19 +2609,11 @@ def compile_retained_rows(
     candidate_definition: CandidateDefinition | DriverCandidateDefinition | None = None
     preparations: list[CompiledValidation | CompiledRelationFence] = []
     prepared_count = 0
-    event_reducer_coverage: EventCoverageResolution | None = None
-    selection_proof: ir.Table | None = None
-    selection_coverage: EventCoverageResolution | None = None
-    selection_payload: EventSelectionPayload | None = None
-    selection_input_definition: str | None = None
-    coverages = {} if event_coverages is None else event_coverages
+
     cache: dict[int, ir.Table] = {}
     private_parts: dict[int, PrivateRelations] = {}
 
     def read(value: MaterializedDataset) -> ir.Table:
-        nonlocal event_reducer_coverage
-        if value.kind == "event":
-            event_reducer_coverage = coverages.get(value.state.artifact_ref.ref)
         selected_table = (
             table if isinstance(table, ir.Table) else table[value.state.artifact_ref.ref]
         )
@@ -2834,21 +2635,7 @@ def compile_retained_rows(
             cache[id(value)] = visit_node(value)
         return cache[id(value)]
 
-    def freeze(value: ir.Table, root: LogicalRootHandle) -> ir.Table:
-        nonlocal prepared_count
-        preparations.extend(validations[prepared_count:])
-        prepared_count = len(validations)
-        name = f"__mv_event_reducer_{len(preparations)}"
-        preparations.append(CompiledRelationFence(name, value, id(root)))
-        return ibis.table(value.schema(), name=name)
-
     def visit_node(value: Dataset) -> ir.Table:
-        nonlocal \
-            event_reducer_coverage, \
-            selection_proof, \
-            selection_coverage, \
-            selection_payload, \
-            selection_input_definition
         nonlocal \
             attribution_proof, \
             association_proof, \
@@ -2861,42 +2648,6 @@ def compile_retained_rows(
         if not isinstance(value, LogicalDataset) or not isinstance(value._root, LogicalRootHandle):
             raise compilation_error("an exact retained row graph", "invalid retained row node")
         payload = value._root.payload
-        if isinstance(
-            payload, (EventFunnelPayload, EventTimeToEventPayload, EventSelectionPayload)
-        ):
-            from marivo.analysis.compiler.event_continuation import reduce_event
-
-            incoming = value._inputs[0]
-            previous = visit(incoming)
-            key = (
-                incoming.state.artifact_ref.ref
-                if isinstance(incoming, MaterializedDataset)
-                else incoming.definition_fingerprint
-            )
-            coverage = coverages.get(key)
-            if coverage is None:
-                raise compilation_error(
-                    "exact retained journey coverage", "missing Event authority"
-                )
-            if isinstance(payload, EventFunnelPayload) and payload.axes:
-                raise compilation_error(
-                    "explicit current semantic source binding", "retained-only axis enrichment"
-                )
-            result, checks, proof = reduce_event(freeze(previous, value._root), payload, coverage)
-            validations.extend(checks)
-            validations.append(
-                CompiledValidation("event.reducer.output", proof.select("violations"))
-            )
-            private_parts[id(value)] = ()
-            if isinstance(payload, EventSelectionPayload):
-                selection_proof, selection_coverage = proof, coverage
-                selection_payload, selection_input_definition = (
-                    payload,
-                    incoming.definition_fingerprint,
-                )
-                return freeze(result, value._root)
-            event_reducer_coverage = coverage
-            return result
         if isinstance(payload, DriverCandidatePayload):
             from marivo.analysis.compiler.driver_candidate import lower_driver_candidate
 
@@ -2993,7 +2744,6 @@ def compile_retained_rows(
         )
 
     expression = _physical_casts(visit(dataset))
-    root = dataset._root
     validations.extend(
         private_part_validations(dataset.row_contract, expression, dict(private_parts[id(dataset)]))
     )
@@ -3013,9 +2763,7 @@ def compile_retained_rows(
             )
         )
     ordering = dataset.row_set_contract.ordering
-    if dataset.row_contract.shape_id.family_id == "event":
-        expression = canonical_event_rows(expression, dataset.row_contract)
-    elif isinstance(ordering, _OrderedOrdering):
+    if isinstance(ordering, _OrderedOrdering):
         names = {field.field_id: field.name for field in dataset.schema.columns}
         expression = _Compiler._order(
             expression,
@@ -3045,18 +2793,4 @@ def compile_retained_rows(
         association_proof=association_proof,
         candidate_proof=candidate_proof,
         candidate_definition=candidate_definition,
-        event_reducer_proof=event_result_proof(
-            expression,
-            dataset.row_contract,
-            filtered=isinstance(root, LogicalRootHandle) and root.operator_id == "event.where",
-        )
-        if isinstance(
-            dataset.row_contract.family_semantics, (EventFunnelSemantics, EventTimeToEventSemantics)
-        )
-        else None,
-        event_reducer_coverage=event_reducer_coverage,
-        selection_proof=selection_proof if dataset.kind == "population" else None,
-        selection_coverage=selection_coverage,
-        selection_payload=selection_payload,
-        selection_input_definition=selection_input_definition,
     )

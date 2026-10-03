@@ -384,14 +384,7 @@ def _literal(field: DatasetField, value: PredicateLiteral, kind: PredicateKind) 
     if logical in ("date", "civil_date") and type(value) is date:
         return ("date", value.isoformat())
     if type(value) is datetime and (
-        logical == "instant"
-        or re.fullmatch(r"timestamp\('[^']+'(?:, [0-9]+)?\)", logical)
-        or (
-            logical == "timestamp"
-            and field.role_id == "time_coordinate"
-            and field.name in ("from_time", "to_time", "followup_until")
-            and field.field_id.value == f"generated.events.time_to_event.{field.name}@v1"
-        )
+        logical == "instant" or re.fullmatch(r"timestamp\('[^']+'(?:, [0-9]+)?\)", logical)
     ):
         if value.tzinfo is None:
             _error("a timezone-aware instant literal", "naive timestamp")
@@ -566,7 +559,6 @@ def bind_predicates(
         if item.operand is None:
             _error("complete field predicate", "corrupt predicate")
         resolved = resolver(item.operand)
-        from marivo.analysis.domains.event_reducers import event_filterable_field
         from marivo.analysis.operators.correlate import association_filterable_field
         from marivo.analysis.operators.discovery import candidate_filterable_field
         from marivo.analysis.operators.forecast import forecast_filterable_field
@@ -576,7 +568,6 @@ def bind_predicates(
             and (not association_filterable_field(resolved))
             and (not forecast_filterable_field(resolved))
             and (not candidate_filterable_field(resolved))
-            and (not event_filterable_field(resolved))
         ):
             _error("retained Metric, Dimension or exact generated row field", resolved.role_id)
         literal: CanonicalValue

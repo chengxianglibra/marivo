@@ -65,8 +65,6 @@ from marivo.analysis.domains.completeness import (
 from marivo.analysis.domains.completeness import (
     SourceOriginCompletenessDeclarationV1 as SourceOriginCompletenessDeclarationV1,
 )
-from marivo.analysis.domains.event import LogicalEventDataset as LogicalEventDataset
-from marivo.analysis.domains.event import MaterializedEventDataset as MaterializedEventDataset
 from marivo.analysis.errors import EvidenceIntegrityError as EvidenceIntegrityError
 from marivo.analysis.event import EventPattern as EventPattern
 from marivo.analysis.event import EveryStart as EveryStart
@@ -373,8 +371,6 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "MaterializedForecastDataset",
     "LogicalCandidateDataset",
     "MaterializedCandidateDataset",
-    "LogicalEventDataset",
-    "MaterializedEventDataset",
     "LogicalHistoryResult",
     "LogicalStateDistributionResult",
     "MaterializedStateDistributionResult",

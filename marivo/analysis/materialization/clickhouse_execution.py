@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import ExitStack
 from datetime import timedelta
 from itertools import islice
@@ -14,24 +14,15 @@ import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
-import pyarrow as pa
 
-from marivo.analysis.compiler.nodes import CompiledDataset
 from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.domains.completeness import (
-    EventCoverageProvider,
-    EventCoverageResolution,
-    resolve_event_coverage,
-)
-from marivo.analysis.domains.contracts import EventDefinition
 from marivo.analysis.materialization.errors import (
     MaterializationError,
     source_type_errors,
     unsupported_source_type,
 )
-from marivo.analysis.materialization.event_bundle import EventBundleStream
-from marivo.analysis.materialization.execution import BatchStream, Parameter, Statement
+from marivo.analysis.materialization.execution import Parameter
 from marivo.analysis.materialization.scalar_sql_execution import (
     ScalarExecutionAdapter,
 )
@@ -114,91 +105,7 @@ class ClickHouseExecutionAdapter(ScalarExecutionAdapter):
         super().__init__(backend, run_ref=run_ref)
         self._clickhouse = backend
         self._cursors: set[ClickHouseCursor] = set()
-        self._event_bundle: EventBundleStream | None = None
-        self._event_primary: ops.Node | None = None
         self._source_engines: set[str] = set()
-
-    def open_event_bundle(
-        self, recipe: CompiledDataset, *, step_keys: tuple[str, ...]
-    ) -> tuple[tuple[str, int], ...]:
-        from marivo.analysis.materialization.clickhouse_event_sql import compile_event_bundle
-
-        self._check()
-        if self._event_bundle is not None:
-            raise self.unsupported("Event bundle already submitted")
-        if self._source_engines != {"MergeTree"}:
-            raise self.unsupported("Event snapshots require qualified MergeTree tables")
-        shared = self.read_scalar(
-            self.statement(
-                "SELECT getSetting('enable_shared_storage_snapshot_in_query')",
-                role="engine_check.event_snapshot",
-            )
-        )
-        if shared != 1:
-            raise self.unsupported(
-                "Event assertions require enable_shared_storage_snapshot_in_query=1"
-            )
-        materialized = self.read_scalar(
-            self.statement(
-                "SELECT getSetting('enable_materialized_cte') SETTINGS enable_materialized_cte=1",
-                role="engine_check.event_cte",
-            )
-        )
-        if materialized != 1:
-            raise self.error(
-                "ClickHouse Event reader with enable_materialized_cte=1",
-                "materialized CTE execution is disabled",
-                "Ask the datasource administrator to enable materialized CTEs in the read-only reader profile.",
-                stage="implementation_registration",
-            )
-        bundle = compile_event_bundle(recipe, step_keys=step_keys)
-        stream = EventBundleStream(self, bundle)
-        self._streams.add(stream)
-        self._event_bundle = stream
-        self._event_primary = recipe.expression.op()
-        return stream.validations
-
-    def event_bundle_proof(self) -> pa.Table:
-        self._check()
-        if self._event_bundle is None:
-            raise self.unsupported("Event bundle was not submitted")
-        return self._event_bundle.proof
-
-    def batches(
-        self,
-        value: Statement | ir.Expr,
-        *,
-        chunk_size: int,
-        params: Mapping[ir.Scalar, Parameter] | None = None,
-        role: str = "query",
-    ) -> BatchStream:
-        if (
-            isinstance(value, ir.Expr)
-            and self._event_bundle is not None
-            and value.op() is self._event_primary
-            and role == "primary"
-            and params is None
-        ):
-            return self._event_bundle
-        return super().batches(value, chunk_size=chunk_size, params=params, role=role)
-
-    def resolve_coverage(
-        self,
-        definition: EventDefinition,
-        *,
-        provider: EventCoverageProvider | None,
-        source_binding_fingerprint: str,
-        execution_domain_id: str,
-        require_source_origin: bool,
-    ) -> EventCoverageResolution:
-        if provider is not None:
-            raise self.unsupported("ClickHouse Event coverage provider")
-        return resolve_event_coverage(
-            definition,
-            source_binding_fingerprint=source_binding_fingerprint,
-            execution_domain_id=execution_domain_id,
-            require_source_origin=require_source_origin,
-        )
 
     def cursor(self, *, stream: bool) -> ClickHouseCursor:
         self._check()

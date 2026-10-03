@@ -14,10 +14,6 @@ import pyarrow as pa
 from marivo._temporal import PeriodCalendarSnapshotV1
 from marivo.analysis.core.time_authority import ReportTimeAuthority
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
-from marivo.analysis.domains.completeness import (
-    EventCoverageProvider,
-)
-from marivo.analysis.domains.event import LogicalEventDataset, MaterializedEventDataset
 from marivo.analysis.evidence._dataset_types import (
     ArtifactDigest,
     ArtifactRevalidation,
@@ -114,7 +110,6 @@ class DatasetRuntime:
         session_ref: str,
         *,
         event: Callable[[str], None] | None = None,
-        event_coverage_provider: EventCoverageProvider | None = None,
     ) -> None:
         session_record = store.session(session_ref)
         if session_record is None:
@@ -124,7 +119,6 @@ class DatasetRuntime:
             resolution=session_record.report_timezone_resolution,
         )
         self.store = store
-        self.event_coverage_provider = event_coverage_provider
         self.session_ref = session_ref
         self._hook = event
         self.statistics = ExecutionStatistics()
@@ -140,7 +134,6 @@ class DatasetRuntime:
         question: str | None = None,
         report_timezone: str | None = None,
         event: Callable[[str], None] | None = None,
-        event_coverage_provider: EventCoverageProvider | None = None,
         _generation: Literal[6, 7] = 6,
     ) -> DatasetRuntime:
         from marivo.analysis.timezone import resolve_system_timezone, zoneinfo_from_name
@@ -185,7 +178,6 @@ class DatasetRuntime:
                         store,
                         record.session_ref,
                         event=event,
-                        event_coverage_provider=event_coverage_provider,
                     )
             # A competing creator won this name. Its guard must be acquired only
             # after the unused candidate guard has been released.
@@ -193,7 +185,6 @@ class DatasetRuntime:
             store,
             record.session_ref,
             event=event,
-            event_coverage_provider=event_coverage_provider,
         )
         with session_writer_guard(
             store.layout.lock_path(record.session_ref), session_ref=record.session_ref
@@ -226,7 +217,6 @@ class DatasetRuntime:
         session_ref: str,
         *,
         event: Callable[[str], None] | None = None,
-        event_coverage_provider: EventCoverageProvider | None = None,
         _generation: Literal[6, 7] = 6,
     ) -> DatasetRuntime:
         if not MaterializationLayout(project_root, generation=_generation).store_db.is_file():
@@ -239,7 +229,6 @@ class DatasetRuntime:
             ),
             session_ref,
             event=event,
-            event_coverage_provider=event_coverage_provider,
         )
 
     def sources(
@@ -417,12 +406,6 @@ class DatasetRuntime:
         result = self._execute(dataset)
         if not isinstance(result, MaterializedCandidateDataset):
             raise _error("presentation")
-        return result
-
-    def execute_event(self, dataset: LogicalEventDataset) -> MaterializedEventDataset:
-        result = self._execute(dataset)
-        if not isinstance(result, MaterializedEventDataset):
-            raise _error("publication")
         return result
 
     def execute_forecast(self, dataset: LogicalForecastDataset) -> MaterializedForecastDataset:

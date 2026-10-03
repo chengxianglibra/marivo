@@ -13,10 +13,6 @@ from marivo.analysis.compiler.normalize import (
     artifact_inputs,
 )
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
-from marivo.analysis.domains.contracts import (
-    EventFunnelSemantics,
-    EventTimeToEventSemantics,
-)
 from marivo.analysis.evidence._dataset_types import (
     Finding,
 )
@@ -141,10 +137,6 @@ def prepare_publication(
     _validate_consumed_receipts(self, plan)
     descriptor = _base_descriptor(self, plan, stage, evidence, progress)
     dataset = plan.dataset
-    if dataset.kind == "event":
-        return _event_descriptor(self, plan, evidence, descriptor, policy), ()
-    if dataset.kind == "population" and evidence.selection_summary is not None:
-        return _selection_descriptor(stage, evidence, descriptor), ()
     if dataset.kind == "candidate":
         return _candidate_publication(self, plan, stage, evidence, descriptor, policy)
     if dataset.kind == "forecast":
@@ -237,46 +229,6 @@ def _base_descriptor(
             )
     self._event("temporal_authority")
     return replace(descriptor, temporal_execution=tuple(temporal[key] for key in sorted(temporal)))
-
-
-def _event_descriptor(
-    self: DatasetRuntime,
-    plan: ExecutionPlan,
-    evidence: ExecutionEvidence,
-    descriptor: ArtifactDescriptor,
-    policy: ReadPolicy,
-) -> ArtifactDescriptor:
-    from marivo.analysis.materialization.event_publication import bind_event_summary
-
-    if evidence.event_summary is None:
-        raise _error("output_validation", plan.run.run_ref)
-    if plan.physical.local_steps and isinstance(
-        plan.dataset.row_contract.family_semantics,
-        (EventFunnelSemantics, EventTimeToEventSemantics),
-    ):
-        from marivo.analysis.materialization.event_reducer_publication import summary_from_batches
-
-        evidence.event_summary = summary_from_batches(
-            plan.dataset.row_contract.family_semantics,
-            _audit_batches(self, descriptor, policy),
-            evidence.event_summary.coverage,
-        )
-    return bind_event_summary(descriptor, evidence.event_summary)
-
-
-def _selection_descriptor(
-    stage: StageResult, evidence: ExecutionEvidence, descriptor: ArtifactDescriptor
-) -> ArtifactDescriptor:
-    from marivo.analysis.materialization.event_reducer_publication import bind_selection_summary
-
-    assert evidence.selection_summary is not None
-    return bind_selection_summary(
-        descriptor,
-        replace(
-            evidence.selection_summary,
-            row_count=stage.storage.primary_receipt.realized_row_count,
-        ),
-    )
 
 
 def _candidate_publication(

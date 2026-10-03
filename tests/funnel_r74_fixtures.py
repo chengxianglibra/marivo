@@ -21,12 +21,12 @@ def build_funnel_public(tmp_path, *, form="table", history=None):
     from marivo.semantic._compiled_state import build_compiled_state
     from marivo.semantic.catalog import SemanticCatalog
     from marivo.semantic.reader import SemanticProject
-    from tests.lazy_event_fixtures import make_event_registry
-    from tests.lazy_event_runtime_fixtures import setup_event
+    from tests.event_semantic_fixtures import make_event_registry
+    from tests.event_source_fixtures import seed_event_database
 
     source = tmp_path / "source"
     source.mkdir()
-    _, _, database = setup_event(source)
+    database = seed_event_database(source)
     with duckdb.connect(str(database)) as connection:
         connection.execute("UPDATE orders SET day=DATE '2026-02-01' WHERE day IS NULL")
         connection.execute(

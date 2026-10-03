@@ -98,9 +98,6 @@ def prepare_sources(
             )
         )
         proof_backend, proof_recipe, _ = prepared[source_boundary.output]
-        _collect_event_proofs(
-            proof_backend, proof_recipe, source_boundary, evidence, boundary_validations, run_ref
-        )
         _collect_search_proofs(proof_backend, proof_recipe, source_boundary, evidence, run_ref)
         evidence.validations.extend(
             (
@@ -110,94 +107,6 @@ def prepare_sources(
             for name, value in boundary_validations
         )
     return prepared
-
-
-def _collect_event_proofs(
-    proof_backend: ExecutionAdapter,
-    proof_recipe: CompiledDataset,
-    source_boundary: SourceStep,
-    evidence: ExecutionEvidence,
-    boundary_validations: list[tuple[str, int]],
-    run_ref: str,
-) -> None:
-    if proof_recipe.event_proof is not None:
-        from marivo.analysis.materialization.event_codec import (
-            summary_from_proof,
-        )
-
-        if proof_recipe.event_coverage is None:
-            raise _error("output_validation", run_ref)
-        if proof_backend.engine == "postgres":
-            from marivo.analysis.materialization.postgres_execution import (
-                PostgresExecutionAdapter,
-            )
-
-            if not isinstance(proof_backend, PostgresExecutionAdapter):
-                raise _error("implementation_registration", run_ref)
-            checked_event = proof_backend.event_bundle_proof()
-        elif proof_backend.engine == "clickhouse":
-            from marivo.analysis.materialization.clickhouse_execution import (
-                ClickHouseExecutionAdapter,
-            )
-
-            if not isinstance(proof_backend, ClickHouseExecutionAdapter):
-                raise _error("implementation_registration", run_ref)
-            checked_event = proof_backend.event_bundle_proof()
-        else:
-            checked_event = proof_backend.read_table(
-                proof_backend.prepare(proof_recipe.event_proof, role="event.journey_summary")
-            )
-        if checked_event.num_rows != 1:
-            raise _error("output_validation", run_ref)
-        evidence.event_summary = summary_from_proof(
-            checked_event.to_pylist()[0], proof_recipe.event_coverage
-        )
-        boundary_validations.append(("event.journey_output", 0))
-    if proof_recipe.event_reducer_proof is not None:
-        from marivo.analysis.materialization.event_reducer_codec import (
-            summary_from_proof as reducer_summary,
-        )
-
-        if proof_recipe.event_reducer_coverage is None:
-            raise _error("output_validation", run_ref)
-        checked_reducer = proof_backend.read_table(
-            proof_backend.prepare(
-                proof_recipe.event_reducer_proof,
-                role="event.reducer_summary",
-            )
-        )
-        if checked_reducer.num_rows != 1:
-            raise _error("output_validation", run_ref)
-        evidence.event_summary = reducer_summary(
-            str(source_boundary.dataset.row_contract.shape_id),
-            checked_reducer.to_pylist()[0],
-            proof_recipe.event_reducer_coverage,
-        )
-        boundary_validations.append(("event.reducer_output", 0))
-    if proof_recipe.selection_proof is not None:
-        from marivo.analysis.materialization.event_reducer_codec import (
-            selection_summary_from_proof,
-        )
-
-        if (
-            proof_recipe.selection_coverage is None
-            or proof_recipe.selection_payload is None
-            or proof_recipe.selection_input_definition is None
-        ):
-            raise _error("output_validation", run_ref)
-        checked_selection = proof_backend.read_table(
-            proof_backend.prepare(proof_recipe.selection_proof, role="event.selection_summary")
-        )
-        if checked_selection.num_rows != 1:
-            raise _error("output_validation", run_ref)
-        evidence.selection_summary = selection_summary_from_proof(
-            checked_selection.to_pylist()[0],
-            proof_recipe.selection_coverage,
-            journey=proof_recipe.selection_payload.journey,
-            step=proof_recipe.selection_payload.selection.step,
-            input_definition=proof_recipe.selection_input_definition,
-        )
-        boundary_validations.append(("event.selection_output", 0))
 
 
 def _collect_search_proofs(

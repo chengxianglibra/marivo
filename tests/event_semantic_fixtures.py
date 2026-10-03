@@ -8,8 +8,6 @@ from pathlib import Path
 import ibis
 import ibis.expr.types as ir
 
-from marivo.analysis.observation.contracts import ObservationActionPort
-from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
 from marivo.datasource.ir import AiContextIR, TableSourceIR
 from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar, ExpressionBody
@@ -26,7 +24,6 @@ from marivo.semantic.ir import (
 )
 from marivo.semantic.validator import Registry
 from tests.lazy_execution_fixtures import make_execution_registry
-from tests.lazy_observation_fixtures import NoIoActionPort
 
 
 def _all_rows(table: ir.Table) -> ir.BooleanValue:
@@ -136,21 +133,4 @@ def make_event_registry(database: Path) -> tuple[Registry, CompiledExpressionSid
     registry.freeze()
     return registry, CompiledExpressionSidecar(
         bodies=bodies, field_owners=owners, catalog_refs=frozenset(references)
-    )
-
-
-def make_event_sources(
-    *,
-    database: Path = Path("/nonexistent/event-contract.duckdb"),
-    session_id: str = "session-event",
-    store_id: str = "store-event",
-    action_port: ObservationActionPort | None = None,
-) -> LazySources:
-    registry, sidecar = make_event_registry(database)
-    return make_lazy_sources(
-        semantic_registry=registry,
-        sidecar=sidecar,
-        action_port=NoIoActionPort() if action_port is None else action_port,
-        session_id=session_id,
-        store_id=store_id,
     )

@@ -3,7 +3,7 @@
 Date: 2026-10-01
 
 Status: R7.1 documentation/static contract freeze complete; R7.2 private preparation implemented;
-R7.3 public Journey integration implemented with bounded evidence below; R7.4 funnel and Findings, R7.5 canonical History and R7.6 History views are recorded below; R7.7 implementation and bounded qualification are recorded below; R7.8 retention is implemented with bounded evidence and unfinished fixed-input targets; R7.9 remains unimplemented. Qualification is limited to each phase's recorded evidence.
+R7.3 public Journey integration implemented with bounded evidence below; R7.4 funnel and Findings, R7.5 canonical History and R7.6 History views are recorded below; R7.7 implementation and bounded qualification are recorded below; R7.8 retention is implemented with bounded evidence and unfinished fixed-input targets; R7.9 legacy retirement is implemented and installed qualification is being audited below. Full R7 remains incomplete. Qualification is limited to each phase's recorded evidence.
 
 The [R7.1 migration ledger](2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md),
 [consumer snapshot](2026-10-01-marivo-r71-consumer-snapshot.json) and
@@ -413,7 +413,7 @@ records deterministic AST/text/import evidence and mandatory source/fixed/cold
 targets, all planned. Static presence, source admission blockage, unverified
 dynamic unreachability and future deletion are distinct. See the
 [R7.1 acceptance record](2026-09-26-marivo-full-refactor-acceptance.md#r71-documentation-and-static-freeze-completed-acceptance-2026-10-01)
-for validation and excluded execution gates. R7.2 preparation, R7.3 Journey, R7.4 funnel, R7.5 canonical History, R7.6 History views and R7.7 bounded Anchor implementation are recorded below; R7.7 has unfinished original qualification targets and R7.8 bounded retention is recorded below and R7.9 remains pending.
+for validation and excluded execution gates. R7.2 preparation, R7.3 Journey, R7.4 funnel, R7.5 canonical History, R7.6 History views and R7.7 bounded Anchor implementation are recorded below; R7.7 has unfinished original qualification targets and R7.8 bounded retention is recorded below. R7.9 retirement and installed acceptance accounting are recorded in the linked audit.
 
 ### R7.2 — Ibis occurrence 准备、覆盖与业务顺序消费
 
@@ -594,6 +594,22 @@ This is an implementation record, not full R7.8/A13 or release acceptance.
 
 **出口：**§7 全部满足；R7 只剩新统一执行/恢复路径，R8/R9 共享残留有真实 owner，
 不留 R7 专属旧 SQL 交给 R9 删除。未完成必需格不能以阶段编号或大测试总数宣称通过。
+
+**Implementation audit (2026-10-03):** The remaining exclusive Event source,
+compiler, registration, codec and backend SQL consumers are retired, with 39
+exclusive funnel/Event/Lifecycle modules covered by an independent reverse-import
+guard. Current graph Journey binding owns the preserved pure pattern validation.
+The [R7.9 evidence index](2026-10-03-marivo-r79-evidence-index.md) and
+[full R7 acceptance audit](2026-10-03-marivo-r79-acceptance.md) own engineering,
+installed-wheel and original mandatory-cell accounting. The exit remains
+incomplete while fixed input/native route and original profile targets are
+unqualified; successful retained transports do not replace those kernels.
+
+The final audit passed the engineering gate and all 16 basic table/Parquet
+journeys (48 fresh-process phases). Installed timeout failures and user-requested
+R7.7/R7.8 skips are retained. Of the 13500 unchanged mandatory cells, 3129 are
+verified only in recorded scope and 10371 are unverified; R7.9 and full R7
+acceptance remain incomplete.
 
 ## 5. 迁移、删除与共享责任
 

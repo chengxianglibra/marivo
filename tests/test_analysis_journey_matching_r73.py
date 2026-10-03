@@ -294,13 +294,13 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
     from marivo.analysis.materialization.store import SessionStore
     from marivo.refs import ref
     from marivo.semantic.event import participant_role
-    from tests.lazy_event_fixtures import make_event_registry
-    from tests.lazy_event_runtime_fixtures import END as COHORT_END
-    from tests.lazy_event_runtime_fixtures import START as COHORT_START
-    from tests.lazy_event_runtime_fixtures import THROUGH, setup_event
+    from tests.event_semantic_fixtures import make_event_registry
+    from tests.event_source_fixtures import END as COHORT_END
+    from tests.event_source_fixtures import START as COHORT_START
+    from tests.event_source_fixtures import THROUGH, seed_event_database
 
     (tmp_path / "source").mkdir()
-    _, _, database = setup_event(tmp_path / "source")
+    database = seed_event_database(tmp_path / "source")
     import duckdb
 
     def subject(value):

@@ -19,7 +19,7 @@ from marivo.semantic.ir import (
     StateTriggerIR,
 )
 from marivo.semantic.validator import Registry
-from tests.lazy_event_fixtures import make_event_registry
+from tests.event_semantic_fixtures import make_event_registry
 from tests.lazy_observation_fixtures import NoIoActionPort
 
 START = datetime(2026, 2, 1, tzinfo=timezone.utc)

@@ -1,7 +1,7 @@
 # R7.1 contract freeze and consumer migration ledger
 
 Date: 2026-10-01. Status: R7.1 contract/static freeze complete; R7.2 private
-preparation implemented and qualified as recorded below; R7.3-R7.6 implementations are recorded below; R7.7 bounded implementation and remaining qualifications are recorded below; R7.8 bounded retention implementation is recorded below; R7.9 remains pending. This ledger indexes sole owners and responsibility;
+preparation implemented and qualified as recorded below; R7.3-R7.6 implementations are recorded below; R7.7 bounded implementation and remaining qualifications are recorded below; R7.8 bounded retention implementation is recorded below; R7.9 legacy retirement is implemented and the installed audit is complete with failures and user-requested skips below. Full R7 remains incomplete. This ledger indexes sole owners and responsibility;
 it is not another public API or method registry and grants no Runtime qualification.
 
 ## Actual baseline and accepted decisions
@@ -452,3 +452,68 @@ no capture API. Original P19/P20 fixed-retention targets remain unfinished. Inhe
 R7.7 targets, unexecuted original profile cells, full A13/R7, same-wheel and remote
 qualification keep their existing owners. No legacy reducer module is deleted solely
 because the new retention path exists. AGENTS.md and packaged skills are unchanged.
+
+## R7.9 final consumer retirement and acceptance audit (2026-10-03)
+
+Entry: `panda@cdd00fd949bdb8dd5aa7a533c5d6c70f1c72f373`. The
+[R7.9 evidence index](2026-10-03-marivo-r79-evidence-index.md) and
+[full R7 audit](2026-10-03-marivo-r79-acceptance.md) own candidate hashes, final
+checks, installed receipts, original cell dispositions and unsuccessful attempts.
+This amendment supersedes earlier rows naming future Event/Lifecycle retirement.
+It does not supersede original mandatory target routes or grant full R7 acceptance.
+
+Final engineering gates passed, as did all 16 basic table/Parquet journeys and
+48 fresh-process phases. The installed audit retains R6 recovery, Findings-cap,
+R7.6 module, R7.8 continuation and A10 continuation timeouts; the initial
+relationship test omission was corrected and separately passed. Remaining
+R7.7/R7.8 tests were skipped at the user request. All 13500 original mandatory
+cells remain: 3129 verified only in recorded scope and 10371 unverified. The
+R7.9 exit and full R7 are not accepted.
+
+| Node | Current replacement owner and executable evidence | Old consumer / physical disposition and shared owner |
+| --- | --- | --- |
+| M01 | Session JourneyEvents/HistoryLifecycle, graph members and explicit domain binding; R7.3/R7.5/R7.7 rejection/source tests | LazyEvents and LazySources.events removed; old Lifecycle facade was already removed. LazySources retains Population/Metric/Association/Forecast/Candidate owners. |
+| M02 | graph_journey and registered Journey methods; independent public binding, three-policy and recovery tests | Event Dataset classes, family contracts/registration and domains/event.py/contracts.py deleted. Pure pattern normalization moves to graph_journey; no forwarding module or alias. |
+| M03 | domain_preparation, domain_order and registered canonical assignment; raw complete-key/order/coverage oracles | Six remaining Event compiler files removed; no source-native legacy assignment or identity sorting consumer. Original new native targets remain unqualified. |
+| M04 | public_dsl Journey Duration/Completed/Funnel and graph consumers; exhaustive assignment/tick/Fraction/Subject tests | event_reducers and event_continuation removed; select_subjects and generated legacy Event row methods/fields retired. Generic numeric row owners remain. |
+| M05 | graph_funnel, graph_funnel_attribution, graph_findings; independent exact side/Top-K/Finding oracles | Earlier eleven private comparison/attribution files stay deleted; common attribute_values and the required typed Finding body remain owned by current public attribution/Findings. |
+| M06 | graph part schemas, receipts, exchange and Store 7 publication; required-part and Finding corruption tests | Remaining four Event codec/publication modules and descriptor Event/selection fields removed; no old semantics decode, dual read or family publication branch. |
+| M07 | public History results and closed views; full scalar replay/Subject classification tests | Lifecycle Dataset domains, registration, payload and reducers remain physically deleted; analysis/lifecycle.py owns current FromInception/InState declarations. |
+| M08 | canonical graph_history and history_views; raw trace/checkpoint/interval oracles | Lifecycle replay/array/reducer compilers remain absent; no recursive/array SQL or occurrence-ID business ordering. |
+| M09 | typed History/View parts and receipt validation; corruption/cold/exact-hit tests | All old Lifecycle codec/publication files remain deleted; no statement-based native_summary/inspect_history consumer. |
+| M10 | current SourceSession Ibis capture and registered local methods; issued-SQL and stream/cancellation checks | event_bundle and all three event_sql files removed; Lifecycle bundle/integrity files were already removed. Shared scalar adapters keep their actual numeric/metadata responsibilities. |
+| M11 | graph source-first preparation then explicit local consumption | Event prefixes, open_event_bundle, Event schema/coverage collector and compilation wrappers removed. PostgreSQL cursor, Trino cursor and ClickHouse scalar cursor lifetimes remain shared owners; no R7 packet path. |
+| M12 | methods/physical registry and unified graph execution; phase/source-first/resource tests | Legacy Event branches removed from normalize/lowering/placement/ordering/nodes/operator registry/source stage/execution. No stage-7 migration marker or family executor remains. R8 stage-8 admission remains. |
+| M13 | graph snapshot/runtime/publication and Session artifact recovery; source/offline/cold tests | Event dedicated descriptor paths and runtime.execute_event removed; retired family/semantics reject, without migration or origin replay. Shared Dataset runtime remains for actual R8/general consumers. |
+| M14 | graph_findings and graph Store 7 atomic publication; nonempty public read/cap/cold/fault tests | Old Event publication/evidence branches removed. Existing typed Funnel Finding body, generic input bindings and R8 Finding owners remain; domain errors never synthesize Findings. |
+| M15 | native Help, exports, K/repair, typing, CLI, API/site examples; independent disclosure/budget/drift tests | Old Event exports, family Help and retired repair targets removed. API/design/coverage docs updated. Latest EN/ZH examples execute current routes. General packaged workflow skills remain applicable, unchanged with AGENTS.md. |
+| M16 | module-owned independent raw/Fraction/Subject oracles, public workers and installed gate | All 236 frozen legacy node IDs receive explicit dispositions; exclusive old tests/workers/remote fixtures are absent. Shared registry/database data moves to event_semantic_fixtures/event_source_fixtures. Remote numerical/resource/physical qualification remains R9, not a local pass. |
+
+The independent reverse-import guard covers all 39 exclusive modules retired across
+R7.4–R7.9. Old contract/codec/native-layout assertions are retired with their owner;
+business counterexamples route to current independent oracles. A many-to-one
+replacement is not an assertion that every old physical implementation is qualified.
+The original snapshot preserves exact old bodies and hashes for audit.
+
+| Obligation | Current executable evidence owner | Qualification boundary |
+| --- | --- | --- |
+| V01–V03 | test_analysis_domain_preparation_r72, business_order, public Journey/History/Anchor binding | Original identity/time/profile requirements remain; private preparation is not public method qualification. |
+| V04–V06 | test_analysis_journey_matching_r73 and current History/Anchor/retention Subject-image tests | Source/fixed binding and actual same-Run original observation are checked; all original profile/native targets are not inferred. |
+| V07–V08 | test_analysis_funnel_r74 and funnel_r74_worker | Exact independent counts/Fraction/allocation/Findings and historical-axis cases; finite executed profiles only. |
+| V09–V11 | test_analysis_lifecycle_r75, test_analysis_history_r76 and cold workers | Original local History profiles and A10 are exercised; remote forms remain unqualified. |
+| V12 | test_analysis_anchors_r77, test_analysis_retention_r78 and their workers | DST/Omega/quantifiers/Unknown and fixed transports are tested; absent captured-input kernels remain mandatory/unverified. |
+| V13–V15 | Phase-owned source refresh/sharing, source-first traces, full parts/K/Finding corruption, atomic/deadline/stream tests in the same installed candidate | No new recovery facade is needed; the originally proposed test_analysis_domain_recovery_r79 filename was a planned responsibility, now supplied by these actual owners. |
+| V16 | test_analysis_retirement_r79 and full import/remaining-family regressions | Old Event/Lifecycle/funnel consumers retired; shared R8 owners preserved. Static deletion alone does not grant target method execution. |
+| V17 | exports/order, lazy_disclosure, Help/unified Help, drift, CLI, typing contracts and bilingual Runtime examples | Native registry remains the one disclosure owner; no renderer inventory or retired alias. |
+| V18 | test_analysis_runtime_wheel and installed_wheel_probe, staging R7 public workers plus J1–J4/A02/A07/A08 | Same noneditable wheel and every-process origin/hash guard; local installation only, with original mandatory gaps retained. |
+
+R8 receives exact completed Duration sufficient state, original Metric components,
+Subject images and complete opportunity boundaries. Further statistics, source-after-
+local composition and missing captured inputs are not granted by this audit.
+R9 receives method/key/time/source-form/route distinctions, SQL/driver and resource
+checks, and explicitly unverified native/remote targets. It does not receive an
+old R7 SQL algorithm to delete. Shared PostgreSQL boolean-cast lowering, generic
+ClickHouse numeric widening and datasource metadata/finite-value checks retain
+their actual scalar/R8/R9 owners; this is not a global SQL-audit closure.
+R10 receives reproducible installation commands, hashes, process-origin reports,
+three-process journeys and failures; real-Agent and release acceptance remain absent.

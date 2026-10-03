@@ -10,11 +10,6 @@ from marivo.analysis.compiler.errors import DatasetCompilationError, compilation
 from marivo.analysis.compiler.normalize import required_entities
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.domains.contracts import (
-    EventFunnelPayload,
-    EventSelectionPayload,
-    EventTimeToEventPayload,
-)
 from marivo.analysis.observation.contracts import (
     ObservationOwner,
     RetainedRowsPayload,
@@ -175,18 +170,9 @@ def place(
             candidate = (
                 child_domains[0]
                 if child_domains
-                and (
-                    not (
-                        isinstance(value._root.payload, (EventFunnelPayload,))
-                        and value._root.payload.axes
-                    )
-                )
                 and isinstance(
                     value._root.payload,
                     (
-                        EventFunnelPayload,
-                        EventTimeToEventPayload,
-                        EventSelectionPayload,
                         RetainedRowsPayload,
                         RetainedFoldPayload,
                         CorrelatePayload,
