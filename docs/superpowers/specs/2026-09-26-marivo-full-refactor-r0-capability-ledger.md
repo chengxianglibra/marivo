@@ -6,6 +6,13 @@ Status: R0.2–R0.4 静态契约与 R0.6 破坏性变更/交接已登记；R0.5 
 
 依据：[主计划 §3、§6](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)、[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)、[代数 v0.5](2026-09-23-analysis-algebra-theory.md)、[接口设计](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md)、[架构设计](2026-09-24-marivo-analysis-dsl-architecture-design.md)、[R0.1 历史证据索引](2026-09-26-marivo-full-refactor-r0-evidence-index.md)。§1–§4 保留 R0.2 当时的现状快照和待办表述；§5–§6 是本轮接受的目标，冲突时以 owning spec 为准。
 
+2026-10-02 的 C14.a 目标修订已同步到下方目标列与方法格；现状代码/Help、历史快照及
+证据仍按原日期解读。C14.a 现在由 a1 偏离评分和 a2 连续区间组成，替代旧五 discover
+方法的强制迁移要求；逐轴探索归已有 C09 attribute。具体去留与非等价边界见
+[接口设计 §8.4.1](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md#841-从指标变化定位可继续分析的坐标)，
+实施出口见[主计划 R8](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md#r8--统计与数值扩展接入)。
+此处是新目标登记，a1/a2 尚无执行或后端资格证据，C14.b/c 保持原要求。
+
 ## 1. 本次可复核快照与读法
 
 | 项 | 本次读取 |
@@ -64,7 +71,7 @@ Status: R0.2–R0.4 静态契约与 R0.6 破坏性变更/交接已登记；R0.5 
 | C11 | `semantic/event.py`、`session/_lazy_sources.py:LazyEvents.match`、`domains/event*.py`；H `analysis.events.match/event_dataset.*`；旧 C9 | `session.events.match(pattern,population=AnalysisDomain,...)` → L/M JourneyResult；K 为已保留轨迹允许的 funnel/compare/attribute/selector。保留 matcher 身份，改域输入，R7 |
 | C12 | `domains/event_reducers.py`、`compiler/event_reducers.py`；H `analysis.event_dataset.time_to_event/select_subjects`；旧 C9 | `journeys.time_to_event(from_step,to_step)` 与有依据 `.select_subjects` → L/M DurationRelation/Domain；K 依完成/观察时长和 Journey→Subject 映射，R7 |
 | C13 | `semantic/state_model.py`、`session/_lazy_sources.py:LazyLifecycle.replay`、`domains/lifecycle*.py`；H `analysis.lifecycle.replay/lifecycle_dataset.*`；旧 C9 | `session.lifecycle.replay(model,population=AnalysisDomain,...)` → L/M LifecycleResult；K 为 distribution/dwell/transitions/violations 与时点 read→where→members，R0.3 已定业务顺序前提，R7 |
-| C14 | `operators/{discovery,association,forecast*}.py`、`compiler/{correlation,entity_candidate,driver_candidate}.py`；H `analysis.discovery.*/metric_dataset.correlate/forecast`；旧 C8、J4 | Relation `.discover/.correlate(*others)/.forecast(...)` → L/M Candidate/Association/Forecast 具体变体；K 含合法具名视图筛选、排名，不含原量相关/预测上卷。保留闭合方法，R8 |
+| C14 | `operators/{discovery,association,forecast*}.py`、`compiler/{correlation,entity_candidate,driver_candidate}.py`；H `analysis.discovery.*/metric_dataset.correlate/forecast`；旧 C8、J4 | Relation `.deviation/.runs/.correlate(*others)/.forecast(...)` → L/M Deviation/TimeRun/Association/Forecast 固定结果；K 含合法具名视图筛选、排名与有实际主体映射的成员投影，不含原量统计分数上卷。旧 discover/Candidate 退出；R8 |
 | C15 | `materialization/{admission,dataset_execution,dsl_j1_runtime,store,reconciliation,reads}*`、`session/core.py`、`evidence/*`；H `analysis.runtime.sessions/artifacts/evidence`；J1–J4/P4 | 唯一 Session/Run/Artifact/Store owner；所有 L `.execute()` 和 M 固定续算，共用 source reevaluation / fixed exact-hit、receipt/恢复 K。保留服务、替换双运行协议，R4+ |
 | C16 | `marivo/_help/*`、三层 `_capabilities/*`、`analysis/_public.py`、`errors.py`、CLI/site/skills；H `analysis.entry/methods/inputs/dsl.*` | 单一原生 Help/有界 `repr/show/contract`、类型与结构化 repair；K 披露必须与材料化部件一致。保留披露能力、删除旧 Help alias/inventory，逐阶段/R10 |
 | C17 | `marivo/ontology/*`、`project.py`、`cli.py`、telemetry、打包/可选依赖；H `ontology.authoring`、各 surface project/diagnostic | R2 验证精确 Semantic Ref；R4 建立新 Artifact 身份/receipt 后由 R10 只读关联，ontology 不授分析规划/准入；项目/秘密/诊断/依赖保留。非分析 K；R2/R4/R10 |
@@ -110,7 +117,8 @@ Status: R0.2–R0.4 静态契约与 R0.6 破坏性变更/交接已登记；R0.5 
 | C12.b subject selection | `domains/event.py:select_subjects`；H `event_dataset.select_subjects`；`test_lazy_event_population_continuations.py` | Journey→Subject 映射 K；+ known dropout，− Unknown 随访判流失；R7 |
 | C13.a replay/history | `session/_lazy_sources.py:lifecycle.replay`、`compiler/lifecycle*.py`；H `lifecycle.replay`；`test_lazy_lifecycle_contracts.py` | canonical history/interval/transition/violation；+ 明确业务顺序，− 同刻 ID 稳定排序授权，R0.3/R7 |
 | C13.b distribution/dwell/select | `domains/lifecycle_reducers.py`；H `lifecycle_dataset.*`；`test_lazy_lifecycle_reducer_*` | 领域结果 L/M 及 `read→where→members`；+ 指定时点，− 把当前终态当历史状态；R7 |
-| C14.a 五 discover 方法 | `operators/discovery.py`、candidate family；H `discovery.{point_anomalies,interesting_windows,entity_outliers,period_shifts,driver_axes}`；`test_lazy_candidate_*` | 各方法版本与 Candidate 固定变体；+ 已知异常，− 空/零离散误称无异常；R8 |
+| C14.a1 偏离评分 | 历史 point/entity candidate 数值与身份反例；旧 Help 只作退役清单 | `NumericRelation.deviation(method, partition_by)`；zscore/MAD 共用同域固定视图；+ 已知中心/尺度/符号，− 子域筛选重拟合、不可评分误称无异常；R8 |
+| C14.a2 连续区间 | 历史窗口候选的缺口/时间边界反例；旧复合滑窗不是新 oracle | `NumericRelation.runs(where=...)`；原完整格上的最大连续 true 段；+ 直接业务阈值、格数/实际时长，− 过滤后拼接、未知补 false/零、物理批次切断；R8 |
 | C14.b 相关 | `operators/association*`、`compiler/correlation.py`，窄 J4 Spearman；H `metric_dataset.correlate/dsl.LogicalNumericRelation.correlate`；`test_analysis_dsl_fixtures.py` | Pearson/Spearman/Kendall/lag，全两两配对；+ J4 −2/5，− inner join 偷丢键/常量出 NaN；R8 |
 | C14.c 预测 | `operators/forecast*`；H `metric_dataset.forecast/forecast_models.*`；`test_lazy_forecast_*` | naive/drift/seasonal_naive、闭合未来网格；+ 已知序列，− 缺桶插补/区间界相加；R8 |
 | C15.a execute/共享 | `admission.py:DatasetRuntime`、`dataset_execution.py` 与 `dsl_j1_runtime.py` 双入口；H `actions.execute/dsl.*execute`；`test_analysis_dsl_execution_identity.py` | 唯一来源求值身份、同图节点共享；+ 同节点共享，− 相同定义不同读取偷合并；R4 |
@@ -205,7 +213,8 @@ Event matching、Lifecycle replay、归因、排名、相关、预测各用独�
 | C12.b | `journey_subjects@v1`；analysis methods/R7 | Domain L→M；read/observe（有主体映射） | Journey→Subject 集合像 |
 | C13.a | `lifecycle_replay@v1`；analysis methods/R7 | History L→M；轨迹/区间/违规视图 | 有序状态机纸面重放 |
 | C13.b | `lifecycle_views@v1`；analysis methods/R7 | Distribution/Dwell L→M；at-read/where/members（有映射） | 区间裁剪与状态轨迹 |
-| C14.a | `discover.{point_anomalies,interesting_windows,entity_outliers,period_shifts,driver_axes}@v1`；analysis methods/R8 | 五种 Candidate L→M；各具名分数/排名 | 独立定义逐候选计算 |
+| C14.a1 | `deviation.{zscore,mad}@v1`；analysis methods/R8 | Deviation L→M；observed/reference/deviation/score；后续选择固定原拟合域 | 独立有效值均值/总体方差/中位数/MAD 与零尺度分支 |
+| C14.a2 | `time.runs@v1`；analysis methods/R8 | TimeRun L→M；start/end/count/duration、原格与实际 Subject 映射；不继承原 Metric rollup | 原完整格逐一判定、最大连续段枚举；缺口和 DST 反例 |
 | C14.b | `correlate.{pearson,spearman,kendall,lag}@v1`；analysis methods/R8 | Association L→M；系数/配对数/排名，不原量 rollup | J4 平均秩 Fraction、常量反例 |
 | C14.c | `forecast.{naive,drift,seasonal_naive}@v1`；analysis methods/R8 | Forecast L→M；点/区间具名视图 | 固定序列逐期手算 |
 | C15.a | `execute@v1`；analysis session/R4 | L→M；同显式节点共享/失败不回退 | Run/读取次数故障注入 |
@@ -246,11 +255,9 @@ Event matching、Lifecycle replay、归因、排名、相关、预测各用独�
 | `lifecycle.distribution@v1` / C13.b | 指定时点的 canonical 状态/覆盖；保留 Subject 映射 | 手工时点状态；终态冒历史拒绝 |
 | `lifecycle.dwell@v1` / C13.b | 裁剪后区间与完成/删失政策；时长组件；仅有状态时 rollup | 区间时长总和；P90 平均拒绝 |
 | `lifecycle.transitions/violations@v1` / C13.b | canonical 轨迹和事件身份；具名视图/合格选人 | 状态机轨迹；仅 intervals 反推拒绝 |
-| `discover.point_anomalies@v1` / C14.a | 已定义点与对照窗口；Candidate score K | 固定序列逐点 oracle |
-| `discover.interesting_windows@v1` / C14.a | 完整时间格、闭合窗口；Candidate score K | 全窗口枚举；缺桶拒绝 |
-| `discover.entity_outliers@v1` / C14.a | 可比 Entity 量/域、分布政策；Candidate score K | 逐主体分位/距离 oracle |
-| `discover.period_shifts@v1` / C14.a | 合格期间配对、差异政策；Candidate score K | 两期逐键变化 oracle |
-| `discover.driver_axes@v1` / C14.a | 可加目标、有限 search_space/axis 资格；Candidate score K | 枚举候选集中度；残差冒解释拒绝 |
+| `deviation.zscore@v1` / C14.a1 | 显式当前拟合域/分区、原行身份及全部 Cell 状态；固定基准 K | 均值/总体方差逐值 oracle；后筛选重拟合拒绝 |
+| `deviation.mad@v1` / C14.a1 | 同一评分结果形状；中位数、MAD/零 MAD 分支、非定义分数依据 | 独立排序取中位与绝对偏差；Time/Entity 同方法同值 |
+| `time.runs@v1` / C14.a2 | 完整时间网格、所有条件输入及状态、最大段身份/边界/Subject parts | 逐格枚举；false/unavailable 不桥接，批次不切段，实际 DST 时长 |
 | `correlate.pearson@v1` / C14.b | 完整有序配对、非零方差；系数+pair count K | Fraction 协方差；常量输入拒绝 |
 | `correlate.spearman@v1` / C14.b | 完整配对与平均秩；系数+pair count K | J4 -2/5、并列秩 7/9 |
 | `correlate.kendall@v1` / C14.b | 完整配对与 tie 政策；系数+pair count K | 独立 concordant/discordant 表 |

@@ -116,6 +116,45 @@ InputSignatures + Parameters
 输入量或方法未落入上述直接采用切片时，不能只引用 T1：须先给出该扩展的具体规则，
 再验证组合前提。这里不新增通用映射、证明或任意 schema 构造器。
 
+#### 3.2.2 R8 的评分与连续区间边界（2026-10-02 修订）
+
+[接口设计 §8.4.1](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md#841-从指标变化定位可继续分析的坐标)
+是 C14.a 的唯一语义 owner。目标从五种 discover 候选操作收敛为两个独立方法；本节规定
+实现归属，不另写一份公式、阈值默认值或候选排名策略。相关/预测的方法边界保持独立。
+
+| 规则 | 输入与输出 | 必需部件与保持义务 |
+| --- | --- | --- |
+| Deviation | 一个 NumericRelation、闭合 method、显式分类分区 → 同域 DeviationResult | 输入量与原实例身份、拟合域/分区、各 Cell 状态计数、有效 n、中心/尺度及分支、数值政策与方法版本；observed/reference/deviation/score 固定视图 |
+| Runs | 保留完整时间网格的 NumericRelation、显式 BoundPredicate → TimeRunResult 新区间域 | 原网格及每格映射、条件全部输入、true/false/unavailable 与原因、最大段起止、终止依据、区间→格映射及已有 SubjectBinding；不从排序后的剩余行重建邻接 |
+
+Deviation 对时间行和 Entity 行使用同一方法语义；两者只有域和获准续算不同，不建立
+point/entity 专用编译器、Candidate 类型或两份数值实现。拟合只读明确输入中的有效值，
+计数和非定义状态仍覆盖整个输入域。where/rank/limit 不下推穿过拟合边界改变基准；后续
+视图携带原拟合域绑定。score 的数值单位/来源不同于业务 Metric，不能运输原量聚合状态。
+
+Runs 直接消费业务量或 score，不依赖 DeviationResult 家族。时间顺序来自已有网格，
+非时间坐标决定序列分区；完整网格与逐格条件状态是方法必需输入，不是展示附件。普通
+where 的严格消费者不可代替 runs 的 unavailable 分类。不能优化为先过滤 true 再分段，
+不能把物理批次尾当作区间尾。批量实现必须保留跨批次的格邻接与未闭合段状态。
+
+两方法都进入既有 typed graph、method registry、Runtime 和 Store 7：来源路线在执行前
+选择 Ibis 准备→本地完整计算，固定路线消费已验收 Artifact；不新增 discover executor、
+SQL 模板、source-after-local 或失败后换路。方法定义只有一个 owner；若以后增加源端
+评分实现，须对同一方法版本、Cell/数值政策和整域结果逐形状验等后注册物理资格。
+
+执行身份包含精确输入、量定义、分区或条件依赖、网格、方法版本和数值政策；派生选择保留
+拟合/分段的原始绑定。恢复校验主表与必要 parts 的完整键、覆盖、身份和 receipt，离线
+续算不重新拟合、不重新分段、不回源；显式对已有数值结果再次调用 deviation/runs 才是
+新的分析节点。缺失部件须结构化拒绝并指向可重建的源表达式，不能暗中重建。
+
+结果契约只披露现有部件允许的 where、具名视图、rank/table 和真实 Subject 投影；运行
+事实与 Evidence 走统一发布事务。分数和条件命中本身不发布“原因已确认”的 Findings，
+show/contract 不生成推荐计划。业务判断与下一步选择归 agent；ontology 不参与求值选路。
+
+旧五个入口及 Candidate 私有图、codec、Help 在新消费者接通后退出；共享数值/归因 helper
+按真实剩余调用方归属。driver_axes 不成为 attribute 之上的另一条执行链；rolling 和集中度
+新方法不因旧复合方法存在而进入内核。这里不预先登记尚无方法契约的扩展或兼容读取器。
+
 ### 3.3 一条完整推导比“所有结果都能组合”更有意义
 
 `客户收入 → 差值 → 负值筛选 → members → 九月收入 → 均值` 的推导：

@@ -1841,3 +1841,30 @@ lint/import contracts, **429 typed modules**, **5302 default tests with 5 skips*
 and API generation. The latest site builds **321 pages** and both install scripts;
 git diff --check passes. Matrix retries, overlapping gates and unqualified phases
 are not counted as additional accepted cells.
+
+## R8 design scope revision; implementation unverified (2026-10-02)
+
+The user's request to revise the design and implementation documents replaces the
+former C14.a requirement to preserve all five discover methods. The owning
+[interface design §8.4.1](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md#841-从指标变化定位可继续分析的坐标)
+now specifies C14.a1 deviation scoring and C14.a2 complete-grid run recognition.
+Scoring retains the original identities and fit scope; runs consumes explicit
+conditions and retains unavailable cells, adjacency and interval boundaries.
+Filtering, ranking, Subject selection and attribution reuse the existing DSL.
+Agents own the choice of metrics, references, thresholds, axes and next analyses.
+
+The discover namespace, five wrappers and Candidate-specific target family are
+retired. The old fixed rolling-window and axis-concentration heuristics are
+intentionally removed, not claimed equivalent to generic DSL compositions.
+Rolling and concentration primitives are outside this revision. C14.b correlation
+and C14.c forecasting retain their existing target contracts and qualification
+obligations. Source SQL/helper retirement follows actual remaining consumers.
+
+The architecture, R8.1–R8.6 implementation slices, capability ledger and six-backend
+target matrix are synchronized with this scope. Historical snapshots, hashes and
+earlier accepted evidence remain historical. This entry records a **documentation
+revision only**: the new method names and result shapes are targets, with no new
+implementation, Runtime, backend, installed-wheel or real-Agent acceptance.
+R8.1 still owns the concrete migration inventory and per-type numerical/parts
+qualification freeze; R8.2 onward must supply execution evidence. No product
+code, current API documentation or packaged skills are changed by this revision.
