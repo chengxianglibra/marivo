@@ -26,6 +26,11 @@ _METHOD_GROUPS = {
     ("_MaterializedRead", "findings"): "artifacts.reads",
     ("_MaterializedRead", "finding"): "artifacts.reads",
     ("_NumericComparison", "rank"): "methods.rows",
+    ("_AnchorDomain", "retention"): "methods.events",
+    ("_InstanceRetention", "by_subject"): "methods.events",
+    ("_Retention", "known_true"): "methods.events",
+    ("_Retention", "known_false"): "methods.events",
+    ("_Retention", "unknown"): "methods.events",
     ("_AnchorDomain", "observe"): "methods.events",
     ("_AnchorDomain", "subjects"): "methods.events",
     ("_Journey", "funnel"): "methods.events",
@@ -139,6 +144,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         windows.Duration,
         windows.ElapsedWindow,
         windows.CalendarWindow,
+        windows.AnyAnchor,
+        windows.EveryAnchor,
+        dsl.LogicalRetentionResult,
+        dsl.MaterializedRetentionResult,
+        dsl.LogicalSubjectRetentionResult,
+        dsl.MaterializedSubjectRetentionResult,
         dsl.LogicalAnchorDomain,
         dsl.MaterializedAnchorDomain,
         SubjectBinding,
@@ -242,6 +253,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             else ("RootRoute" if type_value is dsl.RootRoute else "RootRoutes")
         )
         policy_examples = {
+            windows.AnyAnchor: "mv.any_anchor()",
+            windows.EveryAnchor: "mv.every_anchor()",
+            dsl.LogicalRetentionResult: "anchors.retention(returning, within=mv.elapsed(mv.duration(hours=168)))",
+            dsl.MaterializedRetentionResult: "retention.execute()",
+            dsl.LogicalSubjectRetentionResult: "retention.by_subject(rule=mv.any_anchor())",
+            dsl.MaterializedSubjectRetentionResult: "subjects.execute()",
             windows.Duration: "mv.duration(hours=168)",
             windows.ElapsedWindow: "mv.elapsed(mv.duration(hours=168))",
             windows.CalendarWindow: "mv.calendar_days(7, ZoneInfo('America/New_York'))",
@@ -393,6 +410,14 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             producers = ("dsl.elapsed",)
         elif type_value is windows.CalendarWindow:
             producers = ("dsl.calendar_days",)
+        elif type_value in (windows.AnyAnchor, windows.EveryAnchor):
+            producers = (
+                "dsl.any_anchor" if type_value is windows.AnyAnchor else "dsl.every_anchor",
+            )
+        elif type_value is dsl.LogicalRetentionResult:
+            producers = ("dsl.AnchorDomain.retention",)
+        elif type_value is dsl.LogicalSubjectRetentionResult:
+            producers = ("dsl.InstanceRetention.by_subject",)
         elif type_value is dsl.LogicalAnchorDomain:
             producers = ("session.anchors",)
         if type_value in history_families:
@@ -409,13 +434,36 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 summary=f"Governed Analysis {name} value type.",
                 acquisition=acquisition,
                 producers=("session.artifact",) if name.startswith("Materialized") else producers,
-                consumers=("dsl.AnchorDomain.observe",)
+                consumers=("dsl.InstanceRetention.by_subject",)
+                if type_value in (windows.AnyAnchor, windows.EveryAnchor)
+                else (
+                    "dsl.Retention.known_true",
+                    "dsl.Retention.known_false",
+                    "dsl.Retention.unknown",
+                    "dsl.Value.contract",
+                    "dsl.InstanceRetention.by_subject",
+                )
+                if type_value in (dsl.LogicalRetentionResult, dsl.MaterializedRetentionResult)
+                else (
+                    "dsl.Retention.known_true",
+                    "dsl.Retention.known_false",
+                    "dsl.Retention.unknown",
+                    "dsl.Value.contract",
+                )
+                if type_value
+                in (dsl.LogicalSubjectRetentionResult, dsl.MaterializedSubjectRetentionResult)
+                else ("dsl.AnchorDomain.observe", "dsl.AnchorDomain.retention")
                 if type_value in (windows.ElapsedWindow, windows.CalendarWindow)
                 else ("dsl.elapsed",)
                 if type_value is windows.Duration
                 else ("dsl.AnchorDomain.subjects", "dsl.Value.contract")
                 if type_value is dsl.MaterializedAnchorDomain
-                else ("dsl.AnchorDomain.observe", "dsl.AnchorDomain.subjects", "dsl.Value.contract")
+                else (
+                    "dsl.AnchorDomain.observe",
+                    "dsl.AnchorDomain.retention",
+                    "dsl.AnchorDomain.subjects",
+                    "dsl.Value.contract",
+                )
                 if type_value is dsl.LogicalAnchorDomain
                 else ("dsl.Value.contract",)
                 if type_value in history_families
@@ -564,6 +612,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         windows.duration,
         windows.elapsed,
         windows.calendar_days,
+        windows.any_anchor,
+        windows.every_anchor,
         dsl.route,
         dsl.routes,
         dsl.sum,
@@ -591,15 +641,17 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 function,
                 summary=f"Construct the admitted {name} argument for the Analysis DSL.",
                 discovery_group="methods.events"
-                if name in ("duration", "elapsed", "calendar_days")
+                if name in ("duration", "elapsed", "calendar_days", "any_anchor", "every_anchor")
                 else None,
                 parameters=params,
                 output={
                     "duration": "Duration",
                     "elapsed": "ElapsedWindow",
                     "calendar_days": "CalendarWindow",
+                    "any_anchor": "AnyAnchor",
+                    "every_anchor": "EveryAnchor",
                 }[name]
-                if name in ("duration", "elapsed", "calendar_days")
+                if name in ("duration", "elapsed", "calendar_days", "any_anchor", "every_anchor")
                 else "CountMethod"
                 if name in ("count", "count_defined")
                 else "RootRoute"
@@ -609,7 +661,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 else "RowMethod",
                 constraints=(
                     _doc_section(function, "Constraints")
-                    if name in ("duration", "elapsed", "calendar_days")
+                    if name
+                    in ("duration", "elapsed", "calendar_days", "any_anchor", "every_anchor")
                     else "Only qualified typed graph input shapes are admitted.",
                 ),
                 effects="Pure argument construction; no source read or Run.",
@@ -622,7 +675,17 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     else "from zoneinfo import ZoneInfo\nresult = mv.calendar_days(7, ZoneInfo('America/New_York'))"
                     if name == "calendar_days"
                     else f"result = mv.{name}()"
-                    if name in ("sum", "count", "count_defined", "min", "max", "mean")
+                    if name
+                    in (
+                        "sum",
+                        "count",
+                        "count_defined",
+                        "min",
+                        "max",
+                        "mean",
+                        "any_anchor",
+                        "every_anchor",
+                    )
                     else f"result = mv.{name}(root, through=(relationship,))"
                     if name == "route"
                     else "result = mv.routes(first_route, second_route)",
@@ -638,6 +701,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                         "duration",
                         "elapsed",
                         "calendar_days",
+                        "any_anchor",
+                        "every_anchor",
                     )
                     else ("root", "relationship")
                     if name == "route"
@@ -838,6 +903,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl._StateIntervalResult,
         dsl._DwellSummary,
         dsl._AnchorDomain,
+        dsl._Retention,
+        dsl._InstanceRetention,
         dsl._Journey,
         dsl._Funnel,
         dsl._FunnelResult,
@@ -883,6 +950,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     if key == "pairing"
                     else ("dsl.CompositePredicate",)
                     if key == "predicate"
+                    else ("AnyAnchor", "EveryAnchor")
+                    if key == "rule" and owner is dsl._InstanceRetention
                     else ("AnyInstance", "AtLeast", "AllInstances")
                     if key == "rule"
                     else ("SubjectBinding",)

@@ -9,6 +9,7 @@ from marivo.analysis.core.model import CheckId, DomainKind, PartRole
 from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorObserve,
+    AnchorRetention,
     AssociationScore,
     AttachCategory,
     AttributionDerive,
@@ -41,6 +42,7 @@ from marivo.analysis.core.rules import (
     PartsTransport,
     PreparedObservation,
     ReferenceDerive,
+    RetentionBySubject,
     RowState,
     RuleParameters,
     TimeProduct,
@@ -63,6 +65,7 @@ from marivo.analysis.methods.physical import (
 from marivo.analysis.methods.semantics import MethodKey
 
 PARTS: tuple[PartRole, ...] = (
+    "retention",
     "anchor",
     "history",
     "history_view",
@@ -873,6 +876,10 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     """Version typed folds and once-rounded numeric consumers in Store 7."""
+    if method.name in ("anchor.retention", "retention.by_subject"):
+        from marivo.analysis.methods.retention_physical import implementations as retention
+
+        return retention(method)
     if method.name.startswith("anchor."):
         from marivo.analysis.methods.anchor_physical import implementations as anchors
 
@@ -929,8 +936,10 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     from marivo.analysis.methods.domain_preparation import consumers
     from marivo.analysis.methods.history_view_physical import consumers as history_consumers
     from marivo.analysis.methods.journey_physical import consumers as journey_consumers
+    from marivo.analysis.methods.retention_physical import consumers as retention_consumers
 
     declarations = (
+        *retention_consumers(method),
         *anchor_consumers(method),
         *consumers(method),
         *journey_consumers(method),
@@ -1253,6 +1262,8 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
         (
             AnchorBind,
             AnchorObserve,
+            AnchorRetention,
+            RetentionBySubject,
             OccurrencePrepare,
             PreparedObservation,
             FunnelAxesPrepare,

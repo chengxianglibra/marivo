@@ -621,7 +621,8 @@ def test_latest_anchor_example_executes(tmp_path, monkeypatch):
     session, _, _, _, values = build_anchors(tmp_path)
     monkeypatch.setattr(mv.session, "get_or_create", lambda *args, **kwargs: session)
     page = Path("site/src/content/docs/docs/latest/concepts/analysis-workflow.mdx").read_text()
-    code = re.findall(r"```python\n(.*?)```", page, re.DOTALL)[-1]
+    section = page.split("## Observe relative to each Anchor", 1)[1].split("\n## ", 1)[0]
+    code = re.findall(r"```python\n(.*?)```", section, re.DOTALL)[0]
     code = code.replace(
         'start="2026-08-01", end="2026-09-01"',
         'start="2026-02-01T00:00:00+00:00", end="2026-02-01T00:01:40+00:00"',

@@ -117,6 +117,7 @@ class ExchangeContract:
                     "ranking_domain",
                     "partitions",
                     "ordering",
+                    "retention",
                     "history_view",
                     "entry_axes",
                     "funnel_state",
@@ -132,6 +133,8 @@ class ExchangeContract:
             or self.state_kind
             not in (
                 "none",
+                "anchor_retention",
+                "subject_retention",
                 "occurrence_inputs",
                 "canonical_history",
                 "history_view",
@@ -410,7 +413,13 @@ def collect(
             ),
             None,
         )
-        if declared.role in ("history_view", "entry_axes", "funnel_state", "finding_policy"):
+        if declared.role in (
+            "retention",
+            "history_view",
+            "entry_axes",
+            "funnel_state",
+            "finding_policy",
+        ):
             if (
                 declared.key_fields
                 or part.table.num_rows != 1
@@ -532,6 +541,12 @@ def collect(
             )
         ):
             raise _invalid("retained fold kind differs from the declared original quantity")
+    if any(part.role == "retention" for part in parts):
+        from marivo.analysis.materialization.retention_execution import (
+            validate as validate_retention,
+        )
+
+        validate_retention(contract, primary, parts)
     if any(part.role == "anchor" for part in parts):
         from marivo.analysis.materialization.anchor_execution import validate as validate_anchor
 
@@ -662,6 +677,12 @@ def collect(
         elif contract.state_kind == "cohort":
             if any(value != "accepted" for value in states.values()):
                 raise _invalid("cohort state contains an unaccepted target")
+        elif contract.state_kind in ("anchor_retention", "subject_retention"):
+            if any(
+                states[tuple(row[k] for k in contract.key_fields)] != row["cell_tag"]
+                for row in primary.to_pylist()
+            ):
+                raise _invalid("retention state vector differs from its Boolean Cells")
         elif contract.state_kind == "canonical_history":
             if any(
                 states[tuple(row[key] for key in contract.key_fields)] != row["classification"]

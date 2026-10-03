@@ -195,3 +195,55 @@ def deadline(anchor: datetime, window: ElapsedWindow | CalendarWindow) -> dateti
             "Use a shorter window within the captured instant range.",
         )
     raise AssertionError("unreachable window deadline")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class AnyAnchor:
+    """Existential three-valued truth over each nonempty Subject fiber."""
+
+    kind: Literal["any_anchor"] = "any_anchor"
+    __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    def __post_init__(self) -> None:
+        if self.kind != "any_anchor":
+            _fail("retention_rule", repr(self.kind), "Use mv.any_anchor().")
+
+    def __repr__(self) -> str:
+        return "<AnyAnchor>"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class EveryAnchor:
+    """Universal three-valued truth over each nonempty Subject fiber."""
+
+    kind: Literal["every_anchor"] = "every_anchor"
+    __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    def __post_init__(self) -> None:
+        if self.kind != "every_anchor":
+            _fail("retention_rule", repr(self.kind), "Use mv.every_anchor().")
+
+    def __repr__(self) -> str:
+        return "<EveryAnchor>"
+
+
+def any_anchor() -> AnyAnchor:
+    """Choose explicit existential Subject retention.
+
+    Args: None.
+    Returns: The closed AnyAnchor rule.
+    Example: ``subjects = retention.by_subject(rule=mv.any_anchor())``.
+    Constraints: A true instance dominates unknown; all false is false.
+    """
+    return AnyAnchor()
+
+
+def every_anchor() -> EveryAnchor:
+    """Choose explicit universal Subject retention.
+
+    Args: None.
+    Returns: The closed EveryAnchor rule.
+    Example: ``subjects = retention.by_subject(rule=mv.every_anchor())``.
+    Constraints: A false instance dominates unknown; all true is true.
+    """
+    return EveryAnchor()

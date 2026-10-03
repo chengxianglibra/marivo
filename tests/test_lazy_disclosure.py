@@ -31,6 +31,14 @@ from tests.lazy_disclosure_fixtures import example_inputs
 
 # Independently frozen from the accepted cutover plan, not the prepared registry.
 EXPECTED_EXPORTS = (
+    "AnyAnchor",
+    "EveryAnchor",
+    "any_anchor",
+    "every_anchor",
+    "LogicalRetentionResult",
+    "MaterializedRetentionResult",
+    "LogicalSubjectRetentionResult",
+    "MaterializedSubjectRetentionResult",
     "Duration",
     "ElapsedWindow",
     "CalendarWindow",
@@ -384,7 +392,7 @@ def test_exact_export_bindings_and_required_native_targets(
 ) -> None:
     actual = {e.name: e for p in disclosure.providers for e in p.exports}
     assert set(actual) == set(EXPECTED_EXPORTS)
-    assert len(actual) == 209
+    assert len(actual) == 217
     assert set(disclosure.canonical_ids()) >= REQUIRED_TARGETS
     for name in EXPECTED_EXPORTS:
         entry = actual[name]

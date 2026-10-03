@@ -203,6 +203,8 @@ class MethodState:
         required = (
             ()
             if self.kind == "none"
+            else ("subject", "retention")
+            if self.kind in ("anchor_retention", "subject_retention")
             else ("history",)
             if self.kind == "canonical_history"
             else ("history_view",)
@@ -572,6 +574,7 @@ def validate_descriptor(value: Descriptor) -> Node:
                     "ranking_domain",
                     "partitions",
                     "ordering",
+                    "retention",
                     "history_view",
                     "entry_axes",
                     "funnel_state",

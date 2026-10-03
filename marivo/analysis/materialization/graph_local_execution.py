@@ -26,6 +26,7 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.rules import (
     AnchorBind,
+    AnchorRetention,
     AttachCategory,
     AttributionDerive,
     CellDerive,
@@ -41,6 +42,7 @@ from marivo.analysis.core.rules import (
     OriginalReduce,
     PartsTransport,
     ReferenceDerive,
+    RetentionBySubject,
     RowState,
 )
 from marivo.analysis.materialization.errors import MaterializationError
@@ -566,6 +568,7 @@ def _transport_stage(
             parts.append(prior)
             continue
         if role in (
+            "retention",
             "history_view",
             "fixed_reference",
             "reference_proof",
@@ -1863,6 +1866,8 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
         if (
             name
             not in (
+                "anchor.retention",
+                "retention.by_subject",
                 "anchor.bind",
                 "history.in_state",
                 "history.distribution",
@@ -2017,6 +2022,10 @@ def execute_verified_fixed(
             from marivo.analysis.materialization.anchor_execution import bind as bind_anchor
 
             result = bind_anchor(stage.stage.node, values[0], binding)
+        elif isinstance(stage.stage.node.parameters, (AnchorRetention, RetentionBySubject)):
+            from marivo.analysis.materialization.retention_execution import execute as retention
+
+            result = retention(stage.stage.node, values, binding)
         elif isinstance(stage.stage.node.parameters, (HistoryView, HistoryRead)):
             from marivo.analysis.materialization.history_views import execute as history_view
 

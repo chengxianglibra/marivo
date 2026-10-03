@@ -44,3 +44,15 @@ if TYPE_CHECKING:
         session.anchors(journey.execute(), population=population.execute(), during=during),
         mv.LogicalAnchorDomain,
     )
+
+    returning = ms.participant_role(event=ms.ref.event("commerce.finished"), name="subject")
+    retained = anchors.retention(returning, within=window)
+    assert_type(retained, mv.LogicalRetentionResult)
+    assert_type(retained.execute(), mv.MaterializedRetentionResult)
+    assert_type(mv.any_anchor(), mv.AnyAnchor)
+    assert_type(mv.every_anchor(), mv.EveryAnchor)
+    projected = retained.by_subject(rule=mv.any_anchor())
+    assert_type(projected, mv.LogicalSubjectRetentionResult)
+    assert_type(projected.execute(), mv.MaterializedSubjectRetentionResult)
+    assert_type(retained.status, mv.LogicalBooleanRelation)
+    assert_type(retained.known_true(), mv.LogicalSelectedBooleanRelation)

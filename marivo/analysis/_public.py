@@ -23,12 +23,16 @@ from marivo.analysis._comparison import UnionKeys as UnionKeys
 from marivo.analysis._comparison import WindowBucketAlignment as WindowBucketAlignment
 from marivo.analysis._comparison import window_bucket as window_bucket
 from marivo.analysis._subject import SubjectBinding as SubjectBinding
+from marivo.analysis.anchors import AnyAnchor as AnyAnchor
 from marivo.analysis.anchors import CalendarWindow as CalendarWindow
 from marivo.analysis.anchors import Duration as Duration
 from marivo.analysis.anchors import ElapsedWindow as ElapsedWindow
+from marivo.analysis.anchors import EveryAnchor as EveryAnchor
+from marivo.analysis.anchors import any_anchor as any_anchor
 from marivo.analysis.anchors import calendar_days as calendar_days
 from marivo.analysis.anchors import duration as duration
 from marivo.analysis.anchors import elapsed as elapsed
+from marivo.analysis.anchors import every_anchor as every_anchor
 from marivo.analysis.datasets.base import Dataset as Dataset
 from marivo.analysis.datasets.base import LogicalDataset as LogicalDataset
 from marivo.analysis.datasets.base import MaterializedDataset as MaterializedDataset
@@ -161,6 +165,7 @@ from marivo.analysis.public_dsl import LogicalJourneyResult as LogicalJourneyRes
 from marivo.analysis.public_dsl import LogicalNumericRelation as LogicalNumericRelation
 from marivo.analysis.public_dsl import LogicalRankingResult as LogicalRankingResult
 from marivo.analysis.public_dsl import LogicalRatioRelation as LogicalRatioRelation
+from marivo.analysis.public_dsl import LogicalRetentionResult as LogicalRetentionResult
 from marivo.analysis.public_dsl import LogicalRolledNumericRelation as LogicalRolledNumericRelation
 from marivo.analysis.public_dsl import LogicalRolledRatioRelation as LogicalRolledRatioRelation
 from marivo.analysis.public_dsl import (
@@ -183,6 +188,9 @@ from marivo.analysis.public_dsl import (
 )
 from marivo.analysis.public_dsl import LogicalStateIntervalResult as LogicalStateIntervalResult
 from marivo.analysis.public_dsl import LogicalStatisticRelation as LogicalStatisticRelation
+from marivo.analysis.public_dsl import (
+    LogicalSubjectRetentionResult as LogicalSubjectRetentionResult,
+)
 from marivo.analysis.public_dsl import LogicalTable as LogicalTable
 from marivo.analysis.public_dsl import LogicalTemporalRelation as LogicalTemporalRelation
 from marivo.analysis.public_dsl import LogicalTimeAnalysisDomain as LogicalTimeAnalysisDomain
@@ -226,6 +234,7 @@ from marivo.analysis.public_dsl import MaterializedJourneyResult as Materialized
 from marivo.analysis.public_dsl import MaterializedNumericRelation as MaterializedNumericRelation
 from marivo.analysis.public_dsl import MaterializedRankingResult as MaterializedRankingResult
 from marivo.analysis.public_dsl import MaterializedRatioRelation as MaterializedRatioRelation
+from marivo.analysis.public_dsl import MaterializedRetentionResult as MaterializedRetentionResult
 from marivo.analysis.public_dsl import (
     MaterializedRolledNumericRelation as MaterializedRolledNumericRelation,
 )
@@ -255,6 +264,9 @@ from marivo.analysis.public_dsl import (
 )
 from marivo.analysis.public_dsl import (
     MaterializedStatisticRelation as MaterializedStatisticRelation,
+)
+from marivo.analysis.public_dsl import (
+    MaterializedSubjectRetentionResult as MaterializedSubjectRetentionResult,
 )
 from marivo.analysis.public_dsl import MaterializedTable as MaterializedTable
 from marivo.analysis.public_dsl import MaterializedTemporalRelation as MaterializedTemporalRelation
@@ -295,6 +307,14 @@ from marivo.analysis.subject import DroppedBefore as DroppedBefore
 from marivo.analysis.subject import dropped_before as dropped_before
 
 __all__ = [  # noqa: RUF022 - accepted public export order is contractual
+    "AnyAnchor",
+    "EveryAnchor",
+    "any_anchor",
+    "every_anchor",
+    "LogicalRetentionResult",
+    "MaterializedRetentionResult",
+    "LogicalSubjectRetentionResult",
+    "MaterializedSubjectRetentionResult",
     "Duration",
     "ElapsedWindow",
     "CalendarWindow",

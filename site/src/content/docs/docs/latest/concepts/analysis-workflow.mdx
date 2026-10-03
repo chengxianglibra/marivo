@@ -1013,6 +1013,54 @@ Overlapping windows keep each contribution use and cannot be rolled up by removi
 the Anchor coordinate. Fixed continuations consume retained inputs; they cannot
 introduce a new live Metric. Retention remains outside this R7.7 slice.
 
+## Retention on a fixed Anchor population
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+session = mv.session.get_or_create("anchor-retention", report_timezone="UTC")
+population = session.members(ms.ref.entity("commerce.subjects"))
+starting = ms.participant_role(event=ms.ref.event("commerce.started"), name="subject")
+returning = ms.participant_role(event=ms.ref.event("commerce.finished"), name="subject")
+anchors = session.anchors(
+    starting,
+    population=population,
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    business_order=ms.ref.business_order("commerce.order"),
+)
+retention = anchors.retention(
+    returning, within=mv.elapsed(mv.duration(hours=168))
+).execute()
+retention.show()
+retention.contract().show()
+selected = retention.known_true().execute()
+selected.members(through=selected.subject_binding).execute().show()
+subjects = retention.by_subject(rule=mv.any_anchor()).execute()
+subjects.known_true().members().execute().show()
+```
+
+Observed returns are true even with partial follow-up. Absence is false only with
+exact returning Event/source/version completeness covering the full half-open
+window; otherwise status is Unknown. Pass exact Event completeness declarations
+through `completeness=` when available. The original instance Omega includes
+unknowns: 25 true, 5 false and 70 unknown give bounds `[0.25, 0.95]`. Empty Omega
+has Undefined bounds. Status views preserve that denominator and those bounds.
+
+`any_anchor()` and `every_anchor()` explicitly fix the Subject image as a new
+Omega. A Subject with true and unknown instances is true under any, unknown under
+every; false and unknown instances are unknown under any, false under every.
+Subjects with no Anchor do not enter this image. Only selected true status can
+produce members. Instance status needs the exact SubjectBinding; Subject status
+needs no `through` argument. These results grant no arithmetic or rollup on bounds.
+
+Construct retention while Anchors are logical. A MaterializedAnchorDomain has
+starts only and rejects new return input before execution. Materialized retention
+results retain complete truth/coverage/fibers for source-free status selection and
+quantification. The R7.8 evidence record keeps bounded execution and unfinished
+original fixed-retention qualifications distinct; same-wheel, remote and full R7
+acceptance remain separate.
+
 ## Exact funnel comparison and evidence
 
 Use first-per-subject Journeys from the same explicit population for both periods.

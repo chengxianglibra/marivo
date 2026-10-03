@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 
 MethodName: TypeAlias = Literal[
+    "anchor.retention",
+    "retention.by_subject",
     "anchor.bind",
     "anchor.observe",
     "history.replay",
@@ -92,6 +94,8 @@ MethodName: TypeAlias = Literal[
 
 
 PersistentStateKind: TypeAlias = Literal[
+    "anchor_retention",
+    "subject_retention",
     "canonical_history",
     "history_view",
     "entry_axes",
@@ -155,6 +159,10 @@ class MethodKey:
 
 def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     """Map closed parameter variants to exactly one concrete method identity."""
+    if isinstance(params, rules.AnchorRetention):
+        return MethodKey("anchor.retention")
+    if isinstance(params, rules.RetentionBySubject):
+        return MethodKey("retention.by_subject")
     if isinstance(params, rules.AnchorBind):
         return MethodKey("anchor.bind")
     if isinstance(params, rules.AnchorObserve):
@@ -336,6 +344,8 @@ class MethodSemantics:
     def persistent_state_kind(self) -> PersistentStateKind | None:
         """Return the connected durable state kind; absence grants no publication."""
         kinds: dict[MethodName, PersistentStateKind] = {
+            "anchor.retention": "anchor_retention",
+            "retention.by_subject": "subject_retention",
             "anchor.bind": "none",
             "anchor.observe": "none",
             "history.replay": "canonical_history",
@@ -437,6 +447,10 @@ class MethodSemantics:
                     repr(output),
                     "Preserve exact counts and float64 rate finishes.",
                 )
+            return
+        if isinstance(params, (rules.AnchorRetention, rules.RetentionBySubject)):
+            if output != ScalarType("boolean"):
+                reject("Boolean retention status", repr(output), "Preserve three-valued status.")
             return
         if isinstance(params, (rules.AnchorBind, rules.AnchorObserve)):
             return
@@ -769,6 +783,8 @@ class MethodSemantics:
     @property
     def rule(self) -> rules.RuleId:
         name = self.key.name
+        if name in ("anchor.retention", "retention.by_subject"):
+            return "retention@v1"
         if name.startswith("anchor."):
             return "anchor@v1"
         if name.startswith("history.") and name != "history.replay":
@@ -1165,6 +1181,10 @@ class MethodSemantics:
             from marivo.analysis.core.funnel_rules import derive
 
             return derive(inputs, params)
+        if isinstance(params, (rules.AnchorRetention, rules.RetentionBySubject)):
+            from marivo.analysis.core.retention_rules import derive as derive_retention
+
+            return derive_retention(inputs, params)
         if isinstance(params, (rules.AnchorBind, rules.AnchorObserve)):
             from marivo.analysis.core.anchor_rules import derive as derive_anchor
 
@@ -1265,6 +1285,8 @@ CONNECTED_METHODS = (
             "funnel_ratio_mix",
         )
     ),
+    MethodSemantics(MethodKey("anchor.retention"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("retention.by_subject"), "analysis.core.rules"),
     MethodSemantics(MethodKey("anchor.bind"), "analysis.core.rules"),
     MethodSemantics(MethodKey("anchor.observe"), "analysis.core.rules"),
     MethodSemantics(MethodKey("journey.match"), "analysis.core.rules"),

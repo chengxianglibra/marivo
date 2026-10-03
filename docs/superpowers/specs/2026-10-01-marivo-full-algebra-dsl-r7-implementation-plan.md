@@ -3,7 +3,7 @@
 Date: 2026-10-01
 
 Status: R7.1 documentation/static contract freeze complete; R7.2 private preparation implemented;
-R7.3 public Journey integration implemented with bounded evidence below; R7.4 funnel and Findings, R7.5 canonical History and R7.6 History views are recorded below; R7.7 implementation and bounded qualification are recorded below; R7.8-R7.9 remain unimplemented. Qualification is limited to each phase's recorded evidence.
+R7.3 public Journey integration implemented with bounded evidence below; R7.4 funnel and Findings, R7.5 canonical History and R7.6 History views are recorded below; R7.7 implementation and bounded qualification are recorded below; R7.8 retention is implemented with bounded evidence and unfinished fixed-input targets; R7.9 remains unimplemented. Qualification is limited to each phase's recorded evidence.
 
 The [R7.1 migration ledger](2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md),
 [consumer snapshot](2026-10-01-marivo-r71-consumer-snapshot.json) and
@@ -413,7 +413,7 @@ records deterministic AST/text/import evidence and mandatory source/fixed/cold
 targets, all planned. Static presence, source admission blockage, unverified
 dynamic unreachability and future deletion are distinct. See the
 [R7.1 acceptance record](2026-09-26-marivo-full-refactor-acceptance.md#r71-documentation-and-static-freeze-completed-acceptance-2026-10-01)
-for validation and excluded execution gates. R7.2 preparation, R7.3 Journey, R7.4 funnel, R7.5 canonical History, R7.6 History views and R7.7 bounded Anchor implementation are recorded below; R7.7 has unfinished original qualification targets and R7.8-R7.9 remain pending.
+for validation and excluded execution gates. R7.2 preparation, R7.3 Journey, R7.4 funnel, R7.5 canonical History, R7.6 History views and R7.7 bounded Anchor implementation are recorded below; R7.7 has unfinished original qualification targets and R7.8 bounded retention is recorded below and R7.9 remains pending.
 
 ### R7.2 — Ibis occurrence 准备、覆盖与业务顺序消费
 
@@ -575,6 +575,16 @@ R7.7 实施记录（2026-10-02）：入口实际为 clean
 **出口：**V12/V14–V15 的 retention 格和 A13 通过；25/5/70、空 Ω、一真一未知/一假一
 未知、观察真且不完整随访、无返回已完整/未知、共享返回、无 Anchor 主体反例闭合。
 断源 by_subject/status selection 固定续算保持原 Ω 与全部 K。
+
+R7.8 implementation note (2026-10-03): instance and Subject retention now use the
+unified graph/Runtime/Store 7 with native Event elapsed witnesses, captured calendar
+and Journey inputs, full Omega/coverage/fibers and source-free status/quantifier
+continuations. The user selected preservation of the current interface: starts-only
+MaterializedAnchorDomain lacks return inputs and rejects before a Run. No new capture
+API is added. Original fixed anchor.retention targets and inherited unfinished R7.7
+requirements remain unverified; actual continuations cannot qualify those kernels.
+See `2026-10-03-marivo-r78-evidence-index.md` for final bounded checks and dispositions.
+This is an implementation record, not full R7.8/A13 or release acceptance.
 
 ### R7.9 — 旧消费者退出、工程/同一 wheel 收口与交接
 

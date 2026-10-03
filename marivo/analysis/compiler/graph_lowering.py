@@ -58,6 +58,7 @@ from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorObserve,
+    AnchorRetention,
     AssociationScore,
     AttachCategory,
     AttributionDerive,
@@ -89,6 +90,7 @@ from marivo.analysis.core.rules import (
     PartsTransport,
     PreparedObservation,
     ReferenceDerive,
+    RetentionBySubject,
     RowState,
     TimeProduct,
 )
@@ -145,6 +147,10 @@ class PartColumns:
 
 
 def components(part: Part) -> tuple[str, ...]:
+    from marivo.analysis.core.model import InstanceRetentionPart, SubjectRetentionPart
+
+    if isinstance(part, (InstanceRetentionPart, SubjectRetentionPart)):
+        return ("retained",)
     if isinstance(part, (AnchorDomainPart, AnchorObservationPart)):
         return part.components
     if isinstance(
@@ -3345,6 +3351,8 @@ def lower(
                         AssociationScore,
                         AttachCategory,
                         CompleteGroups,
+                        AnchorRetention,
+                        RetentionBySubject,
                         AnchorBind,
                         AnchorObserve,
                         PreparedObservation,
@@ -3524,6 +3532,11 @@ def lower(
 
                 table, layout, source_ids = lower_anchor_bind(stage, inputs[0])
                 cell_reasons = ()
+            elif isinstance(params, AnchorRetention):
+                from marivo.analysis.compiler.retention import lower as lower_retention
+
+                table, layout, source_ids = lower_retention(stage, inputs, checks)
+                cell_reasons = (("unknown", ("insufficient_followup",)),)
             elif isinstance(params, AnchorObserve):
                 from marivo.analysis.compiler.anchors import observe as lower_anchor_observe
 
