@@ -31,8 +31,7 @@ instant = ms.time_dimension_column(name="instant", entity=events, column="occurr
     granularity="second", parse=ms.timestamp(timezone="UTC"), is_default=True)
 event_order = ms.relationship(name="event_order", from_entity=events, to_entity=orders,
     keys=[ms.join_on(participant_key, subject_key)])
-count_key = ms.measure_column(name="count_key", entity=events, column="event_id", additivity=ms.additive_all())
-event_count = ms.aggregate(name="event_count", measure=count_key, agg="count")
+event_count = ms.count(name="event_count", entity=events, time=instant)
 @ms.event(name="created", identity=(event_key,), occurred_at=instant,
     participants=(ms.participant(name="order", path=(event_order,), cardinality="one"),))
 def created(rows):
@@ -63,7 +62,7 @@ def relationship_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
     return tmp_path
 
 
-def _legacy_journey(session: mv.Session) -> mv.LogicalEventDataset:
+def _journey(session: mv.Session) -> mv.LogicalJourneyResult:
     created = mv.step(
         participant=ms.participant_role(event=ms.ref.event("sales.created"), name="order"),
         key="created",
@@ -71,8 +70,9 @@ def _legacy_journey(session: mv.Session) -> mv.LogicalEventDataset:
     paid = mv.step(
         participant=ms.participant_role(event=ms.ref.event("sales.paid"), name="order"), key="paid"
     )
-    return session._sources().events.match(
+    return session.events.match(
         mv.sequence(created, paid),
+        population=session.members(ms.ref.entity("sales.orders")),
         cohort_window=mv.time_scope(
             start=datetime(2026, 1, 1, tzinfo=timezone.utc),
             end=datetime(2026, 2, 1, tzinfo=timezone.utc),
@@ -97,7 +97,17 @@ def test_authored_relationship_keys_construct_without_source_io(
         ms.ref.dimension("sales.orders.region")
     )
     assert isinstance(metric, mv.LogicalMetricDataset)
-    assert isinstance(_legacy_journey(session), mv.LogicalEventDataset)
+    from marivo.analysis.materialization.graph_journey import _normalize_steps
+
+    created = mv.step(
+        participant=ms.participant_role(event=ms.ref.event("sales.created"), name="order"),
+        key="created",
+    )
+    paid = mv.step(
+        participant=ms.participant_role(event=ms.ref.event("sales.paid"), name="order"), key="paid"
+    )
+    steps = _normalize_steps(session._sources()._owner, mv.sequence(created, paid))
+    assert {item.subject.ref.path for item in steps} == {"sales.orders"}
     assert session.runs().items == ()
     assert not (relationship_project / "warehouse.duckdb").exists()
 
@@ -118,14 +128,23 @@ def test_authored_relationship_keys_execute_metric_and_event(relationship_projec
         )
     session = mv.session.get_or_create("relationship", report_timezone="UTC")
     metric = (
-        session.observe(ms.ref.metric("sales.event_count"))
-        .with_dimensions(ms.ref.dimension("sales.orders.region"))
-        .aggregate()
+        session.members(ms.ref.entity("sales.orders"))
+        .observe(
+            ms.ref.metric("sales.event_count"),
+            during=mv.time_scope(start="2026-01-01", end="2026-02-01"),
+            via=ms.ref.relationship("sales.event_order"),
+            coordinates=(ms.ref.dimension("sales.orders.region"),),
+        )
+        .group_by(ms.ref.dimension("sales.orders.region"))
+        .rollup()
         .execute()
         .to_pandas()
     )
-    assert dict(zip(metric["region"], metric["event_count"], strict=True)) == {"east": 2, "west": 1}
-    rows = _legacy_journey(session).execute().to_pandas()
-    assert len(rows) == 4
-    assert rows["step_key"].tolist().count("created") == 2
-    assert rows["step_key"].tolist().count("paid") == 2
+    assert dict(zip(metric["group"], metric["value"], strict=True)) == {"east": 2, "west": 1}
+    journeys = _journey(session).execute()
+    rows = journeys.to_pandas()
+    assert rows["group"].tolist() == [1, 2]
+    assert rows["coord_0"].tolist() == ["sales.created", "sales.created"]
+    assert rows["coord_1"].tolist() == [1, 3]
+    funnel = journeys.funnel().execute().to_pandas()
+    assert funnel["reached_count"].tolist() == [2, 1]

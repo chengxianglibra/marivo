@@ -17,8 +17,6 @@ from sqlglot import expressions as sge
 
 from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
-from marivo.analysis.domains.contracts import EventDefinition
 from marivo.analysis.materialization.errors import (
     MaterializationError,
     source_type_errors,
@@ -431,27 +429,6 @@ class DuckDBExecutionAdapter(ObservedExecution):
             if self._reserve is not None:
                 self._reserve(name)
             self.submit(self.statement(sql, role="source_preparation"))
-
-    def resolve_coverage(
-        self,
-        definition: EventDefinition,
-        *,
-        provider: EventCoverageProvider | None,
-        source_binding_fingerprint: str,
-        execution_domain_id: str,
-        require_source_origin: bool,
-    ) -> EventCoverageResolution:
-        from marivo.analysis.domains.completeness import resolve_event_coverage
-
-        # Preserve the existing provider's owned native connection contract.
-        return resolve_event_coverage(
-            definition,
-            provider=provider,
-            backend=self._backend,
-            source_binding_fingerprint=source_binding_fingerprint,
-            execution_domain_id=execution_domain_id,
-            require_source_origin=require_source_origin,
-        )
 
 
 def bind_duckdb(

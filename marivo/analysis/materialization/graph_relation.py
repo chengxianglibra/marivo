@@ -401,7 +401,7 @@ class Relation:
                 "where",
                 self.root.signature.domain,
                 tuple(part_role(part) for part in self.root.signature.parts),
-                self.root.signature.quantity is not None,
+                self.root.signature.quantity is not None or field_kind is not None,
                 (predicate,),
                 field_kind,
                 external_predicate=bool(dependencies),

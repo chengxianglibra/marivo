@@ -5,9 +5,8 @@ from __future__ import annotations
 from dataclasses import replace
 
 from marivo.analysis.compiler.normalize import artifact_inputs, logical_roots
-from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
+from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle, MaterializedScanLeafHandle
-from marivo.analysis.domains.contracts import EventPayload, EventSelectionPayload
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
     MaterializationContract,
@@ -95,18 +94,6 @@ def make_descriptor(
     from marivo.analysis.operators.contracts import comparison_basis
 
     basis = comparison_basis(dataset)
-    selection_authority = (
-        _selection_population_authority(
-            dataset, input_descriptors or (() if inherited is None else (inherited,)), validations
-        )
-        if any(isinstance(root.payload, (EventSelectionPayload,)) for root in roots)
-        or (
-            inherited is not None
-            and inherited.subject_selection_evidence is not None
-            and dataset.kind == "population"
-        )
-        else None
-    )
     if inherited is not None:
         population_definition = (
             dataset.definition_fingerprint
@@ -114,7 +101,7 @@ def make_descriptor(
             else inherited.population_authority.definition_fingerprint
         )
         for root in roots:
-            if root.operator_id in ("session.observe", "session.events.match"):
+            if root.operator_id in ("session.observe",):
                 selected = root.inputs[0].root
                 population_definition = (
                     inherited.definition_fingerprint
@@ -137,8 +124,7 @@ def make_descriptor(
             )
             if isinstance(dataset._owner, ObservationOwner)
             else inherited.semantic_dependency_digest,
-            population_authority=selection_authority
-            or replace(
+            population_authority=replace(
                 inherited.population_authority,
                 definition_fingerprint=population_definition,
                 validation_results=validations,
@@ -162,40 +148,12 @@ def make_descriptor(
                 warning_check_count=0,
             ),
             comparison_basis=basis,
-            event_evidence=inherited.event_evidence if dataset.kind == "event" else None,
-            subject_selection_evidence=inherited.subject_selection_evidence
-            if dataset.kind == "population"
-            else None,
             candidate_evidence=inherited.candidate_evidence
             if dataset.row_contract.shape_id.family_id == "candidate"
             else None,
         )
-    if selection_authority is not None:
-        return ArtifactDescriptor(
-            definition_fingerprint=dataset.definition_fingerprint,
-            row_contract=dataset.row_contract,
-            row_set_contract=dataset.row_set_contract,
-            realized_schema=storage.realized_schema,
-            bounded_lineage=dataset._lineage,
-            semantic_dependency_digest=semantic_dependency_digest(dataset),
-            population_authority=selection_authority,
-            sampling_execution=None,
-            operator_implementation_versions=tuple(
-                (name, 1) for name in dict.fromkeys(root.operator_id for root in roots)
-            ),
-            dataset_materialization_contract=materialization,
-            storage_receipt=storage.primary_receipt,
-            retained_parts=storage.retained_parts,
-            quality_summary=QualitySummary(
-                sample_size=storage.realized_row_count,
-                evaluated_check_count=len(validations) + 1,
-                failed_check_count=0,
-                warning_check_count=0,
-            ),
-            comparison_basis=basis,
-        )
     owning_root = current_root
-    while not isinstance(owning_root.payload, (PopulationPayload, MetricPayload, EventPayload)):
+    while not isinstance(owning_root.payload, (PopulationPayload, MetricPayload)):
         # A retained row/fold suffix keeps the nearest observation's selected
         # membership. Earlier observations may have a different Population.
         if len(owning_root.inputs) != 1 or not isinstance(
@@ -212,7 +170,7 @@ def make_descriptor(
     population: LogicalRootHandle | None
     if isinstance(current_payload, PopulationPayload):
         population = owning_root
-    elif isinstance(current_payload, (MetricPayload, EventPayload)):
+    elif isinstance(current_payload, (MetricPayload)):
         population = next(
             (
                 root
@@ -310,59 +268,3 @@ def make_descriptor(
         ),
         comparison_basis=basis,
     )
-
-
-def _selection_population_authority(
-    dataset: Dataset,
-    inputs: tuple[ArtifactDescriptor, ...],
-    validations: tuple[tuple[str, int], ...],
-) -> PopulationAuthority:
-    retained = {item.definition_fingerprint: item for item in inputs}
-
-    def visit(value: Dataset) -> PopulationAuthority:
-        if isinstance(value, MaterializedDataset):
-            return replace(
-                retained[value.definition_fingerprint].population_authority,
-                validation_results=validations,
-            )
-        root = value._root
-        if not isinstance(root, LogicalRootHandle):
-            raise MaterializationError(
-                expected="exact selected Population ancestry",
-                received="invalid definition",
-                repair="Reconstruct the selected Population.",
-                stage="publication",
-            )
-        payload = root.payload
-        if isinstance(payload, PopulationPayload) and not value._inputs:
-            return PopulationAuthority(
-                value.definition_fingerprint,
-                payload.entity.ref.path,
-                payload.entity.identity_signature,
-                scope_payload(payload.time_scope),
-                _version_selection_payload(payload.version_selection),
-                validations,
-            )
-        if not value._inputs:
-            raise MaterializationError(
-                expected="complete selected Population ancestry",
-                received="missing input",
-                repair="Reconstruct the selected Population.",
-                stage="publication",
-            )
-        authority = visit(value._inputs[0])
-        if value.kind == "population":
-            return replace(
-                authority,
-                definition_fingerprint=value.definition_fingerprint,
-                validation_results=validations,
-            )
-        if isinstance(payload, (MetricPayload, EventPayload)):
-            return replace(
-                authority,
-                definition_fingerprint=payload.definition.population_definition,
-                validation_results=validations,
-            )
-        return authority
-
-    return visit(dataset)

@@ -25,11 +25,6 @@ from marivo.render import Card, RenderableResult
 if TYPE_CHECKING:
     from marivo.analysis.materialization.association_codec import AssociationEvidenceSummary
     from marivo.analysis.materialization.candidate_codec import CandidateEvidenceSummary
-    from marivo.analysis.materialization.event_codec import EventEvidenceSummary
-    from marivo.analysis.materialization.event_reducer_codec import (
-        EventReducerEvidenceSummary,
-        EventSelectionEvidenceSummary,
-    )
     from marivo.analysis.materialization.forecast_codec import ForecastEvidenceSummary
     from marivo.analysis.materialization.quality import QualitySummary
     from marivo.analysis.observation.contracts import ContractEvidence
@@ -814,8 +809,6 @@ class ArtifactDescriptor:
     association_evidence: AssociationEvidenceSummary | None = None
     forecast_evidence: ForecastEvidenceSummary | None = None
     candidate_evidence: CandidateEvidenceSummary | None = None
-    event_evidence: EventEvidenceSummary | EventReducerEvidenceSummary | None = None
-    subject_selection_evidence: EventSelectionEvidenceSummary | None = None
 
     temporal_execution: tuple[TemporalExecution, ...] = ()
 
@@ -976,25 +969,9 @@ def decode_schema(value: object, ids: d._StableIdRegistry) -> d.DatasetSchema:
 
 def _semantics_payload(value: d.DatasetFamilyRowSemantics) -> dict[str, object]:
 
-    from marivo.analysis.domains.contracts import (
-        EventFunnelSemantics,
-        EventJourneySemantics,
-        EventTimeToEventSemantics,
-    )
     from marivo.analysis.operators.association_contracts import AssociationSemantics
     from marivo.analysis.operators.candidate_contracts import CandidateSemantics
     from marivo.analysis.operators.forecast_contracts import ForecastSemantics
-
-    if isinstance(value, (EventFunnelSemantics, EventTimeToEventSemantics)):
-        from marivo.analysis.materialization.event_reducer_codec import (
-            semantics_payload as reducer_payload,
-        )
-
-        return reducer_payload(value)
-    if isinstance(value, EventJourneySemantics):
-        from marivo.analysis.materialization.event_codec import semantics_payload as event_payload
-
-        return event_payload(value)
 
     if isinstance(value, CandidateSemantics):
         from marivo.analysis.materialization.candidate_codec import (
@@ -1064,16 +1041,6 @@ def _semantics(value: object) -> d.DatasetFamilyRowSemantics:
     if not isinstance(value, dict):
         raise invalid("invalid family row semantics")
     kind = value.get("kind")
-    if kind in ("event/funnel@v1", "event/time-to-event@v1"):
-        from marivo.analysis.materialization.event_reducer_codec import (
-            decode_semantics as decode_reducer,
-        )
-
-        return decode_reducer(value)
-    if kind == "event/journey@v1":
-        from marivo.analysis.materialization.event_codec import decode_semantics as decode_event
-
-        return decode_event(value)
     if kind == "candidate/discovery@v1":
         from marivo.analysis.materialization.candidate_codec import (
             decode_semantics as decode_candidate,
@@ -1322,10 +1289,6 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
     from marivo.analysis.materialization.candidate_codec import (
         evidence_payload as candidate_evidence_payload,
     )
-    from marivo.analysis.materialization.event_codec import (
-        evidence_payload as event_evidence_payload,
-    )
-    from marivo.analysis.materialization.event_reducer_codec import selection_evidence_payload
     from marivo.analysis.materialization.forecast_codec import (
         evidence_payload as forecast_evidence_payload,
     )
@@ -1378,8 +1341,6 @@ def descriptor_payload(value: ArtifactDescriptor) -> dict[str, object]:
         "association_evidence": association_evidence_payload(value.association_evidence),
         "forecast_evidence": forecast_evidence_payload(value.forecast_evidence),
         "candidate_evidence": candidate_evidence_payload(value.candidate_evidence),
-        "event_evidence": event_evidence_payload(value.event_evidence),
-        "subject_selection_evidence": selection_evidence_payload(value.subject_selection_evidence),
     }
     return payload
 
@@ -1395,8 +1356,6 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     from marivo.analysis.materialization.candidate_codec import (
         decode_evidence as decode_candidate_evidence,
     )
-    from marivo.analysis.materialization.event_codec import decode_evidence as decode_event_evidence
-    from marivo.analysis.materialization.event_reducer_codec import decode_selection_evidence
     from marivo.analysis.materialization.forecast_codec import (
         decode_evidence as decode_forecast_evidence,
     )
@@ -1415,7 +1374,7 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     raw = parse_json(text)
     if not isinstance(raw, dict):
         raise invalid("invalid Artifact descriptor")
-    names = "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues comparison_basis comparison_inputs association_evidence forecast_evidence candidate_evidence event_evidence subject_selection_evidence temporal_execution"
+    names = "schema definition_fingerprint row_contract row_contract_fingerprint row_set_contract row_set_contract_fingerprint realized_schema realized_schema_fingerprint bounded_lineage semantic_dependency_digest population_authority sampling_execution operator_implementation_versions dataset_materialization_contract storage_receipt retained_parts quality_summary typed_issues comparison_basis comparison_inputs association_evidence forecast_evidence candidate_evidence temporal_execution"
     obj = _obj(raw, names)
     if obj["schema"] not in ("marivo.dataset_artifact_descriptor/v1",):
         raise invalid("unsupported Artifact descriptor or sampling contract")
@@ -1507,8 +1466,6 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
         decode_association_evidence(obj["association_evidence"]),
         decode_forecast_evidence(obj["forecast_evidence"]),
         decode_candidate_evidence(obj["candidate_evidence"]),
-        decode_event_evidence(obj["event_evidence"]),
-        decode_selection_evidence(obj["subject_selection_evidence"]),
         _decode_temporal(obj["temporal_execution"]),
     )
     if result.comparison_basis is not None:
@@ -1552,23 +1509,6 @@ def decode_descriptor(text: str) -> ArtifactDescriptor:
     )
     if materialization_payload(contract) != materialization_payload(expected_contract):
         raise invalid("unregistered materialization contract")
-    if row.shape_id.family_id == "event":
-        from marivo.analysis.materialization.event_publication import (
-            validate_descriptor as validate_event_descriptor,
-        )
-
-        validate_event_descriptor(result)
-    elif result.event_evidence is not None:
-        raise invalid("Event Evidence outside its family")
-    if (
-        result.subject_selection_evidence is not None
-        or contract.producer_id == "event.select_subjects"
-    ):
-        from marivo.analysis.materialization.event_reducer_publication import (
-            validate_selection_descriptor,
-        )
-
-        validate_selection_descriptor(result)
     if row.shape_id.family_id == "candidate":
         from marivo.analysis.materialization.candidate_publication import (
             validate_descriptor as validate_candidate_descriptor,
@@ -2025,10 +1965,6 @@ def evidence_for(descriptor: ArtifactDescriptor) -> EvidenceRecord:
     from marivo.analysis.materialization.candidate_codec import (
         evidence_payload as candidate_evidence_payload,
     )
-    from marivo.analysis.materialization.event_codec import (
-        evidence_payload as event_evidence_payload,
-    )
-    from marivo.analysis.materialization.event_reducer_codec import selection_evidence_payload
     from marivo.analysis.materialization.forecast_codec import (
         evidence_payload as forecast_evidence_payload,
     )
@@ -2055,13 +1991,6 @@ def evidence_for(descriptor: ArtifactDescriptor) -> EvidenceRecord:
         "finding_set_digest": empty,
         "extractor_contract_versions": versions,
     }
-    if descriptor.subject_selection_evidence is not None:
-        value["subject_selection_evidence"] = selection_evidence_payload(
-            descriptor.subject_selection_evidence
-        )
-    if descriptor.event_evidence is not None:
-        value["event_evidence"] = event_evidence_payload(descriptor.event_evidence)
-        value["event_semantics"] = _semantics_payload(descriptor.row_contract.family_semantics)
     if descriptor.candidate_evidence is not None:
         value["candidate_evidence"] = candidate_evidence_payload(descriptor.candidate_evidence)
         value["candidate_semantics"] = _semantics_payload(descriptor.row_contract.family_semantics)

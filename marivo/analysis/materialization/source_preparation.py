@@ -22,7 +22,6 @@ from marivo.analysis.compiler.nodes import (
 )
 from marivo.analysis.compiler.normalize import (
     artifact_inputs,
-    logical_roots,
     required_source_dependencies,
 )
 from marivo.analysis.compiler.placement import (
@@ -35,15 +34,6 @@ from marivo.analysis.compiler.source_dependencies import EntitySourceDependency,
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import DatasetRowContract
 from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.domains.completeness import (
-    EventCoverageResolution,
-)
-from marivo.analysis.domains.contracts import (
-    EventFunnelPayload,
-    EventPayload,
-    EventSelectionPayload,
-    EventTimeToEventPayload,
-)
 from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
@@ -298,19 +288,6 @@ def prepared_source(
             run_ref,
         )
         recipe = _prepare_correlation(recipe, source_step, run_ref)
-        if _open_special_relations(
-            self,
-            source_step,
-            backend,
-            recipe,
-            entities,
-            dependencies,
-            checked_schemas,
-            run_ref,
-            validations,
-        ):
-            yield backend, recipe, tables
-            return
         _run_preparations(
             self,
             backend,
@@ -433,25 +410,6 @@ def _compile_recipe(
     read_time: DatasourceEngineTimezone | None,
     run_ref: str,
 ) -> tuple[CompiledDataset, list[tuple[ir.Table, StorageReceipt, DatasetRowContract]]]:
-    event_coverages: dict[str, EventCoverageResolution] = {
-        reference: record.descriptor.event_evidence.coverage
-        for reference, record in records.items()
-        if record.descriptor.event_evidence is not None
-    }
-    if isinstance(source_dataset, LogicalDataset):
-        from marivo.analysis.datasets.descriptors import _canonical_digest
-
-        for event_root in logical_roots(source_dataset):
-            if isinstance(event_root.payload, (EventPayload,)):
-                event_coverages[event_root.definition_fingerprint] = backend.resolve_coverage(
-                    event_root.payload.definition,
-                    require_source_origin=False,
-                    provider=self.event_coverage_provider,
-                    source_binding_fingerprint=_canonical_digest(
-                        tuple(capture.identity_payload() for capture in event_root.payload.captures)
-                    ),
-                    execution_domain_id=_engine_domain(source_step.binding),
-                )
     from marivo.analysis.materialization.retained import required_primary_input
 
     primary_inputs = {
@@ -490,7 +448,6 @@ def _compile_recipe(
             source_dataset,
             retained_scans,
             input_parts=retained_parts,
-            event_coverages=event_coverages,
         )
     else:
         scans: dict[str, CompiledArtifactScan] = {}
@@ -532,20 +489,11 @@ def _compile_recipe(
             dependencies=dependencies,
             read_timezone=None if read_time is None else read_time.engine_timezone_name,
             read_timezone_source="engine" if read_time is None else read_time.read_tz_resolution,
-            event_coverages=event_coverages,
             replay_exact_quantile=source_step.binding.adapter != "duckdb",
             scalar_identity_distinct=source_step.binding.adapter in {"sqlite", "mysql"},
             explicit_correlation=source_step.binding.adapter in {"sqlite", "mysql", "clickhouse"},
             emulate_full_join=source_step.binding.adapter == "postgres",
             scalar_masks=source_step.binding.adapter in {"sqlite", "mysql"},
-            event_dialect="postgres"
-            if source_step.binding.adapter == "postgres"
-            else "trino"
-            if source_step.binding.adapter == "trino"
-            else "clickhouse"
-            if source_step.binding.adapter == "clickhouse"
-            else "duckdb",
-            ranked_event_successors=source_step.binding.adapter == "trino",
         )
     return recipe, engine_inputs
 
@@ -571,82 +519,6 @@ def _prepare_correlation(
             preparations=(*recipe.preparations, *pair_checks) if recipe.preparations else (),
         )
     return recipe
-
-
-def _open_special_relations(
-    self: DatasetRuntime,
-    source_step: SourceStep,
-    backend: ExecutionAdapter,
-    recipe: CompiledDataset,
-    entities: tuple[TargetEntityContract, ...],
-    dependencies: SourceDependencies,
-    checked_schemas: set[str],
-    run_ref: str,
-    validations: list[tuple[str, int]],
-) -> bool:
-    selected = source_step.implementation
-    root = source_step.dataset._root
-    if (
-        selected.backend in ("postgres", "clickhouse", "trino")
-        and isinstance(root, LogicalRootHandle)
-        and (
-            isinstance(root.payload, EventPayload)
-            or (
-                selected.backend in ("postgres", "trino")
-                and isinstance(
-                    root.payload,
-                    (EventFunnelPayload, EventTimeToEventPayload, EventSelectionPayload),
-                )
-            )
-        )
-    ):
-        for entity in entities:
-            if isinstance(entity.source, TableSourceIR) and entity.ref.path not in checked_schemas:
-                validate_source_schema(
-                    self, backend, entity, dependency=dependencies.for_entity(entity)
-                )
-        if selected.backend == "trino":
-            from marivo.analysis.materialization.trino_execution import (
-                TrinoExecutionAdapter,
-            )
-
-            if not isinstance(backend, TrinoExecutionAdapter):
-                raise _error("implementation_registration", run_ref)
-            validations.extend(backend.open_event_relations(recipe))
-        elif selected.backend == "postgres":
-            from marivo.analysis.materialization.postgres_execution import (
-                PostgresExecutionAdapter,
-            )
-
-            if not isinstance(backend, PostgresExecutionAdapter):
-                raise _error("implementation_registration", run_ref)
-            if isinstance(root.payload, EventPayload):
-                validations.extend(
-                    backend.open_event_bundle(
-                        recipe,
-                        step_keys=tuple(step.step.key for step in root.payload.definition.steps),
-                    )
-                )
-            else:
-                validations.extend(backend.open_event_relations(recipe))
-        else:
-            from marivo.analysis.materialization.clickhouse_execution import (
-                ClickHouseExecutionAdapter,
-            )
-
-            if not isinstance(backend, ClickHouseExecutionAdapter):
-                raise _error("implementation_registration", run_ref)
-            if isinstance(root.payload, EventPayload):
-                validations.extend(
-                    backend.open_event_bundle(
-                        recipe,
-                        step_keys=tuple(step.step.key for step in root.payload.definition.steps),
-                    )
-                )
-            else:
-                raise _error("implementation_registration", run_ref)
-        return True
-    return False
 
 
 def _run_preparations(

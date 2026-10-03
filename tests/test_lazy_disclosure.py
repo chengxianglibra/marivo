@@ -97,8 +97,6 @@ EXPECTED_EXPORTS = (
     "MaterializedForecastDataset",
     "LogicalCandidateDataset",
     "MaterializedCandidateDataset",
-    "LogicalEventDataset",
-    "MaterializedEventDataset",
     "LogicalHistoryResult",
     "LogicalStateDistributionResult",
     "MaterializedStateDistributionResult",
@@ -271,7 +269,6 @@ EXPECTED_SHAPES = {
         "entity-outlier",
         "driver-axis",
     ),
-    "event": ("journey", "funnel", "time-to-event"),
 }
 
 # Required leaves from the four owning designs, including the accepted route repair.
@@ -317,14 +314,10 @@ REQUIRED_TARGETS = frozenset(
         "discovery.point_anomalies",
         "discovery.interesting_windows",
         "discovery.entity_outliers",
-        "event_dataset",
         "events.match",
         "event_matching",
         "event_matching.first_per_subject",
         "event_matching.every_start",
-        "event_dataset.funnel",
-        "event_dataset.time_to_event",
-        "event_dataset.select_subjects",
         "lifecycle.replay",
         "dropped_before",
         "in_state",
@@ -392,7 +385,7 @@ def test_exact_export_bindings_and_required_native_targets(
 ) -> None:
     actual = {e.name: e for p in disclosure.providers for e in p.exports}
     assert set(actual) == set(EXPECTED_EXPORTS)
-    assert len(actual) == 217
+    assert len(actual) == 215
     assert set(disclosure.canonical_ids()) >= REQUIRED_TARGETS
     for name in EXPECTED_EXPORTS:
         entry = actual[name]
@@ -584,25 +577,6 @@ EXPECTED_VARIANT_FIELDS = {
         "reason_codes_field_id",
         "score_field_id",
     ),
-    "EventJourneySemantics": (
-        "cohort_end",
-        "cohort_start",
-        "completeness_json",
-        "completion_through",
-        "kind",
-        "matching_json",
-        "occurrence_identity_types",
-        "pattern_json",
-        "population_definition",
-        "sampling_authority",
-        "source_dependency_fingerprint",
-        "source_origins",
-        "step_event_fingerprints",
-        "subject_entity_ref",
-        "subject_identity_signature",
-    ),
-    "EventFunnelSemantics": ("axis_dependency_fingerprints", "axis_refs", "journey_json", "kind"),
-    "EventTimeToEventSemantics": ("from_step_json", "journey_json", "kind", "to_step_json"),
 }
 
 

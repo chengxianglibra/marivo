@@ -1868,3 +1868,37 @@ implementation, Runtime, backend, installed-wheel or real-Agent acceptance.
 R8.1 still owns the concrete migration inventory and per-type numerical/parts
 qualification freeze; R8.2 onward must supply execution evidence. No product
 code, current API documentation or packaged skills are changed by this revision.
+
+## R7.9 engineering closeout and original R7 acceptance audit (2026-10-03)
+
+Entry: `panda@cdd00fd949bdb8dd5aa7a533c5d6c70f1c72f373`. Remaining exclusive
+Event Dataset/source/compiler/codec/backend SQL consumers are retired. The new
+Journey pattern-validation owner is graph_journey; unified graph/methods/Runtime/
+Store 7 is the sole domain execution/recovery path. M01–M16's current dispositions
+and actual shared R8/R9 owners are in the amended
+[migration ledger](2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md).
+
+The [R7.9 evidence index](2026-10-03-marivo-r79-evidence-index.md) owns the
+engineering and same-wheel candidate receipts. The
+[full R7 acceptance audit](2026-10-03-marivo-r79-acceptance.md) preserves all
+13500 original mandatory cells and distinguishes actual execution from method/
+route qualification. Full R7 remains **not accepted**: starts-only fixed Anchor
+inputs lack required Event/Metric/return captures, the original native Journey
+start target is unqualified, and original full profiles remain unverified.
+Successful adjacent transports and large test totals cannot close these gaps.
+
+The completed engineering gate passed 5096 default tests with 5 skips, lint/import
+contracts, typing of 424 source files and API documentation. Site and archive
+checks passed. The same installed wheel passed all 16 basic table/Parquet public
+journeys and 48 producer/continuation/cold phases. Its audit still retains the
+R6 recovery, R7.4 cap, R7.6 module, four R7.8 continuation and two A10 continuation
+timeouts. The relationship regression's stale test path was corrected and its
+two cases separately passed. Remaining R7.7/R7.8 tests were skipped at the user
+request. The final manifest preserves 3129 cells verified only in recorded scope
+and 10371 unverified cells; no original mandatory obligation is removed.
+
+This audit preserves the accepted current-interface refusal boundary and adds no
+capture API or fallback. Historical qualification files remain available as hashed
+local test inputs after the user's concurrent Git-untracking action. AGENTS.md,
+packaged skills and pre-existing untracked R7.7 evidence are preserved. No commit,
+push, external service, MinIO, real-Agent or release qualification is performed.

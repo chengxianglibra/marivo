@@ -22,10 +22,7 @@ from marivo.semantic.event import ParticipantRoleHandle
 _STEP_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 EventHelpTarget: TypeAlias = Literal[
     "dropped_before",
-    "events.funnel",
     "events.match",
-    "events.time_to_event",
-    "select_subjects",
 ]
 
 
@@ -142,7 +139,7 @@ def step(*, participant: ParticipantRoleHandle, key: str) -> PatternStep:
 
     Args:
         participant: Immutable handle returned by ``ms.participant_role(...)``.
-        key: Unique lowercase snake-case key used in Event Dataset rows.
+        key: Unique lowercase snake-case key used in Journey rows.
 
     Returns:
         A frozen PatternStep accepted by :func:`sequence`.

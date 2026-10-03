@@ -35,21 +35,18 @@ from marivo.analysis.materialization.store import SessionStore
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.refs import ref
 from tests.lazy_observation_fixtures import make_semantic_registry, NoIoActionPort
-from tests.lazy_event_fixtures import make_event_registry
-from tests.lazy_event_runtime_fixtures import journey as event_journey
 from marivo.analysis.funnel import funnel_loss_rate
 
 # Authoring inputs use the retained public helpers before observing the new
 # private construction surface. Their current eager telemetry is not changed.
 semantic_registry, sidecar = make_semantic_registry()
 from pathlib import Path
-event_registry, event_sidecar = make_event_registry(Path("/nonexistent/event-no-io.duckdb"))
 port = NoIoActionPort()
-event_sources = make_lazy_sources(semantic_registry=event_registry, sidecar=event_sidecar, action_port=port, session_id="event-no-io", store_id="event-no-io")
-event_input = event_journey(event_sources)
-event_target = funnel_loss_rate(step=event_input.row_contract.family_semantics.pattern.steps[-1])
 window = mv.time_scope(start='2026-02-01', end='2026-03-01')
 selection = mv.time_scope(start='2026-01-01', end='2026-02-01')
+from zoneinfo import ZoneInfo
+# Standard timezone metadata belongs to fixture setup, before the no-I/O boundary.
+report_timezone = ZoneInfo('UTC')
 day = mv.grain('day')
 revenue = ref.metric('sales.revenue')
 mean_amount = ref.metric('sales.mean_amount')

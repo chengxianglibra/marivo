@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
-from marivo._temporal import time_scope
 from marivo.analysis.compiler.normalize import classify_inputs, require_unmixed_inputs
 from marivo.analysis.datasets.descriptors import (
     _entity_domain,
@@ -29,8 +27,6 @@ from marivo.analysis.datasets.handles import (
     _make_logical_root,
     _RunNodeBindings,
 )
-from marivo.analysis.domains.contracts import EventPayload
-from marivo.analysis.event import first_per_subject, sequence, step
 from marivo.analysis.observation.contracts import ContractEvidence, derive_metric_components
 from marivo.analysis.operators.registry import (
     MethodContract,
@@ -39,10 +35,8 @@ from marivo.analysis.operators.registry import (
 )
 from marivo.analysis.session._lazy_sources import make_lazy_sources
 from marivo.refs import ref
-from marivo.semantic.event import participant_role
 from marivo.semantic.metric_graph_lowering import normalize_target_metric
 from tests.lazy_dataset_fixtures import make_logical_dataset, make_materialized_dataset
-from tests.lazy_event_fixtures import make_event_sources
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_observation_fixtures import NoIoActionPort
 
@@ -349,57 +343,3 @@ def test_unbound_root_rejects_without_business_io() -> None:
     assert isinstance(root, LogicalRootHandle)
     with pytest.raises(DatasetConstructionError):
         classify_inputs(root)
-
-
-def test_event_source_fact_prevents_artifact_only_false_negative(tmp_path: Path) -> None:
-    database = tmp_path / "must-not-open.duckdb"
-    sources = make_event_sources(
-        database=database, session_id="dsl-contract", store_id="dsl-contract"
-    )
-    pattern = sequence(
-        step(
-            participant=participant_role(event=ref.event("sales.started"), name="buyer"),
-            key="start",
-        ),
-        step(
-            participant=participant_role(event=ref.event("sales.finished"), name="buyer"),
-            key="finish",
-        ),
-    )
-    event = sources.events.match(
-        pattern,
-        cohort_window=time_scope(
-            start="2026-02-01T00:00:00+00:00", end="2026-03-01T00:00:00+00:00"
-        ),
-        completion_through=datetime(2026, 3, 2, tzinfo=timezone.utc),
-        matching=first_per_subject(),
-    )
-    assert isinstance(event._root, LogicalRootHandle)
-    assert isinstance(event._root.payload, EventPayload)
-    assert event._root.payload.live_source_dependencies
-    funnel = event.funnel(axes=(ref.dimension("sales.customers.region"),))
-    assert isinstance(funnel._root, LogicalRootHandle)
-    assert funnel._root.payload is not None
-    assert funnel._root.payload.live_source_dependencies
-    assert funnel._root in classify_inputs(funnel._root).source_nodes
-    artifact = make_materialized_dataset(origin=event)
-    classification = classify_inputs(_compose(event._root, artifact._root))
-    assert classification.kind == "mixed"
-    assert event._root in classification.source_nodes
-    fixed_input = DefinitionInput(
-        role="fixed",
-        token=MaterializedInputToken(artifact._root.artifact_ref),
-        root=artifact._root,
-    )
-    event_with_fixed_members = _make_logical_root(
-        session_id="dsl-contract",
-        store_id="dsl-contract",
-        shape_id=event._root.shape_id,
-        row_contract_fingerprint=event._root.row_contract_fingerprint,
-        row_set_contract_fingerprint=event._root.row_set_contract_fingerprint,
-        operator_id="test.event_with_fixed_members",
-        inputs=(fixed_input,),
-        payload=event._root.payload,
-    )
-    assert classify_inputs(event_with_fixed_members).kind == "mixed"
-    assert not database.exists()

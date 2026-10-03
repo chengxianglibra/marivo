@@ -174,3 +174,27 @@ R8.1 逐类型冻结；`decimal-exact` 格保留原始 Decimal 与方法自己�
 ## 5. 扫描与本轮边界
 
 本轮用 `rg -n 'raw_sql|statement\(|submit\(|\.sql\(|SELECT |WITH |SHOW |PRAGMA |CREATE |SET '` 从 `marivo/datasource/`、`marivo/semantic/`、`marivo/analysis/{compiler,materialization,session,evidence}/` 双向扫描，再用 `rg -n 'attribution_summary_sql|membership_integrity_sql|compile_event_bundle|integrity_sql|read_parquet|postprocess_sql' marivo` 追调用方。SQL 模板、控制、编译补丁、终端 DS02 和 Store 查询分开；实际提交链见 §1–§3。静态登记不能证明某条路线真实运行；除 DS02 外不批准内部 SQL 例外。R9 需重新运行同类扫描并审计 driver 实际提交；发现未在表内的生产入口即增行，不能按“metadata”或“adapter 内部”自动放行。
+
+## R7.9 Event/Lifecycle SQL retirement amendment (2026-10-03)
+
+The [R7.9 acceptance audit](2026-10-03-marivo-r79-acceptance.md) and its evidence
+index supersede the historical current-consumer entries for AN02–AN10 and the
+Event portion of AN23. AN02/AN03 replay/array compilers, AN08/AN09 lifecycle
+integrity/bundle and AN10 statement summaries were deleted in R7.5/R7.6. R7.9
+now physically removes AN04–AN06's three Event SQL modules and event_bundle,
+and AN07's Event snapshot prefixes/bundle/collector callers. AN23's Event wrapper
+and special source compilation route are removed. No renamed helper, private
+Event compiler visitor, old packet statement or family executor replaces them.
+
+Current unified methods use SourceSession-issued Ibis capture, explicit registered
+local consumers and Store 7 typed parts/receipts. R7.2's issued/driver SQL and
+resource counterexamples are staged into the installed candidate. The original
+mandatory new method/native-route qualifications remain in the R7 audit; physical
+retirement does not qualify those methods or a remote backend.
+
+Generic scalar adapter lifetimes, PostgreSQL boolean-to-int4 cast lowering,
+ClickHouse numeric widening and actual metadata/finite-value checks retain their
+shared scalar/R8/R9 owners. AN07's remaining generic connection/setting duties and
+AN23's generic adapter qualification are R9 responsibilities. This amendment closes
+the exclusive Event/Lifecycle chain only, without asserting a global SQL audit,
+remote-server acceptance or release qualification.

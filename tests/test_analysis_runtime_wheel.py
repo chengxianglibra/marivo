@@ -79,10 +79,36 @@ R6_TESTS = (
     "test_analysis_recovery_r67",
 )
 
+R7_TESTS = (
+    "test_analysis_domain_preparation_r72",
+    "test_analysis_journey_matching_r73",
+    "test_analysis_funnel_r74",
+    "test_analysis_lifecycle_r75",
+    "test_analysis_history_r76",
+    "test_analysis_anchors_r77",
+    "test_analysis_retention_r78",
+    "test_analysis_retention_r78_evidence",
+    "test_analysis_retirement_r79",
+    "test_semantic_r23_business_order",
+    "test_lazy_public_relationships",
+)
+
+R7_WORKERS = (
+    "funnel_r74_worker",
+    "lifecycle_r75_worker",
+    "history_r76_worker",
+    "history_r76_a10_worker",
+    "history_r76_consumers_worker",
+    "anchors_r77_worker",
+    "retention_r78_worker",
+)
+
 
 def _stage_tests(destination: Path) -> None:
     """Copy only selected tests and their statically imported test helpers."""
-    pending = {f"tests.{name}" for name in (*CONTRACT_TESTS, *R5_TESTS, *R6_TESTS)}
+    pending = {
+        f"tests.{name}" for name in (*CONTRACT_TESTS, *R5_TESTS, *R6_TESTS, *R7_TESTS, *R7_WORKERS)
+    }
     pending.update(
         (
             "tests.conftest",
@@ -118,11 +144,15 @@ def _stage_tests(destination: Path) -> None:
         '"""Isolated installed-package test inputs."""\n'
     )
     for prefix in ("docs", "zh-cn/docs"):
-        for page in ("analysis-workflow", "evidence", "semantic-layer"):
-            relative = Path(f"site/src/content/docs/{prefix}/latest/concepts/{page}.mdx")
-            target = destination / relative
+        relative = Path(f"site/src/content/docs/{prefix}/latest")
+        shutil.copytree(ROOT / relative, destination / relative)
+    # Qualification assertions read immutable historical inventories; these are
+    # test inputs, never an importable checkout or an installed-package authority.
+    for source in (ROOT / "docs/superpowers/specs").glob("*r7*"):
+        if source.is_file():
+            target = destination / source.relative_to(ROOT)
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(ROOT / relative, target)
+            shutil.copy2(source, target)
     # Explicit configuration prevents pytest.ini's source-root pythonpath from leaking in.
     (destination / "pytest.ini").write_text(
         "[pytest]\npython_classes =\nmarkers =\n"
@@ -186,7 +216,7 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
         json.dumps(
             {
                 str(path.relative_to(work)): hashlib.sha256(path.read_bytes()).hexdigest()
-                for base in (work / "tests", work / "site")
+                for base in (work / "tests", work / "site", work / "docs")
                 for path in sorted(base.rglob("*"))
                 if path.is_file()
             },
@@ -204,6 +234,9 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
         MARIVO_TELEMETRY="off",
         PYTHONNOUSERSITE="1",
         MARIVO_WHEEL_SHA256=str(archive_report["wheel_sha256"]),
+        MARIVO_R76_EVIDENCE_DIR=str(reports / "r76-profiles"),
+        MARIVO_R77_EVIDENCE_DIR=str(reports / "r77-profiles"),
+        MARIVO_R78_EVIDENCE_DIR=str(reports / "r78-profiles"),
     )
     receipts: list[dict[str, object]] = []
 
@@ -217,7 +250,7 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
             env=env or environment,
             capture_output=True,
             text=True,
-            timeout=900,
+            timeout=7200 if name in R7_TESTS else 900,
             check=False,
         )
         (reports / f"{name}.log").write_text(process.stdout + process.stderr)
@@ -270,6 +303,7 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
         run("dependency-check", [str(interpreter), "-m", "pip", "check"])
         probe = [str(interpreter), "-m", "tests.installed_wheel_probe"]
         run("origin", [*probe, "guard", str(reports / "origin.json")])
+        installed = json.loads((reports / "origin.json").read_text())["package"]
         run("surface", [*probe, "surface", str(reports / "installed-surface.json")])
         assert json.loads((reports / "installed-surface.json").read_text()) == expected_surface
         # Deliberately inject the real source tree; the positive gate's guard must reject it.
@@ -281,6 +315,9 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
             env=poisoned,
         )
         assert "foreign Marivo import" in rejection
+        # Add the installed-file view after the poison check so that the work
+        # directory cannot mask a deliberately injected checkout import.
+        (work / "marivo").symlink_to(installed, target_is_directory=True)
         run("origin-hook", [*probe, "install-hook", str(reports / "origin-hook.json")])
         environment["MARIVO_INSTALLED_ORIGIN_DIR"] = str(reports / "process-origins")
         run("origin-hook-check", [*probe, "guard", str(reports / "hook-guard.json")])
@@ -311,7 +348,7 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
                     *selected,
                 ],
             )
-        for module in (*R5_TESTS, *R6_TESTS):
+        for module in (*R5_TESTS, *R6_TESTS, *R7_TESTS):
             environment["MARIVO_INSTALLED_ORIGIN_REPORT"] = str(reports / f"{module}-origins.json")
             run(
                 module,
@@ -325,7 +362,7 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
                     str(work / "pytest.ini"),
                     "--import-mode=importlib",
                     "-n",
-                    "4",
+                    "2",
                     "-q",
                     "--tb=short",
                     "--maxfail=5",
@@ -383,7 +420,8 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
             json.dumps(receipts, indent=2, sort_keys=True) + "\n"
         )
         retained = (
-            os.environ.get("MARIVO_R67_EVIDENCE_DIR")
+            os.environ.get("MARIVO_R79_EVIDENCE_DIR")
+            or os.environ.get("MARIVO_R67_EVIDENCE_DIR")
             or os.environ.get("MARIVO_R57_EVIDENCE_DIR")
             or os.environ.get("MARIVO_R46_EVIDENCE_DIR")
         )

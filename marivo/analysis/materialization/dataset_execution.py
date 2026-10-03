@@ -30,10 +30,6 @@ from marivo.analysis.compiler.source_admission import (
 )
 from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.handles import LogicalRootHandle, _validate_logical_root
-from marivo.analysis.domains.contracts import (
-    EventFunnelPayload,
-    EventPayload,
-)
 from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
@@ -48,11 +44,6 @@ from marivo.analysis.materialization.errors import (
     MaterializationError,
 )
 from marivo.analysis.materialization.errors import _execution_error as _error
-from marivo.analysis.materialization.event_codec import EventEvidenceSummary
-from marivo.analysis.materialization.event_reducer_codec import (
-    EventReducerEvidenceSummary,
-    EventSelectionEvidenceSummary,
-)
 from marivo.analysis.materialization.execution_key import execution_key
 from marivo.analysis.materialization.ownership import owns_resource
 from marivo.analysis.materialization.publication import materialization_contract
@@ -118,15 +109,8 @@ def _admit_miss(
 
     def discover_candidates(value: LogicalDataset | MaterializedDataset) -> None:
         if isinstance(value, LogicalDataset):
-            if (
-                isinstance(value._root, LogicalRootHandle)
-                and isinstance(
-                    value._root.payload, (PopulationPayload, MetricPayload, EventPayload)
-                )
-            ) or (
-                isinstance(value._root, LogicalRootHandle)
-                and isinstance(value._root.payload, (EventFunnelPayload,))
-                and bool(value._root.payload.axes)
+            if isinstance(value._root, LogicalRootHandle) and isinstance(
+                value._root.payload, (PopulationPayload, MetricPayload)
             ):
                 binding = source_binding(value)
                 if not any(binding.same_domain(item) for item in source_candidates):
@@ -279,18 +263,12 @@ class ExecutionEvidence:
     association_summary: AssociationSearchSummary | None = None
     forecast_summary: ForecastTrainingSummary | None = None
     candidate_summary: CandidateSearchSummary | None = None
-    event_summary: EventEvidenceSummary | EventReducerEvidenceSummary | None = None
-    selection_summary: EventSelectionEvidenceSummary | None = None
 
     @classmethod
     def from_records(cls, records: Mapping[str, ArtifactRecord]) -> ExecutionEvidence:
         state = cls()
         for input_record in records.values():
             descriptor = input_record.descriptor
-            if descriptor.event_evidence is not None:
-                state.event_summary = descriptor.event_evidence
-            if descriptor.subject_selection_evidence is not None:
-                state.selection_summary = descriptor.subject_selection_evidence
             if descriptor.candidate_evidence is not None:
                 state.candidate_summary = CandidateSearchSummary(
                     descriptor.candidate_evidence.definition,

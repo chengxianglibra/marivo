@@ -16,8 +16,6 @@ import pyarrow as pa
 
 from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
-from marivo.analysis.domains.contracts import EventDefinition
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.execution import (
     BatchStream,
@@ -526,14 +524,3 @@ class ScalarExecutionAdapter(ObservedExecution):
         format: str,
     ) -> ir.Table:
         raise self.unsupported("read_json")
-
-    def resolve_coverage(
-        self,
-        definition: EventDefinition,
-        *,
-        provider: EventCoverageProvider | None,
-        source_binding_fingerprint: str,
-        execution_domain_id: str,
-        require_source_origin: bool,
-    ) -> EventCoverageResolution:
-        raise self.unsupported("resolve_coverage")

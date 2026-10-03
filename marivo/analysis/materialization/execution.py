@@ -16,8 +16,6 @@ import pyarrow as pa
 from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
-from marivo.analysis.domains.completeness import EventCoverageProvider, EventCoverageResolution
-from marivo.analysis.domains.contracts import EventDefinition
 from marivo.analysis.materialization.contracts import ExchangeBinding
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.submissions import ExecutionDomain, Submission
@@ -230,15 +228,6 @@ class ExecutionAdapter(Protocol):
         params: Mapping[ir.Scalar, Parameter] | None = None,
         role: str = "query",
     ) -> BatchStream: ...
-    def resolve_coverage(
-        self,
-        definition: EventDefinition,
-        *,
-        provider: EventCoverageProvider | None,
-        source_binding_fingerprint: str,
-        execution_domain_id: str,
-        require_source_origin: bool,
-    ) -> EventCoverageResolution: ...
     def timezone(self) -> DatasourceEngineTimezone: ...
     def prepare_dataset(self, dataset: LogicalDataset) -> None: ...
     def interrupt(self) -> None: ...

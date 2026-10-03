@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import ibis.expr.types as ir
 
@@ -12,10 +12,6 @@ from marivo.analysis.datasets.handles import CanonicalValue
 from marivo.analysis.operators.candidate_contracts import CandidateDefinition
 from marivo.analysis.operators.driver_contracts import DriverCandidateDefinition
 from marivo.semantic.ir import TargetEntityContract
-
-if TYPE_CHECKING:
-    from marivo.analysis.domains.completeness import EventCoverageResolution
-    from marivo.analysis.domains.contracts import EventSelectionPayload
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -78,13 +74,5 @@ class CompiledDataset:
     association_proof: ir.Table | None = None
     candidate_proof: ir.Table | None = None
     candidate_definition: CandidateDefinition | DriverCandidateDefinition | None = None
-    event_proof: ir.Table | None = None
-    event_coverage: EventCoverageResolution | None = None
-    event_reducer_proof: ir.Table | None = None
-    event_reducer_coverage: EventCoverageResolution | None = None
-    selection_proof: ir.Table | None = None
-    selection_coverage: EventCoverageResolution | None = None
-    selection_payload: EventSelectionPayload | None = None
-    selection_input_definition: str | None = None
     temporal_execution: TemporalExecution | None = None
     version_selections: tuple[tuple[str, CanonicalValue], ...] = ()

@@ -38,14 +38,14 @@ def dropped_before(*, step: PatternStep) -> DroppedBefore:
 
     Returns:
         A frozen ``DroppedBefore`` value accepted by
-        ``event_dataset.select_subjects(...)``.
+        ``journeys.read(mv.dropped_before(step=finish_step))``.
 
     Example:
         >>> selection = mv.dropped_before(step=payment_step)
 
     Constraints:
         Only an exact ``PatternStep`` is accepted. Source-pattern membership
-        and the non-initial-step rule are validated by ``select_subjects``.
+        and the non-initial-step rule are validated by ``JourneyResult.read``.
     """
     if type(step) is not PatternStep:
         raise PatternStepMismatchError(

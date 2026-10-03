@@ -7,8 +7,9 @@ marivo.analysis
    :no-members:
 
 Construct typed algebra through ``session.members(entity_ref)`` and its owned
-read/observe operations. Event and Lifecycle remain separately owned migration
-contracts. Logical Datasets describe work
+read/observe operations. Journey, History, Anchor and retention use the unified
+graph. Remaining R8 Dataset families retain their documented migration boundaries.
+Logical Datasets describe work
 without source I/O. ``execute()`` commits a Run and returns an immutable
 Materialized Dataset. Its owned fields and methods describe valid continuations.
 Use ``show()`` for bounded current state and ``contract()`` for mechanical input
@@ -222,12 +223,6 @@ constructors are documented inline to support case-insensitive filesystems.
    :members:
 
 .. autoclass:: MaterializedCandidateDataset
-   :members:
-
-.. autoclass:: LogicalEventDataset
-   :members:
-
-.. autoclass:: MaterializedEventDataset
    :members:
 
 .. autoclass:: LogicalHistoryResult

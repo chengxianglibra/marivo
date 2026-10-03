@@ -53,13 +53,19 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
 
 
 def consumers(method: MethodKey) -> tuple[Implementation, ...]:
+    """Qualify shared Entity transport without hiding retained History views."""
     if method.name not in ("parts_transport", "map_correspond"):
         return ()
     return tuple(
         replace(
             base,
             key=replace(base.key, method=method, input_domains=(domain,)),
-            parts=("subject", "retention"),
+            parts=("subject", "history_view", "retention"),
+            qualification=Qualified(
+                f"r79.subject_transport.{method}.{base.key.shape}@v1",
+                "analysis.materialization.graph_local_execution",
+                "tests/test_analysis_history_r76.py; tests/test_analysis_retention_r78.py",
+            ),
         )
         for base in implementations(MethodKey("retention.by_subject"))
         for domain in ("entity",)
