@@ -769,7 +769,8 @@ result = sep.summarize(mv.mean()).execute()
 `.value` 是唯一主值字段，不是新的提取/解锁操作；展示名不参与字段寻址。
 
 补齐表达能力遵循一个约束：**已有 API 或已确定的组合能表达，就补契约与例子，不增加重复入口。**
-保留 runtime_metric、rank、discover、correlate、forecast、事件/状态方法中仍合适的操作名；
+保留 runtime_metric、rank、correlate、forecast、事件/状态方法中仍合适的操作名；
+discover 五入口按 §8.4.1 收敛为 deviation、runs 与已有 DSL 的组合；
 需要改变的参数只承载现有输入无法表达的语义。理论里的映射、basis、rule 和证明义务优先作为
 内部推导，不要求用户重复提供可以从显式输入唯一确定的事实。一个旧入口被新的组合替代时，
 在第 10 节说明对应关系；不同时发布两条同义路径。
@@ -783,6 +784,7 @@ result = sep.summarize(mv.mean()).execute()
 | CategoryRelation | 一个分类量及其域 | 数字类别可以拿来求均值 |
 | DurationRelation / TimeRelation / BooleanRelation | 时长、时间值、命题值各自的操作族 | 三者可以互换为普通数字 |
 | GroupedRelation | 归约前的分组描述，只提供 summarize/rollup | 已完成计算或存在一份新的数据 |
+| DeviationResult / TimeRunResult | 偏离评分的同域固定视图 / 连续时间区间及原格映射 | 评分是原因、连续区间是执行 Run，或区间自动拥有业务主体 |
 | 领域具名结果 | 匹配、状态等方法的固定字段和角色，例如完成旅程的 duration | 任意字符串列都具有同样角色 |
 
 用户通常无需手写这些类型或构造类；工厂和方法返回精确形状，IDE/Help 只展示对应接口。
@@ -1649,7 +1651,7 @@ limit 沿用现有 1–100000 的整数范围并排除 bool；取已排好序的
 形成确定顺序。需要每组前 k 名时先以 `ranking.ranks.value.is_defined()` 显式限制已排名域，
 再对该结果的 ranks 筛选 `value.lte(k)`，保留 ties 决定的全部并列行；不能把未知排名直接当作大于 k。
 where/limit 同步限制两个视图，但不重算原排名或 share 的固定分母。
-归因、候选、相关与预测结果通过各自具名数值视图复用这一入口。
+归因、偏离评分、连续区间、相关与预测结果通过各自具名数值视图复用这一入口。
 
 ### 7.2 标准化与归因各自保留方法语义
 
@@ -2047,58 +2049,146 @@ dwell 明确保持当前 `completed_window_fragment_duration@v1`：先按输出�
 输入与方法。其内部有序扫描可按合法顺序实现，但不能把实现顺序运输成业务先后证据。
 分段续接另需扫描边界状态；把两个 HistoryResult 作为无序 bag 相加不构成 replay。
 
-### 8.4 统计方法复用现有入口
+### 8.4 数值评分、时间区间与统计模型
 
-
-这些方法接入共同域、量定义和 Cell 状态，不由共同代数证明统计有效性。保留已有方法名称、
-阈值/范围参数和注册方法版本；不增加通用 statistics、search 或 model namespace。
+这些方法接入共同域、量定义和 Cell 状态，不由共同代数证明统计有效性。2026-10-02 的 R8
+修订替代原先“保留五个 discover 方法”的目标：只为现有 DSL 缺少的偏离评分和连续区间识别
+增加方法；筛选、排序、成员选择和归因复用已有操作。相关与预测继续按 §8.4.2–3 承接。
+不保留 `.discover` 命名空间，不增加通用 statistics、search 或 model namespace。
 方法都返回 Logical 结果，where、具名数值视图与 rank 可继续构造表达式，最后一次 execute
 统一执行。固定结果对象将多个有不同含义的量分开，避免恢复任意字段字典。
 
-#### 8.4.1 候选发现
+#### 8.4.1 从指标变化定位可继续分析的坐标
 
-保留非 callable 的 `.discover` 命名空间，以及现有五个方法：
+Agent 选择指标、比较基准、时间范围、可比总体、方向和阈值，再根据结果决定下一次观察、
+归因或业务核查。Marivo 计算给定问题的值、评分及连续区间，保留依据与合法续算。
+不引入 Question、ExplorationPlan、Direction、自动递归下钻或 ontology 驱动的分析规划。
+Entity、Dimension、Metric、Relationship 和时间声明提供身份、含义与合法对应；ontology
+只关联定义和证据，不拥有异常算法、分析路线或自动执行权限。
 
-| 调用 | 准入与注册方法 | 固定结果变体 |
-| --- | --- | --- |
-| `history.discover.point_anomalies(threshold=3.0, limit=50)` | 时间量；`point_zscore@v1` | 点候选，保留时间点、观察值、基准值、偏差 |
-| `history.discover.interesting_windows(threshold=2.0, limit=50)` | 时间量；`global_zscore_runs@v1` | 窗口候选，保留 start/end、点数、峰值 |
-| `change.discover.period_shifts(threshold=2.0, limit=50)` | 保留配对时间轴的 Difference；`delta_window_zscore@v1` | 变化窗口候选，保留两侧时间、窗口宽度 |
-| `values.discover.entity_outliers(threshold=3.0, limit=50)` | Entity 单位的观察量；`entity_mad@v1` | 主体候选，保留原完整业务身份、观察值、基准值 |
-| `change.discover.driver_axes(search_space=(Region, Channel), limit=50)` | 可加 Difference；`axis_concentration@v1` | 维度候选，保留实际 Dimension Ref、基数、集中度 |
+**两项新增能力的唯一入口。** 下列是 R8 目标契约，尚不是当前可执行 API。
 
-CandidateResult 是一个固定家族，方法返回相应闭合变体，不创建可任意装字段的 mega-class。
-各变体都有 `.score: NumericRelation`，以及固定的 reason_codes、search_summary；数值视图
-仍保留候选类型和实例单位。score 是方法分数，不是概率、置信度或因果贡献。
+```text
+NumericRelation.deviation(
+    *, method: Literal["zscore", "mad"],
+    partition_by: tuple[CategoryRelation, ...] = ()
+) -> LogicalDeviationResult
+DeviationResult.observed -> NumericRelation
+DeviationResult.reference -> NumericRelation
+DeviationResult.deviation -> NumericRelation
+DeviationResult.score -> NumericRelation
+DeviationResult.where(BoundPredicate) -> LogicalDeviationResult
 
-```python
-outliers = aug.discover.entity_outliers(threshold=3.0, limit=50)
-selected = outliers.where(outliers.score.value.gt(4))
-customers_to_follow = selected.score.members()
-result = customers_to_follow.observe(
-    Revenue, during=september, via=Buyer
-).summarize(mv.mean()).execute()
-
-drivers = change.discover.driver_axes(search_space=(Region, Channel), limit=10)
-result = drivers.score.rank(order="descending", ties="ordinal").execute()
+NumericRelation.runs(*, where: BoundPredicate) -> LogicalTimeRunResult
+TimeRunResult.start -> TimeRelation
+TimeRunResult.end -> TimeRelation
+TimeRunResult.count -> NumericRelation
+TimeRunResult.duration -> DurationRelation
+TimeRunResult.where(BoundPredicate) -> LogicalTimeRunResult
 ```
 
-主体候选的行保留原 Entity 身份，所以这里可直接 members；点、窗口、维度候选不能用
-members 冒充客户名单，也不能把分数当业务 Metric 的可上卷状态。选出维度只是线索；应将其
-真实 Ref 作为明确的后续 attribute 输入，不自动执行搜索后的因果解释。
+两个结果遵循现有 Logical/Materialized、固定视图、execute/show/contract 家族协议；不恢复
+通用 CandidateResult 或按点、Entity、维度另建候选类。新增 TimeRunResult 的理由是连续区间
+产生了新实例身份和边界，普通当前行筛选不能表达；它区别于执行 Run 和 Lifecycle 的状态占用区间。
 
-现有闭合算法保持：点异常以有限完整值的总体均值/标准差形成绝对 z 分数；窗口为超过阈值的
-最大连续段，缺口与不可用点打断；period_shifts 使用 `max(7, floor(n/10))` 个连续配对点的
-完整滑窗均值，再标准化并查找连续段。entity_mad 使用中位数，scale 为 `1.4826×MAD`；MAD
-为零时用围绕同一中位数的平均绝对偏差，这是该注册方法的一部分，不是运行失败后的降级。
-driver_axes 只搜索明确给出的合法完整分区，以达到绝对变化总量 50% 的最小前缀规模衡量集中度，
-score=`1/(prefix_count + cardinality/1000)`；净变化为零不等于绝对变化总量为零。
+**偏离评分 C14.a1。** 输入可以是观察值、Difference 或其他已定义数值量，不以 Entity/
+Time 决定不同算法。method 必填；partition_by 沿用 rank 的显式同域分类输入与对应规则，
+空元组表示在整个接收者域拟合一个基准，不自动猜测同类客户或对每个时间序列分别拟合。
+分区、当前输入域和量定义共同决定“与谁相比”。跨量比较、历史预测基准和季节调整不是此方法。
 
-threshold 须有限且大于零，limit 为 1..1000。方法保留 searched/evaluated/excluded 状态和数量，
-无可评估点、零离散度等不能包装成“已经证明没有异常”。Null、Undefined、Unknown 的不可用
-依据分别保留，禁止通过丢弃状态产生普通 Null。driver 的逻辑轴展开和物化边界与归因一致。
-方法定义由现有 candidate_contracts、candidate_values、entity_candidate 与 driver_values 的
-上述版本拥有；不开放自定义打分回调或统计显著性宣称。
+| 方法版本 | 基准、尺度与有符号分数 |
+| --- | --- |
+| `deviation.zscore@v1` | c 为有效值均值，s 为总体标准差（除以 n）；score=(x-c)/s |
+| `deviation.mad@v1` | c 为有效值中位数，s=1.4826×median(abs(x-c))；MAD=0 时使用围绕同一 c 的平均绝对偏差，并记录所用尺度分支；score=(x-c)/s |
+
+有效值是当前分区内 Defined 且有限的值，每行等权。Null、Undefined、Unknown 不参与基准
+拟合，但所有原行与原 Cell 原因保留；相应 score 不变成 0 或 false。结果必须披露原域数量、
+各状态数量、有效 n、c、s 和实际尺度分支，明确这是有效值子域的统计。非有限 Defined 数、
+身份/来源覆盖违约仍拒绝，不能包装成可排除样本。n<2 或 s=0 时，有效行的 score 为带原因
+的 Undefined；不得把“未能评分”称为“无异常”。无样本、单样本、全常量各自保留原因。
+
+observed 保留输入值及其身份、单位与获准部件；reference 为 c，deviation 为 x-c，仍用输入
+单位；score 无量纲。不能求值的派生值保留相应状态。方法定义须另定 int/float/Decimal 的
+运算、舍入、误差与溢出义务；不得借统计方法隐式降为 float 或把近似数值宣称精确。
+物理资格未完成的类型/来源形状不能由另一形状代授。
+
+拟合域在 deviation 构造处固定。结果的 where 同步限制四个视图；数值视图的 rank/limit
+返回既有 RankingResult，不凭空增加其他数值视图。两种续算均保留原 n/c/s、输入绑定和
+分区，不能重新拟合。先 where 再 deviation 是另一个统计问题。score/reference/
+deviation 不继承业务 Metric 的贡献状态或原量 rollup 许可。阈值、正负方向、排序和 Top-K
+均由通用 DSL 表达，不再重复放入评分参数；分数不是概率、置信度、显著性或因果贡献。
+
+**连续区间 C14.a2。** 注册方法为 `time.runs@v1`，与评分独立：接收者必须保留唯一的完整时间网格及每格对应；
+纯 Entity 域拒绝。每个非时间坐标元组是一条序列，网格、时区、认证窗口和邻接从已有域部件
+唯一取得，不再传一份可能冲突的 grain/time_axis。where 的字段依赖必须能对应每个输入格。
+输出为条件成立的最大连续段，不内置异常阈值、最短长度、峰值排名或“上升/下降”判断。
+
+- 按原网格邻接扫描全部格。false、不可评估格和已登记缺口均打断连续性；不能对筛选后的
+  幸存行重新编号。缺少完整网格/覆盖部件、缺预期物化行或重复坐标是契约错误，不能伪造缺口
+  掩盖损坏。合法缺口须在网格映射中显式保留不可评估格及原因；不完整边缘格在 v1 拒绝。
+- runs 拥有其条件消费规则，不改变 §6.2 普通 where 的严格规则。普通数值条件引用到非
+  Defined Cell 时该格为 unavailable，保存 Null/Undefined/Unknown 原因；状态谓词仍按自身
+  定义求值。复合条件检查全部依赖，任一所需值不可评估则该格 unavailable，不用短路消除
+  该事实；类型、单位、对应或来源完整性错误仍拒绝。保存 true/false/unavailable 计数。
+- 区间为 `[首个 true 格.start, 最后 true 格.end)`，count 为格数，duration 为实际边界时长，
+  不以 count×固定小时数代替 DST/业务日历时长。保留原序列身份、起止格、区间→格映射及
+  左右终止依据（false、unavailable 或观察范围边界）；范围截止不证明异常已在业务上结束。
+- `score < -3` 和 `score > 3` 分别表达低侧与高侧；显式双侧条件允许相邻异号格在同段，
+  此时不得拿其中一个峰值的符号给整段标方向。count 可接数值 rank，duration 用带单位条件
+  筛选，不为本次扩张 Duration 的排序 API。没有可评分格时区间虽为空，也必须披露
+  unavailable，不能声称完整评估后没有命中。
+
+评分不是 runs 的前置步骤；已知业务阈值时可直接使用 RelativeChange 等数值关系：
+
+```python
+# daily_change is a relative change on a complete paired daily grid.
+declines = daily_change.runs(where=daily_change.value.lt(-0.10))
+lasting = declines.where(declines.count.value.gte(3))
+result = lasting.count.rank(order="descending", ties="ordinal").execute()
+
+# daily_values retains the same complete grid, including unavailable cells.
+scored = daily_values.deviation(method="zscore")
+low_runs = scored.score.runs(where=scored.score.value.lt(-3))
+result = low_runs.execute()
+
+# customer_change has one row per original Customer identity.
+scored_customers = customer_change.deviation(method="mad")
+defined = scored_customers.where(scored_customers.score.value.is_defined())
+low_customers = defined.where(defined.score.value.lt(-3))
+customers_to_follow = low_customers.observed.members()
+result = customers_to_follow.observe(
+    Revenue, during=september, via=Buyer,
+).summarize(mv.mean()).execute()
+```
+
+例中两次 where 尊重既有非短路规则。低分只是当前参照下的偏离；是否值得调查由 agent 根据
+业务影响判断。它可读取区间边界，显式选定下一轮 time_scope 并重新 observe/compare，再做
+attribute；不能把 score 或区间 count 当作原收入变化归因。全局时间区间没有 Customer
+身份，不能直接 members；只有保留实际 SubjectBinding 的序列结果才能沿该映射取主体像。
+跨来源继续观察仍服从统一图的来源准备和固定输入边界，不靠 lineage 隐式回源。
+
+**五个旧入口的处置及不承诺的等价。**
+
+| 旧入口 | 新目标 | 明确放弃/保留的语义 |
+| --- | --- | --- |
+| `point_anomalies` | deviation(zscore) 后显式 where/rank/limit | 复用均值/尺度计算；新 score 有符号，双侧用两个比较组合，不保留旧绝对分数候选 wrapper |
+| `entity_outliers` | deviation(mad) 后显式选择原身份 | 复用中位数/MAD 及上述零 MAD 分支；不另建 Entity 候选算法或身份 |
+| `interesting_windows` | deviation + 条件 + runs | 阈值和连续性解耦；不携带旧自动峰值排名/方向推断 |
+| `period_shifts` | 删除固定复合方法 | 不保留 `max(7,floor(n/10))` 隐藏滑窗与其评分；通用 rolling 不在本次范围，不能声称 runs 与旧算法等价 |
+| `driver_axes` | agent 针对明确轴分别 attribute，再读取贡献并 rank | 删除“覆盖绝对变化 50% 的最小前缀”与 `1/(prefix_count+cardinality/1000)` 排轴启发式；贡献排序与该分数不等价 |
+
+逐轴分析时分别调用 `change.attribute(axes=(Region,))` 和
+`change.attribute(axes=(Channel,))`；`axes=(Region, Channel)` 则是 joint 交叉分区，不能
+冒充两个独立维度的比较。两次归因是同一变化的不同分解，不得将它们的贡献再次相加。
+轴的合法性、充分部件、component_mix 与固定输入边界仍由 §7.2 唯一拥有；不建第二条
+driver 归因链，也不为 Python 循环另造批量搜索接口。component_mix 不是通用公式分解。
+以后若需要比较集中度，先定义独立业务问题和贡献统计方法；不为保留旧 heuristic 新增
+concentration API。新的标准差/MAD 计算由 deviation 的方法契约拥有，本轮也不扩充通用
+row-statistic 或 rolling 目录。当前 DSL 尚缺 deviation/runs，不能只删除旧实现就宣称承接完成。
+
+本修订是明确的目标范围替换，不以“旧方法违反代数”为由删除。旧五入口、Candidate 专用
+执行/codec/Help 和对应强制资格格退役；共享 helper 按真实调用方迁移后删除，不留兼容别名、
+双读或隐藏转发。历史数值反例仍有价值，但旧包装、默认阈值和排轴顺序不再是新 API 的 oracle。
 
 #### 8.4.2 相关
 
@@ -2276,7 +2366,8 @@ source_bindings 中的物理参数不是语义 Ref；它们仍由 datasource 的
 | 绝对/相对变化、窗口对齐、缺侧比较 | §5.1 RelativeChange、§8.2 配对设计 | §6 的 compare 及封闭变体；不把严格配对当作唯一可定义的方法 |
 | 排名、平局、分区排名、有序前缀 | §6.2 域限制及具名有序方法 | §7.1 的已有 rank/limit；删除原草案的 order_by 同义入口 |
 | 可加、组件、去重、分布与漏斗归因 | §7.3、§8.4 注册分配 | §7.2 的 attribute；首次接入的去重与分位数缺少充分状态，拒绝对应归因；不另加 decompose |
-| 异常、窗口变化与驱动维度发现 | §6/§9.3 加有限候选搜索方法 | §8.4 的已有 discover 方法；搜索空间、分数及候选单位明确 |
+| 数值偏离与连续条件区间 | §6/§9.3 加独立数值/有序方法 | §8.4.1 的 deviation 与 runs；阈值、排名、选人复用核心 DSL；旧滑窗复合算法明确退出 |
+| 按维度定位变化贡献 | §7.3、§8.4 注册分配 | §7.2 的 attribute；agent 显式逐轴分析，旧 driver_axes 集中度启发式退出 |
 | 多量相关、lag 与预测 | §7.3 方法扩展 | §8.4 的已有 correlate/forecast；独立方法义务继续由拥有者承担 |
 | 精确/近似分位数 | §5.3 状态、§6.5 方法、§9.4 数值边界 | runtime_metric 定义 q 及精确／近似聚合种类；观察不可覆盖；首次接入只支持直接观察，不承诺原量上卷 |
 | 事件匹配、漏斗、步骤耗时、流失选人 | §7.3 领域构造、§8.1 主体像 | §8.1 的 match/funnel/time_to_event 与 where→members；保留匹配/覆盖规则 |
@@ -2284,9 +2375,11 @@ source_bindings 中的物理参数不是语义 Ref；它们仍由 datasource 的
 | Lazy、物化、冷恢复与合法续算 | §9.1 显式依赖、L6/T1 | §9 的同一 Runtime/Artifact；不建设第二套存储或 AST |
 | 来源参数、运行历史、证据读取与 Help | 执行服务，不是值代数算子 | §9.3 保留现有入口；不因未列入生成规则而删掉 |
 
-其中相关、预测、归因、候选发现、事件匹配都属于**符合扩展边界、须履行独立方法契约**。
+其中相关、预测、归因、偏离评分、连续区间、事件匹配都属于**符合扩展边界、须履行独立方法契约**。
 这与仅凭核心公理就证明该方法正确不同；但也不能因它不是核心生成规则而判为不符合。
 目标类型换名、参数缩窄为 Ref 和调用链重组不要求旧表面语法继续存在。
+2026-10-02 的 C14.a 范围调整按 §8.4.1 明确替换旧方法保留要求；不把主动退役的滑窗/
+集中度算法记为已经被通用 DSL 等价实现，也不将它们归入下表的代数冲突。
 
 ### 10.2 不予原样沿用的行为
 
@@ -2344,7 +2437,8 @@ occurrence 是合法转移、哪一个触发终态违规。因此检查还要覆
 
 | 当前或前稿入口 | 本文的唯一目标路径 | 是否增加重复入口 |
 | --- | --- | --- |
-| 当前 runtime_metric / discover / correlate / forecast | 保留操作名和已定义方法；调整单量 Relation 必需的输入与输出形状 | 否；不另加 derive、statistics 或 model 工厂 |
+| 当前 runtime_metric / correlate / forecast | 保留操作名和已定义方法；调整单量 Relation 必需的输入与输出形状 | 否；不另加 derive、statistics 或 model 工厂 |
+| 当前 discover 五方法 | deviation 与 runs 承担新增数值/时间语义；where/rank/limit/attribute 复用；固定滑窗与集中度排轴退役 | 删除 namespace 和 Candidate 包装，不保留旧方法 alias；完整去留见 §8.4.1 |
 | 旧 quantile_metric | 删除工厂及输入类型，无兼容别名；精确／近似由 Metric 聚合定义决定 | 否；observe 不接受 accuracy 或 method |
 | 当前 with_dimensions、aggregate、rollup 的轴参数 | observe(coordinates=...) 构造；group_by 指定保留坐标后 rollup | 替换后的同义入口不并存；已有量的当前行统计仍为 summarize |
 | 前稿 window、weeks、order_by | 现有 time_scope、一个 time_grid、现有 rank | 删除同义便利入口；不发布多套时间格或排序工厂 |

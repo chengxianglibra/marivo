@@ -17,6 +17,12 @@ Runtime/Store。已完成的 MVP 是重构基线，其模块划分、类型名�
 保留业务能力与方法语义的任务按本文能力表逐项完成；保留某个已有操作名是目标设计选择，
 不构成旧参数、旧类型或旧实现继续存在的承诺。
 
+2026-10-02 修订 C14.a/R8：原“五个 discover 方法及其方法语义全部保留”的要求被
+[接口设计 §8.4.1](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md#841-从指标变化定位可继续分析的坐标)
+替代。新增偏离评分和连续区间识别；旧固定滑窗、集中度排轴启发式及 Candidate 包装明确
+退出目标。此用户接受的范围变更不属于“把实现不了的必需资格格改成不支持”。历史基线
+与已通过阶段证据不改写；下面的 R8 仍为计划，不能记为实现或 Runtime 验收。
+
 “完整”覆盖 datasource、semantic、analysis、执行与存储、结果与证据、Help/CLI、
 packaged skills、文档示例、测试、安装包和六种现有数据库适配。它不要求重写没有职责冲突的
 工具函数，也不将新功能研究、统计推断系统或 Agent 推理规划引入 Marivo。
@@ -304,7 +310,7 @@ K、冷恢复、结构化拒绝及公共发现。未承诺某项 K 的结果必�
 | C11 | Event 匹配与漏斗 | first_per_subject/every_start、assignment/重数、随访与覆盖、funnel compare/attribute、单量 selector | R7 |
 | C12 | 步骤耗时与领域选人 | exact steps、completed/observed duration、Journey→Subject 映射、dropout 真值与已知域 | R7 |
 | C13 | Lifecycle | inception、业务顺序、canonical history、区间/迁移/违规、distribution/dwell、时点 read→where→members | R7 |
-| C14 | 候选发现、相关与预测 | 既有闭合 discover 方法、Pearson/Spearman/Kendall 与 lag、多量配对、naive/drift/seasonal_naive、方法假设 | R8 |
+| C14 | 偏离评分、连续区间、相关与预测 | deviation 的 zscore/MAD；完整网格 runs；Pearson/Spearman/Kendall 与 lag、多量配对、naive/drift/seasonal_naive、方法假设；旧 discover 五入口退出 | R8 |
 | C15 | Session、Run、Artifact 与证据 | 来源新求值、固定精确命中、图内共享、原子发布、不明提交协调、断源恢复、findings/history/revalidate | R4，后续各阶段 |
 | C16 | Help、类型、错误、repr/show/contract、CLI/skills/site | 一个入口、具体类型、有界披露、动态 K、独立 reachability/drift/budget 约束与安装包真实 Agent | 各阶段、R10 |
 | C17 | ontology、项目工具、遥测、依赖与打包 | 新身份与结果衔接、无额外 planner/证据 authority、秘密与主体键不泄露、可选依赖隔离 | R2、R10 |
@@ -600,12 +606,19 @@ registry/adapter 选择不会把“不支持”变成运行后回退。
 
 ### R8 — 统计与数值扩展接入
 
-**依赖：**R5/R6。**责任：**discovery、association、forecast methods 与固定结果视图。
+**依赖：**R5/R6。**责任：**deviation、runs、association、forecast methods 与固定结果视图。
+方法与公开签名由接口设计 §8.4 拥有；图/parts/恢复边界由架构设计 §3.2.2 拥有。
 
-**工作：**
+**范围：**
 
-- 承接 C14 的既有闭合候选方法：点/窗口异常、期间变化窗口、Entity outlier、driver axes；保留
-  搜索域、评分、候选单位与后续限制，分数不成为原因。
+- C14.a1：一个 NumericRelation.deviation 入口及一个固定结果家族，闭合 zscore/MAD 方法；
+  输入身份、拟合域/分区、有效样本、非定义状态、中心尺度、符号与数值政策完整保留。
+  点与 Entity 评分不拆执行链；阈值/方向/Top-K 由 where/rank/limit 表达。
+- C14.a2：一个 NumericRelation.runs 入口，识别完整时间网格上条件成立的最大连续段；
+  可直接用于业务变化阈值。保留不可评估格、邻接、边界、格数与实际时长，不依赖评分。
+- 删除五个 discover 包装与 namespace。逐轴探索复用 attribute；不新增 planner、Direction、
+  通用 search、批量轴评分、rolling 或 concentration。旧 period_shifts/driver_axes 的特定
+  启发式主动退役；新接口不以“与旧五法全部等价”为验收要求。
 - 完成多量 Pearson/Spearman/Kendall、获准 lag 与每 pair 的精确域、方向、Null/完整对
   计数、常量/不足对状态；来源数值与 Python 路线独立对照，不分批独立求秩。
 - 完成三种 forecast 模型及 normal_residual 区间，保留训练域、未来坐标、自由度和假设；
@@ -614,8 +627,42 @@ registry/adapter 选择不会把“不支持”变成运行后回退。
   定义不同，不能因都为 NumericRelation 就授予原量上卷。
 - 对算法实际需要完整输入的情形记录 Arrow/pandas/NumPy 共存成本，无隐式采样或容量降级。
 
+**实施切片及交付顺序：**
+
+| 切片 | 交付与独立出口 |
+| --- | --- |
+| R8.1 契约与迁移冻结 | 将 C14.a 拆为 a1/a2；冻结新方法规则、Cell/数值矩阵、RequiredParts、目标 K 与错误修复。逐调用方登记旧五法、Candidate、SQL/helper、codec、测试与 Help 的迁移/删除 owner；注册、AST 扫描和目标表只记静态证据 |
+| R8.2 偏离评分 | zscore/MAD 共用 typed graph 与唯一语义 owner；来源准备→本地执行与固定 Artifact 输入，完整原身份输出；同一次准备不因两个消费者重复读源。原拟合参照不随筛选/排名改变；独立均值/方差/中位数与状态 oracle 通过 |
+| R8.3 连续区间 | 直接业务阈值和评分阈值都可执行；原完整格上的条件状态、最大段、边界/时长/Subject parts 与批次续接；独立逐格枚举 oracle 通过，后筛选不重新分段 |
+| R8.4 相关与预测 | 接通原 C14.b/c 的全部闭合方法、pair/lag 和未来格契约；保留其独立 oracle/拒绝/恢复，不借 discover 缩减而撤销目标 |
+| R8.5 公开切换与退役 | 结果视图与合法续算接入后删除旧入口、专属执行/codec/Help 和无调用方 helper；测试区分保留算术反例、改写组合流程与主动退出的启发式，不用旧包装输出当新 oracle。同步类型、Help/预算、现态 contract/repair、CLI、API 和 latest 中英示例；packaged skills 遵守仓库的单独编辑授权要求 |
+| R8.6 本地验收与交接 | 公共 A11 旅程、源码/固定/断源新进程恢复、精确命中和损坏部件拒绝；同一候选 wheel 来源与冷恢复单列证据。完成相关广域门禁，R9 六后端与 R10 真实 Agent 验收独立交接，不以本地结果代授 |
+
+R8.2/3 的实现不能只做私有 kernel 后宣布完成；各自需通过统一 Runtime/Store 7 的实质
+执行和恢复，R8.5 才收口旧公开面与专用链。共享代码按剩余消费者逐项退出，不能看到
+driver/candidate 文件名就整目录删除，也不能让新方法绕回旧 family runtime。
+
+**必要反例与组合验收：**
+
+- 相同数值放在 Time/Entity 域，选同一 method 后分数一致而身份/续算不同；zscore 与 MAD
+  差异由 method 决定。有效样本计数、空/单样本/零尺度、MAD 零值分支、混合 Cell 状态、
+  非有限数、Decimal/大整数精度与显式分类分区分别验收。
+- `deviation→where/rank/limit` 不重拟合；`where→deviation` 则绑定新总体。打乱物理行序、
+  调整批次边界不得改变规范身份/结果；source 与 fixed 使用同一规则。
+- `true,false,true`、`true,unavailable,true` 是两段；物理缺行/重复键不能伪造合法缺口。
+  一直下降但变化恒为 -20% 的序列可被业务阈值 runs 找到，即使自身评分因零尺度不可用。
+  相邻高低极值的单侧条件分开命中，双侧条件不由峰值符号定方向。
+- 首尾边界、部分格拒绝、DST 与认证日历时长、跨批次长段、空命中与全部 unavailable、
+  多序列分区均有独立 oracle。`.where()` 先删除时间格后再 runs 必须拒绝完整网格违约。
+- A11 的 agent 路径为 observe/compare→按需要评分或直接阈值 runs→读取边界/原主体→
+  显式下一轮 observe/compare/attribute。另验两个单轴归因与 joint 的区别；不得叠加两个
+  轴的贡献或把 score 当作收入贡献。后续来源准备/物化边界必须真实执行，不能只拼出表达式。
+- 断源恢复后保留拟合域、全部必要区间/网格部件、原条件/Subject 绑定；where/rank/table 和
+  获准 members 不重拟合、重分段或回源。篡改 scope、方法版本、键、parts/receipt 时拒绝。
+
 **出口：**每种数值方法有独立 oracle、病态输入与边界拒绝、行序/批次不变性和冷恢复；
-方法语义只有一个 owner，物理双实现的持续防漂移测试存在。
+新方法的端到端公开组合及旧链删除有证据。方法语义只有一个 owner，已注册物理实现间
+的持续防漂移测试存在。只有文档、单元 kernel 或静态清单通过，不构成 R8 验收。
 
 ### R9 — 全后端资格、内部 SQL 清零与运行代价
 
@@ -699,7 +746,7 @@ J1–J4 保留为基础回归；以下旅程覆盖扩展后的架构边界。每
 | A08 全机会域 cohort | 至少 k 次、全部、存在；合法空机会域、Unknown 可决定与 Undefined 硬失败 |
 | A09 事件旅程与漏斗 | matching、funnel compare/attribute、步骤耗时、Journey 统计单位、流失选人继续观察 |
 | A10 生命周期 | inception→replay→时点状态选人、迁移/违规身份、区间与 dwell；冷恢复不重放 |
-| A11 候选与统计模型 | 候选搜索域、lag 方向、多量 pairing、forecast 区间语义与后续固定视图 |
+| A11 偏离、区间与统计模型 | 变化→评分/直接阈值 runs→原坐标继续观察/归因；固定拟合域、完整网格、lag 方向、多量 pairing、forecast 区间语义与后续固定视图 |
 | A12 跨业务复用与治理 | 非电商 Entity/字段/单位映射；来源变化、固定身份、失败恢复、秘密/主体键披露边界 |
 | A13 相对观察与留存 | 多 Anchor、DST 下 elapsed/calendar 区别、重叠窗口、固定 Ω、未知界及禁止隐式删未知 |
 

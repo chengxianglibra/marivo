@@ -135,7 +135,8 @@ Store 白名单仅覆盖 `materialization/store.py` 的 schema/PRAGMA/BEGIN/COMM
 | C11.a/b Event match/funnel；多 occurrence/同刻 | P/F | P/F | P/F | P/F | P/F，表形态! | P/F，资源! |
 | C12.a/b duration/subject；删失/覆盖 | P/F | P/F | P/F | P/F | P/F | P/F |
 | C13.a/b Lifecycle replay/视图；有序完整轨迹 | P/F | P/F | P/F | P/F | P/F | P/F |
-| C14.a discover 五法；候选身份/空/零离散 | P/F | P/F | P/F | P/F | P/F | P/F |
+| C14.a1 deviation zscore/MAD；原身份/拟合域/Cell/零尺度 | P/F | P/F | P/F | P/F | P/F | P/F |
+| C14.a2 runs；完整格/条件状态/邻接/实际时长 | P/F | P/F | P/F | P/F | P/F | P/F |
 | C14.b Pearson/Spearman/Kendall/lag；有序配对 | P/F | P/F | P/F | P/F | P/F | P/F |
 | C14.c naive/drift/seasonal；完整未来格 | P/F | P/F | P/F | P/F | P/F | P/F |
 | C15.a/b Runtime/发布/恢复；exact receipt/parts | I+F | I+F | I+F | I+F | I+F | I+F |
@@ -155,6 +156,20 @@ Store 白名单仅覆盖 `materialization/store.py` 的 schema/PRAGMA/BEGIN/COMM
 | `physical-form` | DuckDB table/view/file/HTTP-JSON；PostgreSQL table/view 与 namespace；MySQL table/view；SQLite main ordinary table/view；Trino Iceberg 和 non-Iceberg；ClickHouse MergeTree 与 Distributed。每形态分别验证 metadata、实际读取、取消和负例，不能借同后端另一形态通过 |
 
 此展开规则定义必需验证集合，不预判所有格可实现。若 R1/R7/R8 无法为某必需方法/形状注册 I 或 P，精确格标 **阻塞** 并报告用户所需的具体内部 SQL 例外决定；不能用 DS02 的终端结果代替该格，也不得把未实现格改写为目标“不支持”。
+
+2026-10-02 经用户接受的 R8 设计修订将旧 C14.a 五方法目标替换为 C14.a1/a2，详见
+[接口设计 §8.4.1](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md#841-从指标变化定位可继续分析的坐标)。
+这是主动范围替换，不是把后端未通过格改成“不支持”，也不声称新方法与旧滑窗/排轴算法
+等价。旧 Candidate、period_shifts 与 driver_axes 专属格退出；新三种方法版本各自重新
+展开六后端的 P/F 资格，当前均为目标未验收。C14.b/c 相关与预测的资格要求不变。
+
+新 C14.a 的来源路线为执行前选择的 Ibis 准备→本地方法，固定路线直接消费 Store 7 输入；
+没有新增内部 SQL 例外。AN01 等共享数值 helper 仍按真实消费者与既定 owner 处理，不能
+随 driver_axes 退役而误删其他方法的依赖。评分的中心/尺度/分数数值表示和误差必须在
+R8.1 逐类型冻结；`decimal-exact` 格保留原始 Decimal 与方法自己的舍入/误差约定，不允许
+以未经定义的 float 强转通过。runs 必须捕获完整格与条件依赖，禁止用源端 WHERE 只提取
+命中格；物理行缺失/重复、来源覆盖违约与合法不可评估格分别验证。source/fixed/cold 的
+等价只在同一方法、输入类型和完整 parts 的合格格内成立。
 
 ## 5. 扫描与本轮边界
 
