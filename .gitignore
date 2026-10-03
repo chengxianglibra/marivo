@@ -98,6 +98,9 @@ docs/superpowers/plans/
 docs/superpowers/discussions/
 docs/superpowers/specs/archive/
 docs/superpowers/specs/evidence/
+docs/superpowers/specs/*-qualification.json
+docs/superpowers/specs/*-qualification-cells-*.json
+docs/superpowers/specs/*-qualification.md
 .superpowers/
 .gitnexus
 .worktrees/
