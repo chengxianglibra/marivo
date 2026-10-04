@@ -1,0 +1,93 @@
+{
+  "check-agent": {
+    "argv": [
+      "make",
+      "check-agent"
+    ],
+    "authority": "static gate only",
+    "candidate_sha256": "198faa3cb7e2dd3a29fe8608e00dc32116a9b883ffb49acb3a8276c9d8bc43e8",
+    "cwd": "repository root",
+    "exit_code": 0,
+    "finished": "2026-10-04T09:59:13.478783+00:00",
+    "log": "check-agent.log",
+    "sha256": "868434599cd0338e6404e0026a23e8886cec486edca5fe86b4179444a8ccb587",
+    "started": "2026-10-04T09:58:03.142431+00:00"
+  },
+  "lint": {
+    "argv": [
+      "make",
+      "lint-agent",
+      "LINT_TARGETS=scripts/r9_qualification_requirements.py tests/test_full_algebra_backend_matrix.py"
+    ],
+    "authority": "static gate only",
+    "candidate_sha256": "198faa3cb7e2dd3a29fe8608e00dc32116a9b883ffb49acb3a8276c9d8bc43e8",
+    "cwd": "repository root",
+    "exit_code": 0,
+    "finished": "2026-10-04T09:57:54.083380+00:00",
+    "log": "lint.log",
+    "sha256": "bc9ec91421ce383deeef4b873f68e7db7194b6028a507731c015aae7e880000f",
+    "started": "2026-10-04T09:57:53.834651+00:00"
+  },
+  "matrix": {
+    "argv": [
+      "make",
+      "test",
+      "TESTS=tests/test_full_algebra_backend_matrix.py"
+    ],
+    "authority": "static gate only",
+    "candidate_sha256": "198faa3cb7e2dd3a29fe8608e00dc32116a9b883ffb49acb3a8276c9d8bc43e8",
+    "cwd": "repository root",
+    "exit_code": 0,
+    "finished": "2026-10-04T09:58:03.141836+00:00",
+    "log": "matrix.log",
+    "sha256": "4d46830784339ddca6e72efd32a39ddb1c0f979cbe134e7e562ecf65083475cb",
+    "started": "2026-10-04T09:57:54.083751+00:00"
+  },
+  "results": {
+    "argv": [
+      ".venv/bin/python",
+      "scripts/r9_qualification_requirements.py",
+      "verify-results",
+      "--results",
+      "docs/superpowers/specs/2026-10-04-marivo-r9-evidence/results-index.json"
+    ],
+    "authority": "static gate only",
+    "candidate_sha256": "198faa3cb7e2dd3a29fe8608e00dc32116a9b883ffb49acb3a8276c9d8bc43e8",
+    "cwd": "repository root",
+    "exit_code": 0,
+    "finished": "2026-10-04T09:57:53.424426+00:00",
+    "log": "results.log",
+    "sha256": "a0ac927633d1c547e13a63db99a4f05f1c65ba992f1be8d89bf4606f96998a0a",
+    "started": "2026-10-04T09:57:50.024103+00:00"
+  },
+  "typecheck": {
+    "argv": [
+      "make",
+      "typecheck",
+      "TYPECHECK_TARGETS=--explicit-package-bases scripts/r9_qualification_requirements.py tests/test_full_algebra_backend_matrix.py"
+    ],
+    "authority": "static gate only",
+    "candidate_sha256": "198faa3cb7e2dd3a29fe8608e00dc32116a9b883ffb49acb3a8276c9d8bc43e8",
+    "cwd": "repository root",
+    "exit_code": 0,
+    "finished": "2026-10-04T09:57:53.834290+00:00",
+    "log": "typecheck.log",
+    "sha256": "f9b031e5c45aa702cd4fef028d465551cb20a2c4698e0913c7b00766b20ac4d8",
+    "started": "2026-10-04T09:57:53.424977+00:00"
+  },
+  "verify": {
+    "argv": [
+      ".venv/bin/python",
+      "scripts/r9_qualification_requirements.py",
+      "verify"
+    ],
+    "authority": "static gate only",
+    "candidate_sha256": "198faa3cb7e2dd3a29fe8608e00dc32116a9b883ffb49acb3a8276c9d8bc43e8",
+    "cwd": "repository root",
+    "exit_code": 0,
+    "finished": "2026-10-04T09:57:50.023553+00:00",
+    "log": "verify.log",
+    "sha256": "d0c3381993b5bc4607e0bbc73ac4be5b5cc54509d5cea55a8de25bb008ab480e",
+    "started": "2026-10-04T09:57:46.567163+00:00"
+  }
+}

@@ -1928,3 +1928,21 @@ R8.6 287 / 0 / 205. Earlier ledgers and historical counts are unchanged.
 provider-form/route obligations; R10 receives the same candidate, public scripts,
 Help/cold/repair entry points and explicit real-Agent gaps. At evidence collection
 time, no R9/R10, external service, release-check, MinIO, commit, push or publication occurred.
+
+
+## R9.1 static handoff (2026-10-04)
+
+The [R9 qualification ledger](2026-10-04-marivo-full-algebra-dsl-r9-qualification-ledger.md)
+and [evidence index](2026-10-04-marivo-r9-evidence-index.md) freeze method-family
+and critical-risk scenarios, as accepted by the user during implementation.
+All 9,109 R8.6 seeds and predecessor owner references remain traceable, without
+turning their Cartesian combinations or historical rows into acceptance tasks.
+Six backend source baselines, special physical-form differences, mandatory
+routes, SQL IDs, cost and refusal obligations remain separate. Fixed recovery
+has no backend and retains per-producer evidence obligations.
+
+This is static evidence only: Runtime executed=0, passed=0. Historical acceptance
+and its denominators remain unchanged. Exact consumer/test/oracle/environment
+bindings remain unverified with follow-up owners. The unaccepted 352,049-record
+draft was replaced before qualification; it was never an executed or accepted
+matrix. R9.2–R9.7 and R10 are not completed by this handoff.

@@ -2,9 +2,10 @@
 
 Date: 2026-10-04
 
-Status: planning only. R9.1–R9.7 have not started. This document records required
-work and acceptance targets; it grants no backend, Runtime, performance,
-installed-package, real-Agent or release qualification.
+Status: R9.1 static handoff implemented; validation is recorded in the
+[R9 evidence index](2026-10-04-marivo-r9-evidence-index.md). R9.2–R9.7 have not
+started. Frozen targets grant no backend, Runtime, performance, installed-package,
+real-Agent or release qualification.
 
 ## 1. 目标、前置交接与文档权威
 
@@ -99,6 +100,26 @@ R8.6 的 `2026-10-04-marivo-r86-evidence/r9-targets.json.gz` 是静态交接种�
 9,109 个 profile，状态为 unverified。它不能替代 C01–C13/C15/C18 目标，也不能把
 同 profile 的本地成功复制到六后端。R9.1 校验种子 hash、版本和 owner，并按适用物理
 形态展开；profile 数不等于最终 requirement 数或已执行数。
+
+### 2.1.1 已接受的 R9.1 场景粒度修订（2026-10-04）
+
+用户在实施过程中确认采用“方法族与关键风险场景”，不采用逐种子×后端×形态×路线
+的机械展开。本节优先于本文早期关于种子逐格展开的表述；保留 R0 及前序任务的原目标
+和历史分母，不把约 35 万条未接受的草稿记录作为新的验收分母。
+
+- 9,109 个统计种子完整保留摘要与多对多追溯映射；种子不是独立测试任务，代表场景
+  通过也不授予每个种子或任意 precision/scale/时间形状资格。
+- 六后端分别验证基础来源与必需方法路线。共享方法核按算法类、数值边界、完整域、
+  状态与关键反例验证；特殊物理形态分别验证 metadata、捕获、解码和资源差异。
+- fixed 目标无执行后端，只登记一次。各真实 producer 的 schema/receipt/parts/断源
+  绑定仍须取得证据，不能用一个 producer 代授其他 producer。
+- 历史账本行仅作 owner/目标追溯，不增加验收任务。SQL ID、V01–V17、拒绝期限、
+  成本规模和压力算法仍保留。方法或后端形态的实际差异若影响语义、解码或资源，
+  在原场景集合上追加精确 ID；不预造所有组合，也不删除发现的缺口。
+
+R9.1 冻结的是可执行场景目录及其覆盖责任；R9.2–R9.6 绑定实际消费者、oracle、命令、
+环境及具体 QualificationKey。未绑定项保持 unverified 并列出后续 owner。最终完成判定
+使用这些场景及实施中追加的实际反例，且只披露实测 key/profile 的资格。
 
 ### 2.2 三条路线的独立资格
 
@@ -382,9 +403,11 @@ R9.1 创建以下产物，本文不提前创建通过账本：
 - `tests/test_full_algebra_backend_matrix.py` 与必要共享 fixture/worker：承接 R0 计划的
   公共 backend matrix；拒绝、SQL 和进程证据按责任拆分，默认测试不启动服务。
 - `scripts/r9_qualification_requirements.py`：从冻结输入生成 ID、校验缺失/重复/孤立附件和
-  proof 绑定，不凭测试总数生成通过。`devtools/analysis_r9_cost.py`：当前公开链成本入口。
+  proof 绑定，不凭测试总数生成通过。`devtools/analysis_r9_cost.py` 留给 R9.6：
+  R9.1 只冻结成本场景，不提前实现测量工具。
 
-上述新文件/CLI 名称均为规划，R9.1 落地后冻结实际节点/参数和命令；不得记成已执行。
+R9.1 静态文件与 CLI 已落地，精确入口见 evidence index；后续 Runtime 节点、worker 与
+成本工具仍由各自工作包绑定，不得将规划命令记成已执行。
 已有 `test_r12_source_adapters_runtime`、`test_r13_control_boundaries`、
 `test_datasource_r16_regressions`、`test_datasource_provider_capabilities` 可提供当前基础
 回归；`test_lazy_*`、`multisource_environment/qualify.py` 中旧 compiler/snapshot probes
