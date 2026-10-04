@@ -1,0 +1,17 @@
+{
+  "matrix": {
+    "argv": [
+      "make",
+      "test",
+      "TESTS=tests/test_full_algebra_backend_matrix.py"
+    ],
+    "authority": "static gate only",
+    "candidate_sha256": "5e1bcf9d1af6e04c984c1bd7dda8196691844973c6aaed649f9bf33fb89084b1",
+    "cwd": "repository root",
+    "exit_code": 2,
+    "finished": "2026-10-04T09:57:00.742420+00:00",
+    "log": "matrix-draft-failed.log",
+    "sha256": "28c511f3365a5ec40fd02c611987d777251152d3ac52e786b5973bac5a04a5ca",
+    "started": "2026-10-04T09:56:51.665043+00:00"
+  }
+}
