@@ -1902,3 +1902,29 @@ capture API or fallback. Historical qualification files remain available as hash
 local test inputs after the user's concurrent Git-untracking action. AGENTS.md,
 packaged skills and pre-existing untracked R7.7 evidence are preserved. No commit,
 push, external service, MinIO, real-Agent or release qualification is performed.
+
+## R8.6 bounded local acceptance and original-ID handoff (2026-10-04)
+
+Entry is clean `panda@7ecf92daea9f13ee04b9ca4c046a191d5b3e680f`. The
+[R8.6 evidence index](2026-10-04-marivo-r86-evidence-index.md) records public nine-method
+source/fixed/cold kernels, exact hits, A11 source compositions, damage/resource
+checks, broad gates and the same noneditable candidate wheel. R8 graph executions
+now enable the existing 600-second budget; runs recovery checks saved interval
+witnesses without segmentation and validates the zero-Findings authority.
+
+The original 492 R8.6 requirements remain intact: **287 passed, 205 unverified**.
+V17 closes in the frozen local profiles; full A11/A02/A04/A07/J1–J4 compositions,
+dedicated empty-Findings and complete installed A11/A04 method profiles remain
+open. Raw commands, failed attempts, actual narrower A04 keys, source/offline
+process proofs, dependencies and archive hashes are retained separately. No
+aggregate test total or transport success changes another qualification ID.
+
+The full R8 handoff retains all **53,695 frozen IDs**. R8.2's current ledger
+contains 15,564 of its 15,662 original IDs; the missing 98 remain unverified.
+Original-denominator accounting is R8.2 13,212 passed / 2,280 blocked / 170
+unverified; R8.3 3 / 0 / 1,705; R8.4 18 / 256 / 35,388; R8.5 171 / 0 / 0;
+R8.6 287 / 0 / 205. Earlier ledgers and historical counts are unchanged.
+**R8.6 and full R8 are not accepted.** R9 receives exact frozen profile seeds and
+provider-form/route obligations; R10 receives the same candidate, public scripts,
+Help/cold/repair entry points and explicit real-Agent gaps. At evidence collection
+time, no R9/R10, external service, release-check, MinIO, commit, push or publication occurred.

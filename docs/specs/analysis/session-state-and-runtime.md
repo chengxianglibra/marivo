@@ -1490,6 +1490,21 @@ abort uncommitted publication and release owned resources. Durable committed
 success remains success after a subsequent deadline; unknown commit uses the
 existing Store reconciliation owner.
 
+R8.6 connects this execution budget whenever the graph carries fit_inputs,
+condition_cells, pair_inputs or training_inputs, including retained views and
+fixed exact hits. The inherited budget resets durable-commit state per invocation.
+Below/at/above-600, late-result, cancellation, source reader/close and transaction
+checks for the nine methods are recorded in the
+[R8.6 evidence index](../../superpowers/specs/2026-10-04-marivo-r86-evidence-index.md).
+This bounded implementation evidence does not close the entire R8 matrix.
+
+Time-run recovery validates the captured classifications and the stored interval
+witnesses without calling the segmentation consumer. Every original true cell
+must occur exactly once in a maximal interval of one sequence. Checked witnesses
+bind adjacent grid cells, input rows, complete typed schema, identity, endpoints,
+count, elapsed Duration and both termination reasons. The original zero-Findings
+policy must match the condition-capture digest.
+
 The Association candidate ceiling is 4096 pair*lag*series, independently owned
 by its method. Shared Finding cap remains 1000. Neither is an input row/byte or
 workspace memory quota. Record actual input rows/columns/decoded bytes,

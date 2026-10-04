@@ -13,7 +13,11 @@ it grants no additional mandatory IDs. R8.5 public cutover and retirement eviden
 is recorded separately in the [R8.5 evidence index](2026-10-04-marivo-r85-evidence-index.md):
 171/171 obligations passed, all M01-M18 gates closed, and no unverified removed-node
 assertion transfers. This closure does not change any prior phase qualification.
-R8.6, remote-backend, installed-wheel and real-Agent qualification are not granted.
+R8.6 local implementation and bounded same-wheel evidence are recorded in the
+[R8.6 evidence index](2026-10-04-marivo-r86-evidence-index.md): 287 of 492 original
+IDs passed, 205 remain unverified. The full handoff preserves 53,695 original IDs,
+including 98 omitted R8.2 IDs as unverified; historical ledger bytes are unchanged.
+R8.6 completion, full R8, remote-backend and real-Agent qualification are not granted.
 This ledger indexes sole owners and immutable
 requirements; it is not another public API, formula or method registry.
 

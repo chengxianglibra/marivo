@@ -12,7 +12,9 @@ R8.4 product connection and bounded verification are recorded in the
 [R8.4 evidence index](2026-10-04-marivo-r84-evidence-index.md); its mandatory matrix remains open.
 R8.5 public cutover and retirement are complete: 171/171 obligations passed and
 M01-M18 gates closed; see the [R8.5 evidence index](2026-10-04-marivo-r85-evidence-index.md).
-R8.6 is not implemented or qualified by this document.
+R8.6 local implementation and same-candidate verification are recorded in the
+[R8.6 evidence index](2026-10-04-marivo-r86-evidence-index.md): 287/492 original
+obligations passed and 205 remain unverified. R8.6 and full R8 are not complete.
 The accepted 2026-10-02 C14 scope revision is the planning input;
 static inventory, Runtime, installed-wheel, backend and real-Agent evidence
 remain separate.
