@@ -58,10 +58,14 @@ def _number(value: object) -> float:
 
 @dataclass(frozen=True, slots=True)
 class Policy:
-    producer: Literal["funnel.compare", "funnel_ratio_mix"]
+    producer: Literal["funnel.compare", "funnel_ratio_mix", "deviation.zscore", "deviation.mad"]
     state_version: Literal["v1"]
-    extractor: Literal["graph.funnel_delta_findings@v1", "graph.funnel_contribution_findings@v1"]
-    policy: Literal["bounded_algebraic_findings@v1"]
+    extractor: Literal[
+        "graph.funnel_delta_findings@v1",
+        "graph.funnel_contribution_findings@v1",
+        "graph.no_findings@v1",
+    ]
+    policy: Literal["bounded_algebraic_findings@v1", "zero_findings@v1"]
     ordered_input_bindings: tuple[str, ...]
     eligible: int
     emitted: int
@@ -74,6 +78,8 @@ POLICY = TypeAdapter(Policy)
 
 
 def _eligible(primary: pa.Table, producer: str) -> list[dict[str, object]]:
+    if producer.startswith("deviation."):
+        return []
     rows = [r for r in primary.to_pylist() if r["cell_tag"] == "defined"]
     keys = tuple(k for k in primary.column_names if k.startswith("key_"))
 
@@ -210,6 +216,14 @@ def extract(
     if not any(p.role == "finding_policy" for p in result.parts):
         return ()
     policy = _policy(result.parts)
+    if policy.policy == "zero_findings@v1":
+        if (
+            policy.producer not in ("deviation.zscore", "deviation.mad")
+            or policy.extractor != "graph.no_findings@v1"
+            or (policy.eligible, policy.emitted, policy.truncated) != (0, 0, 0)
+        ):
+            raise invalid("deviation empty Finding authority differs")
+        return ()
     if any(value.startswith("artifacts:") for value in policy.ordered_input_bindings):
         from marivo.analysis.materialization.graph_protocol import validate_descriptor
 

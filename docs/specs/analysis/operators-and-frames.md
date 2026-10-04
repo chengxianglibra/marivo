@@ -1330,6 +1330,31 @@ exclusive codecs are physically removed. Remaining Event/Lifecycle shared code
 awaits its owning phase. Detailed validation and physical requirement statuses are
 in the R7.4 evidence index; later phases, same-wheel and remote qualification remain separate.
 
+## R8.2 connected deviation rules
+
+The two deviation methods implement the frozen equations, Cell table and numeric
+policy below. Exact integer/Fraction states retain original Decimal values and
+binary64 ratios. The fitted center remains unrounded through scoring. Unit-valued
+fields finish once with HALF_EVEN; score finishes to finite float64. Population
+variance roots have directed Decimal certificates with at least 120 digits,
+refined by 40 digits when the final rounding is undecided. No epsilon zero test
+or fallback algorithm is used.
+
+Fit inputs/state, four-cell counts, partition/order witnesses, raw scale branch
+and certificates remain original authority through selected outputs. Grid and
+Subject maps come from their real typed owners. Restoration checks saved facts,
+current keys, observed components and views without refitting.
+Mixed tables retain independently verified fitted-column inputs and parts;
+derived ranks are checked against their captured ranking values rather than
+treated as a score projection. Invalid rational denominators and Decimal
+certificate encodings reject through the typed retained-part repair.
+Certificate precision steps, coefficient digits and interval width must agree; padding digits does not
+grant additional precision. Exact Decimal
+current-row min/max retain their original carrier and extrema state; prepared
+Decimal sum uses widened exact state and its accepted Decimal(38,s) output.
+Actual qualified profiles and unfinished exits are recorded in the
+[R8.2 evidence index](../../superpowers/specs/2026-10-04-marivo-r82-evidence-index.md).
+
 ## R8.1 frozen statistical method rules
 
 This section is the sole normative R8 formula, Cell, numeric, RequiredParts and

@@ -1,0 +1,466 @@
+{
+  "fixtures": 76,
+  "numeric_law_profiles_by_form": {
+    "parquet": 779,
+    "table": 779
+  },
+  "kernel_proof_duties": 9348,
+  "fixtures_detail": [
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_11/dsl_1/r82-laws.json",
+      "precision": 12,
+      "form": "parquet",
+      "method_entries": 26
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_29/dsl_1/r82-laws.json",
+      "precision": 30,
+      "form": "parquet",
+      "method_entries": 62
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_16/dsl_1/r82-laws.json",
+      "precision": 17,
+      "form": "parquet",
+      "method_entries": 36
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_20/dsl_1/r82-laws.json",
+      "precision": 21,
+      "form": "parquet",
+      "method_entries": 44
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_18/dsl_1/r82-laws.json",
+      "precision": 19,
+      "form": "parquet",
+      "method_entries": 40
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_27/dsl_1/r82-laws.json",
+      "precision": 28,
+      "form": "parquet",
+      "method_entries": 58
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_42/dsl_1/r82-laws.json",
+      "precision": 35,
+      "form": "table",
+      "method_entries": 72
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_45/dsl_1/r82-laws.json",
+      "precision": 38,
+      "form": "table",
+      "method_entries": 78
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_19/dsl_1/r82-laws.json",
+      "precision": 20,
+      "form": "parquet",
+      "method_entries": 42
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_26/dsl_1/r82-laws.json",
+      "precision": 27,
+      "form": "parquet",
+      "method_entries": 56
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_21/dsl_1/r82-laws.json",
+      "precision": 22,
+      "form": "parquet",
+      "method_entries": 46
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_28/dsl_1/r82-laws.json",
+      "precision": 29,
+      "form": "parquet",
+      "method_entries": 60
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_17/dsl_1/r82-laws.json",
+      "precision": 18,
+      "form": "parquet",
+      "method_entries": 38
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_10/dsl_1/r82-laws.json",
+      "precision": 11,
+      "form": "parquet",
+      "method_entries": 24
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_44/dsl_1/r82-laws.json",
+      "precision": 37,
+      "form": "table",
+      "method_entries": 76
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_43/dsl_1/r82-laws.json",
+      "precision": 36,
+      "form": "table",
+      "method_entries": 74
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_1/dsl_1/r82-laws.json",
+      "precision": 2,
+      "form": "parquet",
+      "method_entries": 6
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_6/dsl_1/r82-laws.json",
+      "precision": 7,
+      "form": "parquet",
+      "method_entries": 16
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_8/dsl_1/r82-laws.json",
+      "precision": 9,
+      "form": "parquet",
+      "method_entries": 20
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_9/dsl_1/r82-laws.json",
+      "precision": 10,
+      "form": "parquet",
+      "method_entries": 22
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_7/dsl_1/r82-laws.json",
+      "precision": 8,
+      "form": "parquet",
+      "method_entries": 18
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_0/dsl_1/r82-laws.json",
+      "precision": 1,
+      "form": "parquet",
+      "method_entries": 4
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_32/dsl_1/r82-laws.json",
+      "precision": 33,
+      "form": "parquet",
+      "method_entries": 68
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_35/dsl_1/r82-laws.json",
+      "precision": 36,
+      "form": "parquet",
+      "method_entries": 74
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_34/dsl_1/r82-laws.json",
+      "precision": 35,
+      "form": "parquet",
+      "method_entries": 72
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_33/dsl_1/r82-laws.json",
+      "precision": 34,
+      "form": "parquet",
+      "method_entries": 70
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_46/dsl_1/r82-laws.json",
+      "precision": 30,
+      "form": "table",
+      "method_entries": 62
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_41/dsl_1/r82-laws.json",
+      "precision": 34,
+      "form": "table",
+      "method_entries": 70
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_15/dsl_1/r82-laws.json",
+      "precision": 16,
+      "form": "parquet",
+      "method_entries": 34
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_12/dsl_1/r82-laws.json",
+      "precision": 13,
+      "form": "parquet",
+      "method_entries": 28
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_24/dsl_1/r82-laws.json",
+      "precision": 25,
+      "form": "parquet",
+      "method_entries": 52
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_23/dsl_1/r82-laws.json",
+      "precision": 24,
+      "form": "parquet",
+      "method_entries": 50
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_40/dsl_1/r82-laws.json",
+      "precision": 33,
+      "form": "table",
+      "method_entries": 68
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_22/dsl_1/r82-laws.json",
+      "precision": 23,
+      "form": "parquet",
+      "method_entries": 48
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_25/dsl_1/r82-laws.json",
+      "precision": 26,
+      "form": "parquet",
+      "method_entries": 54
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_13/dsl_1/r82-laws.json",
+      "precision": 14,
+      "form": "parquet",
+      "method_entries": 30
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_14/dsl_1/r82-laws.json",
+      "precision": 15,
+      "form": "parquet",
+      "method_entries": 32
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_5/dsl_1/r82-laws.json",
+      "precision": 6,
+      "form": "parquet",
+      "method_entries": 14
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_2/dsl_1/r82-laws.json",
+      "precision": 3,
+      "form": "parquet",
+      "method_entries": 8
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_3/dsl_1/r82-laws.json",
+      "precision": 4,
+      "form": "parquet",
+      "method_entries": 10
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_4/dsl_1/r82-laws.json",
+      "precision": 5,
+      "form": "parquet",
+      "method_entries": 12
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_36/dsl_1/r82-laws.json",
+      "precision": 37,
+      "form": "parquet",
+      "method_entries": 76
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_31/dsl_1/r82-laws.json",
+      "precision": 32,
+      "form": "parquet",
+      "method_entries": 66
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_38/dsl_1/r82-laws.json",
+      "precision": 31,
+      "form": "table",
+      "method_entries": 64
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_39/dsl_1/r82-laws.json",
+      "precision": 32,
+      "form": "table",
+      "method_entries": 66
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_30/dsl_1/r82-laws.json",
+      "precision": 31,
+      "form": "parquet",
+      "method_entries": 64
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw1/test_every_decimal_law_public_37/dsl_1/r82-laws.json",
+      "precision": 38,
+      "form": "parquet",
+      "method_entries": 78
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_11/dsl_1/r82-laws.json",
+      "precision": 12,
+      "form": "table",
+      "method_entries": 26
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_16/dsl_1/r82-laws.json",
+      "precision": 17,
+      "form": "table",
+      "method_entries": 36
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_20/dsl_1/r82-laws.json",
+      "precision": 21,
+      "form": "table",
+      "method_entries": 44
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_18/dsl_1/r82-laws.json",
+      "precision": 19,
+      "form": "table",
+      "method_entries": 40
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_27/dsl_1/r82-laws.json",
+      "precision": 28,
+      "form": "table",
+      "method_entries": 58
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_19/dsl_1/r82-laws.json",
+      "precision": 20,
+      "form": "table",
+      "method_entries": 42
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_26/dsl_1/r82-laws.json",
+      "precision": 27,
+      "form": "table",
+      "method_entries": 56
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_21/dsl_1/r82-laws.json",
+      "precision": 22,
+      "form": "table",
+      "method_entries": 46
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_28/dsl_1/r82-laws.json",
+      "precision": 29,
+      "form": "table",
+      "method_entries": 60
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_17/dsl_1/r82-laws.json",
+      "precision": 18,
+      "form": "table",
+      "method_entries": 38
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_10/dsl_1/r82-laws.json",
+      "precision": 11,
+      "form": "table",
+      "method_entries": 24
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_1/dsl_1/r82-laws.json",
+      "precision": 2,
+      "form": "table",
+      "method_entries": 6
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_6/dsl_1/r82-laws.json",
+      "precision": 7,
+      "form": "table",
+      "method_entries": 16
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_8/dsl_1/r82-laws.json",
+      "precision": 9,
+      "form": "table",
+      "method_entries": 20
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_9/dsl_1/r82-laws.json",
+      "precision": 10,
+      "form": "table",
+      "method_entries": 22
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_7/dsl_1/r82-laws.json",
+      "precision": 8,
+      "form": "table",
+      "method_entries": 18
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_0/dsl_1/r82-laws.json",
+      "precision": 1,
+      "form": "table",
+      "method_entries": 4
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_15/dsl_1/r82-laws.json",
+      "precision": 16,
+      "form": "table",
+      "method_entries": 34
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_12/dsl_1/r82-laws.json",
+      "precision": 13,
+      "form": "table",
+      "method_entries": 28
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_24/dsl_1/r82-laws.json",
+      "precision": 25,
+      "form": "table",
+      "method_entries": 52
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_23/dsl_1/r82-laws.json",
+      "precision": 24,
+      "form": "table",
+      "method_entries": 50
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_22/dsl_1/r82-laws.json",
+      "precision": 23,
+      "form": "table",
+      "method_entries": 48
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_25/dsl_1/r82-laws.json",
+      "precision": 26,
+      "form": "table",
+      "method_entries": 54
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_13/dsl_1/r82-laws.json",
+      "precision": 14,
+      "form": "table",
+      "method_entries": 30
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_14/dsl_1/r82-laws.json",
+      "precision": 15,
+      "form": "table",
+      "method_entries": 32
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_5/dsl_1/r82-laws.json",
+      "precision": 6,
+      "form": "table",
+      "method_entries": 14
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_2/dsl_1/r82-laws.json",
+      "precision": 3,
+      "form": "table",
+      "method_entries": 8
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_3/dsl_1/r82-laws.json",
+      "precision": 4,
+      "form": "table",
+      "method_entries": 10
+    },
+    {
+      "manifest": ".superpowers/r82/fixtures/laws/popen-gw0/test_every_decimal_law_public_4/dsl_1/r82-laws.json",
+      "precision": 5,
+      "form": "table",
+      "method_entries": 12
+    }
+  ]
+}

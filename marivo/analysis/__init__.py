@@ -155,6 +155,7 @@ if TYPE_CHECKING:
         LogicalCoefficientSelectionRelation as LogicalCoefficientSelectionRelation,
     )
     from marivo.analysis.public_dsl import LogicalCompletedJourneys as LogicalCompletedJourneys
+    from marivo.analysis.public_dsl import LogicalDeviationResult as LogicalDeviationResult
     from marivo.analysis.public_dsl import LogicalDifferenceRelation as LogicalDifferenceRelation
     from marivo.analysis.public_dsl import LogicalDwellSummary as LogicalDwellSummary
     from marivo.analysis.public_dsl import LogicalEventDurationResult as LogicalEventDurationResult
@@ -223,6 +224,9 @@ if TYPE_CHECKING:
     )
     from marivo.analysis.public_dsl import (
         MaterializedCompletedJourneys as MaterializedCompletedJourneys,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedDeviationResult as MaterializedDeviationResult,
     )
     from marivo.analysis.public_dsl import (
         MaterializedDifferenceRelation as MaterializedDifferenceRelation,

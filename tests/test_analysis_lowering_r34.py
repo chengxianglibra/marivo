@@ -1221,7 +1221,9 @@ def test_r56_decimal_count_admits_but_unqualified_time_rejects_before_business_r
                     "duckdb",
                     source_case[1],
                     "native" if source_case[1] == "table" else "parquet",
-                    TimeShape("instant", "ms", "UTC"),
+                    TimeShape("instant", "ms", "UTC")
+                    if source_case[1] == "table"
+                    else TimeShape("instant", "us", "Asia/Tokyo"),
                 ),
             ),
         ),

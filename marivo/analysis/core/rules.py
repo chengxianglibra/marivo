@@ -35,6 +35,7 @@ from marivo.analysis.core.model import (
     FactInput,
     FactKind,
     FindingPolicyPart,
+    FitInputsPart,
     FunnelAllocationPart,
     FunnelComparisonPart,
     FunnelPart,
@@ -57,6 +58,8 @@ from marivo.analysis.core.model import (
     Signature,
     StatisticalWeightPart,
     SubjectPart,
+    TableFitColumn,
+    TableFitsPart,
     Undefined,
     available_facts,
     part_role,
@@ -98,6 +101,7 @@ from marivo.semantic.metric_graph import (
 from marivo.semantic.runtime_metric import RuntimeMetricExpr, SliceValue
 
 RuleId: TypeAlias = Literal[
+    "deviation@v1",
     "retention@v1",
     "anchor@v1",
     "funnel@v1",
@@ -119,6 +123,19 @@ RuleId: TypeAlias = Literal[
     "reference@v1",
     "display@v1",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class DeviationFit:
+    method: Literal["zscore", "mad"]
+    input_type: str
+    fit_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeviationRead:
+    input_type: str
+    field: Literal["observed", "reference", "deviation", "score"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -614,7 +631,9 @@ class RetentionBySubject:
 
 
 RuleParameters: TypeAlias = (
-    AnchorRetention
+    DeviationFit
+    | DeviationRead
+    | AnchorRetention
     | RetentionBySubject
     | AnchorBind
     | AnchorObserve
@@ -1698,7 +1717,25 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
         p
         for p in left.parts
         if isinstance(p, SubjectPart)
-        and p in right.parts
+        and (
+            p in right.parts
+            or (
+                bool(params.bucket_mapping)
+                and any(
+                    isinstance(q, SubjectPart)
+                    and replace(q, source_key=p.source_key) == p
+                    and tuple(
+                        replace(key, field="time") if key.role == "anchor" else key
+                        for key in p.source_key
+                    )
+                    == tuple(
+                        replace(key, field="time") if key.role == "anchor" else key
+                        for key in q.source_key
+                    )
+                    for q in right.parts
+                )
+            )
+        )
         and p.binding == left.domain.binding == right.domain.binding
     )
     parts: tuple[Part, ...] = (
@@ -2671,7 +2708,7 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
         and params.mode in ("where", "limit")
         else part
         for part in (require_part(source, role) for role in params.retained_roles)
-        if not isinstance(part, FindingPolicyPart)
+        if not isinstance(part, FindingPolicyPart) or part.policy == "zero_findings@v1"
     )
     from marivo.analysis.core.retention_rules import transport as retention_transport
 
@@ -3342,7 +3379,12 @@ def _display(inputs: tuple[Signature, ...], params: DisplayRank | DisplayTable) 
             ("ordering", ("position",), ("int64",), True),
         )
         parts = (
-            *tuple(p for p in first.parts if not isinstance(p, (DisplayPart, FindingPolicyPart))),
+            *tuple(
+                p
+                for p in first.parts
+                if not isinstance(p, DisplayPart)
+                and not (isinstance(p, FindingPolicyPart) and p.policy != "zero_findings@v1")
+            ),
             *(
                 DisplayPart(
                     binding, role, columns, types, identity, independent, params.order, params.ties
@@ -3388,6 +3430,38 @@ def _display(inputs: tuple[Signature, ...], params: DisplayRank | DisplayTable) 
         )
         quantity = None
         name = "display.table"
+        fits = tuple(
+            next((p for p in item.parts if isinstance(p, FitInputsPart)), None) for item in inputs
+        )
+        from marivo.analysis.core.deviation_rules import owned_view
+
+        fields = tuple(owned_view(item) for item in inputs)
+        if fits[0] is not None and all(
+            p is not None and p.fit_id == fits[0].fit_id and field is not None
+            for p, field in zip(fits, fields, strict=True)
+        ):
+            owned_fields = tuple(field for field in fields if field is not None)
+            parts = (
+                *tuple(
+                    replace(p, table_views=owned_fields) if isinstance(p, FitInputsPart) else p
+                    for p in first.parts
+                    if part_role(p)
+                    in ("fit_inputs", "fit_state", "grid_cells", "subject_map", "finding_policy")
+                ),
+                *parts,
+            )
+        elif any(fit is not None for fit in fits):
+            parts = (
+                TableFitsPart(
+                    binding,
+                    tuple(
+                        TableFitColumn(i, item)
+                        for i, (item, fit) in enumerate(zip(inputs, fits, strict=True))
+                        if fit is not None
+                    ),
+                ),
+                *parts,
+            )
     return _result(
         "display@v1",
         inputs,
@@ -3665,9 +3739,33 @@ def _prepared_observation(
 
     _binding(inputs, "r7.input_binding")
     observation = params.observation
-    if len(inputs) != 2 or inputs[0].domain.instance_key != inputs[1].domain.instance_key:
+    if len(inputs) != 2:
         fail(
             "input_binding", "selected and original members need identical full Subject coordinates"
+        )
+    selected_subject, original_subject = (
+        require_part(inputs[0], "subject"),
+        next((p for p in inputs[1].parts if isinstance(p, SubjectPart)), None),
+    )
+    if (
+        not isinstance(selected_subject, SubjectPart)
+        or not selected_subject.total
+        or (
+            original_subject is None
+            and inputs[1].domain.instance_key != selected_subject.subject_key
+        )
+        or (
+            original_subject is not None
+            and (
+                selected_subject.subject_key != original_subject.subject_key
+                or selected_subject.entity_ref != original_subject.entity_ref
+                or not original_subject.total
+            )
+        )
+    ):
+        fail(
+            "input_binding",
+            "selected and original members need the same complete captured Subject map",
         )
     if observation.start is None or observation.end is None:
         fail(
@@ -3675,19 +3773,21 @@ def _prepared_observation(
         )
     if isinstance(observation, ObserveMetric) and observation.method not in ("sum", "mean"):
         fail("physical_qualification", "only count, sum and mean have prepared local consumers")
-    if (
-        observation.grid_window
-        or observation.cumulative is not None
-        or (
-            isinstance(observation, ObserveMetric)
-            and (
-                observation.fold is not None or observation.amount_type not in ("int64", "float64")
+    if observation.cumulative is not None or (
+        isinstance(observation, ObserveMetric)
+        and (
+            observation.fold is not None
+            or (
+                observation.amount_type not in ("int64", "float64")
+                and not (
+                    observation.method == "sum" and observation.amount_type.startswith("decimal(")
+                )
             )
         )
     ):
         fail(
             "physical_qualification",
-            "prepared grid/cumulative/fold and nonnumeric state is not qualified",
+            "prepared cumulative/fold or this numeric state is not qualified",
         )
     return _observe_metric((inputs[0],), observation, prepared=True)
 

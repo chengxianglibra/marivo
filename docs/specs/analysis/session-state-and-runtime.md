@@ -1362,6 +1362,46 @@ opening a datasource or rematching Journeys. A starts-only Anchor Artifact lacks
 return inputs and rejects retention construction before a Run. Fixed retention
 kernel qualification remains unfinished; continuation evidence cannot replace it.
 
+## R8.2 connected deviation execution
+
+Deviation uses the existing closed graph, MethodRegistry, execution-key v2
+envelope and Store 7. Source consumers use ibis_python and fixed consumers use
+artifact_python. Only deviation.zscore@v1 and deviation.mad@v1 receive the
+certified_statistical precision contract; other Decimal consumers retain their
+exact-precision admission rules. An explicit shared producer reads/fits once per
+Run; separate graph nodes remain separate invocations.
+
+Temporal source preparation records its exact captured unit and report zone.
+A deviation consumer with a grid keeps that TimeShape and its original bound
+grid. A consumer with no time-coordinate axis uses NoTime, while its upstream
+observations retain their own qualified temporal keys and captured time scopes.
+Fixed grid inputs restore their captured physical TimeShape. Non-grid fixed
+relations use NoTime and preserve observation scopes in their retained parts,
+so corresponding member categories remain composable. Source
+observations admit s/ms/us/ns facts; comparison literals retain at least the
+grid's microsecond precision so coarse source units cannot round scope bounds.
+
+F11 source preparation resolves the original member envelope through actual
+Subject parts and captures all later contributions, relationship/version facts
+and full typed keys before local scoring or selection. Prepared grid sum
+restricts contributions per captured cell, preserves empty cells and coverage,
+and keeps original aggregation components. Decimal sum uses exact intermediate
+state. Fixed missing follow-up observation contracts give a typed retained-part
+repair before connecting a source or allocating a Run.
+
+Publication verifies primary/part receipts and fitted authority, then commits
+Artifact, Evidence, empty Findings digest and terminal Run together. Recovery
+and fixed exact hits validate current receipts and required parts.
+For a mixed fitted table, a versioned table_fits part binds each fitted column
+to its exact current input signature, primary values and full original parts.
+Its independent Store 7 receipt is required on recovery and fixed exact hits.
+Both fit and ranking authorities are validated before the terminal table values
+are accepted; malformed arithmetic facts receive a typed retained-part repair.
+The common 600-second deadline, cancellation, cleanup and uncertain-commit coordination
+remain the Runtime authority. See the
+[R8.2 evidence index](../../superpowers/specs/2026-10-04-marivo-r82-evidence-index.md)
+for actual commands, qualified profiles and remaining fixed/F11 exits.
+
 ## R8.1 frozen statistical execution and disclosure
 
 This is the sole inactive R8 execution/publication/recovery target. R8.1 adds no

@@ -23,6 +23,8 @@ from marivo.analysis.core.model import Defined, DerivedQuantity, ReferenceStateP
 from marivo.analysis.core.rules import (
     AttributionDerive,
     CellDerive,
+    DeviationFit,
+    DeviationRead,
     DisplayRank,
     DisplayTable,
     OccurrencePrepare,
@@ -376,6 +378,10 @@ def execute_source_graph(
         and isinstance(stage.node.parameters, (OccurrencePrepare, PreparedObservation))
         for stage in lowered.stages
         if isinstance(stage, LoweredRelation)
+    ) or any(
+        isinstance(stage, LoweredLocal)
+        and isinstance(stage.stage.node.parameters, (DeviationFit, DeviationRead))
+        for stage in lowered.stages
     ):
         from marivo.analysis.materialization.graph_preparation import execute as execute_preparation
 

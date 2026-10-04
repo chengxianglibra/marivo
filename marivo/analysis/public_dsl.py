@@ -31,7 +31,7 @@ from marivo.analysis._time_grid import GridWindow as GridWindow
 from marivo.analysis._time_grid import TimeGrid as TimeGrid
 from marivo.analysis._time_grid import time_grid as time_grid
 from marivo.analysis.anchors import AnyAnchor, CalendarWindow, ElapsedWindow, EveryAnchor
-from marivo.analysis.core.graph import FixedLeaf, MethodNode, method_node, retained_nodes
+from marivo.analysis.core.graph import FixedLeaf, MethodNode, method_node, retained_nodes, topology
 from marivo.analysis.core.history_types import HistoryField
 from marivo.analysis.core.model import (
     AnchorDomainPart,
@@ -40,6 +40,7 @@ from marivo.analysis.core.model import (
     Coordinate,
     DerivedQuantity,
     DisplayPart,
+    FitInputsPart,
     FunnelAllocationPart,
     FunnelComparisonPart,
     FunnelPart,
@@ -64,6 +65,7 @@ from marivo.analysis.core.rules import (
     BindProject,
     CellDerive,
     CompleteGroups,
+    DeviationRead,
     DisplayRank,
     DisplayTable,
     FunnelAttribute,
@@ -83,7 +85,6 @@ from marivo.analysis.core.rules import (
     ObserveMetric,
     OccurrenceCombine,
     PartsTransport,
-    PreparedObservation,
     ReferenceDerive,
     RetentionBySubject,
     RowState,
@@ -337,6 +338,13 @@ class AnalysisContract:
 
 
 def _kind(node: Relation) -> str:
+    fit = next(
+        (part for part in node.root.signature.parts if isinstance(part, FitInputsPart)), None
+    )
+    if fit is not None and fit.view == "result":
+        return "deviation"
+    if isinstance(node.definition.parameters, DeviationRead):
+        return "deviation_read"
     if isinstance(node.definition.parameters, AnchorRetention):
         return "retention"
     if isinstance(node.definition.parameters, RetentionBySubject):
@@ -510,11 +518,8 @@ class _Value:
             self._dataset is None
             and isinstance(self._node.binding, LiveBinding)
             and (
-                isinstance(self._node.definition.parameters, PreparedObservation)
-                or (
-                    isinstance(self._node.root.value_type, DurationType)
-                    and isinstance(self._node.root.signature.quantity, RowStatisticQuantity)
-                )
+                isinstance(self._node.root.value_type, DurationType)
+                and isinstance(self._node.root.signature.quantity, RowStatisticQuantity)
             )
         )
 
@@ -532,7 +537,15 @@ class _Value:
         kind, fixed = _kind(self._node), self._dataset is not None
         roles = tuple(part_role(part) for part in signature.parts)
         names: tuple[str, ...]
-        if kind in ("retention", "subject_retention"):
+        if kind == "deviation":
+            names = ("observed", "reference", "deviation", "score", "where")
+        elif kind == "deviation_read":
+            names = (
+                "where",
+                "summarize",
+                *(("rollup",) if "original_state" in roles and "coverage" in roles else ()),
+            )
+        elif kind in ("retention", "subject_retention"):
             names = (
                 "status",
                 "known_true",
@@ -682,7 +695,21 @@ class _Value:
             else:
                 names = tuple(dict.fromkeys((*names, "attribute")))
         if isinstance(self, _NumericComparison):
-            names = tuple(dict.fromkeys((*names, "rank")))
+            names = tuple(
+                dict.fromkeys(
+                    (
+                        *names,
+                        "rank",
+                        *(
+                            ("deviation",)
+                            if isinstance(self._node.root.value_type, DecimalType)
+                            or self._node.root.value_type
+                            in (ScalarType("int64"), ScalarType("float64"))
+                            else ()
+                        ),
+                    )
+                )
+            )
             if self._node.comparison_error is None:
                 names = tuple(dict.fromkeys((*names, "compare", "ratio")))
             elif any(isinstance(p, AttributionPart) for p in signature.parts):
@@ -810,6 +837,90 @@ class _Value:
         signature = self._node.root.signature
         quantity = signature.quantity
         facts: list[tuple[str, str]] = []
+        fit = next((p for p in signature.parts if isinstance(p, FitInputsPart)), None)
+        if fit is not None:
+            facts.extend(
+                (
+                    ("fit_method", f"deviation.{fit.method}@v1"),
+                    ("fit_scope", fit.fit_id),
+                    ("fit_transform", "select_output_retain_scope@v1"),
+                    ("numeric_policy", "r8_numeric_v1"),
+                    ("partition_count", "pending execution"),
+                )
+            )
+            if self._dataset is not None:
+                from marivo.analysis.materialization.deviation_execution import _decode
+
+                _, fit_state = _decode(self._dataset.verified().parts)
+                facts[-1] = ("partition_count", str(len(fit_state.partitions)))
+                for label in ("defined", "null", "undefined", "unknown"):
+                    facts.append(
+                        (
+                            "original_" + label,
+                            str(builtins.sum(getattr(p, label) for p in fit_state.partitions)),
+                        )
+                    )
+                facts.extend(
+                    (
+                        (
+                            "original_count",
+                            str(builtins.sum(len(p.indices) for p in fit_state.partitions)),
+                        ),
+                        (
+                            "scale_branches",
+                            ", ".join(sorted({p.fit.branch for p in fit_state.partitions})),
+                        ),
+                        ("empty_fit", str(not any(p.fit.n for p in fit_state.partitions))),
+                        (
+                            "unavailable_defined_scores",
+                            str(
+                                builtins.sum(
+                                    p.defined
+                                    for p in fit_state.partitions
+                                    if p.fit.n < 2
+                                    or p.fit.raw_scale is None
+                                    or p.fit.raw_scale.value() == 0
+                                )
+                            ),
+                        ),
+                    )
+                )
+                for index, partition in enumerate(fit_state.partitions[:3]):
+                    fitted = partition.fit
+
+                    def bounded_fact(value: str) -> str:
+                        return (
+                            value
+                            if len(value) <= 96
+                            else value[:96] + f"... (excerpt; {len(value)} characters retained)"
+                        )
+
+                    center = (
+                        "unavailable"
+                        if fitted.center is None
+                        else bounded_fact(f"{fitted.center.numerator}/{fitted.center.denominator}")
+                    )
+                    scale = (
+                        "unavailable"
+                        if fitted.raw_scale is None
+                        else bounded_fact(
+                            f"{fitted.raw_scale.numerator}/{fitted.raw_scale.denominator}"
+                        )
+                    )
+                    facts.append(
+                        (
+                            f"fit_partition_{index}",
+                            f"original={len(partition.indices)}; valid={fitted.n}; "
+                            f"center={center}; raw_scale_or_variance={scale}; branch={fitted.branch}",
+                        )
+                    )
+                if len(fit_state.partitions) > 3:
+                    facts.append(
+                        (
+                            "fit_partitions_truncated",
+                            f"{len(fit_state.partitions) - 3} additional partitions retained in original fit authority",
+                        )
+                    )
         if self._materialize_before_continuing():
             facts.append(
                 (
@@ -1372,6 +1483,10 @@ class _Value:
                     "values",
                     "ranks",
                     "contribution",
+                    "observed",
+                    "reference",
+                    "deviation",
+                    "score",
                     "current",
                     "baseline",
                     "status",
@@ -1415,6 +1530,57 @@ class _Value:
 
 class _NumericComparison(_Value):
     """Shared numeric composition without granting original Metric reductions."""
+
+    def deviation(
+        self,
+        *,
+        method: Literal["zscore", "mad"],
+        partition_by: tuple[
+            LogicalCategoryRelation
+            | MaterializedCategoryRelation
+            | LogicalSelectedCategoryRelation
+            | MaterializedSelectedCategoryRelation,
+            ...,
+        ] = (),
+    ) -> LogicalDeviationResult:
+        """Fit signed equal-row deviation scores over the current numeric domain.
+
+        Args:
+            method: Required zscore or mad fit, with the registered numeric policy.
+            partition_by: Explicit corresponding categorical relations; empty means one global fit.
+        Returns: A LogicalDeviationResult with observed, reference, deviation and score views.
+        Example: ``scored = change.deviation(method="mad")``.
+        Constraints: One Session and source/fixed closure; no automatic threshold or partitioning.
+        """
+        if type(partition_by) is not tuple or any(
+            not isinstance(
+                item,
+                (
+                    LogicalCategoryRelation,
+                    MaterializedCategoryRelation,
+                    LogicalSelectedCategoryRelation,
+                    MaterializedSelectedCategoryRelation,
+                ),
+            )
+            for item in partition_by
+        ):
+            from marivo.analysis.errors import StatisticalRelationError
+
+            raise StatisticalRelationError(
+                code="r8.correspondence",
+                operation="deviation",
+                method=f"deviation.{method}@v1",
+                input_identity=self._node.root.fingerprint,
+                expected="a tuple of exactly corresponding CategoryRelations",
+                received=repr(partition_by),
+                repair="Read categories over this receiver's complete domain and pass them as a tuple.",
+            )
+        return LogicalDeviationResult(
+            _TOKEN,
+            self._node.deviation(method, tuple(item._node for item in partition_by)),
+            self._runtime,
+            inputs=(self, *partition_by),
+        )
 
     def rank(
         self,
@@ -2208,6 +2374,27 @@ class LogicalFixedAnalysisDomain(_CohortDomain):
         # Static callers see only execute(); dynamic callers still receive a repair.
         def __getattr__(self, name: str) -> NoReturn:
             if name in ("read", "group_by", "observe"):
+                fit = next(
+                    (
+                        part
+                        for node in topology(self._node.root)
+                        for part in node.signature.parts
+                        if isinstance(part, FitInputsPart)
+                    ),
+                    None,
+                )
+                if name == "observe" and fit is not None:
+                    from marivo.analysis.errors import StatisticalRelationError
+
+                    raise StatisticalRelationError(
+                        code="r8.retained_part",
+                        operation="observe",
+                        method=f"deviation.{fit.method}@v1",
+                        input_identity=self._node.root.fingerprint,
+                        expected="a retained observation contract with contributions, path, time and full Subject keys",
+                        received=f"fixed selected Subject with fit_scope={fit.fit_id}; no retained observation contract",
+                        repair="Read the already captured follow-up numeric Artifact and summarize it. Prepare a new observation in a complete logical source chain before execute().",
+                    )
                 raise _reject(
                     "source-only or fixed-only inputs",
                     "fixed selected members plus live Metric"
@@ -3727,6 +3914,168 @@ class MaterializedCoefficientSelectionRelation(_MaterializedValue):
         )
 
 
+class LogicalDeviationResult(_Value):
+    """Unexecuted immutable deviation fit with four corresponding owned fields."""
+
+    def execute(self) -> MaterializedDeviationResult:
+        """Execute one deviation DAG and atomically publish its fit and fields.
+
+        Args: None.
+        Returns: The checked MaterializedDeviationResult.
+        Example: ``fixed = scored.execute()``.
+        Constraints: Source inputs obtain a new realization; fixed inputs use retained data only.
+        """
+        return MaterializedDeviationResult(_TOKEN, self._node, self._runtime, dataset=self._run())
+
+    def where(self, predicate: BoundPredicate) -> LogicalDeviationResult:
+        """Select all four fields while retaining the original fitted scope.
+
+        Args: predicate: A predicate bound to an owned or exactly corresponding field.
+        Returns: A LogicalDeviationResult selecting current output rows.
+        Example: ``defined = scored.where(scored.score.value.is_defined())``.
+        Constraints: Ordinary numeric predicates require Defined Cells; selection never refits.
+        """
+        return LogicalDeviationResult(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def observed(self) -> LogicalNumericRelation:
+        """Read the owned observed numeric field of this fit.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over the current result keys.
+        Example: ``values = scored.observed``.
+        Constraints: Uses the same fitted producer and original fit scope.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._node.deviation_field("observed"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def reference(self) -> LogicalNumericRelation:
+        """Read the owned reference numeric field of this fit.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over the current result keys.
+        Example: ``values = scored.reference``.
+        Constraints: Uses the same fitted producer and original fit scope.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._node.deviation_field("reference"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def deviation(self) -> LogicalNumericRelation:
+        """Read the owned deviation numeric field of this fit.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over the current result keys.
+        Example: ``values = scored.deviation``.
+        Constraints: Uses the same fitted producer and original fit scope.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._node.deviation_field("deviation"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def score(self) -> LogicalNumericRelation:
+        """Read the owned score numeric field of this fit.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over the current result keys.
+        Example: ``values = scored.score``.
+        Constraints: Uses the same fitted producer and original fit scope.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._node.deviation_field("score"), self._runtime, inputs=(self,)
+        )
+
+
+class MaterializedDeviationResult(_MaterializedValue):
+    """Fixed deviation fit whose four fields share one checked Store 7 Artifact."""
+
+    def where(self, predicate: BoundPredicate) -> LogicalDeviationResult:
+        """Select retained deviation rows without changing the fitted scope.
+
+        Args: predicate: A bound retained-field predicate.
+        Returns: A LogicalDeviationResult for fixed-only execution.
+        Example: ``selected = fixed.where(fixed.score.value.is_defined())``.
+        Constraints: Verifies retained parts; never rereads the source or refits.
+        """
+        return LogicalDeviationResult(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def observed(self) -> MaterializedNumericRelation:
+        """Read the owned retained observed field.
+
+        Args: None.
+        Returns: A MaterializedNumericRelation owned by this Artifact.
+        Example: ``values = fixed.observed``.
+        Constraints: Reads verified retained fields without numerical refitting.
+        """
+        assert self._dataset is not None
+        return MaterializedNumericRelation(
+            _TOKEN,
+            self._node.deviation_field("observed"),
+            self._runtime,
+            dataset=replace(self._dataset, projection="observed"),
+        )
+
+    @property
+    def reference(self) -> MaterializedNumericRelation:
+        """Read the owned retained reference field.
+
+        Args: None.
+        Returns: A MaterializedNumericRelation owned by this Artifact.
+        Example: ``values = fixed.reference``.
+        Constraints: Reads verified retained fields without numerical refitting.
+        """
+        assert self._dataset is not None
+        return MaterializedNumericRelation(
+            _TOKEN,
+            self._node.deviation_field("reference"),
+            self._runtime,
+            dataset=replace(self._dataset, projection="reference"),
+        )
+
+    @property
+    def deviation(self) -> MaterializedNumericRelation:
+        """Read the owned retained deviation field.
+
+        Args: None.
+        Returns: A MaterializedNumericRelation owned by this Artifact.
+        Example: ``values = fixed.deviation``.
+        Constraints: Reads verified retained fields without numerical refitting.
+        """
+        assert self._dataset is not None
+        return MaterializedNumericRelation(
+            _TOKEN,
+            self._node.deviation_field("deviation"),
+            self._runtime,
+            dataset=replace(self._dataset, projection="deviation"),
+        )
+
+    @property
+    def score(self) -> MaterializedNumericRelation:
+        """Read the owned retained score field.
+
+        Args: None.
+        Returns: A MaterializedNumericRelation owned by this Artifact.
+        Example: ``values = fixed.score``.
+        Constraints: Reads verified retained fields without numerical refitting.
+        """
+        assert self._dataset is not None
+        return MaterializedNumericRelation(
+            _TOKEN,
+            self._node.deviation_field("score"),
+            self._runtime,
+            dataset=replace(self._dataset, projection="score"),
+        )
+
+
 class LogicalAssociationResult(_Value):
     """Unexecuted same-Entity Spearman result."""
 
@@ -3765,6 +4114,8 @@ def wrap_materialized(
 ) -> PublicMaterialized:
     """Restore the existing public result variant from its checked typed graph."""
     kind = _kind(node)
+    if kind == "deviation":
+        return MaterializedDeviationResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "funnel":
         return MaterializedFunnelResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "funnel_comparison":
@@ -6287,7 +6638,8 @@ def new_journeys(node: Relation, runtime: DatasetRuntime) -> LogicalJourneyResul
 
 
 PublicMaterialized: TypeAlias = (
-    MaterializedRetentionResult
+    MaterializedDeviationResult
+    | MaterializedRetentionResult
     | MaterializedSubjectRetentionResult
     | MaterializedAnchorDomain
     | MaterializedHistoryResult
@@ -6630,7 +6982,7 @@ def table(
     Args: columns: Nonempty display labels mapped to typed numeric, categorical, boolean or temporal Relations.
     Returns: A LogicalTable using the shared graph scheduler.
     Example: ``profile = mv.table(revenue=values, region=region).execute()``.
-    Constraints: All columns share full typed keys, time meaning, Session and source/fixed mode. Labels cannot collide with exported key names. The table has no analysis continuation.
+    Constraints: All columns share full typed keys, time meaning, Session and source/fixed mode. Fitted columns and their ranks retain original fit scope and authority. Labels cannot collide with exported key names. The table has no analysis continuation.
     """
     from marivo.analysis.materialization.graph_display import bind, invalid
 

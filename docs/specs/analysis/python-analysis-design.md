@@ -2284,6 +2284,44 @@ The R7.8 evidence index separates actual kernels, transport/read checks and the
 original mandatory qualifications. Starts-only fixed retention, inherited R7.7
 unfinished targets, same-wheel, remote and full R7/A13 acceptance remain unverified.
 
+## R8.2 connected deviation surface
+
+The seventeen concrete numeric receivers listed in the historical freeze below
+now expose `deviation(*, method: Literal["zscore", "mad"], partition_by=())` and return
+LogicalDeviationResult. Logical/MaterializedDeviationResult own their four
+numeric projections and synchronized result selection. Construction checks the
+complete Session/mode/category closure without reading business rows or allocating
+a Run. Execution, fixed continuation and restoration use the governed graph and
+Store 7. The [R8.2 evidence index](../../superpowers/specs/2026-10-04-marivo-r82-evidence-index.md)
+records exact qualified profiles, open requirements and the incomplete phase
+status. The remaining statistical families retain their current contracts until
+their own implementation stages.
+
+```python
+scored = change.deviation(method="mad")
+defined = scored.where(scored.score.value.is_defined())
+positive = defined.where(defined.score.value.gt(0))
+result = positive.execute()
+result.show()
+result.contract().show()
+```
+
+The observed projection preserves only actual original components and Subject
+mapping. Reference/deviation/score have fitted quantities and ordinary current-row
+statistics; original Metric rollup/attribute requires its original authority.
+Selecting a fitted result preserves the original fit. Selecting its numeric
+input before constructing another deviation creates a new fitted scope. Use the
+result's current contract for mechanically valid continuations.
+Tables preserve each fitted column's authority when mixed with categories,
+original values, another fit or derived ranks. Rank projections expose the same
+retained parts in logical execution and materialized disclosure, while their
+current values remain ranks and their original fit scope remains unchanged.
+When the new input is an owned fitted field, recovery also verifies the retained
+prior fit and its original grid mapping. It never refits that prior authority;
+the new fit consumes only its current selected rows, including an empty selection.
+Nullable int64 observed fields use Arrow-backed pandas columns so that a Null
+Cell does not force nearby large integers through float64 in `to_pandas()`.
+
 ## R8.1 frozen statistical Relation API target
 
 The 2026-10-03 R8.1 freeze is a documentation/static contract, not an importable

@@ -24,18 +24,22 @@ from marivo.analysis.core.domain_captures import fail
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import (
     CoordinateStatePart,
+    FitInputsPart,
     FunnelAllocationPart,
     FunnelComparisonPart,
     FunnelPart,
     HistoryViewPart,
     InstanceRetentionPart,
     OriginalStatePart,
+    SubjectPart,
     SubjectRetentionPart,
 )
 from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorObserve,
     AnchorRetention,
+    DeviationFit,
+    DeviationRead,
     DisplayRank,
     DisplayTable,
     FunnelAttribute,
@@ -58,6 +62,7 @@ from marivo.analysis.core.rules import (
     PreparedObservation,
     RetentionBySubject,
     RowState,
+    TimeProduct,
 )
 from marivo.analysis.domains.completeness import EventCoverageRequestV1
 from marivo.analysis.materialization.domain_preparation import validate_rows
@@ -152,7 +157,15 @@ def _observation(
     observation = params.observation
     assert observation.start is not None and observation.end is not None
     keys = selected.contract.key_fields
-    original_keys = tuple(f"key_{i}" for i in range(len(keys)))
+    subject = next(p for p in selected.contract.signature.parts if isinstance(p, SubjectPart))
+    subject_table = next(p.table for p in selected.parts if p.role == "subject")
+    subject_rows = {
+        tuple(row[name] for name in keys): tuple(
+            row[f"subject__key_{i}"] for i in range(len(subject.subject_key))
+        )
+        for row in subject_table.to_pylist()
+    }
+    original_keys = tuple(f"key_{i}" for i in range(len(subject.subject_key)))
     envelope = {tuple(row[name] for name in original_keys) for row in original.to_pylist()}
     selections = []
     for row in selected.primary.to_pylist():
@@ -163,18 +176,44 @@ def _observation(
             if isinstance(value, bool) or not isinstance(value, (str, int)):
                 fail("input_binding", "invalid selected full Subject key", stage="consume")
             identity.append(value)
-        if tuple(identity) not in envelope:
+        subject_identity = subject_rows[tuple(identity)]
+        if subject_identity not in envelope:
             fail(
                 "input_binding",
                 "actual Subject image escapes its original member envelope",
                 stage="consume",
             )
+        window_start, window_end = (
+            datetime.fromisoformat(observation.start),
+            datetime.fromisoformat(observation.end),
+        )
+        if observation.grid_window:
+            grid = selected.contract.signature.domain.time_grid
+            if grid is None:
+                fail(
+                    "preparation_bounds",
+                    "prepared selection is missing its captured grid",
+                    stage="consume",
+                )
+            position = next(
+                i
+                for i, coordinate in enumerate(selected.contract.signature.domain.instance_key)
+                if coordinate.role == "anchor"
+            )
+            cell = next((cell for cell in grid.cells if cell.identity == identity[position]), None)
+            if cell is None:
+                fail(
+                    "input_binding",
+                    "selected time key is outside its captured grid",
+                    stage="consume",
+                )
+            window_start, window_end = cell.start, cell.end
         selections.append(
             Restriction(
                 tuple(identity),
-                tuple(identity),
-                datetime.fromisoformat(observation.start),
-                datetime.fromisoformat(observation.end),
+                subject_identity,
+                window_start,
+                window_end,
             )
         )
     restricted = restrict(candidates, tuple(selections))
@@ -184,7 +223,13 @@ def _observation(
     columns: dict[str, list[object]] = {name: selected.primary[name].to_pylist() for name in keys}
     columns.update({"value": [], "cell_tag": [], "cell_reason": [], "coverage__complete": []})
     columns.update(
-        {f"subject__key_{i}": selected.primary[key].to_pylist() for i, key in enumerate(keys)}
+        {
+            f"subject__key_{i}": [
+                subject_rows[tuple(row[name] for name in keys)][i]
+                for row in selected.primary.to_pylist()
+            ]
+            for i in range(len(subject.subject_key))
+        }
     )
     columns.update({"original_state__" + name: [] for name in original_state.components})
     coordinate = next(
@@ -202,17 +247,17 @@ def _observation(
         components = state(observation, rows)
         support = components["count" if isinstance(observation, ObserveCount) else "non_null_count"]
         total = components["count" if isinstance(observation, ObserveCount) else "sum"]
-        value = (
-            total / support
-            if not isinstance(observation, ObserveCount)
-            and observation.method == "mean"
-            and support
-            else total
-            if support
-            or observation.metric.empty_rule == "zero"
-            or isinstance(observation, ObserveCount)
-            else None
-        )
+        if not isinstance(observation, ObserveCount) and observation.method == "mean" and support:
+            assert isinstance(total, (int, float)) and isinstance(support, int)
+            value = total / support
+        else:
+            value = (
+                total
+                if support
+                or observation.metric.empty_rule == "zero"
+                or isinstance(observation, ObserveCount)
+                else None
+            )
         columns["value"].append(value)
         columns["cell_tag"].append("defined" if value is not None else "null")
         columns["cell_reason"].append(None if value is not None else "empty_contribution")
@@ -244,8 +289,12 @@ def _observation(
             columns["coordinate_state__groups"].append(groups)
     layout = stage.output_layout
     fields = []
-    amount_type = (
-        pa.float64() if getattr(observation, "amount_type", "int64") == "float64" else pa.int64()
+    from marivo.analysis.methods.deviation_physical import parse_type
+    from marivo.analysis.methods.physical import DecimalType
+
+    amount = parse_type(getattr(observation, "amount_type", "int64"))
+    amount_type = arrow_scalar_type(
+        DecimalType(38, amount.scale) if isinstance(amount, DecimalType) else amount
     )
     for name in layout.columns:
         dtype = (
@@ -257,7 +306,7 @@ def _observation(
             if name in ("cell_tag", "cell_reason")
             else pa.bool_()
             if name == "coverage__complete"
-            else selected.primary.schema.field(keys[int(name.removeprefix("subject__key_"))]).type
+            else subject_table.schema.field(name).type
             if name.startswith("subject__key_")
             else coordinate_state_type(coordinate).to_pyarrow()
             if name == "coordinate_state__groups" and coordinate is not None
@@ -307,6 +356,9 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             isinstance(
                 item.stage.node.parameters,
                 (
+                    DeviationFit,
+                    DeviationRead,
+                    TimeProduct,
                     AnchorRetention,
                     RetentionBySubject,
                     AnchorBind,
@@ -326,10 +378,16 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                     FunnelAttribute,
                 ),
             )
+            or (
+                isinstance(item.stage.node.parameters, RowState)
+                and isinstance(item.stage.node.inputs[0].node, MethodNode)
+                and isinstance(item.stage.node.inputs[0].node.parameters, PreparedObservation)
+            )
             or any(
                 isinstance(
                     p,
                     (
+                        FitInputsPart,
                         InstanceRetentionPart,
                         SubjectRetentionPart,
                         FunnelPart,
@@ -585,6 +643,20 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 tuple(results[key] for key in item.stage.inputs),
                 item.stage.node.identity,
             )
+        elif isinstance(params, (DeviationFit, DeviationRead)):
+            from marivo.analysis.materialization.deviation_execution import execute as deviation
+
+            results[item.stage.output] = deviation(
+                item.stage.node,
+                tuple(results[key] for key in item.stage.inputs),
+                item.stage.node.identity,
+            )
+        elif isinstance(params, TimeProduct):
+            from marivo.analysis.materialization.graph_local_execution import time_product
+
+            results[item.stage.output] = time_product(
+                item.stage.node, results[item.stage.inputs[0]], item.stage.node.identity
+            )
         elif isinstance(params, PartsTransport):
             results[item.stage.output] = _transport_stage(
                 item,
@@ -593,6 +665,32 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 tuple(results[key] for key in item.stage.inputs[1:]),
             )
         elif isinstance(params, RowState):
+            owned_check = (
+                "source.cell_policy@v1"
+                if params.method == "count_defined"
+                else "source.finite_numeric@v1"
+            )
+            for requirement in prepared.admitted.checks:
+                if (
+                    requirement.node_id != item.stage.node.identity
+                    or requirement.obligation.check_id == owned_check
+                ):
+                    continue
+                prior = next(
+                    (
+                        proof
+                        for proof in completed
+                        if proof.requirement.obligation == requirement.obligation
+                    ),
+                    None,
+                )
+                if prior is None:
+                    fail(
+                        "input_binding",
+                        "row continuation lacks its completed predecessor check",
+                        stage="consume",
+                    )
+                completed.append(CompletedCheck(requirement, prior.result_digest))
             result = _row_result(
                 item,
                 results[item.stage.inputs[0]],
@@ -602,7 +700,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                     c
                     for c in prepared.admitted.checks
                     if c.node_id == item.stage.node.identity
-                    and c.obligation.check_id == "source.finite_numeric@v1"
+                    and c.obligation.check_id == owned_check
                 ),
             )
             completed.extend(result.completed_checks)
@@ -642,8 +740,19 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             results[item.stage.output] = _result(
                 terminal,
                 table,
-                _ordered_checks(completed, prepared.admitted.checks),
-                prepared.admitted.checks,
+                _ordered_checks(
+                    completed,
+                    tuple(
+                        c
+                        for c in prepared.admitted.checks
+                        if any(proof.requirement == c for proof in completed)
+                    ),
+                ),
+                tuple(
+                    c
+                    for c in prepared.admitted.checks
+                    if any(proof.requirement == c for proof in completed)
+                ),
             )
     check()
     result = results[lowered.primary_output]

@@ -182,6 +182,9 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "history.intervals@v1": "history_view@v1",
         "history.dwell@v1": "history_view@v1",
         "history.read@v1": "history_view@v1",
+        "deviation.zscore@v1": "deviation@v1",
+        "deviation.mad@v1": "deviation@v1",
+        "deviation.read@v1": "deviation@v1",
     }
     assert {
         str(item.semantics.key): item.semantics.rule for item in REGISTRY.registrations
@@ -259,6 +262,9 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "row.sum",
         "row.mean",
         "association.spearman",
+        "deviation.zscore",
+        "deviation.mad",
+        "deviation.read",
     }
     assert all(item.missing.status == "blocked" for item in REGISTRY.registrations)
     with pytest.raises(FrozenInstanceError):

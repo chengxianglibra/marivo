@@ -36,9 +36,12 @@ from marivo.analysis.core.model import (
     EntryAxesPart,
     FactInput,
     FindingPolicyPart,
+    FitInputsPart,
+    FitStatePart,
     FunnelAllocationPart,
     FunnelComparisonPart,
     FunnelPart,
+    GridCellsPart,
     HistoryPart,
     HistoryViewPart,
     JourneyPart,
@@ -50,7 +53,9 @@ from marivo.analysis.core.model import (
     ReferenceStatePart,
     RowStatePart,
     Signature,
+    SubjectMapPart,
     SubjectPart,
+    TableFitsPart,
     part_role,
     reject,
 )
@@ -65,6 +70,7 @@ from marivo.analysis.core.rules import (
     BindProject,
     CellDerive,
     CompleteGroups,
+    DeviationFit,
     DisplayRank,
     DisplayTable,
     FunnelAttribute,
@@ -158,6 +164,22 @@ def components(part: Part) -> tuple[str, ...]:
         (EntryAxesPart, FindingPolicyPart, FunnelPart, FunnelComparisonPart, FunnelAllocationPart),
     ):
         return ("retained",)
+    if isinstance(part, (FitInputsPart, FitStatePart, TableFitsPart)):
+        return ("retained",)
+    if isinstance(part, GridCellsPart):
+        return (
+            "identity",
+            "ordinal",
+            "original_start",
+            "original_end",
+            "start",
+            "end",
+            "partial",
+            "precision",
+            "coverage",
+        )
+    if isinstance(part, SubjectMapPart):
+        return tuple(f"key_{i}" for i in range(len(part.subject.subject_key)))
     if isinstance(part, HistoryViewPart):
         return ("retained",)
     if isinstance(part, HistoryPart):
@@ -1529,11 +1551,16 @@ def _count(stage: SourceMethodStage, source: LoweredRelation) -> tuple[ir.Table,
         if cell is None:
             _fail("Cell values for current-row extrema", "missing Cell")
         extremum = table[cell.value].min() if params.method == "min" else table[cell.value].max()
+        operand_bound = _operand_bound(source, table) if params.retain_error else None
         aggregate = grouped.aggregate(
             extremum=extremum,
             support=table.count(),
             **(
-                {"error_bound": _operand_bound(source, table).max().fill_null(0)}
+                {
+                    "error_bound": operand_bound.max().fill_null(0)
+                    if isinstance(operand_bound, ir.Column)
+                    else operand_bound
+                }
                 if params.retain_error
                 else {}
             ),
@@ -2861,11 +2888,11 @@ def _observe(
             isinstance(event_type, dt.Timestamp)
             and (
                 event_type.timezone not in (None, "UTC", "Etc/UTC")
-                or event_type.scale not in (None, 6)
+                or event_type.scale not in (None, 0, 3, 6, 9)
             )
         )
     ):
-        _fail("exact observation key and UTC microsecond timestamp schema", "schema drift")
+        _fail("exact observation key and UTC timestamp precision s/ms/us/ns", "schema drift")
 
     def bound(value: datetime) -> ir.Scalar:
         from marivo.datasource.timezone import parse_timezone
@@ -2883,7 +2910,12 @@ def _observe(
             if isinstance(event_type, dt.Date)
             else value.replace(tzinfo=None)
         )
-        return ibis.literal(normalized, type=event_type)
+        bound_type = (
+            dt.Timestamp(timezone=event_type.timezone, scale=max(event_type.scale or 6, 6))
+            if isinstance(event_type, dt.Timestamp)
+            else event_type
+        )
+        return ibis.literal(normalized, type=bound_type)
 
     if params.start is not None and params.end is not None:
         start = bound(datetime.fromisoformat(params.start))
@@ -3341,7 +3373,14 @@ def lower(
             admit(stage.implementation, stage.node.parameters)
             if len(stage.inputs) not in (1, 2) and not isinstance(
                 stage.node.parameters,
-                (AttributionDerive, PartsTransport, ReferenceDerive, DisplayRank, DisplayTable),
+                (
+                    DeviationFit,
+                    AttributionDerive,
+                    PartsTransport,
+                    ReferenceDerive,
+                    DisplayRank,
+                    DisplayTable,
+                ),
             ):
                 _fail("registered row, Association, or predicate inputs", repr(stage.inputs))
             if len(stage.inputs) == 2 and not (
@@ -3349,6 +3388,7 @@ def lower(
                     stage.node.parameters,
                     (
                         AssociationScore,
+                        DeviationFit,
                         AttachCategory,
                         CompleteGroups,
                         AnchorRetention,
@@ -3792,6 +3832,11 @@ def lower(
         )
         if isinstance(owner, MethodNode) and (
             isinstance(owner.parameters, PreparedObservation)
+            or (
+                isinstance(owner.parameters, RowState)
+                and isinstance(owner.inputs[0].node, MethodNode)
+                and isinstance(owner.inputs[0].node.parameters, PreparedObservation)
+            )
             or (
                 isinstance(owner.parameters, RowState)
                 and owner.inputs[0].node.signature.domain.kind in ("journey", "interval")

@@ -725,16 +725,79 @@ class FunnelAllocationPart:
 
 
 @dataclass(frozen=True, slots=True)
+class FitInputsPart:
+    binding: Binding
+    input_domain: DomainSignature
+    input_quantity: Quantity
+    input_type: str
+    method: Literal["zscore", "mad"]
+    fit_id: str
+    partition_ids: tuple[str, ...]
+    original_parts: tuple[Part, ...] = ()
+    view: Literal["result", "observed", "reference", "deviation", "score"] = "result"
+    table_views: tuple[Literal["observed", "reference", "deviation", "score"], ...] = ()
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class FitStatePart:
+    binding: Binding
+    fit_id: str
+    numeric_policy: Literal["r8_numeric_v1"] = "r8_numeric_v1"
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class GridCellsPart:
+    binding: Binding
+    input_domain: DomainSignature
+    fit_id: str
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class SubjectMapPart:
+    binding: Binding
+    subject: SubjectPart
+    fit_id: str
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class TableFitColumn:
+    index: int
+    signature: Signature
+
+
+@dataclass(frozen=True, slots=True)
+class TableFitsPart:
+    binding: Binding
+    columns: tuple[TableFitColumn, ...]
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
 class FindingPolicyPart:
     binding: Binding
-    producer: Literal["funnel.compare", "funnel_ratio_mix"]
-    extractor: Literal["graph.funnel_delta_findings@v1", "graph.funnel_contribution_findings@v1"]
-    policy: Literal["bounded_algebraic_findings@v1"] = "bounded_algebraic_findings@v1"
+    producer: Literal["funnel.compare", "funnel_ratio_mix", "deviation.zscore", "deviation.mad"]
+    extractor: Literal[
+        "graph.funnel_delta_findings@v1",
+        "graph.funnel_contribution_findings@v1",
+        "graph.no_findings@v1",
+    ]
+    policy: Literal["bounded_algebraic_findings@v1", "zero_findings@v1"] = (
+        "bounded_algebraic_findings@v1"
+    )
     version: Literal["v1"] = "v1"
 
 
 Part: TypeAlias = (
-    InstanceRetentionPart
+    FitInputsPart
+    | FitStatePart
+    | GridCellsPart
+    | SubjectMapPart
+    | TableFitsPart
+    | InstanceRetentionPart
     | SubjectRetentionPart
     | AnchorDomainPart
     | AnchorObservationPart
@@ -763,6 +826,11 @@ Part: TypeAlias = (
     | PairCountsPart
 )
 PartRole: TypeAlias = Literal[
+    "fit_inputs",
+    "fit_state",
+    "grid_cells",
+    "subject_map",
+    "table_fits",
     "retention",
     "anchor",
     "history",
@@ -803,6 +871,16 @@ PartRole: TypeAlias = Literal[
 
 
 def part_role(part: Part) -> PartRole:
+    if isinstance(part, FitInputsPart):
+        return "fit_inputs"
+    if isinstance(part, FitStatePart):
+        return "fit_state"
+    if isinstance(part, GridCellsPart):
+        return "grid_cells"
+    if isinstance(part, SubjectMapPart):
+        return "subject_map"
+    if isinstance(part, TableFitsPart):
+        return "table_fits"
     if isinstance(part, (InstanceRetentionPart, SubjectRetentionPart)):
         return "retention"
     if isinstance(part, (AnchorDomainPart, AnchorObservationPart)):
@@ -851,6 +929,13 @@ def part_role(part: Part) -> PartRole:
 
 
 def validate_part(part: Part) -> None:
+    if isinstance(
+        part, (FitInputsPart, FitStatePart, GridCellsPart, SubjectMapPart, TableFitsPart)
+    ):
+        from marivo.analysis.core.deviation_rules import validate as validate_deviation
+
+        validate_deviation(part)
+        return
     if isinstance(part, (InstanceRetentionPart, SubjectRetentionPart)):
         from marivo.analysis.core.retention_rules import validate as validate_retention
 

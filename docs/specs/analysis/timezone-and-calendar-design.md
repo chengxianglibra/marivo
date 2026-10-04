@@ -329,6 +329,23 @@ truncation is allowed. This does not retract R7.2's disclosed source ns-to-us lo
 The calendar source envelope is conservative and finite; only actual Anchor
 wall-time deadlines determine selection, after all source preparation has ended.
 
+## R8.2 captured source timestamp precision
+
+The Parquet adapter retains the timestamp unit from the actual file schema in
+source facts, separately from the Ibis/DuckDB expression and emitted Arrow
+carrier. An ms file emitted as us remains an ms source qualification; an ns file
+retains its ns source qualification. BoundTimeGrid and its retained mappings
+continue to use their declared us boundary precision. Observation comparisons
+use bounds with at least that precision so a coarse source carrier cannot round
+the accepted scope.
+
+The current PyArrow fixture writer converts timestamp[s] to timestamp[ms] in
+the Parquet file. Such a fixture cannot prove the frozen Parquet-s target.
+That target and its requirement IDs remain mandatory and unqualified; relabeling
+an ms file or a successful ms execution does not close them. The
+[R8.2 evidence index](../../superpowers/specs/2026-10-04-marivo-r82-evidence-index.md)
+records the actual source schemas, executed shapes and remaining exits.
+
 ## R8.1 frozen statistical grid authority
 
 R8.1 freezes these temporal targets without qualifying a new method. This is the

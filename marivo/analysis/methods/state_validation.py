@@ -456,10 +456,7 @@ def state_matches(
                 and primary.get("cell_reason") == "empty_" + kind.removeprefix("row_")
             )
         return (
-            (
-                (type(component) is int and -(2**63) <= component < 2**63)
-                or (type(component) is float and math.isfinite(component))
-            )
+            _numeric(component)
             and type(value) is type(component)
             and value == component
             and primary.get("cell_tag") == "defined"

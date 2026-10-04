@@ -1,0 +1,12 @@
+{
+  "kernel_proofs": 12708,
+  "integrated_time_kernel_proofs": 2880,
+  "distinct_time_duties": 2880,
+  "integrated_non_time_kernel_proofs": 480,
+  "decimal_law_kernel_proofs": 9348,
+  "time_source_precision_counts": {
+    "us": 1920,
+    "ns": 480,
+    "ms": 480
+  }
+}

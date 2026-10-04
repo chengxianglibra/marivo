@@ -18,9 +18,10 @@ from marivo.analysis.core.graph import (
     method_node,
     topology,
 )
-from marivo.analysis.core.model import ObservedQuantity
+from marivo.analysis.core.model import ObservedQuantity, SubjectPart
 from marivo.analysis.core.rules import (
     BindProject,
+    DeviationFit,
     DirectMetricDefinition,
     EntityObservationTarget,
     GroupObservationTarget,
@@ -42,6 +43,7 @@ from marivo.analysis.materialization.graph_members import MemberGraph
 from marivo.analysis.materialization.graph_preflight import preflight_entities
 from marivo.analysis.materialization.graph_protocol import digest, schema_text
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType, TimeShape
+from marivo.datasource.adapters import TIMESTAMP_UNIT_METADATA_KEY
 from marivo.refs import (
     DimensionKind,
     MetricKind,
@@ -418,7 +420,7 @@ def observe_members(
         (pa.types.is_date(event_type) and event.parse in (None, DateParse()))
         or (
             pa.types.is_timestamp(event_type)
-            and event_type.unit == "us"
+            and event_type.unit in ("s", "ms", "us", "ns")
             and (event.parse is None or isinstance(event.parse, (TimestampParse, DatetimeParse)))
         )
         or (pa.types.is_string(event_type) and isinstance(event.parse, StrptimeParse))
@@ -507,7 +509,22 @@ def observe_members(
         )
     if cumulative is not None:
         window = canonical_json(asdict(cumulative))
-    temporal = TimeShape("instant", "us", "UTC")
+    source_unit = (
+        (schemas[event.entity_ref.path].schema.field(event.source_column).metadata or {}).get(
+            TIMESTAMP_UNIT_METADATA_KEY
+        )
+        if pa.types.is_timestamp(event_type)
+        else None
+    )
+    temporal = TimeShape(
+        "instant",
+        source_unit.decode("ascii")
+        if source_unit is not None
+        else event_type.unit
+        if pa.types.is_timestamp(event_type)
+        else "us",
+        report_timezone if contribution_schema.shape.backend == "duckdb" else "UTC",
+    )
     nodes: dict[str, Node] = {}
     for node in topology(members.root):
         if isinstance(node, SourceLeaf):
@@ -735,11 +752,45 @@ def observe_members(
             if isinstance(node, MethodNode) and isinstance(node.parameters, OccurrencePrepare)
         }.values()
     )
+    for node in topology(member_root):
+        if not isinstance(node, MethodNode) or not isinstance(node.parameters, DeviationFit):
+            continue
+        subject = next(
+            (part for part in node.signature.parts if isinstance(part, SubjectPart)), None
+        )
+        if subject is None:
+            continue
+        envelopes = tuple(
+            ancestor
+            for ancestor in topology(node.inputs[0].node)
+            if ancestor.signature.quantity is None
+            and ancestor.signature.domain.instance_key == subject.subject_key
+            and any(
+                isinstance(part, SubjectPart)
+                and part.subject_key == subject.subject_key
+                and part.entity_ref == subject.entity_ref
+                for part in ancestor.signature.parts
+            )
+        )
+        if not envelopes:
+            raise _reject("deviation observation requires the original captured Subject envelope")
+        local_populations = tuple(
+            {item.identity: item for item in (*local_populations, envelopes[-1])}.values()
+        )
     prepared_parameters = None
     if local_populations:
         if len(local_populations) != 1 or not isinstance(parameters, (ObserveMetric, ObserveCount)):
-            raise _reject("one captured Journey population and a qualified prepared Metric")
+            raise _reject("one captured Subject population and a qualified prepared Metric")
         original = local_populations[0]
+        if parameters.grid_window:
+            grid = member_root.signature.domain.time_grid
+            if grid is None:
+                raise _reject("prepared observation requires its captured grid")
+            parameters = replace(
+                parameters,
+                start=grid.cells[0].start.isoformat(),
+                end=grid.cells[-1].end.isoformat(),
+            )
         observation_inputs = (Edge("subject", member_root), Edge("subject", original))
         prepared_parameters = PreparedObservation(parameters)
     prepared_sources = {parameters.contribution.path}

@@ -150,6 +150,7 @@ from marivo.analysis.public_dsl import (
     LogicalCoefficientSelectionRelation as LogicalCoefficientSelectionRelation,
 )
 from marivo.analysis.public_dsl import LogicalCompletedJourneys as LogicalCompletedJourneys
+from marivo.analysis.public_dsl import LogicalDeviationResult as LogicalDeviationResult
 from marivo.analysis.public_dsl import LogicalDifferenceRelation as LogicalDifferenceRelation
 from marivo.analysis.public_dsl import LogicalDwellSummary as LogicalDwellSummary
 from marivo.analysis.public_dsl import LogicalEventDurationResult as LogicalEventDurationResult
@@ -213,6 +214,7 @@ from marivo.analysis.public_dsl import (
 from marivo.analysis.public_dsl import (
     MaterializedCompletedJourneys as MaterializedCompletedJourneys,
 )
+from marivo.analysis.public_dsl import MaterializedDeviationResult as MaterializedDeviationResult
 from marivo.analysis.public_dsl import (
     MaterializedDifferenceRelation as MaterializedDifferenceRelation,
 )
@@ -476,6 +478,8 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "GroupedAnalysisDomain",
     "GroupedNumericRelation",
     "GroupedRatioRelation",
+    "LogicalDeviationResult",
+    "MaterializedDeviationResult",
     "LogicalAssociationResult",
     "MaterializedAssociationResult",
     "RootRoute",

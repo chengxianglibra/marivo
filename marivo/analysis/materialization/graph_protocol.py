@@ -27,6 +27,8 @@ from marivo.analysis.core.rules import (
     AnchorBind,
     CellDerive,
     CompleteGroups,
+    DeviationFit,
+    DeviationRead,
     DisplayRank,
     DisplayTable,
     FunnelAxesPrepare,
@@ -551,7 +553,10 @@ def validate_descriptor(value: Descriptor) -> Node:
             "keyed"
             if keys
             else "optional_singleton"
-            if isinstance(root.parameters, (CellDerive, DisplayRank, DisplayTable))
+            if isinstance(
+                root.parameters,
+                (CellDerive, DisplayRank, DisplayTable, DeviationFit, DeviationRead),
+            )
             or (
                 isinstance(root.parameters, PartsTransport)
                 and (
@@ -579,6 +584,11 @@ def validate_descriptor(value: Descriptor) -> Node:
                     "entry_axes",
                     "funnel_state",
                     "finding_policy",
+                    "fit_inputs",
+                    "fit_state",
+                    "table_fits",
+                    "grid_cells",
+                    "subject_map",
                 )
                 and not any(
                     isinstance(part, AttributionPart) and part.role == p.role

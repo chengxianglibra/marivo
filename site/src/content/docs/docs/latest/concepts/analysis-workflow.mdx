@@ -91,6 +91,45 @@ continuations verify receipts and retained parts and never reopen a source.
 Difference uses state/parts v2; relative change and ordinary ratio use v1.
 Re-execute an old Difference from its source definition before continuing.
 
+### Signed deviation scores
+
+Use `deviation(method="zscore")` or `deviation(method="mad")` on a numeric
+relation. Both construct a `LogicalDeviationResult`; `execute()` publishes one
+fit with four owned fields: `observed`, `reference`, `deviation` and `score`.
+Zscore uses population standard deviation. MAD uses an exact median and the
+factor 7413/5000, falling back to mean absolute deviation about that same median
+when raw MAD is zero. Scores keep their sign. Non-Defined input Cells keep their
+tag and reason; singleton and constant fits have Undefined scores.
+
+```python
+scored = current.compare(baseline).deviation(method="mad")
+defined = scored.where(scored.score.value.is_defined())
+positive = defined.where(defined.score.value.gt(0))
+followup = positive.observed.members().observe(
+    revenue, during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=buyer
+)
+followup.summarize(method=mv.count_defined()).execute().show()
+fixed = scored.execute()
+fixed.contract().show()
+ranking = fixed.score.rank(order="descending", ties="dense").limit(10).execute()
+ranking.ranks.contract().show()
+mv.table(score=ranking.values, rank=ranking.ranks).execute().show()
+marivo.help("analysis.dsl.NumericComparison.deviation")
+```
+
+Result selection and field ranking retain the original fit scope; filtering the
+numeric input before deviation establishes a new fit.
+Tables also retain fitted authority when combining a score with a category,
+original values, another fit or ranks. Rank views retain the original fit scope
+and disclose the same parts through `contract()` after materialization.
+`partition_by` accepts exactly corresponding CategoryRelations, including Null categories. The three
+derived fields carry no original Metric rollup or attribution authority. Fixed
+fits use captured inputs and receipts; a new source observation must be prepared
+in the source graph before local selection. Decimal inputs remain exact, with
+unit fields finished once to Decimal(38,max(s,6)) using HALF_EVEN and score
+finished to finite float64. The R8.2 evidence index records execution coverage;
+remote, installed-wheel and real-Agent qualification belong to later stages.
+
 
 The example requires an authored, typed `sales.revenue` Metric and an admitted
 reference time axis. Windows are half-open: the end is excluded.

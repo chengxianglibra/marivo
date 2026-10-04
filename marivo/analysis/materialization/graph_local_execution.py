@@ -30,6 +30,8 @@ from marivo.analysis.core.rules import (
     AttachCategory,
     AttributionDerive,
     CellDerive,
+    DeviationFit,
+    DeviationRead,
     DisplayRank,
     DisplayTable,
     FunnelAttribute,
@@ -44,6 +46,7 @@ from marivo.analysis.core.rules import (
     ReferenceDerive,
     RetentionBySubject,
     RowState,
+    TimeProduct,
 )
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
@@ -82,6 +85,43 @@ def _invalid(received: str) -> MaterializationError:
         repair="Use the exact selected Artifact and a qualified local method.",
         stage="graph_local",
     )
+
+
+def time_product(node: MethodNode, source: ExchangeResult, binding: str) -> ExchangeResult:
+    """Expand captured selected Subjects across the already bound grid only."""
+    assert isinstance(node.parameters, TimeProduct)
+    grid = node.signature.domain.time_grid
+    assert grid is not None
+    keys = source.contract.key_fields
+    anchor = f"key_{len(keys)}"
+    positions = [i for i in range(source.primary.num_rows) for _ in grid.cells]
+    primary = (
+        source.primary.select(keys)
+        .take(pa.array(positions, type=pa.int64()))
+        .append_column(
+            anchor,
+            pa.array(
+                [cell.identity for _ in range(source.primary.num_rows) for cell in grid.cells],
+                type=pa.string(),
+            ),
+        )
+    )
+    subject = (
+        next(part.table for part in source.parts if part.role == "subject")
+        .take(pa.array(positions, type=pa.int64()))
+        .append_column(anchor, primary[anchor])
+    )
+    out_keys = (*keys, anchor)
+    contract = ExchangeContract(
+        node.signature,
+        node.method,
+        binding,
+        primary.schema,
+        out_keys,
+        (PartContract("subject", subject.schema, out_keys),),
+        (),
+    )
+    return from_arrow(primary, contract, parts=(ExchangePart("subject", subject),))
 
 
 def _cells(input_value: ExchangeResult) -> tuple[Cell, ...]:
@@ -134,7 +174,7 @@ def execute_fixed_row(
         or input_contract.input_binding != read.leaf.artifact.ref
         or not isinstance(read.leaf.value_type, (ScalarType, DecimalType, DurationType))
         or "value" not in input_contract.schema.names
-        or input_contract.schema.field("value").type != pa.type_for_alias(read.leaf.value_type.name)
+        or input_contract.schema.field("value").type != arrow_scalar_type(read.leaf.value_type)
     ):
         raise _invalid("fixed Artifact, signature, ordered binding or value type differs")
     verified = (
@@ -165,7 +205,7 @@ def _row_result(
         return _duration_mean(method, verified, receipt_hash, input_binding, checks)
     cells = _cells(verified)
     name = method.stage.node.method.name
-    state: dict[str, list[int | float | None]]
+    state: dict[str, list[int | float | Decimal | None]]
     params = method.stage.node.parameters
     if isinstance(params, RowState) and params.merge:
         retained = next(p.table for p in verified.parts if p.role == "row_state")
@@ -173,13 +213,13 @@ def _row_result(
         for field in retained.column_names:
             if not field.startswith("row_state__"):
                 continue
-            operands: list[int | float] = []
+            operands: list[int | float | Decimal] = []
             for raw in retained[field].to_pylist():
                 if raw is None and field in ("row_state__min", "row_state__max"):
                     continue
                 if (
-                    type(raw) not in (int, float)
-                    or not isinstance(raw, (int, float))
+                    type(raw) not in (int, float, Decimal)
+                    or not isinstance(raw, (int, float, Decimal))
                     or not math.isfinite(raw)
                 ):
                     raise _invalid("invalid retained row state operand")
@@ -196,7 +236,7 @@ def _row_result(
                 else sum(operands)
             )
             if total is not None and (
-                not math.isfinite(total) or (not floating and not -(2**63) <= total < 2**63)
+                not math.isfinite(total) or (type(total) is int and not -(2**63) <= total < 2**63)
             ):
                 raise _invalid("row state merge exceeds its exact numeric type")
             state[field] = [total]
@@ -205,13 +245,13 @@ def _row_result(
         if params.method == "mean":
             numerator = state["row_state__sum"][0]
             assert isinstance(numerator, (int, float))
-            value: int | float | None = float(numerator) / support if support else None
+            value: int | float | Decimal | None = float(numerator) / support if support else None
         else:
             value = state[f"row_state__{params.method}"][0]
         tag, reason = ("defined", None) if support else ("undefined", "empty_" + params.method)
         output_type = method.stage.node.value_type
-        assert isinstance(output_type, ScalarType)
-        value_type = pa.type_for_alias(output_type.name)
+        assert isinstance(output_type, (ScalarType, DecimalType))
+        value_type = arrow_scalar_type(output_type)
     elif name == "row.count":
         row_count = count(method.stage, cells).count
         value = row_count
@@ -225,12 +265,12 @@ def _row_result(
         state = {"row_state__count_defined": [row_count]}
         value_type = pa.int64()
     elif name in ("row.min", "row.max"):
-        values: list[int | float] = []
+        values: list[int | float | Decimal] = []
         for cell in cells:
-            if not isinstance(cell, Defined) or type(cell.value) not in (int, float):
+            if not isinstance(cell, Defined) or type(cell.value) not in (int, float, Decimal):
                 raise _invalid("current-row extrema require finite Defined numeric Cells")
             raw = cell.value
-            assert isinstance(raw, (int, float))
+            assert isinstance(raw, (int, float, Decimal))
             if not math.isfinite(raw) or (type(raw) is int and not -(2**63) <= raw < 2**63):
                 raise _invalid("current-row extremum operand exceeds its exact numeric type")
             values.append(raw)
@@ -238,8 +278,8 @@ def _row_result(
         tag, reason = ("defined", None) if values else ("undefined", "empty_" + name[4:])
         state = {"row_state__" + name[4:]: [value], "row_state__count": [len(values)]}
         output_type = method.stage.node.value_type
-        assert isinstance(output_type, ScalarType)
-        value_type = pa.type_for_alias(output_type.name)
+        assert isinstance(output_type, (ScalarType, DecimalType))
+        value_type = arrow_scalar_type(output_type)
     elif name in ("row.sum", "row.mean"):
         outcome = arithmetic(method.stage, cells)
         if isinstance(outcome.cell, Defined):
@@ -312,9 +352,10 @@ def _row_result(
         tuple(
             pa.field(
                 field,
-                pa.float64()
-                if (field in ("row_state__min", "row_state__max") and value_type == pa.float64())
-                or field == "row_state__error_bound"
+                value_type
+                if field in ("row_state__min", "row_state__max")
+                else pa.float64()
+                if field == "row_state__error_bound"
                 or (field == "row_state__sum" and type(values[0]) is float)
                 else pa.int64(),
             )
@@ -568,6 +609,11 @@ def _transport_stage(
             parts.append(prior)
             continue
         if role in (
+            "fit_inputs",
+            "fit_state",
+            "grid_cells",
+            "subject_map",
+            "finding_policy",
             "retention",
             "history_view",
             "fixed_reference",
@@ -1125,9 +1171,26 @@ def _difference_stage(
     )
     parts = (*parts, ExchangePart("correspondence", correspondence))
     if any(isinstance(p, SubjectPart) for p in method.stage.node.signature.parts):
-        subject = primary.select(keys)
-        for index, key_name in enumerate(keys):
-            subject = subject.append_column(f"subject__key_{index}", primary[key_name])
+        if params.bucket_mapping:
+            retained_subject = next(
+                (part.table for part in current.parts if part.role == "subject"), None
+            )
+            if retained_subject is None:
+                raise _invalid("period Difference lacks its actual current Subject part")
+            subject_rows = {
+                tuple(row[key] for key in keys): row for row in retained_subject.to_pylist()
+            }
+            if len(subject_rows) != retained_subject.num_rows or any(
+                key not in subject_rows for key in union_keys
+            ):
+                raise _invalid("period Difference Subject keys do not cover the current output")
+            subject = pa.Table.from_pylist(
+                [subject_rows[key] for key in union_keys], schema=retained_subject.schema
+            )
+        else:
+            subject = primary.select(keys)
+            for index, key_name in enumerate(keys):
+                subject = subject.append_column(f"subject__key_{index}", primary[key_name])
         parts = (ExchangePart("subject", subject), *parts)
     completed: list[CompletedCheck] = []
     for check in checks:
@@ -1838,6 +1901,8 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
             if isinstance(
                 stage.stage.node.parameters,
                 (
+                    DeviationFit,
+                    DeviationRead,
                     AttributionDerive,
                     PartsTransport,
                     ReferenceDerive,
@@ -1866,6 +1931,9 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
         if (
             name
             not in (
+                "deviation.zscore",
+                "deviation.mad",
+                "deviation.read",
                 "anchor.retention",
                 "retention.by_subject",
                 "anchor.bind",
@@ -2018,7 +2086,11 @@ def execute_verified_fixed(
             check for check in lowered.admitted.checks if check.node_id == stage.stage.node.identity
         )
         name = stage.stage.node.method.name
-        if isinstance(stage.stage.node.parameters, AnchorBind):
+        if isinstance(stage.stage.node.parameters, (DeviationFit, DeviationRead)):
+            from marivo.analysis.materialization.deviation_execution import execute as deviation
+
+            result = deviation(stage.stage.node, values, binding)
+        elif isinstance(stage.stage.node.parameters, AnchorBind):
             from marivo.analysis.materialization.anchor_execution import bind as bind_anchor
 
             result = bind_anchor(stage.stage.node, values[0], binding)
