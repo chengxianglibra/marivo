@@ -96,6 +96,7 @@ from marivo.analysis.domains.completeness import (
     BoundedCompletenessDeclarationV1,
     SourceOriginCompletenessDeclarationV1,
 )
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.event import PatternStep
 from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
 from marivo.analysis.funnel import FunnelLossRate
@@ -338,6 +339,11 @@ class AnalysisContract:
 
 
 def _kind(node: Relation) -> str:
+    from marivo.analysis.core.model import RunCellsPart
+
+    run = next((p for p in node.root.signature.parts if isinstance(p, RunCellsPart)), None)
+    if run is not None and not any(isinstance(p, DisplayPart) for p in node.root.signature.parts):
+        return "time_runs" if run.view == "result" else "run_read"
     fit = next(
         (part for part in node.root.signature.parts if isinstance(part, FitInputsPart)), None
     )
@@ -537,7 +543,19 @@ class _Value:
         kind, fixed = _kind(self._node), self._dataset is not None
         roles = tuple(part_role(part) for part in signature.parts)
         names: tuple[str, ...]
-        if kind == "deviation":
+        if kind == "time_runs":
+            names = ("start", "end", "count", "duration", "where")
+        elif kind == "run_read":
+            names = (
+                ("where", "table")
+                if self._node.root.value_type.name != "int64"
+                else ("where", "rank", "table")
+            )
+            if self._node.root.value_type == ScalarType("int64") and any(
+                isinstance(p, SubjectPart) for p in signature.parts
+            ):
+                names += ("members",)
+        elif kind == "deviation":
             names = ("observed", "reference", "deviation", "score", "where")
         elif kind == "deviation_read":
             names = (
@@ -695,6 +713,12 @@ class _Value:
             else:
                 names = tuple(dict.fromkeys((*names, "attribute")))
         if isinstance(self, _NumericComparison):
+            try:
+                self._node._check_runs_input()
+            except AnalysisError:
+                pass
+            else:
+                names = (*names, "runs")
             names = tuple(
                 dict.fromkeys(
                     (
@@ -790,8 +814,23 @@ class _Value:
                 names = tuple(name for name in names if name != "summarize")
         if self._materialize_before_continuing():
             names = ("execute",)
+        if "condition_cells" in roles and isinstance(self._node.root.value_type, DurationType):
+            names = tuple(
+                name
+                for name in names
+                if name not in ("rank", "members", "compare", "ratio", "deviation")
+            )
         required = tuple(role for role in roles if role != "subject")
         actions = self._action_contract(names)
+        if kind == "time_runs":
+            actions += (
+                AnalysisAction(
+                    "mv.table(start=relation.start, end=relation.end, count=relation.count, duration=relation.duration)",
+                    "analysis.dsl.table",
+                ),
+            )
+        elif kind == "run_read":
+            actions += (AnalysisAction("mv.table(value=relation)", "analysis.dsl.table"),)
         if "anchor" in roles and signature.quantity is not None:
             allowed = (
                 ("count", "count_defined", "mean")
@@ -837,6 +876,23 @@ class _Value:
         signature = self._node.root.signature
         quantity = signature.quantity
         facts: list[tuple[str, str]] = []
+        from marivo.analysis.core.model import RunCellsPart
+
+        run = next((p for p in signature.parts if isinstance(p, RunCellsPart)), None)
+        if run is not None:
+            facts.extend(
+                (
+                    ("run_scope", run.run_id),
+                    ("run_transform", "select_output_retain_scope@v1"),
+                    ("scope_boundary", "observation ended; business condition may continue"),
+                )
+            )
+            if self._dataset is not None:
+                from marivo.analysis.materialization.runs_execution import _decode as decode_runs
+
+                _, run_state = decode_runs(self._dataset.verified().parts)
+                for label in ("true", "false", "unavailable"):
+                    facts.append(("original_" + label, str(run_state.classifications.count(label))))
         fit = next((p for p in signature.parts if isinstance(p, FitInputsPart)), None)
         if fit is not None:
             facts.extend(
@@ -1487,6 +1543,9 @@ class _Value:
                     "reference",
                     "deviation",
                     "score",
+                    "start",
+                    "end",
+                    "count",
                     "current",
                     "baseline",
                     "status",
@@ -1530,6 +1589,30 @@ class _Value:
 
 class _NumericComparison(_Value):
     """Shared numeric composition without granting original Metric reductions."""
+
+    @property
+    def value(self) -> NumericField:
+        """Bind a predicate to this numeric quantity's exact current domain.
+
+        Args: None.
+        Returns: A NumericField carrying the receiver's original type and unit.
+        Example: ``condition = daily.value.gt(20)``.
+        Constraints: Numeric comparisons consume Defined Cells except within runs classification.
+        """
+        return NumericField(self._node.root, self._node)
+
+    def runs(self, *, where: BoundPredicate) -> LogicalTimeRunResult:
+        """Find maximal true intervals on the original complete time grid.
+
+        Args: where: A predicate over exactly corresponding original fields.
+        Returns: A LogicalTimeRunResult with start, end, count and duration views.
+        Example: ``segments = daily.runs(where=daily.value.gt(20))``.
+        Constraints: Requires a complete non-partial grid; unavailable dependencies break runs.
+        """
+        predicate, dependencies = self._bound_predicate(where)
+        return LogicalTimeRunResult(
+            _TOKEN, self._node.runs(predicate, dependencies), self._runtime, inputs=(self,)
+        )
 
     def deviation(
         self,
@@ -3914,6 +3997,164 @@ class MaterializedCoefficientSelectionRelation(_MaterializedValue):
         )
 
 
+class LogicalTimeRunResult(_Value):
+    """Immutable maximal intervals with retained full-grid condition scope."""
+
+    def execute(self) -> MaterializedTimeRunResult:
+        """Execute and publish the complete-grid run capture.
+
+        Args: None.
+        Returns: The verified MaterializedTimeRunResult.
+        Example: ``fixed = segments.execute()``.
+        Constraints: Publication is atomic; source and fixed dependencies cannot mix.
+        """
+        return MaterializedTimeRunResult(_TOKEN, self._node, self._runtime, dataset=self._run())
+
+    def where(self, predicate: BoundPredicate) -> LogicalTimeRunResult:
+        """Select intervals without changing segmentation or original scope.
+
+        Args: predicate: A condition on an owned interval field.
+        Returns: A LogicalTimeRunResult with synchronized selected views.
+        Example: ``selected = segments.where(segments.count.value.gt(1))``.
+        Constraints: Ordinary where requires Defined consumed Cells.
+        """
+        return LogicalTimeRunResult(_TOKEN, self._select(predicate), self._runtime, inputs=(self,))
+
+    @property
+    def start(self) -> LogicalTemporalRelation:
+        """Read the owned start interval field.
+
+        Args: None.
+        Returns: A LogicalTemporalRelation over the current interval keys.
+        Example: ``values = segments.start``.
+        Constraints: Preserves original segmentation and complete classification scope.
+        """
+        return LogicalTemporalRelation(
+            _TOKEN, self._node.run_field("start"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def end(self) -> LogicalTemporalRelation:
+        """Read the owned end interval field.
+
+        Args: None.
+        Returns: A LogicalTemporalRelation over the current interval keys.
+        Example: ``values = segments.end``.
+        Constraints: Preserves original segmentation and complete classification scope.
+        """
+        return LogicalTemporalRelation(
+            _TOKEN, self._node.run_field("end"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def count(self) -> LogicalNumericRelation:
+        """Read the owned count interval field.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over the current interval keys.
+        Example: ``values = segments.count``.
+        Constraints: Preserves original segmentation and complete classification scope.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._node.run_field("count"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def duration(self) -> LogicalNumericRelation:
+        """Read the owned duration interval field.
+
+        Args: None.
+        Returns: A LogicalNumericRelation over the current interval keys.
+        Example: ``values = segments.duration``.
+        Constraints: Preserves original segmentation and complete classification scope.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._node.run_field("duration"), self._runtime, inputs=(self,)
+        )
+
+
+class MaterializedTimeRunResult(_MaterializedValue):
+    """Immutable maximal intervals with retained full-grid condition scope."""
+
+    def where(self, predicate: BoundPredicate) -> LogicalTimeRunResult:
+        """Select intervals without changing segmentation or original scope.
+
+        Args: predicate: A condition on an owned interval field.
+        Returns: A LogicalTimeRunResult with synchronized selected views.
+        Example: ``selected = segments.where(segments.count.value.gt(1))``.
+        Constraints: Ordinary where requires Defined consumed Cells.
+        """
+        return LogicalTimeRunResult(_TOKEN, self._select(predicate), self._runtime, inputs=(self,))
+
+    @property
+    def start(self) -> MaterializedTemporalRelation:
+        """Read the owned start interval field.
+
+        Args: None.
+        Returns: A MaterializedTemporalRelation over the current interval keys.
+        Example: ``values = segments.start``.
+        Constraints: Preserves original segmentation and complete classification scope.
+        """
+        assert self._dataset is not None
+        return MaterializedTemporalRelation(
+            _TOKEN,
+            self._node.run_field("start"),
+            self._runtime,
+            dataset=replace(self._dataset, projection="start"),
+        )
+
+    @property
+    def end(self) -> MaterializedTemporalRelation:
+        """Read the owned end interval field.
+
+        Args: None.
+        Returns: A MaterializedTemporalRelation over the current interval keys.
+        Example: ``values = segments.end``.
+        Constraints: Preserves original segmentation and complete classification scope.
+        """
+        assert self._dataset is not None
+        return MaterializedTemporalRelation(
+            _TOKEN,
+            self._node.run_field("end"),
+            self._runtime,
+            dataset=replace(self._dataset, projection="end"),
+        )
+
+    @property
+    def count(self) -> MaterializedNumericRelation:
+        """Read the owned count interval field.
+
+        Args: None.
+        Returns: A MaterializedNumericRelation over the current interval keys.
+        Example: ``values = segments.count``.
+        Constraints: Preserves original segmentation and complete classification scope.
+        """
+        assert self._dataset is not None
+        return MaterializedNumericRelation(
+            _TOKEN,
+            self._node.run_field("count"),
+            self._runtime,
+            dataset=replace(self._dataset, projection="count"),
+        )
+
+    @property
+    def duration(self) -> MaterializedNumericRelation:
+        """Read the owned duration interval field.
+
+        Args: None.
+        Returns: A MaterializedNumericRelation over the current interval keys.
+        Example: ``values = segments.duration``.
+        Constraints: Preserves original segmentation and complete classification scope.
+        """
+        assert self._dataset is not None
+        return MaterializedNumericRelation(
+            _TOKEN,
+            self._node.run_field("duration"),
+            self._runtime,
+            dataset=replace(self._dataset, projection="duration"),
+        )
+
+
 class LogicalDeviationResult(_Value):
     """Unexecuted immutable deviation fit with four corresponding owned fields."""
 
@@ -4114,6 +4355,8 @@ def wrap_materialized(
 ) -> PublicMaterialized:
     """Restore the existing public result variant from its checked typed graph."""
     kind = _kind(node)
+    if kind == "time_runs":
+        return MaterializedTimeRunResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "deviation":
         return MaterializedDeviationResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "funnel":
@@ -6638,7 +6881,8 @@ def new_journeys(node: Relation, runtime: DatasetRuntime) -> LogicalJourneyResul
 
 
 PublicMaterialized: TypeAlias = (
-    MaterializedDeviationResult
+    MaterializedTimeRunResult
+    | MaterializedDeviationResult
     | MaterializedRetentionResult
     | MaterializedSubjectRetentionResult
     | MaterializedAnchorDomain

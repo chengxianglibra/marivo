@@ -3,7 +3,9 @@
 Date: 2026-10-03. Status: **R8.1 documentation/static freeze complete**.
 R8.2 product connection and qualification are in progress in the
 [R8.2 evidence index](2026-10-04-marivo-r82-evidence-index.md); no phase completion
-is granted. R8.3-R8.6, remote-backend, installed-wheel and real-Agent
+is granted. R8.3 product connection and bounded verification are recorded in the
+[R8.3 evidence index](2026-10-04-marivo-r83-evidence-index.md); its full mandatory
+matrix remains open. R8.4-R8.6, remote-backend, installed-wheel and real-Agent
 qualification are not granted. This ledger indexes sole owners and immutable
 requirements; it is not another public API, formula or method registry.
 

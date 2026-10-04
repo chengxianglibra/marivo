@@ -403,3 +403,11 @@ duplicated cells, wrong calendar/zone/grid identity, uncaptured future horizon,
 misleading timestamp precision and false completeness receipts. Unsupported or
 unfinished exact profiles remain mandatory blocked cells rather than acquiring
 qualification from another time/source form.
+
+### R8.3 elapsed interval output
+
+Run boundaries come from the admitted original grid's frozen UTC instants.
+Duration is the exact difference in microseconds between the first cell start
+and last cell end. DST days and unequal certified periods retain their actual
+boundaries. Runs reject partial edges and never regenerate a grid during
+fixed execution or recovery.

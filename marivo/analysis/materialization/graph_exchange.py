@@ -16,6 +16,7 @@ import pyarrow as pa
 from marivo.analysis.compiler.graph_plan import CheckRequirement
 from marivo.analysis.core.model import (
     AttributionPart,
+    ConditionCellsPart,
     CoordinateStatePart,
     CorrespondencePart,
     DerivedQuantity,
@@ -110,6 +111,10 @@ class ExchangeContract:
                 for part in self.parts
                 if part.role
                 not in (
+                    "grid_cells",
+                    "subject_map",
+                    "condition_cells",
+                    "run_cells",
                     "fit_inputs",
                     "fit_state",
                     "table_fits",
@@ -420,6 +425,8 @@ def collect(
             None,
         )
         if declared.role in (
+            "condition_cells",
+            "run_cells",
             "fit_inputs",
             "fit_state",
             "table_fits",
@@ -437,8 +444,18 @@ def collect(
                 raise _invalid("closed retained state must be one exact string payload")
             continue
         if declared.role in ("grid_cells", "subject_map"):
-            if declared.key_fields != contract.key_fields:
-                raise _invalid("original mapping keys differ from their declared fit domain")
+            run_input = next(
+                (p for p in contract.signature.parts if isinstance(p, ConditionCellsPart)), None
+            )
+            expected_keys = (
+                contract.key_fields
+                if run_input is None
+                else tuple(f"key_{i}" for i in range(len(run_input.input_domain.instance_key)))
+            )
+            if declared.key_fields != expected_keys:
+                raise _invalid(
+                    "original mapping keys differ from their declared complete input domain"
+                )
             _table_keys(part.table, declared.key_fields, nullable)
             continue
         if attribution_part is not None:
@@ -555,6 +572,10 @@ def collect(
             )
         ):
             raise _invalid("retained fold kind differs from the declared original quantity")
+    if any(part.role == "condition_cells" for part in parts):
+        from marivo.analysis.materialization.runs_execution import validate
+
+        validate(contract, primary, parts)
     if any(part.role == "fit_inputs" for part in parts):
         from marivo.analysis.materialization.deviation_execution import (
             validate as validate_deviation,

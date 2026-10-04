@@ -6,7 +6,9 @@ Status: R8.1 documentation/static freeze complete. R8.2 implementation and
 qualification are in progress; see the [R8.2 evidence index](2026-10-04-marivo-r82-evidence-index.md).
 The final R8.2 ledger retains 15,564 mandatory IDs: 13,212 passed, 2,280 blocked
 and 72 unverified. R8.2 is not complete.
-R8.3–R8.6 are not implemented
+R8.3 implementation and bounded verification are in progress; see the
+[R8.3 evidence index](2026-10-04-marivo-r83-evidence-index.md).
+R8.4–R8.6 are not implemented
 or qualified by this document. The accepted 2026-10-02 C14 scope revision is the planning input;
 static inventory, Runtime, installed-wheel, backend and real-Agent evidence
 remain separate.

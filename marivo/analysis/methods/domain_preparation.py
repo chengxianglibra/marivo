@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Literal
 
+from marivo.analysis.core.model import DomainKind
 from marivo.analysis.methods.physical import (
     DurationType,
     FixedShape,
@@ -115,6 +116,7 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
             ),
             *(FixedShape(time) for time in times if isinstance(time, TimeShape)),
         )
+        image_domains: tuple[DomainKind, ...] = ("entity", "group")
         return (
             *occurrence_images,
             *(
@@ -122,7 +124,7 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
                     QualificationKey(
                         method,
                         (typ,),
-                        ("entity",),
+                        (domain,),
                         shape,
                         "artifact_python" if isinstance(shape, FixedShape) else "ibis_python",
                     ),
@@ -133,12 +135,17 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
                         "complete", "caller" if isinstance(shape, FixedShape) else "producer", None
                     ),
                     Qualified(
-                        f"r82.subject_image.{shape}@v1",
+                        f"r83.subject_image.{shape}@v1"
+                        if domain == "group"
+                        else f"r82.subject_image.{shape}@v1",
                         "analysis.materialization.graph_local_execution",
                         "tests/test_analysis_deviation_f11_r82.py",
                     ),
                 )
-                for shape in shapes
+                for shape in (*shapes, FixedShape(NoTime()))
+                for domain in image_domains
+                if domain == "group"
+                or not (isinstance(shape, FixedShape) and isinstance(shape.time, NoTime))
                 for typ in (ScalarType("int64"), ScalarType("float64"), ScalarType("string"))
             ),
         )

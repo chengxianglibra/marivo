@@ -44,7 +44,7 @@ from marivo.analysis.materialization.graph_relation import (
     _retained_definition,
     _shared_root,
 )
-from marivo.analysis.methods.physical import ScalarType
+from marivo.analysis.methods.physical import DurationType, ScalarType
 
 
 def invalid(
@@ -67,6 +67,17 @@ def bind(inputs: tuple[Relation, ...], params: DisplayRank | DisplayTable) -> Re
     if not inputs:
         raise invalid("empty table columns")
     first = inputs[0]
+    if (
+        isinstance(params, DisplayRank)
+        and isinstance(first.root.value_type, DurationType)
+        and any(part_role(p) == "condition_cells" for p in first.root.signature.parts)
+    ):
+        raise invalid(
+            "time.runs Duration view",
+            expected="the count view for run ranking",
+            repair="Rank runs.count, or filter runs.duration using an exact elapsed threshold.",
+            target="actions.rank",
+        )
     if any(
         item.runtime.session_ref != first.runtime.session_ref
         or item.runtime.store.store_id != first.runtime.store.store_id
@@ -121,7 +132,15 @@ def _view_roles(parts: tuple[Part, ...], name: Literal["values", "ranks"]) -> tu
         if name == "values"
         or isinstance(p, DisplayPart)
         or part_role(p)
-        in ("fit_inputs", "fit_state", "grid_cells", "subject_map", "finding_policy")
+        in (
+            "condition_cells",
+            "run_cells",
+            "fit_inputs",
+            "fit_state",
+            "grid_cells",
+            "subject_map",
+            "finding_policy",
+        )
     )
 
 
@@ -269,6 +288,8 @@ def flatten(result: ExchangeResult) -> pa.Table:
     table = result.primary
     keys = result.contract.key_fields
     for part in result.parts:
+        if part.role == "grid_cells" and any(p.role == "condition_cells" for p in result.parts):
+            continue
         if next(p.key_fields for p in result.contract.parts if p.role == part.role) != keys:
             continue
         rows = {tuple(row[k] for k in keys): row for row in part.table.to_pylist()}

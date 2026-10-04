@@ -49,6 +49,7 @@ from marivo.analysis.core.rules import (
     OriginalReduce,
     PartsTransport,
     RowState,
+    TimeProduct,
 )
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint
 from marivo.analysis.datasets.errors import DatasetConstructionError
@@ -314,6 +315,97 @@ class Relation:
                 ),
             )
         return GraphDataset(self.runtime, artifact)
+
+    def _check_runs_input(self) -> None:
+        from marivo.analysis.methods.deviation_physical import parse_type
+
+        try:
+            parse_type(self.root.value_type.name)
+        except ValueError as error:
+            raise StatisticalRelationError(
+                code="r8.numeric_unqualified",
+                operation="runs",
+                method="time.runs@v1",
+                input_identity=self.root.fingerprint,
+                expected="int64, float64 or Decimal numeric observation",
+                received=self.root.value_type.name,
+                repair="Use a numeric observation on its original complete grid.",
+            ) from error
+        roles = {part_role(p) for p in self.root.signature.parts}
+        if not (
+            roles & {"coverage", "grid_cells"} or {"current_endpoint", "baseline_endpoint"} <= roles
+        ):
+            raise StatisticalRelationError(
+                code="r8.grid_incomplete",
+                operation="runs",
+                method="time.runs@v1",
+                input_identity=self.root.fingerprint,
+                expected="captured original grid coverage parts",
+                received=repr(tuple(sorted(roles))),
+                repair="Use the original complete observation with its retained coverage; do not reconstruct missing fixed parts.",
+            )
+        grid = self.root.signature.domain.time_grid
+        pending = [self.root, self.definition]
+        visited: set[str] = set()
+        selected = False
+        while pending:
+            node = pending.pop()
+            if node.fingerprint in visited:
+                continue
+            visited.add(node.fingerprint)
+            if not isinstance(node, MethodNode) or isinstance(node.parameters, TimeProduct):
+                continue
+            if isinstance(node.parameters, PartsTransport) and node.parameters.mode in (
+                "where",
+                "limit",
+            ):
+                selected = True
+                break
+            pending.extend(edge.node for edge in node.inputs)
+            pending.extend(node.retained_endpoints)
+        if grid is None or any(cell.partial for cell in grid.cells) or selected:
+            raise StatisticalRelationError(
+                code="r8.grid_incomplete",
+                operation="runs",
+                method="time.runs@v1",
+                input_identity=self.root.fingerprint,
+                expected="the original complete time grid before selection",
+                received="missing/partial grid or prior row selection",
+                repair="Construct runs before where; select intervals afterwards.",
+            )
+
+    def runs(self, predicate: ValuePredicate, dependencies: tuple[Relation, ...]) -> Relation:
+        from marivo.analysis.compiler.graph_plan import classify_inputs
+        from marivo.analysis.core.rules import TimeRuns
+
+        self._check_runs_input()
+        edges = (self._edge(), *(item._edge() for item in dependencies))
+        from pydantic import TypeAdapter
+
+        identity = digest(
+            canonical_json(
+                [
+                    self.root.fingerprint,
+                    TypeAdapter(ValuePredicate).dump_json(predicate).decode(),
+                    [item.root.fingerprint for item in dependencies],
+                ]
+            )
+        )
+        node = method_node(edges, TimeRuns(predicate, identity), value_type=ScalarType("int64"))
+        if classify_inputs(node).kind == "mixed":
+            raise _reject("runs cannot mix source and fixed predicate dependencies")
+        result = self._with(node)
+        for dependency in dependencies:
+            result = result._with_sources(dependency)
+        return result
+
+    def run_field(self, field: Literal["start", "end", "count", "duration"]) -> Relation:
+        from marivo.analysis.core.rules import TimeRunRead
+        from marivo.analysis.methods.runs_physical import output_type
+
+        return self._with(
+            method_node((self._edge(),), TimeRunRead(field), value_type=output_type(field))
+        )
 
     def deviation(
         self, method: Literal["zscore", "mad"], partitions: tuple[Relation, ...]

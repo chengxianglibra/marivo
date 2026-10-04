@@ -725,6 +725,23 @@ class FunnelAllocationPart:
 
 
 @dataclass(frozen=True, slots=True)
+class ConditionCellsPart:
+    binding: Binding
+    input_domain: DomainSignature
+    run_id: str
+    condition_digest: str
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class RunCellsPart:
+    binding: Binding
+    run_id: str
+    view: Literal["result", "start", "end", "count", "duration"] = "result"
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
 class FitInputsPart:
     binding: Binding
     input_domain: DomainSignature
@@ -779,7 +796,9 @@ class TableFitsPart:
 @dataclass(frozen=True, slots=True)
 class FindingPolicyPart:
     binding: Binding
-    producer: Literal["funnel.compare", "funnel_ratio_mix", "deviation.zscore", "deviation.mad"]
+    producer: Literal[
+        "funnel.compare", "funnel_ratio_mix", "deviation.zscore", "deviation.mad", "time.runs"
+    ]
     extractor: Literal[
         "graph.funnel_delta_findings@v1",
         "graph.funnel_contribution_findings@v1",
@@ -792,7 +811,9 @@ class FindingPolicyPart:
 
 
 Part: TypeAlias = (
-    FitInputsPart
+    ConditionCellsPart
+    | RunCellsPart
+    | FitInputsPart
     | FitStatePart
     | GridCellsPart
     | SubjectMapPart
@@ -826,6 +847,8 @@ Part: TypeAlias = (
     | PairCountsPart
 )
 PartRole: TypeAlias = Literal[
+    "condition_cells",
+    "run_cells",
     "fit_inputs",
     "fit_state",
     "grid_cells",
@@ -871,6 +894,10 @@ PartRole: TypeAlias = Literal[
 
 
 def part_role(part: Part) -> PartRole:
+    if isinstance(part, ConditionCellsPart):
+        return "condition_cells"
+    if isinstance(part, RunCellsPart):
+        return "run_cells"
     if isinstance(part, FitInputsPart):
         return "fit_inputs"
     if isinstance(part, FitStatePart):
@@ -929,6 +956,12 @@ def part_role(part: Part) -> PartRole:
 
 
 def validate_part(part: Part) -> None:
+    if isinstance(part, (ConditionCellsPart, RunCellsPart)):
+        if not part.run_id or part.version != "v1":
+            reject(
+                "versioned run identity", repr(part), "Rebuild the original runs node.", "core.runs"
+            )
+        return
     if isinstance(
         part, (FitInputsPart, FitStatePart, GridCellsPart, SubjectMapPart, TableFitsPart)
     ):

@@ -363,6 +363,8 @@ def test_analysis_public_exports_are_ordered_default_workflow_surface() -> None:
         "GroupedAnalysisDomain",
         "GroupedNumericRelation",
         "GroupedRatioRelation",
+        "LogicalTimeRunResult",
+        "MaterializedTimeRunResult",
         "LogicalDeviationResult",
         "MaterializedDeviationResult",
         "LogicalAssociationResult",

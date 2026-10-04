@@ -32,6 +32,7 @@ from marivo.analysis.core.rules import (
     OccurrenceFilter,
     OccurrencePrepare,
     PreparedObservation,
+    TimeRuns,
     entity_candidates,
     entity_members,
 )
@@ -753,7 +754,9 @@ def observe_members(
         }.values()
     )
     for node in topology(member_root):
-        if not isinstance(node, MethodNode) or not isinstance(node.parameters, DeviationFit):
+        if not isinstance(node, MethodNode) or not isinstance(
+            node.parameters, (DeviationFit, TimeRuns)
+        ):
             continue
         subject = next(
             (part for part in node.signature.parts if isinstance(part, SubjectPart)), None
@@ -773,7 +776,9 @@ def observe_members(
             )
         )
         if not envelopes:
-            raise _reject("deviation observation requires the original captured Subject envelope")
+            raise _reject(
+                "statistical selection observation requires the original captured Subject envelope"
+            )
         local_populations = tuple(
             {item.identity: item for item in (*local_populations, envelopes[-1])}.values()
         )

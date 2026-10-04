@@ -59,6 +59,8 @@ _CAPTURE_WIRE: TypeAdapter[EntryAxisCapture | EventCapture | OrderCapture | Stat
 )
 
 _WIRE_TAGS: dict[type[object], str] = {
+    core_model.ConditionCellsPart: "r8_condition_cells_part",
+    core_model.RunCellsPart: "r8_run_cells_part",
     core_model.FitInputsPart: "r8_fit_inputs_part",
     core_model.FitStatePart: "r8_fit_state_part",
     core_model.GridCellsPart: "r8_grid_cells_part",
