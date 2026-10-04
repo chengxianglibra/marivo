@@ -103,11 +103,26 @@ R7_WORKERS = (
     "retention_r78_worker",
 )
 
+R8_TESTS = (
+    "test_public_surface",
+    "test_analysis_runs_kernel_r83",
+    "test_analysis_statistics_kernel_r84",
+    "test_analysis_views_r85",
+    "test_analysis_disclosure_r85",
+    "test_analysis_acceptance_r86",
+    "test_analysis_faults_r86",
+)
 
-def _stage_tests(destination: Path) -> None:
+
+def _stage_tests(destination: Path, modules: tuple[str, ...] | None = None) -> None:
     """Copy only selected tests and their statically imported test helpers."""
     pending = {
-        f"tests.{name}" for name in (*CONTRACT_TESTS, *R5_TESTS, *R6_TESTS, *R7_TESTS, *R7_WORKERS)
+        f"tests.{name}"
+        for name in (
+            modules
+            if modules is not None
+            else (*CONTRACT_TESTS, *R5_TESTS, *R6_TESTS, *R7_TESTS, *R7_WORKERS)
+        )
     }
     pending.update(
         (
@@ -133,19 +148,26 @@ def _stage_tests(destination: Path) -> None:
             if (
                 isinstance(node, ast.ImportFrom)
                 and node.module
-                and node.module.startswith("tests.")
+                and node.module.startswith(("tests.", "scripts."))
             ):
                 pending.add(node.module)
             elif isinstance(node, ast.Import):
                 pending.update(
-                    alias.name for alias in node.names if alias.name.startswith("tests.")
+                    alias.name
+                    for alias in node.names
+                    if alias.name.startswith(("tests.", "scripts."))
                 )
     (destination / "tests/__init__.py").write_text(
         '"""Isolated installed-package test inputs."""\n'
     )
+    (destination / "scripts").mkdir(exist_ok=True)
+    (destination / "scripts/__init__.py").write_text('"""Isolated evidence helpers."""\n')
     for prefix in ("docs", "zh-cn/docs"):
         relative = Path(f"site/src/content/docs/{prefix}/latest")
         shutil.copytree(ROOT / relative, destination / relative)
+    (destination / "docs/api").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / "docs/api/analysis.rst", destination / "docs/api/analysis.rst")
+    shutil.copy2(ROOT / "pyproject.toml", destination / "pyproject.toml")
     # Qualification assertions read immutable historical inventories; these are
     # test inputs, never an importable checkout or an installed-package authority.
     for source in (ROOT / "docs/superpowers/specs").glob("*r7*"):
@@ -433,3 +455,176 @@ def test_installed_graph_journeys_and_three_process_recovery(tmp_path: Path) -> 
                     shutil.copytree(path, destination / path.name, dirs_exist_ok=True)
                 else:
                     shutil.copy2(path, destination / path.name)
+
+
+def test_installed_r8_candidate_and_public_processes(tmp_path: Path) -> None:
+    """Run the R8 gate independently of unrelated full-release Runtime suites."""
+    wheels = tuple((ROOT / "dist/pypi").glob("marivo-*.whl"))
+    sdists = tuple((ROOT / "dist/pypi").glob("marivo-*.tar.gz"))
+    assert len(wheels) == len(sdists) == 1, "Run make pypi-build pypi-check first"
+    wheel, sdist = wheels[0], sdists[0]
+    archives = _check_archives(wheel, sdist)
+    work = tmp_path / "installed-r8"
+    work.mkdir()
+    assert not work.resolve().is_relative_to(ROOT)
+    reports = work / "reports"
+    reports.mkdir()
+    (reports / "archives.json").write_text(json.dumps(archives, sort_keys=True) + "\n")
+    expected_surface = surface_snapshot()
+    _stage_tests(work, (*R8_TESTS, "r86_worker", "installed_graph_journeys"))
+    (reports / "inputs.json").write_text(
+        json.dumps(
+            {
+                str(p.relative_to(work)): hashlib.sha256(p.read_bytes()).hexdigest()
+                for folder in ("tests", "scripts", "site", "docs")
+                for p in sorted((work / folder).rglob("*"))
+                if p.is_file()
+            },
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("PYTHON", "PYTEST", "MARIVO_"))
+    }
+    environment.update(
+        MARIVO_TELEMETRY="off",
+        PYTHONNOUSERSITE="1",
+        MARIVO_WHEEL_SHA256=str(archives["wheel_sha256"]),
+        MARIVO_R86_EVIDENCE_DIR=str(reports),
+    )
+    receipts: list[dict[str, object]] = []
+
+    def run(
+        name: str, command: list[str], *, reject: bool = False, env: dict[str, str] | None = None
+    ) -> str:
+        started = time.monotonic()
+        process = subprocess.run(
+            command,
+            cwd=work,
+            env=env or environment,
+            capture_output=True,
+            text=True,
+            timeout=900,
+            check=False,
+        )
+        log = reports / f"{name}.log"
+        log.write_text(process.stdout + process.stderr)
+        receipts.append(
+            {
+                "name": name,
+                "command": command,
+                "cwd": str(work),
+                "exit_code": process.returncode,
+                "duration_seconds": round(time.monotonic() - started, 3),
+                "log_sha256": hashlib.sha256(log.read_bytes()).hexdigest(),
+            }
+        )
+        assert (process.returncode != 0) if reject else (process.returncode == 0), log.read_text()
+        return log.read_text()
+
+    try:
+        venv = work / ".venv"
+        run("create-venv", [sys.executable, "-m", "venv", str(venv)])
+        interpreter = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        constraints = work / "constraints.txt"
+        constraints.write_text(
+            "\n".join(
+                sorted(
+                    {
+                        f"{item.metadata['Name']}=={item.version}"
+                        for item in importlib.metadata.distributions()
+                        if item.metadata["Name"].lower() != "marivo"
+                    }
+                )
+            )
+            + "\n"
+        )
+        shutil.copy2(constraints, reports / constraints.name)
+        run(
+            "install",
+            [
+                str(interpreter),
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "--constraint",
+                str(constraints),
+                f"{wheel}[duckdb]",
+                "pytest",
+                "pytest-xdist",
+                "mypy",
+                "pandas-stubs",
+                "scipy-stubs",
+                "types-python-dateutil",
+            ],
+        )
+        run("dependencies", [str(interpreter), "-m", "pip", "list", "--format=json"])
+        run("dependency-check", [str(interpreter), "-m", "pip", "check"])
+        probe = [str(interpreter), "-m", "tests.installed_wheel_probe"]
+        run("origin", [*probe, "guard", str(reports / "origin.json")])
+        package = json.loads((reports / "origin.json").read_text())["package"]
+        rejection = run(
+            "poisoned-pythonpath",
+            [*probe, "guard", str(reports / "invalid.json")],
+            reject=True,
+            env={**environment, "PYTHONPATH": str(ROOT)},
+        )
+        assert "foreign Marivo import" in rejection
+        (work / "marivo").symlink_to(package, target_is_directory=True)
+        run("surface", [*probe, "surface", str(reports / "surface.json")])
+        assert json.loads((reports / "surface.json").read_text()) == expected_surface
+        run("origin-hook", [*probe, "install-hook", str(reports / "origin-hook.json")])
+        environment["MARIVO_INSTALLED_ORIGIN_DIR"] = str(reports / "process-origins")
+        environment["MARIVO_INSTALLED_ORIGIN_REPORT"] = str(reports / "pytest-origins.json")
+        run(
+            "r8-public",
+            [
+                str(interpreter),
+                "-m",
+                "pytest",
+                "-p",
+                "tests.installed_wheel_probe",
+                "-c",
+                str(work / "pytest.ini"),
+                "--import-mode=importlib",
+                "-n",
+                "0",
+                "-q",
+                "--tb=short",
+                "--maxfail=5",
+                f"--junitxml={reports / 'r8-public.xml'}",
+                *[f"tests/{module}.py" for module in R8_TESTS],
+            ],
+        )
+        # A04 is the established same-Entity, explicit Spearman no-lag journey.
+        for form in ("table", "parquet"):
+            phases: list[dict[str, object]] = []
+            for phase in ("produce", "continue", "recover"):
+                report = reports / f"a04-{form}-{phase}.json"
+                run(
+                    f"a04-{form}-{phase}",
+                    [*probe, phase, str(work / f"a04-{form}"), "j4", form, str(report)],
+                )
+                phases.append(json.loads(report.read_text()))
+            assert len({row["pid"] for row in phases}) == 3
+            for field in ("artifact", "rows", "contract", "descriptor", "oracle", "facts_sha256"):
+                assert all(row[field] == phases[0][field] for row in phases)
+            assert phases[1]["continuations"] == phases[2]["continuations"]
+        origins = tuple((reports / "process-origins").glob("*.json"))
+        assert origins and all("origin" in json.loads(p.read_text()) for p in origins)
+        console = interpreter.parent / ("marivo.exe" if os.name == "nt" else "marivo")
+        assert run("console-help", [str(console), "help"]) == run(
+            "module-help", [str(interpreter), "-m", "marivo", "help"]
+        )
+    finally:
+        (reports / "commands.json").write_text(
+            json.dumps(receipts, indent=2, sort_keys=True) + "\n"
+        )
+        retained = os.environ.get("MARIVO_R86_EVIDENCE_DIR")
+        if retained:
+            destination = Path(retained) / "installed-wheel"
+            shutil.copytree(reports, destination, dirs_exist_ok=True)

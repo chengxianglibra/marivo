@@ -193,3 +193,23 @@ entry baseline: R6 fixed UTC/us period buckets have a blocked registration, and
 table/Parquet A08 recovery has different input time/source shapes. These failures
 remain failures; the successful exact 139-case owner command supplies retirement
 transfer evidence. Retained unexecuted Runtime/remote nodes remain unverified.
+
+R8.6 local qualification is owned by `test_analysis_acceptance_r86.py`,
+`r86_worker.py`, `test_analysis_faults_r86.py` and the release-marked
+`test_analysis_runtime_wheel.py::test_installed_r8_candidate_and_public_processes`.
+The worker uses native DuckDB tables and local Parquet, composite Subject keys,
+UTC/us full days, all nine source methods, independently retained fixed inputs
+and fresh-process offline kernels. It separates source reevaluation, method
+execution and exact hits; recovery disables current Semantic and DuckDB and
+forbids refitting or resegmentation. A11 tests exercise prepared selected-member
+followup, explicit Category*Time mixed numeric inputs, all correlation methods
+and models, and independent single-axis/joint original-target reconciliation.
+Fault tests validate every receipt and required part and distinguish below/at/
+above-600, cancellation, late results, bad source batches, reader close, rollback
+and lost durable-commit acknowledgement. Six interval-witness counterexamples
+are checked without segmentation. The installed gate uses an isolated venv,
+archive/source hashes, dependency checks, import guards in every process, a real
+poisoned PYTHONPATH rejection and separate A04/Spearman recovery processes.
+The [R8.6 evidence index](../superpowers/specs/2026-10-04-marivo-r86-evidence-index.md)
+preserves all 492 original IDs and their exact dispositions; these focused
+profiles and engineering gates do not grant unexecuted R8/R9/R10 qualifications.

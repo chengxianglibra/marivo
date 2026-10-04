@@ -15,7 +15,7 @@ import pyarrow as pa
 from marivo.analysis.compiler.graph_lowering import SourceBinding, lower
 from marivo.analysis.compiler.graph_plan import RouteChoice
 from marivo.analysis.core.graph import MethodNode, Node, topology
-from marivo.analysis.core.model import CorrespondencePart
+from marivo.analysis.core.model import CorrespondencePart, part_role
 from marivo.analysis.core.rules import (
     CellDerive,
     DeviationFit,
@@ -602,19 +602,23 @@ def execute(
     from marivo.analysis.materialization.execute_deadline import execution_budget
     from marivo.analysis.methods.physical import DurationType
 
-    uses_r7 = any(
+    uses_budget = any(
         (
             isinstance(node, MethodNode)
             and isinstance(node.parameters, (OccurrencePrepare, PreparedObservation))
         )
         or any(isinstance(part, (OccurrencePart, JourneyPart)) for part in node.signature.parts)
+        or any(
+            part_role(part) in ("fit_inputs", "condition_cells", "pair_inputs", "training_inputs")
+            for part in node.signature.parts
+        )
         or (
             isinstance(node.value_type, DurationType)
             and isinstance(node.signature.quantity, RowStatisticQuantity)
         )
         for node in topology(root)
     )
-    with execution_budget(start=entered) if uses_r7 else nullcontext():
+    with execution_budget(start=entered) if uses_budget else nullcontext():
         return _execute(
             runtime,
             root,

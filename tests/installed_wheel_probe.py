@@ -104,9 +104,6 @@ def surface_snapshot() -> list[dict[str, object]]:
     for family in (
         "Population",
         "Metric",
-        "Association",
-        "Forecast",
-        "Candidate",
     ):
         logical = getattr(mv, f"Logical{family}Dataset")
         materialized = getattr(mv, f"Materialized{family}Dataset")
@@ -115,6 +112,12 @@ def surface_snapshot() -> list[dict[str, object]]:
         assert not any(hasattr(logical, member) for member in ("render", "show", "to_pandas"))
         assert not hasattr(materialized, "render")
         assert all(callable(getattr(materialized, member)) for member in ("show", "to_pandas"))
+    for family in ("Deviation", "TimeRun", "Association", "Forecast"):
+        logical = getattr(mv, f"Logical{family}Result")
+        materialized = getattr(mv, f"Materialized{family}Result")
+        assert callable(logical.execute)
+        assert not hasattr(logical, "to_pandas")
+        assert all(callable(getattr(materialized, member)) for member in ("show", "contract"))
     for stale in (
         "RunRecord",
         "FrameRefNotFound",
@@ -123,6 +126,12 @@ def surface_snapshot() -> list[dict[str, object]]:
         "MaterializedEventDataset",
         "LogicalLifecycleDataset",
         "MaterializedLifecycleDataset",
+        "LogicalCandidateDataset",
+        "MaterializedCandidateDataset",
+        "LogicalAssociationDataset",
+        "MaterializedAssociationDataset",
+        "LogicalForecastDataset",
+        "MaterializedForecastDataset",
     ):
         assert not hasattr(mv, stale)
     for name in names:

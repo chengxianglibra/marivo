@@ -59,6 +59,23 @@ CAPTURE = TypeAdapter(Capture)
 RUNS = TypeAdapter(Runs)
 
 
+_VIEW_SCHEMA = pa.schema(
+    [
+        ("key_0", pa.string()),
+        ("start", pa.timestamp("us", "UTC")),
+        ("end", pa.timestamp("us", "UTC")),
+        ("count", pa.int64()),
+        ("duration", pa.duration("us")),
+        ("cells", pa.list_(pa.string())),
+        ("input_rows", pa.list_(pa.int64())),
+        ("left_kind", pa.string()),
+        ("right_kind", pa.string()),
+        ("left_cell", pa.string()),
+        ("right_cell", pa.string()),
+    ]
+)
+
+
 def _index(table: pa.Table, keys: tuple[str, ...]) -> dict[tuple[object, ...], int]:
     result: dict[tuple[object, ...], int] = {}
     for i, row in enumerate(table.to_pylist()):
@@ -128,10 +145,13 @@ def _classify(
     return ("true" if compose(predicate, tuple(truth)) else "false"), ()
 
 
-def compute(
+def _condition_scope(
     capture: Capture,
 ) -> tuple[
-    pa.Table, tuple[Literal["true", "false", "unavailable"], ...], tuple[tuple[str, ...], ...]
+    tuple[Literal["true", "false", "unavailable"], ...],
+    tuple[tuple[str, ...], ...],
+    dict[tuple[object, ...], dict[str, int]],
+    tuple[str, ...],
 ]:
     check()
     grid = capture.signature.domain.time_grid
@@ -222,10 +242,21 @@ def compute(
         sequence = key[:position] + key[position + 1 :]
         series.setdefault(sequence, {})[str(key[position])] = i
     expected = {c.identity for c in grid.cells}
+    if any(set(cells) != expected for cells in series.values()):
+        raise invalid("runs series has missing or extra original grid cells")
+    return tuple(classes), tuple(reasons), series, semantic_inputs
+
+
+def compute(
+    capture: Capture,
+) -> tuple[
+    pa.Table, tuple[Literal["true", "false", "unavailable"], ...], tuple[tuple[str, ...], ...]
+]:
+    classes, reasons, series, semantic_inputs = _condition_scope(capture)
+    grid = capture.signature.domain.time_grid
+    assert grid is not None
     output: list[dict[str, object]] = []
     for sequence, cells in sorted(series.items(), key=lambda item: repr(item[0])):
-        if set(cells) != expected:
-            raise invalid("runs series has missing or extra original grid cells")
         start = None
         for ordinal in range(len(grid.cells) + 1):
             check()
@@ -281,22 +312,7 @@ def compute(
                     }
                 )
                 start = None
-    schema = pa.schema(
-        [
-            ("key_0", pa.string()),
-            ("start", pa.timestamp("us", "UTC")),
-            ("end", pa.timestamp("us", "UTC")),
-            ("count", pa.int64()),
-            ("duration", pa.duration("us")),
-            ("cells", pa.list_(pa.string())),
-            ("input_rows", pa.list_(pa.int64())),
-            ("left_kind", pa.string()),
-            ("right_kind", pa.string()),
-            ("left_cell", pa.string()),
-            ("right_cell", pa.string()),
-        ]
-    )
-    return pa.Table.from_pylist(output, schema=schema), tuple(classes), tuple(reasons)
+    return pa.Table.from_pylist(output, schema=_VIEW_SCHEMA), tuple(classes), tuple(reasons)
 
 
 def _primary(views: pa.Table, field: str) -> pa.Table:
@@ -518,10 +534,110 @@ def subject_mapping(capture: Capture, views: pa.Table) -> pa.Table:
     )
 
 
+def _verify_intervals(
+    capture: Capture,
+    views: pa.Table,
+    classes: tuple[Literal["true", "false", "unavailable"], ...],
+    series: dict[tuple[object, ...], dict[str, int]],
+    semantic_inputs: tuple[str, ...],
+) -> None:
+    """Verify frozen interval witnesses without constructing or segmenting runs."""
+    if views.schema != _VIEW_SCHEMA:
+        raise invalid("run witness schema differs from the closed interval fields")
+    grid = capture.signature.domain.time_grid
+    assert grid is not None
+    ownership = {
+        index: (sequence, ordinal)
+        for sequence, cells in series.items()
+        for ordinal, cell in enumerate(grid.cells)
+        for index in (cells[cell.identity],)
+    }
+    covered: set[int] = set()
+    previous: tuple[str, int] | None = None
+    for row in views.to_pylist():
+        check()
+        indices = row["input_rows"]
+        if (
+            not indices
+            or any(type(i) is not int or i not in ownership for i in indices)
+            or any(i in covered or classes[i] != "true" for i in indices)
+            or len(set(indices)) != len(indices)
+        ):
+            raise invalid("run witness overlaps or includes an invalid/non-true original cell")
+        sequence, start = ownership[indices[0]]
+        stop = start + len(indices)
+        cells = series[sequence]
+        if stop > len(grid.cells) or indices != [
+            cells[grid.cells[j].identity] for j in range(start, stop)
+        ]:
+            raise invalid("run witness is not one adjacent original sequence")
+        ordering = repr(sequence), start
+        if previous is not None and ordering <= previous:
+            raise invalid("run witnesses are not in original deterministic order")
+        previous = ordering
+        first, last = grid.cells[start], grid.cells[stop - 1]
+        delta = last.end - first.start
+        ticks = (delta.days * 86400 + delta.seconds) * 1000000 + delta.microseconds
+        identity = hashlib.sha256(
+            canonical_json(
+                [
+                    capture.run_id,
+                    capture.input_bindings,
+                    semantic_inputs,
+                    sequence,
+                    grid.identity,
+                    first.identity,
+                    last.identity,
+                ]
+            ).encode()
+        ).hexdigest()
+        left = "scope_boundary" if start == 0 else classes[cells[grid.cells[start - 1].identity]]
+        right = (
+            "scope_boundary"
+            if stop == len(grid.cells)
+            else classes[cells[grid.cells[stop].identity]]
+        )
+        if (
+            left == "true"
+            or right == "true"
+            or not 0 < ticks < 2**63
+            or len(indices) >= 2**63
+            or row["key_0"] != identity
+            or row["start"] != first.start
+            or row["end"] != last.end
+            or row["count"] != len(indices)
+            or row["duration"] != delta
+            or row["cells"] != [grid.cells[j].identity for j in range(start, stop)]
+            or row["left_kind"] != left
+            or row["right_kind"] != right
+            or row["left_cell"] != (None if start == 0 else grid.cells[start - 1].identity)
+            or row["right_cell"] != (None if stop == len(grid.cells) else grid.cells[stop].identity)
+        ):
+            raise invalid(
+                "run witness identity, endpoints, Duration or maximal termination differs"
+            )
+        covered.update(indices)
+    if covered != {i for i, classification in enumerate(classes) if classification == "true"}:
+        raise invalid("run witnesses do not cover every original true cell exactly once")
+
+
 def validate(
     contract: ExchangeContract, primary: pa.Table, parts: tuple[ExchangePart, ...]
 ) -> None:
     capture, state = _decode(parts)
+    from marivo.analysis.materialization.graph_findings import Policy, _policy
+
+    if _policy(parts) != Policy(
+        "time.runs",
+        "v1",
+        "graph.no_findings@v1",
+        "zero_findings@v1",
+        ("capture:" + state.input_digest,),
+        0,
+        0,
+        0,
+    ):
+        raise invalid("run zero-Findings policy differs from original condition capture")
     declaration = next(p for p in contract.signature.parts if isinstance(p, ConditionCellsPart))
     view = next(p for p in contract.signature.parts if isinstance(p, RunCellsPart))
     if (
@@ -532,13 +648,11 @@ def validate(
         or view.run_id != capture.run_id
     ):
         raise invalid("run declaration differs from captured grid/condition identity")
-    views, classes, reasons = compute(capture)
-    if (
-        not views.equals(load(state.views))
-        or classes != state.classifications
-        or reasons != state.reasons
-    ):
-        raise invalid("run maximal segments, termination or full classification scope differs")
+    classes, reasons, series, semantic_inputs = _condition_scope(capture)
+    if classes != state.classifications or reasons != state.reasons:
+        raise invalid("run full classification scope differs")
+    views = load(state.views)
+    _verify_intervals(capture, views, classes, series, semantic_inputs)
     index = _index(views, ("key_0",))
     selected = tuple(_index(primary, ("key_0",)))
     if not set(selected) <= set(index):
