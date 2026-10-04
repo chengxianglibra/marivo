@@ -101,6 +101,7 @@ from marivo.semantic.metric_graph import (
 from marivo.semantic.runtime_metric import RuntimeMetricExpr, SliceValue
 
 RuleId: TypeAlias = Literal[
+    "time_runs@v1",
     "deviation@v1",
     "retention@v1",
     "anchor@v1",
@@ -123,6 +124,17 @@ RuleId: TypeAlias = Literal[
     "reference@v1",
     "display@v1",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class TimeRuns:
+    predicate: ValuePredicate
+    run_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class TimeRunRead:
+    field: Literal["start", "end", "count", "duration"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -631,7 +643,9 @@ class RetentionBySubject:
 
 
 RuleParameters: TypeAlias = (
-    DeviationFit
+    TimeRuns
+    | TimeRunRead
+    | DeviationFit
     | DeviationRead
     | AnchorRetention
     | RetentionBySubject
@@ -3446,7 +3460,15 @@ def _display(inputs: tuple[Signature, ...], params: DisplayRank | DisplayTable) 
                     replace(p, table_views=owned_fields) if isinstance(p, FitInputsPart) else p
                     for p in first.parts
                     if part_role(p)
-                    in ("fit_inputs", "fit_state", "grid_cells", "subject_map", "finding_policy")
+                    in (
+                        "condition_cells",
+                        "run_cells",
+                        "fit_inputs",
+                        "fit_state",
+                        "grid_cells",
+                        "subject_map",
+                        "finding_policy",
+                    )
                 ),
                 *parts,
             )

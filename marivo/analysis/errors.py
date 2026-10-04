@@ -157,7 +157,7 @@ StatisticalErrorCode = Literal[
 
 
 class StatisticalRelationError(AnalysisError):
-    """A deviation input or retained authority violates its exact method contract."""
+    """A statistical input or retained authority violates its exact method contract."""
 
     def __init__(
         self,
@@ -183,7 +183,10 @@ class StatisticalRelationError(AnalysisError):
                 kind="inspect",
                 action=repair,
                 help_target=LiveHelpTarget(
-                    surface="analysis", canonical_id="dsl.NumericComparison.deviation"
+                    surface="analysis",
+                    canonical_id="dsl.NumericComparison.runs"
+                    if operation == "runs"
+                    else "dsl.NumericComparison.deviation",
                 ),
             ),
             context={"code": code, "method": method, "input_identity": input_identity},

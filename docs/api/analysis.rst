@@ -68,6 +68,12 @@ Entity-domain values
 .. autoclass:: MaterializedRatioRelation
    :members:
 
+.. autoclass:: LogicalTimeRunResult
+   :members:
+
+.. autoclass:: MaterializedTimeRunResult
+   :members:
+
 .. autoclass:: LogicalDeviationResult
    :members:
 

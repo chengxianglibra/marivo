@@ -28,6 +28,7 @@ from marivo.analysis.core.model import (
     AnchorObservationPart,
     AttributionPart,
     CohortDecisionPart,
+    ConditionCellsPart,
     Coordinate,
     CoordinateStatePart,
     CorrespondencePart,
@@ -52,6 +53,7 @@ from marivo.analysis.core.model import (
     Part,
     ReferenceStatePart,
     RowStatePart,
+    RunCellsPart,
     Signature,
     SubjectMapPart,
     SubjectPart,
@@ -99,6 +101,8 @@ from marivo.analysis.core.rules import (
     RetentionBySubject,
     RowState,
     TimeProduct,
+    TimeRunRead,
+    TimeRuns,
 )
 from marivo.analysis.core.time_grid import GridVersionSelection
 from marivo.analysis.methods.builtin import admit
@@ -164,7 +168,9 @@ def components(part: Part) -> tuple[str, ...]:
         (EntryAxesPart, FindingPolicyPart, FunnelPart, FunnelComparisonPart, FunnelAllocationPart),
     ):
         return ("retained",)
-    if isinstance(part, (FitInputsPart, FitStatePart, TableFitsPart)):
+    if isinstance(
+        part, (ConditionCellsPart, RunCellsPart, FitInputsPart, FitStatePart, TableFitsPart)
+    ):
         return ("retained",)
     if isinstance(part, GridCellsPart):
         return (
@@ -3374,6 +3380,8 @@ def lower(
             if len(stage.inputs) not in (1, 2) and not isinstance(
                 stage.node.parameters,
                 (
+                    TimeRuns,
+                    TimeRunRead,
                     DeviationFit,
                     AttributionDerive,
                     PartsTransport,
@@ -3388,6 +3396,8 @@ def lower(
                     stage.node.parameters,
                     (
                         AssociationScore,
+                        TimeRuns,
+                        TimeRunRead,
                         DeviationFit,
                         AttachCategory,
                         CompleteGroups,

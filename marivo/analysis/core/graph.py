@@ -33,6 +33,7 @@ from marivo.analysis.core.rules import (
     RuleDerivation,
     RuleParameters,
     TimeProduct,
+    TimeRuns,
 )
 from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType, SourceShape, ValueType
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
@@ -330,11 +331,15 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
         or any(type(e) is not Edge for e in node.inputs)
     ):
         _fail("ordered immutable data dependencies", node.identity)
-    if isinstance(node.parameters, PartsTransport):
+    if isinstance(node.parameters, (PartsTransport, TimeRuns)):
         from marivo.analysis.core.predicates import leaves
         from marivo.analysis.methods.predicates import validate_operand
 
-        for tree in node.parameters.predicates:
+        for tree in (
+            (node.parameters.predicate,)
+            if isinstance(node.parameters, TimeRuns)
+            else node.parameters.predicates
+        ):
             for predicate in leaves(tree):
                 if predicate.binding != node.inputs[0].node.signature.domain.binding:
                     _fail("predicate binding in the receiver scope", repr(predicate.binding))
@@ -356,7 +361,9 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
                     lq, rq = left.signature.quantity, right.signature.quantity
                     if (None if lq is None else lq.unit) != (None if rq is None else rq.unit):
                         _fail("compatible predicate units", repr((lq, rq)))
-        for index in node.parameters.inclusion_inputs:
+        for index in (
+            () if isinstance(node.parameters, TimeRuns) else node.parameters.inclusion_inputs
+        ):
             if type(index) is not int or not 1 <= index < len(node.inputs):
                 _fail("a valid retained inclusion input", repr(index))
             input_node = node.inputs[index].node
@@ -474,6 +481,7 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
                 FunnelAttribute,
                 AttributionDerive,
                 CellDerive,
+                TimeRuns,
                 PartsTransport,
                 OriginalReduce,
                 RowState,

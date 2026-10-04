@@ -108,7 +108,7 @@ def validate(part: Part) -> None:
                 "exact noninitial step, unique axes, closed mode and top_k 1..1000 required",
             )
     elif isinstance(part, FindingPolicyPart):
-        if part.producer in ("deviation.zscore", "deviation.mad"):
+        if part.producer in ("deviation.zscore", "deviation.mad", "time.runs"):
             if (
                 part.extractor != "graph.no_findings@v1"
                 or part.policy != "zero_findings@v1"

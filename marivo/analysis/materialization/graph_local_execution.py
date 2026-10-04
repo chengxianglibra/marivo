@@ -47,6 +47,8 @@ from marivo.analysis.core.rules import (
     RetentionBySubject,
     RowState,
     TimeProduct,
+    TimeRunRead,
+    TimeRuns,
 )
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
@@ -609,6 +611,8 @@ def _transport_stage(
             parts.append(prior)
             continue
         if role in (
+            "condition_cells",
+            "run_cells",
             "fit_inputs",
             "fit_state",
             "grid_cells",
@@ -1901,6 +1905,8 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
             if isinstance(
                 stage.stage.node.parameters,
                 (
+                    TimeRuns,
+                    TimeRunRead,
                     DeviationFit,
                     DeviationRead,
                     AttributionDerive,
@@ -1931,6 +1937,8 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
         if (
             name
             not in (
+                "time.runs",
+                "time.runs_read",
                 "deviation.zscore",
                 "deviation.mad",
                 "deviation.read",
@@ -2086,7 +2094,11 @@ def execute_verified_fixed(
             check for check in lowered.admitted.checks if check.node_id == stage.stage.node.identity
         )
         name = stage.stage.node.method.name
-        if isinstance(stage.stage.node.parameters, (DeviationFit, DeviationRead)):
+        if isinstance(stage.stage.node.parameters, (TimeRuns, TimeRunRead)):
+            from marivo.analysis.materialization.runs_execution import execute as runs
+
+            result = runs(stage.stage.node, values, binding)
+        elif isinstance(stage.stage.node.parameters, (DeviationFit, DeviationRead)):
             from marivo.analysis.materialization.deviation_execution import execute as deviation
 
             result = deviation(stage.stage.node, values, binding)

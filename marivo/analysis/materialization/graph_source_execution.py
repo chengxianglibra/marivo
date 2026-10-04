@@ -31,6 +31,8 @@ from marivo.analysis.core.rules import (
     PartsTransport,
     PreparedObservation,
     ReferenceDerive,
+    TimeRunRead,
+    TimeRuns,
 )
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
@@ -380,7 +382,9 @@ def execute_source_graph(
         if isinstance(stage, LoweredRelation)
     ) or any(
         isinstance(stage, LoweredLocal)
-        and isinstance(stage.stage.node.parameters, (DeviationFit, DeviationRead))
+        and isinstance(
+            stage.stage.node.parameters, (TimeRuns, TimeRunRead, DeviationFit, DeviationRead)
+        )
         for stage in lowered.stages
     ):
         from marivo.analysis.materialization.graph_preparation import execute as execute_preparation

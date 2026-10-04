@@ -49,6 +49,8 @@ from marivo.analysis.core.rules import (
     RowState,
     RuleParameters,
     TimeProduct,
+    TimeRunRead,
+    TimeRuns,
 )
 from marivo.analysis.methods.errors import reject
 from marivo.analysis.methods.physical import (
@@ -68,6 +70,8 @@ from marivo.analysis.methods.physical import (
 from marivo.analysis.methods.semantics import MethodKey
 
 PARTS: tuple[PartRole, ...] = (
+    "condition_cells",
+    "run_cells",
     "fit_inputs",
     "fit_state",
     "grid_cells",
@@ -885,6 +889,10 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
 @cache
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     """Version typed folds and once-rounded numeric consumers in Store 7."""
+    if method.name in ("time.runs", "time.runs_read"):
+        from marivo.analysis.methods.runs_physical import implementations as runs
+
+        return runs(method)
     if method.name.startswith("deviation."):
         from marivo.analysis.methods.deviation_physical import implementations as deviation
 
@@ -1155,6 +1163,10 @@ def specialize_arity(implementation: Implementation, arity: int) -> Implementati
 
 def specialize_numeric(implementation: Implementation, key: QualificationKey) -> Implementation:
     """Bind precise numeric families and closed typed predicate inputs."""
+    if key.method.name in ("time.runs", "time.runs_read"):
+        from marivo.analysis.methods.runs_physical import specialize
+
+        return specialize(implementation, key)
     if key.method.name.startswith("deviation."):
         from marivo.analysis.methods.deviation_physical import specialize
 
@@ -1231,7 +1243,9 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
         key.method.name == "map_correspond"
         and isinstance(key.input_types[0], DecimalType)
         and isinstance(implementation.qualification, Qualified)
-        and implementation.qualification.implementation_id.startswith("r82.subject_image.")
+        and implementation.qualification.implementation_id.startswith(
+            ("r82.subject_image.", "r83.subject_image.")
+        )
     ):
         return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
     if (
@@ -1425,6 +1439,8 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
     if isinstance(
         params,
         (
+            TimeRuns,
+            TimeRunRead,
             DeviationFit,
             DeviationRead,
             AnchorBind,
@@ -1545,7 +1561,9 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
     elif isinstance(params, MapCorrespond):
         if (
             isinstance(implementation.qualification, Qualified)
-            and implementation.qualification.implementation_id.startswith("r82.subject_image.")
+            and implementation.qualification.implementation_id.startswith(
+                ("r82.subject_image.", "r83.subject_image.")
+            )
             and params.mode != "subjects"
         ):
             reject(

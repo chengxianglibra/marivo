@@ -23,6 +23,7 @@ from marivo.analysis.compiler.graph_lowering import (
 from marivo.analysis.core.domain_captures import fail
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import (
+    ConditionCellsPart,
     CoordinateStatePart,
     FitInputsPart,
     FunnelAllocationPart,
@@ -31,6 +32,7 @@ from marivo.analysis.core.model import (
     HistoryViewPart,
     InstanceRetentionPart,
     OriginalStatePart,
+    RunCellsPart,
     SubjectPart,
     SubjectRetentionPart,
 )
@@ -63,6 +65,8 @@ from marivo.analysis.core.rules import (
     RetentionBySubject,
     RowState,
     TimeProduct,
+    TimeRunRead,
+    TimeRuns,
 )
 from marivo.analysis.domains.completeness import EventCoverageRequestV1
 from marivo.analysis.materialization.domain_preparation import validate_rows
@@ -356,6 +360,8 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             isinstance(
                 item.stage.node.parameters,
                 (
+                    TimeRuns,
+                    TimeRunRead,
                     DeviationFit,
                     DeviationRead,
                     TimeProduct,
@@ -387,6 +393,8 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 isinstance(
                     p,
                     (
+                        ConditionCellsPart,
+                        RunCellsPart,
                         FitInputsPart,
                         InstanceRetentionPart,
                         SubjectRetentionPart,
@@ -639,6 +647,14 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             from marivo.analysis.materialization.graph_display import fixed
 
             results[item.stage.output] = fixed(
+                item.stage.node,
+                tuple(results[key] for key in item.stage.inputs),
+                item.stage.node.identity,
+            )
+        elif isinstance(params, (TimeRuns, TimeRunRead)):
+            from marivo.analysis.materialization.runs_execution import execute as runs
+
+            results[item.stage.output] = runs(
                 item.stage.node,
                 tuple(results[key] for key in item.stage.inputs),
                 item.stage.node.identity,

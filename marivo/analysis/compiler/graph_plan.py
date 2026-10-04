@@ -7,6 +7,7 @@ from typing import Literal, TypeAlias
 
 from marivo.analysis.core.graph import FixedLeaf, MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import (
+    ConditionCellsPart,
     FitInputsPart,
     FunnelAllocationPart,
     FunnelComparisonPart,
@@ -14,6 +15,7 @@ from marivo.analysis.core.model import (
     HistoryViewPart,
     InstanceRetentionPart,
     Obligation,
+    RunCellsPart,
     SubjectRetentionPart,
     reject,
 )
@@ -42,6 +44,8 @@ from marivo.analysis.core.rules import (
     RetentionBySubject,
     RowState,
     TimeProduct,
+    TimeRunRead,
+    TimeRuns,
 )
 from marivo.analysis.methods.physical import (
     FixedShape,
@@ -232,6 +236,8 @@ def plan(
                 and not isinstance(
                     node.parameters,
                     (
+                        TimeRuns,
+                        TimeRunRead,
                         DeviationFit,
                         DeviationRead,
                         TimeProduct,
@@ -270,6 +276,8 @@ def plan(
                     isinstance(
                         p,
                         (
+                            ConditionCellsPart,
+                            RunCellsPart,
                             FitInputsPart,
                             HistoryViewPart,
                             InstanceRetentionPart,
@@ -361,6 +369,8 @@ def plan(
                         isinstance(
                             p,
                             (
+                                ConditionCellsPart,
+                                RunCellsPart,
                                 FitInputsPart,
                                 FunnelPart,
                                 FunnelComparisonPart,
@@ -377,6 +387,8 @@ def plan(
                 or isinstance(
                     node.parameters,
                     (
+                        TimeRuns,
+                        TimeRunRead,
                         DeviationFit,
                         DeviationRead,
                         HistoryReplay,

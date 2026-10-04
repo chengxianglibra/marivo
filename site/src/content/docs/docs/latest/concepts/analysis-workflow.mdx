@@ -1141,3 +1141,20 @@ Compare/allocation cap emission at 1000 and retain eligible/emitted/truncated co
 The qualified placement is explicit Ibis source preparation followed by local
 consumption, or source-free `artifact_python` for fixed continuation. No native
 funnel route, remote backend, same-wheel or full R7 qualification is claimed here.
+
+## Complete-grid runs
+
+Given a complete daily numeric observation, construct the condition before row
+selection. The result retains maximal intervals and their original grid scope.
+
+```python
+segments = daily.runs(where=daily.value.gt(20))
+fixed = segments.execute()
+selected = fixed.where(fixed.count.value.gt(1)).execute()
+mv.table(start=selected.start, end=selected.end, count=selected.count,
+         duration=selected.duration).execute().show()
+```
+
+Unavailable Cells break intervals. Duration uses actual UTC boundaries.
+Filter intervals after segmentation; selecting observation rows first revokes
+the complete-grid contract. Global time observations do not grant members.

@@ -1651,3 +1651,16 @@ keys, counts or registered qualification; repair uses current state and names
 an exact reconstruction/parameter action. Timeout/cancel/resource errors reuse
 the existing Runtime owner. There is no generic ValueError or hardcoded repair
 catalog substituted for these structured facts.
+
+### R8.3 runs implementation boundary
+
+The connected `time.runs@v1` owner captures all condition dependencies and the
+complete original grid, then enumerates maximal true segments across the entire
+input. Reader batches do not delimit segments. Its four projections use
+`time.runs_read@v1`. Output selection preserves full classification counts,
+termination witnesses and run-to-cell mapping; it never segments retained rows.
+The R8.3 evidence index records executed checks separately from frozen IDs.
+Complete-grid admission checks row selection since the owning `each(grid)`
+boundary: both where and limit reject, while Subject selection before a new
+grid does not invalidate that new observation. Runs admission errors route to
+the runs Help contract.

@@ -2451,3 +2451,24 @@ renderer inventory is introduced. The new methods/types become exports/Help
 only in the package that connects their full public execute/Store/recovery path.
 F14 budgets and state-aware cards/errors are owned by the Runtime disclosure
 section; English/Chinese latest examples and API/CLI align at that same boundary.
+
+### R8.3 connected complete-grid runs
+
+`NumericRelation.runs(where=...)` now builds `LogicalTimeRunResult`; execution
+returns `MaterializedTimeRunResult`. The four owned fields are `start`, `end`,
+`count` and `duration`. Conditions classify every original cell before maximal
+segmentation. Missing grid coordinates and partial cells reject; unavailable
+Cells break segments. Selection retains the original condition scope.
+
+```python
+segments = daily.runs(where=daily.value.gt(20))
+fixed = segments.execute()
+selected = fixed.where(fixed.count.value.gt(1)).execute()
+mv.table(start=selected.start, end=selected.end, count=selected.count,
+         duration=selected.duration).execute().show()
+```
+
+The implementation transports grid_cells, condition_cells, run_cells and a zero
+Finding policy. Actual Subject mappings alone grant members. Duration uses
+exact UTC microseconds and supports unitized predicates; it gains no ranking
+capability. Connected execution does not establish the full frozen R8.3 matrix.

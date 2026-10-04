@@ -33,6 +33,7 @@ from marivo.analysis.core.graph import (
 from marivo.analysis.core.model import (
     AnchorDomainPart,
     Binding,
+    ConditionCellsPart,
     Coordinate,
     DomainSignature,
     FitInputsPart,
@@ -41,6 +42,7 @@ from marivo.analysis.core.model import (
     FunnelPart,
     HistoryViewPart,
     InstanceRetentionPart,
+    RunCellsPart,
     SubjectPart,
     SubjectRetentionPart,
 )
@@ -57,6 +59,7 @@ from marivo.analysis.core.rules import (
     RetentionBySubject,
     RowState,
     TimeProduct,
+    TimeRuns,
     entity_members,
 )
 from marivo.analysis.core.time_grid import GridPoint, GridVersionSelection
@@ -488,7 +491,7 @@ class MemberGraph:
                         isinstance(node.parameters, TimeProduct)
                         and any(
                             isinstance(ancestor, MethodNode)
-                            and isinstance(ancestor.parameters, DeviationFit)
+                            and isinstance(ancestor.parameters, (DeviationFit, TimeRuns))
                             for ancestor in topology(node.inputs[0].node)
                         )
                     )
@@ -517,6 +520,8 @@ class MemberGraph:
                         isinstance(
                             p,
                             (
+                                ConditionCellsPart,
+                                RunCellsPart,
                                 FitInputsPart,
                                 FunnelPart,
                                 FunnelComparisonPart,
@@ -542,6 +547,8 @@ class MemberGraph:
                     or isinstance(node.parameters, (RetentionBySubject, PreparedObservation))
                     or node.method.name
                     in (
+                        "time.runs",
+                        "time.runs_read",
                         "deviation.zscore",
                         "deviation.mad",
                         "deviation.read",

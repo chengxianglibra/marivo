@@ -58,7 +58,9 @@ def _number(value: object) -> float:
 
 @dataclass(frozen=True, slots=True)
 class Policy:
-    producer: Literal["funnel.compare", "funnel_ratio_mix", "deviation.zscore", "deviation.mad"]
+    producer: Literal[
+        "funnel.compare", "funnel_ratio_mix", "deviation.zscore", "deviation.mad", "time.runs"
+    ]
     state_version: Literal["v1"]
     extractor: Literal[
         "graph.funnel_delta_findings@v1",
@@ -78,7 +80,7 @@ POLICY = TypeAdapter(Policy)
 
 
 def _eligible(primary: pa.Table, producer: str) -> list[dict[str, object]]:
-    if producer.startswith("deviation."):
+    if producer.startswith("deviation.") or producer == "time.runs":
         return []
     rows = [r for r in primary.to_pylist() if r["cell_tag"] == "defined"]
     keys = tuple(k for k in primary.column_names if k.startswith("key_"))
@@ -218,7 +220,7 @@ def extract(
     policy = _policy(result.parts)
     if policy.policy == "zero_findings@v1":
         if (
-            policy.producer not in ("deviation.zscore", "deviation.mad")
+            policy.producer not in ("deviation.zscore", "deviation.mad", "time.runs")
             or policy.extractor != "graph.no_findings@v1"
             or (policy.eligible, policy.emitted, policy.truncated) != (0, 0, 0)
         ):

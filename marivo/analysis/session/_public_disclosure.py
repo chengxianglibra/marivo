@@ -162,6 +162,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.OneToOneCorrespondence,
         dsl.ReferenceWeights,
         dsl.LogicalAttributionResult,
+        dsl.LogicalTimeRunResult,
+        dsl.MaterializedTimeRunResult,
         dsl.LogicalDeviationResult,
         dsl.MaterializedDeviationResult,
         dsl.MaterializedAttributionResult,
@@ -303,6 +305,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             dsl.OneToOneCorrespondence: "mv.one_to_one(left=left, right=right, via=relationship)",
             dsl.ReferenceWeights: "mv.reference_weights(values, strata=(category,), unit=entity)",
             dsl.LogicalAttributionResult: "change.attribute(axes=(channel,))",
+            dsl.LogicalTimeRunResult: "daily.runs(where=daily.value.gt(20))",
+            dsl.MaterializedTimeRunResult: "segments.execute()",
             dsl.LogicalDeviationResult: 'change.deviation(method="mad")',
             dsl.MaterializedDeviationResult: "scored.execute()",
             dsl.MaterializedAttributionResult: "attribution.execute()",
@@ -411,6 +415,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         )
         if type_value is windows.Duration:
             producers = ("dsl.duration",)
+        elif type_value is dsl.LogicalTimeRunResult:
+            producers = ("dsl.NumericComparison.runs",)
         elif type_value is dsl.LogicalDeviationResult:
             producers = ("dsl.NumericComparison.deviation",)
         elif type_value is windows.ElapsedWindow:
@@ -441,7 +447,13 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 summary=f"Governed Analysis {name} value type.",
                 acquisition=acquisition,
                 producers=("session.artifact",) if name.startswith("Materialized") else producers,
-                consumers=("dsl.InstanceRetention.by_subject",)
+                consumers=(
+                    "dsl.LogicalTimeRunResult.where",
+                    "dsl.LogicalTimeRunResult.execute",
+                    "dsl.Value.contract",
+                )
+                if type_value in (dsl.LogicalTimeRunResult, dsl.MaterializedTimeRunResult)
+                else ("dsl.InstanceRetention.by_subject",)
                 if type_value in (windows.AnyAnchor, windows.EveryAnchor)
                 else (
                     "dsl.LogicalDeviationResult.where",

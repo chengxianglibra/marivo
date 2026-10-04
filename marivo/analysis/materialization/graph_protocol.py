@@ -584,6 +584,8 @@ def validate_descriptor(value: Descriptor) -> Node:
                     "entry_axes",
                     "funnel_state",
                     "finding_policy",
+                    "condition_cells",
+                    "run_cells",
                     "fit_inputs",
                     "fit_state",
                     "table_fits",

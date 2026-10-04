@@ -200,6 +200,7 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import LogicalTable as LogicalTable
     from marivo.analysis.public_dsl import LogicalTemporalRelation as LogicalTemporalRelation
     from marivo.analysis.public_dsl import LogicalTimeAnalysisDomain as LogicalTimeAnalysisDomain
+    from marivo.analysis.public_dsl import LogicalTimeRunResult as LogicalTimeRunResult
     from marivo.analysis.public_dsl import LogicalTransitionSummary as LogicalTransitionSummary
     from marivo.analysis.public_dsl import LogicalViolationResult as LogicalViolationResult
     from marivo.analysis.public_dsl import MaterializedAnalysisDomain as MaterializedAnalysisDomain
@@ -292,6 +293,7 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import (
         MaterializedTimeAnalysisDomain as MaterializedTimeAnalysisDomain,
     )
+    from marivo.analysis.public_dsl import MaterializedTimeRunResult as MaterializedTimeRunResult
     from marivo.analysis.public_dsl import (
         MaterializedTransitionSummary as MaterializedTransitionSummary,
     )

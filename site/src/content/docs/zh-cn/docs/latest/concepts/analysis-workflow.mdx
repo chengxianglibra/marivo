@@ -896,3 +896,17 @@ canonical assignment。snapshot/validity 版本和完整轴元组保留真实 Nu
 compare/归因的发射上限为 1000，保留 eligible/emitted/truncated 权威。
 来源路线为显式 Ibis 准备后本地消费，固定续算为 `artifact_python`。
 此处不授予 native funnel、远端、same-wheel 或完整 R7 资格。
+
+## 完整网格的连续区间
+
+对于完整的每日数值观察，在筛选行之前构造条件。结果保留最大连续区间及其原始网格范围。
+
+```python
+segments = daily.runs(where=daily.value.gt(20))
+fixed = segments.execute()
+selected = fixed.where(fixed.count.value.gt(1)).execute()
+mv.table(start=selected.start, end=selected.end, count=selected.count,
+         duration=selected.duration).execute().show()
+```
+
+不可评估的 Cell 会打断区间。Duration 使用真实 UTC 边界。先分段再筛选区间；提前筛选观察行会撤销完整网格契约。全局时间观察不具备 members 能力。

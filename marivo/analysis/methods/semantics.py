@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 
 MethodName: TypeAlias = Literal[
+    "time.runs",
+    "time.runs_read",
     "deviation.zscore",
     "deviation.mad",
     "deviation.read",
@@ -162,6 +164,10 @@ class MethodKey:
 
 def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     """Map closed parameter variants to exactly one concrete method identity."""
+    if isinstance(params, rules.TimeRuns):
+        return MethodKey("time.runs")
+    if isinstance(params, rules.TimeRunRead):
+        return MethodKey("time.runs_read")
     if isinstance(params, rules.DeviationFit):
         return MethodKey("deviation.zscore" if params.method == "zscore" else "deviation.mad")
     if isinstance(params, rules.DeviationRead):
@@ -351,6 +357,8 @@ class MethodSemantics:
     def persistent_state_kind(self) -> PersistentStateKind | None:
         """Return the connected durable state kind; absence grants no publication."""
         kinds: dict[MethodName, PersistentStateKind] = {
+            "time.runs": "none",
+            "time.runs_read": "none",
             "deviation.zscore": "none",
             "deviation.mad": "none",
             "deviation.read": "none",
@@ -435,6 +443,14 @@ class MethodSemantics:
         from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
         name = self.key.name
+        if isinstance(params, (rules.TimeRuns, rules.TimeRunRead)):
+            from marivo.analysis.methods.runs_physical import output_type as run_output_type
+
+            if output != run_output_type(
+                params.field if isinstance(params, rules.TimeRunRead) else "count"
+            ):
+                reject("the owned run field type", repr(output), "Read an owned run field.")
+            return
         if isinstance(params, (rules.DeviationFit, rules.DeviationRead)):
             from marivo.analysis.methods.deviation_physical import (
                 output_type as deviation_output_type,
@@ -862,6 +878,8 @@ class MethodSemantics:
             "state_rollup.linear",
         ):
             return "original_reduce@v1"
+        if name in ("time.runs", "time.runs_read"):
+            return "time_runs@v1"
         if name.startswith("deviation."):
             return "deviation@v1"
         if name == "association.spearman":
@@ -1227,6 +1245,10 @@ class MethodSemantics:
             return derive_history_view(inputs, params)
         if isinstance(params, rules.HistoryReplay):
             return rules._history_replay(inputs, params)
+        if isinstance(params, (rules.TimeRuns, rules.TimeRunRead)):
+            from marivo.analysis.core.runs_rules import derive as derive_runs
+
+            return derive_runs(inputs, params)
         if isinstance(params, (rules.DeviationFit, rules.DeviationRead)):
             from marivo.analysis.core.deviation_rules import derive as derive_deviation
 
@@ -1302,7 +1324,13 @@ class MethodSemantics:
 CONNECTED_METHODS = (
     *(
         MethodSemantics(MethodKey(name), "analysis.core.rules")
-        for name in ("deviation.zscore", "deviation.mad", "deviation.read")
+        for name in (
+            "time.runs",
+            "time.runs_read",
+            "deviation.zscore",
+            "deviation.mad",
+            "deviation.read",
+        )
     ),
     MethodSemantics(MethodKey("history.replay"), "analysis.core.rules"),
     MethodSemantics(MethodKey("history.in_state"), "analysis.core.rules"),

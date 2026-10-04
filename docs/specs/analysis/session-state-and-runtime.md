@@ -1592,3 +1592,13 @@ dynamic K/errors, independent drift/reachability/budget tests, CLI and latest
 English/Chinese site examples before public connection. R8.5 closes remaining
 retirement. Packaged skills remain untouched without explicit approval of a
 concrete proposed diff; M17 records their workflow responsibility separately.
+
+### R8.3 run capture and recovery
+
+Complete-grid runs use the existing registered source-prefix/local execution and
+Store 7 publication path. `r8.condition_cells/v1` retains condition inputs,
+coverage, original domain and Subject facts; `r8.run_cells/v1` retains the full
+classification scope, interval mapping and termination witnesses. Required parts
+are receipt-bound. Fixed projections and cold recovery validate retained facts
+without loading current Semantic state, calendars or sources. Selection only
+changes output keys; the original scope remains available in `contract()`.
