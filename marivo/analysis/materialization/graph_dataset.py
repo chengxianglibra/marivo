@@ -207,6 +207,11 @@ class GraphDataset:
             "end",
             "count",
             "duration",
+            "coefficient",
+            "selected",
+            "prediction",
+            "lower",
+            "upper",
         ]
         | None
     ) = None
@@ -279,7 +284,28 @@ class GraphDataset:
         if self.projection is not None:
             from marivo.analysis.materialization.graph_display import project
 
-            if self.projection in ("start", "end", "count", "duration"):
+            if self.projection in ("coefficient", "selected", "prediction", "lower", "upper"):
+                from marivo.analysis.core.graph import MethodNode
+                from marivo.analysis.materialization.graph_relation import Relation
+                from marivo.analysis.materialization.statistical_execution import (
+                    execute as execute_statistical,
+                )
+
+                relation = Relation.restore(replace(self, projection=None))
+                node = (
+                    relation.association_field(self.projection)
+                    if self.projection in ("coefficient", "selected")
+                    else relation.forecast_field(
+                        "prediction"
+                        if self.projection == "prediction"
+                        else "lower"
+                        if self.projection == "lower"
+                        else "upper"
+                    )
+                ).root
+                assert isinstance(node, MethodNode)
+                result = execute_statistical(node, (result,), current.artifact_ref)
+            elif self.projection in ("start", "end", "count", "duration"):
                 from marivo.analysis.core.graph import MethodNode
                 from marivo.analysis.materialization.graph_relation import Relation
                 from marivo.analysis.materialization.runs_execution import execute

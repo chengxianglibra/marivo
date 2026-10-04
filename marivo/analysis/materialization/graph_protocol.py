@@ -238,7 +238,11 @@ class MethodState:
             if self.kind == "ranking"
             else ("columns", "column_bindings")
             if self.kind == "table"
-            else ("pair_counts",)
+            else (
+                ("pair_inputs", "association_state")
+                if "pair_inputs" in self.ordered_part_roles
+                else ("pair_counts",)
+            )
             if self.kind == "spearman"
             else ("current_endpoint", "baseline_endpoint", "correspondence")
             if self.kind in ("difference", "relative_change", "relation_ratio")
@@ -586,6 +590,11 @@ def validate_descriptor(value: Descriptor) -> Node:
                     "finding_policy",
                     "condition_cells",
                     "run_cells",
+                    "pair_inputs",
+                    "association_state",
+                    "training_inputs",
+                    "forecast_state",
+                    "future_cells",
                     "fit_inputs",
                     "fit_state",
                     "table_fits",

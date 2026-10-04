@@ -23,6 +23,7 @@ from marivo.analysis.core.graph import (
 from marivo.analysis.core.model import (
     Coordinate,
     CoordinateStatePart,
+    DerivedQuantity,
     DomainSignature,
     ObservedQuantity,
     OriginalStatePart,
@@ -53,7 +54,7 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint
 from marivo.analysis.datasets.errors import DatasetConstructionError
-from marivo.analysis.errors import AnalysisError, StatisticalRelationError
+from marivo.analysis.errors import AnalysisError, StatisticalErrorCode, StatisticalRelationError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.errors import MaterializationError
@@ -316,7 +317,9 @@ class Relation:
             )
         return GraphDataset(self.runtime, artifact)
 
-    def _check_runs_input(self) -> None:
+    def _check_runs_input(
+        self, operation: Literal["runs", "correlate", "forecast"] = "runs"
+    ) -> None:
         from marivo.analysis.methods.deviation_physical import parse_type
 
         try:
@@ -324,8 +327,8 @@ class Relation:
         except ValueError as error:
             raise StatisticalRelationError(
                 code="r8.numeric_unqualified",
-                operation="runs",
-                method="time.runs@v1",
+                operation=operation,
+                method="time.runs@v1" if operation == "runs" else operation + "@v1",
                 input_identity=self.root.fingerprint,
                 expected="int64, float64 or Decimal numeric observation",
                 received=self.root.value_type.name,
@@ -337,8 +340,8 @@ class Relation:
         ):
             raise StatisticalRelationError(
                 code="r8.grid_incomplete",
-                operation="runs",
-                method="time.runs@v1",
+                operation=operation,
+                method="time.runs@v1" if operation == "runs" else operation + "@v1",
                 input_identity=self.root.fingerprint,
                 expected="captured original grid coverage parts",
                 received=repr(tuple(sorted(roles))),
@@ -366,12 +369,12 @@ class Relation:
         if grid is None or any(cell.partial for cell in grid.cells) or selected:
             raise StatisticalRelationError(
                 code="r8.grid_incomplete",
-                operation="runs",
-                method="time.runs@v1",
+                operation=operation,
+                method="time.runs@v1" if operation == "runs" else operation + "@v1",
                 input_identity=self.root.fingerprint,
                 expected="the original complete time grid before selection",
                 received="missing/partial grid or prior row selection",
-                repair="Construct runs before where; select intervals afterwards.",
+                repair="Construct the statistical result before where; select its outputs afterwards.",
             )
 
     def runs(self, predicate: ValuePredicate, dependencies: tuple[Relation, ...]) -> Relation:
@@ -499,6 +502,236 @@ class Relation:
                 (self._edge(),),
                 DeviationRead(retained.input_type, field),
                 value_type=output_type(field, parse_type(retained.input_type)),
+            )
+        )
+
+    def correlate(
+        self,
+        others: tuple[Relation, ...],
+        method: Literal["pearson", "spearman", "kendall"],
+        lag_range: range | None,
+    ) -> Relation:
+        from marivo.analysis.core.rules import AssociationFit
+        from marivo.analysis.core.statistical_rules import corresponding_domains
+        from marivo.analysis.methods.deviation_physical import parse_type
+
+        inputs = (self, *others)
+        identity = self.root.fingerprint
+
+        def error(
+            code: StatisticalErrorCode, expected: str, received: str, repair: str
+        ) -> StatisticalRelationError:
+            return StatisticalRelationError(
+                code=code,
+                operation="correlate",
+                method="association." + method + "@v1",
+                input_identity=identity,
+                expected=expected,
+                received=received,
+                repair=repair,
+            )
+
+        if not 2 <= len(inputs) <= 16 or method not in ("pearson", "spearman", "kendall"):
+            raise error(
+                "r8.input_identity",
+                "2..16 distinct numeric inputs and pearson/spearman/kendall",
+                repr((len(inputs), method)),
+                "Pass distinct corresponding numeric quantities and one registered correlation method.",
+            )
+        if len(
+            {
+                v.root.signature.quantity.definition_id
+                if v.root.signature.quantity is not None
+                else ""
+                for v in inputs
+            }
+        ) != len(inputs):
+            raise error(
+                "r8.input_identity",
+                "distinct quantity identities",
+                "repeated quantity",
+                "Pass each distinct corresponding quantity once.",
+            )
+        if any(v.runtime is not self.runtime for v in inputs):
+            raise error(
+                "r8.input_identity",
+                "inputs from one Session",
+                "foreign Session",
+                "Reconstruct all inputs in the receiver Session.",
+            )
+        if lag_range is not None and (type(lag_range) is not range or not lag_range):
+            raise error(
+                "r8.correspondence",
+                "a nonempty range or None",
+                repr(lag_range),
+                "Pass a nonempty signed integer range on the original time grid.",
+            )
+        if lag_range is not None and (
+            (lag_range[-1] - lag_range[0]) // lag_range.step + 1 > 4096
+            or any(not -(2**63) <= k < 2**63 for k in (lag_range[0], lag_range[-1]))
+        ):
+            raise error(
+                "r8.candidate_ceiling",
+                "signed int64 lags within 4096 candidates",
+                repr(lag_range),
+                "Reduce the explicitly requested lag range.",
+            )
+        if not self.root.signature.domain.instance_key:
+            raise error(
+                "r8.correspondence",
+                "Entity/category/time statistical units",
+                "Scalar",
+                "Observe corresponding non-scalar quantities first.",
+            )
+        lags = (0,) if lag_range is None else tuple(lag_range)
+        if len(inputs) * (len(inputs) - 1) // 2 * len(lags) > 4096:
+            raise error(
+                "r8.candidate_ceiling",
+                "at most 4096 pair/lag/series candidates",
+                str(len(inputs) * (len(inputs) - 1) // 2 * len(lags)),
+                "Reduce the explicitly requested quantity or lag scope.",
+            )
+        for v in inputs:
+            try:
+                parse_type(v.root.value_type.name)
+            except ValueError as invalid_type:
+                raise error(
+                    "r8.numeric_unqualified",
+                    "original int64, float64 or Decimal quantity",
+                    v.root.value_type.name,
+                    "Use an admitted numeric quantity; Duration and Boolean are not statistical carriers.",
+                ) from invalid_type
+            if (
+                not corresponding_domains(v.root.signature.domain, self.root.signature.domain)
+                or v.root.signature.quantity is None
+            ):
+                raise error(
+                    "r8.correspondence",
+                    "exact common observation domain",
+                    repr(v.root.signature.domain),
+                    "Bind all quantities to one original complete observation domain.",
+                )
+            if v.root.signature.domain.time_grid is not None or lag_range is not None:
+                v._check_runs_input("correlate")
+        from marivo.analysis.compiler.graph_plan import classify_inputs
+
+        modes = tuple(classify_inputs(v.root).kind for v in inputs)
+        if len(set(modes)) != 1:
+            raise error(
+                "r8.input_mode",
+                "one source or fixed closure",
+                repr(modes),
+                "Use source Logical inputs together, or retained fixed inputs together.",
+            )
+        known = {n.identity: n for n in topology(self.root)}
+        edges = (
+            self._edge(),
+            *(Edge("quantity", _shared_root(self.root, v.root, known)) for v in others),
+        )
+        association_id = digest(
+            repr((tuple(v.root.fingerprint for v in inputs), method, lags, lag_range is not None))
+        )
+        node = method_node(
+            edges,
+            AssociationFit(
+                association_id,
+                method,
+                tuple(v.root.value_type.name for v in inputs),
+                lags,
+                lag_range is not None,
+            ),
+            value_type=ScalarType("float64"),
+        )
+        result = self._with(node)
+        for other in others:
+            result = result._with_sources(other)
+        return result
+
+    def association_field(self, field: Literal["coefficient", "selected"]) -> Relation:
+        from marivo.analysis.core.rules import AssociationRead
+
+        return self._with(
+            method_node(
+                (self._edge(),),
+                AssociationRead(field),
+                value_type=ScalarType("boolean" if field == "selected" else "float64"),
+            )
+        )
+
+    def forecast(
+        self,
+        horizon: int,
+        model: Literal["naive", "drift", "seasonal_naive"],
+        season: int | None,
+        level: float,
+    ) -> Relation:
+        import math
+
+        from marivo.analysis.core.rules import ForecastFit
+        from marivo.analysis.core.time_grid import continuation
+        from marivo.analysis.methods.deviation_numeric import unit_type
+        from marivo.analysis.methods.deviation_physical import parse_type
+
+        if type(level) is not float or not math.isfinite(level) or not 0 < level < 1:
+            raise StatisticalRelationError(
+                code="r8.forecast_history",
+                operation="forecast",
+                method="forecast." + model + "@v1",
+                input_identity=self.root.fingerprint,
+                expected="finite float interval_level in (0,1)",
+                received=repr(level),
+                repair="Pass a finite interval level strictly between zero and one.",
+            )
+        self._check_runs_input("forecast")
+        grid = self.root.signature.domain.time_grid
+        assert grid is not None
+        minimum = season + 1 if season is not None else 3 if model == "drift" else 2
+        if len(grid.cells) < minimum:
+            raise StatisticalRelationError(
+                code="r8.forecast_history",
+                operation="forecast",
+                method="forecast." + model + "@v1",
+                input_identity=self.root.fingerprint,
+                expected=f"at least {minimum} complete history periods",
+                received=str(len(grid.cells)),
+                repair="Observe a complete history long enough for the requested model.",
+            )
+        try:
+            future = continuation(grid, horizon)
+        except DatasetConstructionError as error:
+            raise StatisticalRelationError(
+                code="r8.future_grid",
+                operation="forecast",
+                method="forecast." + model + "@v1",
+                input_identity=self.root.fingerprint,
+                expected="captured approved future continuation",
+                received=str(error),
+                repair="Capture the original observation with certified calendar coverage through the requested horizon.",
+            ) from error
+        identity = digest(
+            repr((self.root.fingerprint, horizon, model, season, level, future.identity))
+        )
+        return self._with(
+            method_node(
+                (self._edge(),),
+                ForecastFit(identity, self.root.value_type.name, model, season, level, future),
+                value_type=unit_type(parse_type(self.root.value_type.name)),
+            )
+        )
+
+    def forecast_field(self, field: Literal["prediction", "lower", "upper"]) -> Relation:
+        from marivo.analysis.core.model import TrainingInputsPart, require_part
+        from marivo.analysis.core.rules import ForecastRead
+        from marivo.analysis.methods.deviation_numeric import unit_type
+        from marivo.analysis.methods.deviation_physical import parse_type
+
+        retained = require_part(self.root.signature, "training_inputs")
+        assert isinstance(retained, TrainingInputsPart)
+        return self._with(
+            method_node(
+                (self._edge(),),
+                ForecastRead(field, retained.input_type),
+                value_type=unit_type(parse_type(retained.input_type)),
             )
         )
 
@@ -1042,6 +1275,21 @@ class Relation:
             raise _reject(
                 "Dwell Duration summaries cannot be averaged or pooled; "
                 "summarize the completed interval observed_duration rows instead"
+            )
+        quantity = self.root.signature.quantity
+        if (
+            isinstance(quantity, DerivedQuantity)
+            and quantity.value_policy == "prediction_interval_bound"
+            and method == "sum"
+        ):
+            raise StatisticalRelationError(
+                code="r8.cell_policy",
+                operation="forecast",
+                method="forecast.read@v1",
+                input_identity=self.root.fingerprint,
+                expected="descriptive rows without interval addition",
+                received="sum of PredictionIntervalBound",
+                repair="Read individual lower/upper bounds or summarize prediction rows; interval bounds cannot be added.",
             )
         definition = digest("row." + method + self.root.fingerprint)
         domain = DomainSignature(

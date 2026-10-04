@@ -600,3 +600,15 @@ Retention and Subject quantification
 .. automethod:: LogicalRetentionResult.known_false
 
 .. automethod:: LogicalRetentionResult.unknown
+
+R8 Statistical Relations
+------------------------
+
+.. autoclass:: LogicalCoefficientRelation
+   :members:
+
+.. autoclass:: LogicalForecastResult
+   :members:
+
+.. autoclass:: MaterializedForecastResult
+   :members:

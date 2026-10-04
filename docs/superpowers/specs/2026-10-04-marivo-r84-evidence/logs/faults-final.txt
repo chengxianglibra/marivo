@@ -1,0 +1,10 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.13, pytest-9.0.3, pluggy-1.6.0
+rootdir: /Users/lichengxiang/source/oss/marivo
+configfile: pytest.ini
+plugins: cov-7.1.0, xdist-3.8.0
+collected 4 items
+
+tests/test_analysis_statistics_faults_r84.py ....                        [100%]
+
+============================== 4 passed in 14.40s ==============================

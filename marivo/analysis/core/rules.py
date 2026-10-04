@@ -67,7 +67,7 @@ from marivo.analysis.core.model import (
     require_part,
 )
 from marivo.analysis.core.predicates import ValuePredicate, leaves
-from marivo.analysis.core.time_grid import CumulativeBinding, GridVersionSelection
+from marivo.analysis.core.time_grid import BoundTimeGrid, CumulativeBinding, GridVersionSelection
 from marivo.analysis.domains.completeness import CompletenessDeclaration
 from marivo.refs import (
     DimensionKind,
@@ -101,6 +101,7 @@ from marivo.semantic.metric_graph import (
 from marivo.semantic.runtime_metric import RuntimeMetricExpr, SliceValue
 
 RuleId: TypeAlias = Literal[
+    "forecast@v1",
     "time_runs@v1",
     "deviation@v1",
     "retention@v1",
@@ -413,6 +414,36 @@ class PartsTransport:
 
 
 @dataclass(frozen=True, slots=True)
+class AssociationFit:
+    association_id: str
+    method: Literal["pearson", "spearman", "kendall"]
+    input_types: tuple[str, ...]
+    lags: tuple[int, ...]
+    explicit_lag: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AssociationRead:
+    field: Literal["coefficient", "selected"]
+
+
+@dataclass(frozen=True, slots=True)
+class ForecastFit:
+    forecast_id: str
+    input_type: str
+    model: Literal["naive", "drift", "seasonal_naive"]
+    season: int | None
+    level: float
+    future: BoundTimeGrid
+
+
+@dataclass(frozen=True, slots=True)
+class ForecastRead:
+    field: Literal["prediction", "lower", "upper"]
+    input_type: str
+
+
+@dataclass(frozen=True, slots=True)
 class AssociationScore:
     output_domain: DomainSignature
     definition_id: str
@@ -643,7 +674,11 @@ class RetentionBySubject:
 
 
 RuleParameters: TypeAlias = (
-    TimeRuns
+    AssociationFit
+    | AssociationRead
+    | ForecastFit
+    | ForecastRead
+    | TimeRuns
     | TimeRunRead
     | DeviationFit
     | DeviationRead
@@ -2722,7 +2757,9 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
         and params.mode in ("where", "limit")
         else part
         for part in (require_part(source, role) for role in params.retained_roles)
-        if not isinstance(part, FindingPolicyPart) or part.policy == "zero_findings@v1"
+        if not isinstance(part, FindingPolicyPart)
+        or part.policy
+        in ("zero_findings@v1", "bounded_descriptive_findings@v1", "bounded_prediction_findings@v1")
     )
     from marivo.analysis.core.retention_rules import transport as retention_transport
 
@@ -3397,7 +3434,7 @@ def _display(inputs: tuple[Signature, ...], params: DisplayRank | DisplayTable) 
                 p
                 for p in first.parts
                 if not isinstance(p, DisplayPart)
-                and not (isinstance(p, FindingPolicyPart) and p.policy != "zero_findings@v1")
+                and not (isinstance(p, FindingPolicyPart) and p.producer.startswith("funnel."))
             ),
             *(
                 DisplayPart(
@@ -3484,6 +3521,10 @@ def _display(inputs: tuple[Signature, ...], params: DisplayRank | DisplayTable) 
                 ),
                 *parts,
             )
+    if isinstance(params, DisplayTable):
+        from marivo.analysis.core.statistical_rules import table_parts
+
+        parts = (*table_parts(inputs), *parts)
     return _result(
         "display@v1",
         inputs,

@@ -1,0 +1,32 @@
+{
+  "branch": "panda",
+  "excluded_authorization": [
+    "commit",
+    "push",
+    "AGENTS.md changes",
+    "packaged skill changes",
+    "R8.5 retirement",
+    "R8.6 same-wheel acceptance",
+    "R9",
+    "R10"
+  ],
+  "head": "61915fd5405a5811056fb7f243decc9ecc67478d",
+  "nonignored_untracked_paths": [],
+  "preserved_qualification": {
+    "R8.2": {
+      "blocked": 2280,
+      "mandatory": 15564,
+      "passed": 13212,
+      "unverified": 72
+    },
+    "R8.3": {
+      "mandatory": 1708,
+      "passed": 3,
+      "unverified": 1705
+    }
+  },
+  "record_basis": "Entry preflight observed before product edits; persisted at final checkpoint",
+  "staged_paths": [],
+  "unstaged_diff_summary": "",
+  "version": "r84-entry-baseline/v1"
+}

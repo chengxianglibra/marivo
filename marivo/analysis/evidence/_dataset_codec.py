@@ -29,6 +29,14 @@ _BODY_FIELDS = "finding_type epistemic_kind subject coordinates canonical_item_k
 _VALUES = frozenset(
     {
         t.FindingCoordinateV1,
+        t.AssociationFindingSubjectV2,
+        t.ForecastFindingSubjectV2,
+        t.CatalogGraphMetricV1,
+        t.RuntimeGraphMetricV1,
+        t.ObservedGraphQuantityV1,
+        t.DerivedGraphQuantityV1,
+        t.RowStatisticGraphQuantityV1,
+        t.RolledGraphQuantityV1,
         t.AssociationFindingSubjectV1,
         t.MetricFindingSubjectV1,
         t.FunnelFindingSubjectV1,
@@ -155,10 +163,12 @@ def _decode(value: object, annotation: object) -> object:
         return _identity(value)
     if annotation is RefPayloadV1:
         obj = _obj(value, "schema kind path")
-        if obj["schema"] != "marivo.semantic_ref/v1" or obj["kind"] != "entity":
-            raise invalid("invalid Funnel Entity subject ref")
+        if obj["schema"] != "marivo.semantic_ref/v1" or obj["kind"] not in ("entity", "metric"):
+            raise invalid("invalid graph subject Entity or Metric ref")
         return RefPayloadV1(
-            schema="marivo.semantic_ref/v1", kind=SemanticKind.ENTITY, path=_text(obj["path"])
+            schema="marivo.semantic_ref/v1",
+            kind=SemanticKind.ENTITY if obj["kind"] == "entity" else SemanticKind.METRIC,
+            path=_text(obj["path"]),
         )
     if isinstance(annotation, type) and annotation in _VALUES:
         obj = _obj(value, " ".join(field.name for field in fields(annotation)))

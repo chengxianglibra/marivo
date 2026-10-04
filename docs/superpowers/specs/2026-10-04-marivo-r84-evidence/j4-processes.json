@@ -1,0 +1,73 @@
+{
+  "environment": "source-tree",
+  "exit_code": 0,
+  "reports": [
+    {
+      "artifact": "artifact_6ea5aab798c2424b97992d4373462519",
+      "oracle": {
+        "coefficient": -0.4,
+        "pairs": 4
+      },
+      "origin": "table",
+      "phase": "produce",
+      "pid": 73943,
+      "report_sha256": "d67d7d89282b82683b465002cae27329acfd55a8c51cbdae66689947e6b2f7cc"
+    },
+    {
+      "artifact": "artifact_6ea5aab798c2424b97992d4373462519",
+      "oracle": {
+        "coefficient": -0.4,
+        "pairs": 4
+      },
+      "origin": "table",
+      "phase": "continue",
+      "pid": 73966,
+      "report_sha256": "6942278bc5ca23c8933ba77c6c21aef6c474fc183b08d89b99e34dec2503cc42"
+    },
+    {
+      "artifact": "artifact_6ea5aab798c2424b97992d4373462519",
+      "oracle": {
+        "coefficient": -0.4,
+        "pairs": 4
+      },
+      "origin": "table",
+      "phase": "recover",
+      "pid": 73990,
+      "report_sha256": "bc0a87ca18adf53056d12a53d546ef56160e72eb99c39cb81efc9e8971b8ba98"
+    },
+    {
+      "artifact": "artifact_c9bc84892a33433296a94f0fbc0f690a",
+      "oracle": {
+        "coefficient": -0.4,
+        "pairs": 4
+      },
+      "origin": "parquet",
+      "phase": "produce",
+      "pid": 74179,
+      "report_sha256": "d0c8c425de046908c1fb4cb6222bdfd1243ed1c4cdd65cbe7adf112e19b73825"
+    },
+    {
+      "artifact": "artifact_c9bc84892a33433296a94f0fbc0f690a",
+      "oracle": {
+        "coefficient": -0.4,
+        "pairs": 4
+      },
+      "origin": "parquet",
+      "phase": "continue",
+      "pid": 74197,
+      "report_sha256": "fb473455ab1056dc803f41ff290adbd86c6b90ffcb8f708283fe8da7cefb797a"
+    },
+    {
+      "artifact": "artifact_c9bc84892a33433296a94f0fbc0f690a",
+      "oracle": {
+        "coefficient": -0.4,
+        "pairs": 4
+      },
+      "origin": "parquet",
+      "phase": "recover",
+      "pid": 74233,
+      "report_sha256": "1140e7b59c0f2bf92a5e117940f8428edfc6571591f1738480bbada631db76c4"
+    }
+  ],
+  "same_wheel": false
+}

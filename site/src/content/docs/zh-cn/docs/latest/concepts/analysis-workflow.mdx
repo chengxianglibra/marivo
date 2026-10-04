@@ -910,3 +910,29 @@ mv.table(start=selected.start, end=selected.end, count=selected.count,
 ```
 
 不可评估的 Cell 会打断区间。Duration 使用真实 UTC 边界。先分段再筛选区间；提前筛选观察行会撤销完整网格契约。全局时间观察不具备 members 能力。
+
+
+## 相关与预测
+
+Numeric 关系支持 2–16 个互异量的全部两两组合。默认方法为 Pearson；
+Spearman 和 Kendall 需显式指定。正 lag 在原始完整格上配对左侧 t 与右侧 t+k。
+coefficient 和 selected 视图可在执行前组合；相关结果只描述关联。
+
+```python
+import marivo.analysis as mv
+
+association = revenue.correlate(order_count, method="spearman")
+selected = association.where(association.selected.value.eq(True))
+coefficients = selected.coefficient.execute()
+coefficients.show()
+
+future = daily.forecast(horizon=mv.periods(3), model=mv.drift())
+report = mv.table(prediction=future.prediction, lower=future.lower, upper=future.upper)
+report.execute().show()
+```
+
+这里 revenue 和 order_count 是共同完整观察域上的量；daily 是历史格完整、
+每格 Defined 且有限、未来周期已获批准的时间观察。
+模型工厂为 naive()、drift()、seasonal_naive(periods=s)，最短历史分别为 2、3、s+1。
+上下界是未来观察值的名义预测区间。结果筛选保留原训练或搜索域及 Findings；
+固定恢复只验证捕获事实，不读取来源或重新拟合。

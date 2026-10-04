@@ -78,6 +78,12 @@ from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDi
 from marivo.analysis.evidence._dataset_types import ArtifactRevalidation as ArtifactRevalidation
 from marivo.analysis.evidence._dataset_types import Finding as Finding
 from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
+from marivo.analysis.forecast_models import ForecastHorizon as ForecastHorizon
+from marivo.analysis.forecast_models import ForecastModel as ForecastModel
+from marivo.analysis.forecast_models import drift as drift
+from marivo.analysis.forecast_models import naive as naive
+from marivo.analysis.forecast_models import periods as periods
+from marivo.analysis.forecast_models import seasonal_naive as seasonal_naive
 from marivo.analysis.funnel import FunnelLossRate as FunnelLossRate
 from marivo.analysis.funnel import funnel_loss_rate as funnel_loss_rate
 from marivo.analysis.lifecycle import FromInception as FromInception
@@ -119,12 +125,6 @@ from marivo.analysis.operators.candidate_dataset import (
 from marivo.analysis.operators.candidate_dataset import (
     MaterializedCandidateDataset as MaterializedCandidateDataset,
 )
-from marivo.analysis.operators.forecast_contracts import ForecastHorizon as ForecastHorizon
-from marivo.analysis.operators.forecast_contracts import ForecastModel as ForecastModel
-from marivo.analysis.operators.forecast_contracts import drift as drift
-from marivo.analysis.operators.forecast_contracts import naive as naive
-from marivo.analysis.operators.forecast_contracts import periods as periods
-from marivo.analysis.operators.forecast_contracts import seasonal_naive as seasonal_naive
 from marivo.analysis.operators.forecast_dataset import (
     LogicalForecastDataset as LogicalForecastDataset,
 )
@@ -146,6 +146,7 @@ from marivo.analysis.public_dsl import LogicalAssociationResult as LogicalAssoci
 from marivo.analysis.public_dsl import LogicalAttributionResult as LogicalAttributionResult
 from marivo.analysis.public_dsl import LogicalBooleanRelation as LogicalBooleanRelation
 from marivo.analysis.public_dsl import LogicalCategoryRelation as LogicalCategoryRelation
+from marivo.analysis.public_dsl import LogicalCoefficientRelation as LogicalCoefficientRelation
 from marivo.analysis.public_dsl import (
     LogicalCoefficientSelectionRelation as LogicalCoefficientSelectionRelation,
 )
@@ -155,6 +156,7 @@ from marivo.analysis.public_dsl import LogicalDifferenceRelation as LogicalDiffe
 from marivo.analysis.public_dsl import LogicalDwellSummary as LogicalDwellSummary
 from marivo.analysis.public_dsl import LogicalEventDurationResult as LogicalEventDurationResult
 from marivo.analysis.public_dsl import LogicalFixedAnalysisDomain as LogicalFixedAnalysisDomain
+from marivo.analysis.public_dsl import LogicalForecastResult as LogicalForecastResult
 from marivo.analysis.public_dsl import (
     LogicalFunnelComparisonResult as LogicalFunnelComparisonResult,
 )
@@ -223,6 +225,7 @@ from marivo.analysis.public_dsl import MaterializedDwellSummary as MaterializedD
 from marivo.analysis.public_dsl import (
     MaterializedEventDurationResult as MaterializedEventDurationResult,
 )
+from marivo.analysis.public_dsl import MaterializedForecastResult as MaterializedForecastResult
 from marivo.analysis.public_dsl import (
     MaterializedFunnelComparisonResult as MaterializedFunnelComparisonResult,
 )
@@ -484,6 +487,9 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "MaterializedTimeRunResult",
     "LogicalDeviationResult",
     "MaterializedDeviationResult",
+    "LogicalForecastResult",
+    "MaterializedForecastResult",
+    "LogicalCoefficientRelation",
     "LogicalAssociationResult",
     "MaterializedAssociationResult",
     "RootRoute",

@@ -5,8 +5,12 @@ R8.2 product connection and qualification are in progress in the
 [R8.2 evidence index](2026-10-04-marivo-r82-evidence-index.md); no phase completion
 is granted. R8.3 product connection and bounded verification are recorded in the
 [R8.3 evidence index](2026-10-04-marivo-r83-evidence-index.md); its full mandatory
-matrix remains open. R8.4-R8.6, remote-backend, installed-wheel and real-Agent
-qualification are not granted. This ledger indexes sole owners and immutable
+matrix remains open. R8.4 product connection and bounded verification are recorded
+in the [R8.4 evidence index](2026-10-04-marivo-r84-evidence-index.md); its 35,662-ID
+mandatory matrix remains open. The R8.4 review repair checkpoint covers retained
+rank/table authority, DST future lookahead and bounded Spearman witness validation;
+it grants no additional mandatory IDs. R8.5-R8.6, remote-backend, installed-wheel and
+real-Agent qualification are not granted. This ledger indexes sole owners and immutable
 requirements; it is not another public API, formula or method registry.
 
 ## Actual baseline and accepted numeric decision
@@ -53,8 +57,15 @@ quantity/Subject authority remain accepted predecessors, not R8 qualification.
 The R8.1 snapshot records accepted static targets and remains historical. R8.2
 has connected two deviation producers, fit parts, Result classes and native
 Help; their actual evidence and open exits are recorded separately. In particular,
-correlate still defaults to Spearman in the baseline; the target default Pearson
-is a breaking change whose old J4/A04 callers must request Spearman explicitly.
+correlate defaults to Spearman in the historical R8.1 baseline. R8.4 connects the
+breaking default Pearson change; old J4/A04 callers request Spearman explicitly.
+
+R8.4 connects M05/M08 and the statistical parts of M13-M18 to the existing typed
+graph, MethodRegistry and Runtime. It records 18 passed, 256 blocked and 35,388
+unverified mandatory IDs. Association and forecast use preselected local source
+and fixed routes; native route qualification remains blocked. M06-M12 legacy
+retirement and the remaining dynamic-unreachability/deletion gates remain R8.5
+duties. No old statistical execution chain is deleted by R8.4.
 
 ## Actual consumers and deletion gates M01-M18
 

@@ -137,6 +137,11 @@ def _view_roles(parts: tuple[Part, ...], name: Literal["values", "ranks"]) -> tu
             "run_cells",
             "fit_inputs",
             "fit_state",
+            "pair_inputs",
+            "association_state",
+            "training_inputs",
+            "forecast_state",
+            "future_cells",
             "grid_cells",
             "subject_map",
             "finding_policy",
@@ -288,7 +293,9 @@ def flatten(result: ExchangeResult) -> pa.Table:
     table = result.primary
     keys = result.contract.key_fields
     for part in result.parts:
-        if part.role == "grid_cells" and any(p.role == "condition_cells" for p in result.parts):
+        if part.role == "grid_cells" and any(
+            p.role in ("condition_cells", "pair_inputs", "training_inputs") for p in result.parts
+        ):
             continue
         if next(p.key_fields for p in result.contract.parts if p.role == part.role) != keys:
             continue

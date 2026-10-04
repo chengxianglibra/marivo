@@ -101,10 +101,16 @@ class BoundTimeGrid:
     cells: tuple[TimeCell, ...]
     precision: Literal["us"] = "us"
     scope_identity: str | None = None
+    calendar_snapshot: PeriodCalendarSnapshotV1 | None = None
 
     def __post_init__(self) -> None:
         if not self.identity or not self.grain_token or not self.cells or self.precision != "us":
             raise _invalid("missing grid identity, grain or cells")
+        if (
+            self.calendar_snapshot is not None
+            and self.calendar_snapshot.snapshot_digest != self.snapshot_digest
+        ):
+            raise _invalid("captured calendar differs from grid snapshot digest")
         for zone in (self.report_timezone, self.boundary_timezone):
             try:
                 parse_timezone(zone)
@@ -299,6 +305,103 @@ def bind_grid(
         scope_digest,
         cells,
         scope_identity=scope_identity,
+        calendar_snapshot=snapshot,
+    )
+
+
+def continuation(source: BoundTimeGrid, count: int) -> BoundTimeGrid:
+    """Capture approved future periods from frozen civil or certified authority."""
+    import re
+
+    from marivo._temporal import builtin_grain, semantic_grain, time_scope
+    from marivo.refs import ref
+
+    start = source.cells[-1].end
+    if source.snapshot_digest is not None:
+        snapshot = source.calendar_snapshot
+        if snapshot is None or snapshot.snapshot_digest != source.snapshot_digest:
+            raise _invalid("forecast requires the captured certified calendar snapshot")
+        path, level = source.grain_token.split("::", 1)
+        grain = semantic_grain(calendar=ref.period_calendar(path), level=level)
+        if level == "day":
+            cursor = start.astimezone(parse_timezone(source.boundary_timezone)[1]).replace(
+                tzinfo=None
+            )
+            end = instant(cursor + timedelta(days=count), source.boundary_timezone)
+        else:
+            periods = tuple(
+                p
+                for p in snapshot.periods
+                if p.level_name == level
+                and instant(p.start_date, source.boundary_timezone) >= start
+            )
+            if (
+                len(periods) < count
+                or instant(periods[0].start_date, source.boundary_timezone) != start
+            ):
+                raise _invalid("forecast future periods exceed captured certified coverage")
+            end = instant(periods[count - 1].end_date, source.boundary_timezone)
+        result = bind_grid(
+            time_scope(start=start, end=end),
+            grain,
+            report_timezone=source.report_timezone,
+            explicit_timezone=source.boundary_timezone,
+            snapshot=snapshot,
+        )
+    else:
+        match = re.fullmatch(
+            r"(\d*)(second|minute|hour|day|week|month|quarter|year)", source.grain_token
+        )
+        if match is None:
+            raise _invalid("forecast builtin grain token is unavailable")
+        grain = builtin_grain(match[2], count=int(match[1] or "1"))
+        authority = parse_timezone(source.boundary_timezone)[1]
+        cursor = start.astimezone(authority).replace(tzinfo=None)
+        needed = count
+        while True:
+            # This endpoint only bounds enumeration; it is not a user civil boundary.
+            # Round-trip through UTC so gaps/folds cannot reject an unused lookahead.
+            for _ in range(needed + 2):
+                cursor = _next(cursor, grain)
+            end = max(
+                cursor.replace(tzinfo=authority, fold=fold).astimezone(timezone.utc)
+                for fold in (0, 1)
+            )
+            extended = bind_grid(
+                time_scope(start=start, end=end),
+                grain,
+                report_timezone=source.report_timezone,
+                explicit_timezone=source.boundary_timezone,
+            )
+            cells = extended.cells[:count]
+            needed = count - len(cells)
+            if not needed:
+                break
+        result = replace_grid_cells(extended, cells)
+    if (
+        len(result.cells) != count
+        or any(c.partial for c in result.cells)
+        or result.cells[0].start != start
+    ):
+        raise _invalid("forecast future periods are incomplete or nonadjacent")
+    return result
+
+
+def replace_grid_cells(grid: BoundTimeGrid, cells: tuple[TimeCell, ...]) -> BoundTimeGrid:
+    from dataclasses import replace
+
+    return replace(
+        grid,
+        cells=cells,
+        identity=_identity(
+            grid.grain_token,
+            grid.report_timezone,
+            grid.boundary_timezone,
+            grid.snapshot_digest,
+            grid.scope_digest,
+            cells,
+            grid.scope_identity,
+        ),
     )
 
 

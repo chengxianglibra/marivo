@@ -186,18 +186,17 @@ class MethodRegistration:
                         "Declare precision for this method's result and ordered input types.",
                     )
             if rule == "association_score@v1" and (
-                input_count != 2
-                or any(domain != "entity" for domain in implementation.key.input_domains)
+                not 1 <= input_count <= 16
                 or any(
-                    not isinstance(value, ScalarType) or value.name not in ("int64", "float64")
-                    for value in implementation.key.input_types
+                    domain not in ("entity", "group") for domain in implementation.key.input_domains
                 )
-                or implementation.precision != "finite_float64"
+                or implementation.precision
+                not in ("finite_float64", "certified_statistical", "exact")
             ):
                 reject(
-                    "two exact Entity numeric inputs with finite float64 result",
+                    "exact typed association inputs",
                     repr(implementation.key),
-                    "Qualify the ordered Spearman input types and route.",
+                    "Qualify every ordered endpoint and retained part.",
                 )
             if not {*self.semantics.required_parts, *self.semantics.output_parts}.issubset(
                 implementation.parts

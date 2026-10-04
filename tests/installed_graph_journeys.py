@@ -203,7 +203,7 @@ def _continue(
         outputs["rollup"] = saved.rollup().execute()
         assert outputs["rollup"].to_pandas().iloc[0]["value"] == oracle["rollup"]
         outputs["count"] = saved.summarize(mv.count()).execute()
-        outputs["correlate"] = saved.correlate(extras[0]).execute()
+        outputs["correlate"] = saved.correlate(extras[0], method="spearman").execute()
         assert outputs["count"].to_pandas().iloc[0]["value"] == oracle["count"]
     elif isinstance(saved, mv.MaterializedDifferenceRelation):
         outputs["compare"] = extras[0].compare(extras[1]).execute()

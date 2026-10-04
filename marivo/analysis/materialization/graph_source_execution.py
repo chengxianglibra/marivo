@@ -21,12 +21,16 @@ from marivo.analysis.compiler.graph_plan import CheckRequirement
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import Defined, DerivedQuantity, ReferenceStatePart
 from marivo.analysis.core.rules import (
+    AssociationFit,
+    AssociationRead,
     AttributionDerive,
     CellDerive,
     DeviationFit,
     DeviationRead,
     DisplayRank,
     DisplayTable,
+    ForecastFit,
+    ForecastRead,
     OccurrencePrepare,
     PartsTransport,
     PreparedObservation,
@@ -383,7 +387,17 @@ def execute_source_graph(
     ) or any(
         isinstance(stage, LoweredLocal)
         and isinstance(
-            stage.stage.node.parameters, (TimeRuns, TimeRunRead, DeviationFit, DeviationRead)
+            stage.stage.node.parameters,
+            (
+                AssociationFit,
+                AssociationRead,
+                ForecastFit,
+                ForecastRead,
+                TimeRuns,
+                TimeRunRead,
+                DeviationFit,
+                DeviationRead,
+            ),
         )
         for stage in lowered.stages
     ):

@@ -59,15 +59,32 @@ def _number(value: object) -> float:
 @dataclass(frozen=True, slots=True)
 class Policy:
     producer: Literal[
-        "funnel.compare", "funnel_ratio_mix", "deviation.zscore", "deviation.mad", "time.runs"
+        "funnel.compare",
+        "funnel_ratio_mix",
+        "deviation.zscore",
+        "deviation.mad",
+        "time.runs",
+        "association.pearson",
+        "association.spearman",
+        "association.kendall",
+        "forecast.naive",
+        "forecast.drift",
+        "forecast.seasonal_naive",
     ]
     state_version: Literal["v1"]
     extractor: Literal[
         "graph.funnel_delta_findings@v1",
         "graph.funnel_contribution_findings@v1",
         "graph.no_findings@v1",
+        "graph.association_findings@v1",
+        "graph.forecast_findings@v1",
     ]
-    policy: Literal["bounded_algebraic_findings@v1", "zero_findings@v1"]
+    policy: Literal[
+        "bounded_algebraic_findings@v1",
+        "zero_findings@v1",
+        "bounded_descriptive_findings@v1",
+        "bounded_prediction_findings@v1",
+    ]
     ordered_input_bindings: tuple[str, ...]
     eligible: int
     emitted: int
@@ -226,6 +243,12 @@ def extract(
         ):
             raise invalid("deviation empty Finding authority differs")
         return ()
+    if policy.producer.startswith(("association.", "forecast.")):
+        from marivo.analysis.materialization.statistical_findings import (
+            extract as extract_statistics,
+        )
+
+        return extract_statistics(descriptor, result, artifact_ref, committed_at, policy)
     if any(value.startswith("artifacts:") for value in policy.ordered_input_bindings):
         from marivo.analysis.materialization.graph_protocol import validate_descriptor
 

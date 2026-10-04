@@ -32,18 +32,24 @@ from marivo.analysis.core.model import (
     HistoryViewPart,
     InstanceRetentionPart,
     OriginalStatePart,
+    PairInputsPart,
     RunCellsPart,
     SubjectPart,
     SubjectRetentionPart,
+    TrainingInputsPart,
 )
 from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorObserve,
     AnchorRetention,
+    AssociationFit,
+    AssociationRead,
     DeviationFit,
     DeviationRead,
     DisplayRank,
     DisplayTable,
+    ForecastFit,
+    ForecastRead,
     FunnelAttribute,
     FunnelAxesPrepare,
     FunnelCompare,
@@ -360,6 +366,10 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             isinstance(
                 item.stage.node.parameters,
                 (
+                    AssociationFit,
+                    AssociationRead,
+                    ForecastFit,
+                    ForecastRead,
                     TimeRuns,
                     TimeRunRead,
                     DeviationFit,
@@ -396,6 +406,8 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                         ConditionCellsPart,
                         RunCellsPart,
                         FitInputsPart,
+                        PairInputsPart,
+                        TrainingInputsPart,
                         InstanceRetentionPart,
                         SubjectRetentionPart,
                         FunnelPart,
@@ -647,6 +659,14 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             from marivo.analysis.materialization.graph_display import fixed
 
             results[item.stage.output] = fixed(
+                item.stage.node,
+                tuple(results[key] for key in item.stage.inputs),
+                item.stage.node.identity,
+            )
+        elif isinstance(params, (AssociationFit, AssociationRead, ForecastFit, ForecastRead)):
+            from marivo.analysis.materialization.statistical_execution import execute as statistics
+
+            results[item.stage.output] = statistics(
                 item.stage.node,
                 tuple(results[key] for key in item.stage.inputs),
                 item.stage.node.identity,

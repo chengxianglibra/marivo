@@ -1158,3 +1158,31 @@ mv.table(start=selected.start, end=selected.end, count=selected.count,
 Unavailable Cells break intervals. Duration uses actual UTC boundaries.
 Filter intervals after segmentation; selecting observation rows first revokes
 the complete-grid contract. Global time observations do not grant members.
+
+
+## Correlation and prediction
+
+Numeric relations support all pair combinations of 2–16 distinct quantities.
+Pearson is the default; choose Spearman or Kendall explicitly. Positive lag pairs
+left(t) with right(t+k) on the original complete grid. Coefficient and selected
+views can be composed before execution. These are descriptive associations.
+
+```python
+import marivo.analysis as mv
+
+association = revenue.correlate(order_count, method="spearman")
+selected = association.where(association.selected.value.eq(True))
+coefficients = selected.coefficient.execute()
+coefficients.show()
+
+future = daily.forecast(horizon=mv.periods(3), model=mv.drift())
+report = mv.table(prediction=future.prediction, lower=future.lower, upper=future.upper)
+report.execute().show()
+```
+
+Here revenue and order_count are observations on the same complete domain;
+daily is a complete Defined finite time observation with approved future periods.
+Forecast models are naive(), drift(), and seasonal_naive(periods=s), with minimum
+history lengths 2, 3, and s+1. Bounds are nominal prediction intervals for future
+observations. Output filters keep the original training/search scope and Findings;
+fixed recovery validates captured facts without source reads or refitting.

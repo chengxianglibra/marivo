@@ -1,0 +1,57 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.13, pytest-9.0.3, pluggy-1.6.0
+rootdir: /Users/lichengxiang/source/oss/marivo
+configfile: pytest.ini
+plugins: cov-7.1.0, xdist-3.8.0
+collected 1 item
+
+tests/test_analysis_statistics_faults_r84.py Timeout (0:00:20)!
+Thread 0x00000001f0bbe180 (most recent call first):
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pydantic/type_adapter.py", line 677 in dump_json
+  File "/Users/lichengxiang/source/oss/marivo/marivo/analysis/materialization/statistical_execution.py", line 612 in _decode_forecast
+  File "/Users/lichengxiang/source/oss/marivo/marivo/analysis/materialization/statistical_execution.py", line 629 in decode_forecast
+  File "/Users/lichengxiang/source/oss/marivo/marivo/analysis/materialization/statistical_execution.py", line 988 in _validate
+  File "/Users/lichengxiang/source/oss/marivo/marivo/analysis/materialization/statistical_execution.py", line 1158 in validate
+  File "/Users/lichengxiang/source/oss/marivo/marivo/analysis/materialization/graph_exchange.py", line 598 in collect
+  File "/Users/lichengxiang/source/oss/marivo/marivo/analysis/materialization/graph_exchange.py", line 1172 in from_arrow
+  File "/Users/lichengxiang/source/oss/marivo/marivo/analysis/materialization/graph_storage.py", line 174 in read_result
+  File "/Users/lichengxiang/source/oss/marivo/marivo/analysis/materialization/graph_findings.py", line 405 in collection
+  File "/Users/lichengxiang/source/oss/marivo/marivo/analysis/materialization/graph_store.py", line 209 in artifact
+  File "/Users/lichengxiang/source/oss/marivo/marivo/analysis/materialization/graph_dataset.py", line 280 in verified
+  File "/Users/lichengxiang/source/oss/marivo/marivo/analysis/materialization/graph_relation.py", line 238 in restore
+  File "/Users/lichengxiang/source/oss/marivo/marivo/analysis/public_dsl.py", line 540 in __init__
+  File "/Users/lichengxiang/source/oss/marivo/marivo/analysis/public_dsl.py", line 4738 in execute
+  File "/Users/lichengxiang/source/oss/marivo/tests/test_analysis_statistics_faults_r84.py", line 233 in test_forecast_findings_cap_and_selection_transport
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/_pytest/python.py", line 166 in pytest_pyfunc_call
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pluggy/_callers.py", line 121 in _multicall
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pluggy/_manager.py", line 120 in _hookexec
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pluggy/_hooks.py", line 512 in __call__
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/_pytest/python.py", line 1720 in runtest
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/_pytest/runner.py", line 179 in pytest_runtest_call
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pluggy/_callers.py", line 121 in _multicall
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pluggy/_manager.py", line 120 in _hookexec
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pluggy/_hooks.py", line 512 in __call__
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/_pytest/runner.py", line 245 in <lambda>
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/_pytest/runner.py", line 353 in from_call
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/_pytest/runner.py", line 244 in call_and_report
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/_pytest/runner.py", line 137 in runtestprotocol
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/_pytest/runner.py", line 118 in pytest_runtest_protocol
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pluggy/_callers.py", line 121 in _multicall
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pluggy/_manager.py", line 120 in _hookexec
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pluggy/_hooks.py", line 512 in __call__
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/_pytest/main.py", line 396 in pytest_runtestloop
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pluggy/_callers.py", line 121 in _multicall
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pluggy/_manager.py", line 120 in _hookexec
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pluggy/_hooks.py", line 512 in __call__
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/_pytest/main.py", line 372 in _main
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/_pytest/main.py", line 318 in wrap_session
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/_pytest/main.py", line 365 in pytest_cmdline_main
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pluggy/_callers.py", line 121 in _multicall
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pluggy/_manager.py", line 120 in _hookexec
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/pluggy/_hooks.py", line 512 in __call__
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/_pytest/config/__init__.py", line 199 in main
+  File "/Users/lichengxiang/source/oss/marivo/.venv/lib/python3.12/site-packages/_pytest/config/__init__.py", line 223 in console_main
+  File "/Users/lichengxiang/source/oss/marivo/.venv/bin/pytest", line 10 in <module>
+.                           [100%]
+
+======================== 1 passed in 168.91s (0:02:48) =========================

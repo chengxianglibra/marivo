@@ -36,24 +36,29 @@ from marivo.analysis.core.history_types import HistoryField
 from marivo.analysis.core.model import (
     AnchorDomainPart,
     AnchorObservationPart,
+    AssociationStatePart,
     AttributionPart,
     Coordinate,
     DerivedQuantity,
     DisplayPart,
     FitInputsPart,
+    ForecastStatePart,
     FunnelAllocationPart,
     FunnelComparisonPart,
     FunnelPart,
+    FutureCellsPart,
     HistoryPart,
     HistoryViewPart,
     InstanceRetentionPart,
     JourneyPart,
     ObservedQuantity,
     OriginalStatePart,
+    PairInputsPart,
     RolledQuantity,
     RowStatisticQuantity,
     SubjectPart,
     SubjectRetentionPart,
+    TrainingInputsPart,
     part_role,
 )
 from marivo.analysis.core.predicates import DurationLiteral, TemporalLiteral, ValuePredicate
@@ -61,6 +66,7 @@ from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorObserve,
     AnchorRetention,
+    AssociationRead,
     AssociationScore,
     BindProject,
     CellDerive,
@@ -68,6 +74,7 @@ from marivo.analysis.core.rules import (
     DeviationRead,
     DisplayRank,
     DisplayTable,
+    ForecastRead,
     FunnelAttribute,
     FunnelCompare,
     FunnelField,
@@ -99,6 +106,7 @@ from marivo.analysis.domains.completeness import (
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.event import PatternStep
 from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
+from marivo.analysis.forecast_models import ForecastHorizon, ForecastModel, naive
 from marivo.analysis.funnel import FunnelLossRate
 from marivo.analysis.lifecycle import InState
 from marivo.analysis.materialization.graph_dataset import GraphDataset
@@ -146,6 +154,7 @@ RootRoute: TypeAlias = RootRouteValue
 RootRoutes: TypeAlias = RootRoutesValue
 MetricInputValue: TypeAlias = Ref[MetricKind] | RuntimeMetricExpr
 _TOKEN = object()
+_DEFAULT_FORECAST_MODEL = naive()
 _EXACT_KEYS = ExactKeys()
 _TIME_CHANGE = TimeChange()
 
@@ -339,7 +348,19 @@ class AnalysisContract:
 
 
 def _kind(node: Relation) -> str:
-    from marivo.analysis.core.model import RunCellsPart
+    from marivo.analysis.core.model import AssociationStatePart, ForecastStatePart, RunCellsPart
+
+    if not any(isinstance(p, DisplayPart) for p in node.root.signature.parts):
+        association = next(
+            (p for p in node.root.signature.parts if isinstance(p, AssociationStatePart)), None
+        )
+        if association is not None:
+            return "correlate" if association.view == "result" else "association_read"
+        forecast = next(
+            (p for p in node.root.signature.parts if isinstance(p, ForecastStatePart)), None
+        )
+        if forecast is not None:
+            return "forecast" if forecast.view == "result" else "forecast_read"
 
     run = next((p for p in node.root.signature.parts if isinstance(p, RunCellsPart)), None)
     if run is not None and not any(isinstance(p, DisplayPart) for p in node.root.signature.parts):
@@ -543,7 +564,19 @@ class _Value:
         kind, fixed = _kind(self._node), self._dataset is not None
         roles = tuple(part_role(part) for part in signature.parts)
         names: tuple[str, ...]
-        if kind == "time_runs":
+        if kind == "forecast":
+            names = ("prediction", "lower", "upper", "where")
+        elif kind == "forecast_read":
+            names = ("where", "rank", "summarize", "table")
+        elif kind == "association_read":
+            names = (
+                ("where", "table")
+                if self._node.root.value_type == ScalarType("boolean")
+                else ("where", "rank", "summarize", "table")
+            )
+        elif kind == "correlate" and "pair_inputs" in roles:
+            names = ("coefficient", "selected", "where")
+        elif kind == "time_runs":
             names = ("start", "end", "count", "duration", "where")
         elif kind == "run_read":
             names = (
@@ -718,14 +751,14 @@ class _Value:
             except AnalysisError:
                 pass
             else:
-                names = (*names, "runs")
+                names = (*names, "runs", "forecast")
             names = tuple(
                 dict.fromkeys(
                     (
                         *names,
                         "rank",
                         *(
-                            ("deviation",)
+                            ("deviation", "correlate")
                             if isinstance(self._node.root.value_type, DecimalType)
                             or self._node.root.value_type
                             in (ScalarType("int64"), ScalarType("float64"))
@@ -820,6 +853,24 @@ class _Value:
                 for name in names
                 if name not in ("rank", "members", "compare", "ratio", "deviation")
             )
+        if (
+            signature.quantity is not None
+            and signature.quantity.value_policy == "prediction_interval_bound"
+        ):
+            names = tuple(
+                n
+                for n in names
+                if n
+                not in (
+                    "summarize",
+                    "rollup",
+                    "attribute",
+                    "forecast",
+                    "correlate",
+                    "deviation",
+                    "rank",
+                )
+            )
         required = tuple(role for role in roles if role != "subject")
         actions = self._action_contract(names)
         if kind == "time_runs":
@@ -893,6 +944,80 @@ class _Value:
                 _, run_state = decode_runs(self._dataset.verified().parts)
                 for label in ("true", "false", "unavailable"):
                     facts.append(("original_" + label, str(run_state.classifications.count(label))))
+        association_state = next(
+            (p for p in signature.parts if isinstance(p, AssociationStatePart)), None
+        )
+        forecast_state = next(
+            (p for p in signature.parts if isinstance(p, ForecastStatePart)), None
+        )
+        if association_state is not None:
+            declaration = next(p for p in signature.parts if isinstance(p, PairInputsPart))
+            facts.extend(
+                (
+                    ("association_method", declaration.method),
+                    ("observation_unit", declaration.input_domain.kind),
+                    ("quantity_count", str(len(declaration.quantities))),
+                    ("original_lags", repr(declaration.lags[:16])),
+                    ("selection", "max_abs_coefficient_min_abs_lag_min_signed_lag@v1"),
+                    ("scope", "original search retained; output selection never reselects"),
+                )
+            )
+            if self._dataset is not None:
+                from marivo.analysis.materialization.statistical_execution import decode_pairs
+
+                _, original_association = decode_pairs(self._dataset.verified().parts)
+                facts.extend(
+                    (
+                        ("original_candidates", str(len(original_association.candidates))),
+                        (
+                            "valid_candidates",
+                            str(
+                                builtins.sum(
+                                    c.score.status == "valid"
+                                    for c in original_association.candidates
+                                )
+                            ),
+                        ),
+                        (
+                            "selected_candidates",
+                            str(builtins.sum(c.selected for c in original_association.candidates)),
+                        ),
+                    )
+                )
+        if forecast_state is not None:
+            declaration_f = next(p for p in signature.parts if isinstance(p, TrainingInputsPart))
+            future = next(p for p in signature.parts if isinstance(p, FutureCellsPart))
+            facts.extend(
+                (
+                    ("forecast_model", declaration_f.model),
+                    ("horizon", str(len(future.grid.cells))),
+                    ("interval_level", repr(declaration_f.level)),
+                    ("assumptions", "zero_mean_uncorrelated_homoskedastic_normal_innovations@v1"),
+                    ("interval", "normal_residual@v1; nominal future observations"),
+                    ("scope", "original training and future grids retained"),
+                )
+            )
+            if self._dataset is not None:
+                from marivo.analysis.materialization.statistical_execution import decode_forecast
+
+                _, original_f = decode_forecast(self._dataset.verified().parts)
+                facts.extend(
+                    (
+                        ("series_count", str(len(original_f.series))),
+                        (
+                            "history_lengths",
+                            repr(tuple(s.training.n for s in original_f.series[:8])),
+                        ),
+                        (
+                            "degrees_of_freedom",
+                            repr(tuple(s.training.df for s in original_f.series[:8])),
+                        ),
+                        (
+                            "exact_zero_series",
+                            str(builtins.sum(s.training.exact_zero for s in original_f.series)),
+                        ),
+                    )
+                )
         fit = next((p for p in signature.parts if isinstance(p, FitInputsPart)), None)
         if fit is not None:
             facts.extend(
@@ -1294,6 +1419,14 @@ class _Value:
             for i, item in enumerate(dependencies):
                 if item.root is root:
                     return i
+                if (
+                    isinstance(root, MethodNode)
+                    and isinstance(root.parameters, (AssociationRead, ForecastRead))
+                    and isinstance(item.root, MethodNode)
+                    and item.root.parameters == root.parameters
+                    and item.root.inputs[0].node is root.inputs[0].node
+                ):
+                    return i
             if relation is None or relation.root is not root:
                 raise _reject(
                     "an exact bound predicate input",
@@ -1561,7 +1694,28 @@ class _Value:
                 if name == "coefficient":
                     actions.append(
                         AnalysisAction(
-                            "relation.coefficient", "analysis.MaterializedCoefficientRelation"
+                            "relation.coefficient",
+                            "analysis.MaterializedCoefficientRelation"
+                            if isinstance(self, _MaterializedValue)
+                            else "analysis.LogicalCoefficientRelation",
+                        )
+                    )
+                if name == "selected":
+                    actions.append(
+                        AnalysisAction(
+                            "relation.selected",
+                            "analysis.MaterializedBooleanRelation"
+                            if isinstance(self, _MaterializedValue)
+                            else "analysis.LogicalBooleanRelation",
+                        )
+                    )
+                if name in ("prediction", "lower", "upper"):
+                    actions.append(
+                        AnalysisAction(
+                            "relation." + name,
+                            "analysis.MaterializedNumericRelation"
+                            if isinstance(self, _MaterializedValue)
+                            else "analysis.LogicalNumericRelation",
                         )
                     )
                 continue
@@ -1587,6 +1741,41 @@ class _Value:
         return tuple(actions)
 
 
+def _rank_relation(
+    self: _Value,
+    order: Literal["ascending", "descending"],
+    ties: Literal["ordinal", "dense", "min", "max"],
+    partition_by: tuple[CategoryRelation, ...],
+) -> LogicalRankingResult:
+    from marivo.analysis.materialization.graph_display import bind, invalid
+
+    if type(partition_by) is not tuple or any(
+        not isinstance(
+            p,
+            (
+                LogicalCategoryRelation,
+                MaterializedCategoryRelation,
+                LogicalSelectedCategoryRelation,
+                MaterializedSelectedCategoryRelation,
+            ),
+        )
+        for p in partition_by
+    ):
+        raise invalid("partition_by must contain CategoryRelations")
+    if len({p._node.root.identity for p in partition_by}) != len(partition_by):
+        raise invalid("duplicate partition bindings")
+    node = bind(
+        (self._node, *(p._node for p in partition_by)),
+        DisplayRank(
+            self._node.root.value_type.name,
+            order,
+            ties,
+            tuple(p._node.root.value_type.name for p in partition_by),
+        ),
+    )
+    return LogicalRankingResult(_TOKEN, node, self._runtime, inputs=(self, *partition_by))
+
+
 class _NumericComparison(_Value):
     """Shared numeric composition without granting original Metric reductions."""
 
@@ -1600,6 +1789,66 @@ class _NumericComparison(_Value):
         Constraints: Numeric comparisons consume Defined Cells except within runs classification.
         """
         return NumericField(self._node.root, self._node)
+
+    def correlate(
+        self,
+        *others: NumericRelation,
+        method: Literal["pearson", "spearman", "kendall"] = "pearson",
+        lag_range: range | None = None,
+    ) -> LogicalAssociationResult:
+        """Describe all pairs of corresponding quantities over their original complete domain.
+
+        Args: others: One to fifteen distinct corresponding quantities. method: pearson, spearman, or kendall. lag_range: Signed offsets on the original complete time grid, or None for zero lag.
+        Returns: A LogicalAssociationResult with coefficient and selected owned views.
+        Example: ``result = revenue.correlate(orders, margin, method="spearman")``.
+        Constraints: One Session and source/fixed closure; pairwise ordinary Null deletion only. Positive lag pairs the left t with right t+k. No causal or significance claim.
+        """
+        if any(not isinstance(v, _NumericComparison) for v in others):
+            raise _reject(
+                "corresponding NumericRelations",
+                repr(tuple(type(v).__name__ for v in others)),
+                "Use numeric quantities over this receiver's exact domain.",
+            )
+        return LogicalAssociationResult(
+            _TOKEN,
+            self._node.correlate(tuple(v._node for v in others), method, lag_range),
+            self._runtime,
+            inputs=(self, *others),
+        )
+
+    def forecast(
+        self,
+        *,
+        horizon: ForecastHorizon,
+        model: ForecastModel = _DEFAULT_FORECAST_MODEL,
+        interval_level: float = 0.95,
+    ) -> LogicalForecastResult:
+        """Predict approved future periods with a named model and nominal normal interval.
+
+        Args: horizon: Factory-produced periods(1..1000). model: naive(), drift(), or seasonal_naive(periods=s). interval_level: Finite float strictly between zero and one.
+        Returns: A LogicalForecastResult with prediction, lower and upper owned views.
+        Example: ``future = daily.forecast(horizon=mv.periods(4), model=mv.drift())``.
+        Constraints: Complete Defined finite history and approved future grid; no imputation, model selection or interval addition. Numerical admission does not establish actual interval coverage.
+        """
+        if not isinstance(horizon, ForecastHorizon) or not isinstance(model, ForecastModel):
+            raise _reject(
+                "factory-produced ForecastHorizon and ForecastModel",
+                repr((horizon, model)),
+                "Use mv.periods() and the named model factories.",
+            )
+        kind: Literal["naive", "drift", "seasonal_naive"] = (
+            "naive"
+            if model.model_id == "naive@v1"
+            else "drift"
+            if model.model_id == "drift@v1"
+            else "seasonal_naive"
+        )
+        return LogicalForecastResult(
+            _TOKEN,
+            self._node.forecast(horizon.count, kind, model.season_length, interval_level),
+            self._runtime,
+            inputs=(self,),
+        )
 
     def runs(self, *, where: BoundPredicate) -> LogicalTimeRunResult:
         """Find maximal true intervals on the original complete time grid.
@@ -1679,33 +1928,7 @@ class _NumericComparison(_Value):
         Example: ``ranking = values.rank(order="descending", ties="dense")``.
         Constraints: Non-Defined Cells retain their reason and sort last; exact typed keys break ties. No epsilon ties or implicit coercion.
         """
-        from marivo.analysis.materialization.graph_display import bind, invalid
-
-        if type(partition_by) is not tuple or any(
-            not isinstance(
-                p,
-                (
-                    LogicalCategoryRelation,
-                    MaterializedCategoryRelation,
-                    LogicalSelectedCategoryRelation,
-                    MaterializedSelectedCategoryRelation,
-                ),
-            )
-            for p in partition_by
-        ):
-            raise invalid("partition_by must contain CategoryRelations")
-        if len({p._node.root.identity for p in partition_by}) != len(partition_by):
-            raise invalid("duplicate partition bindings")
-        node = bind(
-            (self._node, *(p._node for p in partition_by)),
-            DisplayRank(
-                self._node.root.value_type.name,
-                order,
-                ties,
-                tuple(p._node.root.value_type.name for p in partition_by),
-            ),
-        )
-        return LogicalRankingResult(_TOKEN, node, self._runtime, inputs=(self, *partition_by))
+        return _rank_relation(self, order, ties, partition_by)
 
     def share_of(self, reference: NumericRelation) -> LogicalNumericRelation:
         """Calculate shares against one immutable same-measure Singleton reference.
@@ -2983,27 +3206,6 @@ class LogicalNumericRelation(_NumericComparison):
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
         )
 
-    def correlate(
-        self,
-        other: LogicalNumericRelation,
-        *,
-        method: Literal["spearman"] = "spearman",
-    ) -> LogicalAssociationResult:
-        """Construct the admitted same-Entity no-lag Spearman association.
-
-        Args:
-            other: Association endpoint over the same exact member implementation.
-            method: Closed row statistic method or admitted correlation method.
-        Returns: A LogicalAssociationResult bound to this exact relation.
-        Example: ``result = relation.correlate(other, method=method)``.
-        Constraints: Only same-member, no-lag Spearman is admitted.
-        """
-        if method != "spearman":
-            raise _reject("spearman", str(method), "Use the qualified Spearman method.")
-        return LogicalAssociationResult(
-            _TOKEN, self._node.combine(other._node, "spearman"), self._runtime, inputs=(self, other)
-        )
-
     def group_by(
         self,
         *dimensions: Ref[DimensionKind]
@@ -3121,24 +3323,6 @@ class MaterializedNumericRelation(_MaterializedValue, _NumericComparison):
         """
         return LogicalSelectedNumericRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
-
-    def correlate(
-        self, other: MaterializedNumericRelation, *, method: Literal["spearman"] = "spearman"
-    ) -> LogicalAssociationResult:
-        """Correlate exact retained observed endpoints when pairing is admitted.
-
-        Args:
-            other: Association endpoint over the same exact member implementation.
-            method: Closed row statistic method or admitted correlation method.
-        Returns: A LogicalAssociationResult bound to this exact relation.
-        Example: ``result = relation.correlate(other, method=method)``.
-        Constraints: Only same-member, no-lag Spearman is admitted.
-        """
-        if method != "spearman":
-            raise _reject("spearman", str(method), "Use the qualified Spearman method.")
-        return LogicalAssociationResult(
-            _TOKEN, self._node.combine(other._node, "spearman"), self._runtime, inputs=(self, other)
         )
 
     def group_by(
@@ -3890,6 +4074,73 @@ class MaterializedStatisticRelation(_MaterializedValue, _StatisticContinuation):
         )
 
 
+class LogicalCoefficientRelation(_Value):
+    """Unexecuted coefficient projection over the original search authority."""
+
+    def execute(self) -> MaterializedCoefficientRelation:
+        """Publish this coefficient projection.
+
+        Args: None.
+        Returns: A MaterializedCoefficientRelation.
+        Example: ``fixed = associations.coefficient.execute()``.
+        Constraints: Preserves the complete original search scope and findings.
+        """
+        return MaterializedCoefficientRelation(
+            _TOKEN, self._node, self._runtime, dataset=self._run()
+        )
+
+    @property
+    def value(self) -> NumericField:
+        """Bind coefficient predicates.
+
+        Args: None.
+        Returns: The owned numeric field.
+        Example: ``condition = coefficients.value.is_defined()``.
+        Constraints: No original Entity membership or rollup authority.
+        """
+        return NumericField(self._node.root, self._node)
+
+    def where(self, predicate: BoundPredicate) -> LogicalCoefficientSelectionRelation:
+        """Select current coefficient rows.
+
+        Args: predicate: An exactly bound predicate.
+        Returns: A LogicalCoefficientSelectionRelation.
+        Example: ``chosen = coefficients.where(coefficients.value.is_defined())``.
+        Constraints: Does not recompute coefficients or selected lags.
+        """
+        return LogicalCoefficientSelectionRelation(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+        """Describe current coefficient rows.
+
+        Args: method: A closed row statistic factory value.
+        Returns: A LogicalStatisticRelation.
+        Example: ``summary = coefficients.summarize(mv.mean())``.
+        Constraints: This is not a pooled correlation.
+        """
+        return LogicalStatisticRelation(
+            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
+        )
+
+    def rank(
+        self,
+        *,
+        order: Literal["ascending", "descending"],
+        ties: Literal["ordinal", "dense", "min", "max"],
+        partition_by: tuple[CategoryRelation, ...] = (),
+    ) -> LogicalRankingResult:
+        """Rank current coefficient rows without changing search authority.
+
+        Args: order: ascending or descending. ties: ordinal, dense, min or max. partition_by: Explicit corresponding categories.
+        Returns: A LogicalRankingResult with values and ranks.
+        Example: ``ranked = coefficients.rank(order="descending", ties="ordinal")``.
+        Constraints: No pooling or lag reselection.
+        """
+        return _rank_relation(self, order, ties, partition_by)
+
+
 class MaterializedCoefficientRelation(_MaterializedValue):
     """Coefficient view bound to an exact retained Association."""
 
@@ -3937,6 +4188,22 @@ class MaterializedCoefficientRelation(_MaterializedValue):
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
         )
 
+    def rank(
+        self,
+        *,
+        order: Literal["ascending", "descending"],
+        ties: Literal["ordinal", "dense", "min", "max"],
+        partition_by: tuple[CategoryRelation, ...] = (),
+    ) -> LogicalRankingResult:
+        """Rank current coefficient rows without changing search authority.
+
+        Args: order: ascending or descending. ties: ordinal, dense, min or max. partition_by: Explicit corresponding categories.
+        Returns: A LogicalRankingResult with values and ranks.
+        Example: ``ranked = coefficients.rank(order="descending", ties="ordinal")``.
+        Constraints: No pooling or lag reselection.
+        """
+        return _rank_relation(self, order, ties, partition_by)
+
 
 class LogicalCoefficientSelectionRelation(_Value):
     """Unexecuted strict coefficient selection."""
@@ -3973,6 +4240,22 @@ class LogicalCoefficientSelectionRelation(_Value):
             _TOKEN, self._node, self._runtime, dataset=self._run()
         )
 
+    def rank(
+        self,
+        *,
+        order: Literal["ascending", "descending"],
+        ties: Literal["ordinal", "dense", "min", "max"],
+        partition_by: tuple[CategoryRelation, ...] = (),
+    ) -> LogicalRankingResult:
+        """Rank current coefficient rows without changing search authority.
+
+        Args: order: ascending or descending. ties: ordinal, dense, min or max. partition_by: Explicit corresponding categories.
+        Returns: A LogicalRankingResult with values and ranks.
+        Example: ``ranked = coefficients.rank(order="descending", ties="ordinal")``.
+        Constraints: No pooling or lag reselection.
+        """
+        return _rank_relation(self, order, ties, partition_by)
+
 
 class MaterializedCoefficientSelectionRelation(_MaterializedValue):
     """Fixed strict coefficient selection."""
@@ -3995,6 +4278,22 @@ class MaterializedCoefficientSelectionRelation(_MaterializedValue):
         return LogicalStatisticRelation(
             _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
         )
+
+    def rank(
+        self,
+        *,
+        order: Literal["ascending", "descending"],
+        ties: Literal["ordinal", "dense", "min", "max"],
+        partition_by: tuple[CategoryRelation, ...] = (),
+    ) -> LogicalRankingResult:
+        """Rank current coefficient rows without changing search authority.
+
+        Args: order: ascending or descending. ties: ordinal, dense, min or max. partition_by: Explicit corresponding categories.
+        Returns: A LogicalRankingResult with values and ranks.
+        Example: ``ranked = coefficients.rank(order="descending", ties="ordinal")``.
+        Constraints: No pooling or lag reselection.
+        """
+        return _rank_relation(self, order, ties, partition_by)
 
 
 class LogicalTimeRunResult(_Value):
@@ -4318,35 +4617,238 @@ class MaterializedDeviationResult(_MaterializedValue):
 
 
 class LogicalAssociationResult(_Value):
-    """Unexecuted same-Entity Spearman result."""
+    """Unexecuted association with immutable original scope and owned views."""
 
     def execute(self) -> MaterializedAssociationResult:
-        """Evaluate and publish this Association with paired-state evidence.
+        """Execute and atomically publish this statistical graph.
 
-        Args:
-            None.
-        Returns: A MaterializedAssociationResult bound to this exact relation.
-        Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Args: None.
+        Returns: A MaterializedAssociationResult bound to this exact graph.
+        Example: ``fixed = result.execute()``.
+        Constraints: Source execution captures anew; fixed execution verifies retained inputs.
         """
         return MaterializedAssociationResult(_TOKEN, self._node, self._runtime, dataset=self._run())
 
+    def where(self, predicate: BoundPredicate) -> LogicalAssociationResult:
+        """Select synchronized result views while retaining original scope.
+
+        Args: predicate: A predicate on owned corresponding fields.
+        Returns: A LogicalAssociationResult over the current selected keys.
+        Example: ``chosen = result.where(result.selected.value.eq(True))``.
+        Constraints: No reestimation, lag reselection or future-grid reconstruction.
+        """
+        return LogicalAssociationResult(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def coefficient(self) -> LogicalCoefficientRelation:
+        """Read the owned coefficient view.
+
+        Args: None.
+        Returns: A LogicalCoefficientRelation on the current output domain.
+        Example: ``values = result.coefficient``.
+        Constraints: Preserves original pair/search authority and actual retained parts.
+        """
+        return LogicalCoefficientRelation(
+            _TOKEN, self._node.association_field("coefficient"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def selected(self) -> LogicalBooleanRelation:
+        """Read the owned selected view.
+
+        Args: None.
+        Returns: A LogicalBooleanRelation on the current output domain.
+        Example: ``values = result.selected``.
+        Constraints: Preserves original pair/search authority and actual retained parts.
+        """
+        return LogicalBooleanRelation(
+            _TOKEN, self._node.association_field("selected"), self._runtime, inputs=(self,)
+        )
+
 
 class MaterializedAssociationResult(_MaterializedValue):
-    """Fixed Spearman Association with its coefficient view and pair counts."""
+    """Fixed association with immutable original scope and owned views."""
+
+    def where(self, predicate: BoundPredicate) -> LogicalAssociationResult:
+        """Select synchronized result views while retaining original scope.
+
+        Args: predicate: A predicate on owned corresponding fields.
+        Returns: A LogicalAssociationResult over the current selected keys.
+        Example: ``chosen = result.where(result.selected.value.eq(True))``.
+        Constraints: No reestimation, lag reselection or future-grid reconstruction.
+        """
+        return LogicalAssociationResult(
+            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
+        )
 
     @property
     def coefficient(self) -> MaterializedCoefficientRelation:
-        """Return the coefficient relation bound to this exact Association Artifact.
+        """Read the owned coefficient view.
 
-        Args:
-            None.
-        Returns: A coefficient view of the exact Association.
-        Example: ``result = relation.coefficient``.
-        Constraints: Uses the exact retained Association Artifact.
+        Args: None.
+        Returns: A MaterializedCoefficientRelation on the current output domain.
+        Example: ``values = result.coefficient``.
+        Constraints: Preserves original pair/search authority and actual retained parts.
         """
+        assert self._dataset is not None
+        from marivo.analysis.core.model import PairInputsPart
+
+        if not any(isinstance(p, PairInputsPart) for p in self._node.root.signature.parts):
+            return MaterializedCoefficientRelation(
+                _TOKEN, self._node, self._runtime, dataset=self._dataset
+            )
         return MaterializedCoefficientRelation(
-            _TOKEN, self._node, self._runtime, dataset=self._dataset
+            _TOKEN,
+            self._node.association_field("coefficient"),
+            self._runtime,
+            dataset=replace(self._dataset, projection="coefficient"),
+        )
+
+    @property
+    def selected(self) -> MaterializedBooleanRelation:
+        """Read the owned selected view.
+
+        Args: None.
+        Returns: A MaterializedBooleanRelation on the current output domain.
+        Example: ``values = result.selected``.
+        Constraints: Preserves original pair/search authority and actual retained parts.
+        """
+        assert self._dataset is not None
+        return MaterializedBooleanRelation(
+            _TOKEN,
+            self._node.association_field("selected"),
+            self._runtime,
+            dataset=replace(self._dataset, projection="selected"),
+        )
+
+
+class LogicalForecastResult(_Value):
+    """Unexecuted forecast with immutable original scope and owned views."""
+
+    def execute(self) -> MaterializedForecastResult:
+        """Execute and atomically publish this statistical graph.
+
+        Args: None.
+        Returns: A MaterializedForecastResult bound to this exact graph.
+        Example: ``fixed = result.execute()``.
+        Constraints: Source execution captures anew; fixed execution verifies retained inputs.
+        """
+        return MaterializedForecastResult(_TOKEN, self._node, self._runtime, dataset=self._run())
+
+    def where(self, predicate: BoundPredicate) -> LogicalForecastResult:
+        """Select synchronized result views while retaining original scope.
+
+        Args: predicate: A predicate on owned corresponding fields.
+        Returns: A LogicalForecastResult over the current selected keys.
+        Example: ``chosen = result.where(result.prediction.value.gt(0))``.
+        Constraints: No reestimation, lag reselection or future-grid reconstruction.
+        """
+        return LogicalForecastResult(_TOKEN, self._select(predicate), self._runtime, inputs=(self,))
+
+    @property
+    def prediction(self) -> LogicalNumericRelation:
+        """Read the owned prediction view.
+
+        Args: None.
+        Returns: A LogicalNumericRelation on the current output domain.
+        Example: ``values = result.prediction``.
+        Constraints: Preserves original training/future authority and actual retained parts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._node.forecast_field("prediction"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def lower(self) -> LogicalNumericRelation:
+        """Read the owned lower view.
+
+        Args: None.
+        Returns: A LogicalNumericRelation on the current output domain.
+        Example: ``values = result.lower``.
+        Constraints: Preserves original training/future authority and actual retained parts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._node.forecast_field("lower"), self._runtime, inputs=(self,)
+        )
+
+    @property
+    def upper(self) -> LogicalNumericRelation:
+        """Read the owned upper view.
+
+        Args: None.
+        Returns: A LogicalNumericRelation on the current output domain.
+        Example: ``values = result.upper``.
+        Constraints: Preserves original training/future authority and actual retained parts.
+        """
+        return LogicalNumericRelation(
+            _TOKEN, self._node.forecast_field("upper"), self._runtime, inputs=(self,)
+        )
+
+
+class MaterializedForecastResult(_MaterializedValue):
+    """Fixed forecast with immutable original scope and owned views."""
+
+    def where(self, predicate: BoundPredicate) -> LogicalForecastResult:
+        """Select synchronized result views while retaining original scope.
+
+        Args: predicate: A predicate on owned corresponding fields.
+        Returns: A LogicalForecastResult over the current selected keys.
+        Example: ``chosen = result.where(result.prediction.value.gt(0))``.
+        Constraints: No reestimation, lag reselection or future-grid reconstruction.
+        """
+        return LogicalForecastResult(_TOKEN, self._select(predicate), self._runtime, inputs=(self,))
+
+    @property
+    def prediction(self) -> MaterializedNumericRelation:
+        """Read the owned prediction view.
+
+        Args: None.
+        Returns: A MaterializedNumericRelation on the current output domain.
+        Example: ``values = result.prediction``.
+        Constraints: Preserves original training/future authority and actual retained parts.
+        """
+        assert self._dataset is not None
+        return MaterializedNumericRelation(
+            _TOKEN,
+            self._node.forecast_field("prediction"),
+            self._runtime,
+            dataset=replace(self._dataset, projection="prediction"),
+        )
+
+    @property
+    def lower(self) -> MaterializedNumericRelation:
+        """Read the owned lower view.
+
+        Args: None.
+        Returns: A MaterializedNumericRelation on the current output domain.
+        Example: ``values = result.lower``.
+        Constraints: Preserves original training/future authority and actual retained parts.
+        """
+        assert self._dataset is not None
+        return MaterializedNumericRelation(
+            _TOKEN,
+            self._node.forecast_field("lower"),
+            self._runtime,
+            dataset=replace(self._dataset, projection="lower"),
+        )
+
+    @property
+    def upper(self) -> MaterializedNumericRelation:
+        """Read the owned upper view.
+
+        Args: None.
+        Returns: A MaterializedNumericRelation on the current output domain.
+        Example: ``values = result.upper``.
+        Constraints: Preserves original training/future authority and actual retained parts.
+        """
+        assert self._dataset is not None
+        return MaterializedNumericRelation(
+            _TOKEN,
+            self._node.forecast_field("upper"),
+            self._runtime,
+            dataset=replace(self._dataset, projection="upper"),
         )
 
 
@@ -4355,6 +4857,14 @@ def wrap_materialized(
 ) -> PublicMaterialized:
     """Restore the existing public result variant from its checked typed graph."""
     kind = _kind(node)
+    if kind == "forecast":
+        return MaterializedForecastResult(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "association_read":
+        return (
+            MaterializedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
+            if node.root.value_type == ScalarType("boolean")
+            else MaterializedCoefficientRelation(_TOKEN, node, runtime, dataset=dataset)
+        )
     if kind == "time_runs":
         return MaterializedTimeRunResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "deviation":
@@ -6881,7 +7391,9 @@ def new_journeys(node: Relation, runtime: DatasetRuntime) -> LogicalJourneyResul
 
 
 PublicMaterialized: TypeAlias = (
-    MaterializedTimeRunResult
+    MaterializedBooleanRelation
+    | MaterializedCoefficientRelation
+    | MaterializedTimeRunResult
     | MaterializedDeviationResult
     | MaterializedRetentionResult
     | MaterializedSubjectRetentionResult
@@ -6914,6 +7426,7 @@ PublicMaterialized: TypeAlias = (
     | MaterializedSelectedDifferenceRelation
     | MaterializedStatisticRelation
     | MaterializedCoefficientSelectionRelation
+    | MaterializedForecastResult
     | MaterializedAssociationResult
     | MaterializedAttributionResult
     | MaterializedRankingResult
@@ -6922,7 +7435,8 @@ PublicMaterialized: TypeAlias = (
 
 
 NumericRelation: TypeAlias = (
-    LogicalNumericRelation
+    MaterializedGroupedNumericRelation
+    | LogicalNumericRelation
     | MaterializedNumericRelation
     | LogicalRatioRelation
     | MaterializedRatioRelation
@@ -7210,7 +7724,11 @@ def one_to_one(
 
 
 def table(
-    **columns: NumericRelation
+    **columns: LogicalCoefficientRelation
+    | MaterializedCoefficientRelation
+    | LogicalCoefficientSelectionRelation
+    | MaterializedCoefficientSelectionRelation
+    | NumericRelation
     | CategoryRelation
     | LogicalBooleanRelation
     | MaterializedBooleanRelation
@@ -7236,6 +7754,10 @@ def table(
             value,
             (
                 _NumericComparison,
+                LogicalCoefficientRelation,
+                MaterializedCoefficientRelation,
+                LogicalCoefficientSelectionRelation,
+                MaterializedCoefficientSelectionRelation,
                 LogicalCategoryRelation,
                 MaterializedCategoryRelation,
                 LogicalSelectedCategoryRelation,

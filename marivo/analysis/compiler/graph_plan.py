@@ -15,16 +15,22 @@ from marivo.analysis.core.model import (
     HistoryViewPart,
     InstanceRetentionPart,
     Obligation,
+    PairInputsPart,
     RunCellsPart,
     SubjectRetentionPart,
+    TrainingInputsPart,
     reject,
 )
 from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorObserve,
     AnchorRetention,
+    AssociationFit,
+    AssociationRead,
     DeviationFit,
     DeviationRead,
+    ForecastFit,
+    ForecastRead,
     FunnelAttribute,
     FunnelAxesPrepare,
     FunnelCompare,
@@ -236,6 +242,10 @@ def plan(
                 and not isinstance(
                     node.parameters,
                     (
+                        AssociationFit,
+                        AssociationRead,
+                        ForecastFit,
+                        ForecastRead,
                         TimeRuns,
                         TimeRunRead,
                         DeviationFit,
@@ -278,6 +288,8 @@ def plan(
                         (
                             ConditionCellsPart,
                             RunCellsPart,
+                            PairInputsPart,
+                            TrainingInputsPart,
                             FitInputsPart,
                             HistoryViewPart,
                             InstanceRetentionPart,
@@ -371,6 +383,8 @@ def plan(
                             (
                                 ConditionCellsPart,
                                 RunCellsPart,
+                                PairInputsPart,
+                                TrainingInputsPart,
                                 FitInputsPart,
                                 FunnelPart,
                                 FunnelComparisonPart,
@@ -387,6 +401,10 @@ def plan(
                 or isinstance(
                     node.parameters,
                     (
+                        AssociationFit,
+                        AssociationRead,
+                        ForecastFit,
+                        ForecastRead,
                         TimeRuns,
                         TimeRunRead,
                         DeviationFit,

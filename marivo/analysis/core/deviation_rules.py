@@ -11,12 +11,14 @@ from marivo.analysis.core.model import (
     FitInputsPart,
     FitStatePart,
     GridCellsPart,
+    PairInputsPart,
     Part,
     Quantity,
     Signature,
     SubjectMapPart,
     SubjectPart,
     TableFitsPart,
+    TrainingInputsPart,
     require_part,
 )
 from marivo.analysis.core.rules import (
@@ -59,7 +61,10 @@ def validate(
             or any(
                 column.index < 0
                 or column.signature.domain.binding != part.binding
-                or not any(isinstance(p, FitInputsPart) for p in column.signature.parts)
+                or not any(
+                    isinstance(p, (FitInputsPart, PairInputsPart, TrainingInputsPart))
+                    for p in column.signature.parts
+                )
                 for column in part.columns
             )
         ):

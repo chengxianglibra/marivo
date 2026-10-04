@@ -36,7 +36,7 @@ observed = members.observe(ms.ref.metric("sales.revenue"), during=mv.time_scope(
 assert isinstance(observed, mv.LogicalNumericRelation)
 observed.summarize(mv.mean()).compare(category)
 observed.compare(observed).rollup()
-observed.correlate(observed, method="pearson")
+observed.correlate(observed, method="partial")
 mv.route(ms.ref.metric("sales.revenue"), through=(ms.ref.relationship("sales.buyer"),))
 mv.sum("extra")
 category.rank(order="ascending", ties="dense")

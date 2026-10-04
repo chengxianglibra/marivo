@@ -108,6 +108,23 @@ def validate(part: Part) -> None:
                 "exact noninitial step, unique axes, closed mode and top_k 1..1000 required",
             )
     elif isinstance(part, FindingPolicyPart):
+        if part.producer.startswith(("association.", "forecast.")):
+            association = part.producer.startswith("association.")
+            if (
+                part.extractor
+                != (
+                    "graph.association_findings@v1" if association else "graph.forecast_findings@v1"
+                )
+                or part.policy
+                != (
+                    "bounded_descriptive_findings@v1"
+                    if association
+                    else "bounded_prediction_findings@v1"
+                )
+                or part.version != "v1"
+            ):
+                fail("finding_policy", "statistical producer and extractor differ")
+            return
         if part.producer in ("deviation.zscore", "deviation.mad", "time.runs"):
             if (
                 part.extractor != "graph.no_findings@v1"

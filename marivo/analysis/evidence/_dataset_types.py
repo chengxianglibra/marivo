@@ -178,6 +178,84 @@ class FindingCoordinateV1(_Value):
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class CatalogGraphMetricV1(_Value):
+    metric: RefPayloadV1
+    kind: Literal["catalog"] = "catalog"
+
+    def __post_init__(self) -> None:
+        _Value.__post_init__(self)
+        if self.metric.kind is not SemanticKind.METRIC:
+            raise invalid("Observed graph quantity requires a Metric ref")
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class RuntimeGraphMetricV1(_Value):
+    expression_identity: str
+    kind: Literal["runtime"] = "runtime"
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class GraphQuantityBindingV1(_Value):
+    quantity_identity: str
+    definition_fingerprint: str
+    unit: str | None
+    value_type: str
+    approximation_identity: str
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class ObservedGraphQuantityV1(GraphQuantityBindingV1):
+    metric: CatalogGraphMetricV1 | RuntimeGraphMetricV1
+    graph_fingerprint: str
+    contribution_identity: str
+    kind: Literal["observed"] = "observed"
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class DerivedGraphQuantityV1(GraphQuantityBindingV1):
+    method: str
+    ordered_input_identities: tuple[str, ...]
+    kind: Literal["derived"] = "derived"
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class RowStatisticGraphQuantityV1(GraphQuantityBindingV1):
+    method: str
+    input_identity: str
+    input_domain: str
+    weighting: str
+    kind: Literal["row_statistic"] = "row_statistic"
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class RolledGraphQuantityV1(GraphQuantityBindingV1):
+    original_identity: str
+    contribution_identity: str
+    kind: Literal["original_rollup"] = "original_rollup"
+
+
+GraphQuantityV1: TypeAlias = (
+    ObservedGraphQuantityV1
+    | DerivedGraphQuantityV1
+    | RowStatisticGraphQuantityV1
+    | RolledGraphQuantityV1
+)
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class AssociationFindingSubjectV2(_Value):
+    quantity_a: GraphQuantityV1
+    quantity_b: GraphQuantityV1
+    kind: Literal["graph-association-v2"] = "graph-association-v2"
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class ForecastFindingSubjectV2(_Value):
+    quantity: GraphQuantityV1
+    kind: Literal["graph-forecast-v2"] = "graph-forecast-v2"
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class AssociationFindingSubjectV1(_Value):
     metric_a: DatasetFieldIdentity
     metric_b: DatasetFieldIdentity
@@ -203,7 +281,11 @@ class FunnelFindingSubjectV1(_Value):
 
 
 FindingSubjectV1: TypeAlias = (
-    AssociationFindingSubjectV1 | MetricFindingSubjectV1 | FunnelFindingSubjectV1
+    AssociationFindingSubjectV2
+    | ForecastFindingSubjectV2
+    | AssociationFindingSubjectV1
+    | MetricFindingSubjectV1
+    | FunnelFindingSubjectV1
 )
 
 
@@ -434,7 +516,16 @@ class Finding(_Value):
             subject = "association"
         elif self.finding_type in ("funnel_delta", "contribution"):
             subject = "event_funnel"
-        if self.subject.kind != subject:
+        if self.subject.kind not in (
+            subject,
+            *(
+                ("graph-association-v2",)
+                if self.finding_type == "association"
+                else ("graph-forecast-v2",)
+                if self.finding_type == "forecast_point"
+                else ()
+            ),
+        ):
             raise invalid("Finding subject does not match its value family")
         if len({item.field_id for item in self.coordinates}) != len(self.coordinates):
             raise invalid("duplicate Finding coordinate")
