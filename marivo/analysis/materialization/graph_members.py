@@ -35,6 +35,7 @@ from marivo.analysis.core.model import (
     Binding,
     Coordinate,
     DomainSignature,
+    FitInputsPart,
     FunnelAllocationPart,
     FunnelComparisonPart,
     FunnelPart,
@@ -49,11 +50,13 @@ from marivo.analysis.core.rules import (
     AnchorObserve,
     AnchorRetention,
     BindProject,
+    DeviationFit,
     MapCorrespond,
     PartsTransport,
     PreparedObservation,
     RetentionBySubject,
     RowState,
+    TimeProduct,
     entity_members,
 )
 from marivo.analysis.core.time_grid import GridPoint, GridVersionSelection
@@ -259,7 +262,13 @@ class MemberGraph:
             field.parse, (DateParse, TimestampParse, DatetimeParse)
         ):
             raise reject("unqualified field parsing")
-        if dimension.kind is SemanticKind.MEASURE and physical.name not in ("int64", "float64"):
+        from marivo.analysis.methods.physical import DecimalType
+
+        if (
+            dimension.kind is SemanticKind.MEASURE
+            and physical.name not in ("int64", "float64")
+            and not isinstance(physical, DecimalType)
+        ):
             raise reject("Measure requires a qualified numeric physical type")
         field_type = (
             schemas[-1].schema.field(field.source_column).type if not expression_bodies else None
@@ -471,6 +480,19 @@ class MemberGraph:
                         and node.inputs[0].node.signature.domain.kind == "journey"
                     )
                     or (
+                        isinstance(node.parameters, RowState)
+                        and isinstance(node.inputs[0].node, MethodNode)
+                        and isinstance(node.inputs[0].node.parameters, PreparedObservation)
+                    )
+                    or (
+                        isinstance(node.parameters, TimeProduct)
+                        and any(
+                            isinstance(ancestor, MethodNode)
+                            and isinstance(ancestor.parameters, DeviationFit)
+                            for ancestor in topology(node.inputs[0].node)
+                        )
+                    )
+                    or (
                         isinstance(node.parameters, AnchorObserve)
                         and (
                             isinstance(node.parameters.window, CalendarWindow)
@@ -495,6 +517,7 @@ class MemberGraph:
                         isinstance(
                             p,
                             (
+                                FitInputsPart,
                                 FunnelPart,
                                 FunnelComparisonPart,
                                 FunnelAllocationPart,
@@ -519,6 +542,9 @@ class MemberGraph:
                     or isinstance(node.parameters, (RetentionBySubject, PreparedObservation))
                     or node.method.name
                     in (
+                        "deviation.zscore",
+                        "deviation.mad",
+                        "deviation.read",
                         "funnel.reduce",
                         "funnel.compare",
                         "funnel.read",

@@ -68,6 +68,12 @@ Entity-domain values
 .. autoclass:: MaterializedRatioRelation
    :members:
 
+.. autoclass:: LogicalDeviationResult
+   :members:
+
+.. autoclass:: MaterializedDeviationResult
+   :members:
+
 .. autoclass:: LogicalAssociationResult
    :members:
 
@@ -405,6 +411,14 @@ keys, one Session and one source/fixed mode. The terminal Artifact exposes
 keys once and authored value columns. Non-Defined values export as missing;
 only the Artifact and ``show()`` preserve their tags and reasons. Tables have
 no analysis contract or column attributes.
+
+Tables retain the original fit authority for every deviation column, including
+tables mixing scores with categories, original values or another fit. A fitted
+ranking's ``ranks`` projection retains its original fit scope and its own rank
+values; both logical and materialized projections expose the same retained parts
+through ``contract()`` and ``show()``. Recovery verifies current values against
+captured fitted and ranking parts without fitting again. Missing or corrupt
+authority rejects with a typed repair.
 
 .. autoclass:: LogicalRankingResult
    :members:

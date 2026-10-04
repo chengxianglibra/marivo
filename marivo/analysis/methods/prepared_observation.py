@@ -6,6 +6,8 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
+from fractions import Fraction
 
 import pyarrow as pa
 
@@ -71,12 +73,41 @@ def restrict(
 
 def state(
     params: ObserveMetric | ObserveCount, rows: tuple[Mapping[str, object], ...]
-) -> dict[str, int | float]:
+) -> dict[str, int | float | Decimal]:
     check()
     if isinstance(params, ObserveCount):
         if len(rows) >= 2**63:
             fail("numeric_state", "count exceeds int64", stage="consume")
         return {"count": len(rows)}
+    if params.amount_type.startswith("decimal("):
+        from marivo.analysis.methods.deviation_numeric import exact, finish
+        from marivo.analysis.methods.deviation_physical import parse_type
+        from marivo.analysis.methods.physical import DecimalType
+
+        typ = parse_type(params.amount_type)
+        assert isinstance(typ, DecimalType)
+        total_exact = Fraction()
+        non_null = 0
+        for row in rows:
+            check()
+            value = row["amount"]
+            if value is None:
+                continue
+            if not isinstance(value, Decimal):
+                fail(
+                    "numeric_state", "prepared amount is not the captured Decimal", stage="consume"
+                )
+            try:
+                total_exact += exact(value, typ)
+            except ValueError as error:
+                fail("numeric_state", str(error), stage="consume")
+            non_null += 1
+        try:
+            total_decimal = finish(total_exact, DecimalType(38, typ.scale))
+        except OverflowError as error:
+            fail("numeric_state", str(error), stage="consume")
+        assert isinstance(total_decimal, Decimal)
+        return {"sum": total_decimal, "non_null_count": non_null}
     amounts: list[int | float] = []
     for row in rows:
         check()
@@ -117,7 +148,7 @@ def state(
             "prepared component exceeds its published numeric type",
             stage="consume",
         )
-    result: dict[str, int | float] = {"sum": total, "non_null_count": len(amounts)}
+    result: dict[str, int | float | Decimal] = {"sum": total, "non_null_count": len(amounts)}
     if params.method == "mean":
         result["row_count"] = len(rows)
     if params.amount_type == "float64":

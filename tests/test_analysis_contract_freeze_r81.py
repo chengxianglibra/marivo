@@ -406,8 +406,61 @@ def test_import_only_probe_proves_target_api_not_yet_public() -> None:
 
 @pytest.mark.parametrize("kind", ("owner", "chunk", "payload"))
 def test_verifier_rejects_independent_digest_corruption(tmp_path: Path, kind: str) -> None:
-    snapshot, _ = _frozen()
-    damaged = copy.deepcopy(snapshot)
+    snapshot, inventory = _frozen()
+    matching = copy.deepcopy(snapshot)
+    fixture_inventory = copy.deepcopy(inventory)
+    for group in ("source_files", "test_files", "disclosure_files"):
+        for value in _array(fixture_inventory[group]):
+            record = _object(value)
+            path = str(record["path"])
+            raw = (ROOT / path).read_bytes()
+            destination = tmp_path / path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(raw)
+            record["sha256"] = hashlib.sha256(raw).hexdigest()
+    for path in _object(matching["owner_inputs"]):
+        raw = (ROOT / path).read_bytes()
+        destination = tmp_path / path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(raw)
+        _object(matching["owner_inputs"])[path] = hashlib.sha256(raw).hexdigest()
+    collector = _object(matching["collector"])
+    raw = (ROOT / str(collector["path"])).read_bytes()
+    destination = tmp_path / str(collector["path"])
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(raw)
+    collector["sha256"] = hashlib.sha256(raw).hexdigest()
+    raw = json.dumps(fixture_inventory).encode()
+    compressed = zlib.compress(raw)
+    path = "fixture-inventory.zlib"
+    (tmp_path / path).write_bytes(compressed)
+    matching["inventory_payload"] = {
+        **_object(matching["inventory_payload"]),
+        "chunks": [
+            {
+                "path": path,
+                "bytes": len(compressed),
+                "sha256": hashlib.sha256(compressed).hexdigest(),
+            }
+        ],
+        "compressed_bytes": len(compressed),
+        "uncompressed_bytes": len(raw),
+        "sha256_uncompressed": hashlib.sha256(raw).hexdigest(),
+    }
+    target = tmp_path / "fixture-snapshot.json"
+    target.write_text(json.dumps(matching))
+    command = (
+        str(ROOT / ".venv/bin/python"),
+        str(ROOT / "scripts/r81_static_freeze.py"),
+        "--root",
+        str(tmp_path),
+        "--output",
+        str(target),
+        "--verify-current",
+    )
+    valid = subprocess.run(command, text=True, capture_output=True, check=False)
+    assert valid.returncode == 0, valid.stderr
+    damaged = copy.deepcopy(matching)
     if kind == "owner":
         owners = _object(damaged["owner_inputs"])
         owners[next(iter(owners))] = "0" * 64
@@ -415,18 +468,9 @@ def test_verifier_rejects_independent_digest_corruption(tmp_path: Path, kind: st
         _object(_array(_object(damaged["inventory_payload"])["chunks"])[0])["sha256"] = "0" * 64
     else:
         _object(damaged["inventory_payload"])["sha256_uncompressed"] = "0" * 64
-    target = tmp_path / "damaged-snapshot.json"
     target.write_text(json.dumps(damaged))
     result = subprocess.run(
-        (
-            str(ROOT / ".venv/bin/python"),
-            str(ROOT / "scripts/r81_static_freeze.py"),
-            "--root",
-            str(ROOT),
-            "--output",
-            str(target),
-            "--verify-current",
-        ),
+        command,
         text=True,
         capture_output=True,
         check=False,

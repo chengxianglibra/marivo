@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from functools import cache
 from typing import Literal
 
 from marivo.analysis.core.model import CheckId, DomainKind, PartRole
@@ -16,6 +17,8 @@ from marivo.analysis.core.rules import (
     BindProject,
     CellDerive,
     CompleteGroups,
+    DeviationFit,
+    DeviationRead,
     DisplayRank,
     DisplayTable,
     FunnelAttribute,
@@ -65,6 +68,11 @@ from marivo.analysis.methods.physical import (
 from marivo.analysis.methods.semantics import MethodKey
 
 PARTS: tuple[PartRole, ...] = (
+    "fit_inputs",
+    "fit_state",
+    "grid_cells",
+    "subject_map",
+    "table_fits",
     "retention",
     "anchor",
     "history",
@@ -874,8 +882,13 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
     return (*declarations, *temporal)
 
 
+@cache
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     """Version typed folds and once-rounded numeric consumers in Store 7."""
+    if method.name.startswith("deviation."):
+        from marivo.analysis.methods.deviation_physical import implementations as deviation
+
+        return deviation(method)
     if method.name in ("anchor.retention", "retention.by_subject"):
         from marivo.analysis.methods.retention_physical import implementations as retention
 
@@ -1004,8 +1017,120 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         ),
     )
 
+    if method.name in ("parts_transport", "row.count", "row.count_defined", "time.product"):
+        declarations = tuple(
+            {
+                item.key: item
+                for item in (
+                    *declarations,
+                    *tuple(
+                        replace(
+                            item,
+                            key=replace(item.key, route="ibis_python"),
+                            checks=NUMERIC_CHECKS,
+                            qualification=Qualified(
+                                f"r82.{method}.{item.key.shape}@v1",
+                                "analysis.materialization.graph_local_execution",
+                                "tests/test_analysis_deviation_r82.py",
+                            ),
+                        )
+                        for item in declarations
+                        if item.key.route == "ibis" and isinstance(item.key.shape, SourceShape)
+                    ),
+                )
+            }.values()
+        )
     keys = {item.key for item in declarations}
-    return (*declarations, *(item for item in history_consumers(method) if item.key not in keys))
+    declarations = (
+        *declarations,
+        *(item for item in history_consumers(method) if item.key not in keys),
+    )
+    if method.name == "parts_transport":
+        declarations = tuple(
+            replace(
+                item,
+                parts=(
+                    *PARTS,
+                    "current_endpoint",
+                    "baseline_endpoint",
+                    "correspondence",
+                    "pair_counts",
+                ),
+                qualification=Qualified(
+                    f"r82.retained_transport.{item.key}@v1",
+                    "analysis.materialization.graph_local_execution",
+                    "tests/test_analysis_deviation_f11_r82.py",
+                ),
+            )
+            if item.key.input_domains[0] in ("entity", "group", "singleton")
+            and isinstance(item.qualification, Qualified)
+            and item.qualification.consumer_id == "analysis.materialization.graph_local_execution"
+            else item
+            for item in declarations
+        )
+    if method.name.startswith("state_rollup") or method.name in (
+        "bind_project",
+        "parts_transport",
+        "cell.difference",
+        "time.product",
+        "group.attach",
+        "group.complete",
+        "metric.observe",
+        "metric.sum_zero",
+        "metric.count",
+        "metric.min",
+        "metric.max",
+        "metric.median",
+        "metric.percentile",
+        "row.count",
+        "row.count_defined",
+        "row.sum",
+        "row.mean",
+        "row.min",
+        "row.max",
+        "display.rank",
+        "display.table",
+    ):
+        expanded = []
+        keys = {item.key for item in declarations}
+        for item in declarations:
+            shape = item.key.shape
+            if not isinstance(item.qualification, Qualified):
+                continue
+            if not (
+                (
+                    isinstance(shape, SourceShape)
+                    and shape.backend == "duckdb"
+                    and isinstance(shape.time, TimeShape)
+                )
+                or (isinstance(shape, FixedShape) and isinstance(shape.time, NoTime))
+            ):
+                continue
+            for zone in ("UTC", "America/New_York"):
+                units: tuple[Literal["s", "ms", "us", "ns"], ...] = ("s", "ms", "us", "ns")
+                for unit in units:
+                    if isinstance(shape, SourceShape) and shape.form == "table" and unit != "us":
+                        continue
+                    candidate = replace(
+                        item,
+                        key=replace(
+                            item.key, shape=replace(shape, time=TimeShape("instant", unit, zone))
+                        ),
+                    )
+                    if candidate.key not in keys:
+                        keys.add(candidate.key)
+                        expanded.append(
+                            replace(
+                                candidate,
+                                qualification=Qualified(
+                                    f"r82.time.{method}.{candidate.key.shape}.{candidate.key.route}@v1",
+                                    item.qualification.consumer_id,
+                                    "tests/test_analysis_deviation_r82.py",
+                                ),
+                            )
+                        )
+        declarations = (*declarations, *expanded)
+    return declarations
 
 
 def specialize_arity(implementation: Implementation, arity: int) -> Implementation:
@@ -1030,6 +1155,21 @@ def specialize_arity(implementation: Implementation, arity: int) -> Implementati
 
 def specialize_numeric(implementation: Implementation, key: QualificationKey) -> Implementation:
     """Bind precise numeric families and closed typed predicate inputs."""
+    if key.method.name.startswith("deviation."):
+        from marivo.analysis.methods.deviation_physical import specialize
+
+        return specialize(implementation, key)
+    if (
+        key.method.name == "time.product"
+        and implementation.key.input_types == (ScalarType("int64"),)
+        and key.input_domains == implementation.key.input_domains
+        and len(key.input_types) == 1
+        and (
+            key.input_types[0] == ScalarType("float64")
+            or isinstance(key.input_types[0], DecimalType)
+        )
+    ):
+        return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
     if (
         key.method.name == "anchor.observe"
         and key.input_domains == implementation.key.input_domains == ("anchor", "entity")
@@ -1066,11 +1206,33 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
     if (
         key.input_domains == implementation.key.input_domains == ("entity", "entity")
         and len(key.input_types) == 2
-        and key.input_types[0] == implementation.key.input_types[0]
+        and (
+            key.input_types[0] == implementation.key.input_types[0]
+            or (
+                key.method.name in ("metric.observe", "metric.sum_zero")
+                and (
+                    isinstance(key.input_types[0], DecimalType)
+                    or key.input_types[0] == ScalarType("float64")
+                )
+            )
+        )
         and isinstance(implementation.qualification, Qualified)
         and implementation.qualification.consumer_id == "analysis.materialization.graph_preparation"
     ):
         # The original member envelope is also a key-only population projection.
+        return replace(
+            implementation,
+            key=replace(implementation.key, input_types=key.input_types),
+            precision="exact"
+            if isinstance(key.input_types[0], DecimalType)
+            else implementation.precision,
+        )
+    if (
+        key.method.name == "map_correspond"
+        and isinstance(key.input_types[0], DecimalType)
+        and isinstance(implementation.qualification, Qualified)
+        and implementation.qualification.implementation_id.startswith("r82.subject_image.")
+    ):
         return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
     if (
         key.method.name.startswith("attribution.")
@@ -1190,6 +1352,8 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
         "metric.linear",
         "row.count",
         "row.count_defined",
+        "row.min",
+        "row.max",
     )
     if key.method.name not in allowed or len(key.input_types) != len(
         implementation.key.input_types
@@ -1246,8 +1410,9 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             "a capture template submitted as an executable Metric node",
             "Use AnchorDomain.observe so bounded version resolution owns the candidate input.",
         )
-    if implementation not in tuple(
-        specialize_numeric(
+    if not any(
+        implementation
+        == specialize_numeric(
             specialize_arity(candidate, len(implementation.key.input_types)), implementation.key
         )
         for candidate in implementations(implementation.key.method)
@@ -1260,6 +1425,8 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
     if isinstance(
         params,
         (
+            DeviationFit,
+            DeviationRead,
             AnchorBind,
             AnchorObserve,
             AnchorRetention,
@@ -1346,8 +1513,11 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
         if (
             params.metric_contract is not None
             or params.field_contract is None
-            or params.field_contract.logical_type
-            not in ("int64", "string", "float64", "boolean", "date", "timestamp")
+            or (
+                params.field_contract.logical_type
+                not in ("int64", "string", "float64", "boolean", "date", "timestamp")
+                and not params.field_contract.logical_type.startswith("decimal(")
+            )
         ):
             reject(
                 "direct int64 or string field binding without parsing",
@@ -1373,6 +1543,16 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
                 "Use the qualified singleton target.",
             )
     elif isinstance(params, MapCorrespond):
+        if (
+            isinstance(implementation.qualification, Qualified)
+            and implementation.qualification.implementation_id.startswith("r82.subject_image.")
+            and params.mode != "subjects"
+        ):
+            reject(
+                "a real total Subject projection",
+                params.mode,
+                "Use the captured Subject image of the observed relation.",
+            )
         if params.mode not in (
             "exact_keys",
             "one_to_one",

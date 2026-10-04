@@ -26,6 +26,7 @@ _METHOD_GROUPS = {
     ("_MaterializedRead", "findings"): "artifacts.reads",
     ("_MaterializedRead", "finding"): "artifacts.reads",
     ("_NumericComparison", "rank"): "methods.rows",
+    ("_NumericComparison", "deviation"): "methods.rows",
     ("_AnchorDomain", "retention"): "methods.events",
     ("_InstanceRetention", "by_subject"): "methods.events",
     ("_Retention", "known_true"): "methods.events",
@@ -161,6 +162,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.OneToOneCorrespondence,
         dsl.ReferenceWeights,
         dsl.LogicalAttributionResult,
+        dsl.LogicalDeviationResult,
+        dsl.MaterializedDeviationResult,
         dsl.MaterializedAttributionResult,
         dsl.LogicalRankingResult,
         dsl.MaterializedRankingResult,
@@ -300,6 +303,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             dsl.OneToOneCorrespondence: "mv.one_to_one(left=left, right=right, via=relationship)",
             dsl.ReferenceWeights: "mv.reference_weights(values, strata=(category,), unit=entity)",
             dsl.LogicalAttributionResult: "change.attribute(axes=(channel,))",
+            dsl.LogicalDeviationResult: 'change.deviation(method="mad")',
+            dsl.MaterializedDeviationResult: "scored.execute()",
             dsl.MaterializedAttributionResult: "attribution.execute()",
             dsl.LogicalRankingResult: 'values.rank(order="descending", ties="dense")',
             dsl.MaterializedRankingResult: "ranking.execute()",
@@ -406,6 +411,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         )
         if type_value is windows.Duration:
             producers = ("dsl.duration",)
+        elif type_value is dsl.LogicalDeviationResult:
+            producers = ("dsl.NumericComparison.deviation",)
         elif type_value is windows.ElapsedWindow:
             producers = ("dsl.elapsed",)
         elif type_value is windows.CalendarWindow:
@@ -436,6 +443,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 producers=("session.artifact",) if name.startswith("Materialized") else producers,
                 consumers=("dsl.InstanceRetention.by_subject",)
                 if type_value in (windows.AnyAnchor, windows.EveryAnchor)
+                else (
+                    "dsl.LogicalDeviationResult.where",
+                    "dsl.LogicalDeviationResult.execute",
+                    "dsl.Value.contract",
+                )
+                if type_value in (dsl.LogicalDeviationResult, dsl.MaterializedDeviationResult)
                 else (
                     "dsl.Retention.known_true",
                     "dsl.Retention.known_false",

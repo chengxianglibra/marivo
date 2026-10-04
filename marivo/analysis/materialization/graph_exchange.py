@@ -110,6 +110,9 @@ class ExchangeContract:
                 for part in self.parts
                 if part.role
                 not in (
+                    "fit_inputs",
+                    "fit_state",
+                    "table_fits",
                     "fixed_reference",
                     "reference_proof",
                     "strata",
@@ -184,6 +187,9 @@ class ExchangeContract:
                     self.key_fields
                     or self.method.name
                     not in (
+                        "deviation.zscore",
+                        "deviation.mad",
+                        "deviation.read",
                         "display.rank",
                         "display.table",
                         "parts_transport",
@@ -414,6 +420,9 @@ def collect(
             None,
         )
         if declared.role in (
+            "fit_inputs",
+            "fit_state",
+            "table_fits",
             "retention",
             "history_view",
             "entry_axes",
@@ -426,6 +435,11 @@ def collect(
                 or part.table.schema != pa.schema([(declared.role + "__retained", pa.string())])
             ):
                 raise _invalid("closed retained state must be one exact string payload")
+            continue
+        if declared.role in ("grid_cells", "subject_map"):
+            if declared.key_fields != contract.key_fields:
+                raise _invalid("original mapping keys differ from their declared fit domain")
+            _table_keys(part.table, declared.key_fields, nullable)
             continue
         if attribution_part is not None:
             from marivo.analysis.materialization.graph_attribution import (
@@ -541,6 +555,16 @@ def collect(
             )
         ):
             raise _invalid("retained fold kind differs from the declared original quantity")
+    if any(part.role == "fit_inputs" for part in parts):
+        from marivo.analysis.materialization.deviation_execution import (
+            validate as validate_deviation,
+        )
+
+        validate_deviation(contract, primary, parts)
+    if any(part.role == "table_fits" for part in parts):
+        from marivo.analysis.materialization.deviation_execution import validate_table_fits
+
+        validate_table_fits(contract, primary, parts)
     if any(part.role == "retention" for part in parts):
         from marivo.analysis.materialization.retention_execution import (
             validate as validate_retention,

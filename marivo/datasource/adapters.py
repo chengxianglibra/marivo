@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from marivo.analysis.domains.completeness import EventCoverageProvider
 
 DURATION_UNIT_METADATA_KEY = b"marivo:duration_unit"
+TIMESTAMP_UNIT_METADATA_KEY = b"marivo:timestamp_unit"
 
 SourceIR = TableSourceIR | CsvSourceIR | ParquetSourceIR | JsonSourceIR
 Parameter = str | int | float | bool | bytes | Decimal | date | datetime | None
@@ -599,6 +600,15 @@ class SourceSession:
                             {
                                 **(field.metadata or {}),
                                 DURATION_UNIT_METADATA_KEY: original.unit.encode("ascii"),
+                            }
+                        )
+                    if original is not None and pa.types.is_timestamp(original):
+                        if not pa.types.is_timestamp(field.type):
+                            raise _invalid("timestamp Parquet carrier", str(field.type))
+                        field = field.with_metadata(
+                            {
+                                **(field.metadata or {}),
+                                TIMESTAMP_UNIT_METADATA_KEY: original.unit.encode("ascii"),
                             }
                         )
                     fields.append(field)

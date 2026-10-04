@@ -18,6 +18,9 @@ if TYPE_CHECKING:
 
 
 MethodName: TypeAlias = Literal[
+    "deviation.zscore",
+    "deviation.mad",
+    "deviation.read",
     "anchor.retention",
     "retention.by_subject",
     "anchor.bind",
@@ -159,6 +162,10 @@ class MethodKey:
 
 def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     """Map closed parameter variants to exactly one concrete method identity."""
+    if isinstance(params, rules.DeviationFit):
+        return MethodKey("deviation.zscore" if params.method == "zscore" else "deviation.mad")
+    if isinstance(params, rules.DeviationRead):
+        return MethodKey("deviation.read")
     if isinstance(params, rules.AnchorRetention):
         return MethodKey("anchor.retention")
     if isinstance(params, rules.RetentionBySubject):
@@ -344,6 +351,9 @@ class MethodSemantics:
     def persistent_state_kind(self) -> PersistentStateKind | None:
         """Return the connected durable state kind; absence grants no publication."""
         kinds: dict[MethodName, PersistentStateKind] = {
+            "deviation.zscore": "none",
+            "deviation.mad": "none",
+            "deviation.read": "none",
             "anchor.retention": "anchor_retention",
             "retention.by_subject": "subject_retention",
             "anchor.bind": "none",
@@ -425,6 +435,24 @@ class MethodSemantics:
         from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
         name = self.key.name
+        if isinstance(params, (rules.DeviationFit, rules.DeviationRead)):
+            from marivo.analysis.methods.deviation_physical import (
+                output_type as deviation_output_type,
+            )
+            from marivo.analysis.methods.deviation_physical import parse_type
+
+            expected_deviation = (
+                ScalarType("float64")
+                if isinstance(params, rules.DeviationFit)
+                else deviation_output_type(params.field, parse_type(params.input_type))
+            )
+            if output != expected_deviation:
+                reject(
+                    "the exact owned deviation field type",
+                    repr(output),
+                    "Preserve the fitted output carrier.",
+                )
+            return
         if isinstance(
             params,
             (
@@ -834,6 +862,8 @@ class MethodSemantics:
             "state_rollup.linear",
         ):
             return "original_reduce@v1"
+        if name.startswith("deviation."):
+            return "deviation@v1"
         if name == "association.spearman":
             return "association_score@v1"
         if name in (
@@ -1197,6 +1227,10 @@ class MethodSemantics:
             return derive_history_view(inputs, params)
         if isinstance(params, rules.HistoryReplay):
             return rules._history_replay(inputs, params)
+        if isinstance(params, (rules.DeviationFit, rules.DeviationRead)):
+            from marivo.analysis.core.deviation_rules import derive as derive_deviation
+
+            return derive_deviation(inputs, params)
         if isinstance(params, rules.JourneyMatch):
             return rules._journey_match(inputs, params)
         if isinstance(params, rules.OccurrencePrepare):
@@ -1266,6 +1300,10 @@ class MethodSemantics:
 
 
 CONNECTED_METHODS = (
+    *(
+        MethodSemantics(MethodKey(name), "analysis.core.rules")
+        for name in ("deviation.zscore", "deviation.mad", "deviation.read")
+    ),
     MethodSemantics(MethodKey("history.replay"), "analysis.core.rules"),
     MethodSemantics(MethodKey("history.in_state"), "analysis.core.rules"),
     MethodSemantics(MethodKey("history.distribution"), "analysis.core.rules"),

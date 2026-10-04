@@ -77,6 +77,40 @@ Logical 和 Materialized 接口均返回 Logical 结果。固定续算验证 rec
 不会回源。Difference 使用 state/part v2，相对变化和普通 ratio 使用 v1；旧 Difference
 必须从源定义重新执行后再续算。
 
+### 有符号偏离评分
+
+数值关系提供 `deviation(method="zscore")` 和 `deviation(method="mad")`。
+两者均构造 `LogicalDeviationResult`；`execute()` 保存一次拟合及同一生产者的
+`observed`、`reference`、`deviation`、`score` 四个字段。Zscore 使用总体标准差；
+MAD 使用精确中位数和系数 7413/5000，原 MAD 为零时改用围绕同一中位数的平均绝对偏差。
+分数保留正负号。非 Defined 输入保留原 tag/reason；单样本和常量拟合的分数为 Undefined。
+
+```python
+scored = current.compare(baseline).deviation(method="mad")
+defined = scored.where(scored.score.value.is_defined())
+positive = defined.where(defined.score.value.gt(0))
+followup = positive.observed.members().observe(
+    revenue, during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=buyer
+)
+followup.summarize(method=mv.count_defined()).execute().show()
+fixed = scored.execute()
+fixed.contract().show()
+ranking = fixed.score.rank(order="descending", ties="dense").limit(10).execute()
+ranking.ranks.contract().show()
+mv.table(score=ranking.values, rank=ranking.ranks).execute().show()
+marivo.help("analysis.dsl.NumericComparison.deviation")
+```
+
+结果筛选和字段排名保留原拟合域；先筛选数值输入再评分会建立新拟合域。
+将分数与分类、原值、另一拟合或排名组成表时，也会保留拟合权威部件。
+排名视图保留原拟合域，物化后通过 `contract()` 披露相同部件。
+`partition_by` 接受精确对应的分类关系，Null 分类也是真实分区坐标。
+三个派生字段不取得原 Metric 的 rollup 或 attribution 权限。
+固定拟合仅消费捕获输入及 receipts；新来源观察须在来源图中先准备，再进行本地选人。
+Decimal 输入保持精确，单位字段按 Decimal(38,max(s,6)) HALF_EVEN 一次完成，
+score 最终完成为有限 float64。R8.2 evidence index 记录实际执行覆盖；远程后端、
+安装 wheel 和真实 Agent 资格属于后续阶段。
+
 
 示例要求项目已定义具有明确源类型和参考时间轴的 `sales.revenue` 指标。窗口为左闭右开，结束边界不包含在内。仅含日期的边界按 Session 持久化的报告时区解释；应为所需日历显式设置 `report_timezone`。成员筛选与观测窗口相互独立。先读取成员维度、按值筛选，再调用 `.members().observe(...)`。
 

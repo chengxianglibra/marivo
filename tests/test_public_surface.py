@@ -217,6 +217,8 @@ ANALYSIS_PUBLIC = {
     "MaterializedRolledRatioRelation",
     "LogicalAnalysisDomain",
     "LogicalAssociationResult",
+    "LogicalDeviationResult",
+    "MaterializedDeviationResult",
     "LogicalCategoryRelation",
     "LogicalBooleanRelation",
     "MaterializedBooleanRelation",
@@ -356,7 +358,7 @@ ANALYSIS_PUBLIC = {
     "session",
 }
 
-ANALYSIS_PUBLIC_ORDER_SHA256 = "b6f3076b60cca555547e519986e9643cb60cba1fa6c3ffb3acca6b106e4d9684"
+ANALYSIS_PUBLIC_ORDER_SHA256 = "e9b28bbf0420025fa11f35df9f67412ad790fe1d9796665ad96e8f57ed69d582"
 
 DATASOURCE_PUBLIC = {
     "ClickHouseSpec",

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, TypeAlias
 
 from marivo.analysis.core.graph import FixedLeaf, MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import (
+    FitInputsPart,
     FunnelAllocationPart,
     FunnelComparisonPart,
     FunnelPart,
@@ -20,6 +21,8 @@ from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorObserve,
     AnchorRetention,
+    DeviationFit,
+    DeviationRead,
     FunnelAttribute,
     FunnelAxesPrepare,
     FunnelCompare,
@@ -38,10 +41,12 @@ from marivo.analysis.core.rules import (
     PreparedObservation,
     RetentionBySubject,
     RowState,
+    TimeProduct,
 )
 from marivo.analysis.methods.physical import (
     FixedShape,
     Implementation,
+    NoTime,
     QualificationKey,
     Route,
     SourceShape,
@@ -227,6 +232,9 @@ def plan(
                 and not isinstance(
                     node.parameters,
                     (
+                        DeviationFit,
+                        DeviationRead,
+                        TimeProduct,
                         AnchorRetention,
                         RetentionBySubject,
                         AnchorBind,
@@ -244,6 +252,11 @@ def plan(
                     ),
                 )
                 and not (
+                    isinstance(node.parameters, RowState)
+                    and isinstance(node.inputs[0].node, MethodNode)
+                    and isinstance(node.inputs[0].node.parameters, PreparedObservation)
+                )
+                and not (
                     isinstance(node.parameters, PartsTransport)
                     and node.parameters.mode == "cohort"
                     and node.parameters.opportunity_domain is not None
@@ -254,7 +267,15 @@ def plan(
                     and isinstance(node.parameters, (MapCorrespond, PartsTransport, RowState))
                 )
                 and not any(
-                    isinstance(p, (HistoryViewPart, InstanceRetentionPart, SubjectRetentionPart))
+                    isinstance(
+                        p,
+                        (
+                            FitInputsPart,
+                            HistoryViewPart,
+                            InstanceRetentionPart,
+                            SubjectRetentionPart,
+                        ),
+                    )
                     for e in node.inputs
                     for p in e.node.signature.parts
                 )
@@ -292,7 +313,10 @@ def plan(
                 node.method,
                 tuple(e.node.value_type for e in node.inputs),
                 tuple(e.node.signature.domain.kind for e in node.inputs),
-                shape,
+                replace(shape, time=NoTime())
+                if isinstance(node.parameters, (DeviationFit, DeviationRead))
+                and node.signature.domain.time_grid is None
+                else shape,
                 route,
             )
             selected = registry.select(
@@ -315,7 +339,13 @@ def plan(
                 in ("occurrence", "journey", "interval", "anchor")
             )
             local_consumer = (
-                (isinstance(node.parameters, AnchorRetention) and route != "ibis")
+                (isinstance(node.parameters, TimeProduct) and node.inputs[0].node.identity in local)
+                or (
+                    isinstance(node.parameters, RowState)
+                    and isinstance(node.inputs[0].node, MethodNode)
+                    and isinstance(node.inputs[0].node.parameters, PreparedObservation)
+                )
+                or (isinstance(node.parameters, AnchorRetention) and route != "ibis")
                 or isinstance(node.parameters, RetentionBySubject)
                 or (isinstance(node.parameters, AnchorBind) and route != "ibis")
                 or (
@@ -331,6 +361,7 @@ def plan(
                         isinstance(
                             p,
                             (
+                                FitInputsPart,
                                 FunnelPart,
                                 FunnelComparisonPart,
                                 FunnelAllocationPart,
@@ -346,6 +377,8 @@ def plan(
                 or isinstance(
                     node.parameters,
                     (
+                        DeviationFit,
+                        DeviationRead,
                         HistoryReplay,
                         JourneyMatch,
                         HistoryView,

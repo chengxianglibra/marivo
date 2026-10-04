@@ -52,8 +52,9 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint
 from marivo.analysis.datasets.errors import DatasetConstructionError
-from marivo.analysis.errors import AnalysisError
+from marivo.analysis.errors import AnalysisError, StatisticalRelationError
 from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_composition import (
     combine_observations,
@@ -237,12 +238,20 @@ class Relation:
         definition = validate_descriptor(descriptor)
         if not isinstance(definition, MethodNode):
             raise _reject("Artifact has no typed method result")
+        from marivo.analysis.materialization.graph_protocol import descriptor_plan
+
+        captured_plan = descriptor_plan(descriptor, definition)
+        captured_time = (
+            captured_plan.physical_requirements[-1].key.shape.time
+            if definition.signature.domain.time_grid is not None
+            else NoTime()
+        )
         root = FixedLeaf(
             ArtifactRef(ref=dataset.artifact.artifact_ref),
             descriptor.definition_fingerprint,
             fixed_signature(descriptor),
             definition.value_type,
-            FixedShape(NoTime()),
+            FixedShape(captured_time),
         )
         return cls(dataset.runtime, root, FrozenBinding(definition))
 
@@ -305,6 +314,101 @@ class Relation:
                 ),
             )
         return GraphDataset(self.runtime, artifact)
+
+    def deviation(
+        self, method: Literal["zscore", "mad"], partitions: tuple[Relation, ...]
+    ) -> Relation:
+        from marivo.analysis.compiler.graph_plan import classify_inputs
+        from marivo.analysis.core.rules import DeviationFit
+        from marivo.analysis.methods.deviation_physical import parse_type
+
+        def failure(
+            code: Literal[
+                "r8.input_identity", "r8.input_mode", "r8.numeric_unqualified", "r8.correspondence"
+            ],
+            expected: str,
+            received: str,
+            repair: str,
+        ) -> StatisticalRelationError:
+            return StatisticalRelationError(
+                code=code,
+                operation="deviation",
+                method=f"deviation.{method}@v1",
+                input_identity=self.root.fingerprint,
+                expected=expected,
+                received=received,
+                repair=repair,
+            )
+
+        try:
+            parse_type(self.root.value_type.name)
+        except ValueError as error:
+            raise failure(
+                "r8.numeric_unqualified",
+                "int64, float64 or Decimal(p,s)",
+                self.root.value_type.name,
+                "Use a numeric receiver with an admitted original type.",
+            ) from error
+        if method not in ("zscore", "mad"):
+            raise failure(
+                "r8.numeric_unqualified",
+                "method='zscore' or method='mad'",
+                repr(method),
+                "Pass one of the two registered deviation methods.",
+            )
+        for partition in partitions:
+            if partition.runtime is not self.runtime:
+                raise failure(
+                    "r8.input_identity",
+                    self.runtime.session_ref,
+                    partition.runtime.session_ref,
+                    "Read partition categories in the receiver's Session.",
+                )
+            if partition.root.signature.domain != self.root.signature.domain:
+                raise failure(
+                    "r8.correspondence",
+                    repr(self.root.signature.domain),
+                    repr(partition.root.signature.domain),
+                    "Read categories over the receiver's exact complete domain before deviation.",
+                )
+        identity = digest(
+            canonical_json(
+                [method, self.root.fingerprint, [item.root.fingerprint for item in partitions]]
+            )
+        )
+        node = method_node(
+            (self._edge(), *(item._edge() for item in partitions)),
+            DeviationFit(method, self.root.value_type.name, identity),
+            value_type=ScalarType("float64"),
+        )
+        if classify_inputs(node).kind == "mixed":
+            raise failure(
+                "r8.input_mode",
+                "one source-only or fixed-only dependency closure",
+                "mixed source and fixed dependencies",
+                "Rebuild the categories and receiver in one input mode.",
+            )
+        result = self._with(node)
+        for partition in partitions:
+            result = result._with_sources(partition)
+        return result
+
+    def deviation_field(
+        self, field: Literal["observed", "reference", "deviation", "score"]
+    ) -> Relation:
+        from marivo.analysis.core.model import FitInputsPart, require_part
+        from marivo.analysis.core.rules import DeviationRead
+        from marivo.analysis.methods.deviation_physical import output_type, parse_type
+
+        retained = require_part(self.root.signature, "fit_inputs")
+        assert isinstance(retained, FitInputsPart)
+        return self._with(
+            method_node(
+                (self._edge(),),
+                DeviationRead(retained.input_type, field),
+                value_type=output_type(field, parse_type(retained.input_type)),
+            )
+        )
 
     def each(self, grid: BoundTimeGrid) -> Relation:
         from marivo.analysis.core.rules import TimeProduct

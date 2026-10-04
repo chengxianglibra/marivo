@@ -9,6 +9,7 @@ from marivo.analysis.methods.physical import (
     DurationType,
     FixedShape,
     Implementation,
+    NoTime,
     QualificationKey,
     Qualified,
     ResourceRequirements,
@@ -76,7 +77,7 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
         if item.key.input_types == (ScalarType("int64"),)
     )
     if method.name == "map_correspond":
-        return tuple(
+        occurrence_images = tuple(
             replace(
                 item,
                 key=replace(
@@ -95,6 +96,51 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
                 ),
             )
             for item in bases
+        )
+        units: tuple[Literal["s", "ms", "us", "ns"], ...] = ("s", "ms", "us", "ns")
+        times: tuple[NoTime | TimeShape, ...] = (
+            NoTime(),
+            *(
+                TimeShape("instant", unit, zone)
+                for unit in units
+                for zone in ("UTC", "America/New_York")
+            ),
+        )
+        shapes: tuple[SourceShape | FixedShape, ...] = (
+            *(
+                SourceShape("duckdb", form, "native" if form == "table" else "parquet", time)
+                for form in ("table", "parquet")
+                for time in times
+                if form == "parquet" or isinstance(time, NoTime) or time.unit == "us"
+            ),
+            *(FixedShape(time) for time in times if isinstance(time, TimeShape)),
+        )
+        return (
+            *occurrence_images,
+            *(
+                Implementation(
+                    QualificationKey(
+                        method,
+                        (typ,),
+                        ("entity",),
+                        shape,
+                        "artifact_python" if isinstance(shape, FixedShape) else "ibis_python",
+                    ),
+                    bases[0].checks,
+                    ("subject",),
+                    "exact",
+                    ResourceRequirements(
+                        "complete", "caller" if isinstance(shape, FixedShape) else "producer", None
+                    ),
+                    Qualified(
+                        f"r82.subject_image.{shape}@v1",
+                        "analysis.materialization.graph_local_execution",
+                        "tests/test_analysis_deviation_f11_r82.py",
+                    ),
+                )
+                for shape in shapes
+                for typ in (ScalarType("int64"), ScalarType("float64"), ScalarType("string"))
+            ),
         )
     if method.name in ("metric.observe", "metric.sum_zero", "metric.count", "metric.mean"):
         return tuple(

@@ -1,7 +1,9 @@
 # R8.1 contract freeze and consumer migration ledger
 
 Date: 2026-10-03. Status: **R8.1 documentation/static freeze complete**.
-R8.2-R8.6 product connection, Runtime, backend, installed-wheel and real-Agent
+R8.2 product connection and qualification are in progress in the
+[R8.2 evidence index](2026-10-04-marivo-r82-evidence-index.md); no phase completion
+is granted. R8.3-R8.6, remote-backend, installed-wheel and real-Agent
 qualification are not granted. This ledger indexes sole owners and immutable
 requirements; it is not another public API, formula or method registry.
 
@@ -46,8 +48,9 @@ quantity/Subject authority remain accepted predecessors, not R8 qualification.
 | F13 | [Runtime](../../specs/analysis/session-state-and-runtime.md#r81-frozen-statistical-execution-and-disclosure) | Closed graph Finding subjects/policies, existing scalar bodies, cap 1000/full order/input/scope/digest and one transaction; R8.4 |
 | F14 | [Runtime](../../specs/analysis/session-state-and-runtime.md#r81-frozen-statistical-execution-and-disclosure) | Existing native budgets and unique Help leaves, actual K/cards/typed repair; CLI/API/EN/ZH alignment at connection; R8.2-R8.5 |
 
-These are accepted targets. None is a physical registration or an implemented
-part/producer. Current public classes and Help remain unchanged. In particular,
+The R8.1 snapshot records accepted static targets and remains historical. R8.2
+has connected two deviation producers, fit parts, Result classes and native
+Help; their actual evidence and open exits are recorded separately. In particular,
 correlate still defaults to Spearman in the baseline; the target default Pearson
 is a breaking change whose old J4/A04 callers must request Spearman explicitly.
 
@@ -86,12 +89,31 @@ none closes a dynamic receiver, issued SQL, Store reader or shared caller.
 | M17 | API rst/specs/runtime coverage/latest EN/ZH/packaged skills | Each connection package updates real callable docs/examples; R8.5 finishes retirement | Historical releases unchanged; skills need explicit approval before edits |
 | M18 | Every relevant test node, worker and fixture in snapshot | preserve_oracle / replace_entry / retire_heuristic with original assertion/body hash and replacement responsibility; new public evidence before harness deletion | Shared current regressions and R9 remote/native obligations retained |
 
-For every M row: replacement executable=planned; dynamic unreachability=unverified;
+For M13-M18, the R8.2 index records the connected deviation/preparation,
+Store/disclosure, documentation and test changes. No old statistical chain is
+retired in R8.2. For every M row: dynamic unreachability=unverified;
 physical deletion=not_performed. Snapshot symbols are the precise bounded scan
 inventory, not a claim that an entire shared module belongs to R8 retirement.
+
+The recorded R8.2 requirement attachment preserves all 15,564 IDs, including the
+2,232 originally blocked IDs: 13,212 passed, 2,280 blocked and 72 unverified.
+M13-M18 remain in progress. The public deviation source/fixed/cold kernels and
+source F11 sum/count_defined chains have actual receipts; fixed/cold F11,
+second-precision Parquet, narrow-Decimal F11 exact keys and individual scenario
+bindings remain open. The compact gate passed 6,012 tests with five disclosed
+skips; both site checks passed. These checks do not close the remaining exits.
 Actual registration/export/Help/Store and worker imports are retained alongside
 alias/receiver candidates. AN01/AN15 and temporal preparation/adapter control
 callers are separate SQL-ledger duties; zero textual matches cannot close them.
+
+The [local review-fix checkpoint](2026-10-04-marivo-r82-evidence-index.md#local-review-fixes)
+repairs all four confirmed table/rank/retained-error findings and the non-grid
+fixed-shape regression exposed by expanded display checks. Its final snapshot
+passed 32 focused Runtime tests and 71 state tests; the compact gate passed 6,024
+tests with the same five independently disclosed skips, and both site checks
+passed. Mixed fitted columns retain independently verified current inputs and
+original authority. This bounded repair adds no mandatory requirement closure,
+changes no historical R8.1 snapshot and leaves M13-M18 and R8.2 in progress.
 
 ## Mandatory requirements V01-V20 and public journeys
 

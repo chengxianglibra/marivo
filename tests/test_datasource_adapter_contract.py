@@ -17,6 +17,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from marivo.datasource.adapters import (
+    TIMESTAMP_UNIT_METADATA_KEY,
     CompiledRead,
     PhysicalRequirement,
     SourceBatchStream,
@@ -93,6 +94,22 @@ def test_all_six_providers_resolve_without_opening() -> None:
     assert tuple(provider_for(name).name for name in provider_names()) == provider_names()
     with pytest.raises(DatasourceBackendTypeUnsupportedError):
         provider_for("unknown")
+
+
+@pytest.mark.parametrize("unit", ("ms", "us", "ns"))
+def test_parquet_timestamp_facts_retain_file_unit_and_engine_carrier(
+    tmp_path: Path, unit: str
+) -> None:
+    path = tmp_path / "instants.parquet"
+    pq.write_table(pa.table({"point": pa.array([1, 2, 7], type=pa.timestamp(unit))}), path)
+    with SourceSession(
+        provider_for("duckdb"), _datasource("duckdb"), ibis.duckdb.connect(tmp_path / "facts.db")
+    ) as source:
+        bound = source.bind(ParquetSourceIR(path=str(path)), source_identity="instants")
+        field = bound.facts.schema.field("point")
+        assert field.type == bound.relation.schema().to_pyarrow().field("point").type
+        assert field.metadata == {TIMESTAMP_UNIT_METADATA_KEY: unit.encode("ascii")}
+        assert pq.read_schema(path).field("point").type == pa.timestamp(unit)
 
 
 def test_nested_decode_rejects_bool_coercion() -> None:

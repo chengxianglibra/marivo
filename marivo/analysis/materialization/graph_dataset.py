@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
@@ -13,6 +13,7 @@ from marivo.analysis.core.model import (
     AttributionPart,
     DerivedQuantity,
     DisplayPart,
+    FitInputsPart,
     FunnelAllocationPart,
     FunnelComparisonPart,
     FunnelPart,
@@ -191,7 +192,20 @@ def _schema(table: pa.Table) -> d.DatasetSchema:
 class GraphDataset:
     runtime: DatasetRuntime
     artifact: GraphArtifact
-    projection: Literal["values", "ranks", "contribution", "current", "baseline"] | None = None
+    projection: (
+        Literal[
+            "values",
+            "ranks",
+            "contribution",
+            "current",
+            "baseline",
+            "observed",
+            "reference",
+            "deviation",
+            "score",
+        ]
+        | None
+    ) = None
 
     def evidence_digest(self) -> t.ArtifactDigest:
         with self.runtime.store._read() as connection:
@@ -261,7 +275,21 @@ class GraphDataset:
         if self.projection is not None:
             from marivo.analysis.materialization.graph_display import project
 
-            if self.projection in ("contribution", "current", "baseline"):
+            if self.projection in ("observed", "reference", "deviation", "score"):
+                from marivo.analysis.materialization.deviation_execution import (
+                    project as deviation_project,
+                )
+                from marivo.analysis.materialization.graph_relation import Relation
+
+                relation = Relation.restore(replace(self, projection=None))
+                node = relation.deviation_field(self.projection).root
+                from marivo.analysis.core.graph import MethodNode
+
+                assert isinstance(node, MethodNode)
+                result = deviation_project(
+                    result, self.projection, node=node, binding=current.artifact_ref
+                )
+            elif self.projection in ("contribution", "current", "baseline"):
                 from marivo.analysis.materialization.graph_attribution import (
                     project as attribution_project,
                 )
@@ -311,6 +339,11 @@ class GraphDataset:
             frame: pd.DataFrame = table.to_pandas(types_mapper=pd.ArrowDtype)
         elif any(
             isinstance(p, (DisplayPart, AttributionPart)) for p in checked.contract.signature.parts
+        ) or (
+            any(isinstance(p, FitInputsPart) for p in checked.contract.signature.parts)
+            and "value" in table.column_names
+            and table.schema.field("value").type == pa.int64()
+            and table["value"].null_count > 0
         ):
             frame = table.to_pandas(types_mapper=pd.ArrowDtype)
         else:

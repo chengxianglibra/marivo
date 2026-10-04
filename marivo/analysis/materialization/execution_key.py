@@ -59,6 +59,12 @@ _CAPTURE_WIRE: TypeAdapter[EntryAxisCapture | EventCapture | OrderCapture | Stat
 )
 
 _WIRE_TAGS: dict[type[object], str] = {
+    core_model.FitInputsPart: "r8_fit_inputs_part",
+    core_model.FitStatePart: "r8_fit_state_part",
+    core_model.GridCellsPart: "r8_grid_cells_part",
+    core_model.SubjectMapPart: "r8_subject_map_part",
+    core_model.TableFitsPart: "r8_table_fits_part",
+    core_model.TableFitColumn: "r8_table_fit_column",
     AnyAnchor: "any_anchor",
     EveryAnchor: "every_anchor",
     core_model.InstanceRetentionPart: "instance_retention_part",

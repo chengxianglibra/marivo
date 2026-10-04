@@ -1,0 +1,219 @@
+{
+  "version": "r82-evidence-manifest/v1",
+  "phase_complete": false,
+  "counts": {
+    "blocked": 2280,
+    "passed": 13212,
+    "unverified": 72
+  },
+  "mandatory_count": 15564,
+  "originally_blocked_count": 2232,
+  "open_reason_counts": {
+    "The current Parquet fixture writer stores milliseconds, so no second-precision kernel evidence exists. The original requirement remains mandatory.": 768,
+    "independent public scenario evidence required": 72,
+    "A fixed/cold public observation continuation with captured contributions and an admitted public entry is required; source F11 and missing-part rejection cannot substitute.": 1344,
+    "Accepted Decimal sum/change yields decimal(38,s), which differs from this frozen narrow scoring key. No narrowing cast or key relabeling is used; a contract decision is pending.": 168
+  },
+  "attachments": [
+    {
+      "path": "baseline.json.gz",
+      "sha256": "b15c9ef1e7ae9964322d79a7b07936f9fcffd9f7c12c1b9117bc94c4d93bf522",
+      "bytes": 1118
+    },
+    {
+      "path": "command-logs.json.gz",
+      "sha256": "8674810f9cfe59116684c147bc9845614388eabd99abfbb76bc1f6a97defdcb8",
+      "bytes": 74633
+    },
+    {
+      "path": "commands.json",
+      "sha256": "27909ab18abfb50629de2fd31aec2aef0c601752d7e3b73990511cdc99b4aa83",
+      "bytes": 35816
+    },
+    {
+      "path": "entry-diffs.json.gz",
+      "sha256": "ef413401d891cdd4be794a7ef81b069ca1b2d4b61b9b1c97baf00d9fc105b31f",
+      "bytes": 20244
+    },
+    {
+      "path": "environment.json",
+      "sha256": "692dd5130e9afe7bcf218d5534c0286196be0f167109f6dc60a69a0cf5d087cd",
+      "bytes": 8947
+    },
+    {
+      "path": "f11-fixture-inventory.json",
+      "sha256": "0b7b9f341fe9bd033268b87a9f8f73e27f0a3c350ac7e4e77de4803db288c0b6",
+      "bytes": 277
+    },
+    {
+      "path": "kernel-coverage.json",
+      "sha256": "7a52093ad65bde7286992e4e30f055a2d256e3f59de3dae9b74068574eade9c9",
+      "bytes": 269
+    },
+    {
+      "path": "kernel-laws-batch-02.json.gz",
+      "sha256": "aa44e659bbdf7e0d82cfbc14815bf85fa440016c4aa818c60089ef5ae1d6883f",
+      "bytes": 547560
+    },
+    {
+      "path": "kernel-laws-batch-03.json.gz",
+      "sha256": "7a3721c7946caaef7d298b20204c1021a4a8fea053959bff294319201211d14d",
+      "bytes": 286113
+    },
+    {
+      "path": "kernel-non-time.json.gz",
+      "sha256": "7c3f7484db1a5f02aff740926869a8cc1ce343b10c306ed8f84c8e90e384e7c5",
+      "bytes": 196386
+    },
+    {
+      "path": "kernel-time-batch-01.json.gz",
+      "sha256": "181c19801e0417a079f6212332868adc6db923bacf71479ee2c081239dd3c098",
+      "bytes": 656783
+    },
+    {
+      "path": "kernel-time-batch-02.json.gz",
+      "sha256": "2913df64a6366c1298df4e9d83e91d8496f125a24b29eab20bdebfa62873666e",
+      "bytes": 326888
+    },
+    {
+      "path": "kernel-time-batch-03.json.gz",
+      "sha256": "e8cb1270a0e6f6670e4d356fa1512c49057226b9508772c06aacabfa8a20c704",
+      "bytes": 62112
+    },
+    {
+      "path": "kernel-time-batch-04.json.gz",
+      "sha256": "9575bae7a7084c3050a57770d4fb5abf2a9dcd63ccdfa072da76780c825d34ea",
+      "bytes": 48286
+    },
+    {
+      "path": "kernel-time-table-day.json.gz",
+      "sha256": "6de86867c4c6be83c3d97f09c76cb68f02ef59d385659bf528b587ee3feaee4d",
+      "bytes": 222048
+    },
+    {
+      "path": "laws-fixture-inventory.json",
+      "sha256": "b2a4360609ad104029a023f2b3a6bb135078a9bb0588cafc88a025506767e885",
+      "bytes": 15465
+    },
+    {
+      "path": "source-f11-batch-01.json.gz",
+      "sha256": "fa1ec1db773da8b3807b55fd83fd9bf59abadca56191a2c197648c3f76827f80",
+      "bytes": 146431
+    },
+    {
+      "path": "source-f11-batch-02.json.gz",
+      "sha256": "d77b45b7105a4f5d5de7cc8c93b0a7f9a0a5a85a016722d654b791b22c5fedcd",
+      "bytes": 73954
+    },
+    {
+      "path": "source-f11-batch-03.json.gz",
+      "sha256": "2059c3a513a0f0bd7a871fb6a80a2d2469af42efb8e7e2fbf8b322be2f32312f",
+      "bytes": 47307
+    },
+    {
+      "path": "source-f11-batch-04.json.gz",
+      "sha256": "01e5052efcee59769e61284bc61078d5f658ec85132077ccc3a6f200dd8b808a",
+      "bytes": 14147
+    },
+    {
+      "path": "kernel-laws-batch-01.json.gz.part-01",
+      "bytes": 800000,
+      "sha256": "70743d4642595cf96880b301c33f4fd409a3104874a69e778861b2d092982204"
+    },
+    {
+      "path": "kernel-laws-batch-01.json.gz.part-02",
+      "bytes": 800000,
+      "sha256": "19b61f9cfe9a187ac67bf31ae5b7ffbde1ff8ab29a5162d1392abbc8bf3d322d"
+    },
+    {
+      "path": "kernel-laws-batch-01.json.gz.part-03",
+      "bytes": 800000,
+      "sha256": "8e00273b1c4e9ed34421d919eacda4c855f2681bc9cd2fa8467d022c0e0645cc"
+    },
+    {
+      "path": "kernel-laws-batch-01.json.gz.part-04",
+      "bytes": 800000,
+      "sha256": "5f716102e71565aa8549d3b1526b4288240c28eddb3b47413745677861b049ee"
+    },
+    {
+      "path": "kernel-laws-batch-01.json.gz.part-05",
+      "bytes": 84044,
+      "sha256": "b4fb90bb35c5d2da5b22375a56ecb647b11117f22888667290b3c485010999d6"
+    },
+    {
+      "path": "requirements.json.gz.part-01",
+      "bytes": 800000,
+      "sha256": "94f117d0a0195f4a1bc9bbd6c6e6d92252f69ddd41a514d6c70334dfa69f673d"
+    },
+    {
+      "path": "requirements.json.gz.part-02",
+      "bytes": 539433,
+      "sha256": "455b081786bf418723cce5fdc01dd89ac9c0b287708699f4d7a2a4765853e5de"
+    },
+    {
+      "path": "review-fix-logs.json.gz",
+      "sha256": "80eed3eabba0c5e1bea03f59879e9960cf1398b9ce6bf779e3a3fe7f1f8c56b3",
+      "bytes": 50409
+    },
+    {
+      "path": "review-fixes.json",
+      "sha256": "1ea2cbb87164a0221bfdf0fe6e3ae29053fd1f9eab21397bfe164bf53cdcecc3",
+      "bytes": 24874
+    }
+  ],
+  "sharded_attachments": [
+    {
+      "path": "kernel-laws-batch-01.json.gz",
+      "bytes": 3284044,
+      "sha256": "9914cb6773fd5362d86767c622a296f887860fea0366ff0ba60dbc46ac45a981",
+      "json_record_count": 7458,
+      "json_records_key": null,
+      "parts": [
+        {
+          "path": "kernel-laws-batch-01.json.gz.part-01",
+          "bytes": 800000,
+          "sha256": "70743d4642595cf96880b301c33f4fd409a3104874a69e778861b2d092982204"
+        },
+        {
+          "path": "kernel-laws-batch-01.json.gz.part-02",
+          "bytes": 800000,
+          "sha256": "19b61f9cfe9a187ac67bf31ae5b7ffbde1ff8ab29a5162d1392abbc8bf3d322d"
+        },
+        {
+          "path": "kernel-laws-batch-01.json.gz.part-03",
+          "bytes": 800000,
+          "sha256": "8e00273b1c4e9ed34421d919eacda4c855f2681bc9cd2fa8467d022c0e0645cc"
+        },
+        {
+          "path": "kernel-laws-batch-01.json.gz.part-04",
+          "bytes": 800000,
+          "sha256": "5f716102e71565aa8549d3b1526b4288240c28eddb3b47413745677861b049ee"
+        },
+        {
+          "path": "kernel-laws-batch-01.json.gz.part-05",
+          "bytes": 84044,
+          "sha256": "b4fb90bb35c5d2da5b22375a56ecb647b11117f22888667290b3c485010999d6"
+        }
+      ]
+    },
+    {
+      "path": "requirements.json.gz",
+      "bytes": 1339433,
+      "sha256": "8f3065564cfa6853f1c1d99734d6c15cfc715d7efbdbc5cdc0aaf2a653c24cb3",
+      "json_record_count": 15564,
+      "json_records_key": "requirements",
+      "parts": [
+        {
+          "path": "requirements.json.gz.part-01",
+          "bytes": 800000,
+          "sha256": "94f117d0a0195f4a1bc9bbd6c6e6d92252f69ddd41a514d6c70334dfa69f673d"
+        },
+        {
+          "path": "requirements.json.gz.part-02",
+          "bytes": 539433,
+          "sha256": "455b081786bf418723cce5fdc01dd89ac9c0b287708699f4d7a2a4765853e5de"
+        }
+      ]
+    }
+  ]
+}

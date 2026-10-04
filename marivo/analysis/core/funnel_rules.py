@@ -108,6 +108,14 @@ def validate(part: Part) -> None:
                 "exact noninitial step, unique axes, closed mode and top_k 1..1000 required",
             )
     elif isinstance(part, FindingPolicyPart):
+        if part.producer in ("deviation.zscore", "deviation.mad"):
+            if (
+                part.extractor != "graph.no_findings@v1"
+                or part.policy != "zero_findings@v1"
+                or part.version != "v1"
+            ):
+                fail("finding_policy", "deviation requires its exact empty Finding policy")
+            return
         expected = (
             "graph.funnel_delta_findings@v1"
             if part.producer == "funnel.compare"

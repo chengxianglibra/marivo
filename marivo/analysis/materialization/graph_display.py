@@ -19,7 +19,14 @@ from marivo.analysis.core.graph import (
     retained_inclusion,
     topology,
 )
-from marivo.analysis.core.model import Coordinate, DisplayPart, part_role
+from marivo.analysis.core.model import (
+    Coordinate,
+    DisplayPart,
+    Part,
+    PartRole,
+    TableFitsPart,
+    part_role,
+)
 from marivo.analysis.core.rules import DisplayRank, DisplayTable, PartsTransport
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.graph_exchange import (
@@ -107,12 +114,19 @@ def bind(inputs: tuple[Relation, ...], params: DisplayRank | DisplayTable) -> Re
     return result
 
 
-def view(relation: Relation, name: Literal["values", "ranks"]) -> Relation:
-    roles = tuple(
+def _view_roles(parts: tuple[Part, ...], name: Literal["values", "ranks"]) -> tuple[PartRole, ...]:
+    return tuple(
         part_role(p)
-        for p in relation.root.signature.parts
-        if name == "values" or isinstance(p, DisplayPart)
+        for p in parts
+        if name == "values"
+        or isinstance(p, DisplayPart)
+        or part_role(p)
+        in ("fit_inputs", "fit_state", "grid_cells", "subject_map", "finding_policy")
     )
+
+
+def view(relation: Relation, name: Literal["values", "ranks"]) -> Relation:
+    roles = _view_roles(relation.root.signature.parts, name)
     node = method_node(
         (relation._edge(),),
         PartsTransport("view", relation.root.signature.domain, roles, True, display_view=name),
@@ -376,11 +390,15 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
         )
     )
     primary = table.select(primary_columns)
+    from marivo.analysis.materialization.deviation_execution import retain_table_fits
+
     parts = tuple(
         ExchangePart(
             part_role(p), table.select((*keys, *(f"{part_role(p)}__{c}" for c in p.components)))
         )
         if isinstance(p, DisplayPart)
+        else retain_table_fits(inputs, p)
+        if isinstance(p, TableFitsPart)
         else next(part for part in first.parts if part.role == part_role(p))
         for p in node.signature.parts
     )
@@ -404,7 +422,8 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
                 p.role,
                 p.table.schema,
                 next(
-                    (item.key_fields for item in first.contract.parts if item.role == p.role), keys
+                    (item.key_fields for item in first.contract.parts if item.role == p.role),
+                    () if p.role == "table_fits" else keys,
                 ),
             )
             for p in parts
@@ -556,11 +575,7 @@ def project(source: ExchangeResult, name: Literal["values", "ranks"]) -> Exchang
     from marivo.analysis.methods.registry import REGISTRY
     from marivo.analysis.methods.semantics import MethodKey
 
-    roles = tuple(
-        part_role(p)
-        for p in source.contract.signature.parts
-        if name == "values" or isinstance(p, DisplayPart)
-    )
+    roles = _view_roles(source.contract.signature.parts, name)
     signature = REGISTRY.derive(
         (source.contract.signature,),
         PartsTransport("view", source.contract.signature.domain, roles, True, display_view=name),
