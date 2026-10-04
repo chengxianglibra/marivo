@@ -1,0 +1,26 @@
+{
+  "candidate_sha256": "4b593abbd894e0ce950c9c20fa88d983dc9825fc92e8268f6f2df7d29b45f7d6",
+  "command": [
+    ".venv/bin/pytest",
+    "-q",
+    "--tb=short",
+    "-n",
+    "0",
+    "-m",
+    "runtime",
+    "tests/test_r12_source_adapters_runtime.py",
+    "tests/test_r13_control_boundaries.py",
+    "-k",
+    "not trino and not distributed"
+  ],
+  "exit_code": 0,
+  "finished": "2026-10-04T10:33:29.214252+00:00",
+  "log": "shared-local-pg-mysql-ch-fixed.log",
+  "opt_in": [
+    "MARIVO_POSTGRES_ANALYSIS_TEST=1",
+    "MARIVO_MYSQL_ANALYSIS_TEST=1",
+    "MARIVO_CLICKHOUSE_ANALYSIS_TEST=1"
+  ],
+  "sha256": "ac7d0ef25d3a2dc234de05fe7ca68e6abc48e3932e96fdbcfa8d403603784f11",
+  "started": "2026-10-04T10:33:25.756991+00:00"
+}

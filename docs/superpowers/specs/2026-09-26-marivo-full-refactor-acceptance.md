@@ -1946,3 +1946,17 @@ and its denominators remain unchanged. Exact consumer/test/oracle/environment
 bindings remain unverified with follow-up owners. The unaccepted 352,049-record
 draft was replaced before qualification; it was never an executed or accepted
 matrix. R9.2–R9.7 and R10 are not completed by this handoff.
+
+## R9.2 bounded source qualification (2026-10-04)
+
+The [source evidence record](2026-10-04-marivo-r92-evidence/README.md) binds the
+current source candidate, service/driver versions, independent row oracles, real
+submissions and local resources. All 19 frozen physical profiles have source
+evidence, including PostgreSQL namespace collisions, authenticated HTTP JSON,
+Trino memory connector and ClickHouse two-shard Distributed reads.
+
+R9.2 has 42 passed success goals and one blocked SQLite exact-Decimal goal within
+the unchanged 394-scenario denominator. The remaining 351 goals are unverified.
+43 Runtime tests pass because the blocked goal's test confirms the structured
+refusal; that refusal grants no exact-Decimal success qualification. Full R9.2
+exit remains open. R9.3–R9.7, installed packages, real Agent and release are separate.

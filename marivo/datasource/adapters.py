@@ -10,7 +10,7 @@ import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import closing, nullcontext, suppress
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from importlib import import_module
 from itertools import islice
@@ -153,7 +153,7 @@ class SourceSubmission:
     expression_identity: int
     sql: str
     state: Literal["submitted", "succeeded", "failed", "closed_early"] = "submitted"
-    cursor_state: Literal["open", "closed", "connection_owned"] = "open"
+    cursor_state: Literal["open", "closed", "connection_owned", "close_failed"] = "open"
     connection_disconnected: bool = False
     termination: Termination | None = None
 
@@ -315,6 +315,15 @@ def _exact_array(
         ):
             valid = type(value) is bytes
         elif pa.types.is_timestamp(arrow_type):
+            # ClickHouse's native row driver strips UTC tzinfo by default. Only
+            # an explicitly UTC physical schema authorizes restoring that zone.
+            if (
+                backend_name == "clickhouse"
+                and arrow_type.tz == "UTC"
+                and type(value) is datetime
+                and value.tzinfo is None
+            ):
+                value = value.replace(tzinfo=timezone.utc)
             if backend_name in {"sqlite", "mysql"} and type(value) is str:
                 if not re.fullmatch(
                     r"[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:[+-][0-9]{2}:[0-9]{2})?",
@@ -475,10 +484,15 @@ class SourceBatchStream:
             finally:
                 try:
                     self._cursor.close()
-                finally:
+                except BaseException:
+                    self._submission.state = "failed"
+                    self._submission.cursor_state = "close_failed"
+                    raise
+                else:
                     self._submission.cursor_state = (
                         "connection_owned" if isinstance(self._cursor, _DuckDBCursor) else "closed"
                     )
+                finally:
                     self._session._streams.discard(self)
 
 

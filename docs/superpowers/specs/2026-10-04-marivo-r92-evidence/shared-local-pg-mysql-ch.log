@@ -1,0 +1,255 @@
+...FF.F.                                                                 [100%]
+=================================== FAILURES ===================================
+___________________ test_clickhouse_mergetree_exact_decimal ____________________
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:788: in urlopen
+    response = self._make_request(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:1450: in getresponse
+    response.begin()
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:336: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:305: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   http.client.RemoteDisconnected: Remote end closed connection without response
+
+During handling of the above exception, another exception occurred:
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/httpclient.py:596: in _raw_request
+    response = self.http.request(method, url, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/_request_methods.py:143: in request
+    return self.request_encode_body(
+.venv/lib/python3.12/site-packages/urllib3/_request_methods.py:278: in request_encode_body
+    return self.urlopen(method, url, **extra_kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/poolmanager.py:457: in urlopen
+    response = conn.urlopen(method, u.request_uri, **kw)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:842: in urlopen
+    retries = retries.increment(
+.venv/lib/python3.12/site-packages/urllib3/util/retry.py:498: in increment
+    raise reraise(type(error), error, _stacktrace)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/util/util.py:38: in reraise
+    raise value.with_traceback(tb)
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:788: in urlopen
+    response = self._make_request(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:1450: in getresponse
+    response.begin()
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:336: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:305: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   urllib3.exceptions.ProtocolError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+
+The above exception was the direct cause of the following exception:
+tests/test_r12_source_adapters_runtime.py:456: in test_clickhouse_mergetree_exact_decimal
+    ch.setup()
+tests/multisource_environment/clickhouse_analysis.py:48: in setup
+    with connection() as con:
+         ^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+tests/multisource_environment/clickhouse_analysis.py:18: in connection
+    client = clickhouse_connect.get_client(
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/__init__.py:223: in create_client
+    return HttpClient(
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/httpclient.py:216: in __init__
+    super().__init__(
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/client.py:192: in __init__
+    self._init_common_settings(resolved_tz_source)
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/client.py:223: in _init_common_settings
+    server_settings = self.query(f"SELECT name, value, {readonly} as readonly FROM system.settings LIMIT 10000")
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/client.py:382: in query
+    return self._query_with_context(query_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/httpclient.py:339: in _query_with_context
+    response = self._raw_request(
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/httpclient.py:621: in _raw_request
+    raise OperationalError(f"Error {ex} executing HTTP request attempt {attempts}{err_url}") from ex
+E   clickhouse_connect.driver.exceptions.OperationalError: Error ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')) executing HTTP request attempt 3 (http://127.0.0.1:18123)
+------------------------------ Captured log call -------------------------------
+WARNING  clickhouse_connect.driver.httpclient:httpclient.py:619 Unexpected Http Driver Exception
+______________ test_clickhouse_partition_catalog_uses_bound_read _______________
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:788: in urlopen
+    response = self._make_request(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:1450: in getresponse
+    response.begin()
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:336: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:305: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   http.client.RemoteDisconnected: Remote end closed connection without response
+
+During handling of the above exception, another exception occurred:
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/httpclient.py:596: in _raw_request
+    response = self.http.request(method, url, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/_request_methods.py:143: in request
+    return self.request_encode_body(
+.venv/lib/python3.12/site-packages/urllib3/_request_methods.py:278: in request_encode_body
+    return self.urlopen(method, url, **extra_kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/poolmanager.py:457: in urlopen
+    response = conn.urlopen(method, u.request_uri, **kw)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:842: in urlopen
+    retries = retries.increment(
+.venv/lib/python3.12/site-packages/urllib3/util/retry.py:498: in increment
+    raise reraise(type(error), error, _stacktrace)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/util/util.py:38: in reraise
+    raise value.with_traceback(tb)
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:788: in urlopen
+    response = self._make_request(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:1450: in getresponse
+    response.begin()
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:336: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:305: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   urllib3.exceptions.ProtocolError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+
+The above exception was the direct cause of the following exception:
+tests/test_r12_source_adapters_runtime.py:516: in test_clickhouse_partition_catalog_uses_bound_read
+    ch.setup()
+tests/multisource_environment/clickhouse_analysis.py:33: in setup
+    with connection(admin=True) as con:
+         ^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+tests/multisource_environment/clickhouse_analysis.py:18: in connection
+    client = clickhouse_connect.get_client(
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/__init__.py:223: in create_client
+    return HttpClient(
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/httpclient.py:216: in __init__
+    super().__init__(
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/client.py:192: in __init__
+    self._init_common_settings(resolved_tz_source)
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/client.py:199: in _init_common_settings
+    self.server_version, server_tz = tuple(self.command("SELECT version(), timezone()", use_database=False))
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/httpclient.py:486: in command
+    response = self._raw_request(payload, params, headers, method, fields=fields, server_wait=False)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/httpclient.py:621: in _raw_request
+    raise OperationalError(f"Error {ex} executing HTTP request attempt {attempts}{err_url}") from ex
+E   clickhouse_connect.driver.exceptions.OperationalError: Error ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')) executing HTTP request attempt 2 (http://127.0.0.1:18123)
+------------------------------ Captured log call -------------------------------
+WARNING  clickhouse_connect.driver.httpclient:httpclient.py:619 Unexpected Http Driver Exception
+__________ test_clickhouse_unsettable_timeout_blocks_before_user_sql ___________
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:788: in urlopen
+    response = self._make_request(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:1450: in getresponse
+    response.begin()
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:336: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:305: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   http.client.RemoteDisconnected: Remote end closed connection without response
+
+During handling of the above exception, another exception occurred:
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/httpclient.py:596: in _raw_request
+    response = self.http.request(method, url, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/_request_methods.py:143: in request
+    return self.request_encode_body(
+.venv/lib/python3.12/site-packages/urllib3/_request_methods.py:278: in request_encode_body
+    return self.urlopen(method, url, **extra_kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/poolmanager.py:457: in urlopen
+    response = conn.urlopen(method, u.request_uri, **kw)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:842: in urlopen
+    retries = retries.increment(
+.venv/lib/python3.12/site-packages/urllib3/util/retry.py:498: in increment
+    raise reraise(type(error), error, _stacktrace)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/util/util.py:38: in reraise
+    raise value.with_traceback(tb)
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:788: in urlopen
+    response = self._make_request(
+.venv/lib/python3.12/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:1450: in getresponse
+    response.begin()
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:336: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/http/client.py:305: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   urllib3.exceptions.ProtocolError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+
+The above exception was the direct cause of the following exception:
+tests/test_r13_control_boundaries.py:214: in test_clickhouse_unsettable_timeout_blocks_before_user_sql
+    ch.setup()
+tests/multisource_environment/clickhouse_analysis.py:33: in setup
+    with connection(admin=True) as con:
+         ^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+tests/multisource_environment/clickhouse_analysis.py:18: in connection
+    client = clickhouse_connect.get_client(
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/__init__.py:223: in create_client
+    return HttpClient(
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/httpclient.py:216: in __init__
+    super().__init__(
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/client.py:192: in __init__
+    self._init_common_settings(resolved_tz_source)
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/client.py:199: in _init_common_settings
+    self.server_version, server_tz = tuple(self.command("SELECT version(), timezone()", use_database=False))
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/httpclient.py:486: in command
+    response = self._raw_request(payload, params, headers, method, fields=fields, server_wait=False)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/clickhouse_connect/driver/httpclient.py:621: in _raw_request
+    raise OperationalError(f"Error {ex} executing HTTP request attempt {attempts}{err_url}") from ex
+E   clickhouse_connect.driver.exceptions.OperationalError: Error ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')) executing HTTP request attempt 2 (http://127.0.0.1:18123)
+------------------------------ Captured log call -------------------------------
+WARNING  clickhouse_connect.driver.httpclient:httpclient.py:619 Unexpected Http Driver Exception
+=========================== short test summary info ============================
+FAILED tests/test_r12_source_adapters_runtime.py::test_clickhouse_mergetree_exact_decimal
+FAILED tests/test_r12_source_adapters_runtime.py::test_clickhouse_partition_catalog_uses_bound_read
+FAILED tests/test_r13_control_boundaries.py::test_clickhouse_unsettable_timeout_blocks_before_user_sql
+3 failed, 5 passed, 8 deselected in 3.09s

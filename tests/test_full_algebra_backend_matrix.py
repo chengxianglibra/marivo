@@ -1,4 +1,4 @@
-"""Static R9 matrix integrity; collection never starts backend services."""
+"""Current R9 matrix integrity; collection never starts backend services."""
 
 from __future__ import annotations
 
@@ -12,7 +12,12 @@ from scripts import r9_qualification_requirements as freeze
 
 @pytest.fixture(scope="module")
 def frozen() -> dict[str, freeze.Json]:
-    return freeze.load(freeze.OUTPUT)
+    current = freeze.load(freeze.ROOT / freeze.SPECS / "2026-10-04-marivo-r92-evidence/freeze")
+    original = freeze.load(freeze.OUTPUT)
+    assert {freeze.obj(row)["id"] for row in freeze.arr(current["requirements"])} == {
+        freeze.obj(row)["id"] for row in freeze.arr(original["requirements"])
+    }
+    return current
 
 
 def test_frozen_targets_and_candidate(frozen: dict[str, freeze.Json]) -> None:

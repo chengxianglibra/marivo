@@ -1,0 +1,23 @@
+{
+  "candidate_sha256": "573e37daf9635446b42cbbf8a4315b1eb5be534d62a78f63e39a88344de0efe4",
+  "command": [
+    ".venv/bin/pytest",
+    "-q",
+    "--tb=short",
+    "-n",
+    "0",
+    "-m",
+    "runtime",
+    "tests/test_r12_source_adapters_runtime.py",
+    "-k",
+    "distributed"
+  ],
+  "exit_code": 0,
+  "finished": "2026-10-04T10:35:11.060902+00:00",
+  "log": "shared-cluster.log",
+  "opt_in": [
+    "MARIVO_CLICKHOUSE_CLUSTER_TEST=1"
+  ],
+  "sha256": "13cec94132ebf6b892c4b1bd379690564ec020a54a820dd4801c8f29ad451a5d",
+  "started": "2026-10-04T10:35:09.585528+00:00"
+}

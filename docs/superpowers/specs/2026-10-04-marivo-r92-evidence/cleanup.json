@@ -1,0 +1,61 @@
+{
+  "completed_commands": [
+    {
+      "command": [
+        "bash",
+        "tests/multisource_environment/manage.sh",
+        "stop",
+        "trino"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "bash",
+        "tests/multisource_environment/manage.sh",
+        "stop",
+        "clickhouse-cluster"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "bash",
+        "tests/multisource_environment/manage.sh",
+        "stop",
+        "clickhouse"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "bash",
+        "tests/multisource_environment/manage.sh",
+        "stop",
+        "postgres-analysis"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "bash",
+        "tests/multisource_environment/manage.sh",
+        "stop",
+        "mysql-analysis"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "colima",
+        "stop",
+        "marivo-multisource"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "final_vm_status": "Stopped",
+  "service_status_boundary": "after-services.log was captured before the mysql stop process completed; all stop commands subsequently returned zero",
+  "vm_status_attachment": "after-vm.log",
+  "volumes": "preserved"
+}

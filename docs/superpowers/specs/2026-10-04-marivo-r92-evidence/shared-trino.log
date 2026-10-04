@@ -1,0 +1,23 @@
+..F                                                                      [100%]
+=================================== FAILURES ===================================
+________ test_trino_terminal_session_timeout_and_timezone_are_effective ________
+tests/test_r13_control_boundaries.py:173: in test_trino_terminal_session_timeout_and_timezone_are_effective
+    setting = backend.raw_sql("SHOW SESSION LIKE 'query_max_run_time'")
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/ibis/backends/trino/__init__.py:82: in raw_sql
+    cur.execute(query)
+.venv/lib/python3.12/site-packages/trino/dbapi.py:640: in execute
+    self._iterator = iter(self._query.execute())
+                          ^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/trino/client.py:938: in execute
+    self._result.rows += self.fetch()
+                         ^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/trino/client.py:958: in fetch
+    status = self._request.process(response)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/trino/client.py:727: in process
+    raise self._process_error(response["error"], response.get("id"))
+E   trino.exceptions.TrinoQueryError: TrinoQueryError(type=INSUFFICIENT_RESOURCES, name=EXCEEDED_TIME_LIMIT, message="Query exceeded maximum time limit of 1.00s", query_id=20261004_103628_00140_sjmqa)
+=========================== short test summary info ============================
+FAILED tests/test_r13_control_boundaries.py::test_trino_terminal_session_timeout_and_timezone_are_effective
+1 failed, 2 passed, 13 deselected in 23.58s

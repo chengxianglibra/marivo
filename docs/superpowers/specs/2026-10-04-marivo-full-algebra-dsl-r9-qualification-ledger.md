@@ -1,4 +1,4 @@
-# R9.1 scenario qualification freeze
+# R9 scenario qualification ledger
 
 Date: 2026-10-04
 
@@ -54,7 +54,9 @@ The test-function inventory is likewise a location aid, not proof of cell assert
 
 Exact consumer/test/oracle/environment bindings are explicit unverified gaps with
 R9.2–R9.6 owners. Deployment details such as the Trino non-Iceberg connector and
-ClickHouse shard/replica observations remain unresolved. Missing routes cannot be
+ClickHouse shard/replica observations were unresolved at the R9.1 freeze. R9.2
+now binds memory connector and two-shard, one-replica topology observations in the
+[source evidence record](2026-10-04-marivo-r92-evidence/README.md). Missing routes cannot be
 reclassified as permanent unsupported capability. Unknown service availability is
 not reported as an observed failed connection.
 
@@ -74,3 +76,28 @@ additions, owner inputs and installed site-packages dependency versions. Commit
 metadata alone does not invalidate identical content; owner, implementation or
 dependency changes require new evidence and impact review. No installed wheel,
 real Agent, remote Runtime or release acceptance is granted by this freeze.
+
+## R9.2 source implementation and bounded qualification
+
+The original 394 IDs remain unchanged. The current candidate freeze and result
+index live under `2026-10-04-marivo-r92-evidence/`; the original static bundle is
+preserved. Current integrity tests load the current frozen candidate and independently compare
+its required IDs with the immutable R9.1 handoff.
+
+R9.2 owns 43 scenarios: 19 source profiles and 24 backend type/identity risks.
+42 receive bounded source passes; one SQLite exact-Decimal success goal is blocked.
+The remaining 351 scenarios retain unverified status and later package ownership.
+The 43 Runtime tests pass, including the SQLite rejection counterexample; that
+test pass does not qualify its required success goal.
+
+SQLite NUMERIC affinity produces a float for the Decimal(18,6) fixture, and exact
+decode rejects it with expected/received/repair. The goal stays in the denominator.
+Its release condition is a contract-authorized exact physical Decimal carrier,
+followed by a real rerun; no float conversion, alternative route or permanent
+unsupported classification is introduced.
+
+Source passes cover their recorded schema/profile and local resource assertions.
+Injected faults follow real native submissions but do not prove server faults or
+remote termination. Native microseconds and paired UTC/local DST labels are carrier
+evidence, not qualification of arbitrary time precision or calendar operations.
+Basic source evidence grants no Analysis method or fixed/recovery qualification.
