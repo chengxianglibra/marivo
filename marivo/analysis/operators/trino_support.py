@@ -1,10 +1,7 @@
 """Pure admission for the implemented trino scalar method closure."""
 
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.operators.association_contracts import CorrelatePayload
 from marivo.analysis.operators.scalar_support import (
-    entity_correlation_reason,
     supports_plain_timestamp,
     supports_scalar_type,
 )
@@ -34,10 +31,6 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
     qualified by live source-private execution. Native ROW identity keys are
     also qualified for exact Entity membership.
     """
-    if isinstance(dataset._root, LogicalRootHandle) and isinstance(
-        dataset._root.payload, CorrelatePayload
-    ):
-        return entity_correlation_reason(dataset)
     return scalar_reason(
         dataset,
         supported_type,

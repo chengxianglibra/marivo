@@ -170,3 +170,26 @@ denominator error intervals and many-small-Decimal rounding thresholds.
 test_cutover_documentation_examples.py executes identical latest bilingual
 attribution examples. True-null source coordinates remain rejected under R5;
 additional time shapes and installed-wheel/remote acceptance remain unverified.
+
+
+R8.5 statistical retirement is owned by `test_analysis_views_r85.py`,
+`test_analysis_retirement_r85.py`, `test_analysis_disclosure_r85.py` and
+`test_analysis_retired_oracles_r85.py`. The frozen view profiles are table
+int64, Entity composite(string,int64), and global UTC/us built-in day grids.
+Source-issued Ibis SQL is matched to each real native cursor submission.
+Deviation/runs and all three association/forecast methods retain their current
+source, fixed and three-process cold tests; J4/Spearman keeps its existing
+implementation/parts boundary with common association arithmetic. Exclusive
+Candidate, Driver, Association Dataset and Forecast Dataset test harnesses are
+removed. Their 391 original node dispositions and 449 symbol records remain
+bound to the R8.1 snapshot in the R8.5 ledger. A mapped owner is not an exact
+assertion-transfer pass; unresolved transfers remain unverified and prevent
+R8.5 completion. Remote legacy backend tests do not qualify the current R9 graph.
+
+The [R8.5 final evidence index](../superpowers/specs/2026-10-04-marivo-r85-evidence-index.md)
+closes its 171 frozen obligations and M01-M18 retirement gates. A separate
+supplementary Runtime scope has 201 passes and four failures reproduced at the
+entry baseline: R6 fixed UTC/us period buckets have a blocked registration, and
+table/Parquet A08 recovery has different input time/source shapes. These failures
+remain failures; the successful exact 139-case owner command supplies retirement
+transfer evidence. Retained unexecuted Runtime/remote nodes remain unverified.

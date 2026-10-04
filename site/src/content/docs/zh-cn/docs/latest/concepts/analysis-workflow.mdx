@@ -208,7 +208,7 @@ negative = coefficient.where(coefficient.value.lt(0)).execute()
 
 当指标、人群、比较方式或重要假设需要改变时，确认新的业务含义。可复用的语义缺口归属语义建模。在 Metric 定义中通过 `agg=("approx_percentile", q)` 明确允许近似；观察与恢复保持该定义。原生 SQL 的数值精度限制由结果契约披露。
 
-归因是代数分解，相关性是描述性结果，Candidate 分数是调查线索，预测带有模型假设。Agent 负责综合判断与结论。`to_pandas()` 或 `md.raw_sql(...)` 的自定义分析是终端出口，结果不能重新注入受治理的 Dataset 组合。
+归因是代数分解，相关性是描述性结果，deviation 分数是调查线索，预测带有模型假设。Agent 负责综合判断与结论。`to_pandas()` 或 `md.raw_sql(...)` 的自定义分析是终端出口，结果不能重新注入受治理的 Dataset 组合。
 
 从 `marivo.help("analysis")` 开始发现能力，沿原生入口、方法、输入、Artifact、证据和 Runtime 导航读取准确签名和示例。结构化错误提供具体修复；打包技能负责工作流判断。
 
@@ -235,7 +235,7 @@ Entity 域 J1–J4 的逻辑来源执行每次都会重新读取来源；固定�
 
 ## 本地执行与资源责任
 
-本地计算和 `to_pandas()` 在调用 Python 进程中同步执行，完整返回结果或抛出保留原始原因与调用栈的异常。Marivo 不启动执行或读取 worker，也不设置执行行数、字节、内存、spill、方法复杂度、存储或时限预算。数据库、驱动、操作系统与外部 runner 的限制仍然适用。
+本地计算和 `to_pandas()` 在调用 Python 进程中同步执行，完整返回结果或抛出保留原始原因与调用栈的异常。Marivo 不启动执行或读取 worker，不增加输入行数、字节或内存容量准入限制。typed graph 执行沿用 600 秒单调 execute deadline、资源释放和原子失败规则。数据库、驱动、操作系统与外部 runner 的限制仍然适用。
 
 `show()` 保持展示长度限制；完整输入校验、所有权和原子发布保持不变。Store 使用 generation 7，旧代文件保持原样，旧 Session 不迁移或恢复。
 
@@ -251,8 +251,8 @@ Entity 域 J1–J4 的逻辑来源执行每次都会重新读取来源；固定�
 `source_admission` 拒绝。当前证据以 Dataset contract 和
 仓库中的 R1 验收记录为准。
 
-算子共享同一套语义契约和后端注册机制。DuckDB 保留已有采样、Event/Lifecycle 和
-Candidate 实现；普通结果批次使用 Ibis 与受控 Arrow reader，临时资源、宏和注册仍属于单次动作。
+算子共享语义契约和后端注册机制。DuckDB 的 typed graph 使用 Ibis 来源准备和统一本地方法；
+普通结果批次使用受控 Arrow reader，资源与注册属于单次动作。专属 Candidate/Driver 数值宏安装通道已退役。
 远程实现必须兼容无写入、无创建表或视图权限的账号，并满足相同语义要求后才能启用。
 精确类型、增量读取或共享快照确有需要时，保留专用传输。没有可用实现时明确拒绝，不会隐式把源数据搬到其他
 引擎执行。PostgreSQL、MySQL、SQLite、Trino 与 ClickHouse 支持下述子集。
@@ -351,7 +351,7 @@ dwell.execute().p90_duration.execute().show()
 
 其中 `window` 为带时区的半开范围，`lifecycle_completeness` 包含全部模型触发 Event 的 source-origin 声明。声明本身不能证明覆盖；依据不足时保留 Unknown 与已知前缀，完整起源的无事件主体为 NotStarted。精度遵循实际捕获转换及其损失披露。
 
-采样、Entity candidates 和源端 driver screening 仍不支持。
+旧 Entity Candidate 和 driver screening 链已退役；采样在这些后端仍不支持。
 字符串时间解析与多单位桶按后端逐步启用，限制见下节。
 不支持的形状会返回具体原因，不会隐式收集原始源数据或向远端上传保留结果。
 
@@ -936,3 +936,50 @@ report.execute().show()
 模型工厂为 naive()、drift()、seasonal_naive(periods=s)，最短历史分别为 2、3、s+1。
 上下界是未来观察值的名义预测区间。结果筛选保留原训练或搜索域及 Findings；
 固定恢复只验证捕获事实，不读取来源或重新拟合。
+
+
+## 九种统计方法及保留视图
+
+以下假设 `revenue` 与 `order_count` 是同域数值观察，`daily` 是至少三期、
+Defined 且有限的完整时间观察，时间网格已批准请求的未来周期。九种方法都通过 typed graph 执行。
+
+```python
+zscore = revenue.deviation(method="zscore")
+mad = revenue.deviation(method="mad")
+fixed = zscore.execute()
+chosen = fixed.where(fixed.score.value.is_defined())
+chosen = chosen.where(chosen.score.value.gt(0)).execute()
+chosen.contract().show()
+mv.table(observed=chosen.observed, reference=chosen.reference,
+         deviation=chosen.deviation, score=chosen.score).execute().show()
+chosen.score.rank(order="descending", ties="dense").limit(2).execute().show()
+mad.execute().show()
+
+segments = daily.runs(where=daily.value.gt(0)).execute()
+segments.where(segments.count.value.gt(1)).execute().show()
+
+pearson = revenue.correlate(order_count, method="pearson")
+spearman = revenue.correlate(order_count, method="spearman")
+kendall = revenue.correlate(order_count, method="kendall")
+for associations in (pearson, spearman, kendall):
+    fixed_associations = associations.execute()
+    selected = fixed_associations.where(fixed_associations.selected.value.eq(True)).execute()
+    mv.table(coefficient=selected.coefficient, selected=selected.selected).execute().show()
+    selected.coefficient.rank(order="descending", ties="dense").limit(1).execute().show()
+
+naive = daily.forecast(horizon=mv.periods(2), model=mv.naive())
+drift = daily.forecast(horizon=mv.periods(2), model=mv.drift())
+seasonal = daily.forecast(horizon=mv.periods(2), model=mv.seasonal_naive(periods=2))
+for future in (naive, drift, seasonal):
+    fixed_future = future.execute()
+    selected = fixed_future.where(fixed_future.prediction.value.gt(0)).execute()
+    mv.table(prediction=selected.prediction, lower=selected.lower,
+             upper=selected.upper).execute().show()
+    selected.contract().show()
+```
+
+结果筛选保留原拟合、分类、配对搜索或训练范围以及完整 Findings。所属字段共享计算。
+系数和预测值可做当前行的描述统计，但不获得原 Metric 的 rollup 或 attribute 能力；
+预测区间边界不可加总。固定续算与冷恢复使用已验证的捕获部件，缺失或损坏部件直接失败，
+不重算或回源。旧统计 Artifact descriptor 明确拒绝，不迁移。R8.5 证据不补授前序 R8、
+同 wheel、远程后端或真实 Agent 资格。旧 `.discover`、Candidate 和旧 Association/Forecast Dataset 链已退役。

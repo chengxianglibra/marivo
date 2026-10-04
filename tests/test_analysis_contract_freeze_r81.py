@@ -413,7 +413,7 @@ def test_verifier_rejects_independent_digest_corruption(tmp_path: Path, kind: st
         for value in _array(fixture_inventory[group]):
             record = _object(value)
             path = str(record["path"])
-            raw = (ROOT / path).read_bytes()
+            raw = b"Independent verifier fixture, including retired historical inputs.\n"
             destination = tmp_path / path
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(raw)

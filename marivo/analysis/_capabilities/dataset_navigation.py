@@ -48,7 +48,6 @@ _GROUPS = (
     ("methods.rows", "methods", "Filter result rows, rank them or retain an ordered prefix."),
     ("methods.association", "methods", "Measure descriptive association, including time lags."),
     ("methods.forecast", "methods", "Project a governed time series under explicit assumptions."),
-    ("discovery", "methods", "Screen anomalies, shifts, outliers and candidate driver axes."),
     ("methods.events", "methods", "Inspect funnels and time to event, or select subjects."),
     (
         "methods.lifecycle",
@@ -69,7 +68,7 @@ _HUBS = (
         "decision_hub",
         guidance=(
             "Entity-member questions (member totals, attributes, groups, comparisons, ratios, or associations): start with session.members(Entity Ref), then follow the relation's contract() and exact Help targets.",
-            "R5 members/observations and R6.2–R6.6 composition, predicates, references, display and attribution use session.members(...). session.observe retains legacy Dataset construction; R7–R9 consumers await their own qualification.",
+            "Use session.members(...) for typed analysis graphs and numeric statistical methods. Read each result contract for its current continuations and retained scope.",
             "Known handoff: use its exact refs and scope; do not browse the whole catalog again.",
             "Existing work: resume the Session and follow runtime reads; do not replay successful sources.",
         ),
@@ -77,7 +76,7 @@ _HUBS = (
     ),
     NavigationInput(
         "methods",
-        "Choose the analytical intent; an existing Dataset contract narrows legal continuations.",
+        "Choose the analytical intent; the current analysis object's contract narrows legal continuations.",
         (),
         "decision_hub",
         guidance=(
@@ -92,7 +91,7 @@ _HUBS = (
     ),
     NavigationInput(
         "artifacts",
-        "Understand Dataset row meaning, states, fields and retained reads.",
+        "Understand typed analysis results, states, owned fields and retained reads.",
         (),
         "decision_hub",
     ),
@@ -173,8 +172,8 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
             guidance=(
                 "Imports: import marivo; import marivo.analysis as mv; import marivo.semantic as ms",
                 "The agent owns the question, method choice and interpretation; Marivo owns typed computation and Evidence.",
-                "Logical Dataset construction reads no source rows. execute() returns the paired Materialized Dataset.",
-                "Use dataset.contract().show() for current legal calls; materialized.show() reads bounded committed results.",
+                "Construct a logical typed analysis graph without reading source rows; execute() publishes its materialized result.",
+                "Use the analysis object's contract().show() for current legal calls; result.show() reads bounded committed state.",
                 "Follow one relevant route and its input links, then write and run the smallest useful analysis.",
             ),
         )

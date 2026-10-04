@@ -41,7 +41,6 @@ from marivo.semantic.ir import (
 from marivo.semantic.validator import Registry
 
 if TYPE_CHECKING:
-    from marivo.analysis.operators.association import LogicalAssociationDataset
     from marivo.refs import EntityKind, FieldKind
 
 _LOCATION = SourceLocation("lazy_fixture.py", 1)
@@ -68,15 +67,6 @@ class NoIoActionPort:
 
     def execute_metric(self, dataset: LogicalMetricDataset) -> Never:
         raise AssertionError("Metric execution is not part of definition-only acceptance")
-
-    def execute_candidate(self, dataset: object) -> Never:
-        raise AssertionError("unexpected execution")
-
-    def execute_forecast(self, dataset: object) -> Never:
-        raise AssertionError("Construction performed Forecast execution")
-
-    def execute_association(self, dataset: LogicalAssociationDataset) -> Never:
-        raise AssertionError("Association execution is not part of definition-only acceptance")
 
     def show(self, dataset: MaterializedDataset, *, max_output_bytes: int | None) -> Never:
         raise AssertionError("No retained row read is authorized")

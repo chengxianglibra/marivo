@@ -8,18 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.placement import (
     SourceStep,
     place,
-    source_binding,
-    source_eligible,
 )
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.operators import registry
-from marivo.analysis.operators.association_contracts import CorrelationMethod
 from marivo.analysis.operators.registry import (
     BackendName,
     BackendRegistration,
@@ -32,7 +28,6 @@ from marivo.datasource.backends import (
     _build_backend_from_effective,
 )
 from marivo.datasource.ir import DatasourceIR
-from marivo.refs import ref
 from marivo.semantic.ir import AggKind
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_local_fixtures import REVENUE, setup_local
@@ -100,7 +95,7 @@ def test_duplicate_backend_registration_is_rejected() -> None:
             ("input",),
             (
                 BackendRegistration("duckdb", True),
-                BackendRegistration("duckdb", False, "correlation"),
+                BackendRegistration("duckdb", False, "distribution"),
             ),
             "metric.where",
         )
@@ -145,67 +140,6 @@ def test_production_backend_places_qualified_median(backend: BackendName) -> Non
     graph = place(logical)
     assert isinstance(graph.steps[0], SourceStep)
     assert graph.steps[0].implementation.backend == backend
-
-
-def test_kendall_is_preparation_only_and_cannot_authorize_full_source() -> None:
-    logical = (
-        _sources("duckdb")
-        .observe([REVENUE, ref.metric("sales.mean_amount")])
-        .correlate(method="kendall")
-    )
-    registered = registry.implementation(logical)
-    binding = source_binding(logical)
-    assert not source_eligible(registered, (binding,), binding)
-    assert source_eligible(registered, (binding,), binding, preparation=True)
-    graph = place(logical)
-    assert len(graph.steps) == 2
-    step = graph.steps[0]
-    assert isinstance(step, SourceStep)
-    assert step.operation == "correlation" and not step.implementation.source
-    assert graph.local_steps[0].implementation.local_method == "metric.correlate"
-    with pytest.raises(DatasetCompilationError, match="inconsistent source step"):
-        replace(step, operation="source")
-    with pytest.raises(DatasetCompilationError, match="inconsistent source step"):
-        replace(step, binding=replace(binding, adapter="postgres"))
-
-
-@pytest.mark.parametrize("method", ["pearson", "spearman"])
-def test_source_and_preparation_are_independent_capabilities(method: CorrelationMethod) -> None:
-    logical = (
-        _sources("duckdb")
-        .observe([REVENUE, ref.metric("sales.mean_amount")])
-        .correlate(method=method)
-    )
-    graph = place(logical)
-    assert len(graph.steps) == 1
-    step = graph.steps[0]
-    assert isinstance(step, SourceStep) and step.operation == "source"
-    assert step.implementation.source and step.implementation.preparation == "correlation"
-
-
-def test_backend_collection_does_not_expand_local_shape_permission(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    original = registry.implementation
-
-    def no_preparation(value: LogicalDataset) -> ImplementationRegistration:
-        registration = original(value)
-        return (
-            replace(registration, backends=())
-            if registration.operator_id == "metric.correlate"
-            else registration
-        )
-
-    monkeypatch.setattr(registry, "implementation", no_preparation)
-    observed = _sources("duckdb").observe([REVENUE, ref.metric("sales.mean_amount")])
-    with pytest.raises(DatasetCompilationError, match="source-required Entity correlation"):
-        place(observed.correlate(method="kendall"))
-    graph = place(
-        observed.with_dimensions(ref.dimension("sales.customers.region"))
-        .aggregate()
-        .correlate(method="kendall")
-    )
-    assert graph.local_steps[0].implementation.local_method == "metric.correlate"
 
 
 def test_unknown_method_has_no_backend_default() -> None:

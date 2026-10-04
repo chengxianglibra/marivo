@@ -2,11 +2,9 @@
 
 from dataclasses import replace
 
-import ibis
 import pyarrow as pa
 import pytest
 
-from marivo.analysis.compiler.attribution import _invalid_presence
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.errors import DatasetConstructionError, DatasetRegistrationError
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
@@ -76,28 +74,6 @@ def test_source_boolean_array_accepts_only_exact_driver_bits() -> None:
         _cell([2], dtype)
     with pytest.raises(MaterializationError, match="invalid array representation"):
         _cell("10", dtype)
-
-
-def test_presence_validation_rejects_null_on_either_side() -> None:
-    source = ibis.memtable(
-        {
-            "presence": [None, True, False, True, False],
-            "expected": [True, None, False, False, True],
-        }
-    )
-    invalid = _invalid_presence(source.presence, source.expected)
-    backend = ibis.duckdb.connect()
-    try:
-        assert backend.execute(source.mutate(invalid=invalid)).invalid.tolist() == [
-            True,
-            True,
-            False,
-            True,
-            True,
-        ]
-    finally:
-        backend.disconnect()
-    assert "IS NULL" in ibis.to_sql(source.filter(invalid), dialect="trino").upper()
 
 
 def test_internal_operands_admit_only_the_shape_registered_for_their_role() -> None:

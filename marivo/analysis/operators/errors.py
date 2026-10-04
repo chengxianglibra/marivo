@@ -46,19 +46,6 @@ def attribution_error(
     )
 
 
-class CorrelationError(DatasetConstructionError):
-    """Correlation input, alignment or numerical authority is inconsistent."""
-
-
-def correlation_error(expected: str, received: str) -> CorrelationError:
-    return CorrelationError(
-        expected=expected,
-        received=received,
-        repair="Use 2-16 quantitative Metrics with compatible coordinates; narrow lags or repair null, constant and non-finite observations.",
-        location="dataset.correlate",
-    )
-
-
 class ForecastError(DatasetConstructionError):
     """A named forecast lacks certified coordinates or finite numerical authority."""
 
@@ -67,28 +54,6 @@ def forecast_error(expected: str, received: str) -> ForecastError:
     return ForecastError(
         expected=expected,
         received=received,
-        repair="Use one Metric with complete consecutive history meeting the named model minimum and certified future coverage; repair missing or non-finite values or reduce the horizon.",
-        location="dataset.forecast",
-    )
-
-
-class CandidateError(DatasetConstructionError):
-    """Discovery lacks an evaluable series or exact Candidate row authority."""
-
-
-def discovery_error(expected: str, received: str) -> CandidateError:
-    return CandidateError(
-        expected=expected,
-        received=received,
-        repair="Use one time-bearing Metric or Delta with sufficient finite non-constant values and registered coordinates; repair gaps in the complete input.",
-        location="dataset.discover",
-    )
-
-
-def driver_error(expected: str, received: str) -> CandidateError:
-    return CandidateError(
-        expected=expected,
-        received=received,
-        repair="Use one additive Delta with complete retained component state and governed non-time Dimensions. For missing axes, rebuild both logical Metric operands with .with_dimensions(*axes) before .aggregate().compare(...).discover.driver_axes(search_space=axes).",
-        location="dataset.discover.driver_axes",
+        repair="Use a positive periods horizon and a supported forecast model; inspect the NumericRelation contract for complete history and future-grid requirements.",
+        location="numeric.forecast",
     )

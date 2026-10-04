@@ -20,29 +20,9 @@ from marivo.analysis.observation.contracts import (
 )
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.observation.private_parts import source_private_part_authorities
-from marivo.analysis.operators.association_contracts import AssociationSemantics, CorrelatePayload
-from marivo.analysis.operators.candidate_contracts import CandidatePayload, CandidateSemantics
-from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
-from marivo.analysis.operators.forecast_contracts import ForecastPayload, ForecastSemantics
 
 BackendName: TypeAlias = Literal["duckdb", "postgres", "mysql", "sqlite", "trino", "clickhouse"]
-PreparationKind: TypeAlias = Literal["correlation", "distribution"]
-
-
-def legacy_source_migration_stage(operator_id: str) -> Literal[8] | None:
-    """Return the remaining domain owner, or None for a retired R5 route."""
-    if operator_id.startswith(
-        (
-            "candidate.",
-            "forecast.",
-            "association.",
-            "discover.",
-            "metric.forecast",
-            "metric.correlate",
-        )
-    ):
-        return 8
-    return None
+PreparationKind: TypeAlias = Literal["distribution"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -425,15 +405,6 @@ def source_unsupported_reason(dataset: LogicalDataset, backend: str) -> str | No
 
 _ROW_METHODS = frozenset(
     {
-        "candidate.where",
-        "candidate.rank",
-        "candidate.limit",
-        "forecast.where",
-        "forecast.rank",
-        "forecast.limit",
-        "association.where",
-        "association.rank",
-        "association.limit",
         "metric.where",
         "metric.metric",
         "metric.rank",
@@ -457,48 +428,14 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
             "metric.",
             "delta.",
             "attribution.",
-            "association.",
-            "forecast.",
-            "candidate.",
-            "discover.",
         )
     ):
         consumer = dataset._registry.consumer(dataset._inputs[0], root.operator_id)
         if roles != consumer.input_roles:
             raise compilation_error("exact registered method input roles", "input role mismatch")
-    if isinstance(root.payload, DriverCandidatePayload):
-        identity = any(f.role_id == "entity_identity" for f in dataset.schema.columns)
-        return ImplementationRegistration(
-            root.operator_id, roles, _DUCKDB, None if identity else root.operator_id
-        )
-    if isinstance(root.payload, CandidatePayload):
-        if root.payload.spec.definition.objective == "entity_outliers":
-            return ImplementationRegistration(root.operator_id, roles, _DUCKDB, None)
-        return ImplementationRegistration(root.operator_id, roles, (), root.operator_id)
-    if isinstance(root.payload, ForecastPayload):
-        return ImplementationRegistration(root.operator_id, roles, (), "metric.forecast")
-    if isinstance(root.payload, CorrelatePayload):
-        remote = tuple(
-            BackendRegistration(name, source=True)
-            for name, reason in _source_admissions().items()
-            if reason(dataset) is None
-        )
-        return ImplementationRegistration(
-            root.operator_id,
-            roles,
-            (
-                BackendRegistration(
-                    "duckdb",
-                    source=root.payload.spec.semantics.method != "kendall",
-                    preparation="correlation",
-                ),
-                *remote,
-            ),
-            "metric.correlate",
-        )
     entity_scoped_result = any(
         field.role_id == "entity_identity" for field in dataset.schema.columns
-    ) and dataset.kind in ("delta", "attribution", "candidate")
+    ) and dataset.kind in ("delta", "attribution")
     source_private_state = bool(source_private_part_authorities(dataset.row_contract))
     backends = (
         *_DUCKDB,
@@ -526,57 +463,9 @@ def implementation(dataset: LogicalDataset) -> ImplementationRegistration:
 
 def admit_local(dataset: LogicalDataset, registration: ImplementationRegistration) -> None:
     root = dataset._root
-    if isinstance(root, LogicalRootHandle) and isinstance(root.payload, DriverCandidatePayload):
-        expected = 3 if root.payload.spec.expanded_compare is not None else 1
-        if (
-            len(dataset._inputs) != expected
-            or registration.local_method != root.operator_id
-            or any(f.role_id == "entity_identity" for f in dataset.schema.columns)
-        ):
-            raise compilation_error(
-                "complete non-Entity driver screening inputs", "source-required driver scope"
-            )
-        for operand in dataset._inputs:
-            admit_retained_rows(operand)
-        return
-    if isinstance(root, LogicalRootHandle) and isinstance(root.payload, CandidatePayload):
-        if root.payload.spec.definition.objective == "entity_outliers":
-            raise compilation_error(
-                "source-native Entity Candidate scoring", "source-required Entity identity rows"
-            )
-        if len(dataset._inputs) != 1 or registration.local_method != root.operator_id:
-            raise compilation_error(
-                "one registered time discovery input", "invalid Candidate invocation"
-            )
-        admit_retained_rows(dataset._inputs[0])
-        return
-    if isinstance(root, LogicalRootHandle) and isinstance(root.payload, ForecastPayload):
-        if len(dataset._inputs) != 1 or registration.local_method != "metric.forecast":
-            raise compilation_error(
-                "one exact registered Forecast input", "invalid local invocation"
-            )
-        admit_retained_rows(dataset._inputs[0])
-        return
-    if isinstance(root, LogicalRootHandle) and isinstance(root.payload, CorrelatePayload):
-        if root.payload.spec.semantics.input_shape == "entity":
-            raise compilation_error(
-                "source-private Entity pair preparation", "source-required Entity correlation"
-            )
-        if registration.local_method != "metric.correlate":
-            raise compilation_error(
-                "registered exact correlation method", "missing local implementation"
-            )
-        return
     if source_private_part_authorities(dataset.row_contract):
         raise compilation_error(
             "source execution for exact distinct membership", "source-required membership state"
-        )
-    if dataset.kind in ("delta", "attribution", "candidate") and any(
-        field.role_id == "entity_identity" for field in dataset.schema.columns
-    ):
-        raise compilation_error(
-            "source execution for Entity Delta or Attribution row operations",
-            "source-required identity rows",
         )
     if (
         registration.local_method not in (_ROW_METHODS | _FOLD_METHODS)
@@ -593,16 +482,7 @@ def admit_retained_rows(dataset: Dataset) -> None:
     semantics = dataset.row_contract.family_semantics
     if str(dataset.row_contract.shape_id) == "population/entity-membership@v1":
         return
-    if not isinstance(
-        semantics,
-        (
-            EntityPresentMetricSemantics,
-            EntityReducedMetricSemantics,
-            AssociationSemantics,
-            ForecastSemantics,
-            CandidateSemantics,
-        ),
-    ):
+    if not isinstance(semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)):
         raise compilation_error(
             "Metric, Delta or Attribution rows with their exact retained computational roles",
             "unsupported retained family",

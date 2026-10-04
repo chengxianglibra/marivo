@@ -14,8 +14,9 @@ owns planning, method choice, analytical judgment, synthesis, and stopping.
 
 Use the host-selected verified environment. `marivo.help("analysis")` provides
 progressive discovery; focused Help owns signatures, constraints, and examples.
-Materialized Dataset `.show()` owns committed result state, Dataset `.contract()`
-owns mechanically valid continuations, and structured errors own repair.
+Materialized analysis artifacts expose `.show()` for committed result state.
+An analysis object's `.contract()` owns mechanically valid continuations, and
+structured errors own repair.
 Governed semantic objects own reusable business meaning. Consult live guidance
 when the next decision needs it; do not reconstruct contracts from memory or
 private implementation details.
@@ -59,12 +60,12 @@ execute on that source. Read `marivo.help("analysis.actions.execute")` for execu
 boundaries and follow the concrete structured repair when a shape is unsupported.
 Do not upload retained results or bypass governed analysis to evade a rejection.
 
-Build the smallest logical Dataset chain that can satisfy the Evidence
+Build the smallest logical typed analysis graph that can satisfy the Evidence
 obligation. Logical construction describes work; it is not evidence that rows
-were read or results exist. Inspect the Dataset contract when state or the next
-action is uncertain, and follow its exact Help target for the chosen continuation.
+were read or results exist. Inspect the analysis object's contract when state or
+the next action is uncertain, and follow its exact Help target for the chosen continuation.
 Execute when a result is needed for interpretation or an intentional recovery
-boundary, then inspect the Materialized Dataset with `.show()`. Discover methods through
+boundary, then inspect the materialized result with `.show()`. Discover methods through
 `marivo.help("analysis.methods")`, but choose subsequent methods from the
 question and the Artifact in hand rather than from a fixed recipe.
 
@@ -152,10 +153,10 @@ reusable gaps to `marivo-semantic`.
 Use one question-scoped session and carry exact Artifact identities across
 decision rounds. Do not depend on process memory, an implicit latest result,
 imported prior scripts, chat summaries, or repeated successful observations as
-substitutes for persisted identity. A logical Dataset belongs to its originating
-Session; carry an exact committed Artifact identity when moving between Sessions.
+substitutes for persisted identity. A logical analysis object belongs to its
+originating Session; carry an exact committed Artifact identity when moving between Sessions.
 Never replay origin queries to conceal missing retained state. For the admitted
-Entity-domain Analysis DSL, executing a logical source branch again evaluates
+source-backed Analysis DSL branches, executing a logical source branch again evaluates
 the source again; an exact fixed continuation may hit its committed execution
 key. Recover a public result from its exact Artifact reference and validated
 continuation snapshot, including required retained parts. A missing or

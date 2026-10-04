@@ -9,8 +9,6 @@ import ibis.expr.types as ir
 
 from marivo.analysis.core.time_authority import TemporalExecution
 from marivo.analysis.datasets.handles import CanonicalValue
-from marivo.analysis.operators.candidate_contracts import CandidateDefinition
-from marivo.analysis.operators.driver_contracts import DriverCandidateDefinition
 from marivo.semantic.ir import TargetEntityContract
 
 
@@ -71,8 +69,5 @@ class CompiledDataset:
     preparations: tuple[CompiledValidation | CompiledRelationFence, ...] = ()
     attribution_proof: ir.Table | None = None
     numerical_input: Literal["distribution_coalitions"] | None = None
-    association_proof: ir.Table | None = None
-    candidate_proof: ir.Table | None = None
-    candidate_definition: CandidateDefinition | DriverCandidateDefinition | None = None
     temporal_execution: TemporalExecution | None = None
     version_selections: tuple[tuple[str, CanonicalValue], ...] = ()

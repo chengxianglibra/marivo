@@ -33,7 +33,6 @@ from marivo.analysis.compiler.placement import (
 from marivo.analysis.compiler.source_dependencies import EntitySourceDependency, SourceDependencies
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import DatasetRowContract
-from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization.contracts import (
     ArtifactDescriptor,
@@ -51,9 +50,6 @@ from marivo.analysis.materialization.resources import (
 )
 from marivo.analysis.materialization.validation import compile_preparations, execute_batch
 from marivo.analysis.observation.source_bindings import BoundSourceParametersV1
-from marivo.analysis.operators.association_contracts import (
-    CorrelatePayload,
-)
 from marivo.datasource.backends import _build_backend_from_effective, _effective_kwargs
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.ir import (
@@ -192,8 +188,6 @@ def prepared_source(
     if isinstance(source_step.binding, SourceBinding):
         raise _error("source_admission", run_ref)
     source_dataset: Dataset = source_step.dataset
-    if source_step.operation == "correlation":
-        source_dataset = source_dataset._inputs[0]
 
     records = {
         value.state.artifact_ref.ref: all_records[value.state.artifact_ref.ref]
@@ -287,7 +281,6 @@ def prepared_source(
             read_time,
             run_ref,
         )
-        recipe = _prepare_correlation(recipe, source_step, run_ref)
         _run_preparations(
             self,
             backend,
@@ -491,34 +484,10 @@ def _compile_recipe(
             read_timezone_source="engine" if read_time is None else read_time.read_tz_resolution,
             replay_exact_quantile=source_step.binding.adapter != "duckdb",
             scalar_identity_distinct=source_step.binding.adapter in {"sqlite", "mysql"},
-            explicit_correlation=source_step.binding.adapter in {"sqlite", "mysql", "clickhouse"},
             emulate_full_join=source_step.binding.adapter == "postgres",
             scalar_masks=source_step.binding.adapter in {"sqlite", "mysql"},
         )
     return recipe, engine_inputs
-
-
-def _prepare_correlation(
-    recipe: CompiledDataset, source_step: SourceStep, run_ref: str
-) -> CompiledDataset:
-    if source_step.operation == "correlation":
-        from marivo.analysis.compiler.correlation import prepare_pairs
-
-        root = source_step.dataset._root
-        if not isinstance(root, LogicalRootHandle) or not isinstance(
-            root.payload, CorrelatePayload
-        ):
-            raise _error("implementation_registration", run_ref)
-        pair_expression, pair_checks = prepare_pairs(recipe.expression, root.payload.spec)
-        recipe = replace(
-            recipe,
-            expression=pair_expression,
-            primary_columns=tuple(pair_expression.columns),
-            retained_parts=(),
-            validations=(*recipe.validations, *pair_checks),
-            preparations=(*recipe.preparations, *pair_checks) if recipe.preparations else (),
-        )
-    return recipe
 
 
 def _run_preparations(

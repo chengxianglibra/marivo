@@ -43,9 +43,9 @@ blocks the attempted retained read.
 | Metric | `session.observe(...)` | Contributions over membership and independent observation scope |
 | Private funnel comparison | `event.funnel().compare(...)` | R7-owned complete journey contract; source admission remains blocked |
 | Private funnel allocation | `funnel_delta.attribute(...)` | R7-owned loss-rate allocation; no Metric Delta variants |
-| Association | `metric.correlate(...)` | Declared descriptive association method |
-| Forecast | `metric.forecast(...)` | Explicit model and horizon over admitted history |
-| Candidate | `dataset.discover.<objective>(...)` | Evaluated candidate rows and reasons |
+| Association | `numeric.correlate(other, method=...)` | Typed descriptive association Result |
+| Forecast | `numeric.forecast(horizon=..., model=...)` | Typed ForecastResult over a complete time grid |
+| Statistical screening | `numeric.deviation(method=...)` / `numeric.runs(where=...)` | Explicit fit or complete-grid intervals |
 | Event | `session.events.match(...)` | Governed participant patterns and assignment |
 | Lifecycle | `session.lifecycle.replay(...)` | Governed state history with explicit seed and window |
 
@@ -86,10 +86,11 @@ Attribution uses actual retained components and the registered joint/hierarchy
 contract. The agent chooses axes and interprets the resulting algebra.
 
 Correlation has closed registered methods and paired-value requirements. Forecast
-requires explicit model/horizon and certified coordinate eligibility. Candidate
-objectives are point anomalies, interesting windows, period shifts, Entity
-outliers and driver axes. Candidate rows carry their evaluated scope and reasons;
-they are evidence for investigation rather than confirmed causes.
+requires explicit model/horizon and a complete approved time grid. Deviation
+retains signed scores and its full fit scope; runs retains classification of every
+grid Cell. The former Candidate producers and their implicit thresholds, peak
+selection, sliding windows and driver-axis screening are retired. Agents choose
+filters and explicit attribution axes through the corresponding typed receivers.
 
 Exact median/percentile definitions use source-native continuous quantiles.
 Define `approx_median` or `("approx_percentile", q)` explicitly for approximation.

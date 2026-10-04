@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
@@ -20,7 +20,6 @@ from marivo.analysis.materialization.local import (
     frame_to_arrow,
     to_local_frame,
     to_part_frame,
-    validate_frame,
 )
 from marivo.analysis.materialization.retained import checked_component_batches
 from marivo.analysis.materialization.storage import (
@@ -29,17 +28,6 @@ from marivo.analysis.materialization.storage import (
     _read,
     read_part_batches,
 )
-from marivo.analysis.operators.association_contracts import (
-    AssociationSearchSummary,
-    CorrelateSpecV1,
-    candidate_count,
-)
-from marivo.analysis.operators.candidate_contracts import (
-    CandidateSearchSummary,
-    CandidateSpecV1,
-)
-from marivo.analysis.operators.driver_contracts import DriverCandidateSpecV1
-from marivo.analysis.operators.forecast_contracts import ForecastSpecV1, ForecastTrainingSummary
 from marivo.analysis.operators.row import PartFrame, RowCall
 
 
@@ -70,7 +58,7 @@ class ArtifactInput:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class LocalRequest:
-    input: StreamInput | ArtifactInput | PairInput
+    input: StreamInput | ArtifactInput
     calls: tuple[RowCall, ...]
     parts: tuple[LocalPartInput, ...] = ()
 
@@ -84,21 +72,11 @@ class LocalPartResult:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class FamilySummaries:
-    """Original producer summaries carried unchanged through local row successors."""
-
-    association: AssociationSearchSummary | None = None
-    forecast: ForecastTrainingSummary | None = None
-    candidate: CandidateSearchSummary | None = None
-
-
-@dataclass(frozen=True, slots=True, repr=False)
 class LocalResult:
     table: pa.Table
     handoffs: tuple[tuple[int, int], ...]
     input_rows: int
     parts: tuple[LocalPartResult, ...] = ()
-    summaries: FamilySummaries = FamilySummaries()
 
 
 def _part_to_arrow(part: PartFrame) -> pa.Table:
@@ -118,17 +96,9 @@ def _part_to_arrow(part: PartFrame) -> pa.Table:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class PairInput:
-    """Complete source-certified numeric pairs without Entity identity."""
-
-    spec: CorrelateSpecV1
-    expected_rows: int
-
-
-@dataclass(frozen=True, slots=True, repr=False)
 class LocalBoundary:
     output: int
-    input: StreamInput | ArtifactInput | PairInput
+    input: StreamInput | ArtifactInput
     parts: tuple[LocalPartInput, ...] = ()
 
 
@@ -136,7 +106,7 @@ class LocalBoundary:
 class LocalStage:
     output: int
     inputs: tuple[int, ...]
-    call: RowCall | CorrelateSpecV1 | ForecastSpecV1 | CandidateSpecV1 | DriverCandidateSpecV1
+    call: RowCall
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -157,44 +127,13 @@ class _Frames:
     frame: pd.DataFrame
     parts: tuple[PartFrame, ...]
     schema: pa.Schema
-    pair_preparation: bool = False
 
 
 def _collect_input(
     streams: LocalInputStreams,
-    selected: StreamInput | ArtifactInput | PairInput,
+    selected: StreamInput | ArtifactInput,
     parts: tuple[LocalPartInput, ...],
 ) -> tuple[_Frames, int]:
-    if isinstance(selected, PairInput):
-        from marivo.analysis.operators.distribution_values import validate_coalition_schema
-
-        input_kind = "pair" if isinstance(selected, PairInput) else "coalition"
-        if parts:
-            fail(f"{input_kind}-only numerical input", "unexpected retained parts")
-        batches = []
-        schema = None
-        count = 0
-        for batch in streams.batches:
-            batch = _normalize_batch(batch)
-            if isinstance(selected, PairInput):
-                from marivo.analysis.operators.association_values import validate_pair_schema
-
-                validate_pair_schema(batch.schema, selected.spec)
-            else:
-                validate_coalition_schema(batch.schema, selected.spec)
-            if schema is not None and not schema.equals(batch.schema):
-                fail(f"one stable {input_kind} schema", f"changed {input_kind} schema")
-            schema = batch.schema
-            count += batch.num_rows
-            batches.append(batch)
-        if schema is None or count != selected.expected_rows:
-            fail(
-                f"complete {input_kind} stream with source-certified row count",
-                f"missing {input_kind} rows or schema",
-            )
-        table = pa.Table.from_batches(batches, schema=schema)
-        frame = table.to_pandas(types_mapper=pd.ArrowDtype)
-        return _Frames(frame, (), schema, isinstance(selected, PairInput)), count
     if len({part.role for part in parts}) != len(parts):
         fail("one input per selected retained role", "duplicate part input")
     wide = isinstance(selected, StreamInput) and selected.wide_parts
@@ -282,7 +221,7 @@ def _collect_input(
         collector.retained.clear()
         collector.seen.clear()
     collectors = ()
-    return _Frames(frame, tuple(part_frames), schema), count
+    return (_Frames(frame, tuple(part_frames), schema), count)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -291,14 +230,11 @@ class _GraphResult:
     handoffs: tuple[tuple[int, int], ...]
     input_rows: int
     output_row: DatasetRowContract
-    summaries: FamilySummaries
 
 
 def _execute_graph(
     streams: tuple[LocalInputStreams, ...], request: LocalGraphRequest
 ) -> _GraphResult:
-    from marivo.analysis.operators.delta_state import validate_delta_parts
-    from marivo.analysis.operators.rollup import validate_parts
 
     if len(streams) != len(request.boundaries):
         fail("one complete stream per graph boundary", "missing or extra graph streams")
@@ -318,7 +254,6 @@ def _execute_graph(
     users[request.primary_output] = users.get(request.primary_output, 0) + 1
     handoffs: list[tuple[int, int]] = []
     output_row: DatasetRowContract | None = None
-    summaries = FamilySummaries()
     for stage in request.stages:
         if stage.output in values or any(key not in values for key in stage.inputs):
             fail("a complete ordered local dependency graph", "invalid stage dependencies")
@@ -329,122 +264,13 @@ def _execute_graph(
                 fail("one row method operand", "invalid row method arity")
             source = incoming[0]
             result, parts, transfers = execute_retained_suffix(source.frame, source.parts, (call,))
-            # The suffix accounts for replacement; shared graph inputs remain alive.
             value = _Frames(result, parts, source.schema)
             del parts
             handoffs.extend(transfers)
             output_row = call.output_row
             del source
-        elif isinstance(call, DriverCandidateSpecV1):
-            from marivo.analysis.operators.driver_expansion import prepare_local_driver_expansion
-            from marivo.analysis.operators.driver_values import execute_driver
-
-            expanded = call.expanded_compare
-            if len(incoming) != (3 if expanded is not None else 1):
-                fail("complete driver screening operands", "invalid driver arity")
-            if any(f.role_id == "entity_identity" for f in call.output_row.schema.columns):
-                fail("source-native Entity driver scope", "source-required identity")
-            original = incoming[0]
-            if expanded is not None:
-                original_row, original_rows = call.original_input_row, call.original_input_rows
-                if original_row is None or original_rows is None:
-                    fail("original selected Delta contract", "missing expansion authority")
-                validate_frame(original.frame, original_row, original_rows)
-                validate_delta_parts(original.frame, original.parts, original_row)
-                for value, row, rows in (
-                    (incoming[1], expanded.current_row, expanded.current_rows),
-                    (incoming[2], expanded.baseline_row, expanded.baseline_rows),
-                ):
-                    validate_frame(value.frame, row, rows)
-                    validate_parts(value.frame, value.parts, row)
-                frame, parts = prepare_local_driver_expansion(
-                    original.frame,
-                    incoming[1].frame,
-                    incoming[2].frame,
-                    call,
-                    incoming[1].parts,
-                    incoming[2].parts,
-                )
-            else:
-                frame, parts = original.frame, original.parts
-            validate_frame(frame, call.input_row, call.input_rows)
-            validate_delta_parts(frame, parts, call.input_row)
-            result, driver_evaluation = execute_driver(
-                frame,
-                call,
-                parts=parts,
-                original=original.frame if expanded is not None else None,
-                original_parts=original.parts if expanded is not None else (),
-            )
-            del frame, parts
-            summaries = replace(
-                summaries, candidate=CandidateSearchSummary(call.definition, driver_evaluation)
-            )
-            validate_frame(result, call.output_row, call.output_rows)
-            value = _Frames(result, (), pa.Schema.from_pandas(result, preserve_index=False))
-            handoffs.extend((id(item.frame), id(result)) for item in incoming)
-            output_row = call.output_row
-            del original
-        elif isinstance(call, CandidateSpecV1):
-            from marivo.analysis.operators.candidate_values import execute_candidate
-
-            if len(incoming) != 1:
-                fail("one complete discovery input", "invalid Candidate arity")
-            source = incoming[0]
-            validate_frame(source.frame, call.input_row, call.input_rows)
-            # At most one provisional candidate per input point/window is retained.
-            result, evaluation = execute_candidate(
-                source.frame,
-                call,
-            )
-            summaries = replace(
-                summaries, candidate=CandidateSearchSummary(call.definition, evaluation)
-            )
-            validate_frame(result, call.output_row, call.output_rows)
-            value = _Frames(result, (), pa.Schema.from_pandas(result, preserve_index=False))
-            handoffs.append((id(source.frame), id(result)))
-            output_row = call.output_row
-            del source
-        elif isinstance(call, ForecastSpecV1):
-            from marivo.analysis.operators.forecast_values import execute_forecast, prepare_history
-
-            if len(incoming) != 1:
-                fail("one complete Forecast history", "invalid Forecast arity")
-            source = incoming[0]
-            validate_frame(source.frame, call.input_row, call.input_rows)
-            prepared_history = prepare_history(source.frame, call)
-            result, training = execute_forecast(prepared_history, call)
-            summaries = replace(summaries, forecast=training)
-            del prepared_history
-            validate_frame(result, call.output_row, call.output_rows)
-            value = _Frames(result, (), pa.Schema.from_pandas(result, preserve_index=False))
-            handoffs.append((id(source.frame), id(result)))
-            output_row = call.output_row
-            del source
-        elif isinstance(call, CorrelateSpecV1):
-            from marivo.analysis.operators.association_values import execute_pairs, prepare_local
-
-            if len(incoming) != 1:
-                fail("one complete correlation input", "invalid correlation arity")
-            source = incoming[0]
-            candidate_count(len(call.metric_names), len(call.semantics.lag_offsets))
-            prepared = source.pair_preparation
-            if not prepared:
-                validate_frame(source.frame, call.input_row, call.input_rows)
-            pairs = source.frame if prepared else prepare_local(source.frame, call)
-            result = execute_pairs(pairs, call)
-            del pairs
-            from marivo.analysis.operators.association_values import summarize_search
-
-            summaries = replace(summaries, association=summarize_search(result, call.output_row))
-            validate_frame(result, call.output_row, call.output_rows)
-            schema = pa.Schema.from_pandas(result, preserve_index=False)
-            value = _Frames(result, (), schema)
-            handoffs.append((id(source.frame), id(result)))
-            output_row = call.output_row
-            del source
         else:
-            fail("a registered Event or R8 local method", "retired R6 local method")
+            fail("a registered Dataset row method", "unsupported local method")
         values[stage.output] = value
         for key in stage.inputs:
             users[key] -= 1
@@ -458,7 +284,6 @@ def _execute_graph(
         tuple(handoffs),
         total_rows,
         output_row,
-        summaries,
     )
 
 
@@ -467,13 +292,12 @@ def execute_local(
     streams: tuple[LocalInputStreams, ...],
 ) -> LocalResult:
     """Compute complete local inputs synchronously, preserving original exceptions."""
-    summaries = FamilySummaries()
     if isinstance(request, LocalGraphRequest):
         completed = _execute_graph(streams, request)
         frame = completed.frames.frame
         output_parts, schema = completed.frames.parts, completed.frames.schema
         handoffs, count = completed.handoffs, completed.input_rows
-        output_row, summaries = completed.output_row, completed.summaries
+        output_row = completed.output_row
     else:
         if not request.calls or len(streams) != 1:
             fail("one complete suffix input and its methods", "invalid suffix request")
@@ -509,4 +333,4 @@ def execute_local(
                             "output_validation",
                         )
                     result = result.append_column(part_table.schema.field(name), part_table[name])
-    return LocalResult(result, handoffs, count, tuple(completed_parts), summaries)
+    return LocalResult(result, handoffs, count, tuple(completed_parts))

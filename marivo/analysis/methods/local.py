@@ -6,12 +6,14 @@ import math
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from fractions import Fraction
 
 import pyarrow as pa
 
 from marivo.analysis.compiler.graph_plan import LocalMethodStage
 from marivo.analysis.core.model import Cell, Defined, Null, Undefined, Unknown, reject
 from marivo.analysis.core.rules import AssociationScore, RowState
+from marivo.analysis.methods.association_numeric import score
 from marivo.analysis.methods.builtin import admit
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
@@ -37,21 +39,6 @@ class SpearmanResult:
     matched_observation_count: int
     null_pair_count: int
     complete_pair_count: int
-
-
-def _ranks(values: list[int | float]) -> list[float]:
-    ordered = sorted(enumerate(values), key=lambda item: item[1])
-    result = [0.0] * len(values)
-    start = 0
-    while start < len(ordered):
-        end = start + 1
-        while end < len(ordered) and ordered[end][1] == ordered[start][1]:
-            end += 1
-        rank = (start + 1 + end) / 2
-        for index, _ in ordered[start:end]:
-            result[index] = rank
-        start = end
-    return result
 
 
 def score_spearman(
@@ -140,36 +127,8 @@ def score_spearman(
         xs.append(value_a)
         ys.append(value_b)
     size = len(xs)
-    if size < 2:
-        status = "insufficient_pairs"
-    elif len(set(xs)) == 1 and len(set(ys)) == 1:
-        status = "constant_both"
-    elif len(set(xs)) == 1:
-        status = "constant_a"
-    elif len(set(ys)) == 1:
-        status = "constant_b"
-    else:
-        status = "valid"
-    coefficient: float | None = None
-    if status == "valid":
-        ra, rb = _ranks(xs), _ranks(ys)
-        mean_rank = (size + 1) / 2
-        covariance = math.fsum(
-            (x - mean_rank) * (y - mean_rank) for x, y in zip(ra, rb, strict=True)
-        )
-        var_a = math.fsum((x - mean_rank) ** 2 for x in ra)
-        var_b = math.fsum((y - mean_rank) ** 2 for y in rb)
-        coefficient = covariance / math.sqrt(var_a * var_b)
-        if not math.isfinite(coefficient) or abs(coefficient) > 1 + 1e-12:
-            reject(
-                "finite Spearman coefficient in [-1, 1]",
-                str(coefficient),
-                "Correct numeric execution.",
-                "analysis.local",
-            )
-        if abs(coefficient) >= 1 - 1e-12:
-            coefficient = math.copysign(1.0, coefficient)
-    return SpearmanResult(status, coefficient, len(a), len(a), null_count, size)
+    scored = score(tuple(Fraction(x) for x in xs), tuple(Fraction(y) for y in ys), "spearman")
+    return SpearmanResult(scored.status, scored.coefficient, len(a), len(a), null_count, size)
 
 
 def arithmetic(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> ArithmeticResult:

@@ -412,23 +412,10 @@ class DuckDBExecutionAdapter(ObservedExecution):
         return probe_engine_timezone(self._backend)
 
     def prepare_dataset(self, dataset: LogicalDataset) -> None:
-        from marivo.analysis.compiler.normalize import logical_roots
-        from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
+        """Validate the registered source implementation before preparation."""
+        from marivo.analysis.operators.registry import implementation
 
-        if any(isinstance(root.payload, DriverCandidatePayload) for root in logical_roots(dataset)):
-            self.install_numeric()
-
-    def install_numeric(self) -> None:
-        from marivo.analysis.compiler.driver_numeric import DRIVER_NUMERIC_SETUP_SQL
-
-        for name, sql in zip(
-            ("__marivo_driver_float_units", "__marivo_driver_float_from_units"),
-            DRIVER_NUMERIC_SETUP_SQL,
-            strict=True,
-        ):
-            if self._reserve is not None:
-                self._reserve(name)
-            self.submit(self.statement(sql, role="source_preparation"))
+        implementation(dataset).for_backend(self.engine)
 
 
 def bind_duckdb(

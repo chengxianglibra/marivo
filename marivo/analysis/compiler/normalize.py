@@ -27,10 +27,6 @@ from marivo.analysis.observation.contracts import (
 from marivo.analysis.observation.coordinates import functional_path, governed_path, path_entities
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.observation.source_bindings import BoundSourceParametersV1
-from marivo.analysis.operators.association_contracts import CorrelatePayload
-from marivo.analysis.operators.candidate_contracts import CandidatePayload
-from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
-from marivo.analysis.operators.forecast_contracts import ForecastPayload
 from marivo.semantic.ir import TargetEntityContract
 from marivo.semantic.metric_graph import component_node
 from marivo.semantic.validator import Registry, normalize_target_dimension, normalize_target_entity
@@ -84,14 +80,7 @@ def _input_kind(has_source: bool, has_artifact: bool) -> Literal["source", "arti
     return "source" if has_source else "artifact"
 
 
-_INPUT_ONLY_PAYLOADS = (
-    RetainedRowsPayload,
-    RetainedFoldPayload,
-    CorrelatePayload,
-    ForecastPayload,
-    CandidatePayload,
-    DriverCandidatePayload,
-)
+_INPUT_ONLY_PAYLOADS = (RetainedRowsPayload, RetainedFoldPayload)
 
 
 def classify_inputs(root: LogicalRootHandle) -> InputClassification:
@@ -258,25 +247,13 @@ def _required_entities(
                         if columns is not None:
                             columns.route(route)
                             columns.axis(dimension)
-        elif not isinstance(
-            payload,
-            (
-                RetainedRowsPayload,
-                RetainedFoldPayload,
-                CorrelatePayload,
-                ForecastPayload,
-                CandidatePayload,
-                DriverCandidatePayload,
-            ),
-        ):
+        elif not isinstance(payload, (RetainedRowsPayload, RetainedFoldPayload)):
             raise compilation_error("closed Observation payload", "unsupported definition payload")
     # A retained identity input supplies its own membership keys. No origin
     # table is needed unless newly authored semantic work actually consumes it.
     roots = tuple(logical_roots(dataset))
     for retained in artifact_inputs(dataset):
-        if retained.kind not in ("population", "metric") and (
-            str(retained.row_contract.shape_id) != "candidate/entity-outlier@v1"
-        ):
+        if retained.kind not in ("population", "metric"):
             continue
         identities = tuple(
             field.identity

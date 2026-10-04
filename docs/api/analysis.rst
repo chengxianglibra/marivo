@@ -219,24 +219,6 @@ constructors are documented inline to support case-insensitive filesystems.
 .. autoclass:: MaterializedMetricDataset
    :members:
 
-.. autoclass:: LogicalAssociationDataset
-   :members:
-
-.. autoclass:: MaterializedAssociationDataset
-   :members:
-
-.. autoclass:: LogicalForecastDataset
-   :members:
-
-.. autoclass:: MaterializedForecastDataset
-   :members:
-
-.. autoclass:: LogicalCandidateDataset
-   :members:
-
-.. autoclass:: MaterializedCandidateDataset
-   :members:
-
 .. autoclass:: LogicalHistoryResult
    :members:
 

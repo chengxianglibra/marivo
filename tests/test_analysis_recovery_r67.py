@@ -60,7 +60,6 @@ def test_retired_r6_consumers_have_no_export_registration_or_runtime_dispatch() 
         producer_contract,
     )
     from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
-    from marivo.analysis.operators.registry import legacy_source_migration_stage
 
     for name in (
         "LogicalDeltaDataset",
@@ -102,11 +101,6 @@ def test_retired_r6_consumers_have_no_export_registration_or_runtime_dispatch() 
         "operators/attribution.py",
     ):
         assert not (Path(marivo.__file__).parent / "analysis" / relative).exists()
-    assert legacy_source_migration_stage("event.compare") is None
-    assert legacy_source_migration_stage("discover.driver_axes") == 8
-    assert legacy_source_migration_stage("metric.compare") is None
-    assert legacy_source_migration_stage("delta.attribute") is None
-    assert legacy_source_migration_stage("funnel_delta.attribute") is None
 
 
 @pytest.mark.runtime

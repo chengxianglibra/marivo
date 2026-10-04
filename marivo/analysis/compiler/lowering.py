@@ -51,7 +51,6 @@ from marivo.analysis.core.time_authority import (
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
 from marivo.analysis.datasets.descriptors import (
     DatasetRowContract,
-    DatasetRowSetContract,
     _canonical_digest,
     _CatalogFieldIdentity,
     _EntityFieldIdentity,
@@ -98,16 +97,10 @@ from marivo.analysis.observation.fold_contracts import (
     fold_state_names,
 )
 from marivo.analysis.observation.private_parts import source_private_part_authorities
-from marivo.analysis.operators.association_contracts import CorrelatePayload, association_orders
 from marivo.analysis.operators.attribution_contracts import (
     delta_part_authorities,
     delta_presence_name,
     delta_state_name,
-)
-from marivo.analysis.operators.candidate_contracts import CandidateDefinition, CandidatePayload
-from marivo.analysis.operators.driver_contracts import (
-    DriverCandidateDefinition,
-    DriverCandidatePayload,
 )
 from marivo.refs import EntityKind, Ref, SemanticKind, _create_ref, _decode_ref_payload
 from marivo.semantic._expression_binding import (
@@ -166,13 +159,6 @@ class _Rows:
     selections: tuple[_Selection, ...] = ()
     ordering: tuple[tuple[str, str, str], ...] = ()
     parts: PrivateRelations = ()
-
-
-def _authored_orders(
-    row: DatasetRowContract, rows: DatasetRowSetContract
-) -> dict[str, tuple[str | int, ...]]:
-    orders = association_orders(row, rows)
-    return orders
 
 
 def _named_validations(
@@ -647,7 +633,6 @@ class _Compiler:
         dependencies: SourceDependencies | None = None,
         replay_exact_quantile: bool = False,
         scalar_identity_distinct: bool = False,
-        explicit_correlation: bool = False,
         emulate_full_join: bool = False,
         scalar_masks: bool = False,
         scalar_single_identity: bool = False,
@@ -659,7 +644,6 @@ class _Compiler:
         self.read_timezone_source = read_timezone_source
         self.replay_exact_quantile = replay_exact_quantile
         self.scalar_identity_distinct = scalar_identity_distinct
-        self.explicit_correlation = explicit_correlation
         self.emulate_full_join = emulate_full_join
         self.scalar_masks = scalar_masks
         self.scalar_single_identity = scalar_single_identity
@@ -685,9 +669,6 @@ class _Compiler:
         collect(dataset)
         self.validations: list[CompiledValidation] = []
         self.attribution_proof: ir.Table | None = None
-        self.association_proof: ir.Table | None = None
-        self.candidate_proof: ir.Table | None = None
-        self.candidate_definition: CandidateDefinition | DriverCandidateDefinition | None = None
         self.validation_occurrences: dict[str, int] = {}
         self.preparations: list[CompiledValidation | CompiledRelationFence] = []
         self.prepared_validation_count = 0
@@ -2064,11 +2045,6 @@ class _Compiler:
                 or not isinstance(dataset, MaterializedDataset)
                 or (
                     root.shape_id.family_id not in ("population", "delta")
-                    and not (
-                        root.shape_id.family_id == "candidate"
-                        and root.shape_id.local_shape_id in ("entity-outlier", "driver-axis")
-                        and root.shape_id.semantic_version == 1
-                    )
                     and (
                         not isinstance(
                             semantics, (EntityPresentMetricSemantics, EntityReducedMetricSemantics)
@@ -2076,8 +2052,10 @@ class _Compiler:
                         or (
                             isinstance(semantics, EntityPresentMetricSemantics)
                             and any(
-                                not facts or facts[0] != "entity_unique"
-                                for _, _, facts in semantics.coordinate_semantics
+                                (
+                                    not facts or facts[0] != "entity_unique"
+                                    for _, _, facts in semantics.coordinate_semantics
+                                )
                             )
                         )
                     )
@@ -2087,7 +2065,7 @@ class _Compiler:
                     "an admitted engine membership or Entity-unique Metric scan",
                     "unsupported retained source input",
                 )
-            table, entity = scan.expression, scan.entity
+            table, entity = (scan.expression, scan.entity)
             if root.shape_id.family_id in ("metric", "delta"):
                 table, checks = _lower_retained_scan(dataset.row_contract, table, dict(scan.parts))
                 self.validations.extend(checks)
@@ -2119,14 +2097,7 @@ class _Compiler:
                     "the exact retained identity struct", "invalid engine identity"
                 )
             membership = table.select(**{name: identity[name] for name in entity.primary_key})
-            if (
-                root.shape_id.family_id in ("delta",)
-                or root.shape_id.local_shape_id == "driver-axis"
-            ):
-                # Complete row keys are validated separately; driver rows may
-                # repeat an Entity across axes. Deduplicate only the internal
-                # source membership spine, preserving primary rows and the
-                # separate restrictions on population input admission.
+            if root.shape_id.family_id == "delta":
                 membership = membership.distinct()
             self._unique("population.retained_identity_unique", membership, entity.primary_key)
             return _Rows(
@@ -2142,63 +2113,6 @@ class _Compiler:
         payload = root.payload
         if isinstance(payload, PopulationPayload):
             result = self._population(root, payload)
-        elif isinstance(payload, DriverCandidatePayload):
-            from marivo.analysis.compiler.attribution import prepare_expanded_driver
-            from marivo.analysis.compiler.driver_candidate import lower_driver_candidate
-
-            previous = self._visit(root.inputs[0].root)
-            self._flush_validations()
-            name = f"__mv_driver_input_{len(self.preparations)}"
-            self.preparations.append(CompiledRelationFence(name, previous.expression, id(root)))
-            frozen = ibis.table(previous.expression.schema(), name=name)
-            original: ir.Table | None = None
-            if payload.spec.expanded_compare is not None:
-                original = frozen
-                current = self._visit(root.inputs[1].root)
-                baseline = self._visit(root.inputs[2].root)
-                expanded, driver_compare_checks = prepare_expanded_driver(
-                    original, current.expression, baseline.expression, payload.spec
-                )
-                self.validations.extend(driver_compare_checks)
-                self._flush_validations()
-                name = f"__mv_driver_expanded_{len(self.preparations)}"
-                self.preparations.append(CompiledRelationFence(name, expanded, id(root)))
-                frozen = ibis.table(expanded.schema(), name=name)
-            table, checks, proof = lower_driver_candidate(frozen, payload.spec, original=original)
-            self.validations.extend(checks)
-            self.candidate_proof = proof
-            self.candidate_definition = payload.spec.definition
-            result = _Rows(table, previous.membership, previous.entity)
-        elif isinstance(payload, CandidatePayload):
-            from marivo.analysis.compiler.entity_candidate import lower_entity_candidate
-
-            previous = self._visit(root.inputs[0].root)
-            self._flush_validations()
-            name = f"__mv_entity_candidate_{len(self.preparations)}"
-            self.preparations.append(CompiledRelationFence(name, previous.expression, id(root)))
-            frozen = ibis.table(previous.expression.schema(), name=name)
-            table, checks, proof = lower_entity_candidate(frozen, payload.spec)
-            self.validations.extend(checks)
-            self.candidate_proof = proof
-            self.candidate_definition = payload.spec.definition
-            identity = table.entity_identity
-            if not isinstance(identity, ir.StructValue):
-                raise compilation_error("typed Candidate identity", "invalid lowered identity")
-            # Membership projects this scored relation and reuses its frozen Metric input.
-            membership = table.select(
-                **{name: identity[name] for name in previous.entity.primary_key}
-            )
-            result = _Rows(table, membership, previous.entity)
-        elif isinstance(payload, CorrelatePayload):
-            from marivo.analysis.compiler.correlation import lower_correlate
-
-            previous = self._visit(root.inputs[0].root)
-            table, checks = lower_correlate(
-                previous.expression, payload.spec, explicit_correlation=self.explicit_correlation
-            )
-            self.association_proof = table
-            self.validations.extend(checks)
-            result = _Rows(table, previous.membership, previous.entity)
         elif isinstance(payload, RetainedFoldPayload):
             previous = self._visit(root.inputs[0].root)
             table, validations = lower_fold(previous.expression, payload.spec)
@@ -2232,7 +2146,6 @@ class _Compiler:
                         (names[term.field_id], term.direction, term.nulls)
                         for term in retained_ordering.terms
                     ),
-                    _authored_orders(value.row_contract, value.row_set_contract),
                 )
             if payload.limit_count is not None:
                 table = table.limit(payload.limit_count)
@@ -2331,25 +2244,12 @@ class _Compiler:
         return result
 
     @staticmethod
-    def _order(
-        table: ir.Table,
-        ordering: tuple[tuple[str, str, str], ...],
-        authored: Mapping[str, tuple[str | int, ...]] | None = None,
-    ) -> ir.Table:
-        expressions = {
-            name: ibis.cases(
-                *tuple(
-                    (_boolean(table[name] == value), index) for index, value in enumerate(values)
-                ),
-                else_=-1,
-            )
-            for name, values in (authored or {}).items()
-        }
+    def _order(table: ir.Table, ordering: tuple[tuple[str, str, str], ...]) -> ir.Table:
         return table.order_by(
             [
-                expressions.get(name, table[name]).asc(nulls_first=nulls == "first")
+                table[name].asc(nulls_first=nulls == "first")
                 if direction == "ascending"
-                else expressions.get(name, table[name]).desc(nulls_first=nulls == "first")
+                else table[name].desc(nulls_first=nulls == "first")
                 for name, direction, nulls in ordering
             ]
         )
@@ -2404,11 +2304,7 @@ class _Compiler:
             terms = tuple(
                 (field_names[term.field_id], term.direction, term.nulls) for term in ordering.terms
             )
-            expression = self._order(
-                expression,
-                terms,
-                _authored_orders(self.dataset.row_contract, self.dataset.row_set_contract),
-            )
+            expression = self._order(expression, terms)
         elif key_names:
             expression = self._order(
                 expression, tuple((name, "ascending", "last") for name in key_names)
@@ -2438,11 +2334,6 @@ class _Compiler:
             )
             if self.time_authorities
             else None,
-            association_proof=self.association_proof,
-            candidate_proof=self.candidate_proof if self.dataset.kind == "candidate" else None,
-            candidate_definition=self.candidate_definition
-            if self.dataset.kind == "candidate"
-            else None,
         )
 
 
@@ -2457,7 +2348,6 @@ def compile_dataset(
     read_timezone_source: Literal["engine", "system_fallback"] = "engine",
     replay_exact_quantile: bool = False,
     scalar_identity_distinct: bool = False,
-    explicit_correlation: bool = False,
     emulate_full_join: bool = False,
     scalar_masks: bool = False,
     scalar_single_identity: bool = False,
@@ -2473,7 +2363,6 @@ def compile_dataset(
         dependencies,
         replay_exact_quantile,
         scalar_identity_distinct,
-        explicit_correlation,
         emulate_full_join,
         scalar_masks,
         scalar_single_identity,
@@ -2604,12 +2493,8 @@ def compile_retained_rows(
 
     validations: list[CompiledValidation] = []
     attribution_proof: ir.Table | None = None
-    association_proof: ir.Table | None = None
-    candidate_proof: ir.Table | None = None
-    candidate_definition: CandidateDefinition | DriverCandidateDefinition | None = None
     preparations: list[CompiledValidation | CompiledRelationFence] = []
     prepared_count = 0
-
     cache: dict[int, ir.Table] = {}
     private_parts: dict[int, PrivateRelations] = {}
 
@@ -2636,58 +2521,13 @@ def compile_retained_rows(
         return cache[id(value)]
 
     def visit_node(value: Dataset) -> ir.Table:
-        nonlocal \
-            attribution_proof, \
-            association_proof, \
-            candidate_proof, \
-            candidate_definition, \
-            prepared_count
+        nonlocal attribution_proof, prepared_count
         admit_retained_rows(value)
         if isinstance(value, MaterializedDataset):
             return read(value)
         if not isinstance(value, LogicalDataset) or not isinstance(value._root, LogicalRootHandle):
             raise compilation_error("an exact retained row graph", "invalid retained row node")
         payload = value._root.payload
-        if isinstance(payload, DriverCandidatePayload):
-            from marivo.analysis.compiler.driver_candidate import lower_driver_candidate
-
-            if payload.spec.expanded_compare is not None:
-                raise compilation_error(
-                    "logical source axis expansion", "retained expansion boundary"
-                )
-            previous = visit(value._inputs[0])
-            preparations.extend(validations[prepared_count:])
-            prepared_count = len(validations)
-            name = f"__mv_driver_input_{len(preparations)}"
-            preparations.append(CompiledRelationFence(name, previous, id(value._root)))
-            frozen = ibis.table(previous.schema(), name=name)
-            result, checks, candidate_proof = lower_driver_candidate(frozen, payload.spec)
-            candidate_definition = payload.spec.definition
-            validations.extend(checks)
-            private_parts[id(value)] = ()
-            return result
-        if isinstance(payload, CandidatePayload):
-            from marivo.analysis.compiler.entity_candidate import lower_entity_candidate
-
-            previous = visit(value._inputs[0])
-            preparations.extend(validations[prepared_count:])
-            prepared_count = len(validations)
-            name = f"__mv_entity_candidate_{len(preparations)}"
-            preparations.append(CompiledRelationFence(name, previous, id(value._root)))
-            frozen = ibis.table(previous.schema(), name=name)
-            result, checks, candidate_proof = lower_entity_candidate(frozen, payload.spec)
-            candidate_definition = payload.spec.definition
-            validations.extend(checks)
-            private_parts[id(value)] = ()
-            return result
-        if isinstance(payload, CorrelatePayload):
-            from marivo.analysis.compiler.correlation import lower_correlate
-
-            result, checks = lower_correlate(visit(value._inputs[0]), payload.spec)
-            association_proof = result
-            validations.extend(checks)
-            private_parts[id(value)] = ()
-            return result
         if (
             not isinstance(payload, (RetainedRowsPayload, RetainedFoldPayload))
             or len(value._inputs) != 1
@@ -2706,10 +2546,7 @@ def compile_retained_rows(
             result, checks = lower_fold(result, payload.spec)
             validations.extend(checks)
             private_parts[id(value)] = fold_memberships(
-                private_parts[id(value._inputs[0])],
-                original,
-                result,
-                payload.spec,
+                private_parts[id(value._inputs[0])], original, result, payload.spec
             )
             return result
         keys = tuple(
@@ -2729,14 +2566,11 @@ def compile_retained_rows(
                 tuple(
                     (names[term.field_id], term.direction, term.nulls) for term in ordering.terms
                 ),
-                _authored_orders(value.row_contract, value.row_set_contract),
             )
         if payload.limit_count is not None:
             result = result.limit(payload.limit_count)
         private_parts[id(value)] = selected_private_parts(
-            private_parts[id(value._inputs[0])],
-            value.row_contract,
-            result,
+            private_parts[id(value._inputs[0])], value.row_contract, result
         )
         return result.select(
             *[field.name for field in value.schema.columns],
@@ -2768,7 +2602,6 @@ def compile_retained_rows(
         expression = _Compiler._order(
             expression,
             tuple((names[term.field_id], term.direction, term.nulls) for term in ordering.terms),
-            _authored_orders(dataset.row_contract, dataset.row_set_contract),
         )
     elif keys:
         expression = _Compiler._order(expression, tuple((key, "ascending", "last") for key in keys))
@@ -2790,7 +2623,4 @@ def compile_retained_rows(
         ),
         preparations=named_preparations,
         attribution_proof=attribution_proof,
-        association_proof=association_proof,
-        candidate_proof=candidate_proof,
-        candidate_definition=candidate_definition,
     )

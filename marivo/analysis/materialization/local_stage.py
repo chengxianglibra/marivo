@@ -49,22 +49,6 @@ from marivo.analysis.observation.contracts import (
     RetainedRowsPayload,
 )
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
-from marivo.analysis.operators.association_contracts import (
-    CorrelatePayload,
-    CorrelateSpecV1,
-)
-from marivo.analysis.operators.candidate_contracts import (
-    CandidatePayload,
-    CandidateSpecV1,
-)
-from marivo.analysis.operators.driver_contracts import (
-    DriverCandidatePayload,
-    DriverCandidateSpecV1,
-)
-from marivo.analysis.operators.forecast_contracts import (
-    ForecastPayload,
-    ForecastSpecV1,
-)
 from marivo.analysis.operators.row import RowCall
 
 if TYPE_CHECKING:
@@ -171,18 +155,8 @@ def run_local_graph(
         if not isinstance(root, LogicalRootHandle):
             raise _error("implementation_registration", run_ref)
         payload = root.payload
-        call: RowCall | CorrelateSpecV1 | ForecastSpecV1 | CandidateSpecV1 | DriverCandidateSpecV1
-        if isinstance(
-            payload,
-            (
-                CorrelatePayload,
-                ForecastPayload,
-                CandidatePayload,
-                DriverCandidatePayload,
-            ),
-        ):
-            call = payload.spec
-        elif isinstance(payload, (MetricPayload, RetainedRowsPayload, RetainedFoldPayload)):
+        call: RowCall
+        if isinstance(payload, (MetricPayload, RetainedRowsPayload, RetainedFoldPayload)):
             if len(step.inputs) != 1:
                 raise _error("implementation_registration", run_ref)
             source = step.dataset._inputs[0]
@@ -211,27 +185,6 @@ def run_local_graph(
 def _source_count(backend: ExecutionAdapter, recipe: CompiledDataset, *, role: str) -> object:
     count_expression = recipe.expression.aggregate(__mv_rows=recipe.expression.count())
     return backend.read_scalar(backend.prepare(count_expression, role=role))
-
-
-def _correlation_input(
-    self: DatasetRuntime,
-    step: SourceStep,
-    backend: ExecutionAdapter,
-    recipe: CompiledDataset,
-    run_ref: str,
-) -> tuple[LocalBoundary, LocalInputStreams]:
-    from marivo.analysis.materialization.local_execution import PairInput
-
-    root = step.dataset._root
-    if not isinstance(root, LogicalRootHandle) or not isinstance(root.payload, CorrelatePayload):
-        raise _error("implementation_registration", run_ref)
-    pair_count = _source_count(backend, recipe, role="correlation_cardinality")
-    if type(pair_count) is not int or pair_count < 0:
-        raise _error("output_validation", run_ref)
-    return (
-        LocalBoundary(step.output, PairInput(root.payload.spec, pair_count)),
-        LocalInputStreams(source_stage.batches(self, backend, recipe.expression, 1024)),
-    )
 
 
 def _projected_source_input(
@@ -311,10 +264,7 @@ def _local_inputs(
     for step in physical.steps:
         if isinstance(step, SourceStep):
             backend, recipe, _ = prepared[step.output]
-            if step.operation == "correlation":
-                boundary, stream = _correlation_input(self, step, backend, recipe, run_ref)
-            else:
-                boundary, stream = _projected_source_input(self, dataset, step, backend, recipe)
+            boundary, stream = _projected_source_input(self, dataset, step, backend, recipe)
         elif isinstance(step, ArtifactReadStep):
             boundary, stream = _retained_input(self, dataset, step, records)
         else:
@@ -344,11 +294,6 @@ def execute_local_stages(
     local_result = run_local_graph(
         self, physical, boundaries, streams, run_ref, cancel_source=cancel_sources
     )
-    evidence.association_summary = (
-        local_result.summaries.association or evidence.association_summary
-    )
-    evidence.forecast_summary = local_result.summaries.forecast or evidence.forecast_summary
-    evidence.candidate_summary = local_result.summaries.candidate or evidence.candidate_summary
     evidence.validations = [
         (
             "source_prefix.final_row_key_unique"

@@ -12,8 +12,6 @@ import pytest
 
 from marivo.analysis import grain, time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.operators.association_contracts import CorrelationMethod
-from marivo.analysis.operators.forecast_contracts import naive, periods
 from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
@@ -31,13 +29,10 @@ from tests.lazy_scalar_source_fixtures import TimeFoldIR, registry_for
 from tests.lazy_shared_assertions import (
     assert_cross_root_ratio,
     assert_date_bucket_values,
-    assert_forecast_history,
-    assert_kendall_source_reduction,
     assert_missing_relationship_values,
     assert_primary_status_gate,
     assert_relationship_values,
     assert_status_fold_values,
-    assert_time_discovery,
     assert_version_identities,
     assert_weighted_mean_values,
 )
@@ -45,47 +40,6 @@ from tests.lazy_shared_assertions import (
 pytestmark = pytest.mark.runtime
 CHANNEL = ref.dimension("sales.orders.channel")
 TIME = ref.time_dimension("sales.orders.order_time")
-
-
-@pytest.mark.parametrize("method", ["pearson", "spearman"])
-def test_entity_correlation(
-    tmp_path: Path, method_database: Path, method: CorrelationMethod
-) -> None:
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(tmp_path / "correlation-project", "sqlite-correlation")
-    result = (
-        runtime.sources(semantic_registry=registry, sidecar=sidecar)
-        .observe((ref.metric("sales.revenue"), ref.metric("sales.mean_amount")))
-        .correlate(method=method)
-        .execute()
-    )
-    frame = result.to_pandas()
-    assert frame.coefficient.iloc[0] == pytest.approx(1.0)
-    assert "entity_identity" not in frame.columns
-    assert runtime.statistics.primary_queries > 0
-    submitted = [item for item in runtime.statistics.submissions if item.domain == "source"]
-    assert any(
-        item.role == "validation_batch" and "SELECT" in item.sql.upper() for item in submitted
-    )
-    assert any(item.role == "primary" and "SELECT" in item.sql.upper() for item in submitted)
-    assert all(item.state == "succeeded" for item in submitted)
-
-
-def test_entity_correlation_constant_input(tmp_path: Path, method_database: Path) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
-
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(
-        tmp_path / "constant-correlation", "sqlite-constant-correlation"
-    )
-    logical = (
-        runtime.sources(semantic_registry=registry, sidecar=sidecar)
-        .observe((ref.metric("sales.revenue"), ref.metric("sales.order_count")))
-        .correlate(method="pearson")
-    )
-    with pytest.raises(MaterializationError, match=r"correlate\.valid_candidate"):
-        logical.execute()
-    assert runtime.statistics.primary_queries == 0
 
 
 @pytest.fixture
@@ -535,45 +489,6 @@ def test_versions(tmp_path: Path, method_database: Path, entity: str) -> None:
     assert_version_identities(list(frame.entity_identity))
 
 
-def test_forecast_complete_history(tmp_path: Path, method_database: Path) -> None:
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(tmp_path / "project", "forecast")
-    history = (
-        runtime.sources(semantic_registry=registry, sidecar=sidecar)
-        .observe(
-            ref.metric("sales.revenue"), time_scope=time_scope(start="2026-02-01", end="2026-02-05")
-        )
-        .with_time_axis(TIME, grain=grain("day"))
-        .aggregate()
-    )
-    frame = history.forecast(horizon=periods(2), model=naive()).execute().to_pandas()
-    assert_forecast_history(
-        frame.forecast_value.tolist(),
-        frame.training_row_count.tolist(),
-        runtime.statistics.transferred_rows,
-    )
-
-
-def test_kendall_source_reduction(tmp_path: Path, method_database: Path) -> None:
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(tmp_path / "project", "kendall")
-    history = (
-        runtime.sources(semantic_registry=registry, sidecar=sidecar)
-        .observe(
-            (ref.metric("sales.revenue"), ref.metric("sales.mean_amount")),
-            time_scope=time_scope(start="2026-02-01", end="2026-02-05"),
-        )
-        .with_time_axis(TIME, grain=grain("day"))
-        .aggregate()
-    )
-    frame = history.correlate(method="kendall").execute().to_pandas()
-    assert_kendall_source_reduction(
-        frame.coefficient.tolist(),
-        runtime.statistics.transferred_rows,
-        runtime.statistics.events.get("local_execution_started", 0),
-    )
-
-
 def test_retained_mean_in_fresh_process(tmp_path: Path, method_database: Path) -> None:
     import subprocess
     import sys
@@ -620,21 +535,6 @@ assert not any(item.domain == "source" for item in runtime.statistics.submission
         text=True,
         timeout=60,
     )
-
-
-def test_time_discovery(tmp_path: Path, method_database: Path) -> None:
-    registry, sidecar = registry_for(method_database)
-    runtime = DatasetRuntime.create(tmp_path / "project", "discovery")
-    history = (
-        runtime.sources(semantic_registry=registry, sidecar=sidecar)
-        .observe(
-            ref.metric("sales.revenue"), time_scope=time_scope(start="2026-02-01", end="2026-02-05")
-        )
-        .with_time_axis(TIME, grain=grain("day"))
-        .aggregate()
-    )
-    result = history.discover.point_anomalies(threshold=1.0).execute()
-    assert_time_discovery(len(result.to_pandas()), runtime.statistics.transferred_rows)
 
 
 def test_cross_root_ratio_keeps_contribution_grain(tmp_path: Path, method_database: Path) -> None:

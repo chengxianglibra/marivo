@@ -99,7 +99,6 @@ def metric_parts(row: DatasetRowContract) -> tuple[MetricFoldAuthorityV1, ...]:
 
 def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = None) -> set[str]:
     """Propagate consumed state to the exact input, respecting producer boundaries."""
-    from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
 
     required: set[str] = set()
 
@@ -119,13 +118,7 @@ def required_part_roles(dataset: Dataset, *, input_dataset: Dataset | None = Non
         for child in value._inputs:
             if value._root.operator_id in ("session.observe",):
                 child_demand: set[str] = set()
-            elif isinstance(
-                payload,
-                (
-                    RetainedFoldPayload,
-                    DriverCandidatePayload,
-                ),
-            ):
+            elif isinstance(payload, (RetainedFoldPayload,)):
                 child_demand = _row_part_roles(child.row_contract)
             else:
                 child_demand = demanded

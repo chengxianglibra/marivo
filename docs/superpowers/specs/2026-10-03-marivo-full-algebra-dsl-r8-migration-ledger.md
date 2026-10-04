@@ -9,8 +9,12 @@ matrix remains open. R8.4 product connection and bounded verification are record
 in the [R8.4 evidence index](2026-10-04-marivo-r84-evidence-index.md); its 35,662-ID
 mandatory matrix remains open. The R8.4 review repair checkpoint covers retained
 rank/table authority, DST future lookahead and bounded Spearman witness validation;
-it grants no additional mandatory IDs. R8.5-R8.6, remote-backend, installed-wheel and
-real-Agent qualification are not granted. This ledger indexes sole owners and immutable
+it grants no additional mandatory IDs. R8.5 public cutover and retirement evidence
+is recorded separately in the [R8.5 evidence index](2026-10-04-marivo-r85-evidence-index.md):
+171/171 obligations passed, all M01-M18 gates closed, and no unverified removed-node
+assertion transfers. This closure does not change any prior phase qualification.
+R8.6, remote-backend, installed-wheel and real-Agent qualification are not granted.
+This ledger indexes sole owners and immutable
 requirements; it is not another public API, formula or method registry.
 
 ## Actual baseline and accepted numeric decision
@@ -71,8 +75,9 @@ duties. No old statistical execution chain is deleted by R8.4.
 
 Paths below are relative to marivo/analysis. The snapshot preserves actual
 per-file symbol/line/import/alias-call/branch/registration-string/SQL candidates,
-all test definition nodes and current disclosure matches. Dynamic receiver
-resolution and executed source/codec reachability remain unverified. A matching
+all test definition nodes and disclosure matches at R8.1. At that freeze, dynamic
+receiver resolution and executed source/codec reachability were unverified; the
+R8.5 index owns their current bounded closure. A matching
 filename or import is never a physical deletion claim.
 
 `symbol_dispositions` gives each bounded statistical symbol candidate its exact
@@ -104,13 +109,15 @@ none closes a dynamic receiver, issued SQL, Store reader or shared caller.
 
 For M13-M18, the R8.2 index records the connected deviation/preparation,
 Store/disclosure, documentation and test changes. No old statistical chain is
-retired in R8.2. For every M row: dynamic unreachability=unverified;
-physical deletion=not_performed. Snapshot symbols are the precise bounded scan
+retired in R8.2. At the R8.1-R8.4 baseline, every M row had dynamic
+unreachability=unverified and physical deletion=not_performed. Current R8.5
+per-symbol and per-test dispositions are bound to the unchanged snapshot in its
+separate evidence index. Snapshot symbols are the precise bounded scan
 inventory, not a claim that an entire shared module belongs to R8 retirement.
 
 The recorded R8.2 requirement attachment preserves all 15,564 IDs, including the
 2,232 originally blocked IDs: 13,212 passed, 2,280 blocked and 72 unverified.
-M13-M18 remain in progress. The public deviation source/fixed/cold kernels and
+That R8.2 checkpoint leaves M13-M18 in progress. The public deviation source/fixed/cold kernels and
 source F11 sum/count_defined chains have actual receipts; fixed/cold F11,
 second-precision Parquet, narrow-Decimal F11 exact keys and individual scenario
 bindings remain open. The compact gate passed 6,012 tests with five disclosed

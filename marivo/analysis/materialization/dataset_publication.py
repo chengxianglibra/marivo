@@ -42,9 +42,6 @@ from marivo.analysis.materialization.storage import (
     StoragePolicy,
     write_local_dataset,
 )
-from marivo.analysis.operators.candidate_contracts import (
-    EntityCandidateEvaluationSummary,
-)
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.admission import DatasetRuntime
@@ -136,13 +133,6 @@ def prepare_publication(
 ) -> tuple[ArtifactDescriptor, tuple[Finding, ...]]:
     _validate_consumed_receipts(self, plan)
     descriptor = _base_descriptor(self, plan, stage, evidence, progress)
-    dataset = plan.dataset
-    if dataset.kind == "candidate":
-        return _candidate_publication(self, plan, stage, evidence, descriptor, policy)
-    if dataset.kind == "forecast":
-        return _forecast_publication(self, stage, evidence, descriptor, policy)
-    if dataset.kind == "association":
-        return _association_publication(self, stage, evidence, descriptor, policy)
     return descriptor, ()
 
 
@@ -229,66 +219,3 @@ def _base_descriptor(
             )
     self._event("temporal_authority")
     return replace(descriptor, temporal_execution=tuple(temporal[key] for key in sorted(temporal)))
-
-
-def _candidate_publication(
-    self: DatasetRuntime,
-    plan: ExecutionPlan,
-    stage: StageResult,
-    evidence: ExecutionEvidence,
-    descriptor: ArtifactDescriptor,
-    policy: ReadPolicy,
-) -> tuple[ArtifactDescriptor, tuple[Finding, ...]]:
-    from marivo.analysis.materialization.candidate_publication import build_candidate_publication
-
-    if evidence.candidate_summary is None:
-        raise _error("output_validation", plan.run.run_ref)
-    return build_candidate_publication(
-        descriptor,
-        None
-        if isinstance(evidence.candidate_summary.evaluation, EntityCandidateEvaluationSummary)
-        or any(f.role_id == "entity_identity" for f in plan.dataset.schema.columns)
-        else _audit_batches(self, descriptor, policy),
-        artifact_ref=stage.artifact_ref,
-        session_ref=self.session_ref,
-        definition=evidence.candidate_summary.definition,
-        evaluation=evidence.candidate_summary.evaluation,
-    )
-
-
-def _forecast_publication(
-    self: DatasetRuntime,
-    stage: StageResult,
-    evidence: ExecutionEvidence,
-    descriptor: ArtifactDescriptor,
-    policy: ReadPolicy,
-) -> tuple[ArtifactDescriptor, tuple[Finding, ...]]:
-    from marivo.analysis.materialization.forecast_publication import build_forecast_publication
-
-    return build_forecast_publication(
-        descriptor,
-        _audit_batches(self, descriptor, policy),
-        artifact_ref=stage.artifact_ref,
-        session_ref=self.session_ref,
-        training=evidence.forecast_summary,
-    )
-
-
-def _association_publication(
-    self: DatasetRuntime,
-    stage: StageResult,
-    evidence: ExecutionEvidence,
-    descriptor: ArtifactDescriptor,
-    policy: ReadPolicy,
-) -> tuple[ArtifactDescriptor, tuple[Finding, ...]]:
-    from marivo.analysis.materialization.association_publication import (
-        build_association_publication,
-    )
-
-    return build_association_publication(
-        descriptor,
-        _audit_batches(self, descriptor, policy),
-        artifact_ref=stage.artifact_ref,
-        session_ref=self.session_ref,
-        search_summary=evidence.association_summary,
-    )

@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Literal
 
-from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.descriptors import (
     _CORE_TOKEN,
     _CatalogFieldIdentity,
@@ -20,7 +19,6 @@ from marivo.analysis.datasets.descriptors import (
     _unordered_ordering,
 )
 from marivo.analysis.observation.contracts import (
-    IDENTITY_FIELD_ID,
     DimensionInput,
     EntityPresentMetricSemantics,
     EntityReducedMetricSemantics,
@@ -35,7 +33,6 @@ from marivo.analysis.operators.attribution_contracts import (
     AttributionSemantics,
     delta_part_authorities,
 )
-from marivo.analysis.operators.candidate_contracts import CandidateSemantics, CandidateSpecV1
 from marivo.analysis.operators.compare import (
     _GENERATED,
     _field_signature,
@@ -49,13 +46,7 @@ from marivo.analysis.operators.contracts import (
     comparison_basis,
     decode_comparison_basis,
 )
-from marivo.analysis.operators.driver_axes import DRIVER_FIELDS, validate_driver_definition
-from marivo.analysis.operators.driver_contracts import (
-    DriverCandidateDefinition,
-    DriverCandidateSpecV1,
-)
 from marivo.analysis.operators.errors import attribution_error, comparison_error
-from marivo.analysis.operators.errors import driver_error as discovery_error
 from marivo.semantic._quantile import approximation_class
 
 
@@ -359,219 +350,4 @@ def attribution_for_spec(
         expanded_compare,
         original_input_row,
     )
-    return spec
-
-
-def driver_for_spec(
-    compare: CompareSpecV1,
-    metric: LogicalMetricDataset,
-    axes: tuple[DimensionInput, ...],
-    *,
-    limit: int = 50,
-) -> DriverCandidateSpecV1:
-    input_row, input_rows = compare.output_row, compare.output_rows
-    refs = tuple(_axis_ref(axis) for axis in axes)
-    paths = tuple(axis.path for axis in refs)
-    known = {
-        f.identity.identity_id.split(":", 1)[1]: f
-        for f in input_row.schema.columns
-        if f.role_id == "dimension" and isinstance(f.identity, _CatalogFieldIdentity)
-    }
-    if any(axis.path not in known for axis in refs):
-        projected = metric.with_dimensions(*axes)
-        known.update(
-            (field.identity.identity_id.split(":", 1)[1], field)
-            for field in projected.schema.columns
-            if field.role_id == "dimension" and isinstance(field.identity, _CatalogFieldIdentity)
-        )
-    incoming = original = input_row.family_semantics
-    assert isinstance(incoming, DeltaSemantics)
-    expanded_compare = original_input_row = None
-    axis_fields = tuple(known[axis.path] for axis in refs)
-    axis_ids = tuple(f.field_id for f in axis_fields)
-    scope = tuple(
-        f
-        for f in input_row.schema.columns
-        if f.field_id in input_row.coordinate_field_ids and f.field_id not in axis_ids
-    )
-    times = tuple(f for f in input_row.schema.columns if f.role_id == "comparison_time")
-    definition = DriverCandidateDefinition(
-        "logical",
-        metric.definition_fingerprint,
-        limit,
-        original.approximation_class,
-        original.current_fold_authority,
-        original.baseline_fold_authority,
-        d._metric_identity_id(original.metric_ref),
-        original.metric_unit,
-        paths,
-        scope,
-        times,
-    )
-    validate_driver_definition(definition)
-    from marivo.analysis.operators.discovery import COMMON_FIELDS, _generated
-
-    ids = metric._registration.ids
-    common = tuple(_generated("driver_axes", name, kind, ids) for name, kind in COMMON_FIELDS)
-    values = tuple(_generated("driver_axes", name, kind, ids) for name, kind in DRIVER_FIELDS)
-    columns = (*common, *scope, *times, *values)
-    if len({f.name for f in columns}) != len(columns):
-        raise discovery_error("unambiguous scope and generated names", "Candidate field collision")
-    semantics = CandidateSemantics(
-        _token=d._CORE_TOKEN,
-        objective="driver_axes",
-        method_id="axis_concentration@v1",
-        approximation=definition.approximation,
-        item_id_field_id=common[0].field_id,
-        score_field_id=common[1].field_id,
-        reason_codes_field_id=common[2].field_id,
-    )
-    keys = (*(f.field_id for f in scope), values[0].field_id)
-    row = d._make_row_contract(
-        schema_version=1,
-        shape_id=d._make_shape_id("candidate", "driver-axis", 1, ids=ids),
-        schema=d._make_schema(columns),
-        coordinate_field_ids=keys,
-        key_field_ids=keys,
-        family_semantics=semantics,
-    )
-    rows = d._make_row_set_contract(
-        schema_version=1,
-        cardinality=d._keyed_cardinality(d._static_row_bound(limit)),
-        ordering=d._ordered_ordering(
-            tuple(
-                d._make_order_term(
-                    key,
-                    direction="descending" if key == semantics.score_field_id else "ascending",
-                    nulls="last",
-                    value_order_contract_id="observation.identity_tuple@v1"
-                    if key == IDENTITY_FIELD_ID
-                    else "observation.scalar_order@v1",
-                    ids=ids,
-                )
-                for key in (semantics.score_field_id, *keys, semantics.item_id_field_id)
-            )
-        ),
-    )
-    spec = DriverCandidateSpecV1(
-        input_row,
-        input_rows,
-        row,
-        rows,
-        definition,
-        axis_fields,
-        scope,
-        incoming.current_fold_authority,
-        incoming.baseline_fold_authority,
-        expanded_compare,
-        original_input_row,
-        None,
-    )
-    return spec
-
-
-def period_candidate_for_metric(
-    metric: LogicalMetricDataset, *, threshold: float = 1.0, limit: int = 50
-) -> CandidateSpecV1:
-    from marivo.analysis.operators.candidate_contracts import (
-        METHODS,
-        SHAPES,
-        CandidateDefinition,
-        CandidateSpecV1,
-    )
-    from marivo.analysis.operators.discovery import (
-        COMMON_FIELDS,
-        TIME_FIELDS,
-        VALUE_FIELDS,
-        _generated,
-        validate_definition,
-    )
-
-    compare = comparison_for_metric(metric)
-    input_row, input_rows = compare.output_row, compare.output_rows
-    incoming = input_row.family_semantics
-    assert isinstance(incoming, DeltaSemantics)
-    objective = "period_shifts"
-    ids = metric._registration.ids
-    definition = CandidateDefinition(
-        objective,
-        METHODS[objective],
-        "logical",
-        metric.definition_fingerprint,
-        threshold,
-        limit,
-        incoming.approximation_class,
-        incoming.current_fold_authority,
-        incoming.baseline_fold_authority,
-        d._metric_identity_id(incoming.metric_ref),
-        incoming.metric_unit,
-    )
-    validate_definition(definition)
-    dimensions = tuple(f for f in input_row.schema.columns if f.role_id == "dimension")
-    generated = tuple(_generated(objective, name, kind, ids) for name, kind in COMMON_FIELDS)
-    values = tuple(_generated(objective, name, kind, ids) for name, kind in VALUE_FIELDS[objective])
-    time = next(
-        field
-        for field in input_row.schema.columns
-        if field.role_id == "comparison_time" and field.name == "current_time"
-    )
-    baseline_time = next(
-        field
-        for field in input_row.schema.columns
-        if field.role_id == "comparison_time" and field.name == "baseline_time"
-    )
-    temporal = tuple(
-        _generated(
-            objective,
-            name,
-            baseline_time.logical_type_id if name.startswith("baseline_") else time.logical_type_id,
-            ids,
-        )
-        for name in TIME_FIELDS[objective]
-    )
-    columns = (*generated, *dimensions, *temporal, *values)
-    coordinates = (*dimensions, *temporal)
-    if len({f.name for f in columns}) != len(columns):
-        raise discovery_error(
-            "unambiguous retained and generated names", "Candidate field collision"
-        )
-    keys = tuple(field.field_id for field in coordinates)
-    semantics = CandidateSemantics(
-        _token=d._CORE_TOKEN,
-        objective=objective,
-        method_id=definition.method_id,
-        approximation=definition.approximation,
-        item_id_field_id=generated[0].field_id,
-        score_field_id=generated[1].field_id,
-        reason_codes_field_id=generated[2].field_id,
-    )
-    row = d._make_row_contract(
-        schema_version=1,
-        shape_id=d._make_shape_id("candidate", SHAPES[objective], 1, ids=ids),
-        schema=d._make_schema(columns),
-        coordinate_field_ids=tuple(f.field_id for f in coordinates),
-        key_field_ids=keys,
-        family_semantics=semantics,
-    )
-    rows = d._make_row_set_contract(
-        schema_version=1,
-        cardinality=d._keyed_cardinality(d._static_row_bound(limit)),
-        ordering=d._ordered_ordering(
-            tuple(
-                d._make_order_term(
-                    field_id,
-                    direction="descending" if field_id == semantics.score_field_id else "ascending",
-                    nulls="last",
-                    value_order_contract_id=(
-                        "observation.identity_tuple@v1"
-                        if field_id == IDENTITY_FIELD_ID
-                        else "observation.scalar_order@v1"
-                    ),
-                    ids=ids,
-                )
-                for field_id in (semantics.score_field_id, *keys, semantics.item_id_field_id)
-            )
-        ),
-    )
-    spec = CandidateSpecV1(input_row, input_rows, row, rows, definition)
     return spec

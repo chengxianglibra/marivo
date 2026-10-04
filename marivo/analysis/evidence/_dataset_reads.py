@@ -218,10 +218,6 @@ def _validate(
             )
         ):
             raise invalid("Contribution mask or method contradicts its registration")
-    if isinstance(finding.value, t.ForecastPointFindingValueV1):
-        from marivo.analysis.materialization.forecast_publication import validate_finding
-
-        validate_finding(finding, record.descriptor)
     if registration.association_subjects:
         value = finding.value
         if (
@@ -302,12 +298,6 @@ def findings(
         if encode_keyset_cursor(position, owner) != cursor:
             raise _selection_error()
         ordinal = position
-    if registration is None:
-        from marivo.analysis.evidence._finding_registry import (
-            finding_registration,
-        )
-
-        registration = finding_registration(record.descriptor)
     _registration(record, registration)
     selected = conn.execute(
         "SELECT finding_ref,finding_ordinal FROM findings "
@@ -349,12 +339,6 @@ def finding(
     """Decode one exact Artifact-owned Finding, without inspecting adjacent bodies."""
     if type(finding_id) is not str or not finding_id or len(finding_id) > 4096:
         raise _selection_error()
-    if registration is None:
-        from marivo.analysis.evidence._finding_registry import (
-            finding_registration,
-        )
-
-        registration = finding_registration(record.descriptor)
     _registration(record, registration)
     row = conn.execute(
         "SELECT finding_ref,finding_ordinal,finding_identity_digest,finding_body_payload FROM findings "
@@ -385,12 +369,6 @@ def audit_findings(
     check: Callable[[], None] | None = None,
 ) -> None:
     """Stream the complete ordinal set and validate count, bodies, and canonical digest."""
-    if registration is None:
-        from marivo.analysis.evidence._finding_registry import (
-            finding_registration,
-        )
-
-        registration = finding_registration(record.descriptor)
     _registration(record, registration)
     if check is not None:
         check()

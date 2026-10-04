@@ -50,11 +50,6 @@ from marivo.analysis.observation.population import (
 )
 from marivo.analysis.observation.predicates import AnalysisPredicate, bind_predicates
 from marivo.analysis.observation.rollup import rollup as _rollup
-from marivo.analysis.operators.forecast_contracts import (
-    DEFAULT_MODEL,
-    ForecastHorizon,
-    ForecastModel,
-)
 from marivo.refs import MetricKind, Ref, SemanticKind
 from marivo.semantic._quantile import DistributionMetricInput
 from marivo.semantic.catalog import MetricEntry
@@ -67,59 +62,12 @@ if TYPE_CHECKING:
     import pandas
 
     from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
-    from marivo.analysis.operators.association import LogicalAssociationDataset
-    from marivo.analysis.operators.discovery import MetricDiscovery
-    from marivo.analysis.operators.forecast_dataset import LogicalForecastDataset
 
 
 class LogicalMetricDataset(LogicalDataset, _token=_CORE_TOKEN, family_id="metric"):
     """Complete logical Metric row meaning without executing contributions."""
 
     __slots__ = ()
-
-    @property
-    def discover(self) -> MetricDiscovery:
-        """Return the non-callable namespace for Entity and time discovery.
-
-        Example: ``dataset.discover.entity_outliers()``.
-        Constraints: One Metric in the method's exact input shape; construction performs no data work.
-        """
-        from marivo.analysis.operators.discovery import MetricDiscovery
-
-        return MetricDiscovery(self)
-
-    def forecast(
-        self,
-        *,
-        horizon: ForecastHorizon,
-        model: ForecastModel = DEFAULT_MODEL,
-        interval_level: float = 0.95,
-    ) -> LogicalForecastDataset:
-        """Project this single Metric over a certified future horizon.
-
-        Args: horizon: Future period count. model: Named model. interval_level: Nominal level.
-        Returns: Logical Forecast. Example: ``history.forecast(horizon=periods(14))``.
-        Constraints: Complete consecutive history and finite model-conditional intervals.
-        """
-        from marivo.analysis.operators.forecast import forecast
-
-        return forecast(self, horizon=horizon, model=model, interval_level=interval_level)
-
-    def correlate(
-        self,
-        *,
-        method: Literal["pearson", "spearman", "kendall"] = "pearson",
-        lag_range: range | None = None,
-    ) -> LogicalAssociationDataset:
-        """Describe association among the current quantitative Metric bindings.
-
-        Args: method: Pearson, Spearman or Kendall tau-b. lag_range: Signed bucket offsets.
-        Returns: Logical Association. Example: ``metrics.correlate(method="spearman")``.
-        Constraints: 2-16 Metrics; explicit lags require a bound time coordinate.
-        """
-        from marivo.analysis.operators.correlate import correlate
-
-        return correlate(self, method=method, lag_range=lag_range)
 
     def rank(
         self,
@@ -232,50 +180,6 @@ class MaterializedMetricDataset(MaterializedDataset, _token=_CORE_TOKEN, family_
     """Retained Metric rows backed by an exact immutable Artifact scan leaf."""
 
     __slots__ = ()
-
-    @property
-    def discover(self) -> MetricDiscovery:
-        """Return the non-callable namespace for Entity and time discovery.
-
-        Example: ``dataset.discover.entity_outliers()``.
-        Constraints: One Metric in the method's exact input shape; construction performs no data work.
-        """
-        from marivo.analysis.operators.discovery import MetricDiscovery
-
-        return MetricDiscovery(self)
-
-    def forecast(
-        self,
-        *,
-        horizon: ForecastHorizon,
-        model: ForecastModel = DEFAULT_MODEL,
-        interval_level: float = 0.95,
-    ) -> LogicalForecastDataset:
-        """Project this single Metric over a certified future horizon.
-
-        Args: horizon: Future period count. model: Named model. interval_level: Nominal level.
-        Returns: Logical Forecast. Example: ``history.forecast(horizon=periods(14))``.
-        Constraints: Complete consecutive history and finite model-conditional intervals.
-        """
-        from marivo.analysis.operators.forecast import forecast
-
-        return forecast(self, horizon=horizon, model=model, interval_level=interval_level)
-
-    def correlate(
-        self,
-        *,
-        method: Literal["pearson", "spearman", "kendall"] = "pearson",
-        lag_range: range | None = None,
-    ) -> LogicalAssociationDataset:
-        """Describe association among the current quantitative Metric bindings.
-
-        Args: method: Pearson, Spearman or Kendall tau-b. lag_range: Signed bucket offsets.
-        Returns: Logical Association. Example: ``metrics.correlate(method="spearman")``.
-        Constraints: 2-16 Metrics; explicit lags require a bound time coordinate.
-        """
-        from marivo.analysis.operators.correlate import correlate
-
-        return correlate(self, method=method, lag_range=lag_range)
 
     def rank(
         self,

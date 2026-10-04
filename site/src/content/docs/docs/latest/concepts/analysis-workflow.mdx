@@ -219,7 +219,7 @@ start from those rows and their required private contribution state, preserving
 identity and valid fold meaning. A mean is not summed as if it were additive;
 selected ratios and distinct sets retain their actual components.
 
-Comparison, attribution, correlation, forecast and discovery are Dataset methods.
+Comparison and attribution follow their typed receivers. Statistical screening uses NumericRelation.deviation and NumericRelation.runs; association and forecast use NumericRelation.correlate and NumericRelation.forecast.
 Event matching starts at `session.events.match(..., population=members)` and
 returns a typed JourneyResult; duration and selection consume its retained
 assignment. R7.5 Lifecycle replay returns canonical HistoryResult through the typed graph. Cross-Session
@@ -264,7 +264,7 @@ authoring. Define approximation explicitly in the Metric with
 `agg=("approx_percentile", q)`; observation and recovery preserve that definition.
 Result contracts disclose source-native SQL precision limitations.
 
-Attribution is algebraic, association is descriptive, Candidate scores are leads,
+Attribution is algebraic, association is descriptive, deviation scores are leads,
 and forecasts retain model assumptions. The agent owns synthesis and conclusions.
 Terminal custom analysis through `to_pandas()` or `md.raw_sql(...)` cannot be fed
 back into governed Dataset composition.
@@ -308,8 +308,9 @@ current semantic authority or datasource freshness.
 Local methods and `to_pandas()` run synchronously in the calling Python process,
 returning complete results or preserving the original exception cause and
 traceback. Marivo creates no execution/read workers and imposes no execution
-row, byte, memory, spill, method complexity, storage or deadline budgets. Database,
-driver, OS and external runner limits still apply.
+input row, byte or memory admission limits. Typed graph execution retains its
+600-second monotonic execute deadline, resource release and atomic failure.
+Database, driver, OS and external runner limits still apply.
 
 `show()` keeps its display bounds. Complete-input validation, ownership and atomic
 publication remain mandatory. Store generation 7 leaves older files untouched;
@@ -335,9 +336,10 @@ R6–R9 migration and fresh backend qualification. Check the Dataset contract
 and the repository's R1 acceptance record for current evidence.
 
 Operators share one semantic contract and backend registration mechanism. DuckDB
-retains its existing Event/Lifecycle and Candidate implementations; its
-ordinary result batches use Ibis with an owned Arrow reader, while temporary
-resources, macros and registration remain action-local. Remote implementations
+executes typed graphs through Ibis source preparation and common local methods.
+Ordinary result batches use controlled Arrow readers; resources and registration
+remain action-local. The dedicated Candidate/Driver numeric macro installation
+channel is retired. Remote implementations
 must support accounts without write or object-creation privileges and meet the
 same semantic requirements before activation. Their specialized transports remain
 where exact types, incremental reads or shared snapshots require them. An
@@ -371,8 +373,7 @@ overall.show()
 
 The rollup recomputes the mean from retained sum/count state, rather than averaging
 group means. Comparison and attribution use complete non-Entity retained axes.
-Forecast, Kendall and time discovery run locally on complete source-aggregated
-inputs. Cold retained reads and folds do not need the original source.
+Statistical methods use Ibis source preparation followed by their common local numeric kernels. Cold retained reads and folds do not need the original source.
 
 The unified graph's DuckDB table and local-Parquet numeric methods support int64,
 finite float64, Decimal and fixed Duration. Decimal sums retain input scale; mean,
@@ -390,13 +391,11 @@ and whether it is supported; it never changes the operation automatically. These
 R5 qualifications do not grant remote-backend execution; that matrix belongs to R9.
 Percentile status-time folds remain unqualified.
 
-Existing correlation consumers retain their separate backend qualifications; Kendall uses its existing complete-input local
-continuation. Hidden-axis expanded additive and component attribution over
+Statistical remote-backend qualification remains a separate R9 obligation. Hidden-axis expanded additive and component attribution over
 complete non-Entity state is available on PostgreSQL, SQLite, Trino and
 ClickHouse. MySQL remains unqualified after its live composed query exceeded
 the qualification server's memory limit; expanded Top-K on Trino is also
-unqualified because its query exceeded the server stage limit. Sampling,
-Entity candidates and source driver screening remain unsupported. The following Event backend records concern the retained legacy implementation,
+unqualified because its query exceeded the server stage limit. The former Candidate, Association Dataset and Forecast Dataset producers have been retired. The following Event backend records concern the retained legacy implementation,
 not the new R7.3 public entry point. PostgreSQL
 admits exact two- or three-step legacy journeys. These shapes
 require unversioned table sources and `int64` subject and occurrence identities.
@@ -1186,3 +1185,54 @@ Forecast models are naive(), drift(), and seasonal_naive(periods=s), with minimu
 history lengths 2, 3, and s+1. Bounds are nominal prediction intervals for future
 observations. Output filters keep the original training/search scope and Findings;
 fixed recovery validates captured facts without source reads or refitting.
+
+
+## Nine statistical methods and retained views
+
+Given same-domain numeric observations `revenue` and `order_count`, and a complete
+finite three-period (or longer) `daily` time observation, all nine methods use
+the typed graph. The daily grid must approve the requested future periods.
+
+```python
+zscore = revenue.deviation(method="zscore")
+mad = revenue.deviation(method="mad")
+fixed = zscore.execute()
+chosen = fixed.where(fixed.score.value.is_defined())
+chosen = chosen.where(chosen.score.value.gt(0)).execute()
+chosen.contract().show()
+mv.table(observed=chosen.observed, reference=chosen.reference,
+         deviation=chosen.deviation, score=chosen.score).execute().show()
+chosen.score.rank(order="descending", ties="dense").limit(2).execute().show()
+mad.execute().show()
+
+segments = daily.runs(where=daily.value.gt(0)).execute()
+segments.where(segments.count.value.gt(1)).execute().show()
+
+pearson = revenue.correlate(order_count, method="pearson")
+spearman = revenue.correlate(order_count, method="spearman")
+kendall = revenue.correlate(order_count, method="kendall")
+for associations in (pearson, spearman, kendall):
+    fixed_associations = associations.execute()
+    selected = fixed_associations.where(fixed_associations.selected.value.eq(True)).execute()
+    mv.table(coefficient=selected.coefficient, selected=selected.selected).execute().show()
+    selected.coefficient.rank(order="descending", ties="dense").limit(1).execute().show()
+
+naive = daily.forecast(horizon=mv.periods(2), model=mv.naive())
+drift = daily.forecast(horizon=mv.periods(2), model=mv.drift())
+seasonal = daily.forecast(horizon=mv.periods(2), model=mv.seasonal_naive(periods=2))
+for future in (naive, drift, seasonal):
+    fixed_future = future.execute()
+    selected = fixed_future.where(fixed_future.prediction.value.gt(0)).execute()
+    mv.table(prediction=selected.prediction, lower=selected.lower,
+             upper=selected.upper).execute().show()
+    selected.contract().show()
+```
+
+Output selection preserves the original fit, classification, pair search or
+training scope and complete Findings. Owned fields share the same calculation.
+Coefficients and predictions permit current-row descriptive statistics; they do
+not acquire original Metric rollup or attribution. Prediction interval bounds
+cannot be summed. Fixed continuation and cold recovery use verified captured
+parts; missing or corrupt parts fail without replay. Legacy statistical Artifact
+descriptors reject without migration. R8.5 evidence does not close earlier R8
+qualification, same-wheel, remote backend or real-Agent obligations.

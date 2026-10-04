@@ -15,7 +15,6 @@ from marivo.analysis.compiler.normalize import (
 from marivo.analysis.compiler.predicates import predicate_leaves
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.descriptors import _CatalogFieldIdentity
-from marivo.analysis.datasets.handles import LogicalRootHandle
 from marivo.analysis.observation.contracts import (
     MetricDefinition,
     MetricPayload,
@@ -23,7 +22,6 @@ from marivo.analysis.observation.contracts import (
     PopulationPayload,
     source_owner_of,
 )
-from marivo.analysis.operators.association_contracts import CorrelatePayload
 from marivo.refs import (
     RefPayloadV1,
     SemanticKind,
@@ -70,17 +68,6 @@ _METHODS = frozenset(
         "metric.limit",
     }
 )
-
-
-def entity_correlation_reason(dataset: LogicalDataset) -> str | None:
-    """Admit exact Entity Pearson/Spearman source reduction only."""
-    root = dataset._root
-    if not isinstance(root, LogicalRootHandle) or not isinstance(root.payload, CorrelatePayload):
-        return "this source method is not Entity correlation"
-    semantics = root.payload.spec.semantics
-    if semantics.input_shape != "entity" or semantics.method not in {"pearson", "spearman"}:
-        return "this Entity correlation shape or method is not qualified"
-    return None
 
 
 def supports_scalar_type(value: str) -> bool:

@@ -559,16 +559,8 @@ def bind_predicates(
         if item.operand is None:
             _error("complete field predicate", "corrupt predicate")
         resolved = resolver(item.operand)
-        from marivo.analysis.operators.correlate import association_filterable_field
-        from marivo.analysis.operators.discovery import candidate_filterable_field
-        from marivo.analysis.operators.forecast import forecast_filterable_field
 
-        if (
-            resolved.role_id not in ("metric", "dimension", "time_dimension", "rank")
-            and (not association_filterable_field(resolved))
-            and (not forecast_filterable_field(resolved))
-            and (not candidate_filterable_field(resolved))
-        ):
+        if resolved.role_id not in ("metric", "dimension", "time_dimension", "rank"):
             _error("retained Metric, Dimension or exact generated row field", resolved.role_id)
         literal: CanonicalValue
         if item.kind in ("is_null", "is_not_null"):

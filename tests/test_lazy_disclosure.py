@@ -91,12 +91,6 @@ EXPECTED_EXPORTS = (
     "MaterializedPopulationDataset",
     "LogicalMetricDataset",
     "MaterializedMetricDataset",
-    "LogicalAssociationDataset",
-    "MaterializedAssociationDataset",
-    "LogicalForecastDataset",
-    "MaterializedForecastDataset",
-    "LogicalCandidateDataset",
-    "MaterializedCandidateDataset",
     "LogicalHistoryResult",
     "LogicalStateDistributionResult",
     "MaterializedStateDistributionResult",
@@ -267,15 +261,6 @@ EXPECTED_SHAPES = {
         "time",
         "dimension-time",
     ),
-    "association": ("entity", "dimension", "time-lag", "dimension-time-lag"),
-    "forecast": ("time", "dimension-time"),
-    "candidate": (
-        "point-anomaly",
-        "interesting-window",
-        "period-shift",
-        "entity-outlier",
-        "driver-axis",
-    ),
 }
 
 # Required leaves from the four owning designs, including the accepted route repair.
@@ -304,10 +289,8 @@ REQUIRED_TARGETS = frozenset(
         "metric_dataset.aggregate",
         "metric_dataset.rollup",
         "metric_dataset.metric",
-        "metric_dataset.correlate",
         "datasets.rank",
         "datasets.limit",
-        "metric_dataset.forecast",
         "ForecastHorizon",
         "ForecastModel",
         "periods",
@@ -317,10 +300,6 @@ REQUIRED_TARGETS = frozenset(
         "forecast_models.seasonal_naive",
         "window_bucket",
         "WindowBucketAlignment",
-        "discovery",
-        "discovery.point_anomalies",
-        "discovery.interesting_windows",
-        "discovery.entity_outliers",
         "events.match",
         "event_matching",
         "event_matching.first_per_subject",
@@ -392,7 +371,7 @@ def test_exact_export_bindings_and_required_native_targets(
 ) -> None:
     actual = {e.name: e for p in disclosure.providers for e in p.exports}
     assert set(actual) == set(EXPECTED_EXPORTS)
-    assert len(actual) == 222
+    assert len(actual) == 216
     assert set(disclosure.canonical_ids()) >= REQUIRED_TARGETS
     for name in EXPECTED_EXPORTS:
         entry = actual[name]
@@ -551,38 +530,6 @@ EXPECTED_VARIANT_FIELDS = {
         "metric_bindings",
         "reduced_entity_ref",
         "reduced_identity_signature",
-    ),
-    "AssociationSemantics": (
-        "approximations",
-        "fold_authority",
-        "input_shape",
-        "kind",
-        "lag_offsets",
-        "method",
-        "metric_keys",
-        "metric_units",
-    ),
-    "ForecastSemantics": (
-        "approximation",
-        "assumption_contract",
-        "fold_authority",
-        "horizon",
-        "interval_level",
-        "interval_method",
-        "kind",
-        "metric_key",
-        "metric_unit",
-        "model_id",
-        "season_length",
-    ),
-    "CandidateSemantics": (
-        "approximation",
-        "item_id_field_id",
-        "kind",
-        "method_id",
-        "objective",
-        "reason_codes_field_id",
-        "score_field_id",
     ),
 }
 
@@ -764,7 +711,7 @@ def test_invalid_callable_ownership_and_export_links_fail_during_assembly(
         original = next(
             d
             for d in p.descriptors
-            if isinstance(d, CallableInput) and d.canonical_id == "metric_dataset.correlate"
+            if isinstance(d, CallableInput) and d.canonical_id == "datasets.rank"
         )
         providers[index] = replace(
             p,
@@ -775,7 +722,7 @@ def test_invalid_callable_ownership_and_export_links_fail_during_assembly(
                 ),
                 replace(
                     original,
-                    canonical_id="fault.second_correlate",
+                    canonical_id="fault.second_rank",
                     unbound_default=fault == "duplicate_default",
                 ),
             ),
