@@ -11,7 +11,6 @@ from marivo.analysis.observation.contracts import MetricPayload, PopulationPaylo
 from marivo.analysis.operators.registry import (
     _source_admissions,
     implementation,
-    legacy_source_migration_stage,
     source_unsupported_reason,
 )
 from marivo.datasource.adapters import provider_names
@@ -112,12 +111,7 @@ def source_admission_fact(dataset: LogicalDataset) -> tuple[str, str]:
                 "source_admission",
                 f"candidate_basic_r1.2 backend={binding.adapter}: physical qualification remains execution-time",
             )
-        stage = legacy_source_migration_stage(registration.operator_id)
-        detail = (
-            "retired R5 route; use session.members(...).observe(...)"
-            if stage is None
-            else f"legacy Dataset source route awaits R{stage} migration"
-        )
+        detail = "retired R5 route; use session.members(...).observe(...)"
         return ("source_admission", f"blocked_r1.1 backend={binding.adapter}: {detail}")
     reason = source_unsupported_reason(dataset, binding.adapter)
     detail = reason or f"no registered source implementation for {registration.operator_id}"

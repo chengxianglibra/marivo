@@ -14,8 +14,6 @@ from psycopg import sql
 
 from marivo.analysis import grain, time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.operators.association_contracts import CorrelationMethod
-from marivo.analysis.operators.forecast_contracts import naive, periods
 from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
@@ -42,22 +40,6 @@ pytestmark = [
 ]
 CHANNEL = ref.dimension("sales.orders.channel")
 TIME = ref.time_dimension("sales.orders.order_time")
-
-
-@pytest.mark.parametrize("method", ["pearson", "spearman"])
-def test_entity_correlation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method_table: str, method: CorrelationMethod
-) -> None:
-    registry, sidecar = _method_registry(method_table, monkeypatch)
-    runtime = DatasetRuntime.create(tmp_path / "correlation-project", "postgres-correlation")
-    result = (
-        runtime.sources(semantic_registry=registry, sidecar=sidecar)
-        .observe((ref.metric("sales.revenue"), ref.metric("sales.mean_amount")))
-        .correlate(method=method)
-        .execute()
-    )
-    assert result.to_pandas().coefficient.iloc[0] == pytest.approx(1.0)
-    assert runtime.statistics.primary_queries > 0
 
 
 def _method_registry(
@@ -205,49 +187,6 @@ def test_composed_metrics_preserve_sufficient_state(
     assert counts(runtime) == before
     folded = result.rollup(drop_dimensions=(CHANNEL,)).execute().to_pandas()
     assert float(folded[name].iloc[0]) == pytest.approx(total)
-
-
-def test_date_series_forecast_receives_complete_reduced_history(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    method_table: str,
-) -> None:
-    registry, sidecar = _method_registry(method_table, monkeypatch)
-    runtime = DatasetRuntime.create(tmp_path, "postgres-forecast")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    logical = (
-        sources.observe(
-            ref.metric("sales.revenue"), time_scope=time_scope(start="2026-02-01", end="2026-02-05")
-        )
-        .with_time_axis(TIME, grain=grain("day"))
-        .aggregate()
-        .forecast(horizon=periods(2), model=naive())
-    )
-    frame = logical.execute().to_pandas()
-    assert frame.forecast_value.tolist() == [40.0, 40.0]
-    assert frame.training_row_count.tolist() == [4, 4]
-    assert runtime.statistics.transferred_rows == 4
-    primary = [statement for role, statement in runtime.statistics.statements if role == "primary"]
-    assert len(primary) == 1 and "GROUP BY" in primary[0]
-
-
-def test_grouped_kendall_uses_complete_source_reduction(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    method_table: str,
-) -> None:
-    registry, sidecar = _method_registry(method_table, monkeypatch)
-    runtime = DatasetRuntime.create(tmp_path, "postgres-kendall")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    logical = (
-        sources.observe([ref.metric("sales.revenue"), ref.metric("sales.mean_amount")])
-        .with_time_axis(TIME, grain=grain("day"))
-        .aggregate()
-        .correlate(method="kendall")
-    )
-    frame = logical.execute().to_pandas()
-    assert frame.coefficient.tolist() == pytest.approx([1.0])
-    assert runtime.statistics.transferred_rows == 4
 
 
 def _fold_registry(
@@ -585,27 +524,6 @@ def test_unresolved_decimal_mean_rejected_before_source_access(
         sources.observe(ref.metric("sales.mean_amount")).aggregate().execute()
     assert runtime.statistics.events.get("backend_connect", 0) == 0
     assert runtime.statistics.primary_queries == 0
-
-
-def test_time_discovery_consumes_complete_grouped_input(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    method_table: str,
-) -> None:
-    registry, sidecar = _method_registry(method_table, monkeypatch)
-    runtime = DatasetRuntime.create(tmp_path, "postgres-discovery")
-    sources = runtime.sources(semantic_registry=registry, sidecar=sidecar)
-    logical = (
-        sources.observe(
-            ref.metric("sales.revenue"), time_scope=time_scope(start="2026-02-01", end="2026-02-05")
-        )
-        .with_time_axis(TIME, grain=grain("day"))
-        .aggregate()
-        .discover.point_anomalies()
-    )
-    result = logical.execute()
-    assert runtime.statistics.transferred_rows == 4
-    assert result.to_pandas() is not None
 
 
 @pytest.mark.parametrize("weight", [-1.0, 0.0])

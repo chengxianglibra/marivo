@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -57,16 +56,6 @@ from marivo.analysis.observation.contracts import (
     PopulationPayload,
     producer_contract,
 )
-from marivo.analysis.operators.association_contracts import (
-    AssociationSearchSummary,
-)
-from marivo.analysis.operators.candidate_contracts import (
-    CandidateSearchSummary,
-)
-from marivo.analysis.operators.forecast_contracts import (
-    ForecastTrainingSummary,
-)
-from marivo.analysis.operators.registry import legacy_source_migration_stage
 from marivo.datasource.adapters import provider_names
 from marivo.datasource.ir import TableSourceIR
 
@@ -177,20 +166,10 @@ def _admit_miss(
         final_root = dataset._root
         if not isinstance(final_root, LogicalRootHandle):
             raise _error("graph_validation")
-        stages = tuple(
-            stage
-            for operator_id in (*operator_ids, final_root.operator_id)
-            if (stage := legacy_source_migration_stage(operator_id)) is not None
-        )
-        repair = (
-            f"Use a source method qualified after its R{max(stages)} migration; the old route cannot execute in R1.1."
-            if stages
-            else "This R5 route is retired. Use session.members(...).observe(...) through the public graph."
-        )
         raise MaterializationError(
             expected="a source route through a session-issued Ibis read",
             received=f"legacy text-backed source steps: {', '.join(operator_ids[:4])}",
-            repair=repair,
+            repair="Use session.members(...).observe(...) through the public graph.",
             stage="source_admission",
         )
     if (
@@ -260,31 +239,6 @@ def _admit_miss(
 @dataclass(slots=True)
 class ExecutionEvidence:
     validations: list[tuple[str, int]] = field(default_factory=list)
-    association_summary: AssociationSearchSummary | None = None
-    forecast_summary: ForecastTrainingSummary | None = None
-    candidate_summary: CandidateSearchSummary | None = None
-
-    @classmethod
-    def from_records(cls, records: Mapping[str, ArtifactRecord]) -> ExecutionEvidence:
-        state = cls()
-        for input_record in records.values():
-            descriptor = input_record.descriptor
-            if descriptor.candidate_evidence is not None:
-                state.candidate_summary = CandidateSearchSummary(
-                    descriptor.candidate_evidence.definition,
-                    descriptor.candidate_evidence.evaluation,
-                )
-            if descriptor.forecast_evidence is not None:
-                state.forecast_summary = descriptor.forecast_evidence.training
-            if descriptor.association_evidence is not None:
-                association = descriptor.association_evidence
-                state.association_summary = AssociationSearchSummary(
-                    association.searched_series_count,
-                    association.original_candidate_count,
-                    association.complete_pair_range,
-                    association.null_pair_range,
-                )
-        return state
 
 
 def execute(self: DatasetRuntime, dataset: LogicalDataset) -> MaterializedDataset:
@@ -333,7 +287,7 @@ def execute(self: DatasetRuntime, dataset: LogicalDataset) -> MaterializedDatase
         run = plan.run
         progress = ExecutionProgress()
         try:
-            evidence = ExecutionEvidence.from_records(records)
+            evidence = ExecutionEvidence()
             if plan.basic_source:
                 from marivo.analysis.materialization.basic_source import execute_basic_source
 

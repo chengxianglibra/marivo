@@ -43,18 +43,6 @@ from marivo.analysis.observation.population import (
     LogicalPopulationDataset,
     MaterializedPopulationDataset,
 )
-from marivo.analysis.operators.association import (
-    LogicalAssociationDataset,
-    MaterializedAssociationDataset,
-)
-from marivo.analysis.operators.candidate_dataset import (
-    LogicalCandidateDataset,
-    MaterializedCandidateDataset,
-)
-from marivo.analysis.operators.forecast_dataset import (
-    LogicalForecastDataset,
-    MaterializedForecastDataset,
-)
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session import _lazy_graph, _lazy_history, _lazy_runtime_reads
 from marivo.analysis.session._lazy_read_model import (
@@ -401,26 +389,6 @@ class DatasetRuntime:
         from marivo.analysis.materialization import dataset_presentation
 
         dataset_presentation.validate_reader_owner(self, dataset)
-
-    def execute_candidate(self, dataset: LogicalCandidateDataset) -> MaterializedCandidateDataset:
-        result = self._execute(dataset)
-        if not isinstance(result, MaterializedCandidateDataset):
-            raise _error("presentation")
-        return result
-
-    def execute_forecast(self, dataset: LogicalForecastDataset) -> MaterializedForecastDataset:
-        result = self._execute(dataset)
-        if not isinstance(result, MaterializedForecastDataset):
-            raise _error("publication", None)
-        return result
-
-    def execute_association(
-        self, dataset: LogicalAssociationDataset
-    ) -> MaterializedAssociationDataset:
-        result = self._execute(dataset)
-        if not isinstance(result, MaterializedAssociationDataset):
-            raise _error("publication", None)
-        return result
 
     def execute_metric(self, dataset: LogicalMetricDataset) -> MaterializedMetricDataset:
         result = self._execute(dataset)

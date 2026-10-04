@@ -88,9 +88,6 @@ def test_retired_families_have_no_public_export_facade_or_registration() -> None
     assert {family.family_id for family in families.registrations} == {
         "population",
         "metric",
-        "association",
-        "forecast",
-        "candidate",
     }
 
 

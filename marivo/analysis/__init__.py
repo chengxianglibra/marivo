@@ -118,24 +118,6 @@ if TYPE_CHECKING:
     from marivo.analysis.observation.predicates import lt as lt
     from marivo.analysis.observation.predicates import lte as lte
     from marivo.analysis.observation.predicates import not_eq as not_eq
-    from marivo.analysis.operators.association import (
-        LogicalAssociationDataset as LogicalAssociationDataset,
-    )
-    from marivo.analysis.operators.association import (
-        MaterializedAssociationDataset as MaterializedAssociationDataset,
-    )
-    from marivo.analysis.operators.candidate_dataset import (
-        LogicalCandidateDataset as LogicalCandidateDataset,
-    )
-    from marivo.analysis.operators.candidate_dataset import (
-        MaterializedCandidateDataset as MaterializedCandidateDataset,
-    )
-    from marivo.analysis.operators.forecast_dataset import (
-        LogicalForecastDataset as LogicalForecastDataset,
-    )
-    from marivo.analysis.operators.forecast_dataset import (
-        MaterializedForecastDataset as MaterializedForecastDataset,
-    )
     from marivo.analysis.public_dsl import AnalysisAction as AnalysisAction
     from marivo.analysis.public_dsl import AnalysisContract as AnalysisContract
     from marivo.analysis.public_dsl import CountMethod as CountMethod

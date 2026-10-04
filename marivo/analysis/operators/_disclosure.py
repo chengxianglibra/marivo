@@ -10,7 +10,6 @@ from marivo.analysis._capabilities.dataset_model import (
     ExampleInput,
     ExportInput,
     bind,
-    family,
     operation,
     value_type,
 )
@@ -19,13 +18,9 @@ from marivo.analysis._capabilities.dataset_model import (
 )
 from marivo.analysis._comparison import WindowBucketAlignment, window_bucket
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
-from marivo.analysis.operators.association_contracts import AssociationSemantics
-from marivo.analysis.operators.candidate_contracts import CandidateSemantics
-from marivo.analysis.operators.discovery import MetricDiscovery
-from marivo.analysis.operators.forecast_contracts import (
+from marivo.analysis.forecast_models import (
     ForecastHorizon,
     ForecastModel,
-    ForecastSemantics,
     drift,
     naive,
     periods,
@@ -36,47 +31,9 @@ from marivo.analysis.operators.forecast_contracts import (
 def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
     parameters: tuple[P, ...]
     requires: tuple[str, ...]
-    registrations: tuple[str, ...]
-    variants: tuple[type[object], ...]
     value: object
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
-    for fid, summary, variants in (
-        (
-            "association",
-            "Descriptive pair association with typed validity statuses; not causality.",
-            (AssociationSemantics,),
-        ),
-        (
-            "forecast",
-            "Projection rows under an explicit model, horizon and interval assumption.",
-            (ForecastSemantics,),
-        ),
-        (
-            "candidate",
-            "Descriptive screening leads with objective, score and reason codes; not conclusions.",
-            (CandidateSemantics,),
-        ),
-    ):
-        registration = registry.get(fid)
-        target = fid + "_dataset"
-        descriptors.append(
-            family(
-                target,
-                registration,
-                summary=summary,
-                variants=variants,
-                acquisition="Use the registered Dataset operator; execute() produces the paired committed state.",
-                constraints=(
-                    "Filtering, ranking and limiting preserve family semantics and return Logical state.",
-                    summary,
-                ),
-            )
-        )
-        exports.extend(
-            ExportInput(t.__name__, t, target)
-            for t in (registration.logical_type, registration.materialized_type)
-        )
 
     for name, parameters, code, requires, summary in (
         (
@@ -140,128 +97,6 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                 failures=CONSTRUCTION_FAILURES,
                 example=ExampleInput(code, requires, "result", "Logical Dataset"),
                 registration_ids=tuple(f.family_id + "." + name for f in admitted),
-            )
-        )
-
-    specs = (
-        (
-            "metric",
-            "correlate",
-            "metric_dataset.correlate",
-            ("metric.correlate",),
-            (
-                P("method", "Choose pearson, spearman or kendall."),
-                P(
-                    "lag_range",
-                    "Use a contiguous bounded integer range only on time-bearing input.",
-                ),
-            ),
-            "LogicalAssociationDataset",
-            "result = multi_metric.aggregate().correlate(method='pearson')",
-            ("multi_metric",),
-            "At least two ordered compatible Metrics; insufficient/constant pairs retain typed statuses, never zero coefficients.",
-        ),
-        (
-            "metric",
-            "forecast",
-            "metric_dataset.forecast",
-            ("metric.forecast",),
-            (
-                P(
-                    "horizon",
-                    "Construct periods(count) for the positive number of forecast buckets.",
-                    ("periods",),
-                ),
-                P("model", "Choose an exact helper-produced model.", ("forecast_models",)),
-                P("interval_level", "Choose a finite probability strictly between zero and one."),
-            ),
-            "LogicalForecastDataset",
-            "result = time_metric.forecast(horizon=periods(2), model=naive())",
-            ("time_metric", "periods", "naive"),
-            "One time-bearing Metric; training data, dispersion and model-specific minimum length are validated at execution.",
-        ),
-    )
-    for fid, method, target, registrations, parameters, output, code, requires, constraint in specs:
-        f = registry.get(fid)
-        bindings = tuple(bind(getattr(t, method), t) for t in (f.logical_type, f.materialized_type))
-        descriptors.append(
-            operation(
-                target,
-                "dataset." + method,
-                bindings[0].implementation,
-                bindings=bindings,
-                summary=constraint,
-                discovery_group="methods.forecast"
-                if method == "forecast"
-                else "methods.association"
-                if method == "correlate"
-                else "methods.compare",
-                parameters=parameters,
-                output=output,
-                constraints=(constraint,),
-                effects=CONSTRUCTION_EFFECT,
-                failures=CONSTRUCTION_FAILURES,
-                example=ExampleInput(code, requires, "result", output),
-                registration_ids=registrations,
-                unbound_default=method == "attribute",
-            )
-        )
-
-    for namespace, name, constraint, receiver in (
-        (
-            MetricDiscovery,
-            "point_anomalies",
-            "Point z-score leads on one complete time Metric.",
-            "time_metric",
-        ),
-        (
-            MetricDiscovery,
-            "interesting_windows",
-            "Maximal contiguous unusual runs; gaps and nulls break runs.",
-            "time_metric",
-        ),
-        (
-            MetricDiscovery,
-            "entity_outliers",
-            "Robust Entity-level leads; source-owned identities and positive dispersion are required.",
-            "metric",
-        ),
-    ):
-        parameters = (
-            P(
-                "search_space",
-                "Choose ordered unique non-time Dimensions for complete additive partitions.",
-            )
-            if name == "driver_axes"
-            else P("threshold", "Choose a finite positive descriptive score cutoff."),
-            P("limit", "Choose a maximum lead count from 1 through 1000."),
-        )
-        arguments = (
-            "search_space=(region,), limit=10"
-            if name == "driver_axes"
-            else "threshold=2.0, limit=10"
-        )
-        descriptors.append(
-            operation(
-                "discovery." + name,
-                "dataset.discover." + name,
-                getattr(namespace, name),
-                bindings=(bind(getattr(namespace, name), namespace),),
-                summary=constraint,
-                discovery_group="discovery",
-                parameters=parameters,
-                output="LogicalCandidateDataset",
-                constraints=(constraint,),
-                effects=CONSTRUCTION_EFFECT,
-                failures=CONSTRUCTION_FAILURES,
-                example=ExampleInput(
-                    f"result = {receiver}.discover.{name}({arguments})",
-                    (receiver, "region") if name == "driver_axes" else (receiver,),
-                    "result",
-                    "LogicalCandidateDataset",
-                ),
-                registration_ids=("discover." + name,)
-                + (("discover.driver_axes_expanded",) if name == "driver_axes" else ()),
             )
         )
 

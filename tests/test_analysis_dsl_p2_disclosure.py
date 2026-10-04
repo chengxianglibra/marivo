@@ -64,7 +64,7 @@ def test_first_round_help_has_receiver_specific_constraints() -> None:
     assert "Entity-member questions" in entry
     assert "start with session.members(Entity Ref)" in entry
     assert (
-        "R6.2–R6.6 composition, predicates, references, display and attribution use session.members(...)"
+        "Use session.members(...) for typed analysis graphs and numeric statistical methods."
         in entry
     )
     assert entry.index("analysis.session.members") < entry.index("analysis.observe")

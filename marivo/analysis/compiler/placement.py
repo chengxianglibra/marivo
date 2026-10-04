@@ -17,10 +17,6 @@ from marivo.analysis.observation.contracts import (
 )
 from marivo.analysis.observation.fold_contracts import RetainedFoldPayload
 from marivo.analysis.operators import registry
-from marivo.analysis.operators.association_contracts import CorrelatePayload
-from marivo.analysis.operators.candidate_contracts import CandidatePayload
-from marivo.analysis.operators.driver_contracts import DriverCandidatePayload
-from marivo.analysis.operators.forecast_contracts import ForecastPayload
 from marivo.analysis.operators.registry import BackendRegistration, ImplementationRegistration
 
 
@@ -72,7 +68,7 @@ class SourceStep:
     dataset: LogicalDataset
     binding: ExecutionBinding
     implementation: BackendRegistration
-    operation: Literal["source", "correlation", "distribution"]
+    operation: Literal["source", "distribution"]
 
     def __post_init__(self) -> None:
         supports_operation = (
@@ -165,22 +161,10 @@ def place(
         binding = None
         candidate = None
         if all(item is not None for item in child_domains):
-            # Pure retained/comparison operations inherit operand domains. New
-            # semantic evaluation must also prove its own source owner matches.
             candidate = (
                 child_domains[0]
                 if child_domains
-                and isinstance(
-                    value._root.payload,
-                    (
-                        RetainedRowsPayload,
-                        RetainedFoldPayload,
-                        CorrelatePayload,
-                        ForecastPayload,
-                        CandidatePayload,
-                        DriverCandidatePayload,
-                    ),
-                )
+                and isinstance(value._root.payload, (RetainedRowsPayload, RetainedFoldPayload))
                 else source_binding(value)
             )
             if candidate is not None:

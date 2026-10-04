@@ -166,7 +166,8 @@ def test_session_class_exposes_sources_and_dataset_owned_operators():
     assert isinstance(mv.Session.events, property)
     assert isinstance(mv.Session.lifecycle, property)
     for name in ("correlate", "forecast"):
-        assert callable(getattr(mv.LogicalMetricDataset, name))
+        assert not hasattr(mv.LogicalMetricDataset, name)
+        assert callable(getattr(mv.LogicalNumericRelation, name))
 
 
 def test_analysis_exports_public_surface_by_layer() -> None:

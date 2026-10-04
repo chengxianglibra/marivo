@@ -92,19 +92,13 @@ def select_parts(
     from marivo.analysis.observation.fold_contracts import fold_part_role
 
     semantics = call.output_row.family_semantics
-    from marivo.analysis.operators.association_contracts import AssociationSemantics
     from marivo.analysis.operators.attribution_contracts import (
         AttributionSemantics,
         delta_part_authorities,
     )
-    from marivo.analysis.operators.candidate_contracts import CandidateSemantics
     from marivo.analysis.operators.contracts import DeltaSemantics
-    from marivo.analysis.operators.forecast_contracts import ForecastSemantics
 
-    if isinstance(
-        semantics,
-        (AttributionSemantics, AssociationSemantics, ForecastSemantics, CandidateSemantics),
-    ):
+    if isinstance(semantics, (AttributionSemantics,)):
         return ()
     if isinstance(semantics, DeltaSemantics):
         retained_roles = {role for role, _ in delta_part_authorities(call.input_row)}
@@ -245,12 +239,6 @@ def frame_comparator(
     if isinstance(rows.ordering, _OrderedOrdering):
         terms = tuple((names[t.field_id], t.direction, t.nulls) for t in rows.ordering.terms)
     columns = {name: frame[name].tolist() for name, _, _ in terms}
-    from marivo.analysis.operators.association_contracts import association_orders
-
-    authored = association_orders(row, rows)
-
-    for name, values in authored.items():
-        columns[name] = [values.index(value) for value in columns[name]]
 
     def compare(a: int, b: int) -> int:
         for name, direction, nulls in terms:
@@ -332,39 +320,15 @@ def _rank(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
 
 def execute_row(frame: pd.DataFrame, call: RowCall) -> pd.DataFrame:
     """Consume a validated private frame without mutating or serializing it."""
-    if (
-        call.method
-        in (
-            "metric.where",
-            "delta.where",
-            "association.where",
-            "forecast.where",
-            "candidate.where",
-        )
-        and call.predicate is not None
-    ):
+    if call.method in ("metric.where", "delta.where") and call.predicate is not None:
         result = frame.loc[predicate_mask(frame, call.predicate).fillna(False)].copy(deep=True)
     elif call.method == "metric.metric":
         result = frame.loc[:, [field.name for field in call.output_row.schema.columns]].copy(
             deep=True
         )
-    elif call.method in (
-        "metric.rank",
-        "association.rank",
-        "forecast.rank",
-        "candidate.rank",
-    ):
+    elif call.method in ("metric.rank",):
         result = _rank(frame, call)
-    elif (
-        call.method
-        in (
-            "metric.limit",
-            "association.limit",
-            "forecast.limit",
-            "candidate.limit",
-        )
-        and call.limit is not None
-    ):
+    elif call.method in ("metric.limit",) and call.limit is not None:
         result = frame.iloc[: call.limit].copy(deep=True)
     else:
         raise compilation_error(

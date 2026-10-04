@@ -191,20 +191,14 @@ def test_composed_fence_preserves_reserved_preparations(
 
 
 def test_builtin_numeric_functions_do_not_reserve_per_expression(native: Backend) -> None:
-    from marivo.analysis.compiler.driver_numeric import exact_float_sum
-
     native.raw_sql("CREATE TABLE input AS SELECT 1.25 AS a, 2.5 AS b")
     reservations: list[str] = []
     adapter = DuckDBExecutionAdapter(native, reserve=reservations.append)
-    adapter.install_numeric()
     table = native.table("input")
-    statement = adapter.prepare(
-        table.aggregate(
-            a=exact_float_sum(table.a.cast("float64")), b=exact_float_sum(table.b.cast("float64"))
-        )
-    )
+    statement = adapter.prepare(table.aggregate(a=table.a.sum(), b=table.b.sum()))
     assert adapter.read_table(statement).to_pylist() == [{"a": 1.25, "b": 2.5}]
-    assert reservations == ["__marivo_driver_float_units", "__marivo_driver_float_from_units"]
+    assert reservations == []
+    assert not hasattr(adapter, "install_numeric")
 
 
 def test_python_udf_registers_once_for_distinct_argument_nodes(native: Backend) -> None:

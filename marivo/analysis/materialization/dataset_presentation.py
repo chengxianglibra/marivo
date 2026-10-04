@@ -26,15 +26,6 @@ from marivo.analysis.materialization.reads import (
 from marivo.analysis.materialization.storage import (
     ReadPolicy,
 )
-from marivo.analysis.operators.association_contracts import (
-    selection_description,
-)
-from marivo.analysis.operators.candidate_contracts import (
-    EntityCandidateEvaluationSummary,
-)
-from marivo.analysis.operators.driver_contracts import (
-    DriverCandidateEvaluationSummary,
-)
 from marivo.analysis.refs import ArtifactRef
 
 if TYPE_CHECKING:
@@ -115,51 +106,6 @@ def show(
         )
         for quantile in dict.fromkeys(quantiles)
     ]
-    if record.descriptor.candidate_evidence is not None:
-        from marivo.analysis.operators.discovery import _contract_facts as candidate_facts
-
-        candidate_evidence = record.descriptor.candidate_evidence
-        evaluation = candidate_evidence.evaluation
-        lines.extend(f"Discovery {name}: {value}" for name, value in candidate_facts(dataset))
-        if isinstance(evaluation, EntityCandidateEvaluationSummary):
-            lines.append(
-                f"Evaluation: input_rows={evaluation.input_row_count}; non_null_values={evaluation.non_null_value_count}; null_values={evaluation.null_value_count}; center={evaluation.center}; scale={evaluation.scale}; scale_method={evaluation.scale_method}"
-            )
-        elif isinstance(evaluation, DriverCandidateEvaluationSummary):
-            lines.append(
-                f"Evaluation: input_rows={evaluation.input_row_count}; scopes={evaluation.scope_count}; evaluated_axes={evaluation.evaluated_axis_count}/{evaluation.searched_axis_count}; zero_contribution_axes={evaluation.zero_contribution_axis_count}"
-            )
-        else:
-            lines.append(
-                f"Evaluation: input_rows={evaluation.input_row_count}; evaluated_series={evaluation.evaluated_series_count}/{evaluation.series_count}; evaluated_units={evaluation.evaluated_unit_count}/{evaluation.searched_unit_count}"
-            )
-        lines.append(
-            f"Candidates: qualifying={evaluation.pre_limit_candidate_count}; discovery_output={evaluation.emitted_candidate_count}; current_rows={candidate_evidence.row_count}"
-        )
-    if record.descriptor.forecast_evidence is not None:
-        from marivo.analysis.operators.forecast import _contract_facts
-
-        forecast_evidence = record.descriptor.forecast_evidence
-        lines.extend(f"Forecast {name}: {value}" for name, value in _contract_facts(dataset))
-        lines.append(
-            f"Training: series={forecast_evidence.training.series_count}; periods={forecast_evidence.training.training_row_count}; residual_df={forecast_evidence.training.residual_df}; zero_residual_series={forecast_evidence.training.zero_residual_series_count}"
-        )
-    if record.descriptor.association_evidence is not None:
-        from marivo.analysis.operators.association_contracts import AssociationSemantics
-
-        meaning = dataset.row_contract.family_semantics
-        evidence = record.descriptor.association_evidence
-        if isinstance(meaning, AssociationSemantics):
-            lines[1:1] = [
-                f"Association: method={meaning.method}; observation_unit={meaning.input_shape}",
-                f"Approximation: {', '.join(dict.fromkeys(meaning.approximations))}",
-                f"Search: pairs={evidence.searched_pair_count}; lags={evidence.searched_lag_count}; series={evidence.searched_series_count}; candidates={evidence.original_candidate_count}",
-                f"Lag scope: first={meaning.lag_offsets[0]}; last={meaning.lag_offsets[-1]}",
-                f"Complete pairs: {evidence.complete_pair_range}; null loss: {evidence.null_pair_range}",
-                f"Selection: {selection_description()}; rule={evidence.selection_rule_id}",
-                f"Findings: eligible={evidence.eligible_finding_count}; emitted={evidence.emitted_finding_count}; truncated={evidence.finding_truncated}",
-                "Descriptive and exploratory; no significance or causal claim. Positive lag describes coordinate order only.",
-            ]
     identities = {
         field.name
         for field in dataset.schema.columns

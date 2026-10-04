@@ -960,10 +960,6 @@ class SessionStore:
             finding_identity,
             finding_set_digest,
         )
-        from marivo.analysis.evidence._dataset_reads import _validate
-        from marivo.analysis.evidence._finding_registry import (
-            finding_registration,
-        )
 
         if (
             len(findings) != evidence.finding_count
@@ -975,20 +971,6 @@ class SessionStore:
             if run is None or run.lifecycle != "incomplete":
                 raise invalid("publication requires one incomplete producer")
             now = _now()
-            registration = finding_registration(checked)
-            envelope = ArtifactRecord(
-                artifact_ref,
-                run.session_ref,
-                run.execution_key_digest,
-                checked,
-                now,
-                run_ref,
-                evidence,
-            )
-            for item in findings:
-                if registration is None:
-                    raise invalid("unregistered nonzero Finding publication")
-                _validate(item, envelope, registration)
             conn.execute(
                 "INSERT INTO dataset_artifacts VALUES(?,?,?,?,?)",
                 (artifact_ref, run.session_ref, run.execution_key_digest, payload, now),

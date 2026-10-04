@@ -8,8 +8,12 @@ The final R8.2 ledger retains 15,564 mandatory IDs: 13,212 passed, 2,280 blocked
 and 72 unverified. R8.2 is not complete.
 R8.3 implementation and bounded verification are in progress; see the
 [R8.3 evidence index](2026-10-04-marivo-r83-evidence-index.md).
-R8.4–R8.6 are not implemented
-or qualified by this document. The accepted 2026-10-02 C14 scope revision is the planning input;
+R8.4 product connection and bounded verification are recorded in the
+[R8.4 evidence index](2026-10-04-marivo-r84-evidence-index.md); its mandatory matrix remains open.
+R8.5 public cutover and retirement are complete: 171/171 obligations passed and
+M01-M18 gates closed; see the [R8.5 evidence index](2026-10-04-marivo-r85-evidence-index.md).
+R8.6 is not implemented or qualified by this document.
+The accepted 2026-10-02 C14 scope revision is the planning input;
 static inventory, Runtime, installed-wheel, backend and real-Agent evidence
 remain separate.
 
@@ -566,5 +570,33 @@ wheel、公开脚本、Help 起点、cold 命令、失败/repair 和真实 Agent
    Help/类型/现态 contract/repair 与中英示例一致；skills 维持适用或另行取得明确编辑授权。
 7. R9 六后端和 R10 真实 Agent/发布有独立交接，不将 R8 的本地完成写成全重构接受。
 
-本次写文档仅验证链接、结构、范围和 whitespace；不执行产品测试、不新增公共符号或
-运行资格、不编辑 AGENTS.md 或 packaged workflow skills、不提交、推送或发布。
+2026-10-03 初始文档起草仅验证链接、结构、范围和 whitespace；未执行产品测试或授予
+运行资格，未编辑 AGENTS.md 或 packaged workflow skills，未提交、推送或发布。
+
+
+## 9. R8.5 实施检查点（2026-10-04）
+
+实施基线为 `panda`、`f0b1c5930d993338f94a4c415458729f6d67953f` 的干净工作树。
+[R8.5 独立证据索引](2026-10-04-marivo-r85-evidence-index.md)保留全部 171 个原始 ID：
+V15 54 项、V19 117 项均通过。449 个符号与 391 个旧测试节点均有当前处置，
+209 个移除节点的断言转移没有未验证项，M01–M18 退役门禁全部闭合。
+25 个保留的共享 Runtime/远端测试节点未在本轮执行，继续明确记为未验证；
+它们的 owner 保留不代表获得运行或后端资格。
+
+公开统计入口已切换到 NumericRelation，旧 Metric/Delta discover 与
+Association/Forecast Dataset 专属链、注册、codec、恢复和数值宏安装通道已退出，
+不提供转发 alias 或双读迁移。真实 distribution caller、forecast 工厂、共同
+Findings 与 scalar/input-binding codec 保留；R4 Spearman 的实现身份、状态、
+parts 和 J4 恢复边界保持原契约。类型、Help、动态指导、CLI/API 与中英 latest
+九方法示例同步；仅修订已授权的 analysis skill 三处 graph/对象/结果措辞。
+
+紧凑广域门禁通过 5,872 项并保留五项 skip；精确断言 owner 的 Runtime 命令
+139 项全部通过。冻结视图、公开 source/fixed/cold、前序路径、中英示例、旧 Artifact
+拒绝、独立 oracle、typing/lint 和 site build 的命令、退出码与附件摘要分别记账，
+不加总重叠范围。补充回归 201 项通过、4 项失败；四项均在基线源码副本复现，
+分别为 R6 固定时间 key 的 blocked 注册与 A08 输入 shape 不一致。未修改这些
+前序规则，也未将失败命令用于断言转移通过证据。
+
+R8.1 原始快照和 R8.2–R8.4 资格附件未改变；本检查点不补授前序或全 R8 验收，
+不开展 R8.6/R9/R10、release Runtime gate、wheel 或发布。保持既有 deadline、
+资源释放与原子失败规则，不增加输入容量准入；未编辑 AGENTS.md、提交或推送。

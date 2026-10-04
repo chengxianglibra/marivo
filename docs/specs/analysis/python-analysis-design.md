@@ -944,7 +944,7 @@ rejected after the live composed query exhausted the qualification server's
 768 MiB memory limit. Trino's expanded Top-K form remains rejected: the live
 query exceeded the certified server's 150-stage limit without a read-only
 materialization path.
-Forecast, Kendall and time discovery consume complete source-aggregated
+Statistical graph methods consume complete source-prepared
 inputs in the caller; they do not collect raw semantic Entity rows.
 
 Computed Measures (row expressions) aggregate on these backends. A
@@ -961,9 +961,8 @@ qualified on PostgreSQL, MySQL, SQLite, Trino and ClickHouse. SQLite and MySQL
 deduplicate typed Entity identity fields as scalar SQL columns and reconstruct
 the unchanged private Arrow struct. Exact linear-interpolation distribution
 state is qualified on all five remote backends. Percentile status-time folds
-and remote `duckdb_tdigest@v1` remain unqualified. Entity Pearson and Spearman
-correlation now reduce complete source-private pairs on all five remote backends;
-Kendall remains a complete-input local continuation. R7's public Journey,
+and remote `duckdb_tdigest@v1` remain unqualified. The legacy remote Association Dataset routes are retired. The current statistical
+graph routes retain separate R9 qualification obligations. R7's public Journey,
 funnel, History, Anchor and retention producers use the unified graph/method
 registry on DuckDB native tables and local Parquet. The old PostgreSQL,
 ClickHouse and Trino Event packet/CTE routes and their dedicated reducers,
@@ -971,8 +970,8 @@ coverage/codec/publication consumers are retired in R7.9. Their historical
 acceptance does not qualify the current graph. Remote Event/History methods
 remain R9 requirements. Fixed continuations consume only their retained parts;
 starts-only Anchors cannot acquire missing return-event or Metric inputs.
-Sampling, Entity candidates, and source
-driver screening remain unsupported on these backends. Remote
+The former Entity Candidate and driver-screening routes are retired; sampling
+remains unsupported on these backends. Remote
 retained import stays disabled. Cumulative Metric graphs and semantic calendar buckets were
 activated by C6 on all five remote backends — calendar buckets over native
 civil-date axes with a matching certified calendar snapshot, cumulative
@@ -1161,7 +1160,8 @@ states. Retained imports and source-private advanced methods remain unavailable.
 The relational/date extension above owns additional method admission.
 
 The original Slice 1d blanket restriction is superseded. Existing DuckDB
-Event, Candidate, JSON and retained-stream execution retain their private owners; R7.5 History uses Store 7.
+JSON and retained-stream execution retain their shared owners. Journey and History
+use Store 7; the legacy Event and Candidate chains are physically retired.
 
 
 `marivo.analysis` is the governed Dataset analysis surface. Import it as `mv`,
@@ -1205,8 +1205,8 @@ captured during construction and are not reread at execution.
 
 ## Row meaning and ownership
 
-Remaining legacy Dataset families are Population, Metric, Association, Forecast,
-Candidate. R7 Journey, funnel, History, Anchor and retention use the typed graph.
+Remaining legacy Dataset families are Population and Metric. Deviation, runs,
+association and forecast use their typed graph Result families. R7 Journey, funnel, History, Anchor and retention use the typed graph.
 R6 uses typed Relation/Difference/AttributionResult variants. Each admitted shape has paired Logical
 and Materialized classes. Shape, schema, coordinate/key fields, row cardinality,
 ordering, authority and definition identity are explicit immutable contracts.
@@ -1286,7 +1286,7 @@ its prerequisite/result links, then writes and executes the minimum useful chain
 Type/member leaves remain independently queryable without flooding task discovery.
 
 Algebraic attribution does not establish cause. Association is descriptive;
-Candidate scores do not confirm an anomaly or prescribe action. Forecasts are
+Deviation scores and run intervals do not confirm a cause or prescribe action. Forecasts are
 model outputs under explicit assumptions. Evidence records facts and derivation,
 not the agent's narrative conclusion. In the shipped Dataset surface, custom
 work through `to_pandas()` or `md.raw_sql(...)` is terminal and cannot re-enter
@@ -2472,3 +2472,20 @@ The implementation transports grid_cells, condition_cells, run_cells and a zero
 Finding policy. Actual Subject mappings alone grant members. Duration uses
 exact UTC microseconds and supports unitized predicates; it gains no ranking
 capability. Connected execution does not establish the full frozen R8.3 matrix.
+
+
+### R8.5 public statistical cutover
+
+NumericRelation.deviation/runs/correlate/forecast and their typed Result families
+are the canonical statistical entry points. Metric Dataset discover/correlate/forecast,
+the Candidate/Association/Forecast Dataset families, their exclusive compiler,
+execution, publication and codecs are physically retired. Old descriptors and
+family registrations reject; no forwarding aliases or dual-read migration exist.
+Forecast factories, observation, distribution reconciliation, scalar/input bindings
+and common graph Findings remain under their existing owners. R4 Spearman keeps
+its existing implementation identity, pair_counts part and recovery boundary while
+using the common exact association arithmetic kernel.
+
+The R8.1 immutable inventory and all prior qualification records remain historical
+evidence. Current R8.5 requirements and symbol/test dispositions are reported in
+the R8.5 evidence index; this cutover does not qualify R8.2–R8.4, R8.6, R9 or R10.

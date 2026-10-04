@@ -23,7 +23,6 @@ from marivo.analysis.observation.contracts import (
     MetricPayload,
     ObservationOwner,
     PopulationPayload,
-    RetainedRowsPayload,
     _version_selection_payload,
     producer_contract,
     scope_payload,
@@ -148,9 +147,6 @@ def make_descriptor(
                 warning_check_count=0,
             ),
             comparison_basis=basis,
-            candidate_evidence=inherited.candidate_evidence
-            if dataset.row_contract.shape_id.family_id == "candidate"
-            else None,
         )
     owning_root = current_root
     while not isinstance(owning_root.payload, (PopulationPayload, MetricPayload)):
@@ -193,7 +189,6 @@ def make_descriptor(
             repair="Reconstruct the Metric from its selected Population.",
             stage="publication",
         )
-    from marivo.analysis.operators.candidate_contracts import CandidatePayload
 
     membership_root = population
     payload = membership_root.payload
@@ -207,21 +202,6 @@ def make_descriptor(
                 ),
                 None,
             )
-        elif (
-            str(membership_root.shape_id) == "candidate/entity-outlier@v1"
-            and (
-                (
-                    type(payload) is CandidatePayload
-                    and payload.spec.definition.objective == "entity_outliers"
-                )
-                or type(payload) is RetainedRowsPayload
-            )
-            and len(membership_root.inputs) == 1
-            and isinstance(membership_root.inputs[0].root, LogicalRootHandle)
-        ):
-            # The selected Candidate remains authority; only the governed
-            # membership scope is inherited from its original observation.
-            inherited_root = membership_root.inputs[0].root
         else:
             raise MaterializationError(
                 expected="a Population, Entity-unique Metric, or Entity-outlier membership definition",

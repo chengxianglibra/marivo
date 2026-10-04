@@ -1,10 +1,7 @@
 """Pure admission for the implemented mysql scalar method closure."""
 
 from marivo.analysis.datasets.base import LogicalDataset
-from marivo.analysis.datasets.handles import LogicalRootHandle
-from marivo.analysis.operators.association_contracts import CorrelatePayload
 from marivo.analysis.operators.scalar_support import (
-    entity_correlation_reason,
     supports_scalar_type,
     supports_timestamp,
 )
@@ -42,10 +39,6 @@ def unsupported_reason(dataset: LogicalDataset) -> str | None:
     qualified by live source-private execution. Entity membership lowers its
     typed identity fields to scalar SQL and reconstructs the private Arrow struct.
     """
-    if isinstance(dataset._root, LogicalRootHandle) and isinstance(
-        dataset._root.payload, CorrelatePayload
-    ):
-        return entity_correlation_reason(dataset)
     return scalar_reason(
         dataset,
         supported_type,

@@ -21,10 +21,6 @@ import marivo.datasource.backends as backends
 import marivo.analysis.observation.ordering
 import marivo.semantic.runtime_metric_lowering
 import marivo.analysis.operators.compare
-import marivo.analysis.operators.correlate
-import marivo.analysis.operators.discovery
-import marivo.analysis.operators.forecast
-from marivo.analysis.operators.forecast_contracts import periods, seasonal_naive
 import marivo.analysis.operators.attribute
 import marivo.analysis.operators.attribute_expansion
 from marivo.analysis.datasets.errors import DatasetConstructionError
@@ -100,8 +96,6 @@ guards = (
     (DatasetRuntime, 'execute_metric', 'run'),
     (DatasetRuntime, 'execute_population', 'run'),
     (DatasetRuntime, '_observe_submission', 'query'),
-    (NoIoActionPort, 'execute_forecast', 'run'),
-    (NoIoActionPort, 'execute_candidate', 'run'),
 )
 total = mv.runtime_metric.aggregate(ref.measure("sales.orders.amount"), agg="sum", label="runtime_total")
 weighted = mv.runtime_metric.weighted_mean(ref.measure("sales.orders.amount"), ref.measure("sales.orders.weight"), label="weighted")
@@ -122,20 +116,10 @@ with ExitStack() as stack:
         [revenue, mean_amount, ratio],
         population=population, time_scope=window,
     )
-    association = observed.correlate(method='kendall')
-    association_selected = association.where(gt(association.fields.get('coefficient'), 0))
-    association_ranked = association_selected.rank(association_selected.fields.get('coefficient')).limit(2)
     filtered = observed.where(gt(observed.fields.metric(revenue), 0))
     result = filtered.with_dimensions(region).with_time_axis(
         order_time, grain=day
     ).aggregate().metric(revenue)
-    forecast = result.forecast(horizon=periods(4), model=seasonal_naive(periods=2))
-    forecast = forecast.where(gt(forecast.fields.get('forecast_value'), 0))
-    forecast.rank(forecast.fields.get('forecast_value')).limit(2)
-    points = result.discover.point_anomalies(threshold=1.0)
-    windows = result.discover.interesting_windows()
-    selected_candidates = points.where(gt(points.fields.get('score'), 2.0))
-    ranked_candidates = selected_candidates.rank(selected_candidates.fields.get('score')).limit(3)
     rolled = result.rollup(drop_time=True).rollup(drop_dimensions=(region,))
     assert rolled.row_contract.shape_id.local_shape_id == "scalar"
     tip = filtered
@@ -148,9 +132,7 @@ with ExitStack() as stack:
     with sources.source_bindings({api: {'tenant': 'DIFFERENT_CAPTURE_2A'}}):
         changed = sources.observe(api_value, time_scope=window)
     assert captured.definition_fingerprint != changed.definition_fingerprint
-    values = (population, observed, filtered, result, tip, snapshot, validity, captured, rolled,
-              association, association_selected, association_ranked,
-              points, windows, selected_candidates, ranked_candidates)
+    values = (population, observed, filtered, result, tip, snapshot, validity, captured, rolled)
     for value in values:
         assert value.schema is value.row_contract.schema
         assert value.state.kind == 'logical'
@@ -210,9 +192,9 @@ def test_actual_private_observation_chain_is_pure() -> None:
     evidence = json.loads(result.stdout)
     assert evidence["final_shape"] == "metric/dimension-time@v1"
     assert evidence["deep_filter_nodes"] == 80
-    assert evidence["checked_definitions"] == 16
+    assert evidence["checked_definitions"] == 9
     assert evidence["guarded_negative_failures"] == 5
-    assert evidence["guarded_entrypoints"] == 19
+    assert evidence["guarded_entrypoints"] == 17
     assert evidence["telemetry_enabled"] is True
     assert set(evidence["attempts"]) == {
         "datasource",

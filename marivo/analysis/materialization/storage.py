@@ -194,8 +194,6 @@ def _matches_type(logical: str, actual: pa.DataType) -> bool:
         return bool(actual == pa.timestamp("ms" if scale <= 3 else "us"))
     if logical == "duration":
         return bool(pa.types.is_int64(actual))
-    if logical == "candidate_reasons":
-        return bool(pa.types.is_list(actual) and pa.types.is_string(actual.value_type))
     if logical == "identity_tuple":
         return bool(pa.types.is_struct(actual))
     arity = _bool_tuple_arity(logical)
@@ -334,18 +332,6 @@ def _realized_schema(row: DatasetRowContract, actual: pa.Schema) -> DatasetSchem
     return _make_schema(tuple(columns))
 
 
-def _reason_tuple(value: object) -> tuple[str, ...] | None:
-    """Normalize the bounded structural tuple; the objective owns its vocabulary."""
-    if (
-        isinstance(value, (tuple, list))
-        and len(value) == 1
-        and type(value[0]) is str
-        and 0 < len(value[0]) <= 64
-    ):
-        return (value[0],)
-    return None
-
-
 def _value(scalar: pa.Scalar) -> _Value:
     if not scalar.is_valid:
         return None
@@ -353,11 +339,6 @@ def _value(scalar: pa.Scalar) -> _Value:
         return tuple(_value(scalar[index]) for index in range(len(scalar.type)))
     if pa.types.is_list(scalar.type) or pa.types.is_fixed_size_list(scalar.type):
         values: object = scalar.as_py()
-        if pa.types.is_string(scalar.type.value_type):
-            reasons = _reason_tuple(values)
-            if reasons is None:
-                _fail("one bounded non-null reason code", "invalid reason tuple")
-            return reasons
         mask = _bool_tuple_value(values) if isinstance(values, list) else None
         if mask is not None:
             return mask
@@ -426,9 +407,6 @@ class _RowValidator:
             self.terms = tuple(
                 (by_id[term.field_id], term.direction, term.nulls) for term in rows.ordering.terms
             )
-        from marivo.analysis.operators.association_contracts import association_orders
-
-        self.authored_orders = association_orders(contract, rows)
 
         self.contract = contract
         self.rows = rows
@@ -459,11 +437,6 @@ class _RowValidator:
                 or any(column.field(index).null_count for index in range(column.type.num_fields))
             ):
                 _fail("complete non-null identity tuples", "null identity component")
-            if field.logical_type_id == "candidate_reasons" and (
-                not _matches_type(field.logical_type_id, column.type)
-                or any(_reason_tuple(value) is None for value in column.to_pylist())
-            ):
-                _fail("one bounded non-null reason code", "invalid reason tuple")
             arity = _bool_tuple_arity(field.logical_type_id)
             if arity is not None and (
                 not _matches_type(field.logical_type_id, column.type)
@@ -506,21 +479,13 @@ class _RowValidator:
             )
             if self.previous is not None:
                 comparison = 0
-                for left, right, (name, direction, nulls) in zip(
+                for left, right, (_name, direction, nulls) in zip(
                     self.previous,
                     ordered,
                     self.terms,
                     strict=True,
                 ):
-                    if name in self.authored_orders:
-                        values = self.authored_orders[name]
-                        if left not in values or right not in values:
-                            _fail("authored Association coordinate", "unknown ordering value")
-                        comparison = (values.index(left) > values.index(right)) - (
-                            values.index(left) < values.index(right)
-                        )
-                    else:
-                        comparison = _compare(left, right, nulls=nulls)
+                    comparison = _compare(left, right, nulls=nulls)
                     if direction == "descending" and left is not None and right is not None:
                         comparison = -comparison
                     if comparison:
@@ -945,7 +910,6 @@ def _to_dataframe(table: pa.Table, row: DatasetRowContract) -> pd.DataFrame:
         if (
             field.logical_type_id == "identity_tuple"
             or _bool_tuple_arity(field.logical_type_id) is not None
-            or field.logical_type_id == "candidate_reasons"
         ):
             array = table.column(field.name)
             result[field.name] = pd.Series(

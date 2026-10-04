@@ -640,7 +640,6 @@ def test_private_funnel_chain_is_physically_retired():
     from pathlib import Path
 
     from marivo.analysis.observation.contracts import make_family_registry, make_ids
-    from marivo.analysis.operators.registry import legacy_source_migration_stage
 
     root = Path(__file__).resolve().parents[1] / "marivo" / "analysis"
     for file in (
@@ -660,7 +659,6 @@ def test_private_funnel_chain_is_physically_retired():
     families = make_family_registry(make_ids(()))
     assert not {"delta", "attribution"} & {f.family_id for f in families.registrations}
     assert not (root / "domains/event.py").exists()
-    assert legacy_source_migration_stage("funnel_delta.attribute") is None
     assert (root / "operators/attribute_values.py").exists()
 
 

@@ -616,7 +616,7 @@ def test_legacy_history_retirement_preserves_shared_owners():
         "domains/lifecycle.py",
     ):
         assert not (Path("marivo/analysis") / name).exists()
-    for name in ("operators/forecast_contracts.py",):
+    for name in ("forecast_models.py",):
         assert (Path("marivo/analysis") / name).exists()
     from marivo.analysis._capabilities.registry import REGISTRY
 
