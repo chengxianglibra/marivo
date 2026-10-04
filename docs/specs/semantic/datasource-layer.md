@@ -282,6 +282,16 @@ unknown; it is not filled from a user assertion. Unsupported necessary types fai
 when the execution closure consumes them. Unused columns do not add execution
 type restrictions.
 
+ClickHouse native row reads, a naive datetime is restored to UTC only when the
+physical Arrow schema explicitly declares UTC; other timezone mismatches remain
+errors. A cursor close failure marks the governed submission failed and records
+`close_failed`, rather than claiming successful cursor release. Subsequent owned
+connection disconnection is recorded separately.
+
+Missing selected optional drivers raise `DatasourceConnectionError` with the
+backend-specific `marivo[backend]` installation repair. Unselected drivers are
+not imported by provider discovery.
+
 SQLite and MySQL retain their source-representation checks at execution. For
 example, SQLite temporal and Boolean columns must use the backend's admitted
 representations, and Boolean values must be exactly 0/1/NULL. Native temporal

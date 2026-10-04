@@ -1,5 +1,22 @@
 # Isolated local multi-datasource qualification environment
 
+## R9.2 governed source qualification
+
+`tests/test_r92_source_profiles.py` uses these services through the current
+expression-only datasource adapters, not the historical Dataset/compiler probes.
+It binds the 19 R9 physical profiles and 24 backend type/identity goals. Start and
+verify profiles explicitly using the lifecycle commands below, then run selected
+tests with the matching opt-in flags. No test or evidence command starts a service.
+
+`scripts/r92_source_qualification.py` records per-node receipts, native submission
+observations, candidate/driver/service versions and hashes. See the
+[R9.2 record](../../docs/superpowers/specs/2026-10-04-marivo-r92-evidence/README.md)
+for collected selectors and immutable evidence commands. Runtime test success
+does not imply every required source goal passed: SQLite's float-backed NUMERIC
+carrier is a blocked exact-Decimal success goal with a passed rejection test.
+Injected resource faults verify local cleanup; server termination and Analysis
+method qualification have separate owners.
+
 This opt-in environment prepares Slice 0 probes. It does not enable a Marivo
 backend and is never started by pytest, `make test`, or `make runtime-test`.
 All lifecycle commands target the dedicated `marivo-multisource` Colima socket.

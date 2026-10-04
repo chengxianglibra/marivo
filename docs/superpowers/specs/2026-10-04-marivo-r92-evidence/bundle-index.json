@@ -1,0 +1,842 @@
+{
+  "authority": "Artifact integrity only; results-index owns qualification",
+  "candidate_sha256": "8ee2f5d0b76fd752d024b8c3bc5d37ec8b708c1f067e12889fbf9580e238f2e4",
+  "files": {
+    "README.md": {
+      "bytes": 6592,
+      "sha256": "df6443c6925c8c30eca43b60cbfb3a90f93ef9e2f2184a4fb242510676c88c92"
+    },
+    "accepted-check-agent.log": {
+      "bytes": 6876,
+      "sha256": "1e0f5d4966f3669ffd901d85cb6b7ce57782d37790f9bfeadb186e1b1d7ce6de"
+    },
+    "accepted-checks.json": {
+      "bytes": 1608,
+      "sha256": "6577b135ec6fbb32f7016c59c7594304edbb08d51ecf2444da12de6f4510b428"
+    },
+    "accepted-narrow.log": {
+      "bytes": 223,
+      "sha256": "2823b7e5ce20d08a9a81ec3dee67e655c462883ee71d3ea73385bcc4f65cf0a4"
+    },
+    "accepted-typing.log": {
+      "bytes": 43,
+      "sha256": "e317872697c2cbfdefa321527a6efe73290dff3a390b0fa8723b87092eccba6a"
+    },
+    "after-services.log": {
+      "bytes": 1904,
+      "sha256": "a5c5e22854dd274820272bc4741cb1f25d7d40baee14f26b1a8bf1ffaaf9af23"
+    },
+    "after-vm.log": {
+      "bytes": 226,
+      "sha256": "fde2a0da88f3547eb625ced0a995cdc702552928bcb20d195cca47a0250680de"
+    },
+    "artifact-normalization.json": {
+      "bytes": 7248,
+      "sha256": "f4c740e0fef914ed24b28f344e794496fc52dca9f2a65786796ab8a06b5ef621"
+    },
+    "captured-artifacts-before-format.zip": {
+      "bytes": 549359,
+      "sha256": "a35d600685ba1130ed0587402f37284c4231ad0d287c8f9dd93d420e98ecd108"
+    },
+    "check-agent.log": {
+      "bytes": 6876,
+      "sha256": "a23b51b3a8e5da992d999f1d136491fe43b5c3a97e705737661cb5501c6cd47a"
+    },
+    "checks.json": {
+      "bytes": 2100,
+      "sha256": "bf1f01bd2f7d47284df94eec02d2ec0c7d8ee2306fdfe3243ce322183776af08"
+    },
+    "cleanup.json": {
+      "bytes": 1252,
+      "sha256": "28be02074df7a96341fc07865af564f81e31df1f806f4c11aecbd027906f3dff"
+    },
+    "clickhouse-cluster/junit.xml": {
+      "bytes": 380,
+      "sha256": "ebe4abec78cb0ca10a1538eb56127a0920879224c7fc8e48f8c1ad8c1c318bcf"
+    },
+    "clickhouse-cluster/profile-clickhouse-distributed.json": {
+      "bytes": 9434,
+      "sha256": "18064edfdf045a369a71e2c8cd7e0383fd4d4c8e2e519c60cad4c395dd017a21"
+    },
+    "clickhouse-cluster/run.json": {
+      "bytes": 103440,
+      "sha256": "c68a96ba88b55dcfb28814921c00c538b009af191cbc811d3072b8a02a7d093f"
+    },
+    "clickhouse-cluster/test.log": {
+      "bytes": 113,
+      "sha256": "c6ca186248a0e388be9c34c48d7bc3102c89efb1b340a69e2704f8c27897f708"
+    },
+    "clickhouse/junit.xml": {
+      "bytes": 914,
+      "sha256": "c358ffbd175410ada7427ef73f9775163f550cbd043a1c71afa7ee1fadcb07cf"
+    },
+    "clickhouse/profile-clickhouse-mergetree.json": {
+      "bytes": 8156,
+      "sha256": "b525882ae56476b88f4f114d002ea45ac020baef07c96e1e516fce1aca528bdc"
+    },
+    "clickhouse/risk-clickhouse-composite-versioned-identity.json": {
+      "bytes": 1282,
+      "sha256": "76bbd6d3b54a76b6f5c8fb6bf78fa2b34df75baf3edb4813cbd83cc7f92d9aee"
+    },
+    "clickhouse/risk-clickhouse-decimal-precision-scale.json": {
+      "bytes": 1114,
+      "sha256": "fbb2a4ffb735efd8485e315e8acbdde5490a8a33145a8ceea2dd8471ee4e44ba"
+    },
+    "clickhouse/risk-clickhouse-int64-overflow-nullable.json": {
+      "bytes": 994,
+      "sha256": "3ab1da34f2d0e4277bdcb33f84726358d2840430fd6220d2ea4dcc3502a8180c"
+    },
+    "clickhouse/risk-clickhouse-native-parsed-time-dst.json": {
+      "bytes": 1461,
+      "sha256": "5845e999965157dab12ebb2da53ca1dd4a10ff301b2c6557fa47aebecc9a623f"
+    },
+    "clickhouse/run.json": {
+      "bytes": 103933,
+      "sha256": "ce1e577579d3629fa7f6a186a53256f5a156804072d1dd0a69897d835ff1b88d"
+    },
+    "clickhouse/test.log": {
+      "bytes": 113,
+      "sha256": "15219eab41ee49bdb22f379c7d9c9e08ebf82f5a32e076cbd6ed516fd8dfacf5"
+    },
+    "diagnostics.log": {
+      "bytes": 1313,
+      "sha256": "e1da2757ea3b76e4a317112809176be25ede57f32f43c8acfe40403f850c2efb"
+    },
+    "environment.json": {
+      "bytes": 3774,
+      "sha256": "1143249d2592b11c2d365e074090462e29c8f9fb1f563d37dcebccd1da50f729"
+    },
+    "final-check-agent.log": {
+      "bytes": 6876,
+      "sha256": "76e970948a2ac75c344c6e6f3ddc2316a439179351b8107848156c675cef0e95"
+    },
+    "final-checks.json": {
+      "bytes": 1599,
+      "sha256": "4f63621d66aefa9bdd1846a2d67c1185f9a41fe07d09cc8f01c0c6a535e39737"
+    },
+    "final-clickhouse-cluster/junit.xml": {
+      "bytes": 380,
+      "sha256": "b880c9f4828dd738b625646962b50ae0fa9a076611b367ea0a96c5ae3f0413d4"
+    },
+    "final-clickhouse-cluster/profile-clickhouse-distributed.json": {
+      "bytes": 9434,
+      "sha256": "7bbc9131d6801f4addddb906a3140496e470e7e88e76372304dec640fbec4b9c"
+    },
+    "final-clickhouse-cluster/run.json": {
+      "bytes": 103446,
+      "sha256": "c60837086a0ca2342cf0b084e29358ef425afb5ea0eda5d24817482f3ca26453"
+    },
+    "final-clickhouse-cluster/test.log": {
+      "bytes": 113,
+      "sha256": "7ece8c4f6d8823351c3383762c6cf9b0dd34a6a125287c4203517c94eb31294f"
+    },
+    "final-clickhouse/junit.xml": {
+      "bytes": 914,
+      "sha256": "4f7eab2fb19be459ec6ebbd36b06c10553f152e00edec9032129a8c3dc1f4bce"
+    },
+    "final-clickhouse/profile-clickhouse-mergetree.json": {
+      "bytes": 8156,
+      "sha256": "c482541a7735d8b6ac5db0ad67335f5e44a6d22bf12e5b3c97fd45054301f210"
+    },
+    "final-clickhouse/risk-clickhouse-composite-versioned-identity.json": {
+      "bytes": 1282,
+      "sha256": "328485aa4149a1cb7f67fd25cec6532c7c215687cdec718b2ce0f7905eee6008"
+    },
+    "final-clickhouse/risk-clickhouse-decimal-precision-scale.json": {
+      "bytes": 1114,
+      "sha256": "69833f2909080a364bc364cc0c3b67998dcd38a4fc4b1d0ad4f89088ee71e1ea"
+    },
+    "final-clickhouse/risk-clickhouse-int64-overflow-nullable.json": {
+      "bytes": 994,
+      "sha256": "31a6ed297cb964cb9b719e2298b9ab5b5fd6c861fff0eb7200c051946a466099"
+    },
+    "final-clickhouse/risk-clickhouse-native-parsed-time-dst.json": {
+      "bytes": 1461,
+      "sha256": "9d047db411048c3774b8452f0629266297dde583b45fbfd24d9192eda9af3269"
+    },
+    "final-clickhouse/run.json": {
+      "bytes": 103939,
+      "sha256": "974aa4af8cbabfb817588146993ecf3950850a597c41c07ca4b0b07474c11504"
+    },
+    "final-clickhouse/test.log": {
+      "bytes": 113,
+      "sha256": "ad4abfc86c31f203173a8c9546c845ee44af2ba7bfa876439abcbe2344c1a121"
+    },
+    "final-local-postgres-mysql/junit.xml": {
+      "bytes": 4044,
+      "sha256": "2442b39d4f3c97db3fff967a1cd6a1ac960804a7fb9c5c8f6a269dd4ba0bb59c"
+    },
+    "final-local-postgres-mysql/profile-duckdb-csv.json": {
+      "bytes": 4814,
+      "sha256": "3ca47f952ef396922ef8360daff42efd7cfb07eab8c1c9960b39da0e4c753ecd"
+    },
+    "final-local-postgres-mysql/profile-duckdb-http-json-auth.json": {
+      "bytes": 5609,
+      "sha256": "c01710a4778c7cd971abfc6929df9cb3ae90c412e4b1271b97455a3d1ecebda9"
+    },
+    "final-local-postgres-mysql/profile-duckdb-http-json-public.json": {
+      "bytes": 5348,
+      "sha256": "5af20276d1ea47493f30a10c9acfe386235a69f3917ca37ff11607791b11b27a"
+    },
+    "final-local-postgres-mysql/profile-duckdb-local-json.json": {
+      "bytes": 4893,
+      "sha256": "1109843d5b2d416f263b86b69c0f61ada2506e5929a103b983a5ebcdd57155be"
+    },
+    "final-local-postgres-mysql/profile-duckdb-parquet.json": {
+      "bytes": 4914,
+      "sha256": "9534d61db6d329af34ca1a8ca7739fa57510cad89c93c99024b0352a3daf1459"
+    },
+    "final-local-postgres-mysql/profile-duckdb-table.json": {
+      "bytes": 6412,
+      "sha256": "5a6757b73558cf7854a26584fc68e295ee6ba2960d63fe771159f8eb87e29d75"
+    },
+    "final-local-postgres-mysql/profile-duckdb-view.json": {
+      "bytes": 6502,
+      "sha256": "40e4df68e59812f467d459aa0a5e1cc0d6710e19c216c0c36ea72fc9a221cde2"
+    },
+    "final-local-postgres-mysql/profile-mysql-innodb-table.json": {
+      "bytes": 8550,
+      "sha256": "b18995c1d2025a68df336a52f9b7d361bbc0f0d71cf254f1709b57877d05cef4"
+    },
+    "final-local-postgres-mysql/profile-mysql-view.json": {
+      "bytes": 8885,
+      "sha256": "f0ee7c5efff31002b552ce17c2f855db835aa38f6339b9d6d7648e29498ff4d5"
+    },
+    "final-local-postgres-mysql/profile-postgres-namespace-table.json": {
+      "bytes": 8738,
+      "sha256": "7510b633cf892295ba582fcecaa2c0e840fdb9aacc25e77a6327b1c751d6ea05"
+    },
+    "final-local-postgres-mysql/profile-postgres-namespace-view.json": {
+      "bytes": 8843,
+      "sha256": "c1241e206722ce0ac579079b3e443dc47fcd90e73dcfe4f4e3ade8757d6c7b5e"
+    },
+    "final-local-postgres-mysql/profile-postgres-table.json": {
+      "bytes": 7958,
+      "sha256": "ff4c46d59f76fee0e8ab99c636c5a5947233a2fe8fa7d61efd4786291907f91c"
+    },
+    "final-local-postgres-mysql/profile-postgres-view.json": {
+      "bytes": 8063,
+      "sha256": "16059ed381d67bc4818b44f718cedc1c200935be1af3a2e2d52abfae0a102773"
+    },
+    "final-local-postgres-mysql/profile-sqlite-main-table.json": {
+      "bytes": 6268,
+      "sha256": "245ebd8661b12bf9ebd5a6d2f29c43699930e0f55a04f1fc73ec3335c905b244"
+    },
+    "final-local-postgres-mysql/profile-sqlite-main-view.json": {
+      "bytes": 6353,
+      "sha256": "a5bca2c44844d68bfdb7f605cf30cb62c4800f2e179eaef530765743f7e9cb39"
+    },
+    "final-local-postgres-mysql/risk-duckdb-composite-versioned-identity.json": {
+      "bytes": 1007,
+      "sha256": "7d44addc69ac124d1fb971aa7a4826db433378e35dccf760d9fc79e93e7ef98a"
+    },
+    "final-local-postgres-mysql/risk-duckdb-decimal-precision-scale.json": {
+      "bytes": 857,
+      "sha256": "f6ba868c05d6c1f8eeaf68e6601545116887cb43dafde740af67532aa66b9cb5"
+    },
+    "final-local-postgres-mysql/risk-duckdb-int64-overflow-nullable.json": {
+      "bytes": 737,
+      "sha256": "6a5aaa5e8836f14d15ab53cc9b89e0df7a79f70f0edaee5e47adbec218ba79f5"
+    },
+    "final-local-postgres-mysql/risk-duckdb-native-parsed-time-dst.json": {
+      "bytes": 1122,
+      "sha256": "f8d89091e3e40480008501a933f13f6773448603a3e2dfc5dd9f5fe2dd63b436"
+    },
+    "final-local-postgres-mysql/risk-mysql-composite-versioned-identity.json": {
+      "bytes": 1261,
+      "sha256": "bc1d3c98ae629e91f719a1c4c39b6beb64fe2a53b6d483bdc2ff70cee6fa98c7"
+    },
+    "final-local-postgres-mysql/risk-mysql-decimal-precision-scale.json": {
+      "bytes": 1015,
+      "sha256": "1587255f1211e2a894b6489ae04543b27df6d2338dec9e4f37a0f44fd4f97392"
+    },
+    "final-local-postgres-mysql/risk-mysql-int64-overflow-nullable.json": {
+      "bytes": 895,
+      "sha256": "3e2f66dcedad4a335c3721c29c43f2fc6f46d7daffd9a49a7d96130a0b0751bd"
+    },
+    "final-local-postgres-mysql/risk-mysql-native-parsed-time-dst.json": {
+      "bytes": 1280,
+      "sha256": "5086dd304ca0519eb5e75e33a2b0fb6423ad081cdbcbc54fdce452c979f7c2bc"
+    },
+    "final-local-postgres-mysql/risk-postgres-composite-versioned-identity.json": {
+      "bytes": 1167,
+      "sha256": "5d542450cc0e5fa66b699a8afaacb0f2f560517fe8952010a7ac926fecdea897"
+    },
+    "final-local-postgres-mysql/risk-postgres-decimal-precision-scale.json": {
+      "bytes": 1017,
+      "sha256": "f39049040424841f74c7e94398d28a23769c3e50f6ef7bd9f97f7ef548734861"
+    },
+    "final-local-postgres-mysql/risk-postgres-int64-overflow-nullable.json": {
+      "bytes": 897,
+      "sha256": "ddf6533a0f0bc90f69cfc8ca08fbbe1a76e8148e2385479528f514f10739d527"
+    },
+    "final-local-postgres-mysql/risk-postgres-native-parsed-time-dst.json": {
+      "bytes": 1282,
+      "sha256": "b3ef3e66478743b0edd3f502bf3ae00233490ebfee22eed94ece1cf4b4264851"
+    },
+    "final-local-postgres-mysql/risk-sqlite-composite-versioned-identity.json": {
+      "bytes": 1030,
+      "sha256": "5cab3b668dfa8a49aae3782f4a2fc0e01ab90f1221f58a5f7af10726f660efb9"
+    },
+    "final-local-postgres-mysql/risk-sqlite-decimal-precision-scale.json": {
+      "bytes": 821,
+      "sha256": "3e25dc6b270f30d9c29efeb843f1404b2229d25a7f473030e13e55af821722f6"
+    },
+    "final-local-postgres-mysql/risk-sqlite-int64-overflow-nullable.json": {
+      "bytes": 738,
+      "sha256": "7e44fa8fabc94f898d8862f9b3bcbde93ee7fc5f3edaf161f4cd6bd22c1cab6e"
+    },
+    "final-local-postgres-mysql/risk-sqlite-native-parsed-time-dst.json": {
+      "bytes": 1123,
+      "sha256": "b4129d0b2a41e1a9b4a3593261b2afdc82e18ad642a4e60bd2de046a02611f3f"
+    },
+    "final-local-postgres-mysql/run.json": {
+      "bytes": 106808,
+      "sha256": "2b94605afef75ae3dc2d81f9335eb180fcb21082db1c266edbb8ba9bdce1f26f"
+    },
+    "final-local-postgres-mysql/test.log": {
+      "bytes": 114,
+      "sha256": "1eb436b25affa8f33862bce73132ec68a193800579443bde55b4cb58b7f1f798"
+    },
+    "final-narrow.log": {
+      "bytes": 223,
+      "sha256": "4903b4385010f518e2f6e86f2e85cd1df56fa9ab74c674fb28cac6170f314320"
+    },
+    "final-trino/junit.xml": {
+      "bytes": 1003,
+      "sha256": "92001fdace53269d06ee22813f86a4293009e6f6db7a4ac1ba458692e6a9e8de"
+    },
+    "final-trino/profile-trino-iceberg.json": {
+      "bytes": 7905,
+      "sha256": "d986f49791f86eb1473a50a93d962a246e8d0a98b42beb3ccbb1975bef900c67"
+    },
+    "final-trino/profile-trino-non-iceberg.json": {
+      "bytes": 8216,
+      "sha256": "12cf4d88d1d0aec71ed710b9526a6623dffcfe275f981d87a938ca794c359b1c"
+    },
+    "final-trino/risk-trino-composite-versioned-identity.json": {
+      "bytes": 1283,
+      "sha256": "a2bfc56ed4119bcc9d3a033a876857cc84daea5dc17adb6302a78d08f644855e"
+    },
+    "final-trino/risk-trino-decimal-precision-scale.json": {
+      "bytes": 1133,
+      "sha256": "f687c1846b309e0bc8842c01f468995eccd2f40dcecf2a5653e638589706e5d2"
+    },
+    "final-trino/risk-trino-int64-overflow-nullable.json": {
+      "bytes": 1013,
+      "sha256": "beb47ea17defb8b4cd51db732287945e2e5e5281b88f80fd6440cb4a01f2f3f3"
+    },
+    "final-trino/risk-trino-native-parsed-time-dst.json": {
+      "bytes": 1398,
+      "sha256": "f171c11fa715f6a21b56d61f67f353bd9435514bb3ed7c9be84890ed176a0f36"
+    },
+    "final-trino/run.json": {
+      "bytes": 103988,
+      "sha256": "32e80fc6f676e0e2c08b6b1a4f8107a8d64765b5b4f2ec7453713519bb5787c0"
+    },
+    "final-trino/test.log": {
+      "bytes": 114,
+      "sha256": "bc0d43544b374a94a385d087e9eb89c5c2b804ed200eb2101e3d5f3fec3c2f59"
+    },
+    "final-typing.log": {
+      "bytes": 43,
+      "sha256": "e317872697c2cbfdefa321527a6efe73290dff3a390b0fa8723b87092eccba6a"
+    },
+    "freeze-before-verifier-repair/index.json": {
+      "bytes": 642,
+      "sha256": "955a0ffa221ced600e4c7d775951c1d45b808baefafc74dd85df2001c14e5fd1"
+    },
+    "freeze-before-verifier-repair/requirements.json.gz.part-001": {
+      "bytes": 524288,
+      "sha256": "a738d4bfe15e705be727ce7061babac8b361cef954a64c5342e6ef5590973445"
+    },
+    "freeze-before-verifier-repair/requirements.json.gz.part-002": {
+      "bytes": 524288,
+      "sha256": "b0b0db57dbc9cc193155517150def0b866cbe9956f81e7657e8de13593789c2f"
+    },
+    "freeze-before-verifier-repair/requirements.json.gz.part-003": {
+      "bytes": 280206,
+      "sha256": "b996c359af23f28930eb9bfbd15a4af7ff330ef70d0bcff385868020f13e2958"
+    },
+    "freeze/index.json": {
+      "bytes": 642,
+      "sha256": "eb8ceddcbc3f710ac78d022b71d49ef2f34ef99587ad4d683b7c42dce0a43152"
+    },
+    "freeze/requirements.json.gz.part-001": {
+      "bytes": 524288,
+      "sha256": "02c54edc30091f9083e4447a5ab6e0995ad90c5b403408dfb53fbaef27bf273e"
+    },
+    "freeze/requirements.json.gz.part-002": {
+      "bytes": 524288,
+      "sha256": "4e1d11d1268af90a8f3514b5fe557f6c6efa6a2ad9f124c580b8b7c59c1c0b80"
+    },
+    "freeze/requirements.json.gz.part-003": {
+      "bytes": 280187,
+      "sha256": "ebf94626c2f125d54ca35988cb48f8a5205be2d798c5121344bef9c93411bc58"
+    },
+    "local-postgres-mysql/junit.xml": {
+      "bytes": 4044,
+      "sha256": "93294ec7cc4683769a2128bc7bb2a9c4cfd0ec46ad59388e1434952f8e3bd0bc"
+    },
+    "local-postgres-mysql/profile-duckdb-csv.json": {
+      "bytes": 4814,
+      "sha256": "243012105918cb5b5fa88302533d4c795473fb248d3e0fe6c736551e3d53b88b"
+    },
+    "local-postgres-mysql/profile-duckdb-http-json-auth.json": {
+      "bytes": 5375,
+      "sha256": "3e0badf9af22c355b38bd5a28f6faaa8acb9b9e0db62fb53f3e8c2cdc95df3c0"
+    },
+    "local-postgres-mysql/profile-duckdb-http-json-public.json": {
+      "bytes": 5348,
+      "sha256": "01e4f52300d8dfad37fe2d604f8c086b22e361e5a638477a5e4a3662df8cc274"
+    },
+    "local-postgres-mysql/profile-duckdb-local-json.json": {
+      "bytes": 4893,
+      "sha256": "e12c7163122bd8e23fa1895313beb7d6434ae57fc1134c04b9ad46852d611125"
+    },
+    "local-postgres-mysql/profile-duckdb-parquet.json": {
+      "bytes": 4914,
+      "sha256": "f2b7df6fb3e34401153c9d59e9db22a4b598d7b82f0e2d00664d4eb5ed8ff657"
+    },
+    "local-postgres-mysql/profile-duckdb-table.json": {
+      "bytes": 6412,
+      "sha256": "4b253b4107ecb5c4bf39d283f6eedbce7c22ce7bd5d001d6196bf4299d949302"
+    },
+    "local-postgres-mysql/profile-duckdb-view.json": {
+      "bytes": 6502,
+      "sha256": "9a1e51f92a61912448597d39d12a96a9b7478d2569347a24c95819a30268dc64"
+    },
+    "local-postgres-mysql/profile-mysql-innodb-table.json": {
+      "bytes": 8550,
+      "sha256": "36832cc85f05f37aa308329a214059e9d7286db4e87e2cf6a56793fe958c2a53"
+    },
+    "local-postgres-mysql/profile-mysql-view.json": {
+      "bytes": 8885,
+      "sha256": "550e31c873544c19da73ec6600831d7c8f0229d59de3b87bbd293f8a4a41b33e"
+    },
+    "local-postgres-mysql/profile-postgres-namespace-table.json": {
+      "bytes": 8738,
+      "sha256": "9241d7f2cfdf8e787145f186058537ac892b6f3f1da6114a4b6a50324921bd96"
+    },
+    "local-postgres-mysql/profile-postgres-namespace-view.json": {
+      "bytes": 8843,
+      "sha256": "641e767204ed63c4369885c324b1e42f9a7d0d39e09e6bcbb8d2f76eda1c04ac"
+    },
+    "local-postgres-mysql/profile-postgres-table.json": {
+      "bytes": 7958,
+      "sha256": "cfc1587e3a91b1692c6d40549d8d83a16f103ea52e308c7d346bb894f7243410"
+    },
+    "local-postgres-mysql/profile-postgres-view.json": {
+      "bytes": 8063,
+      "sha256": "d94932765c6c8af5e6279b624078ddd59f9879f9fcb3e12f04fb3fec2db4720b"
+    },
+    "local-postgres-mysql/profile-sqlite-main-table.json": {
+      "bytes": 6268,
+      "sha256": "07165f65ce2a55de077bbaae9cb680a5a3f19517cabd90e911185cba4ed70449"
+    },
+    "local-postgres-mysql/profile-sqlite-main-view.json": {
+      "bytes": 6353,
+      "sha256": "aa0f3e3d7349d79f9acb810254aa879489e1db91daba0a10f102bea94a54b136"
+    },
+    "local-postgres-mysql/risk-duckdb-composite-versioned-identity.json": {
+      "bytes": 1007,
+      "sha256": "897b7744b0144c24906a6716365e21bc3bfe6604cf97989f1866079390739f83"
+    },
+    "local-postgres-mysql/risk-duckdb-decimal-precision-scale.json": {
+      "bytes": 857,
+      "sha256": "26303a62cebc068ef4136c9044611c318410035670689dea8a474139ec60eca4"
+    },
+    "local-postgres-mysql/risk-duckdb-int64-overflow-nullable.json": {
+      "bytes": 737,
+      "sha256": "b5b39bbf5bc1bee8b8140ef2b0092d258a3ea6390ef8ff1b6f8a7aee22548f0d"
+    },
+    "local-postgres-mysql/risk-duckdb-native-parsed-time-dst.json": {
+      "bytes": 1122,
+      "sha256": "c4b1e61d05d17d35f62c97b56dd20983be738bfd3cae3eb80b604a9b53319286"
+    },
+    "local-postgres-mysql/risk-mysql-composite-versioned-identity.json": {
+      "bytes": 1261,
+      "sha256": "a10e4d8e1935ac9978bc368544008fca542df3c658e6045a044bd7cfdfced7e1"
+    },
+    "local-postgres-mysql/risk-mysql-decimal-precision-scale.json": {
+      "bytes": 1015,
+      "sha256": "9b7e6a37a2a0cc114542016729c3e44d82d2022455757c881e73bad4ba93bd40"
+    },
+    "local-postgres-mysql/risk-mysql-int64-overflow-nullable.json": {
+      "bytes": 895,
+      "sha256": "be5b5a2d488e29606017acc85d55439919de21d663322f395e970a36690e1ee2"
+    },
+    "local-postgres-mysql/risk-mysql-native-parsed-time-dst.json": {
+      "bytes": 1280,
+      "sha256": "1b6b878136a0387150918f55fa6b2889c6515c83559734d0d35f67e5d56ce736"
+    },
+    "local-postgres-mysql/risk-postgres-composite-versioned-identity.json": {
+      "bytes": 1167,
+      "sha256": "7049c8786fb3b7a0990d826148af013e4d7537f8fbc5afe6f113871af8863d90"
+    },
+    "local-postgres-mysql/risk-postgres-decimal-precision-scale.json": {
+      "bytes": 1017,
+      "sha256": "bb4b6c30357b629a78c0c665722fb8807d0a6e85770568fe6630d217c5195126"
+    },
+    "local-postgres-mysql/risk-postgres-int64-overflow-nullable.json": {
+      "bytes": 897,
+      "sha256": "d253abd72a8bccaade703ba820b5541030fc70da6b20da3ec29d4aa30679a07b"
+    },
+    "local-postgres-mysql/risk-postgres-native-parsed-time-dst.json": {
+      "bytes": 1282,
+      "sha256": "02d1df1e8b97697e6d0d02604669117366a7f1d42855ff92c8834fbb253f2595"
+    },
+    "local-postgres-mysql/risk-sqlite-composite-versioned-identity.json": {
+      "bytes": 1030,
+      "sha256": "bacc2c27e935a6ceb0de049bfc8ce18020406845922224b3410e89f16690d306"
+    },
+    "local-postgres-mysql/risk-sqlite-decimal-precision-scale.json": {
+      "bytes": 821,
+      "sha256": "fe71b705b63781f7c198f69e9c451af5dcecaba2d7fd99244f33d0b1e0a6e465"
+    },
+    "local-postgres-mysql/risk-sqlite-int64-overflow-nullable.json": {
+      "bytes": 738,
+      "sha256": "fa8f37c8b527c22a0f42480911c5eb01521a8bab0e700129300eea3906ac5f46"
+    },
+    "local-postgres-mysql/risk-sqlite-native-parsed-time-dst.json": {
+      "bytes": 1123,
+      "sha256": "5b7d2fb27f5ff025ef24db2e3afabd0cf7b545491b3260cb82ec99306430bc5d"
+    },
+    "local-postgres-mysql/run.json": {
+      "bytes": 106802,
+      "sha256": "3aadeec7a144d845bcd3af048ab021d6c2fbc4bd71729142c1c212d2e74b18b3"
+    },
+    "local-postgres-mysql/test.log": {
+      "bytes": 114,
+      "sha256": "6ecf3e33047ed202be3f3958b501370d2a9018108f4699f5ae82e24029d3ebfe"
+    },
+    "narrow.log": {
+      "bytes": 223,
+      "sha256": "6fc30fa8e9f739efe4d1fa278f1609376e93bd74fefe07568bd654f87198b475"
+    },
+    "qualified-clickhouse-cluster/junit.xml": {
+      "bytes": 380,
+      "sha256": "dfd82bac306bf4e6091e73ced03dcf916c6e6238a6fb9d86f9230cdc2a533712"
+    },
+    "qualified-clickhouse-cluster/profile-clickhouse-distributed.json": {
+      "bytes": 9434,
+      "sha256": "37366eb92eaa15ad9ee91bb46f169522bdf83e843648a156e80183bd1333f75b"
+    },
+    "qualified-clickhouse-cluster/run.json": {
+      "bytes": 103450,
+      "sha256": "a429616b1f1dce314638858e13b52bc7aabd3e1cd86a173d6de2366cbef655aa"
+    },
+    "qualified-clickhouse-cluster/test.log": {
+      "bytes": 113,
+      "sha256": "27b11ebac99e832991d2282b747238f6a2c8e56ce25beab5d3f6cc97fc8db036"
+    },
+    "qualified-clickhouse/junit.xml": {
+      "bytes": 914,
+      "sha256": "cef03303f4c4496b236d0830ac4da50b92f9bdbfce59898a61dbb7aa3b5e4bd6"
+    },
+    "qualified-clickhouse/profile-clickhouse-mergetree.json": {
+      "bytes": 8156,
+      "sha256": "050522ed84901c96ee65c4c87b0fbdd8181ba383c056e8c07f69a4dd3384088a"
+    },
+    "qualified-clickhouse/risk-clickhouse-composite-versioned-identity.json": {
+      "bytes": 1282,
+      "sha256": "ad436d2a3588e400f3352d9eb186fd9d1048981bea6075a9dd293968af5b05ff"
+    },
+    "qualified-clickhouse/risk-clickhouse-decimal-precision-scale.json": {
+      "bytes": 1114,
+      "sha256": "eae69b622e2b4b3e786230a27245efd7c9eb44624af76ef62035f8e118127ade"
+    },
+    "qualified-clickhouse/risk-clickhouse-int64-overflow-nullable.json": {
+      "bytes": 994,
+      "sha256": "de2d14539ae813f337eaac0a66f64f2c9b4e21950fe9019dfc748c49a8b43216"
+    },
+    "qualified-clickhouse/risk-clickhouse-native-parsed-time-dst.json": {
+      "bytes": 1461,
+      "sha256": "e1bdc62bf297465fd8893579ce2d1751337f5655b187cc433ac34e4ffb082914"
+    },
+    "qualified-clickhouse/run.json": {
+      "bytes": 103943,
+      "sha256": "51fd8b30e61617ec23597d0bb59cfba7b4ca0f827fafd79c04a2a7e680963a0b"
+    },
+    "qualified-clickhouse/test.log": {
+      "bytes": 113,
+      "sha256": "83c031b084dd6ab488fb8045c87254ab50b146e0f664ef967c3bf7e9ab0cfe72"
+    },
+    "qualified-local-postgres-mysql/junit.xml": {
+      "bytes": 4044,
+      "sha256": "c899d57ef07b8f828ac33ac39e0d436691ac878284815f5249963d21c990bba9"
+    },
+    "qualified-local-postgres-mysql/profile-duckdb-csv.json": {
+      "bytes": 4814,
+      "sha256": "dc6d772423da3f566ded773aa36d16e0b1bdef00aac1c0d7da84d5c95cb7221e"
+    },
+    "qualified-local-postgres-mysql/profile-duckdb-http-json-auth.json": {
+      "bytes": 5609,
+      "sha256": "99e4921b218386aec4a2ce7e202bdfd9671a2cedfc738e08c43cb8fc4dc5ff33"
+    },
+    "qualified-local-postgres-mysql/profile-duckdb-http-json-public.json": {
+      "bytes": 5348,
+      "sha256": "fe575cc41a6beb8b8fb5287e1425b4458589df1ca4703759a1b2a5195581536c"
+    },
+    "qualified-local-postgres-mysql/profile-duckdb-local-json.json": {
+      "bytes": 4893,
+      "sha256": "b52a977ca28dc7abdfa9278386b89fec9d1bb347ddc700a4d7d846f7036ba970"
+    },
+    "qualified-local-postgres-mysql/profile-duckdb-parquet.json": {
+      "bytes": 4914,
+      "sha256": "ab8a97ca96e4c425659ef938a8a2bc6437101c6fb2f469b87304be0651d4738d"
+    },
+    "qualified-local-postgres-mysql/profile-duckdb-table.json": {
+      "bytes": 6412,
+      "sha256": "852fd56c4764ebe596ed75c55c1d599d35fd12f9b04c89917dc00c457881a48d"
+    },
+    "qualified-local-postgres-mysql/profile-duckdb-view.json": {
+      "bytes": 6502,
+      "sha256": "86a6e04609f3e67a92567435b0e6934cee2d9c373c29748bd25f081397c98e4f"
+    },
+    "qualified-local-postgres-mysql/profile-mysql-innodb-table.json": {
+      "bytes": 8550,
+      "sha256": "0aff8b58d80a4d2a0e542a8e1ede223bc4f675a44a0087c146d2d6a7022c96e9"
+    },
+    "qualified-local-postgres-mysql/profile-mysql-view.json": {
+      "bytes": 8885,
+      "sha256": "0a2160ca9082ba476542102b822bd63fcdd9ebc812995ff1f3f9585dc9294553"
+    },
+    "qualified-local-postgres-mysql/profile-postgres-namespace-table.json": {
+      "bytes": 8738,
+      "sha256": "ccd2c2a99c41b63f4a25b9dd62a7a1443bfba0b3a159ca8b636277ee1f28a6e1"
+    },
+    "qualified-local-postgres-mysql/profile-postgres-namespace-view.json": {
+      "bytes": 8843,
+      "sha256": "63db51dd39b4924905608496671e5ee7ae3a77d7e55a45e8eada912ff6d23846"
+    },
+    "qualified-local-postgres-mysql/profile-postgres-table.json": {
+      "bytes": 7958,
+      "sha256": "f6e71ab145645907235cedc0452cfa893ccd26d223486b41fb0f2924d7bf5351"
+    },
+    "qualified-local-postgres-mysql/profile-postgres-view.json": {
+      "bytes": 8063,
+      "sha256": "634f8af1a8bca6c7570227e477a59ee76a1278c9485ea798685463e8db2dde79"
+    },
+    "qualified-local-postgres-mysql/profile-sqlite-main-table.json": {
+      "bytes": 6268,
+      "sha256": "e79e25e78abc39e5ad320a5c2345a7d395bee300b2e4b9cebb242b20aadc7057"
+    },
+    "qualified-local-postgres-mysql/profile-sqlite-main-view.json": {
+      "bytes": 6353,
+      "sha256": "3aa1886c1dff6c6016ab86d478dde2ecd5e1a2f05ad5555ed6f24097177019ca"
+    },
+    "qualified-local-postgres-mysql/risk-duckdb-composite-versioned-identity.json": {
+      "bytes": 1007,
+      "sha256": "a1cd287b9f16431852af750258e8053296289fa44f4634e4d29fbc42cd4cfeeb"
+    },
+    "qualified-local-postgres-mysql/risk-duckdb-decimal-precision-scale.json": {
+      "bytes": 857,
+      "sha256": "fb1874b24f30ef24c63e236c754c719c001433c93ae29df2244173c54250640d"
+    },
+    "qualified-local-postgres-mysql/risk-duckdb-int64-overflow-nullable.json": {
+      "bytes": 737,
+      "sha256": "0329619e33927931665c948f747fb3466cb68ba0f2d9c3ea99c283b8269f4161"
+    },
+    "qualified-local-postgres-mysql/risk-duckdb-native-parsed-time-dst.json": {
+      "bytes": 1122,
+      "sha256": "44328c663e07d11f784158826cae489e7e225478d8e159b424196e23ffb5bb0f"
+    },
+    "qualified-local-postgres-mysql/risk-mysql-composite-versioned-identity.json": {
+      "bytes": 1261,
+      "sha256": "a49583c1580a0a7744cc7b4af488ddfb69016390865569ffaf68de1e68b93afd"
+    },
+    "qualified-local-postgres-mysql/risk-mysql-decimal-precision-scale.json": {
+      "bytes": 1015,
+      "sha256": "6577a2a46c72f634a5f70af64dddbbd532e44c525c1f56a16377ab2fac6e9901"
+    },
+    "qualified-local-postgres-mysql/risk-mysql-int64-overflow-nullable.json": {
+      "bytes": 895,
+      "sha256": "652d992a299594dc257655e93ab2123a69abf70031a7d9e6e505a31c08c9a8b7"
+    },
+    "qualified-local-postgres-mysql/risk-mysql-native-parsed-time-dst.json": {
+      "bytes": 1280,
+      "sha256": "5b215e66469f53fb01e2bc693378472d73b5a2fda6108036aaaf9af2a27e1a9a"
+    },
+    "qualified-local-postgres-mysql/risk-postgres-composite-versioned-identity.json": {
+      "bytes": 1167,
+      "sha256": "a7c6522b3598b14dc5513258f467c7862fa59ba55d5ec33e17933dd65c239855"
+    },
+    "qualified-local-postgres-mysql/risk-postgres-decimal-precision-scale.json": {
+      "bytes": 1017,
+      "sha256": "40b7983c08e42eefc80518f5d72dacd0d5a5eacb414a0505bde174c2336d8d22"
+    },
+    "qualified-local-postgres-mysql/risk-postgres-int64-overflow-nullable.json": {
+      "bytes": 897,
+      "sha256": "3ddca8a50e748b4ccd9c4aca4c446e9f1f3082d0539ddf316baa346942a78d02"
+    },
+    "qualified-local-postgres-mysql/risk-postgres-native-parsed-time-dst.json": {
+      "bytes": 1282,
+      "sha256": "d2b5579af162648e96c0b3b22e8be5eddbf9846d2fe6b84b0985637d45e4eb0b"
+    },
+    "qualified-local-postgres-mysql/risk-sqlite-composite-versioned-identity.json": {
+      "bytes": 1030,
+      "sha256": "43e27a6612ebd0f40ee71a764acb54ca7af84d7016be520e3c550672023a4de2"
+    },
+    "qualified-local-postgres-mysql/risk-sqlite-decimal-precision-scale.json": {
+      "bytes": 821,
+      "sha256": "3c07c0d21e93b7d985bfb9fad11763f4c9594bb2158d0203bae7efb48ad20319"
+    },
+    "qualified-local-postgres-mysql/risk-sqlite-int64-overflow-nullable.json": {
+      "bytes": 738,
+      "sha256": "4d7be61d99a08618ecc68c39e3cf6560aabc9527f940296dab0fc21f82d5629d"
+    },
+    "qualified-local-postgres-mysql/risk-sqlite-native-parsed-time-dst.json": {
+      "bytes": 1123,
+      "sha256": "30e555c224c2218d45908079074dc9ad049a07f7ae4cfb573daa7f4928a63c2c"
+    },
+    "qualified-local-postgres-mysql/run.json": {
+      "bytes": 106812,
+      "sha256": "fb07a202686841a892b6140deb76ab30af764d00d59d09807ca835b7246eb6ac"
+    },
+    "qualified-local-postgres-mysql/test.log": {
+      "bytes": 114,
+      "sha256": "882571531ba35dc8855a589693fb80d90aea9bd3637d1b85730cf2c332930fe2"
+    },
+    "qualified-trino/junit.xml": {
+      "bytes": 1002,
+      "sha256": "74322940e0df209a18ebe4b20fb0e0731b526fe74ba4b5d526513e21ceaa714c"
+    },
+    "qualified-trino/profile-trino-iceberg.json": {
+      "bytes": 7905,
+      "sha256": "f0d272a9144d499d66be1a6311ace7e988121f1c362d131440091d8c66cbdedb"
+    },
+    "qualified-trino/profile-trino-non-iceberg.json": {
+      "bytes": 8216,
+      "sha256": "1c08cd4bcf3b5d9c0ff34c51db5d5caca72819807183db2c145e8c1f7e7448fd"
+    },
+    "qualified-trino/risk-trino-composite-versioned-identity.json": {
+      "bytes": 1283,
+      "sha256": "f445fd8f04bca6e51b8c5fc0f82c45a45afca10bee9c09a6797c312c81551e0f"
+    },
+    "qualified-trino/risk-trino-decimal-precision-scale.json": {
+      "bytes": 1133,
+      "sha256": "6d49744add27d2fc8006e7425707db965d4a81f068fd84674e13f95206da62b0"
+    },
+    "qualified-trino/risk-trino-int64-overflow-nullable.json": {
+      "bytes": 1013,
+      "sha256": "589bc1a13fa51715e119c7e1ad75e27b0cff88015e1d2eac5524c837b5dbc96d"
+    },
+    "qualified-trino/risk-trino-native-parsed-time-dst.json": {
+      "bytes": 1398,
+      "sha256": "459f69be45cf96e3297b65ae0e73b58737ca97568eeb4fccbf7be794e0615906"
+    },
+    "qualified-trino/run.json": {
+      "bytes": 103992,
+      "sha256": "8611643d123f6c8430e78c444e505e715295da6f6dd4ad4ab23a44e46a68e80b"
+    },
+    "qualified-trino/test.log": {
+      "bytes": 114,
+      "sha256": "26aef6baae306198f9c1fb3834770a6c429bfdb57112e25d528fc2672e9578ca"
+    },
+    "results-index.json": {
+      "bytes": 275395,
+      "sha256": "7366acc7024856392d5437047bc5d76b084556e9b28b02d2b24973ab085c9160"
+    },
+    "shared-cluster.json": {
+      "bytes": 572,
+      "sha256": "6e0f1d492e477ca8185be09037e9863371a06888046c832d11811c2eea6af15d"
+    },
+    "shared-cluster.log": {
+      "bytes": 112,
+      "sha256": "13cec94132ebf6b892c4b1bd379690564ec020a54a820dd4801c8f29ad451a5d"
+    },
+    "shared-local-pg-mysql-ch-fixed.json": {
+      "bytes": 726,
+      "sha256": "9a76f9f3c00db910a0229752f107b8ae0e33892011d3c073fd63b1e3c28ba98d"
+    },
+    "shared-local-pg-mysql-ch-fixed.log": {
+      "bytes": 112,
+      "sha256": "ac7d0ef25d3a2dc234de05fe7ca68e6abc48e3932e96fdbcfa8d403603784f11"
+    },
+    "shared-local-pg-mysql-ch.json": {
+      "bytes": 720,
+      "sha256": "99115dca76fa9469b61f1c6c753e72ea5c95e7d5aa695dc83c52b1bb9767bdfe"
+    },
+    "shared-local-pg-mysql-ch.log": {
+      "bytes": 17666,
+      "sha256": "9875864ad910a9b5d818c0fdef0f581da4d23b0f159f742a915361f42a90ba00"
+    },
+    "shared-reuse.json": {
+      "bytes": 2320,
+      "sha256": "9438336075c3d440a1f1774e736b453d3f24b0d78e15d755b856a0181155b788"
+    },
+    "shared-trino-serial.json": {
+      "bytes": 611,
+      "sha256": "71a397bf9b7a7d17b48ab262809f97abfa0e90a6db146b3419df0f733f393f7f"
+    },
+    "shared-trino-serial.log": {
+      "bytes": 113,
+      "sha256": "0774dd51a97abf6de72c939ab2f087e67ac3740d36dfd35235e2df4130b84b2d"
+    },
+    "shared-trino.json": {
+      "bytes": 604,
+      "sha256": "1cf2e46a0dd75f791bd175f35dd64c48826a7c20be86981105e73ff3bf92d472"
+    },
+    "shared-trino.log": {
+      "bytes": 1630,
+      "sha256": "934d9824980155cd42d3ff274787509baf50904572d6f9ff274bcc4716879941"
+    },
+    "site.log": {
+      "bytes": 49181,
+      "sha256": "592d4db4cad7e5b753239a2a96a43505489507769e24f4ef2c2b60890c030c61"
+    },
+    "summary.json": {
+      "bytes": 381,
+      "sha256": "2719564b3af4868a0e31a45cfb4932b8f0b5eb509403043ae84bfa929820f43a"
+    },
+    "trino/junit.xml": {
+      "bytes": 1001,
+      "sha256": "e41644013177f66e2fa6c1bbce23cab2267246897d71f41493403cd6283bccb0"
+    },
+    "trino/profile-trino-iceberg.json": {
+      "bytes": 7905,
+      "sha256": "ad4c807bf89acf3fab7b5b3ad18a9cc192d944e577ecd108bf911c45db8507a4"
+    },
+    "trino/profile-trino-non-iceberg.json": {
+      "bytes": 8216,
+      "sha256": "a3c0d24cc93d4a9e0f4c45f4b124d093c0edb81c54cb33feb9843de74d0dc854"
+    },
+    "trino/risk-trino-composite-versioned-identity.json": {
+      "bytes": 1283,
+      "sha256": "2697e9518f22e846add8416cc008e0fdff19979645d832c8441000433b1b9d96"
+    },
+    "trino/risk-trino-decimal-precision-scale.json": {
+      "bytes": 1133,
+      "sha256": "6c4f2acfe062092f6f2b26d6cabfcc1bae6ddd2eb62c8754a69f89d828dc36f4"
+    },
+    "trino/risk-trino-int64-overflow-nullable.json": {
+      "bytes": 1013,
+      "sha256": "98955cc8f2546e75ededb42d63a8a227ea81935a73c6ae1a995fcf22265b8707"
+    },
+    "trino/risk-trino-native-parsed-time-dst.json": {
+      "bytes": 1398,
+      "sha256": "40e619f1179d86028a414aa01aed1358da3beaa4e9fc90b9d4893024dcc97d70"
+    },
+    "trino/run.json": {
+      "bytes": 103982,
+      "sha256": "4750ebe170240057610337e6a1046439a4034523bd857a1f2e0fbc45ceffcc01"
+    },
+    "trino/test.log": {
+      "bytes": 113,
+      "sha256": "a2acfcbeeb94c8fd93d363cef67abdfc046f163c85e20282b497a1ce78ad2103"
+    },
+    "typing.log": {
+      "bytes": 43,
+      "sha256": "e317872697c2cbfdefa321527a6efe73290dff3a390b0fa8723b87092eccba6a"
+    },
+    "verify.json": {
+      "bytes": 610,
+      "sha256": "7f41334223f842542bc41e81a6557c782415a6b8255b4a9d243d5780fe751434"
+    },
+    "verify.log": {
+      "bytes": 61,
+      "sha256": "1ad636291ece30b801dd9f0a41c1b6d65e04d85e111660880847e4ae3705f119"
+    }
+  }
+}

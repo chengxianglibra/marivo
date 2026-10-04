@@ -1,4 +1,4 @@
-# R9.1 static evidence index
+# R9 evidence index
 
 Date: 2026-10-04
 
@@ -56,3 +56,16 @@ DS15 also occurs in a status overlay. The corrected assertion checks 55 distinct
 audit targets while retaining every source reference. Its failed log and candidate
 binding are preserved in `matrix-draft-failed.log` and `checks-draft-failed.json`;
 they grant no pass and do not replace the completed checks above.
+
+## R9.2 implementation and source evidence
+
+See the [R9.2 record](2026-10-04-marivo-r92-evidence/README.md) for exact commands,
+per-profile receipts, current candidate freeze, result bindings and the SQLite
+Decimal blocker. The original R9.1 logs and frozen bundle remain historical;
+live `verify` checks must use the current R9.2 freeze directory. Running `verify`
+on the historical bundle against changed source correctly rejects candidate drift.
+
+R9.2 binds 19 profile and 24 type/identity scenarios on the six real backends.
+42 required goals pass; one stays blocked; 351 later goals remain unverified.
+These are basic source qualifications. Method, recovery, SQL closeout and cost
+qualification remain with their work packages.

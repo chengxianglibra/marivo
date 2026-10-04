@@ -1,0 +1,24 @@
+{
+  "candidate_sha256": "573e37daf9635446b42cbbf8a4315b1eb5be534d62a78f63e39a88344de0efe4",
+  "command": [
+    ".venv/bin/pytest",
+    "-q",
+    "--tb=short",
+    "-n",
+    "0",
+    "-m",
+    "runtime",
+    "tests/test_r12_source_adapters_runtime.py",
+    "tests/test_r13_control_boundaries.py",
+    "-k",
+    "trino"
+  ],
+  "exit_code": 0,
+  "finished": "2026-10-04T10:37:52.504634+00:00",
+  "log": "shared-trino-serial.log",
+  "opt_in": [
+    "MARIVO_TRINO_ANALYSIS_TEST=1"
+  ],
+  "sha256": "0774dd51a97abf6de72c939ab2f087e67ac3740d36dfd35235e2df4130b84b2d",
+  "started": "2026-10-04T10:37:46.154858+00:00"
+}

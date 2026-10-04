@@ -3,9 +3,11 @@
 Date: 2026-10-04
 
 Status: R9.1 static handoff implemented; validation is recorded in the
-[R9 evidence index](2026-10-04-marivo-r9-evidence-index.md). R9.2–R9.7 have not
-started. Frozen targets grant no backend, Runtime, performance, installed-package,
-real-Agent or release qualification.
+[R9 evidence index](2026-10-04-marivo-r9-evidence-index.md). R9.2 implementation
+and bounded source evidence are recorded in the
+[R9.2 record](2026-10-04-marivo-r92-evidence/README.md): 42 required scenarios
+passed and SQLite exact Decimal remains blocked. R9.2's full exit is open;
+R9.3–R9.7 have not started. Frozen targets grant no execution qualification.
 
 ## 1. 目标、前置交接与文档权威
 

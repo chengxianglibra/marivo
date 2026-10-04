@@ -1,0 +1,40 @@
+[
+  {
+    "candidate_sha256": "8ee2f5d0b76fd752d024b8c3bc5d37ec8b708c1f067e12889fbf9580e238f2e4",
+    "command": [
+      "make",
+      "test",
+      "TESTS=tests/test_full_algebra_backend_matrix.py tests/test_datasource_adapter_contract.py tests/test_datasource_provider_capabilities.py tests/test_datasource_r16_regressions.py"
+    ],
+    "exit_code": 0,
+    "finished": "2026-10-04T10:40:43.219466+00:00",
+    "log": "accepted-narrow.log",
+    "sha256": "2823b7e5ce20d08a9a81ec3dee67e655c462883ee71d3ea73385bcc4f65cf0a4",
+    "started": "2026-10-04T10:40:24.581130+00:00"
+  },
+  {
+    "candidate_sha256": "8ee2f5d0b76fd752d024b8c3bc5d37ec8b708c1f067e12889fbf9580e238f2e4",
+    "command": [
+      "make",
+      "typecheck",
+      "TYPECHECK_TARGETS=--explicit-package-bases --follow-imports=silent scripts/r92_source_qualification.py tests/r9_source_cases.py tests/test_r92_source_profiles.py marivo/datasource/adapters.py marivo/datasource/backends.py"
+    ],
+    "exit_code": 0,
+    "finished": "2026-10-04T10:40:51.995487+00:00",
+    "log": "accepted-typing.log",
+    "sha256": "e317872697c2cbfdefa321527a6efe73290dff3a390b0fa8723b87092eccba6a",
+    "started": "2026-10-04T10:40:43.468170+00:00"
+  },
+  {
+    "candidate_sha256": "8ee2f5d0b76fd752d024b8c3bc5d37ec8b708c1f067e12889fbf9580e238f2e4",
+    "command": [
+      "make",
+      "check-agent"
+    ],
+    "exit_code": 0,
+    "finished": "2026-10-04T10:42:46.934491+00:00",
+    "log": "accepted-check-agent.log",
+    "sha256": "1e0f5d4966f3669ffd901d85cb6b7ce57782d37790f9bfeadb186e1b1d7ce6de",
+    "started": "2026-10-04T10:40:52.245869+00:00"
+  }
+]

@@ -6,7 +6,7 @@ import subprocess
 import sys
 from collections.abc import Iterator
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import Mock
@@ -488,3 +488,78 @@ def test_join_union_require_explicit_local_engine_qualification(session: SourceS
     else:
         with pytest.raises(DatasourceSourceCapabilityError, match="basic physical requirement"):
             session.qualify(bound, requirement)
+
+
+def test_clickhouse_utc_decode_requires_explicit_schema_authority() -> None:
+    value = datetime(2026, 11, 1, 5, 30, 0, 123456)
+    field = pa.field("instant", pa.timestamp("us", tz="UTC"))
+    result = _exact_array([value], field, backend_name="clickhouse")
+    assert result.to_pylist() == [value.replace(tzinfo=timezone.utc)]
+    for zone in ("America/New_York", "+08:00"):
+        with pytest.raises(DatasourceSourceCapabilityError):
+            _exact_array(
+                [value], pa.field("instant", pa.timestamp("us", tz=zone)), backend_name="clickhouse"
+            )
+    with pytest.raises(DatasourceSourceCapabilityError):
+        _exact_array([value], field, backend_name="postgres")
+
+
+def test_cursor_close_failure_cannot_claim_success(session: SourceSession) -> None:
+    class CloseFailure:
+        def fetchmany(self, size: int) -> list[tuple[object, ...]]:
+            return []
+
+        def close(self) -> None:
+            raise OSError("cursor release failed")
+
+    submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
+    stream = SourceBatchStream(
+        session, CloseFailure(), pa.schema([("value", pa.int64())]), 1, submission
+    )
+    session._streams.add(stream)
+    with pytest.raises(OSError, match="cursor release failed"):
+        list(stream)
+    assert submission.state == "failed"
+    assert submission.cursor_state == "close_failed"
+    assert not session._streams
+
+
+@pytest.mark.parametrize(
+    "backend,driver",
+    [
+        ("postgres", "psycopg"),
+        ("mysql", "MySQLdb"),
+        ("trino", "trino"),
+        ("clickhouse", "clickhouse_connect"),
+    ],
+)
+def test_missing_selected_driver_has_structured_install_repair(backend: str, driver: str) -> None:
+    code = """
+import builtins
+from marivo.datasource.adapters import provider_for
+from marivo.datasource.errors import DatasourceConnectionError
+from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
+original = builtins.__import__
+def reject_driver(name, *args, **kwargs):
+    if name == DRIVER or name.startswith(DRIVER + '.'):
+        raise ModuleNotFoundError('blocked optional driver', name=DRIVER)
+    return original(name, *args, **kwargs)
+builtins.__import__ = reject_driver
+datasource = DatasourceIR(semantic_id='missing', name='missing', backend_type=BACKEND,
+    fields={'host':'127.0.0.1','database':'analysis','catalog':'iceberg','user':'reader'},
+    env_refs={}, ai_context=AiContextIR(), python_symbol='missing',
+    location=DatasourceSourceLocation('missing.py', 1))
+try:
+    provider_for(BACKEND).open(datasource)
+except DatasourceConnectionError as error:
+    assert error.expected and error.received and error.repair
+    assert 'marivo[' + BACKEND + ']' in str(error)
+else:
+    raise AssertionError('Missing selected dependency must fail before connection')
+"""
+    subprocess.run(
+        [sys.executable, "-c", f"BACKEND={backend!r}\nDRIVER={driver!r}\n" + code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )

@@ -12,7 +12,7 @@ from marivo.datasource.engines import (
 from marivo.datasource.engines import (
     require_profile_for_backend_type,
 )
-from marivo.datasource.errors import DatasourceFieldInvalidError, repair
+from marivo.datasource.errors import DatasourceConnectionError, DatasourceFieldInvalidError, repair
 from marivo.datasource.ir import DatasourceIR
 
 
@@ -137,7 +137,20 @@ def _build_backend_from_effective(
         kwargs["timezone"] = "UTC"
     if read_only:
         kwargs = profile.apply_read_only_kwargs(kwargs)
-    backend = profile.connect(datasource.name, kwargs)
+    try:
+        backend = profile.connect(datasource.name, kwargs)
+    except ImportError as exc:
+        raise DatasourceConnectionError(
+            message="The selected datasource driver could not be imported.",
+            expected=f"installed optional dependencies for {profile.name}",
+            received=exc.name or type(exc).__name__,
+            location=f"datasource {datasource.name}",
+            repair=repair(
+                kind="configure",
+                canonical_id="register",
+                action=f"Install marivo[{profile.name}] in the active Python environment and retry the connection.",
+            ),
+        ) from exc
     try:
         if datasource.backend_type == "duckdb":
             install_credentials = profile.http_credentials
