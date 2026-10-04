@@ -12,8 +12,8 @@ Implementation entered on `panda` at
 `b779dcf31dbbfe3fe5ad08cc562bb0ee5bbf05f3` with the dirty R8.1 freeze.
 `.superpowers/r82/baseline.json`, `status.txt`, `unstaged.txt`, `staged.txt` and
 `untracked.txt` preserve entry input/diff hashes. The R8.1 verifier accepted the
-current inputs before product changes. During implementation, the user committed
-the freeze as `ae759a5680`; this implementation has created no commit.
+current inputs before product changes. The R8.1 freeze was then committed as
+`ae759a5680`; no R8.2 implementation commit existed at this baseline.
 
 The historical R8.1 snapshot and compressed inventories remain unchanged.
 The R8.2 subset is exactly the rows whose responsibility is R8.2 and whose
