@@ -18,6 +18,13 @@ if TYPE_CHECKING:
 
 
 MethodName: TypeAlias = Literal[
+    "association.pearson",
+    "association.kendall",
+    "association.read",
+    "forecast.naive",
+    "forecast.drift",
+    "forecast.seasonal_naive",
+    "forecast.read",
     "time.runs",
     "time.runs_read",
     "deviation.zscore",
@@ -164,6 +171,26 @@ class MethodKey:
 
 def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     """Map closed parameter variants to exactly one concrete method identity."""
+    if isinstance(params, rules.AssociationFit):
+        return MethodKey(
+            "association.pearson"
+            if params.method == "pearson"
+            else "association.spearman"
+            if params.method == "spearman"
+            else "association.kendall"
+        )
+    if isinstance(params, rules.AssociationRead):
+        return MethodKey("association.read")
+    if isinstance(params, rules.ForecastFit):
+        return MethodKey(
+            "forecast.naive"
+            if params.model == "naive"
+            else "forecast.drift"
+            if params.model == "drift"
+            else "forecast.seasonal_naive"
+        )
+    if isinstance(params, rules.ForecastRead):
+        return MethodKey("forecast.read")
     if isinstance(params, rules.TimeRuns):
         return MethodKey("time.runs")
     if isinstance(params, rules.TimeRunRead):
@@ -357,6 +384,13 @@ class MethodSemantics:
     def persistent_state_kind(self) -> PersistentStateKind | None:
         """Return the connected durable state kind; absence grants no publication."""
         kinds: dict[MethodName, PersistentStateKind] = {
+            "association.pearson": "none",
+            "association.kendall": "none",
+            "association.read": "none",
+            "forecast.naive": "none",
+            "forecast.drift": "none",
+            "forecast.seasonal_naive": "none",
+            "forecast.read": "none",
             "time.runs": "none",
             "time.runs_read": "none",
             "deviation.zscore": "none",
@@ -443,6 +477,27 @@ class MethodSemantics:
         from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
         name = self.key.name
+        if isinstance(
+            params,
+            (rules.AssociationFit, rules.AssociationRead, rules.ForecastFit, rules.ForecastRead),
+        ):
+            from marivo.analysis.methods.deviation_numeric import unit_type
+            from marivo.analysis.methods.deviation_physical import parse_type
+
+            statistical_type = (
+                ScalarType("float64")
+                if isinstance(params, rules.AssociationFit)
+                else ScalarType("boolean" if params.field == "selected" else "float64")
+                if isinstance(params, rules.AssociationRead)
+                else unit_type(parse_type(params.input_type))
+            )
+            if output != statistical_type:
+                reject(
+                    "owned statistical field carrier",
+                    repr(output),
+                    "Read the original owned field.",
+                )
+            return
         if isinstance(params, (rules.TimeRuns, rules.TimeRunRead)):
             from marivo.analysis.methods.runs_physical import output_type as run_output_type
 
@@ -882,8 +937,10 @@ class MethodSemantics:
             return "time_runs@v1"
         if name.startswith("deviation."):
             return "deviation@v1"
-        if name == "association.spearman":
+        if name.startswith("association."):
             return "association_score@v1"
+        if name.startswith("forecast."):
+            return "forecast@v1"
         if name in (
             "bind_project",
             "metric.distinct",
@@ -910,7 +967,7 @@ class MethodSemantics:
     def cell_policy(
         self,
     ) -> Literal["strict", "count_all", "defined_only", "input_owned", "pair_null"]:
-        if self.key.name == "association.spearman":
+        if self.key.name.startswith("association."):
             return "pair_null"
         if self.key.name == "row.count":
             return "count_all"
@@ -932,7 +989,7 @@ class MethodSemantics:
             return "difference"
         if self.key.name in ("cell.ratio", "cell.relative_change"):
             return "ratio"
-        if self.key.name == "association.spearman":
+        if self.key.name.startswith("association."):
             return "coefficient"
         return "preserve"
 
@@ -960,7 +1017,7 @@ class MethodSemantics:
             return (("undefined", ("empty_" + self.key.name.removeprefix("row."),)),)
         if self.key.name == "bind_project":
             return (("null", ("source_null",)),)
-        if self.key.name == "association.spearman":
+        if self.key.name.startswith("association."):
             return (
                 ("undefined", ("insufficient_pairs", "constant_a", "constant_b", "constant_both")),
             )
@@ -1218,6 +1275,13 @@ class MethodSemantics:
         """Validate exact inputs and apply the sole owning semantic rule."""
         if isinstance(
             params,
+            (rules.AssociationFit, rules.AssociationRead, rules.ForecastFit, rules.ForecastRead),
+        ):
+            from marivo.analysis.core.statistical_rules import derive as derive_statistics
+
+            return derive_statistics(inputs, params)
+        if isinstance(
+            params,
             (
                 rules.FunnelAxesPrepare,
                 rules.FunnelReduce,
@@ -1322,6 +1386,13 @@ class MethodSemantics:
 
 
 CONNECTED_METHODS = (
+    MethodSemantics(MethodKey("association.pearson"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("association.kendall"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("association.read"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("forecast.naive"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("forecast.drift"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("forecast.seasonal_naive"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("forecast.read"), "analysis.core.rules"),
     *(
         MethodSemantics(MethodKey(name), "analysis.core.rules")
         for name in (

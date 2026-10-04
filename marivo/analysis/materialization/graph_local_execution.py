@@ -27,6 +27,8 @@ from marivo.analysis.core.model import (
 from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorRetention,
+    AssociationFit,
+    AssociationRead,
     AttachCategory,
     AttributionDerive,
     CellDerive,
@@ -34,6 +36,8 @@ from marivo.analysis.core.rules import (
     DeviationRead,
     DisplayRank,
     DisplayTable,
+    ForecastFit,
+    ForecastRead,
     FunnelAttribute,
     FunnelCompare,
     FunnelRead,
@@ -611,6 +615,11 @@ def _transport_stage(
             parts.append(prior)
             continue
         if role in (
+            "pair_inputs",
+            "association_state",
+            "training_inputs",
+            "forecast_state",
+            "future_cells",
             "condition_cells",
             "run_cells",
             "fit_inputs",
@@ -822,6 +831,11 @@ def _operand_components(source: ExchangeResult) -> dict[tuple[object, ...], dict
             for row, bound in zip(source.primary.to_pylist(), bounds, strict=True)
         }
     for part in source.parts:
+        if (
+            next(p.key_fields for p in source.contract.parts if p.role == part.role)
+            != source.contract.key_fields
+        ):
+            continue
         for item in part.table.to_pylist():
             key = tuple(item[name] for name in source.contract.key_fields)
             result.setdefault(key, {}).update(item)
@@ -1905,6 +1919,10 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
             if isinstance(
                 stage.stage.node.parameters,
                 (
+                    AssociationFit,
+                    AssociationRead,
+                    ForecastFit,
+                    ForecastRead,
                     TimeRuns,
                     TimeRunRead,
                     DeviationFit,
@@ -1937,6 +1955,13 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
         if (
             name
             not in (
+                "association.pearson",
+                "association.kendall",
+                "association.read",
+                "forecast.naive",
+                "forecast.drift",
+                "forecast.seasonal_naive",
+                "forecast.read",
                 "time.runs",
                 "time.runs_read",
                 "deviation.zscore",
@@ -2094,7 +2119,14 @@ def execute_verified_fixed(
             check for check in lowered.admitted.checks if check.node_id == stage.stage.node.identity
         )
         name = stage.stage.node.method.name
-        if isinstance(stage.stage.node.parameters, (TimeRuns, TimeRunRead)):
+        if isinstance(
+            stage.stage.node.parameters,
+            (AssociationFit, AssociationRead, ForecastFit, ForecastRead),
+        ):
+            from marivo.analysis.materialization.statistical_execution import execute as statistics
+
+            result = statistics(stage.stage.node, values, binding)
+        elif isinstance(stage.stage.node.parameters, (TimeRuns, TimeRunRead)):
             from marivo.analysis.materialization.runs_execution import execute as runs
 
             result = runs(stage.stage.node, values, binding)

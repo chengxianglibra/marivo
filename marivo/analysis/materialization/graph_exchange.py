@@ -21,6 +21,7 @@ from marivo.analysis.core.model import (
     CorrespondencePart,
     DerivedQuantity,
     DisplayPart,
+    GridCellsPart,
     OriginalStatePart,
     RowStatePart,
     Signature,
@@ -113,6 +114,11 @@ class ExchangeContract:
                 not in (
                     "grid_cells",
                     "subject_map",
+                    "pair_inputs",
+                    "association_state",
+                    "training_inputs",
+                    "forecast_state",
+                    "future_cells",
                     "condition_cells",
                     "run_cells",
                     "fit_inputs",
@@ -427,6 +433,11 @@ def collect(
         if declared.role in (
             "condition_cells",
             "run_cells",
+            "pair_inputs",
+            "association_state",
+            "training_inputs",
+            "forecast_state",
+            "future_cells",
             "fit_inputs",
             "fit_state",
             "table_fits",
@@ -447,8 +458,15 @@ def collect(
             run_input = next(
                 (p for p in contract.signature.parts if isinstance(p, ConditionCellsPart)), None
             )
+            original_grid = (
+                next((p for p in contract.signature.parts if isinstance(p, GridCellsPart)), None)
+                if declared.role == "grid_cells"
+                else None
+            )
             expected_keys = (
-                contract.key_fields
+                tuple(f"key_{i}" for i in range(len(original_grid.input_domain.instance_key)))
+                if original_grid is not None
+                else contract.key_fields
                 if run_input is None
                 else tuple(f"key_{i}" for i in range(len(run_input.input_domain.instance_key)))
             )
@@ -572,6 +590,12 @@ def collect(
             )
         ):
             raise _invalid("retained fold kind differs from the declared original quantity")
+    if any(part.role in ("pair_inputs", "training_inputs") for part in parts):
+        from marivo.analysis.materialization.statistical_execution import (
+            validate as validate_statistics,
+        )
+
+        validate_statistics(contract, primary, parts)
     if any(part.role == "condition_cells" for part in parts):
         from marivo.analysis.materialization.runs_execution import validate
 
@@ -734,6 +758,12 @@ def collect(
                 for row in primary.to_pylist()
             ):
                 raise _invalid("canonical History state vector differs from its Subject ledger")
+        elif contract.state_kind == "spearman" and any(p.role == "pair_inputs" for p in parts):
+            if any(
+                states[tuple(row[k] for k in contract.key_fields)] != row["status"]
+                for row in primary.to_pylist()
+            ):
+                raise _invalid("statistical status differs from retained candidate state")
         else:
             _verify_single_state_part(contract, parts, primary, states)
     if any(

@@ -153,6 +153,10 @@ StatisticalErrorCode = Literal[
     "r8.numeric_overflow",
     "r8.retained_part",
     "r8.numeric_precision",
+    "r8.candidate_ceiling",
+    "r8.no_valid_candidate",
+    "r8.forecast_history",
+    "r8.future_grid",
 ]
 
 
@@ -186,6 +190,10 @@ class StatisticalRelationError(AnalysisError):
                     surface="analysis",
                     canonical_id="dsl.NumericComparison.runs"
                     if operation == "runs"
+                    else "dsl.NumericComparison.correlate"
+                    if operation == "correlate"
+                    else "dsl.NumericComparison.forecast"
+                    if operation == "forecast"
                     else "dsl.NumericComparison.deviation",
                 ),
             ),

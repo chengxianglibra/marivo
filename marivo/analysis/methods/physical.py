@@ -254,6 +254,12 @@ class Implementation:
         if self.precision == "certified_statistical" and self.key.method.name not in (
             "deviation.zscore",
             "deviation.mad",
+            "association.pearson",
+            "association.spearman",
+            "association.kendall",
+            "forecast.naive",
+            "forecast.drift",
+            "forecast.seasonal_naive",
         ):
             reject(
                 "a connected statistical numeric certificate",
@@ -278,7 +284,19 @@ class Implementation:
             and self.precision != "exact"
             and not (
                 self.precision == "certified_statistical"
-                and self.key.method.name in ("deviation.zscore", "deviation.mad")
+                and self.key.method.name
+                in (
+                    "deviation.zscore",
+                    "deviation.mad",
+                    "association.pearson",
+                    "association.spearman",
+                    "association.kendall",
+                    "forecast.naive",
+                    "forecast.drift",
+                    "forecast.seasonal_naive",
+                    "forecast.read",
+                    "association.read",
+                )
             )
         ):
             reject(

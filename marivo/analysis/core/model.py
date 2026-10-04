@@ -794,24 +794,97 @@ class TableFitsPart:
 
 
 @dataclass(frozen=True, slots=True)
+class PairInputsPart:
+    binding: Binding
+    input_domain: DomainSignature
+    quantities: tuple[Quantity, ...]
+    input_types: tuple[str, ...]
+    association_id: str
+    method: Literal["pearson", "spearman", "kendall"]
+    lags: tuple[int, ...]
+    explicit_lag: bool
+    input_domains: tuple[DomainSignature, ...]
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class AssociationStatePart:
+    binding: Binding
+    association_id: str
+    view: Literal["result", "coefficient", "selected"] = "result"
+    table_views: tuple[Literal["coefficient", "selected"], ...] = ()
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class TrainingInputsPart:
+    binding: Binding
+    input_domain: DomainSignature
+    quantity: Quantity
+    input_type: str
+    forecast_id: str
+    model: Literal["naive", "drift", "seasonal_naive"]
+    season: int | None
+    level: float
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class ForecastStatePart:
+    binding: Binding
+    forecast_id: str
+    view: Literal["result", "prediction", "lower", "upper"] = "result"
+    table_views: tuple[Literal["prediction", "lower", "upper"], ...] = ()
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class FutureCellsPart:
+    binding: Binding
+    forecast_id: str
+    grid: BoundTimeGrid
+    version: Literal["v1"] = "v1"
+
+
+@dataclass(frozen=True, slots=True)
 class FindingPolicyPart:
     binding: Binding
     producer: Literal[
-        "funnel.compare", "funnel_ratio_mix", "deviation.zscore", "deviation.mad", "time.runs"
+        "funnel.compare",
+        "funnel_ratio_mix",
+        "deviation.zscore",
+        "deviation.mad",
+        "time.runs",
+        "association.pearson",
+        "association.spearman",
+        "association.kendall",
+        "forecast.naive",
+        "forecast.drift",
+        "forecast.seasonal_naive",
     ]
     extractor: Literal[
         "graph.funnel_delta_findings@v1",
         "graph.funnel_contribution_findings@v1",
         "graph.no_findings@v1",
+        "graph.association_findings@v1",
+        "graph.forecast_findings@v1",
     ]
-    policy: Literal["bounded_algebraic_findings@v1", "zero_findings@v1"] = (
-        "bounded_algebraic_findings@v1"
-    )
+    policy: Literal[
+        "bounded_algebraic_findings@v1",
+        "zero_findings@v1",
+        "bounded_descriptive_findings@v1",
+        "bounded_prediction_findings@v1",
+    ] = "bounded_algebraic_findings@v1"
     version: Literal["v1"] = "v1"
 
 
 Part: TypeAlias = (
-    ConditionCellsPart
+    PairInputsPart
+    | AssociationStatePart
+    | TrainingInputsPart
+    | ForecastStatePart
+    | FutureCellsPart
+    | ConditionCellsPart
     | RunCellsPart
     | FitInputsPart
     | FitStatePart
@@ -847,6 +920,11 @@ Part: TypeAlias = (
     | PairCountsPart
 )
 PartRole: TypeAlias = Literal[
+    "pair_inputs",
+    "association_state",
+    "training_inputs",
+    "forecast_state",
+    "future_cells",
     "condition_cells",
     "run_cells",
     "fit_inputs",
@@ -894,6 +972,16 @@ PartRole: TypeAlias = Literal[
 
 
 def part_role(part: Part) -> PartRole:
+    if isinstance(part, PairInputsPart):
+        return "pair_inputs"
+    if isinstance(part, AssociationStatePart):
+        return "association_state"
+    if isinstance(part, TrainingInputsPart):
+        return "training_inputs"
+    if isinstance(part, ForecastStatePart):
+        return "forecast_state"
+    if isinstance(part, FutureCellsPart):
+        return "future_cells"
     if isinstance(part, ConditionCellsPart):
         return "condition_cells"
     if isinstance(part, RunCellsPart):
@@ -956,6 +1044,20 @@ def part_role(part: Part) -> PartRole:
 
 
 def validate_part(part: Part) -> None:
+    if isinstance(
+        part,
+        (
+            PairInputsPart,
+            AssociationStatePart,
+            TrainingInputsPart,
+            ForecastStatePart,
+            FutureCellsPart,
+        ),
+    ):
+        from marivo.analysis.core.statistical_rules import validate
+
+        validate(part)
+        return
     if isinstance(part, (ConditionCellsPart, RunCellsPart)):
         if not part.run_id or part.version != "v1":
             reject(

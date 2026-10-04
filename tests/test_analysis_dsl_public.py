@@ -418,13 +418,20 @@ def test_public_j4_spearman_and_fixed_coefficient_selection(
     association = revenue.correlate(count, method="spearman").execute()
     assert association.contract().actions == (
         mv.AnalysisAction("relation.coefficient", "analysis.MaterializedCoefficientRelation"),
+        mv.AnalysisAction("relation.selected", "analysis.MaterializedBooleanRelation"),
+        mv.AnalysisAction(
+            "relation.where(predicate)", "analysis.dsl.MaterializedAssociationResult.where"
+        ),
     )
     coefficient = association.coefficient
     selected = coefficient.where(coefficient.value.lt(0)).execute()
 
     assert association.to_pandas().iloc[0]["coefficient"] == pytest.approx(-0.4)
     assert association.to_pandas().iloc[0]["complete_pair_count"] == 4
-    assert selected.to_pandas().iloc[0]["coefficient"] == pytest.approx(-0.4)
+    assert selected.to_pandas().iloc[0]["value"] == pytest.approx(-0.4)
+    assert coefficient.summarize(mv.mean()).execute().to_pandas().value.iloc[0] == pytest.approx(
+        -0.4
+    )
     import marivo.semantic.catalog as catalog
     from marivo.datasource.runtime import DatasourceConnectionService
 
@@ -481,7 +488,7 @@ def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
 
     assert association_frame.iloc[0]["coefficient"] == pytest.approx(-0.4)
     assert association_frame.iloc[0]["complete_pair_count"] == 4
-    assert selected_frame.iloc[0]["coefficient"] == pytest.approx(-0.4)
+    assert selected_frame.iloc[0]["value"] == pytest.approx(-0.4)
 
 
 @pytest.mark.runtime

@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, fields, is_dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TypeAlias
 
 from pydantic import TypeAdapter
 
+from marivo._temporal import (
+    ContainmentRecord,
+    CorrespondenceRecord,
+    PeriodCalendarSnapshotV1,
+    PeriodRecord,
+)
 from marivo.analysis.anchors import AnyAnchor, CalendarWindow, Duration, ElapsedWindow, EveryAnchor
 from marivo.analysis.compiler.graph_plan import GraphPlan, LocalMethodStage, SourceMethodStage
 from marivo.analysis.core import history_types
@@ -59,6 +65,11 @@ _CAPTURE_WIRE: TypeAdapter[EntryAxisCapture | EventCapture | OrderCapture | Stat
 )
 
 _WIRE_TAGS: dict[type[object], str] = {
+    core_model.PairInputsPart: "r8_pair_inputs_part",
+    core_model.AssociationStatePart: "r8_association_state_part",
+    core_model.TrainingInputsPart: "r8_training_inputs_part",
+    core_model.ForecastStatePart: "r8_forecast_state_part",
+    core_model.FutureCellsPart: "r8_future_cells_part",
     core_model.ConditionCellsPart: "r8_condition_cells_part",
     core_model.RunCellsPart: "r8_run_cells_part",
     core_model.FitInputsPart: "r8_fit_inputs_part",
@@ -95,6 +106,10 @@ _WIRE_TAGS: dict[type[object], str] = {
     core_model.JourneyPart: "journey_part",
     core_model.OccurrencePart: "occurrence_part",
     core_model.AttributionPart: "attribution_part",
+    PeriodCalendarSnapshotV1: "calendar_snapshot",
+    PeriodRecord: "calendar_period",
+    ContainmentRecord: "calendar_containment",
+    CorrespondenceRecord: "calendar_correspondence",
     BoundTimeGrid: "time_grid",
     CumulativeBinding: "cumulative_binding",
     EndpointWindow: "endpoint_window",
@@ -179,6 +194,8 @@ def _wire(value: object) -> _CanonicalValue:
         if value.utcoffset() is None:
             raise _key_error("an aware frozen time boundary", "naive datetime")
         return ("instant", value.isoformat())
+    if type(value) is date:
+        return ("date", value.isoformat())
     if isinstance(value, Decimal):
         return ("decimal", str(value))
     if type(value) is Ref:

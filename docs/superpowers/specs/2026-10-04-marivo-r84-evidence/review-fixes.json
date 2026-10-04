@@ -1,0 +1,94 @@
+{
+  "review_baseline": {
+    "base": "61915fd5405a5811056fb7f243decc9ecc67478d",
+    "branch": "panda",
+    "files": 77,
+    "content_sha256": "d27bd489907208e69b048b1d96f6a18041515c719de5a0f1a26be403ab4435a6",
+    "staged": []
+  },
+  "fixes": [
+    {
+      "finding": "P1 statistical rank projections and rank tables drop authority",
+      "status": "fixed",
+      "regression": "test_statistical_rank_projection_and_tables; source/fixed, source offline, table recovery, Findings and corruption"
+    },
+    {
+      "finding": "P2 unused DST lookahead rejects valid forecast horizon",
+      "status": "fixed",
+      "regression": "test_future_grid_uses_actual_dst_boundaries; six hourly/minute cases including gaps and folds"
+    },
+    {
+      "finding": "P2 quadratic Spearman frozen rank verification",
+      "status": "fixed",
+      "regression": "test_rank_witness_ties_corruption_and_subquadratic_work; 256 tied values, fewer than 5120 comparisons and three corrupt witnesses"
+    }
+  ],
+  "commands": [
+    {
+      "command": "make test TESTS='tests/test_analysis_statistics_review_r84.py tests/test_analysis_statistics_kernel_r84.py tests/test_analysis_statistics_evidence_r84.py'",
+      "exit_code": 0,
+      "status": "passed",
+      "result": "63 passed",
+      "log": "logs/review-narrow.txt",
+      "log_sha256": "1626528d8b7ae4ae15a68cc8d9f712ae0be4fb06c68407d4c2b927f552fe5b85"
+    },
+    {
+      "command": ".venv/bin/mypy --explicit-package-bases --python-version 3.10 --follow-imports=silent tests/test_analysis_statistics_review_r84.py",
+      "exit_code": 0,
+      "status": "passed",
+      "result": "New regression module typed",
+      "log": "logs/review-types3.txt",
+      "log_sha256": "5d4b6d285b77932e3d08212c3b4974d0a803f98ec60408ac6ccf6a063fa6c19e"
+    },
+    {
+      "command": "make lint-agent",
+      "exit_code": 0,
+      "status": "passed",
+      "result": "Formatting, lint and import contracts passed",
+      "log": "logs/review-lint.txt",
+      "log_sha256": "e46f8e5e86f17eb3673b8d515997df81cf7e51d19770230bb7949eff18c53f17"
+    },
+    {
+      "command": "make check-agent",
+      "exit_code": 0,
+      "status": "passed",
+      "result": "6097 passed, 5 skipped; 439 modules typed; lint, import contracts and API docs passed",
+      "log": "logs/review-check.txt",
+      "log_sha256": "13a4b9442d583f42cdfb8edb181f68327527e2da61aa1e7cb9cdd254b70afff8"
+    },
+    {
+      "command": "make runtime-test TESTS='tests/test_analysis_statistics_review_r84.py tests/test_analysis_statistics_r84.py tests/test_analysis_statistics_faults_r84.py'",
+      "exit_code": 0,
+      "status": "passed",
+      "result": "25 passed including statistical producer/fixed/cold processes",
+      "log": "logs/review-runtime2.txt",
+      "log_sha256": "0918a005373f20668aad93f342b801424b10ff365705c2706c868a2edfe2071e"
+    },
+    {
+      "command": "make runtime-test TESTS='tests/test_analysis_statistics_review_r84.py tests/test_analysis_deviation_display_r82.py' PYTEST_ARGS='-k rank'",
+      "exit_code": 0,
+      "status": "passed",
+      "result": "28 passed; PYTEST_ARGS is unused by runtime-test, so the full named modules ran",
+      "log": "logs/review-shared.txt",
+      "log_sha256": "4b03c56a9d858b74467cba111144a91e9ddd283ac2d8099f77d46346e591093f"
+    }
+  ],
+  "tested_files": {
+    "marivo/analysis/core/deviation_rules.py": "48bb9f93644615170c8ba3c331695a9d80fe2ac4ccc3bc56dadf2068853f0c98",
+    "marivo/analysis/core/statistical_rules.py": "1df88a7087bc300a2654af88400308a9857d2faeaa32c89eaea2cdd9a9bb397d",
+    "marivo/analysis/core/time_grid.py": "73e0dee7ab033fbee5c82a45c57d853d8df3901e657aaef94678b820edbc1089",
+    "marivo/analysis/materialization/deviation_execution.py": "c098a0596e2700a2fb0173e6ea2ead81c65592b678a4dac2b85a0267f33ba7f1",
+    "marivo/analysis/materialization/graph_display.py": "02c970a11e84e9a4b27163abd9428072fe178ac2b802c626750aba0ed035478c",
+    "marivo/analysis/materialization/statistical_execution.py": "ab57b4e3d4f410f46222afe2ab84a4b9a7e813eb26dd8d84186a43f0a45bb91c",
+    "tests/test_analysis_statistics_review_r84.py": "579850a154f2c691b8a1f387d34ddd420c44e5af13317ce72d41e28bc766a549"
+  },
+  "mandatory_ids": {
+    "total": 35662,
+    "passed": 18,
+    "failed": 0,
+    "blocked": 256,
+    "skipped": 0,
+    "unverified": 35388
+  },
+  "boundary": "Source-tree bounded repair evidence. No new requirement ID qualification, release gate, wheel or real-Agent acceptance. No commit or push; staged set remains empty."
+}

@@ -11,6 +11,8 @@ from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorObserve,
     AnchorRetention,
+    AssociationFit,
+    AssociationRead,
     AssociationScore,
     AttachCategory,
     AttributionDerive,
@@ -21,6 +23,8 @@ from marivo.analysis.core.rules import (
     DeviationRead,
     DisplayRank,
     DisplayTable,
+    ForecastFit,
+    ForecastRead,
     FunnelAttribute,
     FunnelAxesPrepare,
     FunnelCompare,
@@ -70,6 +74,11 @@ from marivo.analysis.methods.physical import (
 from marivo.analysis.methods.semantics import MethodKey
 
 PARTS: tuple[PartRole, ...] = (
+    "pair_inputs",
+    "association_state",
+    "training_inputs",
+    "forecast_state",
+    "future_cells",
     "condition_cells",
     "run_cells",
     "fit_inputs",
@@ -889,6 +898,14 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
 @cache
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     """Version typed folds and once-rounded numeric consumers in Store 7."""
+    if method.name.startswith(("association.", "forecast.")):
+        from marivo.analysis.methods.statistical_physical import implementations as statistics
+
+        return statistics(method) + (
+            tuple(i for i in _implementations(method) if i.key.route == "ibis")
+            if method.name == "association.spearman"
+            else ()
+        )
     if method.name in ("time.runs", "time.runs_read"):
         from marivo.analysis.methods.runs_physical import implementations as runs
 
@@ -1167,6 +1184,13 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
         from marivo.analysis.methods.runs_physical import specialize
 
         return specialize(implementation, key)
+    if (
+        key.method.name.startswith(("association.", "forecast."))
+        and implementation.key.route != "ibis"
+    ):
+        from marivo.analysis.methods.statistical_physical import specialize
+
+        return specialize(implementation, key)
     if key.method.name.startswith("deviation."):
         from marivo.analysis.methods.deviation_physical import specialize
 
@@ -1439,6 +1463,10 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
     if isinstance(
         params,
         (
+            AssociationFit,
+            AssociationRead,
+            ForecastFit,
+            ForecastRead,
             TimeRuns,
             TimeRunRead,
             DeviationFit,

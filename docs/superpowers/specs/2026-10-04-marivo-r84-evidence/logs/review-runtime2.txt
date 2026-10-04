@@ -1,0 +1,16 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.13, pytest-9.0.3, pluggy-1.6.0
+rootdir: /Users/lichengxiang/source/oss/marivo
+configfile: pytest.ini
+plugins: cov-7.1.0, xdist-3.8.0
+created: 2/2 workers
+2 workers [25 items]
+
+.........................                                                [100%]
+=============================== warnings summary ===============================
+tests/test_analysis_statistics_r84.py::test_lag_counts_ties_and_approved_future[True]
+  /Users/lichengxiang/source/oss/marivo/tests/deviation_r82_fixture.py:129: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.
+    calendar_table = db.execute("SELECT * FROM calendar").fetch_arrow_table()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================== 25 passed, 1 warning in 453.77s (0:07:33) ===================

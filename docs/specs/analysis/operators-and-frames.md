@@ -1463,8 +1463,10 @@ input types, widened state and declared rounded outputs. It is distinct from
 the existing exact, checked_int64 and finite_float64 variants. Extending this
 closed variant must not weaken the existing Decimal-exact admission for other
 methods; time.runs keeps exact classification/tick facts with checked counts.
-Current physical declarations cannot yet express this statistical certificate;
-the exact R8 Decimal/transcendental routes remain pending R8.2/R8.4 connection.
+The connected R8.2/R8.4 local declarations now express this statistical certificate
+with exact ordered carriers. Their bounded qualification and remaining native,
+origin, key and scenario requirements are recorded in the separate phase indexes;
+registration does not grant full matrix acceptance.
 
 Independent oracles use original integers/Decimals/binary64 ratios, sorted order
 statistics, centered rational sums, pair counts and the model equations below.
@@ -1532,6 +1534,8 @@ nonfinite Defined, duplicate keys or malformed domains fail atomically.
 For complete pairs x,y, Pearson is Sxy/sqrt(Sxx*Syy), where Sxy is the centered
 cross-product sum and Sxx/Syy are centered square sums. Spearman is this Pearson
 formula on globally assigned average ranks of each complete paired vector.
+Frozen Spearman witnesses are validated by one ordered tie-block scan after
+sorting, in O(n log n) comparisons, without calling the rank estimator.
 Kendall tau-b is (C-D)/sqrt((C+D+T_x)*(C+D+T_y)); C/D count concordant/discordant
 unordered observation pairs, T_x/T_y count ties in only that endpoint, and pairs
 tied in both are excluded from both factors. Batch-local ranks/coefficient merges
@@ -1601,6 +1605,13 @@ Prediction is ModelPrediction; bounds are PredictionIntervalBound. Their domain
 is the same captured future grid. where synchronizes the three views while
 retaining original training authority; prediction rank/table and current-row
 descriptive statistics do not authorize summing bounds into a total interval.
+Association and forecast rank projections retain their original statistical
+parts and Finding policy. Same-scope tables containing those ranks capture each column
+and its display witnesses through `table_fits`; rank values are verified by
+the display owner, not interpreted as coefficients or predictions. Builtin
+future-grid lookahead uses absolute instants and enumerates actual civil
+boundaries, including repeated and skipped DST boundaries; unused lookahead
+must not reject an otherwise complete requested horizon.
 Assumption contract is zero_mean_uncorrelated_homoskedastic_normal_innovations@v1,
 with drift mean-increment estimation uncertainty. These are nominal prediction
 intervals for future observations, not mean confidence intervals, empirical

@@ -42,17 +42,23 @@ from marivo.analysis.core.model import (
     FunnelPart,
     HistoryViewPart,
     InstanceRetentionPart,
+    PairInputsPart,
     RunCellsPart,
     SubjectPart,
     SubjectRetentionPart,
+    TrainingInputsPart,
 )
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorObserve,
     AnchorRetention,
+    AssociationFit,
+    AssociationRead,
     BindProject,
     DeviationFit,
+    ForecastFit,
+    ForecastRead,
     MapCorrespond,
     PartsTransport,
     PreparedObservation,
@@ -522,6 +528,8 @@ class MemberGraph:
                             (
                                 ConditionCellsPart,
                                 RunCellsPart,
+                                PairInputsPart,
+                                TrainingInputsPart,
                                 FitInputsPart,
                                 FunnelPart,
                                 FunnelComparisonPart,
@@ -544,9 +552,26 @@ class MemberGraph:
                             )
                         )
                     )
-                    or isinstance(node.parameters, (RetentionBySubject, PreparedObservation))
+                    or isinstance(
+                        node.parameters,
+                        (
+                            AssociationFit,
+                            AssociationRead,
+                            ForecastFit,
+                            ForecastRead,
+                            RetentionBySubject,
+                            PreparedObservation,
+                        ),
+                    )
                     or node.method.name
                     in (
+                        "association.pearson",
+                        "association.kendall",
+                        "association.read",
+                        "forecast.naive",
+                        "forecast.drift",
+                        "forecast.seasonal_naive",
+                        "forecast.read",
                         "time.runs",
                         "time.runs_read",
                         "deviation.zscore",

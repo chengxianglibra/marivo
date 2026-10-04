@@ -25,8 +25,14 @@ _METHOD_GROUPS = {
     ("_MaterializedRead", "evidence_digest"): "artifacts.reads",
     ("_MaterializedRead", "findings"): "artifacts.reads",
     ("_MaterializedRead", "finding"): "artifacts.reads",
+    ("_OriginalContinuation", "group_by"): "methods.metric.reduce",
+    ("_OriginalContinuation", "rollup"): "methods.metric.reduce",
+    ("_OriginalContinuation", "summarize"): "methods.metric.summary",
     ("_NumericComparison", "rank"): "methods.rows",
+    ("_NumericComparison", "runs"): "methods.rows",
     ("_NumericComparison", "deviation"): "methods.rows",
+    ("_NumericComparison", "correlate"): "methods.association",
+    ("_NumericComparison", "forecast"): "methods.forecast",
     ("_AnchorDomain", "retention"): "methods.events",
     ("_InstanceRetention", "by_subject"): "methods.events",
     ("_Retention", "known_true"): "methods.events",
@@ -104,7 +110,12 @@ _INPUT_GUIDANCE = {
     "design": "Use mv.TimeChange(), mv.CohortContrast(), or mv.PeriodChange(alignment=mv.window_bucket()).",
     "pairing": "Use mv.ExactKeys() or an exact-node-bound mv.one_to_one(...) for ratio; comparison designs also accept mv.UnionKeys(missing=...).",
     "value": "Choose difference or relative_change; zero baselines remain Undefined.",
-    "other": "Use another Metric observation on the same members and time scope.",
+    "other": "Use another numeric quantity on the same complete observation domain.",
+    "others": "Pass 1..15 distinct corresponding NumericRelations; request order defines signed lag direction.",
+    "lag_range": "Use None for zero lag, or a nonempty range on the original complete time grid; +k pairs left(t) with right(t+k).",
+    "horizon": "Use mv.periods(1..1000) with an approved future continuation.",
+    "model": "Use mv.naive(), mv.drift() or mv.seasonal_naive(periods=s).",
+    "interval_level": "Use a finite float strictly between zero and one for nominal prediction intervals.",
     "method": "Use one closed mv.sum/count/count_defined/min/max/mean() value or the stated method literal.",
     "predicate": "Build a predicate from this receiver or an exactly corresponding numeric relation.",
     "max_output_bytes": "Keep the default bound or request a smaller positive byte limit.",
@@ -211,6 +222,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.GridWindow,
         dsl.GridEndpoint,
         dsl.LogicalAssociationResult,
+        dsl.LogicalForecastResult,
+        dsl.MaterializedForecastResult,
+        dsl.LogicalCoefficientRelation,
         dsl.LogicalCategoryRelation,
         dsl.LogicalBooleanRelation,
         dsl.MaterializedBooleanRelation,
@@ -308,6 +322,11 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             dsl.LogicalTimeRunResult: "daily.runs(where=daily.value.gt(20))",
             dsl.MaterializedTimeRunResult: "segments.execute()",
             dsl.LogicalDeviationResult: 'change.deviation(method="mad")',
+            dsl.LogicalAssociationResult: "current.correlate(count)",
+            dsl.MaterializedAssociationResult: "association.execute()",
+            dsl.LogicalForecastResult: "daily.forecast(horizon=mv.periods(2))",
+            dsl.MaterializedForecastResult: "forecast.execute()",
+            dsl.LogicalCoefficientRelation: "association.coefficient",
             dsl.MaterializedDeviationResult: "scored.execute()",
             dsl.MaterializedAttributionResult: "attribution.execute()",
             dsl.LogicalRankingResult: 'values.rank(order="descending", ties="dense")',
@@ -417,6 +436,10 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             producers = ("dsl.duration",)
         elif type_value is dsl.LogicalTimeRunResult:
             producers = ("dsl.NumericComparison.runs",)
+        elif type_value is dsl.LogicalAssociationResult:
+            producers = ("dsl.NumericComparison.correlate",)
+        elif type_value is dsl.LogicalForecastResult:
+            producers = ("dsl.NumericComparison.forecast",)
         elif type_value is dsl.LogicalDeviationResult:
             producers = ("dsl.NumericComparison.deviation",)
         elif type_value is windows.ElapsedWindow:
@@ -448,6 +471,25 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 acquisition=acquisition,
                 producers=("session.artifact",) if name.startswith("Materialized") else producers,
                 consumers=(
+                    "dsl.LogicalAssociationResult.where",
+                    "dsl.LogicalAssociationResult.execute",
+                    "LogicalCoefficientRelation",
+                    "dsl.Value.contract",
+                )
+                if type_value in (dsl.LogicalAssociationResult, dsl.MaterializedAssociationResult)
+                else (
+                    "dsl.LogicalForecastResult.where",
+                    "dsl.LogicalForecastResult.execute",
+                    "dsl.Value.contract",
+                )
+                if type_value in (dsl.LogicalForecastResult, dsl.MaterializedForecastResult)
+                else (
+                    "dsl.LogicalCoefficientRelation.where",
+                    "dsl.LogicalCoefficientRelation.execute",
+                    "dsl.Value.contract",
+                )
+                if type_value is dsl.LogicalCoefficientRelation
+                else (
                     "dsl.LogicalTimeRunResult.where",
                     "dsl.LogicalTimeRunResult.execute",
                     "dsl.Value.contract",

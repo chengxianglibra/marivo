@@ -19,11 +19,13 @@ from marivo.analysis.core.model import (
     FitInputsPart,
     FitStatePart,
     GridCellsPart,
+    PairInputsPart,
     PartRole,
     Signature,
     SubjectMapPart,
     SubjectPart,
     TableFitsPart,
+    TrainingInputsPart,
     part_role,
 )
 from marivo.analysis.core.rules import DeviationFit, DeviationRead
@@ -186,7 +188,18 @@ def validate_table_fits(
     contract: ExchangeContract, primary: pa.Table, parts: tuple[ExchangePart, ...]
 ) -> None:
     declaration = next(p for p in contract.signature.parts if isinstance(p, TableFitsPart))
-    fit = next(p for p in declaration.columns[0].signature.parts if isinstance(p, FitInputsPart))
+    fit = next(
+        p
+        for p in declaration.columns[0].signature.parts
+        if isinstance(p, (FitInputsPart, PairInputsPart, TrainingInputsPart))
+    )
+    method, identity = (
+        (f"deviation.{fit.method}@v1", fit.fit_id)
+        if isinstance(fit, FitInputsPart)
+        else (f"association.{fit.method}@v1", fit.association_id)
+        if isinstance(fit, PairInputsPart)
+        else (f"forecast.{fit.model}@v1", fit.forecast_id)
+    )
     try:
         payload = next(p.table for p in parts if p.role == "table_fits")["table_fits__retained"][
             0
@@ -242,8 +255,8 @@ def validate_table_fits(
         raise StatisticalRelationError(
             code="r8.retained_part",
             operation="recover",
-            method=f"deviation.{fit.method}@v1",
-            input_identity=fit.fit_id,
+            method=method,
+            input_identity=identity,
             expected="all fitted table columns, original parts and exact current value bindings",
             received=str(error),
             repair="Restore the original table_fits part and column receipts; otherwise execute the original source table in a new Run.",
