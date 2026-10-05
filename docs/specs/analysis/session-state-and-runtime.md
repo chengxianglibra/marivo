@@ -1123,6 +1123,22 @@ complete. Schema, type/overflow, identity and completeness checks remain method
 correctness conditions; Finding caps and protocol-envelope limits remain their
 own contracts rather than execution quotas.
 
+MySQL source graphs prepare a separate same-datasource control connection before
+business submission. The approved provider statement cancels only the still-owned
+native data connection ID; its parameter and purpose are closed. Control setup
+and requests have one-second native connection/read/write bounds and checkpoint
+the shared execution budget. Cancellation also shuts down the owned data socket,
+then owner-thread cleanup waits for control work before closing cursors and both
+connections. Control errors do not establish remote termination: receipts retain
+`remote_unknown`, and a control-close error prevents successful publication.
+The Run reserves `mysql_owned_control_close@v1` before control creation and only
+discharges it after confirmed owner release. Unconfirmed creation/close retains
+the obligation and an incomplete Run; reconciliation raises a typed pending error
+instead of assuming that a read-only control was released. It never targets a
+connection from a later session. Bounded native tests cover cancelled graph
+atomicity and pending control-close recovery; formal backend qualification still
+requires a frozen candidate and its complete required scenarios.
+
 Store generation remains 7. The existing graph-dag-v1 document envelope and
 continuation/execution-key v2 envelopes carry the new closed method/state/part
 variants, with their explicit v1 contracts. No structural envelope rewrite or
@@ -1244,6 +1260,14 @@ awaits its owning phase. Detailed validation and physical requirement statuses a
 in the R7.4 evidence index; later phases, same-wheel and remote qualification remain separate.
 
 ### R7.5 canonical History publication
+
+The bounded R9.3 SQLite native main-table int64/UTC-us route prepares occurrences
+from one driver-owned temporary database backup before canonical replay. The same
+captured prefix feeds unclassified History views and typed field reads. Source
+coverage remains explicit: complete, prefix and unknown origin are distinct.
+Fixed and cold consumers verify retained state without reopening the source or
+the temporary backup. Other shapes and classified checkpoint axes are not
+qualified by this route; complete capability-family acceptance remains separate.
 
 `history.replay@v1` publishes `canonical_history` with one closed `HistoryPart@v1`
 row for every complete Subject key. Primary classification/inception/known-through
@@ -1617,3 +1641,12 @@ classification scope, interval mapping and termination witnesses. Required parts
 are receipt-bound. Fixed projections and cold recovery validate retained facts
 without loading current Semantic state, calendars or sources. Selection only
 changes output keys; the original scope remains available in `contract()`.
+
+
+Business-covered full-grid sums retain one quantity-bound coverage part containing
+both actual read completeness and the explicit business window union. Partial
+Cells and original additive components are integrity support, never an alternate
+public complete observation. Runtime publication and cold reads validate both
+layers; unavailable business Cells cannot be coarsened through original rollup.
+The declaration is frozen into the graph/quantity identity. Ordinary acquisitions
+and independent remote reads retain their existing consistency contract.

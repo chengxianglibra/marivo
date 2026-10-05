@@ -25,6 +25,7 @@ from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import (
     ConditionCellsPart,
     CoordinateStatePart,
+    CoveragePart,
     FitInputsPart,
     FunnelAllocationPart,
     FunnelComparisonPart,
@@ -44,6 +45,8 @@ from marivo.analysis.core.rules import (
     AnchorRetention,
     AssociationFit,
     AssociationRead,
+    AttributionDerive,
+    CellDerive,
     DeviationFit,
     DeviationRead,
     DisplayRank,
@@ -66,6 +69,7 @@ from marivo.analysis.core.rules import (
     MapCorrespond,
     ObserveCount,
     OccurrencePrepare,
+    OriginalReduce,
     PartsTransport,
     PreparedObservation,
     RetentionBySubject,
@@ -80,7 +84,7 @@ from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import CompletedCheck, ExchangeResult
 from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.methods.domain_coverage import FACTS, coverage
-from marivo.analysis.methods.physical import TimeShape, arrow_scalar_type
+from marivo.analysis.methods.physical import Qualified, SourceShape, TimeShape, arrow_scalar_type
 from marivo.analysis.methods.prepared_observation import Restriction, restrict, state
 from marivo.datasource.adapters import SourceSession
 from marivo.refs import ref
@@ -395,6 +399,13 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 ),
             )
             or (
+                isinstance(
+                    item.stage.node.parameters, (OriginalReduce, CellDerive, AttributionDerive)
+                )
+                and isinstance(item.stage.implementation.qualification, Qualified)
+                and item.stage.implementation.qualification.implementation_id.startswith("r93.c09.")
+            )
+            or (
                 isinstance(item.stage.node.parameters, RowState)
                 and isinstance(item.stage.node.inputs[0].node, MethodNode)
                 and isinstance(item.stage.node.inputs[0].node.parameters, PreparedObservation)
@@ -418,6 +429,16 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 )
                 for e in item.stage.node.inputs
                 for p in e.node.signature.parts
+            )
+            or (
+                isinstance(item.stage.node.parameters, PartsTransport)
+                and (
+                    item.stage.node.parameters.mode == "business_coverage"
+                    or any(
+                        isinstance(p, CoveragePart) and p.business_windows is not None
+                        for p in item.stage.node.inputs[0].node.signature.parts
+                    )
+                )
             )
             or (
                 isinstance(item.stage.node.parameters, PartsTransport)
@@ -613,10 +634,23 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
         elif isinstance(params, AnchorObserve):
             from marivo.analysis.materialization.anchor_execution import observe as observe_anchor
 
+            candidates = tables[item.stage.inputs[1]]
+            if (
+                isinstance(item.stage.implementation.key.shape, SourceShape)
+                and item.stage.implementation.key.shape.backend != "duckdb"
+            ):
+                candidates = pa.Table.from_arrays(
+                    [
+                        pa.array(
+                            [candidates.to_pylist()], type=pa.list_(pa.struct(candidates.schema))
+                        )
+                    ],
+                    names=["uses_0"],
+                )
             results[item.stage.output] = observe_anchor(
                 item.stage.node,
                 results[item.stage.inputs[0]],
-                tables[item.stage.inputs[1]],
+                candidates,
                 item.stage.node.identity,
             )
         elif isinstance(params, (HistoryView, HistoryRead)):
@@ -700,6 +734,91 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 item.stage.node.identity,
                 tuple(results[key] for key in item.stage.inputs[1:]),
             )
+        elif isinstance(params, (OriginalReduce, CellDerive, AttributionDerive)):
+            from marivo.analysis.materialization.graph_local_execution import (
+                _coordinate_rollup_stage,
+                _difference_stage,
+                _original_ratio_rollup_stage,
+                _original_sum_stage,
+            )
+
+            values = tuple(results[key] for key in item.stage.inputs)
+            input_digest = hashlib.sha256()
+            for value in values:
+                input_digest.update(value.primary.schema.serialize().to_pybytes())
+                input_digest.update(repr(value.primary.to_pylist()).encode())
+                for part in value.parts:
+                    input_digest.update(part.role.encode())
+                    input_digest.update(part.table.schema.serialize().to_pybytes())
+                    input_digest.update(repr(part.table.to_pylist()).encode())
+            receipt_hash = input_digest.hexdigest()
+            owned = tuple(
+                c for c in prepared.admitted.checks if c.node_id == item.stage.node.identity
+            )
+            if isinstance(params, OriginalReduce):
+                if params.coordinates:
+                    result = _coordinate_rollup_stage(item, values[0], item.stage.node.identity)
+                elif params.method == "mean":
+                    result = _original_ratio_rollup_stage(item, values[0], item.stage.node.identity)
+                else:
+                    result = _original_sum_stage(item, values[0], item.stage.node.identity)
+            elif isinstance(params, CellDerive):
+                result = _difference_stage(
+                    item,
+                    (values[0], values[1]),
+                    receipt_hash,
+                    item.stage.node.identity,
+                    tuple(
+                        c
+                        for c in owned
+                        if c.obligation.check_id
+                        in (
+                            "source.unique_key@v1",
+                            "source.exact_pairing@v1",
+                            "source.finite_numeric@v1",
+                        )
+                    ),
+                )
+            else:
+                from marivo.analysis.materialization.graph_attribution import fixed
+
+                result = fixed(item.stage.node, values, item.stage.node.identity)
+            completed.extend(result.completed_checks)
+            for requirement in owned:
+                if any(proof.requirement == requirement for proof in completed):
+                    continue
+                prior = next(
+                    (
+                        proof
+                        for proof in completed
+                        if proof.requirement.obligation == requirement.obligation
+                    ),
+                    None,
+                )
+                if (
+                    prior is None
+                    and isinstance(params, OriginalReduce)
+                    and requirement.obligation.fact in item.stage.node.derivation.pre
+                    and requirement.obligation.check_id
+                    in ("source.contribution_partition@v1", "source.complete_coverage@v1")
+                ):
+                    proof_digest = hashlib.sha256(
+                        result.primary.schema.serialize().to_pybytes()
+                        + repr(
+                            [(part.role, part.table.to_pylist()) for part in result.parts]
+                        ).encode()
+                    ).hexdigest()
+                    completed.append(CompletedCheck(requirement, proof_digest))
+                    continue
+                if prior is None:
+                    fail(
+                        "input_binding",
+                        "C09 local consumer lacks its completed predecessor check: "
+                        + requirement.obligation.check_id,
+                        stage="consume",
+                    )
+                completed.append(CompletedCheck(requirement, prior.result_digest))
+            results[item.stage.output] = result
         elif isinstance(params, RowState):
             owned_check = (
                 "source.cell_policy@v1"

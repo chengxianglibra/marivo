@@ -264,6 +264,14 @@ authoring. Define approximation explicitly in the Metric with
 `agg=("approx_percentile", q)`; observation and recovery preserve that definition.
 Result contracts disclose source-native SQL precision limitations.
 
+The bounded ordinary-table UTC-microsecond int64 subset supports native exact
+distinct on DuckDB, SQLite, PostgreSQL, MySQL and Trino, plus explicitly approximate
+distinct on ClickHouse. Exact quantile runs on DuckDB/PostgreSQL; explicitly
+approximate quantile also runs on Trino/ClickHouse. Unsupported definitions reject
+before reading, with no automatic substitution. Original distribution quantities
+cannot roll up or allocate changes, and fixed recovery stays offline. Other input
+types, unbounded windows and complete C10 remain independently qualified.
+
 Attribution is algebraic, association is descriptive, deviation scores are leads,
 and forecasts retain model assumptions. The agent owns synthesis and conclusions.
 Terminal custom analysis through `to_pandas()` or `md.raw_sql(...)` cannot be fed
@@ -327,6 +335,39 @@ Run has no successful local output; it does not prove a remote
 server query stopped. Never automatically resubmit an ambiguously submitted action.
 
 ## Backend implementation boundaries
+
+The bounded R9.3 native-table UTC-us routes support two-root float64 runtime
+linear observations on SQLite, PostgreSQL, MySQL, Trino Iceberg and ClickHouse. Roots reduce
+independently before combining on complete target keys. PostgreSQL, MySQL,
+Trino Iceberg and ClickHouse also preserve Decimal(38,6) components from Decimal(18,6) facts,
+matching DuckDB's exact Decimal values. SQLite non-finite inputs reject without
+publication; its Decimal linear composition remains unqualified. Other Decimal
+shapes and complete C04 qualification remain unverified.
+
+Bounded R9.3 native UTC-us routes also support Runtime ratio observations with
+int64 components and weighted means over int64 facts for string-key Entity targets
+on SQLite, PostgreSQL, MySQL, Trino Iceberg and ClickHouse. Ratios preserve complete
+targets, Defined zero numerators and Undefined zero denominators. Weighted means
+preserve Null empty contributions. Other ratio numeric shapes and complete C04
+qualification remain unverified.
+
+The exact two-root float64 ratio key also has bounded native UTC-us vectors on
+all six backends, preserving original components for fixed rollup. DuckDB,
+PostgreSQL, MySQL and ClickHouse Decimal ratios retain exact components and finish once to Decimal(38,6)
+with HALF_EVEN. MySQL and ClickHouse original-component and final-ratio overflow refuse before
+publication. ClickHouse sums use Decimal256 with a declared-precision check.
+SQLite and Trino Decimal ratio keys remain unqualified; their
+admission refusals do not prove required Decimal execution.
+
+Fixed rollup of this bounded int64 ratio merges original components: 30/9 becomes
+10/3, while averaging target ratios 6 and 0 would incorrectly return 3. Six-backend
+source producers retain these components for continuation without source reads.
+
+Bounded native UTC-us int64 Runtime aggregate and dimension-slice observations
+also have source vectors on all six backends. Runtime sum preserves Null empty
+contributions; slicing a static sum with an explicit zero policy preserves
+excluded targets as Defined zero. Other aggregate functions, slice compositions
+and complete C04 qualification remain unverified.
 
 The backend and method descriptions below preserve pre-refactor qualification
 history. At the current R1 checkout, they do not grant execution to the older
@@ -421,6 +462,12 @@ transition/violation trace. Published History can be read with source disconnect
 R7.6 adds the six History views, exact Duration statistics and selected-Subject
 observation on these local routes. Remote Lifecycle replay is unqualified.
 
+The bounded R9.3 SQLite route also supports native main-table int64 identities
+and UTC microsecond timestamps for replay and unclassified History views. It
+uses the registered native backup preparation. Complete, prefix and unknown
+coverage retain their distinct traces; fixed views and recovery consume retained
+parts. Other source shapes and classified checkpoint axes remain unqualified.
+
 ```python
 members = session.members(ms.ref.entity("commerce.subjects"))
 history = session.lifecycle.replay(
@@ -504,8 +551,12 @@ offsets are supported for reader/report authority; native parser declarations
 retain their existing IANA validation. Report authority is persisted once.
 
 Scopes compare exact instants before producing report-local civil coordinates.
-Naive source timestamps in DST gaps or folds are not preflighted; conversion follows
-the declared authority and backend behavior. Two known instants in a repeated report hour share its civil bucket.
+Metric observation requires a declared or driver-reported event timezone for
+naive timestamps; SQLite needs an explicit UTC parser and does not adopt the host,
+report or grid timezone. It validates raw/normalized source pairs before
+publication. Native DST gaps or folds raise a structured `MaterializationError`
+identifying the field, timezone and wall value with a repair; no partial artifact
+is published. Two known instants in a repeated report hour share its civil bucket.
 Naive predicate literals compare civil fields; aware literals compare instant
 fields. Mixing these kinds fails. Milliseconds/microseconds remain exact through
 SQL literals, Arrow, Parquet and source-offline cold recovery. Hour-to-day retained
@@ -738,6 +789,20 @@ selected.execute().show()
 `at=scope.before_end` means immediately before the exact end, without subtracting
 a timestamp tick. An absent exact snapshot yields no represented members; it
 never carries an older row forward. Unversioned Entities omit `at`.
+Native PostgreSQL/MySQL/Trino/ClickHouse tables also support the int64/entity/NoTime
+member transmission, int64-key time products and direct int64/date read keys, including exact UTC DATE snapshots
+and closed-open validity with NULL open end and complete int64/string identity.
+Native Boolean reads connect on PostgreSQL/Trino/ClickHouse. MySQL BOOLEAN is
+observed as int8 and rejects before business reads without integer-to-Boolean
+coercion. An explicitly authored Boolean Dimension expression, such as
+`return rows.enabled == 1`, can instead be read through its declared Ref; its
+body and bound dependencies are frozen with the read. Category and Boolean
+filtering preserve complete returned identities.
+Selected duplicate identities reject before publication. One explicit directed
+to-one native-table path with complete int64/string keys supports direct int64
+attributes: missing or multiple scoped matches reject, matched NULL remains a
+Null Cell, and unrelated target duplicates do not invalidate a scoped read.
+Other scalar types and longer paths retain separate qualification requirements.
 
 `read` returns a Numeric relation for a Measure, a Category or Boolean relation
 for a Dimension, and a Temporal relation for a TimeDimension. Integer indicators
@@ -788,6 +853,26 @@ finished AOV rows can be `50.5` while the original component rollup is `200/101`
 `group_by(*keys).rollup()` keeps the named axes; `rollup()` removes all axes.
 Time-grid coarsening is not part of this qualification.
 
+All six ordinary-table backends support this explicit-empty-group workflow
+for int64/float64 observations and string classifications with UTC microsecond source
+time, including count/count_defined/sum/mean row statistics and original sum/mean rollup. Decimal inputs
+remain outside these added exact keys. Remote graphs capture complete intermediate
+exchanges and consume Ibis-compiled typed literal relations without remote table
+writes. The complete captured cardinality is retained; it is not an input quota.
+ClickHouse consumes a typed struct-array expansion. For grouped original means,
+`grouped.group_by().summarize(mv.mean())` removes the axes before reducing the
+finished values; `grouped.rollup()` merges the retained sum/count components.
+The source and fixed paths distinguish 50.5 from 200/101. Null observations stay
+in count, count_defined includes only Defined Cells, and sum/mean reject
+non-Defined current Cells. This bounded support does not qualify the complete C05 numeric, domain,
+data-check and cancellation matrix.
+
+On all six ordinary-table backends, bounded UTC-microsecond int64 reference
+shares, ranks and string-identity cohorts retain full composite member keys.
+Fixed cohorts can combine a static target with a complete Entity/time opportunity
+Artifact; they consume the retained grid without reading the source or changing
+the input time metadata. These routes do not qualify the complete C08 matrix.
+
 A selected category keeps its classification axis when grouped without keys.
 Materializing `fixed_targets` above retains east, south and west, including empty
 groups, for later fixed continuations. An exactly corresponding numeric predicate
@@ -831,6 +916,16 @@ Weights are never normalized. Zero-weight strata must remain present and preserv
 their non-Defined Cells; positive weights always require finite Defined values.
 Share supports int64, float64, Decimal and Duration; standardization supports
 int64/float64 with integer/float weights, or Decimal with Decimal weights.
+
+The bounded six-backend ordinary-table route supports UTC-microsecond int64
+stratum values with float64 reference weights. Missing strata and negative
+weights reject, including fixed reuse. Proofs compare complete stratum keys and
+values regardless of source row order. The same six-backend ordinary-table
+subset supports string composite-identity penetration with static member maps.
+Independent fixed producer member maps preserve their Artifact receipts;
+intersection proofs compare complete typed keys. Null or duplicate identity
+rows reject, and empty references remain `Undefined/empty_reference`.
+The complete C08 matrix remains open.
 
 Use fixed values, classifications and weights together for fixed continuation.
 After recovery, `where` executes with the retained reference even when sources
@@ -922,6 +1017,16 @@ unproved overlapping states have no allocation method. Read
 `marivo.help("analysis.dsl.LogicalDifferenceRelation.attribute")` for the focused
 contract. This qualification does not grant installed-wheel or remote acceptance.
 
+The bounded six-backend ordinary-table subset also supports UTC-microsecond
+int64 sum-zero or original-mean observations with explicit string contribution axes and bounded
+windows. Remote inputs prepare native rows before local original reduction,
+absolute comparison and additive/component allocation. Retained joint/hierarchy, common
+Top-K/Other and selection run offline. Missing classifications reject without
+publication. Ordinary source reads retain their normal read guarantees; they do
+not acquire shared snapshot authority. Historical domain preparation keeps its
+existing snapshot requirement. Other original methods, source types and complete C09
+still require independent qualification.
+
 ## R6 recovery boundary
 
 Comparison, strict selection/cohort, fixed references, ranking and attribution use the
@@ -985,6 +1090,11 @@ revenue = selected.observe(
 ```
 
 The example assumes the named semantic definitions and verified coverage.
+The bounded SQLite route supports native main-database tables with int64 Event
+and Subject identities and UTC microsecond timestamps. A native backup freezes
+the whole main database in a private temporary file before preparation. Copy and
+query deadlines apply; the backup is removed and the original connection restored
+on success or failure. Attached databases and other source shapes remain unqualified.
 First-per-subject and every-start shared/exclusive matching retain canonical
 assignment, full Journey keys and every step's reach truth. No start means no
 Journey. Starts use a half-open cohort window; follow-up excludes its upper bound.
@@ -1000,6 +1110,16 @@ duration; `completed()` returns CompletedJourneys. Duration predicates take
 10, 30 and 100 seconds yield 140/3 seconds, rounded once to 46.666667 seconds at
 microsecond precision. Subject means 20 and 100 instead average to 60 seconds.
 Selecting members does not replace the original Journey denominator.
+
+Retained Journey durations in microseconds support `duration.ratio(duration)`
+with exact complete Journey keys. Defined operands divide normally; a zero denominator
+produces `Undefined(zero_denominator)`. Unknown observed durations preserve
+`coverage_censored` or `entry_unknown` as scalar float64 Unknown, including self-division.
+Both original endpoint Cells remain retained. Other non-Defined operands reject.
+The fixed scalar quotient supports zscore/MAD, preserving Unknown Cells.
+Pearson/Spearman/Kendall reject Unknown without imputation or pair deletion.
+This Journey domain does not establish the complete time grid for forecast/runs.
+Other units and source Journey ratio inputs remain unqualified.
 
 Materialized results retain assignment, reach, coverage, mappings, precision and
 reduction state in Store 7. Fixed reads, reductions and selections, including fresh
@@ -1047,6 +1167,8 @@ The deadline is excluded, and the complete Anchor occurrence is excluded separat
 Civil days preserve local wall time across DST; ambiguous or nonexistent deadlines
 fail with a concrete repair. Event elapsed observation uses Ibis. Calendar and
 current Journey origins prepare bounded candidates before local consumption.
+An observation over locally selected Journey members must execute before further
+operations. Read its materialized result's `contract()` for valid continuations.
 Overlapping windows keep each contribution use and cannot be rolled up by removing
 the Anchor coordinate. Fixed continuations consume retained inputs; they cannot
 introduce a new live Metric. Retention remains outside this R7.7 slice.
@@ -1091,6 +1213,22 @@ every; false and unknown instances are unknown under any, false under every.
 Subjects with no Anchor do not enter this image. Only selected true status can
 produce members. Instance status needs the exact SubjectBinding; Subject status
 needs no `through` argument. These results grant no arithmetic or rollup on bounds.
+
+For SQLite native main tables with int64 identities and UTC microsecond timestamps,
+Event-origin retention uses the frozen source prefix and registered local consumer
+for elapsed and calendar windows. Unknown stays in the original opportunity set;
+selection and cold recovery preserve its bounds and any/every Subject fibers.
+A separate elapsed/calendar Anchor observation supports one direct int64 sum-zero Metric
+without coordinates or filters. Preparation preserves contribution reuse across overlapping
+windows, business order, and fixed/cold evidence. Compositions and other input shapes
+remain unqualified.
+The same SQLite shape supports binding Anchors from Journeys, preserving original
+assignments and start instants. Binding recovered fixed Journeys requires no
+source access or repeated matching. These Journey origins support the same direct
+Metric observations and elapsed/calendar retention, preserving original assignments
+and opportunities. Candidates are prepared before local binding. A Calendar Metric
+observation excludes a return exactly at its DST deadline; elapsed 24 hours differs
+from one calendar day.
 
 Construct retention while Anchors are logical. A MaterializedAnchorDomain has
 starts only and rejects new return input before execution. Materialized retention
@@ -1141,6 +1279,15 @@ The qualified placement is explicit Ibis source preparation followed by local
 consumption, or source-free `artifact_python` for fixed continuation. No native
 funnel route, remote backend, same-wheel or full R7 qualification is claimed here.
 
+SQLite native main tables with int64 identities and UTC microsecond timestamps
+support preparation of one direct, unversioned string/int64 Subject entry axis or an ordered int64/string pair, plus one string axis through a to-one UTC daily DATE snapshot path or a UTC DATE closed-open validity path with NULL open end before
+local matching and reduction. Compatible fixed comparisons and loss/denominator-mix
+allocation retain their axes for source-free continuation and cold recovery.
+Snapshot axes require the exact entry period; missing periods reject without selecting
+a latest or earlier row. Validity intervals include their start and exclude their end;
+missing or overlapping coverage rejects before publication. Other axis counts/orderings, paths/version profiles and shapes remain unqualified
+by this bounded route.
+
 ## Complete-grid runs
 
 Given a complete daily numeric observation, construct the condition before row
@@ -1157,9 +1304,69 @@ mv.table(start=selected.start, end=selected.end, count=selected.count,
 Unavailable Cells break intervals. Duration uses actual UTC boundaries.
 Filter intervals after segmentation; selecting observation rows first revokes
 the complete-grid contract. Global time observations do not grant members.
+Runs also requires retained coverage facts. A derived ratio whose endpoints lack
+those facts rejects with a structured analysis error. Use a covered original
+observation or an owned fitted field retaining its grid mapping.
+Time correlation and forecast use the same coverage requirement, even when
+every current ratio Cell is Defined. Missing facts reject before fitting.
 
 
 ## Correlation and prediction
+
+SQLite ordinary tables support pairwise Pearson, Spearman and Kendall for two
+int64 entity observations with a microsecond UTC event axis. Coefficient and
+selected views execute through the same prepared graph. Other SQLite statistical
+types and shapes require their own physical qualification.
+PostgreSQL and MySQL ordinary tables also support this two-int64 entity-pair
+route. MySQL requires successful UTC reader initialization.
+Trino Iceberg and ClickHouse local MergeTree tables support the same pair route.
+ClickHouse requires an explicit or physical UTC axis; unavailable server timezone
+facts cannot supply an implicit read timezone. Other types, distributed profiles
+and complete cancellation qualification remain separate obligations.
+All six ordinary-table backends also support zscore and MAD on the complete int64 entity observations
+from this preparation route, preserving full-width originals and retained fit
+state. Other source numeric types need their own qualification.
+All six ordinary-table backends also support int64 complete-grid runs with count views,
+and naive/drift/seasonal-naive forecasts on complete int64 time-group history with
+prediction views, on microsecond UTC grids. Declare an empty-contribution zero
+policy when empty cells represent zero; null/unavailable history is not imputed.
+ClickHouse UTC axes retain their physical timezone, so window boundaries remain
+UTC even under non-UTC session settings.
+
+Every graph execution shares one 600-second monotonic budget, including ordinary
+source reads, current-row statistics and fixed-input continuation. An outer
+budget keeps its original start. Expiry before submission or publication rejects
+the result while preserving earlier artifacts and releasing owned resources.
+
+Statistical source reads share the execute deadline across native submission and
+batch consumption. DuckDB and SQLite can interrupt an active native query without
+domain preparation; the execution thread cleans up the cursor and connection.
+Expiry reports a structured timeout. Unconfirmed connection release prevents
+publication; remote server termination requires independent proof.
+MySQL source graphs prepare a separate bounded control connection and cancel only
+the selected connection's own active query. Cleanup runs on the execution thread.
+An unconfirmed control close retains a Run resource obligation and blocks automatic
+recovery; successful control submission alone does not prove server termination.
+PostgreSQL sends its driver's native cancellation request at expiry. Its remote
+termination remains unknown until independently verified.
+Trino registers its cursor before submission and cancels it during execution or
+batch fetching. Cancellation retries cover the initial HTTP response race, while
+the execution thread closes the cursor. Server query status requires independent
+verification; client close alone does not prove cancellation.
+During fetching, an expiry checkpoint can win before the timer callback. Cursor
+cleanup invokes native cancellation on the execution thread; evidence records
+`owner_checkpoint` and requires the actual cancel call plus independent server
+confirmation, rather than claiming timer interruption.
+ClickHouse uses native HTTP timeout settings for the remaining execute budget on
+each read. Its read-only account must allow `max_execution_time` and
+`timeout_before_checking_execution_speed`, with throwing timeout overflow.
+Unavailable settings cause a structured rejection before the business read.
+The original deadline is preserved; no partial result or control SQL is used.
+Server timeout and query termination require independent verification, and local
+MergeTree proof does not qualify Distributed shards.
+Native server timeout can precede Python expiry. Its proof uses the configured
+deadline and independent server query status; client and server clocks are
+observed separately.
 
 Numeric relations support all pair combinations of 2–16 distinct quantities.
 Pearson is the default; choose Spearman or Kendall explicitly. Positive lag pairs
@@ -1236,3 +1443,42 @@ cannot be summed. Fixed continuation and cold recovery use verified captured
 parts; missing or corrupt parts fail without replay. Legacy statistical Artifact
 descriptors reject without migration. R8.5 evidence does not close earlier R8
 qualification, same-wheel, remote backend or real-Agent obligations.
+
+Remote preparation on PostgreSQL, MySQL, Trino and ClickHouse permits source
+changes between reads. Retained inputs record the facts actually read; they do
+not promise one database snapshot. Fixed continuations use those retained inputs.
+
+MySQL sample and raw_sql deadlines cancel only the isolated reader's current query and close its reader/control connections. Certification SET/read controls retain their separate purpose.
+
+
+## Declare business completeness on a full grid
+
+A successful read does not prove that all business facts for a bucket have
+arrived. For an original sum observation, declare the complete intervals through
+`observe(complete_during=(scope, ...))`. Use absolute scopes with aware datetime
+bounds, `during=grid.window`, and a complete non-partial grid. The receiver,
+Metric and original contribution root are bound by this one call.
+
+```python
+from datetime import datetime, timezone
+
+complete = mv.time_scope(
+    start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+    end=datetime(2026, 8, 3, tzinfo=timezone.utc),
+)
+daily = members.each(grid).observe(
+    sum_metric, during=grid.window, complete_during=(complete,),
+)
+```
+
+A bucket must lie entirely within the declared interval union. Otherwise it
+returns `Unknown(insufficient_business_coverage)`. The actual read coverage,
+partial value and original contributions remain retained. An empty tuple declares
+no complete buckets; omission retains the existing policy. Up to 64 intervals
+are accepted, with overlaps and adjacency merged. Production currently uses
+DuckDB table/Parquet sums, without an endpoint or contribution coordinates.
+
+Forecasts reject Unknown training input; runs treats it as unavailable and splits
+segments. Duration quotients preserve this Unknown reason as float64. These
+observations cannot roll up or coarsen partial business data into a complete value.
+Fixed and cold continuations verify the same declaration without source reads.

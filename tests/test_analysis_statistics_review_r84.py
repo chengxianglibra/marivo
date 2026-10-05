@@ -17,6 +17,57 @@ from marivo.analysis.methods.deviation_numeric import RationalFact
 from tests.shared_fixtures import DslCaseFactory
 
 
+@pytest.mark.runtime
+@pytest.mark.parametrize(
+    "method", ("pearson", "spearman", "kendall", "naive", "drift", "seasonal_naive")
+)
+def test_ratio_statistics_require_original_coverage(
+    analysis_dsl_case_factory: DslCaseFactory,
+    method: Literal["pearson", "spearman", "kendall", "naive", "drift", "seasonal_naive"],
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    members = case.session.members(ms.ref.entity("sales.customer"))
+    grid = mv.time_grid(
+        during=mv.time_scope(start="2026-07-01", end="2026-10-01"), grain=mv.grain("month")
+    )
+    history = (
+        members.each(grid)
+        .observe(
+            ms.ref.metric("sales.order_count"),
+            during=grid.window,
+            via=ms.ref.relationship("sales." + case.names.buyer),
+        )
+        .group_by(grid)
+        .rollup()
+        .execute()
+    )
+    ratio = history.ratio(history).execute()
+    assert ratio.to_pandas().cell_tag.tolist() == ["defined"] * 3
+    with pytest.raises(AnalysisError, match="original captured coverage fact"):
+        if method in ("pearson", "spearman", "kendall"):
+            revenue = (
+                members.each(grid)
+                .observe(
+                    ms.ref.metric("sales.revenue"),
+                    during=grid.window,
+                    via=ms.ref.relationship("sales." + case.names.buyer),
+                )
+                .group_by(grid)
+                .rollup()
+                .execute()
+            )
+            ratio.correlate(revenue.ratio(revenue).execute(), method=method).execute()
+        else:
+            model = (
+                mv.naive()
+                if method == "naive"
+                else mv.drift()
+                if method == "drift"
+                else mv.seasonal_naive(periods=2)
+            )
+            ratio.forecast(horizon=mv.periods(1), model=model).execute()
+
+
 @pytest.mark.parametrize(
     "end,unit,count",
     (

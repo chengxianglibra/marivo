@@ -35,6 +35,7 @@ from marivo.analysis.core.model import (
     Binding,
     ConditionCellsPart,
     Coordinate,
+    CoveragePart,
     DomainSignature,
     FitInputsPart,
     FunnelAllocationPart,
@@ -55,11 +56,14 @@ from marivo.analysis.core.rules import (
     AnchorRetention,
     AssociationFit,
     AssociationRead,
+    AttributionDerive,
     BindProject,
+    CellDerive,
     DeviationFit,
     ForecastFit,
     ForecastRead,
     MapCorrespond,
+    OriginalReduce,
     PartsTransport,
     PreparedObservation,
     RetentionBySubject,
@@ -153,14 +157,22 @@ class MemberGraph:
         if isinstance(at, GridPoint) and at.grid != self.root.signature.domain.time_grid:
             raise reject("attribute endpoint belongs to a different grid")
         body: ExpressionBody | None = None
-        if dimension.kind is SemanticKind.MEASURE:
-            measure = self.registry.measures.get(dimension.path)
+        if dimension.kind is SemanticKind.MEASURE or (
+            dimension.kind is SemanticKind.DIMENSION
+            and (declared := self.registry.dimensions.get(dimension.path)) is not None
+            and declared.source_column is None
+        ):
+            measure = (
+                self.registry.measures.get(dimension.path)
+                if dimension.kind is SemanticKind.MEASURE
+                else self.registry.dimensions.get(dimension.path)
+            )
             body = (
                 next(
                     (
                         value
                         for key, value in sidecar.bodies.items()
-                        if key.path == dimension.path and key.kind == "measure"
+                        if key.path == dimension.path and key.kind == dimension.kind.value
                     ),
                     None,
                 )
@@ -168,7 +180,7 @@ class MemberGraph:
                 else None
             )
             if measure is None or body is None:
-                raise reject("Measure needs one compiled expression body")
+                raise reject("Computed field needs one compiled expression body")
             field = TargetDimensionContract(
                 RefPayloadV1.from_ref(dimension),
                 RefPayloadV1.from_ref(ref.entity(measure.entity)),
@@ -227,7 +239,7 @@ class MemberGraph:
         expression_bodies: tuple[tuple[str, str, str], ...] = ()
         if body is not None and body.source_column is None:
             if sidecar is None:
-                raise reject("computed Measure has no loaded expression sidecar")
+                raise reject("computed field has no loaded expression sidecar")
             seen: set[tuple[str, str]] = set()
             dependencies: list[tuple[str, str, str]] = []
 
@@ -260,11 +272,18 @@ class MemberGraph:
                 aliases=(alias,),
             )
             expression_type = str(expression_value.type())
-            if expression_type not in ("int64", "float64"):
-                raise reject(f"computed Measure has unqualified {expression_value.type()} value")
-            physical: ValueType = (
-                ScalarType("int64") if expression_type == "int64" else ScalarType("float64")
-            )
+            if dimension.kind is SemanticKind.DIMENSION:
+                if expression_type != "boolean":
+                    raise reject(f"computed Dimension requires boolean, received {expression_type}")
+                physical: ValueType = ScalarType("boolean")
+            else:
+                if expression_type not in ("int64", "float64"):
+                    raise reject(
+                        f"computed Measure has unqualified {expression_value.type()} value"
+                    )
+                physical = (
+                    ScalarType("int64") if expression_type == "int64" else ScalarType("float64")
+                )
         else:
             physical = schemas[-1].field_type(field.source_column)
         if field.parse is not None and not isinstance(
@@ -413,8 +432,23 @@ class MemberGraph:
 
         @contextmanager
         def source_factory() -> Iterator[tuple[SourceSession, tuple[SourceBinding, ...]]]:
+            owner: SourceSession | None = None
+
+            def disconnected(succeeded: bool) -> None:
+                if succeeded and owner is not None:
+                    owner.mark_backend_disconnected()
+                elif owner is not None:
+                    raise DatasetConstructionError(
+                        expected="confirmed source connection release",
+                        received="selected backend disconnect failed or unavailable",
+                        repair="Close the source connection and repair its driver before retrying execution.",
+                        location="analysis.graph_members",
+                    )
+
             with (
-                service.use_backend(datasource.name, read_only=True) as backend,
+                service.use_backend(
+                    datasource.name, read_only=True, on_disconnect=disconnected
+                ) as backend,
                 SourceSession(
                     provider_for(self.entity_schema.shape.backend),
                     datasource,
@@ -422,14 +456,33 @@ class MemberGraph:
                     owns_backend=False,
                 ) as source,
             ):
+                owner = source
+                if datasource.backend_type == "sqlite":
+                    from sqlite3 import Connection
+
+                    from marivo.analysis.materialization.temporal_sql import (
+                        _initialize_sqlite_functions,
+                    )
+
+                    connection: object = getattr(backend, "con", None)
+                    if not isinstance(connection, Connection):
+                        raise DatasetConstructionError(
+                            expected="the selected native SQLite connection",
+                            received=type(connection).__name__,
+                            repair="Reconnect the governed SQLite datasource and retry execution.",
+                            location="analysis.graph_members",
+                        )
+                    _initialize_sqlite_functions(connection)
                 from marivo.datasource.timezone import probe_engine_timezone
 
-                authority = probe_engine_timezone(backend)
-                if any(
-                    schema.engine_timezone is not None
-                    and schema.engine_timezone != authority.engine_timezone_name
+                frozen_timezones = {
+                    schema.engine_timezone
                     for schema, _ in ordered
-                ):
+                    if schema.engine_timezone is not None
+                }
+                if frozen_timezones and frozen_timezones != {
+                    probe_engine_timezone(backend).engine_timezone_name
+                }:
                     raise DatasetConstructionError(
                         expected="the frozen driver-reported source timezone",
                         received="source timezone changed after graph construction",
@@ -485,6 +538,16 @@ class MemberGraph:
                     node.identity,
                     "ibis_python"
                     if (
+                        isinstance(node.parameters, PartsTransport)
+                        and (
+                            node.parameters.mode == "business_coverage"
+                            or any(
+                                isinstance(p, CoveragePart) and p.business_windows is not None
+                                for p in node.inputs[0].node.signature.parts
+                            )
+                        )
+                    )
+                    or (
                         isinstance(node.parameters, AnchorBind)
                         and node.inputs[0].node.signature.domain.kind == "journey"
                     )
@@ -492,6 +555,15 @@ class MemberGraph:
                         isinstance(node.parameters, RowState)
                         and isinstance(node.inputs[0].node, MethodNode)
                         and isinstance(node.inputs[0].node.parameters, PreparedObservation)
+                    )
+                    or (
+                        isinstance(node.parameters, (OriginalReduce, CellDerive, AttributionDerive))
+                        and any(
+                            isinstance(ancestor, MethodNode)
+                            and isinstance(ancestor.parameters, PreparedObservation)
+                            and ancestor.inputs[0].node.identity == ancestor.inputs[1].node.identity
+                            for ancestor in topology(node)
+                        )
                     )
                     or (
                         isinstance(node.parameters, TimeProduct)
@@ -505,6 +577,11 @@ class MemberGraph:
                         isinstance(node.parameters, AnchorObserve)
                         and (
                             isinstance(node.parameters.window, CalendarWindow)
+                            or any(
+                                isinstance(ancestor, SourceLeaf)
+                                and ancestor.definition.shape.backend != "duckdb"
+                                for ancestor in topology(node)
+                            )
                             or any(
                                 isinstance(p, AnchorDomainPart) and p.journey is not None
                                 for p in node.inputs[0].node.signature.parts
@@ -546,6 +623,11 @@ class MemberGraph:
                         isinstance(node.parameters, AnchorRetention)
                         and (
                             isinstance(node.parameters.window, CalendarWindow)
+                            or any(
+                                isinstance(ancestor, SourceLeaf)
+                                and ancestor.definition.shape.backend != "duckdb"
+                                for ancestor in topology(node)
+                            )
                             or any(
                                 isinstance(p, AnchorDomainPart) and p.journey is not None
                                 for p in node.inputs[0].node.signature.parts

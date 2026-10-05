@@ -402,6 +402,12 @@ def execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) 
             keys = tuple(_index(source.primary, source.contract.key_fields))
             if any(set(i) != set(keys) for i in lookup):
                 raise invalid("runs endpoint coverage has different complete keys")
+            if any(
+                side + "_endpoint__complete" not in table.column_names
+                for side, table in zip(("current", "baseline"), endpoints, strict=True)
+                if table is not None
+            ):
+                raise invalid("runs endpoint lacks its original captured coverage fact")
             columns = tuple(
                 t[side + "_endpoint__complete"].to_pylist()
                 for side, t in zip(("current", "baseline"), endpoints, strict=True)

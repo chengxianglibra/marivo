@@ -509,6 +509,10 @@ def _transport_stage(
 ) -> ExchangeResult:
     params = method.stage.node.parameters
     assert isinstance(params, PartsTransport)
+    if params.mode == "business_coverage":
+        from marivo.analysis.materialization.business_coverage import produce
+
+        return produce(method, source, input_binding)
     if any(p.role == "funnel_state" for p in source.parts):
         from marivo.analysis.materialization.funnel_execution import transport
 
@@ -1024,6 +1028,9 @@ def _difference_stage(
     reason: str | None
     error_rows: list[tuple[float, float, float]] = []
     operand_components = (_operand_components(current), _operand_components(baseline))
+    duration_ratio = params.method == "ratio" and all(
+        isinstance(edge.node.value_type, DurationType) for edge in method.stage.node.inputs
+    )
     union_keys = tuple(dict.fromkeys((*current_rows, *baseline_rows)))
     for key in union_keys:
         first, second = current_rows.get(key), baseline_rows.get(key)
@@ -1063,7 +1070,17 @@ def _difference_stage(
                     }
                 else:
                     row = {"value": None, "cell_tag": None, "cell_reason": None}
-            elif (both or params.pairing == "metric_empty") and row["cell_tag"] != "defined":
+            elif (
+                (both or params.pairing == "metric_empty")
+                and row["cell_tag"] != "defined"
+                and not (
+                    duration_ratio
+                    and row["cell_tag"] == "unknown"
+                    and row["value"] is None
+                    and row["cell_reason"]
+                    in ("coverage_censored", "entry_unknown", "insufficient_business_coverage")
+                )
+            ):
                 raise _invalid("comparison requires finite Defined existing operands")
             endpoints.append(row)
         left, right = endpoints

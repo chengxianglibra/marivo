@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ from marivo.analysis.materialization.store import SessionStore
 
 _LOCAL_CAPABILITY = "local_owned_path@v1"
 _READ_CAPABILITY = "read_only_execution@v1"
+_MYSQL_CONTROL_CAPABILITY = "mysql_owned_control_close@v1"
 
 
 def backend_reservation(run_ref: str, domain: str) -> ResourceRecord:
@@ -23,6 +25,13 @@ def backend_reservation(run_ref: str, domain: str) -> ResourceRecord:
         ownership_nonce=nonce,
         cleanup_capability_id=_READ_CAPABILITY,
         safe_locator=f"execution/{nonce}",
+    )
+
+
+def mysql_control_reservation(run_ref: str, domain: str) -> ResourceRecord:
+    """Reserve an owned control whose release needs a live acknowledgement."""
+    return replace(
+        backend_reservation(run_ref, domain), cleanup_capability_id=_MYSQL_CONTROL_CAPABILITY
     )
 
 
@@ -80,6 +89,14 @@ def discharge_resources(
             raise _invalid_resource(resource)
         if resource.resource_kind not in ("backend_execution", "planner_temporary_relation"):
             continue
+        if resource.cleanup_capability_id == _MYSQL_CONTROL_CAPABILITY:
+            raise RecoveryPendingError(
+                expected="confirmed owned MySQL control connection release",
+                received="the original control close acknowledgement is unavailable",
+                repair="Inspect the original Run and its control connection obligation; do not replay or cancel a different connection.",
+                stage="reconciliation",
+                run_ref=resource.run_ref,
+            )
         if resource.cleanup_capability_id == _READ_CAPABILITY:
             parts = resource.safe_locator.split("/")
             expected_length = 2 if resource.resource_kind == "backend_execution" else 3

@@ -82,7 +82,11 @@ exactly one ZoneInfo candidate and that source conversion to UTC and the report
 boundary agrees with those rules. TZif transition instants and POSIX continuation
 rules locate intervals; ZoneInfo supplies their offsets. Gaps, folds, unavailable
 rules and engine/runtime disagreement fail with a structured MaterializationError
-before publication. Fixed-offset-only paths need no rule-data comparison. SQLite
+before publication. Native wall-time gap/fold failures surface at the admitted
+`source_time_validation` stage as MaterializationError with the concrete axis,
+read timezone and offending wall value. The repair requires correcting the
+stored wall values or authoring actual aware instants; no implicit DST resolution
+is selected. Fixed-offset-only paths need no rule-data comparison. SQLite
 keeps its connection-local Python temporal functions. This does not transfer source
 rows or install remote UDFs. Each range/rule query is an attempted physical
 engine_check validation submission. Separate validation and primary queries retain
@@ -166,7 +170,10 @@ owner. Governed raw/normalized pairs are checked against the declared timezone
 before publication; gaps, folds and engine disagreement reject. The report,
 source and grid/calendar zones remain independent. SQLite qualifies the required
 UTC timestamp/date routes, including first/last/mean/min/max status folds.
-Other SQLite timezone routes remain closed at admission.
+Other SQLite timezone routes remain closed at admission. The current Metric
+observation route requires declared or driver-reported naive event authority;
+SQLite has no reported reader timezone and needs an explicit UTC parser. Host,
+report and grid timezones cannot fill this missing event authority.
 
 `metric.fold@v1` performs the declared spatial sum per exact sample instant,
 then the declared scalar time fold. Its original state retains canonical ordered
@@ -411,3 +418,15 @@ Duration is the exact difference in microseconds between the first cell start
 and last cell end. DST days and unequal certified periods retain their actual
 boundaries. Runs reject partial edges and never regenerate a grid during
 fixed execution or recovery.
+
+### R9.3 independent DST grid consumer
+
+The C06 consumer records spring and fall New York day grids with UTC source
+instants and an Asia/Tokyo report timezone. Explicit aware scope endpoints retain
+their instant identity; a date-only scope continues to use the Session report
+timezone even when the grid specifies a different boundary zone. Fixed grouping
+retains the observed grid coordinate and its 23/25-hour boundaries. DuckDB's
+additional Tokyo registration is limited to table/string Entity transport,
+time product and sum-zero observation, plus retained int64 Entity sum-zero rollup.
+It does not admit untested types, units, forms or other timezone keys. Native
+development evidence is not full-family or same-candidate formal qualification.

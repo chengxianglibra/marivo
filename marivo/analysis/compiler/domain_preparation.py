@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from functools import reduce
 from operator import or_
 
 import ibis
+import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 
 from marivo.analysis.compiler.graph_lowering import (
@@ -249,9 +251,9 @@ def lower_occurrences(
             event.occurred_at,
             boundary_timezone="UTC",
             read_timezone=event.occurred_at.timezone,
-            engine="duckdb",
+            engine=bound.leaf.definition.shape.backend,
         )
-        instant = instant.cast("timestamp('UTC')")
+        instant = instant.cast(dt.Timestamp(timezone="UTC", scale=6))
         table = table.mutate(__instant=instant, __raw_time=raw_time)
         invalid = table.__instant.isnull() | reduce(
             or_,
@@ -261,10 +263,12 @@ def lower_occurrences(
         check("r7.occurrence_identity: non-null keys and governed instant", table.filter(invalid))
         if params.start is not None:
             table = table.filter(
-                table.__instant >= ibis.literal(params.start).cast(table.__instant.type())
+                table.__instant
+                >= ibis.literal(datetime.fromisoformat(params.start), type=table.__instant.type())
             )
         table = table.filter(
-            table.__instant < ibis.literal(params.end).cast(table.__instant.type())
+            table.__instant
+            < ibis.literal(datetime.fromisoformat(params.end), type=table.__instant.type())
         )
         check(
             "r7.input_binding: source version at occurrence",
@@ -425,7 +429,7 @@ def lower_candidates(
         prepared=True,
         captured_columns=captured_columns,
     )
-    rows = rows.mutate(event_time=rows.event_time.cast("timestamp('UTC')"))
+    rows = rows.mutate(event_time=rows.event_time.cast(dt.Timestamp(timezone="UTC", scale=6)))
     current_ids = ids
     invalid = rows.event_time.isnull() | reduce(
         or_,
@@ -441,9 +445,26 @@ def lower_candidates(
         )
     )
     assert observation.start is not None and observation.end is not None
+    start, end = (datetime.fromisoformat(value) for value in (observation.start, observation.end))
+    if start.utcoffset() is None or end.utcoffset() is None:
+        fail(
+            "input_binding",
+            "prepared observation bounds require explicit timezone",
+            stage="lowering",
+        )
     rows = rows.filter(
-        (rows.event_time >= ibis.literal(observation.start).cast(rows.event_time.type()))
-        & (rows.event_time < ibis.literal(observation.end).cast(rows.event_time.type()))
+        (
+            rows.event_time
+            >= ibis.literal(
+                start.astimezone(timezone.utc).replace(tzinfo=None), type=rows.event_time.type()
+            )
+        )
+        & (
+            rows.event_time
+            < ibis.literal(
+                end.astimezone(timezone.utc).replace(tzinfo=None), type=rows.event_time.type()
+            )
+        )
     )
     mapping = members.expression
     selected = rows.semi_join(

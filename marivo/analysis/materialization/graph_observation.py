@@ -782,6 +782,22 @@ def observe_members(
         local_populations = tuple(
             {item.identity: item for item in (*local_populations, envelopes[-1])}.values()
         )
+    if (
+        not local_populations
+        and isinstance(parameters, ObserveMetric)
+        and parameters.amount_type == "int64"
+        and (
+            (parameters.method == "sum" and parameters.metric.empty_rule == "zero")
+            or (parameters.method == "mean" and parameters.metric.empty_rule == "null")
+        )
+        and parameters.fold is None
+        and parameters.cumulative is None
+        and parameters.coordinates
+        and parameters.start is not None
+        and parameters.end is not None
+        and any(leaf.definition.shape.backend != "duckdb" for _, leaf in source_entries)
+    ):
+        local_populations = (member_root,)
     prepared_parameters = None
     if local_populations:
         if len(local_populations) != 1 or not isinstance(parameters, (ObserveMetric, ObserveCount)):

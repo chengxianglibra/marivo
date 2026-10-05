@@ -982,6 +982,12 @@ automatically. Repair a blocked report before declaring the semantic change
 complete; routine analysis of unchanged objects does not rerun readiness before
 every call. Ordinary preview history is not a readiness input; dedicated
 certified temporal artifacts remain blockers when missing, stale, or invalid.
+MySQL certification reads use an isolated connection with a verified server
+SELECT deadline. Failed configuration or source capture prevents certification
+publication and preserves an existing certified snapshot. Native read failure
+reports a structured semantic error with backend diagnostics, scoped timeout and
+actual query-submission state. This does not enable ordinary preview or raw SQL
+timeouts.
 :::
 
 Source drift has its own explicit report and never changes readiness:

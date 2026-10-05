@@ -662,6 +662,16 @@ class MethodSemantics:
         if isinstance(params, rules.CellDerive):
             from marivo.analysis.methods.comparison import output_type
 
+            if params.value_policy == "duration_ratio_unknown" and not (
+                params.method == "ratio"
+                and all(isinstance(value, DurationType) for value in inputs)
+            ):
+                reject(
+                    "Duration ratio operands for Unknown propagation",
+                    repr(inputs),
+                    "Preserve the original Duration endpoints.",
+                )
+
             try:
                 expected_comparison = output_type(params.method, inputs[0], inputs[1])
             except (ValueError, IndexError) as error:
@@ -1005,7 +1015,13 @@ class MethodSemantics:
                 ("null", ("empty_contribution",)),
             )
         if self.key.name == "cell.ratio":
-            return (("undefined", ("zero_denominator",)),)
+            return (
+                ("undefined", ("zero_denominator",)),
+                (
+                    "unknown",
+                    ("coverage_censored", "entry_unknown", "insufficient_business_coverage"),
+                ),
+            )
         if self.key.name == "cell.difference":
             return (
                 ("undefined", ("missing_side", "zero_denominator")),
@@ -1330,6 +1346,11 @@ class MethodSemantics:
         if (
             isinstance(params, (rules.CellDerive, rules.RowState))
             and params.value_policy != self.cell_policy
+            and not (
+                isinstance(params, rules.CellDerive)
+                and params.method == "ratio"
+                and params.value_policy == "duration_ratio_unknown"
+            )
         ):
             reject(
                 self.cell_policy,

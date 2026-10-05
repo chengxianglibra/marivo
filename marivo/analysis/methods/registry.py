@@ -28,7 +28,9 @@ from marivo.analysis.methods.errors import reject
 from marivo.analysis.methods.physical import (
     DecimalType,
     DurationType,
+    FixedShape,
     Implementation,
+    NoTime,
     QualificationKey,
     ScalarType,
     Unavailable,
@@ -188,10 +190,19 @@ class MethodRegistration:
             if rule == "association_score@v1" and (
                 not 1 <= input_count <= 16
                 or any(
-                    domain not in ("entity", "group") for domain in implementation.key.input_domains
+                    domain not in ("entity", "group", "journey")
+                    for domain in implementation.key.input_domains
                 )
                 or implementation.precision
                 not in ("finite_float64", "certified_statistical", "exact")
+                or (
+                    "journey" in implementation.key.input_domains
+                    and (
+                        implementation.key.shape != FixedShape(NoTime())
+                        or implementation.key.route != "artifact_python"
+                        or implementation.key.input_types != (ScalarType("float64"),) * input_count
+                    )
+                )
             ):
                 reject(
                     "exact typed association inputs",

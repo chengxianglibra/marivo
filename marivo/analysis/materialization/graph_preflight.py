@@ -156,11 +156,18 @@ def preflight_entities(
         )
     datasource_path = next(iter(datasource_paths))
     datasource = registry.datasources[datasource_path]
-    if datasource.backend_type not in ("duckdb", "sqlite"):
+    if datasource.backend_type not in (
+        "duckdb",
+        "sqlite",
+        "postgres",
+        "mysql",
+        "trino",
+        "clickhouse",
+    ):
         raise _reject(
-            "the qualified DuckDB source route",
+            "a qualified graph source provider",
             datasource.backend_type,
-            "Use a qualified DuckDB source for this Analysis graph.",
+            "Use a source with a qualified graph schema and exact method implementation.",
         )
     shapes: list[SourceShape] = []
     for contract in contracts:
@@ -173,7 +180,17 @@ def preflight_entities(
         if isinstance(contract.source, TableSourceIR):
             shapes.append(
                 SourceShape(
-                    "sqlite" if datasource.backend_type == "sqlite" else "duckdb",
+                    "clickhouse"
+                    if datasource.backend_type == "clickhouse"
+                    else "trino"
+                    if datasource.backend_type == "trino"
+                    else "mysql"
+                    if datasource.backend_type == "mysql"
+                    else "postgres"
+                    if datasource.backend_type == "postgres"
+                    else "sqlite"
+                    if datasource.backend_type == "sqlite"
+                    else "duckdb",
                     "table",
                     "native",
                     NoTime(),
@@ -196,10 +213,14 @@ def preflight_entities(
     ):
         from marivo.datasource.timezone import probe_engine_timezone
 
-        authority = probe_engine_timezone(backend)
-        engine_timezone = (
-            authority.engine_timezone_name if authority.read_tz_resolution == "engine" else None
-        )
+        # ClickHouse's driver can silently substitute UTC for an invalid server
+        # zone. Keep that fact absent; explicit physical/authored axes retain
+        # their own authority, while implicit reader-timezone axes reject.
+        engine_timezone = None
+        if datasource.backend_type != "clickhouse":
+            authority = probe_engine_timezone(backend)
+            if authority.read_tz_resolution == "engine":
+                engine_timezone = authority.engine_timezone_name
         results = []
         for contract, shape in zip(contracts, shapes, strict=True):
             bound = source.bind(contract.source, source_identity=contract.ref.path)

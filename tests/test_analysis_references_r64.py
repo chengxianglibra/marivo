@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 from fractions import Fraction
+from typing import Literal
 
 import pytest
 
@@ -31,6 +32,75 @@ def test_exact_standardization_and_zero_weight_cells() -> None:
     ) == Defined(Decimal("1.500000"))
     with pytest.raises(ValueError, match="Duration"):
         standardize((Defined(1),), (1,), DurationType("us"), i)
+
+
+@pytest.mark.parametrize("damage", [None, "value", "duplicate"])
+def test_standardization_proof_uses_keys_and_preserves_damage(
+    damage: Literal["value", "duplicate"] | None,
+) -> None:
+    import pyarrow as pa
+
+    from marivo.analysis.core.model import Binding, Coordinate, DomainSignature
+    from marivo.analysis.core.rules import ReferenceDerive
+    from marivo.analysis.errors import AnalysisError
+    from marivo.analysis.materialization.graph_exchange import ExchangePart
+    from marivo.analysis.materialization.graph_reference import finish
+
+    schema = pa.schema(
+        [
+            pa.field("key_0", pa.string()),
+            pa.field("value", pa.int64()),
+            pa.field("cell_tag", pa.string()),
+            pa.field("cell_reason", pa.string()),
+            pa.field("error_bound", pa.float64()),
+        ]
+    )
+    values = pa.Table.from_pylist(
+        [
+            {
+                "key_0": "a",
+                "value": 2,
+                "cell_tag": "defined",
+                "cell_reason": None,
+                "error_bound": 0.0,
+            },
+            {
+                "key_0": "b",
+                "value": 4,
+                "cell_tag": "defined",
+                "cell_reason": None,
+                "error_bound": 0.0,
+            },
+        ],
+        schema=schema,
+    )
+    proof = values.take([1, 0])
+    if damage == "value":
+        proof = proof.set_column(1, schema.field("value"), pa.array([5, 2], type=pa.int64()))
+    elif damage == "duplicate":
+        proof = proof.take([0, 1, 1])
+    weights = values.set_column(1, pa.field("value", pa.float64()), pa.array([0.5, 0.5]))
+    domain = DomainSignature(Binding("proof", "sales", "facts", "all"), "singleton", (), (), "all")
+    params = ReferenceDerive(
+        "standardize",
+        domain,
+        "weights",
+        "facts",
+        "all",
+        (Coordinate(ms.ref.entity("sales.facts"), "tenant", "identity"),),
+        ms.ref.entity("sales.facts"),
+    )
+    parts = (
+        ExchangePart("stratum_values", values),
+        ExchangePart("reference_proof", proof),
+        ExchangePart("fixed_reference", weights),
+        ExchangePart("strata", weights.select(["key_0"]).take([1, 0])),
+    )
+    if damage is None:
+        assert finish(params, ScalarType("float64"), parts)["value"].to_pylist() == [3.0]
+    else:
+        with pytest.raises(AnalysisError, match="proof differs"):
+            finish(params, ScalarType("float64"), parts)
 
 
 @pytest.mark.parametrize("weights", [(0.5, 0.5), (0.1, 0.2, 0.7), (1.0 + 5e-13, 0.0)])
@@ -1020,3 +1090,65 @@ def test_zero_weight_error_propagation(cell: object) -> None:
         else 0.0
     ) + 2e-12
     assert bound == expected
+
+
+@pytest.mark.parametrize("damage", [None, "identity", "duplicate", "null", "reference_duplicate"])
+def test_penetration_proof_uses_complete_keys(
+    damage: Literal["identity", "duplicate", "null", "reference_duplicate"] | None,
+) -> None:
+    import pyarrow as pa
+
+    from marivo.analysis.core.model import Binding, DomainSignature
+    from marivo.analysis.core.rules import ReferenceDerive
+    from marivo.analysis.errors import AnalysisError
+    from marivo.analysis.materialization.graph_exchange import ExchangePart
+    from marivo.analysis.materialization.graph_reference import finish
+
+    schema = pa.schema(
+        [
+            pa.field("key_0", pa.string()),
+            pa.field("key_1", pa.int64()),
+            pa.field("key_2", pa.int64()),
+        ]
+    )
+    members = pa.Table.from_pylist(
+        [
+            {"key_0": "a", "key_1": 9007199254740992, "key_2": 1},
+            {"key_0": "a", "key_1": 9007199254740993, "key_2": 2},
+            {"key_0": "b", "key_1": 9007199254740993, "key_2": 1},
+        ],
+        schema=schema,
+    )
+    values = members.take([0, 1])
+    reference = members.cast(
+        pa.schema([pa.field(field.name, field.type, nullable=False) for field in schema])
+    )
+    if damage == "null":
+        values = values.set_column(
+            0, schema.field("key_0"), pa.array(["a", None], type=pa.string())
+        )
+    elif damage == "reference_duplicate":
+        reference = reference.take([0, 1, 2, 2])
+    proof = values.take([1, 0])
+    if damage == "identity":
+        proof = proof.set_column(
+            1,
+            schema.field("key_1"),
+            pa.array([9007199254740992, 9007199254740992], type=pa.int64()),
+        )
+    elif damage == "duplicate":
+        proof = proof.take([0, 1, 1])
+    domain = DomainSignature(Binding("proof", "sales", "facts", "all"), "singleton", (), (), "all")
+    params = ReferenceDerive("penetration", domain, "members", None, "untimed")
+    parts = (
+        ExchangePart("stratum_values", values),
+        ExchangePart("reference_proof", proof),
+        ExchangePart("fixed_reference", reference),
+    )
+    if damage is None:
+        assert finish(params, ScalarType("float64"), parts)["value"].to_pylist() == [
+            float(Fraction(2, 3))
+        ]
+    else:
+        with pytest.raises(AnalysisError, match=r"complete identities|intersection proof differs"):
+            finish(params, ScalarType("float64"), parts)

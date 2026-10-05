@@ -206,6 +206,12 @@ negative = coefficient.where(coefficient.value.lt(0)).execute()
 
 ## 保持判断明确
 
+普通表的受限 UTC 微秒、int64 子集支持 DuckDB、SQLite、PostgreSQL、MySQL 和 Trino
+的原生精确 distinct，以及 ClickHouse 上显式许可的近似 distinct。精确分位数适用于
+DuckDB/PostgreSQL；显式近似分位数也适用于 Trino/ClickHouse。不支持的定义在读取前
+拒绝，不自动替换。原分布量不能归约或用于变化归因，固定恢复不读取来源。其他输入
+类型、无界窗口及完整 C10 仍须独立验收。
+
 当指标、人群、比较方式或重要假设需要改变时，确认新的业务含义。可复用的语义缺口归属语义建模。在 Metric 定义中通过 `agg=("approx_percentile", q)` 明确允许近似；观察与恢复保持该定义。原生 SQL 的数值精度限制由结果契约披露。
 
 归因是代数分解，相关性是描述性结果，deviation 分数是调查线索，预测带有模型假设。Agent 负责综合判断与结论。`to_pandas()` 或 `md.raw_sql(...)` 的自定义分析是终端出口，结果不能重新注入受治理的 Dataset 组合。
@@ -244,6 +250,31 @@ Entity 域 J1–J4 的逻辑来源执行每次都会重新读取来源；固定�
 取消或关闭失败可能使远端只读查询状态未知。Marivo 如实记录这种不确定性；本地发布安全后，同一 Session 可继续工作。未确定的提交状态与冲突写入者仍会阻塞恢复。失败 Run 表示没有成功的本地输出，不证明服务端查询已停止。提交结果不明确时，不自动重新提交动作。
 
 ## 后端实现边界
+
+受限 R9.3 原生表、UTC 微秒路线支持 SQLite、PostgreSQL、MySQL、Trino Iceberg、ClickHouse 的两个
+来源根 float64 运行时线性观察。各根独立归约，再按完整目标键组合。PostgreSQL、MySQL、
+Trino Iceberg、ClickHouse 也保持从 Decimal(18,6) 原始事实归约出的 Decimal(38,6) 组件，与 DuckDB 的精确
+Decimal 值一致。SQLite 非有限输入拒绝且不发布结果，其 Decimal 线性组合仍未取得资格。
+其他 Decimal 形状及完整 C04 资格仍未验证。
+
+受限 R9.3 原生 UTC 微秒路线也支持 SQLite、PostgreSQL、MySQL、Trino Iceberg、ClickHouse
+的 int64 组件运行时比值，以及基于 int64 事实、string 键 Entity 目标的加权平均。比值保留
+完整目标、Defined 的零分子和 Undefined 的零分母；加权平均保留 Null 空贡献。其他比值
+数值形状及完整 C04 资格仍未验证。
+
+两个来源根的 float64 比值精确键也具有六后端原生 UTC 微秒受限向量，并为固定汇总
+保留原始组件。DuckDB、PostgreSQL、MySQL 与 ClickHouse 的 Decimal 比值保留精确组件，按 HALF_EVEN 一次舍入至
+Decimal(38,6)。MySQL 与 ClickHouse 的原组件与最终比值溢出均在发布前拒绝。
+ClickHouse 使用 Decimal256 求和，并检查声明精度边界。
+SQLite、Trino 的 Decimal 比值键仍未取得资格；准入拒绝不能证明要求的
+Decimal 执行成功。
+
+该受限 int64 比值的固定汇总合并原始组件：30/9 得到 10/3，而平均目标比值 6 和 0
+会错误地得到 3。六后端来源生产者保留这些组件，续算不重新读取来源。
+
+受限原生 UTC 微秒、int64 运行时聚合与维度切片观察也具有六后端来源向量。运行时
+sum 保留 Null 空贡献；对显式 zero 策略的静态 sum 切片时，被排除的目标保留为
+Defined zero。其他聚合函数、切片组合及完整 C04 资格仍未验证。
 
 下面的后端和方法描述保留重构前的资格历史，不为当前 R1 checkout 的旧来源
 方法授予执行资格。Event、Attribution、mean、带时间范围的观察、
@@ -299,6 +330,10 @@ status-time fold 仍未准入。相关性消费者保留其独立资格边界。
 PostgreSQL、SQLite、Trino 与 ClickHouse 支持基于完整非 Entity 状态的隐藏轴展开加性与组件归因。MySQL 的组合查询在实测中超过验收服务的内存限制，因此仍拒绝；Trino 的展开 Top-K 查询超过服务的 stage 上限，也保持拒绝。以下 Event 后端记录属于保留的旧实现，不构成 R7.3 新公共入口资格。PostgreSQL 支持精确的两步或三步旧旅程；要求未版本化表源和 `int64` 主体、事件身份。直接 Event 漏斗、耗时和主体选择，已验收；旧 Lifecycle Dataset 后端记录不授予 R7.5 资格。旧 PostgreSQL 私有漏斗比较和归因消费者已退出；历史后端证据不授予新 R7.4 路线资格。
 
 ClickHouse 和 Trino 支持相同表源与身份条件下的两步旅程，匹配策略包括 `first_per_subject()` 和 `every_start()` 的共享／独占完成分配。Trino 的真实验收使用 Iceberg；ClickHouse 要求只读账户获准设置 `enable_materialized_cte=1`。空输出也执行源端断言，只有契约允许的完整结果进入既有本地续算。Trino 还支持直接无分组漏斗、first-per-subject 耗时、主体选择。其旧私有无分组漏斗比较消费者已退出，不授予新 R7.4 路线资格。Trino 分组漏斗的核对查询超过验收服务的 stage 上限，因此分组漏斗和依赖它的归因保持拒绝。ClickHouse 的直接 Event 派生方法与主体选择仍因计划或内存限制保持拒绝。R7.5 canonical Lifecycle History 接通受治理的 DuckDB 表和本地 Parquet。入口要求精确 StateModel Ref、显式逻辑 Subject 域、带时区的报告窗口和 `from_inception()`；业务顺序由模型拥有。Ibis 先准备全部源输入，本地扫描再消费同一捕获。History 保留每个主体、全部迁移与违规轨迹，已发布结果可独立断源读取。六类 History 视图、精确 Duration 统计和选人后同 Run 的 count/sum 观察已在 R7.6 本地验收；远端 Lifecycle replay 尚未验收。
+
+受限 R9.3 SQLite 路线也支持 main 数据库原生表、int64 身份与 UTC 微秒时间戳的 replay
+和无分类轴 History 视图，使用已注册的原生备份准备。完整、前缀及未知覆盖保留各自轨迹；
+fixed 视图与恢复消费保留部件。其他来源形状及分类 checkpoint 轴仍未取得资格。
 
 ```python
 members = session.members(ms.ref.entity("commerce.subjects"))
@@ -369,7 +404,10 @@ aware 声明保留 instant。ClickHouse timestamp 执行要求已验证的 UTC r
 或显式 parser 时不依赖额外探测。reader/report 支持 IANA 与固定偏移，parser 声明
 保持既有 IANA 校验。Session 保存 report 权威，冷读不会随主机 TZ 改变。
 
-范围先按 instant 做半开比较，再生成报告时区 civil 桶。源端 naive gap/fold 时间不做预检，转换遵循声明的时间权威及后端行为；
+范围先按 instant 做半开比较，再生成报告时区 civil 桶。Metric 观察的 naive 事件时间
+必须有声明或驱动报告的时区；SQLite 需要显式 UTC parser，不会采用主机、报告或网格时区。
+发布前验证源端原始/归一化时间对。原生 DST gap/fold 返回结构化 `MaterializationError`，
+指出字段、时区、墙钟值和修复方式，不发布部分 artifact。
 两个已知 instant 落在重复的报告小时内时归入同一 civil 桶。naive 谓词字面量比较
 civil 字段，aware 字面量比较 instant，混用拒绝。微秒 SQL 边界、Arrow/Parquet 和
 源离线冷读必须保真；小时到日续算复用保存的时间事实。远程 epoch 解析与
@@ -545,6 +583,13 @@ selected.execute().show()
 
 `at=scope.before_end` 表示精确结束边界之前的左极限，不减去一个时间刻度。
 指定快照缺失时没有该快照所表示的成员，不沿用旧行。无版本 Entity 不传 `at`。
+PostgreSQL/MySQL/Trino/ClickHouse 原生表也支持 int64/entity/NoTime 的成员传输、int64 键时间乘积和直接 int64/date 读取键，
+包括精确 UTC DATE 快照、NULL 开放结束的左闭右开 validity，以及完整 int64/string 身份。
+PostgreSQL/Trino/ClickHouse 支持原生 Boolean 读取；MySQL BOOLEAN 实测为 int8，
+在业务读取前拒绝，不进行整数到 Boolean 的转换。可以显式声明返回 `rows.enabled == 1` 的 Boolean Dimension，并通过其 Ref 读取；读取会绑定表达式及其依赖。Category/Boolean 筛选返回完整成员身份。
+选定的重复身份在发布前拒绝。完整 int64/string 键的单条显式定向 to-one 原生表路径支持直接 int64 属性：
+当前成员范围内缺失或多重匹配会拒绝；匹配到的 NULL 保持 Null Cell，范围外目标重复不使读取失效。
+其他标量类型与更长路径仍需独立资格证据。
 
 `read` 对 Measure 返回 Numeric，对 Dimension 返回 Category 或 Boolean，对
 TimeDimension 返回 Temporal。整数指示列仍是分类；原生日期保持日期，带时区时间戳保留
@@ -587,6 +632,19 @@ fixed_targets = selected_regions.group_by(groups=targets).execute()
 而原组件归约为 `200/101`。`group_by(*keys).rollup()` 保留指定轴，`rollup()` 消去全部轴。
 本次资格不包含时间网格粗化。
 
+六个后端的普通表均支持这条显式空目标组流程，范围为 int64/float64 观察、string 分类及 UTC 微秒来源时间，
+包括 count/count_defined/sum/mean 当前行统计与原 sum/mean 状态上卷。新增精确键不扩展到 Decimal 输入。
+远端图捕获完整中间交换表，通过 Ibis 编译的明确物理类型常量关系消费，不写入远端表。
+完整捕获的行数保持不变，不构成输入容量配额；ClickHouse 通过带明确类型的结构数组展开消费交换表。
+对已分组的原均值，`grouped.group_by().summarize(mv.mean())` 先移除分组轴，再归约当前值；
+`grouped.rollup()` 合并保存的 sum/count 组件。来源与固定续算路径均区分 `50.5` 和 `200/101`。
+Null 观察仍计入 count，count_defined 只计入 Defined Cell，sum/mean 拒绝非 Defined 当前 Cell。
+这些限定证据不构成完整 C05 数值类型、域、数据检查和取消矩阵验收。
+
+六种普通表后端的限定 UTC 微秒 int64 参照份额、排名与字符串身份 cohort 路径均保留完整复合成员键。
+固定 cohort 可将静态目标与完整 Entity/time 机会 Artifact 组合，读取已保留的网格，
+不重新读取来源，也不改变输入的时间元数据。这些路径不构成完整 C08 矩阵验收。
+
 筛选后的分类在无键分组时仍保留分类轴。上面的 `fixed_targets` 物化后保留 east、south、west，
 包括空组，可用于后续固定续算。按完整键精确对应的数值谓词可以来自另一事实来源；图会同时运输两侧来源绑定。
 
@@ -623,6 +681,13 @@ mean、weighted_mean、ratio 在冻结组件能证明统计单位时准入。总
 范围不一致或权重总和错误均拒绝；不归一化。零权重层仍须存在并保留非 Defined
 标签，所有正权重层都严格消费有限 Defined 值。份额覆盖 int64、float64、Decimal
 和 Duration；标准化覆盖 int64/float64 配整数或浮点权重，以及 Decimal 配 Decimal 权重。
+
+六后端普通表的限定路径支持 UTC 微秒 int64 分层值与 float64 参照权重。
+缺失 strata 和负权重均拒绝，fixed 续算也保留此约束。证明按完整分层键和值比较，
+不依赖来源返回行顺序。同一六后端普通表限定路径也支持静态成员域的字符串复合身份
+渗透率。来自独立 fixed producer 的成员映射保留原 Artifact 回执，交集证明按完整
+类型化键比较。空键和重复身份行均拒绝，空参照仍返回 `Undefined/empty_reference`。
+完整 C08 矩阵仍未收口。
 
 fixed 续算须同时使用 fixed 值、分类与权重。恢复后，即使来源断开，`where` 也使用
 原保留参照执行。通过 `marivo.help("analysis.methods.metric.reference")` 发现聚焦入口。
@@ -703,6 +768,12 @@ distinct/distribution/extrema 与未经证明的重叠状态没有分配方法�
 `marivo.help("analysis.dsl.LogicalDifferenceRelation.attribute")` 阅读聚焦契约。
 此资格不授予安装 wheel 或远端验收。
 
+六后端普通表的受限子集也支持 UTC 微秒时间轴、显式字符串贡献轴和有界窗口上的
+int64 sum-zero 或原均值观测。远端输入先准备原生行，再由本地消费者执行原状态归约、绝对比较
+与加法或分量分配。保留的 joint/hierarchy、共同 Top-K/Other 与筛选可断源执行。
+缺失分类会拒绝且不发布产物。普通来源读取保留原有读取保证，不获得共享快照权威；
+历史域准备仍要求原有快照捕获。其他原方法、来源数值类型及完整 C09 仍须独立验收。
+
 ## R6 恢复边界
 
 比较、严格选择/cohort、固定参照、排名和归因沿用同一 typed graph 与 Store 7。
@@ -728,6 +799,10 @@ Duration 当前行统计也需要先执行，再合并其状态。逻辑态 cont
 LogicalJourneyResult。DuckDB 原生表与本地 Parquet 先经 Ibis 准备 occurrence，
 再执行已注册的本地匹配。同 Run 的后续 Metric 贡献也在本地选人前准备完毕，
 来源失败不会切换引擎。
+
+受限 SQLite 路线支持 main 数据库原生表、int64 Event 与 Subject 身份及 UTC 微秒时间戳。
+准备前通过原生备份接口将整个 main 数据库冻结到私有临时文件；复制和查询共享执行期限。
+成功或失败均删除备份并恢复原连接。附加数据库及其他来源形状仍未取得资格。
 
 ```python
 import marivo.analysis as mv
@@ -775,6 +850,15 @@ coverage_censored、not_entered、entry_unknown。只有已完成步骤对有 du
 仅在微秒输出时舍入一次到 46.666667 秒；先按主体得到 20、100 秒再平均则为
 60 秒。选人不会替换原 Journey 分母。
 
+保留的微秒 Journey 耗时支持 `duration.ratio(duration)`，配对使用完整 Journey 键。
+Defined 操作数正常相除；零分母产生 `Undefined(zero_denominator)`。
+Unknown 观察耗时将 `coverage_censored` 或 `entry_unknown` 保留为标量 float64 Unknown，
+自除也不消除未知状态。两个原始端点 Cell 均保留，其他非 Defined 操作数仍拒绝。
+固定标量比值支持 zscore/MAD，并保留 Unknown Cell。
+Pearson/Spearman/Kendall 拒绝 Unknown，不补值或删除配对。
+该 Journey 域不提供 forecast/runs 所需的完整时间网格。
+其他单位及来源 Journey ratio 输入仍未取得资格。
+
 Store 7 保存 assignment、reach、覆盖、映射、精度和归约状态。fixed read、归约、
 筛选和断源新进程恢复均消费保留部件，不重新匹配。显式 fixed population 不能与
 新来源匹配或观察混合。结果卡披露原始及捕获单位与潜在精度损失（包括原生纳秒转
@@ -814,7 +898,7 @@ selected.members().execute().show()
 
 窗口不包含 deadline，并按完整身份排除 Anchor occurrence。Calendar 保持本地墙上时间，
 DST 导致不存在或有歧义的 deadline 会返回具体修复。Event elapsed 观察使用 Ibis；calendar
-和当前 Journey 起点先准备有界候选，再在本地消费。重叠窗口分别保留贡献使用绑定，删除
+和当前 Journey 起点先准备有界候选，再在本地消费。基于本地筛选后 Journey 成员的观察须先执行，再进行后续操作；物化结果的 `contract()` 提供有效延续。重叠窗口分别保留贡献使用绑定，删除
 Anchor 坐标不能取得原状态 rollup。固定续算只消费已保留输入，不能引入新的 live Metric。
 Retention 不属于本轮 R7.7。
 
@@ -844,6 +928,17 @@ selected.members(through=selected.subject_binding).execute().show()
 subjects = retention.by_subject(rule=mv.any_anchor()).execute()
 subjects.known_true().members().execute().show()
 ```
+
+SQLite main 原生表的 int64 身份、UTC 微秒 Event 起点 retention 支持 elapsed 与 calendar
+窗口，使用冻结来源准备及已注册的本地消费者。Unknown 保留在原机会域中；选择和独立进程
+恢复保持其界与 any/every Subject 分组。独立的 elapsed/calendar Anchor 观察支持一个直接 int64
+sum-zero Metric，不带坐标或过滤。准备过程保留重叠窗口的贡献重数、业务顺序与 fixed/冷恢复证据。
+组合与其他输入形状仍未取得资格。
+同一 SQLite 形状支持从 Journey 绑定 Anchor，保留原始分配与起点时间。
+从恢复后的 fixed Journey 绑定时，不访问来源，也不重新执行匹配。
+这些 Journey 起点支持同一直接 Metric 观察及 elapsed/calendar retention，保留原始分配
+与机会域；候选输入先准备，再进入本地绑定。Calendar Metric 观察排除恰落在 DST 截止点
+的返回；elapsed 24 小时与一个日历日的结果可能不同。
 
 即使后续覆盖不完整，观察到合格返回也是真。只有精确绑定 returning Event、来源、
 版本的完整性覆盖整个半开窗口，未观察到返回才是假；否则为 Unknown。
@@ -894,6 +989,10 @@ canonical assignment。snapshot/validity 版本和完整轴元组保留真实 Nu
 
 物化结果提供 Evidence、分页 Findings 和单条读取；每次读取都验证整个冻结集合。
 compare/归因的发射上限为 1000，保留 eligible/emitted/truncated 权威。
+SQLite main 原生表的 int64 身份与 UTC 微秒时间支持在本地匹配、归约前准备一个
+直接、未版本化的 string/int64 Subject 入口轴，或按顺序排列的 int64/string 轴对，也支持经过单条 to-one UTC 每日 DATE snapshot 路径或以 NULL 表示开放结束的 UTC DATE 左闭右开 validity 路径的字符串轴。兼容的固定比较及 loss/denominator-mix 归因
+保留轴，可断源续算与冷恢复。snapshot 轴要求精确入口期；缺失时拒绝，不选择最新或较早的行。validity 包含起点、排除终点；缺失或重叠区间在发布前拒绝。其他轴数与顺序、路径/版本条件及形状尚未由此路线取得资格。
+
 来源路线为显式 Ibis 准备后本地消费，固定续算为 `artifact_python`。
 此处不授予 native funnel、远端、same-wheel 或完整 R7 资格。
 
@@ -910,9 +1009,50 @@ mv.table(start=selected.start, end=selected.end, count=selected.count,
 ```
 
 不可评估的 Cell 会打断区间。Duration 使用真实 UTC 边界。先分段再筛选区间；提前筛选观察行会撤销完整网格契约。全局时间观察不具备 members 能力。
+Runs 还要求保留实际覆盖事实。派生 ratio 的端点若缺少这些事实，会返回结构化分析错误。
+应从具有覆盖事实的原始观察，或保留完整网格映射的拟合结果字段继续。
+时间相关与预测也要求这些覆盖事实，即使当前 ratio 的所有 Cell 都是 Defined。
+事实缺失时，会在拟合前返回结构化错误。
 
 
 ## 相关与预测
+
+SQLite 普通表支持两个 int64 实体观察量的 Pearson、Spearman 和 Kendall 相关，
+要求微秒精度的 UTC 事件时间轴。coefficient 和 selected 视图沿同一准备图执行。
+其他 SQLite 统计类型和形态仍需各自的物理资格验证。
+PostgreSQL 和 MySQL 普通表也支持这一双 int64 实体配对路线；MySQL 要求
+读取连接成功初始化为 UTC。
+Trino Iceberg 和 ClickHouse 本地 MergeTree 表也支持这一配对路线。
+ClickHouse 要求显式声明或物理列提供 UTC 时间轴；不可用的服务器时区事实不能
+提供隐式读取时区。其他类型、分布式形态和完整取消验收仍需独立验证。
+六个后端的普通表也支持对此准备路线的完整 int64 实体观察量执行 zscore 和 MAD，保留
+完整整数原值和拟合状态。其他源端数值类型仍需独立验收。
+每次图执行共享一个 600 单调秒预算，包括普通来源读取、当前行统计和固定输入续算。
+外层预算保留原始起点。提交或发布前超时会拒绝结果，保留先前产物并释放所拥有的资源。
+
+统计来源读取在原生提交和分批消费期间共享 execute deadline。DuckDB 和 SQLite 可以
+在无需 domain preparation 时中断活动原生查询；执行线程清理游标和连接。
+超时返回结构化错误，无法确认连接释放时阻止发布；远端服务器是否终止仍须独立证明。
+MySQL 来源图先准备独立且有时间界限的控制连接，只取消所选连接的自有活动查询。
+清理在执行线程进行。无法确认控制连接关闭时保留 Run 资源记录，阻止自动恢复；
+控制提交成功本身不构成服务器终止证明。
+PostgreSQL 在超时时发送驱动原生取消请求；独立验证之前，远端终止状态仍为 unknown。
+Trino 在提交前登记游标，可在执行或分批读取期间取消查询；重试覆盖首次 HTTP 响应前
+的竞态，执行线程负责关闭游标。服务器查询状态须独立验证，客户端关闭本身不能证明取消。
+分批读取时，超时 checkpoint 可能先于定时器回调触发退出。游标清理会在执行线程调用
+原生取消；证据明确记录 `owner_checkpoint`，须有实际取消调用和独立服务器确认，不能
+声称发生了定时器中断。
+ClickHouse 每次读取通过原生 HTTP 超时设置使用 execute 预算的剩余时间。只读账户须允许
+修改 `max_execution_time` 和 `timeout_before_checking_execution_speed`，并保持超时抛错。
+设置不可用时在业务读取前结构化拒绝；保留原始 deadline，不返回部分结果，不提交控制 SQL。
+服务端超时和查询终止须独立验证，本地 MergeTree 证明不授予 Distributed 分片资格。
+服务器原生超时可能先于 Python 的期限触发；其证明依赖已配置的期限和独立服务器查询
+状态，客户端与服务器时钟分别记录。
+
+六个后端的普通表还支持微秒 UTC 时间格上的完整 int64 实体 runs 及 count
+视图，以及完整 int64 时间分组历史的 naive/drift/seasonal-naive 预测及 prediction
+视图。空贡献表示零时须显式声明零策略，不填补 null 或 unavailable 历史。
+ClickHouse UTC 时间轴保留物理时区，因此非 UTC 会话设置下的窗口边界也保持 UTC。
 
 Numeric 关系支持 2–16 个互异量的全部两两组合。默认方法为 Pearson；
 Spearman 和 Kendall 需显式指定。正 lag 在原始完整格上配对左侧 t 与右侧 t+k。
@@ -983,3 +1123,37 @@ for future in (naive, drift, seasonal):
 预测区间边界不可加总。固定续算与冷恢复使用已验证的捕获部件，缺失或损坏部件直接失败，
 不重算或回源。旧统计 Artifact descriptor 明确拒绝，不迁移。R8.5 证据不补授前序 R8、
 同 wheel、远程后端或真实 Agent 资格。旧 `.discover`、Candidate 和旧 Association/Forecast Dataset 链已退役。
+
+PostgreSQL、MySQL、Trino 和 ClickHouse 的远端准备允许多次读取期间源数据变化。
+保留输入记录实际读取的事实，不承诺来自同一个数据库快照；固定结果的后续操作使用这些保留输入。
+
+MySQL sample 和 raw_sql 的超时控制仅取消独立读取连接的当前自有查询，并关闭读取和控制连接；认证专用的 SET/读取语句仍保持独立用途。
+
+
+## 声明完整网格上的业务完整性
+
+读取成功并不能证明某个桶的业务数据已经全部到达。对于原始 sum 观测，使用
+`observe(complete_during=(scope, ...))` 声明完整区间。区间必须使用带时区的 datetime
+绝对边界，并配合 `during=grid.window` 和无 partial 桶的完整原始网格。
+这次调用同时绑定接收域、Metric 和原始贡献来源。
+
+```python
+from datetime import datetime, timezone
+
+complete = mv.time_scope(
+    start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+    end=datetime(2026, 8, 3, tzinfo=timezone.utc),
+)
+daily = members.each(grid).observe(
+    sum_metric, during=grid.window, complete_during=(complete,),
+)
+```
+
+只有整个原始桶都落在声明的区间并集中，才保留原本的 Defined/Null。
+其他桶返回 `Unknown(insufficient_business_coverage)`；实际读取覆盖、部分值和原始贡献
+仍被保留。空元组表示没有完整桶；省略参数保留原有策略。最多接受 64 个区间，重叠和相邻
+区间会合并。当前生产路径为 DuckDB table/Parquet 的 sum 观测，不能同时传端点或贡献坐标。
+
+Forecast 拒绝 Unknown 训练输入；runs 将其视为 unavailable 并切断区间。
+Duration 商会将该 Unknown 原因保留为 float64。此类观测不能通过 rollup 或合并时间桶把
+部分业务数据变成完整值；固定和冷恢复消费会在不读取源的情况下核对同一声明。

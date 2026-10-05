@@ -15,7 +15,7 @@ import pyarrow as pa
 from marivo.analysis.compiler.graph_lowering import SourceBinding, lower
 from marivo.analysis.compiler.graph_plan import RouteChoice
 from marivo.analysis.core.graph import MethodNode, Node, topology
-from marivo.analysis.core.model import CorrespondencePart, part_role
+from marivo.analysis.core.model import CorrespondencePart
 from marivo.analysis.core.rules import (
     CellDerive,
     DeviationFit,
@@ -26,7 +26,12 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization import graph_store
-from marivo.analysis.materialization.contracts import RunFailure, RunFailurePhase, canonical_json
+from marivo.analysis.materialization.contracts import (
+    ResourceRecord,
+    RunFailure,
+    RunFailurePhase,
+    canonical_json,
+)
 from marivo.analysis.materialization.errors import RecoveryPendingError
 from marivo.analysis.materialization.execution_key import (
     FixedKeyInput,
@@ -75,7 +80,11 @@ from marivo.analysis.materialization.graph_protocol import (
 from marivo.analysis.materialization.graph_source_execution import execute_source_graph
 from marivo.analysis.materialization.graph_storage import read_result, write_table
 from marivo.analysis.materialization.reconciliation import reconcile_session
-from marivo.analysis.materialization.resources import discharge_resources, reserve_output
+from marivo.analysis.materialization.resources import (
+    discharge_resources,
+    mysql_control_reservation,
+    reserve_output,
+)
 from marivo.analysis.materialization.storage import _fsync_directory
 from marivo.analysis.materialization.store import SessionStore, _new_run_ref, _rows, _text
 from marivo.analysis.materialization.writer_guard import session_writer_guard
@@ -321,6 +330,8 @@ def _execute(
         artifact_ref = f"artifact_{nonce}"
         committing = False
         phase: RunFailurePhase = "stage_execution"
+        control_resource: ResourceRecord | None = None
+        source_owner: SourceSession | None = None
         try:
             event("graph_admitted")
             if source_only:
@@ -342,25 +353,55 @@ def _execute(
                         for schema, bound in zip(source_schemas, bindings, strict=True)
                     ):
                         raise invalid("opened physical schema differs from selected preflight")
-                    from contextlib import nullcontext
-
                     from marivo.analysis.core.rules import OccurrencePrepare, PreparedObservation
                     from marivo.datasource.domain_snapshot import capture
 
                     uses_preparation = any(
                         isinstance(node, MethodNode)
-                        and isinstance(node.parameters, (OccurrencePrepare, PreparedObservation))
+                        and (
+                            isinstance(node.parameters, OccurrencePrepare)
+                            or (
+                                isinstance(node.parameters, PreparedObservation)
+                                and node.inputs[0].node.identity != node.inputs[1].node.identity
+                            )
+                        )
                         for node in topology(root)
                     )
-                    from marivo.analysis.materialization.execute_deadline import check, guard
+                    from marivo.analysis.materialization.execute_deadline import (
+                        check,
+                        guard,
+                        remaining,
+                    )
 
+                    source._checkpoint = check
+                    source._seconds_remaining = remaining
+                    source_owner = source
+                    if source.provider.name == "mysql":
+                        control_resource = mysql_control_reservation(
+                            run_ref, source.datasource.name
+                        )
+                        store.reserve(control_resource)
+                    source._prepare_interrupt()
                     with (
                         capture(source, checkpoint=check, guard=guard)
                         if uses_preparation
-                        else nullcontext() as authority
+                        else guard(source._request_interrupt) as authority
                     ):
                         if uses_preparation:
                             source.domain_authority = authority
+                            if source.provider.name == "sqlite":
+                                from sqlite3 import Connection
+
+                                from marivo.analysis.materialization.temporal_sql import (
+                                    _initialize_sqlite_functions,
+                                )
+
+                                connection: object = getattr(source._backend, "con", None)
+                                if not isinstance(connection, Connection):
+                                    raise invalid(
+                                        "SQLite capture has no native execution connection"
+                                    )
+                                _initialize_sqlite_functions(connection)
                             bindings = tuple(
                                 replace(binding, source=source.binding_for(binding.leaf.identity))
                                 for binding in bindings
@@ -378,6 +419,17 @@ def _execute(
                 completed_checks=result.completed_checks,
                 method_state=result.method_state,
             )
+            if control_resource is not None:
+                if source_owner is None or not source_owner._cancel_control_released:
+                    raise RecoveryPendingError(
+                        expected="confirmed owned MySQL control connection release",
+                        received="control release is unconfirmed",
+                        repair="Inspect the original Run and control resource obligation before retrying.",
+                        stage="source_cleanup",
+                        run_ref=run_ref,
+                    )
+                store.discharge(control_resource)
+                control_resource = None
             if result.contract.signature != root.signature or result.contract.method != root.method:
                 raise invalid("execution output differs from admitted root")
             if result.contract.pending_checks != plan.checks:
@@ -523,6 +575,13 @@ def _execute(
             committing = True
             return graph_store.publish(store, artifact_ref, descriptor, resources, event)
         except BaseException as failure:
+            if (
+                control_resource is not None
+                and source_owner is not None
+                and source_owner._cancel_control_released
+            ):
+                store.discharge(control_resource)
+                control_resource = None
             if committing:
                 try:
                     original = store._graph_run(run_ref)
@@ -595,30 +654,9 @@ def execute(
     source_schemas: tuple[pa.Schema, ...] = (),
 ) -> graph_store.GraphArtifact:
     entered = time.monotonic()
-    from contextlib import nullcontext
-
-    from marivo.analysis.core.model import JourneyPart, OccurrencePart, RowStatisticQuantity
-    from marivo.analysis.core.rules import OccurrencePrepare, PreparedObservation
     from marivo.analysis.materialization.execute_deadline import execution_budget
-    from marivo.analysis.methods.physical import DurationType
 
-    uses_budget = any(
-        (
-            isinstance(node, MethodNode)
-            and isinstance(node.parameters, (OccurrencePrepare, PreparedObservation))
-        )
-        or any(isinstance(part, (OccurrencePart, JourneyPart)) for part in node.signature.parts)
-        or any(
-            part_role(part) in ("fit_inputs", "condition_cells", "pair_inputs", "training_inputs")
-            for part in node.signature.parts
-        )
-        or (
-            isinstance(node.value_type, DurationType)
-            and isinstance(node.signature.quantity, RowStatisticQuantity)
-        )
-        for node in topology(root)
-    )
-    with execution_budget(start=entered) if uses_budget else nullcontext():
+    with execution_budget(start=entered):
         return _execute(
             runtime,
             root,

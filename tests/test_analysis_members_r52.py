@@ -79,6 +79,9 @@ def members_session(
         "    return ms.bind(discounted, rows) + 5\n"
     )
     definitions.append(
+        "@ms.dimension(name='positive', entity=plain)\n"
+        "def positive(rows):\n"
+        "    return rows.amount > 15\n"
         "many_snapshot = ms.relationship(name='many_snapshot', from_entity=plain, to_entity=snapshot, keys=[ms.join_on(plain_tenant, snapshot_tenant)])\n"
     )
     source = "".join(definitions)
@@ -158,6 +161,27 @@ def test_computed_measure_and_bound_dependency(members_session: Session) -> None
         day.where(day.value.eq(datetime(2026, 8, 1, tzinfo=timezone.utc)))
     rendered = str(error.value)
     assert "datetime" in rendered and "Use a date literal" in rendered
+
+
+@pytest.mark.runtime
+def test_computed_boolean_dimension(
+    members_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = members_session
+    members = session.members(ms.ref.entity(f"{_domain(session)}.plain"))
+    relation = members.read(ms.ref.dimension(f"{_domain(session)}.plain.positive"))
+    assert isinstance(relation, mv.LogicalBooleanRelation)
+    saved = relation.execute()
+    assert saved.to_pandas()["value"].tolist() == [False, True]
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Fixed Boolean continuation read its source")
+
+    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    assert saved.where(saved.value.eq(True)).members().execute().to_pandas()[
+        "coord_0"
+    ].tolist() == ["B"]
+    assert session._runtime.store.resources(session._runtime.session_ref) == ()
 
 
 @pytest.mark.runtime

@@ -7,23 +7,32 @@ loads its optional backend driver. The session owns every issued read and cursor
 from __future__ import annotations
 
 import re
+import socket
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import closing, nullcontext, suppress
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from importlib import import_module
 from itertools import islice
 from math import isfinite
+from threading import Event, Lock, get_ident
 from typing import TYPE_CHECKING, Literal, Protocol, cast, runtime_checkable
 from uuid import uuid4
 
 import ibis
+import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pyarrow as pa
 from ibis.backends import BaseBackend
 
+from marivo.datasource.capabilities import (
+    ProviderStatementSubmission,
+    execute_provider_statement,
+    provider_statement_log,
+)
 from marivo.datasource.engines import (
     SUPPORTED_BACKEND_TYPES,
     EngineProfile,
@@ -144,6 +153,7 @@ class _IssuedRead:
     purpose: str
     schema: pa.Schema
     source_identity: str
+    inline_relations: tuple[ops.Relation, ...]
 
 
 @dataclass(slots=True)
@@ -162,6 +172,51 @@ class SourceSubmission:
 class _Cursor(Protocol):
     def fetchmany(self, size: int) -> Sequence[Sequence[object]]: ...
     def close(self) -> None: ...
+
+
+_CURSOR_OWNER: ContextVar[Callable[[_Cursor], None] | None] = ContextVar(
+    "source_cursor_owner", default=None
+)
+
+_CLICKHOUSE_DEADLINE: ContextVar[dict[str, str | float | int] | None] = ContextVar(
+    "clickhouse_read_deadline", default=None
+)
+
+
+def _clickhouse_deadline_settings(
+    backend: BaseBackend, seconds: float
+) -> dict[str, str | float | int]:
+    connection = getattr(backend, "con", None)
+    observed = getattr(connection, "server_settings", None)
+    settings = observed if isinstance(observed, Mapping) else {}
+    unavailable = [
+        name
+        for name in ("max_execution_time", "timeout_before_checking_execution_speed")
+        if getattr(settings.get(name), "readonly", 1) != 0
+    ]
+    mode = settings.get("timeout_overflow_mode")
+    if mode is None or (
+        getattr(mode, "readonly", 1) != 0 and getattr(mode, "value", None) != "throw"
+    ):
+        unavailable.append("timeout_overflow_mode=throw")
+    if unavailable:
+        raise DatasourceSourceCapabilityError(
+            message="ClickHouse cannot enforce the owned execute deadline.",
+            expected="writable native timeout settings and throwing timeout overflow",
+            received="unavailable or locked: " + ", ".join(unavailable),
+            location="datasource adapter",
+            repair=repair(
+                kind="reconnect",
+                canonical_id="test",
+                action="Allow the reported timeout settings for the read-only account and retry the datasource connection.",
+            ),
+        )
+    return {
+        "max_execution_time": seconds,
+        "timeout_before_checking_execution_speed": 0,
+        "timeout_overflow_mode": "throw",
+        "query_id": uuid4().hex,
+    }
 
 
 class _ClickHouseNativeStream(Protocol):
@@ -242,7 +297,10 @@ def _native_cursor(backend: BaseBackend, backend_name: str, sql: str) -> _Cursor
         stream = getattr(connection, "query_rows_stream", None)
         if not callable(stream):
             raise _invalid("a ClickHouse row stream", "stream unavailable")
-        return _ClickHouseCursor(stream(sql))
+        settings = _CLICKHOUSE_DEADLINE.get()
+        return _ClickHouseCursor(
+            stream(sql, settings=settings) if settings is not None else stream(sql)
+        )
     factory = getattr(connection, "cursor", None)
     if not callable(factory):
         raise _invalid("a selected backend native cursor", "cursor unavailable")
@@ -267,6 +325,10 @@ def _native_cursor(backend: BaseBackend, backend_name: str, sql: str) -> _Cursor
     else:
         cursor = factory()
     try:
+        if backend_name == "trino" and isinstance(cursor, _Cursor):
+            owner = _CURSOR_OWNER.get()
+            if owner is not None:
+                owner(cursor)
         cursor.execute(sql)
     except BaseException:
         cursor.close()
@@ -297,10 +359,21 @@ def _exact_array(
             normalized_values.append(None)
             continue
         if pa.types.is_boolean(arrow_type):
-            if backend_name == "sqlite" and type(value) is int and value in (0, 1):
+            if (
+                backend_name in ("sqlite", "mysql", "clickhouse")
+                and type(value) is int
+                and value in (0, 1)
+            ):
                 value = bool(value)
             valid = type(value) is bool
         elif pa.types.is_integer(arrow_type):
+            if (
+                backend_name in ("postgres", "mysql")
+                and type(value) is Decimal
+                and value.is_finite()
+                and value == value.to_integral_value()
+            ):
+                value = int(value)
             valid = type(value) is int
         elif pa.types.is_floating(arrow_type):
             valid = type(value) is float and isfinite(value)
@@ -315,15 +388,6 @@ def _exact_array(
         ):
             valid = type(value) is bytes
         elif pa.types.is_timestamp(arrow_type):
-            # ClickHouse's native row driver strips UTC tzinfo by default. Only
-            # an explicitly UTC physical schema authorizes restoring that zone.
-            if (
-                backend_name == "clickhouse"
-                and arrow_type.tz == "UTC"
-                and type(value) is datetime
-                and value.tzinfo is None
-            ):
-                value = value.replace(tzinfo=timezone.utc)
             if backend_name in {"sqlite", "mysql"} and type(value) is str:
                 if not re.fullmatch(
                     r"[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:[+-][0-9]{2}:[0-9]{2})?",
@@ -336,16 +400,29 @@ def _exact_array(
                     raise _invalid(
                         f"exact {arrow_type} value for {field.name}", "invalid text timestamp"
                     ) from exc
+            # These UTC readers return naive native/text carriers. Only an
+            # explicitly UTC Arrow schema authorizes restoring the zone.
+            if (
+                backend_name in ("clickhouse", "mysql", "sqlite")
+                and arrow_type.tz == "UTC"
+                and type(value) is datetime
+                and value.tzinfo is None
+            ):
+                value = value.replace(tzinfo=timezone.utc)
             valid = type(value) is datetime and (value.tzinfo is not None) == (
                 arrow_type.tz is not None
             )
         elif pa.types.is_date(arrow_type):
-            if backend_name == "mysql" and type(value) is str:
+            if backend_name in {"mysql", "sqlite"} and type(value) is str:
+                if backend_name == "sqlite" and not re.fullmatch(
+                    r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value
+                ):
+                    raise _invalid(f"exact {arrow_type} value for {field.name}", "text date")
                 try:
                     value = date.fromisoformat(value)
                 except ValueError as exc:
                     raise _invalid(
-                        f"exact {arrow_type} value for {field.name}", "invalid MySQL date"
+                        f"exact {arrow_type} value for {field.name}", "invalid text date"
                     ) from exc
             valid = type(value) is date
         elif pa.types.is_time(arrow_type):
@@ -483,6 +560,7 @@ class SourceBatchStream:
                         close_active()
             finally:
                 try:
+                    self._session._synchronize_interrupt()
                     self._cursor.close()
                 except BaseException:
                     self._submission.state = "failed"
@@ -494,6 +572,154 @@ class SourceBatchStream:
                     )
                 finally:
                     self._session._streams.discard(self)
+                    self._session._cursor_released.set()
+
+
+def _capture_indices(count: int, checkpoint: Callable[[], None]) -> ir.Table:
+    """Build every capture index with a small product of two-row digits."""
+    if count < 2:
+        raise _invalid("at least two captured rows", str(count))
+    relation: ir.Table | None = None
+    fields = tuple(f"capture_bit_{bit}" for bit in range((count - 1).bit_length()))
+    for field in fields:
+        checkpoint()
+        digit = (
+            ibis.literal(0, type="int64")
+            .name(field)
+            .as_table()
+            .union(ibis.literal(1, type="int64").name(field).as_table(), distinct=False)
+            .view()
+        )
+        relation = digit if relation is None else relation.cross_join(digit)
+    assert relation is not None
+    index: ir.Value = ibis.literal(0, type="int64")
+    for bit, field in enumerate(fields):
+        index = index + relation[field] * (1 << bit)
+    indices = relation.select(capture_index=index)
+    return indices.filter(indices.capture_index < count).limit(count)
+
+
+def _inline_exchange(table: pa.Table, checkpoint: Callable[[], None], backend: str) -> ir.Table:
+    """Represent a complete captured exchange as typed read-only Ibis literals."""
+    schema = ibis.schema(table.schema)
+    if not schema.names:
+        raise _invalid("a nonempty captured schema", "zero columns")
+
+    def scalar(value: object, dtype: dt.DataType) -> ir.Value:
+        if value is None:
+            return ibis.null().cast(dtype)
+        if dtype.is_string() and isinstance(value, str):
+            return ibis.literal(value, type=dtype)
+        if dtype.is_boolean() and type(value) is bool:
+            return ibis.literal(value, type=dtype)
+        if dtype.is_integer() and type(value) is int:
+            return ibis.literal(str(value)).cast(dtype)
+        if dtype.is_floating() and type(value) is float and isfinite(value):
+            return ibis.literal(repr(value)).cast(dtype)
+        if dtype.is_decimal() and isinstance(value, Decimal) and value.is_finite():
+            return ibis.literal(str(value)).cast(dtype)
+        if dtype.is_timestamp() and isinstance(value, datetime):
+            if dtype.timezone == "UTC" and value.tzinfo is not None:
+                value = value.astimezone(timezone.utc).replace(tzinfo=None)
+            elif dtype.timezone is not None or value.tzinfo is not None:
+                raise _invalid("a captured UTC or unzoned timestamp", str(dtype))
+            return ibis.literal(value.isoformat(sep=" ", timespec="microseconds")).cast(dtype)
+        if dtype.is_date() and isinstance(value, date) and not isinstance(value, datetime):
+            return ibis.literal(value.isoformat()).cast(dtype)
+        raise _invalid(f"a captured scalar matching {dtype}", type(value).__name__)
+
+    def empty_value(dtype: dt.DataType) -> object:
+        if dtype.nullable:
+            return None
+        if dtype.is_string():
+            return ""
+        if dtype.is_boolean():
+            return False
+        if dtype.is_integer():
+            return 0
+        if dtype.is_floating():
+            return 0.0
+        if dtype.is_decimal():
+            return Decimal(0)
+        if dtype.is_timestamp():
+            return datetime(1970, 1, 1, tzinfo=timezone.utc if dtype.timezone == "UTC" else None)
+        if dtype.is_date():
+            return date(1970, 1, 1)
+        raise _invalid(f"an empty captured scalar matching {dtype}", "unsupported type")
+
+    rows: list[ir.Table] = []
+    array_rows: list[ir.Value] = []
+    array_exchange = backend in ("clickhouse", "trino")
+    captured: dict[str, list[ir.Value]] = {name: [] for name in schema.names}
+    for index in range(max(1, table.num_rows)):
+        checkpoint()
+        columns = {
+            name: scalar(
+                table.column(name)[index].as_py() if table.num_rows else empty_value(dtype), dtype
+            ).name(name)
+            for name, dtype in schema.items()
+        }
+        first, *rest = schema.names
+        if table.num_rows > 1 and array_exchange:
+            array_rows.append(ibis.struct(columns))
+        elif table.num_rows > 1:
+            for name, value in columns.items():
+                captured[name].append(value)
+            if backend != "mysql":
+                rows.append(ibis.literal(index, type="int64").name("capture_index").as_table())
+        else:
+            row = columns[first].as_table().mutate(**{name: columns[name] for name in rest})
+            rows.append(row if table.num_rows else row.filter(ibis.literal(False)))
+    if array_rows:
+        if backend == "trino":
+            indices = _capture_indices(table.num_rows, checkpoint)
+            nested = indices.select(captured_row=ibis.array(array_rows)[indices.capture_index])
+        else:
+            nested = ibis.array(array_rows).unnest().name("captured_row").as_table()
+        payload = nested.captured_row
+        relation = nested.select(
+            **{name: payload[name].cast(dtype) for name, dtype in schema.items()}
+        ).view()
+        if not relation.schema().to_pyarrow().equals(table.schema, check_metadata=False):
+            raise _invalid("the complete captured schema", str(relation.schema()))
+        return relation
+    while len(rows) > 1:
+        checkpoint()
+        rows = [
+            rows[index].union(rows[index + 1], distinct=False)
+            if index + 1 < len(rows)
+            else rows[index]
+            for index in range(0, len(rows), 2)
+        ]
+    relation = (
+        _capture_indices(table.num_rows, checkpoint)
+        if backend == "mysql" and table.num_rows > 1
+        else rows[0]
+    )
+    if table.num_rows > 1:
+        # Unique row indices preserve duplicate captured rows while the narrow
+        # union avoids repeating every typed column in each native branch.
+        relation = relation.distinct().limit(table.num_rows)
+        relation = relation.select(
+            **{
+                name: ibis.cases(
+                    *(
+                        (relation.capture_index == index, value)
+                        for index, value in enumerate(captured[name][:-1])
+                    ),
+                    else_=captured[name][-1],
+                ).cast(dtype)
+                for name, dtype in schema.items()
+            }
+        )
+    if backend == "mysql" and table.num_rows > 1:
+        # Keep the complete typed projection behind the same exact cardinality
+        # barrier, rather than letting native joins duplicate every CASE branch.
+        relation = relation.limit(table.num_rows)
+    relation = relation.view()
+    if not relation.schema().to_pyarrow().equals(table.schema, check_metadata=False):
+        raise _invalid("the complete captured schema", str(relation.schema()))
+    return relation
 
 
 class SourceSession:
@@ -520,13 +746,24 @@ class SourceSession:
         self._bindings_by_identity: dict[str, tuple[SourceIR, dict[str, object]]] = {}
         self._bound_sources: dict[str, BoundSource] = {}
         self._staged_relations: dict[ops.Relation, tuple[frozenset[str], str]] = {}
+        self._inline_relations: dict[ops.Relation, frozenset[str]] = {}
         self._streams: set[SourceBatchStream] = set()
         self._closed = False
         self.submissions: list[SourceSubmission] = []
+        self._interrupted_submissions: tuple[SourceSubmission, ...] = ()
+        self._pending_cursor: _Cursor | None = None
+        self._cancel_control: BaseBackend | None = None
+        self._cancel_thread_id: int | None = None
+        self._cancel_control_released = True
+        self._cancel_lock = Lock()
+        self.cancel_submissions: tuple[ProviderStatementSubmission, ...] = ()
+        self._cursor_released = Event()
+        self._cursor_thread: int | None = None
         self.domain_authority: dict[str, object] | None = None
         self.domain_time_units: dict[tuple[str, str], str] = {}
         self._domain_coverage_provider: EventCoverageProvider | None = None
         self._checkpoint: Callable[[], None] = lambda: None
+        self._seconds_remaining: Callable[[], float | None] = lambda: None
 
     def __enter__(self) -> SourceSession:
         self._ensure_open()
@@ -658,7 +895,7 @@ class SourceSession:
         supported = frozenset({"scan", "filter", "project", "group", "count"})
         if self.provider.name == "duckdb":
             supported |= {"join", "union", "window", "sort"}
-        elif self.provider.name == "sqlite":
+        elif self.provider.name in ("sqlite", "postgres", "mysql", "trino", "clickhouse"):
             supported |= {"join", "union"}
         if (
             not need.method_id
@@ -704,7 +941,12 @@ class SourceSession:
             for relation, (origins, _name) in self._staged_relations.items()
             if any(node == relation for node in expression_relations)
         )
-        for _relation, origins in present_staged:
+        present_inline = tuple(
+            (relation, origins)
+            for relation, origins in self._inline_relations.items()
+            if any(node == relation for node in expression_relations)
+        )
+        for _relation, origins in (*present_staged, *present_inline):
             if not origins <= selected_ids:
                 raise _invalid(
                     "only staged results of the selected sources", "foreign staged source"
@@ -725,7 +967,7 @@ class SourceSession:
             leaf for relation, _origins in present_staged for leaf in relation.find(physical_leaves)
         )
         observed_leaves = set(expression.op().find(physical_leaves))
-        if not observed_leaves or not observed_leaves <= allowed_leaves:
+        if (not observed_leaves and not present_inline) or not observed_leaves <= allowed_leaves:
             raise _invalid(
                 "only physical inputs from the bound source", "additional physical input"
             )
@@ -756,20 +998,16 @@ class SourceSession:
                 purpose,
                 expected_schema,
                 source_identity,
+                tuple(relation for relation, _origins in present_inline),
             ),
         )
         return issued
 
     def stage_derived(self, read: CompiledRead) -> tuple[ir.Table, pa.Table]:
-        """Capture one exact local read into an owned temporary Ibis relation."""
+        """Capture one exact read into an owned Ibis relation without remote writes."""
         self._ensure_open()
         stored = self._issued.get(id(read))
-        if (
-            self.provider.name not in ("duckdb", "sqlite")
-            or stored is None
-            or stored[0] is not read
-            or read._owner is not self._token
-        ):
+        if stored is None or stored[0] is not read or read._owner is not self._token:
             raise _invalid("an exact local read issued by this session", "unowned stage")
         with closing(self.batches(read, chunk_size=1024)) as stream:
             table = pa.Table.from_batches(stream, schema=stored[1].schema)
@@ -783,6 +1021,10 @@ class SourceSession:
             raise _invalid("an exact read owned by this session", "unowned calculated exchange")
         if not table.schema.equals(stored[1].schema, check_metadata=False):
             raise _invalid("the issued exchange schema", str(table.schema))
+        if self.provider.name not in ("duckdb", "sqlite"):
+            relation = _inline_exchange(table, self._checkpoint, self.provider.name)
+            self._inline_relations[relation.op()] = frozenset(stored[1].source_identity.split("|"))
+            return relation
         name = "mv_graph_" + uuid4().hex
         from marivo.datasource.engines.sqlite import owned_temporary_writes
 
@@ -828,10 +1070,13 @@ class SourceSession:
         return relation
 
     def release_staged(self, relations: Sequence[ir.Table]) -> None:
-        """Drop only the temporary relations owned by this invocation."""
+        """Release only the captured relations owned by this invocation."""
         self._ensure_open()
         failure: BaseException | None = None
         for relation in reversed(tuple(relations)):
+            if relation.op() in self._inline_relations:
+                del self._inline_relations[relation.op()]
+                continue
             owned = self._staged_relations.get(relation.op())
             if owned is None:
                 if failure is None:
@@ -863,6 +1108,8 @@ class SourceSession:
         if read._owner is not self._token or stored is None or stored[0] is not read:
             raise _invalid("a compiled read issued by this session", "foreign or fabricated read")
         proof = stored[1]
+        if any(relation not in self._inline_relations for relation in proof.inline_relations):
+            raise _invalid("live captured relations owned by this session", "released inline stage")
         if (
             read.sql != proof.sql
             or read.expression is not proof.expression
@@ -876,19 +1123,42 @@ class SourceSession:
             raise _invalid("a positive batch size", repr(chunk_size))
         if self._streams:
             raise _invalid("one active result per source session", "concurrent source streams")
+        seconds = self._seconds_remaining()
+        native_settings = (
+            _clickhouse_deadline_settings(self._backend, seconds)
+            if self.provider.name == "clickhouse" and seconds is not None
+            else None
+        )
         submission = SourceSubmission(
             proof.purpose, proof.source_identity, id(proof.expression.op()), proof.sql
         )
         self.submissions.append(submission)
+        cursor: _Cursor | None = None
+        owner_token = _CURSOR_OWNER.set(self._own_pending_cursor)
+        deadline_token = _CLICKHOUSE_DEADLINE.set(native_settings)
         try:
             cursor = _native_cursor(self._backend, self.provider.name, proof.sql)
             self._checkpoint()
         except BaseException:
-            submission.state = "failed"
-            submission.cursor_state = (
-                "connection_owned" if self.provider.name == "duckdb" else "closed"
-            )
+            try:
+                self._synchronize_interrupt()
+                if cursor is not None:
+                    cursor.close()
+            except BaseException:
+                submission.cursor_state = "close_failed"
+                raise
+            else:
+                submission.cursor_state = (
+                    "connection_owned" if self.provider.name == "duckdb" else "closed"
+                )
+            finally:
+                self._cursor_released.set()
+                submission.state = "failed"
             raise
+        finally:
+            self._pending_cursor = None
+            _CURSOR_OWNER.reset(owner_token)
+            _CLICKHOUSE_DEADLINE.reset(deadline_token)
         if not isinstance(cursor, _Cursor):
             close = getattr(cursor, "close", None)
             if callable(close):
@@ -899,6 +1169,12 @@ class SourceSession:
         stream = SourceBatchStream(self, cursor, proof.schema, chunk_size, submission)
         self._streams.add(stream)
         return stream
+
+    def _own_pending_cursor(self, cursor: _Cursor) -> None:
+        self._cursor_released.clear()
+        self._cursor_thread = get_ident()
+        self._pending_cursor = cursor
+        self._checkpoint()
 
     def collect_bounded(
         self,
@@ -938,28 +1214,132 @@ class SourceSession:
         with closing(self.batches(read, chunk_size=chunk_size)) as stream:
             return pa.Table.from_batches(stream, schema=stream.schema)
 
-    def interrupt(self) -> Termination:
-        """Close local resources; remote termination remains unknown without proof."""
-        active = tuple(
+    def _request_interrupt(self) -> None:
+        """Request native cancellation; leave resource cleanup on the owner thread."""
+        self._interrupted_submissions = tuple(
             submission for submission in self.submissions if submission.state == "submitted"
         )
-        if self.provider.name == "duckdb" and self.domain_authority is not None:
+        if self.provider.name in {"duckdb", "sqlite"}:
             native = getattr(getattr(self._backend, "con", None), "interrupt", None)
             if callable(native):
                 native()
+        elif self.provider.name == "postgres":
+            native = getattr(getattr(self._backend, "con", None), "cancel", None)
+            if callable(native):
+                native()
+        elif self.provider.name == "mysql":
+            with self._cancel_lock:
+                if self._closed or not self._interrupted_submissions:
+                    return
+                connection = self._backend.con
+                control = self._cancel_control
+                try:
+                    if control is None or connection.thread_id() != self._cancel_thread_id:
+                        return
+                    execute_provider_statement(
+                        control,
+                        self.provider,
+                        "mysql.analysis.cancel_owned_query",
+                        values={"thread_id": self._cancel_thread_id},
+                        purpose="analysis.cancel_owned_query",
+                    )
+                except Exception:
+                    # Failed control does not establish remote termination.
+                    pass
+                finally:
+                    if control is not None:
+                        self.cancel_submissions = provider_statement_log(control)
+                    with (
+                        suppress(OSError, ValueError),
+                        socket.fromfd(
+                            connection.fileno(), socket.AF_INET, socket.SOCK_STREAM
+                        ) as owned_socket,
+                    ):
+                        owned_socket.shutdown(socket.SHUT_RDWR)
+        elif self.provider.name == "trino":
+            # A first cancel can precede the driver's initial HTTP response and
+            # do nothing. Retry until the execution thread releases the cursor.
+            while not self._cursor_released.is_set():
+                cursor = self._pending_cursor
+                if cursor is None:
+                    cursor = next((stream._cursor for stream in self._streams), None)
+                if cursor is None:
+                    return
+                native = getattr(cursor, "cancel", None)
+                if callable(native):
+                    native()
+                if get_ident() == self._cursor_thread:
+                    return
+                self._cursor_released.wait(0.02)
+
+    def _synchronize_interrupt(self) -> None:
+        """Wait for owned control work before native cursor cleanup."""
+        with self._cancel_lock:
+            pass
+
+    def _prepare_interrupt(self) -> None:
+        """Prepare the selected MySQL reader's own bounded control connection."""
+        if self.provider.name != "mysql" or self._cancel_control is not None:
+            return
+        self._ensure_open()
+        self._checkpoint()
+        thread_id = self._backend.con.thread_id()
+        if type(thread_id) is not int or thread_id <= 0:
+            raise _invalid("a native positive MySQL connection identity", repr(thread_id))
+        from dataclasses import replace
+
+        from marivo.datasource.backends import build_backend
+
+        control_datasource = replace(
+            self.datasource,
+            fields={
+                **self.datasource.fields,
+                "connect_timeout": 1,
+                "read_timeout": 1,
+                "write_timeout": 1,
+            },
+        )
+        self._cancel_control_released = False
+        control = build_backend(control_datasource, read_only=True)
+        try:
+            self._checkpoint()
+            if not isinstance(control, BaseBackend) or control.name != "mysql":
+                raise _invalid("a selected MySQL control backend", type(control).__name__)
+            if control.con.thread_id() == thread_id:
+                raise _invalid("a separate MySQL control connection", "data connection reused")
+        except BaseException:
+            control.disconnect()
+            self._cancel_control_released = True
+            raise
+        self._cancel_thread_id = thread_id
+        self._cancel_control = control
+
+    def interrupt(self) -> Termination:
+        """Close local resources; remote termination remains unknown without proof."""
+        self._request_interrupt()
         termination: Termination = (
             "local_closed" if self.provider.name in {"duckdb", "sqlite"} else "remote_unknown"
         )
         self.close()
-        for submission in active:
-            submission.termination = termination
         return termination
 
     def close(self) -> None:
         if self._closed:
             return
         self._closed = True
+        control_error: BaseException | None = None
         try:
+            with self._cancel_lock:
+                if self._cancel_control is not None:
+                    control = self._cancel_control
+                    self.cancel_submissions = provider_statement_log(control)
+                    self._cancel_control = None
+                    try:
+                        control.disconnect()
+                    except BaseException as error:
+                        control_error = error
+                    else:
+                        self._cancel_control_released = True
             for stream in tuple(self._streams):
                 stream.close()
         finally:
@@ -967,6 +1347,7 @@ class SourceSession:
                 with suppress(Exception):
                     self._backend.drop_table(name, force=True)
             self._staged_relations.clear()
+            self._inline_relations.clear()
             self._issued.clear()
             self._bindings_by_identity.clear()
             self._bound_sources.clear()
@@ -975,8 +1356,20 @@ class SourceSession:
                 if callable(disconnect):
                     disconnect()
                     self.mark_backend_disconnected()
+        for submission in self._interrupted_submissions:
+            submission.termination = (
+                "local_closed" if self.provider.name in {"duckdb", "sqlite"} else "remote_unknown"
+            )
+        if control_error is not None:
+            raise control_error
 
     def mark_backend_disconnected(self) -> None:
         """Record the connection release performed by this session's owner."""
         for submission in self.submissions:
             submission.connection_disconnected = True
+            if submission.state in {"failed", "closed_early"}:
+                submission.termination = (
+                    "local_closed"
+                    if self.provider.name in {"duckdb", "sqlite"}
+                    else "remote_unknown"
+                )

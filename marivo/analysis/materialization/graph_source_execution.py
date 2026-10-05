@@ -38,6 +38,7 @@ from marivo.analysis.core.rules import (
     TimeRunRead,
     TimeRuns,
 )
+from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     CheckedStream,
@@ -79,6 +80,10 @@ def _issue(
         raise _invalid("source expression has no exact R1 binding")
     qualified = tuple(source.qualify(item.source, lowered.source_requirement) for item in bindings)
     rewritten = expression.op().replace(replacements).to_expr() if replacements else expression
+    if source.provider.name == "sqlite":
+        from marivo.analysis.materialization.temporal_sql import lower_temporal
+
+        rewritten = lower_temporal(rewritten, "sqlite")
     if not isinstance(rewritten, ir.Table):
         raise _invalid("rewritten stage is not an Ibis table")
     schema = expression.schema().to_pyarrow()
@@ -151,9 +156,16 @@ def _check(
                         "source value does not match the declared temporal format"
                     ) from error
             if isinstance(raw, datetime):
-                expected_time: date = instant(raw, check.axis.timezone or "UTC").replace(
-                    tzinfo=None
-                )
+                read_zone = check.axis.timezone or "UTC"
+                try:
+                    expected_time: date = instant(raw, read_zone).replace(tzinfo=None)
+                except DatasetConstructionError as error:
+                    raise MaterializationError(
+                        expected=f"one unique native instant for {check.axis.ref.path} in {read_zone}",
+                        received=f"invalid or ambiguous wall timestamp {raw.isoformat()}",
+                        repair=f"Correct the stored {check.axis.ref.path} wall timestamps using {read_zone}, or store timestamp values with explicit UTC offsets.",
+                        stage="source_time_validation",
+                    ) from error
                 if isinstance(actual, datetime) and actual.tzinfo is not None:
                     actual = actual.astimezone(timezone.utc).replace(tzinfo=None)
             elif isinstance(raw, date):
@@ -386,18 +398,24 @@ def execute_source_graph(
         if isinstance(stage, LoweredRelation)
     ) or any(
         isinstance(stage, LoweredLocal)
-        and isinstance(
-            stage.stage.node.parameters,
+        and (
             (
-                AssociationFit,
-                AssociationRead,
-                ForecastFit,
-                ForecastRead,
-                TimeRuns,
-                TimeRunRead,
-                DeviationFit,
-                DeviationRead,
-            ),
+                isinstance(stage.stage.node.parameters, PartsTransport)
+                and stage.stage.node.parameters.mode == "business_coverage"
+            )
+            or isinstance(
+                stage.stage.node.parameters,
+                (
+                    AssociationFit,
+                    AssociationRead,
+                    ForecastFit,
+                    ForecastRead,
+                    TimeRuns,
+                    TimeRunRead,
+                    DeviationFit,
+                    DeviationRead,
+                ),
+            )
         )
         for stage in lowered.stages
     ):

@@ -51,6 +51,8 @@ def _backend_failure_summary(exc: Exception) -> _BackendFailureSummary:
         message = message[: _MAX_BACKEND_MESSAGE_CODEPOINTS - 3] + "..."
 
     raw_code = getattr(exc, "code", None)
+    if raw_code is None and exc.args and type(exc.args[0]) is int:
+        raw_code = exc.args[0]
     if raw_code is None:
         code_match = _BACKEND_CODE_RE.search(raw_message)
         backend_code = code_match.group(1) if code_match is not None else None

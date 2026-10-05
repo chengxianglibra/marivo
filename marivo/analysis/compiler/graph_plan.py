@@ -8,6 +8,7 @@ from typing import Literal, TypeAlias
 from marivo.analysis.core.graph import FixedLeaf, MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import (
     ConditionCellsPart,
+    CoveragePart,
     FitInputsPart,
     FunnelAllocationPart,
     FunnelComparisonPart,
@@ -27,6 +28,8 @@ from marivo.analysis.core.rules import (
     AnchorRetention,
     AssociationFit,
     AssociationRead,
+    AttributionDerive,
+    CellDerive,
     DeviationFit,
     DeviationRead,
     ForecastFit,
@@ -45,6 +48,7 @@ from marivo.analysis.core.rules import (
     JourneyMatch,
     JourneyRead,
     MapCorrespond,
+    OriginalReduce,
     PartsTransport,
     PreparedObservation,
     RetentionBySubject,
@@ -179,13 +183,30 @@ def plan(
         *(leaf.definition.shape for leaf in classification.sources),
         *(leaf.shape for leaf in classification.artifacts),
     }
-    if len(shapes) != 1:
+    fixed_cohort = (
+        classification.kind == "artifact"
+        and isinstance(root, MethodNode)
+        and isinstance(root.parameters, PartsTransport)
+        and root.parameters.mode == "cohort"
+        and root.parameters.opportunity_domain is not None
+        and root.parameters.opportunity_domain.time_grid is not None
+        and all(isinstance(edge.node, FixedLeaf) for edge in root.inputs)
+        and isinstance(root.inputs[0].node, FixedLeaf)
+        and root.inputs[0].node.shape == FixedShape(NoTime())
+        and len(shapes) == 2
+        and FixedShape(NoTime()) in shapes
+        and len({edge.node.shape for edge in root.inputs[1:] if isinstance(edge.node, FixedLeaf)})
+        == 1
+    )
+    if len(shapes) != 1 and not fixed_cohort:
         _refuse(
             "one exact input physical shape",
             "different time or source shapes",
             "Qualify a common exact shape first.",
         )
-    shape = next(iter(shapes))
+    # Cohort reads the retained opportunity grid, not physical timestamp values.
+    # ArtifactReadStage retains each leaf's exact shape and publication contract.
+    shape = FixedShape(NoTime()) if fixed_cohort else next(iter(shapes))
     nodes = topology(root, registry=registry)
     methods = tuple(n for n in nodes if isinstance(n, MethodNode))
     if type(routes) is not tuple or any(type(r) is not RouteChoice for r in routes):
@@ -236,8 +257,17 @@ def plan(
                     route,
                     "Select fixed Python or a qualified source route explicitly.",
                 )
+            prepared_consumer = isinstance(
+                node.parameters, (OriginalReduce, CellDerive, AttributionDerive)
+            ) and any(
+                isinstance(ancestor, MethodNode)
+                and isinstance(ancestor.parameters, PreparedObservation)
+                and ancestor.inputs[0].node.identity == ancestor.inputs[1].node.identity
+                for ancestor in topology(node)
+            )
             if (
-                any(edge.node.identity in local for edge in node.inputs)
+                not prepared_consumer
+                and any(edge.node.identity in local for edge in node.inputs)
                 and route != "artifact_python"
                 and not isinstance(
                     node.parameters,
@@ -271,6 +301,16 @@ def plan(
                     isinstance(node.parameters, RowState)
                     and isinstance(node.inputs[0].node, MethodNode)
                     and isinstance(node.inputs[0].node.parameters, PreparedObservation)
+                )
+                and not (
+                    isinstance(node.parameters, PartsTransport)
+                    and (
+                        node.parameters.mode == "business_coverage"
+                        or any(
+                            isinstance(p, CoveragePart) and p.business_windows is not None
+                            for p in node.inputs[0].node.signature.parts
+                        )
+                    )
                 )
                 and not (
                     isinstance(node.parameters, PartsTransport)
@@ -359,7 +399,21 @@ def plan(
                 in ("occurrence", "journey", "interval", "anchor")
             )
             local_consumer = (
-                (isinstance(node.parameters, TimeProduct) and node.inputs[0].node.identity in local)
+                prepared_consumer
+                or (
+                    isinstance(node.parameters, PartsTransport)
+                    and (
+                        node.parameters.mode == "business_coverage"
+                        or any(
+                            isinstance(p, CoveragePart) and p.business_windows is not None
+                            for p in node.inputs[0].node.signature.parts
+                        )
+                    )
+                )
+                or (
+                    isinstance(node.parameters, TimeProduct)
+                    and node.inputs[0].node.identity in local
+                )
                 or (
                     isinstance(node.parameters, RowState)
                     and isinstance(node.inputs[0].node, MethodNode)

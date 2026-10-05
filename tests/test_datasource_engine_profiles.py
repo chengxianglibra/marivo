@@ -56,7 +56,7 @@ def test_every_profile_populates_required_fields() -> None:
         assert callable(profile.translate_strptime_format)
         assert not hasattr(profile, "postprocess_sql")
         assert profile.datetime_decode_policy in {"local_naive_label", "utc_naive_instant"}
-        assert callable(profile.authoring_timeout) == (backend_type != "mysql")
+        assert callable(profile.authoring_timeout)
 
 
 def test_every_profile_declares_real_authoring_capabilities() -> None:
@@ -64,7 +64,7 @@ def test_every_profile_declares_real_authoring_capabilities() -> None:
         "duckdb": (True, False, True, False),
         "sqlite": (True, False, True, False),
         "trino": (True, False, True, True),
-        "mysql": (True, False, False, True),
+        "mysql": (True, False, True, True),
         "postgres": (True, False, True, True),
         "clickhouse": (True, False, True, True),
     }
@@ -112,8 +112,14 @@ class _Backend:
 
 def test_mysql_timeout_is_unavailable_without_driver_control() -> None:
     profile = ENGINE_PROFILES["mysql"]
-    assert profile.authoring_timeout is None
-    assert profile.authoring_capabilities.timeout_enforced is False
+    hook = profile.authoring_timeout
+    assert hook is not None
+    assert profile.authoring_capabilities.timeout_enforced is True
+    with (
+        pytest.raises(RuntimeError, match="isolated owned reader"),
+        hook(cast("BaseBackend", _Backend()), 2),
+    ):
+        pytest.fail("Missing MySQL owner/control reached authoring execution")
 
 
 @pytest.mark.parametrize("backend_type", ("postgres", "trino", "clickhouse"))

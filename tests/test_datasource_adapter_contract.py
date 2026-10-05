@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import socket
 import subprocess
 import sys
 from collections.abc import Iterator
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import ibis
@@ -24,7 +26,9 @@ from marivo.datasource.adapters import (
     SourceIR,
     SourceSession,
     SourceSubmission,
+    _clickhouse_deadline_settings,
     _exact_array,
+    _inline_exchange,
     provider_for,
     provider_names,
 )
@@ -96,6 +100,112 @@ def test_all_six_providers_resolve_without_opening() -> None:
         provider_for("unknown")
 
 
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("inline_backend", ["duckdb", "clickhouse", "trino", "mysql"])
+def test_inline_exchange_preserves_exact_scalars_multiplicity_and_empty_schema(
+    empty: bool, inline_backend: str
+) -> None:
+    table = pa.table(
+        {
+            "id": pa.array([9007199254740993, 9007199254740993], type=pa.int64()),
+            "label": pa.array(["quote'\\value", None], type=pa.string()),
+            "value": pa.array([1.0000000000000002, -0.0], type=pa.float64()),
+            "decimal": pa.array([Decimal("1.000001"), None], type=pa.decimal128(18, 6)),
+            "flag": pa.array([True, None], type=pa.bool_()),
+            "time": pa.array(
+                [datetime(2026, 8, 1, microsecond=1, tzinfo=timezone.utc), None],
+                type=pa.timestamp("us", "UTC"),
+            ),
+        }
+    )
+    if empty:
+        table = table.slice(0, 0)
+        schema = pa.schema(
+            [
+                pa.field(field.name, field.type, nullable=field.name != "id")
+                for field in table.schema
+            ]
+        )
+        table = table.cast(schema)
+    relation = _inline_exchange(table, lambda: None, inline_backend)
+    assert relation.op() != _inline_exchange(table, lambda: None, inline_backend).op()
+    if inline_backend == "trino":
+        # Ibis reuses ordinal aliases incorrectly when UNNEST enters a union.
+        # This check covers the actual branching validation query shape.
+        branched = relation.union(relation, distinct=False)
+        assert "UNNEST" not in ibis.to_sql(branched, dialect="trino").upper()
+    backend = ibis.duckdb.connect()
+    try:
+        actual = backend.to_pyarrow(relation).cast(table.schema)
+        assert actual.equals(table)
+    finally:
+        backend.disconnect()
+
+
+@pytest.mark.parametrize("count", [3, 5, 101])
+@pytest.mark.parametrize("inline_backend", ["mysql", "trino"])
+def test_inline_exchange_non_power_of_two_cardinality_and_duplicate_rows(
+    count: int, inline_backend: str
+) -> None:
+    table = pa.table(
+        {
+            "id": pa.array([index % 2 for index in range(count)], type=pa.int64()),
+            "value": pa.array(
+                [None if index % 3 == 0 else index % 2 for index in range(count)], type=pa.int64()
+            ),
+        }
+    )
+    relation = _inline_exchange(table, lambda: None, inline_backend)
+    backend = ibis.duckdb.connect()
+    try:
+        actual = backend.to_pyarrow(relation).cast(table.schema)
+        assert actual.num_rows == count
+        assert actual.sort_by([("id", "ascending"), ("value", "ascending")]).equals(
+            table.sort_by([("id", "ascending"), ("value", "ascending")])
+        )
+    finally:
+        backend.disconnect()
+
+
+def test_inline_exchange_provenance_admission_and_released_read_refusal(
+    session: SourceSession,
+) -> None:
+    """Exercise admission independently of remote Runtime staging."""
+    source_read = _read(session)
+    stream = session.batches(source_read, chunk_size=1)
+    try:
+        table = pa.Table.from_batches(tuple(stream), schema=source_read.schema)
+    finally:
+        stream.close()
+    relation = _inline_exchange(table, lambda: None, "duckdb")
+    bound = session.bind(TableSourceIR("facts"), source_identity="facts@v1")
+    qualified = session.qualify(bound, PhysicalRequirement("basic.rows", 1, frozenset({"scan"})))
+    with pytest.raises(DatasourceSourceCapabilityError, match="unbound expression"):
+        session.compile(qualified, relation, purpose="basic.rows", expected_schema=table.schema)
+    session._inline_relations[relation.op()] = frozenset({"facts@v1"})
+    read = session.compile(qualified, relation, purpose="basic.rows", expected_schema=table.schema)
+    foreign = session.bind(TableSourceIR("facts"), source_identity="facts@v2")
+    foreign_qualified = session.qualify(
+        foreign, PhysicalRequirement("basic.rows", 1, frozenset({"scan"}))
+    )
+    with pytest.raises(DatasourceSourceCapabilityError, match="foreign staged source"):
+        session.compile(
+            foreign_qualified, relation, purpose="basic.rows", expected_schema=table.schema
+        )
+    unrelated = ibis.table({"id": "int64"}, name="unrelated")
+    mixed = relation.cross_join(unrelated)
+    with pytest.raises(DatasourceSourceCapabilityError, match="additional physical input"):
+        session.compile(
+            qualified, mixed, purpose="basic.rows", expected_schema=mixed.schema().to_pyarrow()
+        )
+    session.release_staged((relation,))
+    assert not session._inline_relations
+    with pytest.raises(DatasourceSourceCapabilityError, match="released inline stage"):
+        session.batches(read, chunk_size=1)
+    with pytest.raises(DatasourceSourceCapabilityError, match="already released"):
+        session.release_staged((relation,))
+
+
 @pytest.mark.parametrize("unit", ("ms", "us", "ns"))
 def test_parquet_timestamp_facts_retain_file_unit_and_engine_carrier(
     tmp_path: Path, unit: str
@@ -116,6 +226,18 @@ def test_nested_decode_rejects_bool_coercion() -> None:
     schema_field = pa.field("identity", pa.struct([pa.field("active", pa.bool_())]))
     with pytest.raises(DatasourceSourceCapabilityError):
         _exact_array([{"active": 1}], schema_field)
+
+
+def test_clickhouse_declared_boolean_decodes_only_exact_zero_one() -> None:
+    field = pa.field("accepted", pa.bool_())
+    assert _exact_array([0, 1, None], field, backend_name="clickhouse").to_pylist() == [
+        False,
+        True,
+        None,
+    ]
+    for value in (2, -1, 1.0, "1"):
+        with pytest.raises(DatasourceSourceCapabilityError):
+            _exact_array([value], field, backend_name="clickhouse")
 
 
 def test_postgres_record_integer_decode_is_canonical_only() -> None:
@@ -471,6 +593,98 @@ def test_stub_provider_cannot_grant_basic_route() -> None:
         session.close()
 
 
+def test_trino_owner_interrupt_does_not_wait_for_its_own_cleanup() -> None:
+    backend = Mock()
+    backend.name = "trino"
+    session = SourceSession(provider_for("trino"), _datasource("trino"), backend)
+    cursor = Mock()
+    session._own_pending_cursor(cursor)
+    session._pending_cursor = None
+    submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
+    session.submissions.append(submission)
+    stream = SourceBatchStream(session, cursor, pa.schema([("value", pa.int64())]), 1, submission)
+    session._streams.add(stream)
+    assert session.interrupt() == "remote_unknown"
+    cursor.cancel.assert_called_once_with()
+    cursor.close.assert_called_once_with()
+    assert submission.state == "closed_early"
+    assert submission.connection_disconnected
+
+
+@pytest.mark.parametrize(
+    "fault", ["max_execution_time", "timeout_before_checking_execution_speed", "mode", "missing"]
+)
+def test_clickhouse_deadline_refuses_unavailable_native_policy(fault: str) -> None:
+    backend = Mock()
+    settings = {
+        "max_execution_time": SimpleNamespace(readonly=0, value="0"),
+        "timeout_before_checking_execution_speed": SimpleNamespace(readonly=0, value="0"),
+        "timeout_overflow_mode": SimpleNamespace(readonly=1, value="throw"),
+    }
+    if fault == "missing":
+        del settings["max_execution_time"]
+    elif fault == "mode":
+        settings["timeout_overflow_mode"].value = "break"
+    else:
+        settings[fault].readonly = 1
+    backend.con.server_settings = settings
+    with pytest.raises(DatasourceSourceCapabilityError, match="owned execute deadline") as raised:
+        _clickhouse_deadline_settings(backend, 0.5)
+    assert raised.value.repair is not None and raised.value.repair.kind == "reconnect"
+    backend.con.query_rows_stream.assert_not_called()
+
+
+def test_clickhouse_deadline_uses_request_settings_without_mutating_client() -> None:
+    backend = Mock()
+    backend.con.server_settings = {
+        "max_execution_time": SimpleNamespace(readonly=0, value="0"),
+        "timeout_before_checking_execution_speed": SimpleNamespace(readonly=0, value="10"),
+        "timeout_overflow_mode": SimpleNamespace(readonly=1, value="throw"),
+    }
+    backend.con.params = {"max_execution_time": "99", "unrelated": "preserved"}
+    first = _clickhouse_deadline_settings(backend, 0.75)
+    second = _clickhouse_deadline_settings(backend, 0.25)
+    assert first["max_execution_time"] == 0.75 and second["max_execution_time"] == 0.25
+    assert first["query_id"] != second["query_id"]
+    assert first["timeout_before_checking_execution_speed"] == 0
+    assert first["timeout_overflow_mode"] == "throw"
+    assert backend.con.params == {"max_execution_time": "99", "unrelated": "preserved"}
+
+
+@pytest.mark.parametrize("close_fails", [False, True])
+def test_post_submission_checkpoint_failure_releases_native_cursor(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch, close_fails: bool
+) -> None:
+    read = _read(session)
+    cursor = Mock()
+    if close_fails:
+        cursor.close.side_effect = RuntimeError("cursor close failed")
+    monkeypatch.setattr("marivo.datasource.adapters._native_cursor", lambda *_args: cursor)
+    checks = 0
+
+    def checkpoint() -> None:
+        nonlocal checks
+        checks += 1
+        if checks == 2:
+            raise RuntimeError("deadline exceeded")
+
+    session._checkpoint = checkpoint
+    with pytest.raises(
+        RuntimeError, match="cursor close failed" if close_fails else "deadline exceeded"
+    ):
+        session.batches(read, chunk_size=1)
+    cursor.close.assert_called_once_with()
+    assert session.submissions[-1].state == "failed"
+    assert session.submissions[-1].cursor_state == (
+        "close_failed"
+        if close_fails
+        else "connection_owned"
+        if session.provider.name == "duckdb"
+        else "closed"
+    )
+    assert session._cursor_released.is_set()
+
+
 def test_session_rejects_backend_from_another_provider(tmp_path: Path) -> None:
     backend = ibis.duckdb.connect(tmp_path / "other.duckdb")
     try:
@@ -490,15 +704,20 @@ def test_join_union_require_explicit_local_engine_qualification(session: SourceS
             session.qualify(bound, requirement)
 
 
-def test_clickhouse_utc_decode_requires_explicit_schema_authority() -> None:
+@pytest.mark.parametrize("backend", ["clickhouse", "mysql", "sqlite"])
+def test_utc_decode_requires_explicit_schema_authority(backend: str) -> None:
     value = datetime(2026, 11, 1, 5, 30, 0, 123456)
     field = pa.field("instant", pa.timestamp("us", tz="UTC"))
-    result = _exact_array([value], field, backend_name="clickhouse")
+    result = _exact_array([value], field, backend_name=backend)
     assert result.to_pylist() == [value.replace(tzinfo=timezone.utc)]
+    if backend == "sqlite":
+        assert _exact_array([value.isoformat()], field, backend_name=backend).to_pylist() == [
+            value.replace(tzinfo=timezone.utc)
+        ]
     for zone in ("America/New_York", "+08:00"):
         with pytest.raises(DatasourceSourceCapabilityError):
             _exact_array(
-                [value], pa.field("instant", pa.timestamp("us", tz=zone)), backend_name="clickhouse"
+                [value], pa.field("instant", pa.timestamp("us", tz=zone)), backend_name=backend
             )
     with pytest.raises(DatasourceSourceCapabilityError):
         _exact_array([value], field, backend_name="postgres")
@@ -563,3 +782,140 @@ else:
         capture_output=True,
         text=True,
     )
+
+
+def test_sqlite_date_carriers_are_exact() -> None:
+    field = pa.field("left_start", pa.date32())
+    assert _exact_array(["2026-08-01", None], field, backend_name="sqlite").to_pylist() == [
+        date(2026, 8, 1),
+        None,
+    ]
+    for value in ("20260801", "2026-W31-6", "2026-02-30", "2026-08-01 00:00:00"):
+        with pytest.raises(DatasourceSourceCapabilityError):
+            _exact_array([value], field, backend_name="sqlite")
+
+
+@pytest.mark.parametrize("fault", ["none", "foreign", "unavailable", "failed"])
+def test_mysql_interrupt_targets_only_the_prepared_owned_connection(
+    monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    from marivo.datasource import adapters
+
+    backend = Mock()
+    backend.name = "mysql"
+    backend.con.thread_id.return_value = 123
+    backend.con.fileno.return_value = 17
+    control = Mock()
+    control.name = "mysql"
+    session = SourceSession(provider_for("mysql"), _datasource("mysql"), backend)
+    session._cancel_thread_id = 456 if fault == "foreign" else 123
+    session._cancel_control = None if fault == "unavailable" else control
+    session._cancel_control_released = fault == "unavailable"
+    submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
+    session.submissions.append(submission)
+    execute = Mock(side_effect=RuntimeError("control failed") if fault == "failed" else None)
+    monkeypatch.setattr(adapters, "execute_provider_statement", execute)
+    monkeypatch.setattr(adapters, "provider_statement_log", lambda _backend: ())
+    owned_socket = Mock()
+    socket_context = Mock()
+    socket_context.__enter__ = Mock(return_value=owned_socket)
+    socket_context.__exit__ = Mock(return_value=False)
+    fromfd = Mock(return_value=socket_context)
+    monkeypatch.setattr(socket, "fromfd", fromfd)
+
+    assert session.interrupt() == "remote_unknown"
+    if fault in {"foreign", "unavailable"}:
+        execute.assert_not_called()
+    else:
+        execute.assert_called_once_with(
+            control,
+            session.provider,
+            "mysql.analysis.cancel_owned_query",
+            values={"thread_id": 123},
+            purpose="analysis.cancel_owned_query",
+        )
+    fromfd.assert_called_once_with(17, socket.AF_INET, socket.SOCK_STREAM)
+    owned_socket.shutdown.assert_called_once_with(socket.SHUT_RDWR)
+    backend.disconnect.assert_called_once_with()
+    if fault != "unavailable":
+        control.disconnect.assert_called_once_with()
+    assert submission.termination == "remote_unknown"
+    assert submission.connection_disconnected
+    assert session._cancel_control is None
+
+
+def test_mysql_control_close_failure_still_releases_owned_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.datasource import adapters
+
+    backend = Mock()
+    backend.name = "mysql"
+    control = Mock()
+    control.disconnect.side_effect = RuntimeError("control close failed")
+    monkeypatch.setattr(adapters, "provider_statement_log", lambda _backend: ())
+    session = SourceSession(provider_for("mysql"), _datasource("mysql"), backend)
+    session._cancel_control = control
+    session._cancel_control_released = False
+    cursor = Mock()
+    submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
+    session.submissions.append(submission)
+    stream = SourceBatchStream(session, cursor, pa.schema([("value", pa.int64())]), 1, submission)
+    session._streams.add(stream)
+
+    with pytest.raises(RuntimeError, match="control close failed"):
+        session.close()
+    cursor.close.assert_called_once_with()
+    backend.disconnect.assert_called_once_with()
+    assert submission.cursor_state == "closed"
+    assert submission.connection_disconnected
+    assert session._cancel_control is None
+    assert not session._cancel_control_released
+
+
+@pytest.mark.parametrize("fault", ["none", "reused", "expired", "connect_failed"])
+def test_mysql_cancel_preparation_is_bounded_and_closes_rejected_control(
+    monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    from ibis.backends import BaseBackend
+
+    from marivo.datasource import backends
+
+    backend = Mock()
+    backend.name = "mysql"
+    backend.con.thread_id.return_value = 123
+    control = Mock(spec=BaseBackend)
+    control.name = "mysql"
+    control.con = Mock()
+    control.con.thread_id.return_value = 123 if fault == "reused" else 456
+    build = Mock(
+        return_value=control,
+        side_effect=RuntimeError("connect failed") if fault == "connect_failed" else None,
+    )
+    monkeypatch.setattr(backends, "build_backend", build)
+    session = SourceSession(provider_for("mysql"), _datasource("mysql"), backend)
+    checkpoint = Mock(side_effect=[None, RuntimeError("expired")] if fault == "expired" else None)
+    session._checkpoint = checkpoint
+    try:
+        if fault == "none":
+            session._prepare_interrupt()
+            assert session._cancel_control is control
+            assert session._cancel_thread_id == 123
+            session._prepare_interrupt()
+        else:
+            with pytest.raises((RuntimeError, DatasourceSourceCapabilityError)):
+                session._prepare_interrupt()
+            assert session._cancel_control is None
+            assert session._cancel_control_released == (fault != "connect_failed")
+            if fault != "connect_failed":
+                control.disconnect.assert_called_once_with()
+        build.assert_called_once_with(
+            replace(
+                session.datasource,
+                fields={"connect_timeout": 1, "read_timeout": 1, "write_timeout": 1},
+            ),
+            read_only=True,
+        )
+        assert session.submissions == []
+    finally:
+        session.close()

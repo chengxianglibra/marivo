@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from functools import reduce
 from operator import and_, or_
 from typing import NoReturn, TypeAlias
@@ -110,7 +111,13 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.core.time_grid import GridVersionSelection
 from marivo.analysis.methods.builtin import admit
-from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
+from marivo.analysis.methods.physical import (
+    DecimalType,
+    DurationType,
+    Qualified,
+    ScalarType,
+    SourceShape,
+)
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 from marivo.datasource.adapters import BoundSource, PhysicalRequirement
 from marivo.datasource.ir import ParquetSourceIR, TableSourceIR
@@ -474,7 +481,7 @@ def _validate_layout(
                 _fail("distinct physical part fields or exact Subject key reuse", component.column)
             used.add(component.column)
     for key in layout.keys:
-        if str(table[key.column].type()) not in ("int64", "string"):
+        if not (table[key.column].type().is_int64() or table[key.column].type().is_string()):
             _fail("qualified int64 or string identity columns", str(table[key.column].type()))
     for part in layout.parts:
         if tuple(c.component for c in part.columns) != components(part.part):
@@ -494,9 +501,9 @@ def _validate_layout(
                     _fail("the exact nested contribution coordinate state", component.column)
                 continue
             if role == "subject":
-                actual = str(table[component.column].type())
-                if actual not in ("int64", "string"):
-                    _fail("qualified int64 or string Subject identity", actual)
+                actual = table[component.column].type()
+                if not (actual.is_int64() or actual.is_string()):
+                    _fail("qualified int64 or string Subject identity", str(actual))
                 continue
             dtype = (
                 "boolean"
@@ -1055,7 +1062,12 @@ def _transport(
             )
             physical = (source, *predicate_sources)[index].node.value_type
             if physical == ScalarType("float64"):
-                invalid = invalid | table[columns.value].isnan() | table[columns.value].isinf()
+                value = table[columns.value]
+                invalid = (
+                    invalid
+                    | (value.abs() > float.fromhex("0x1.fffffffffffffp+1023"))
+                    | (value != value)
+                )
             checks.append(
                 IntegrityCheck(
                     stage.output,
@@ -1111,9 +1123,9 @@ def _transport(
         table = table.mutate(__cohort_truth=reduce(and_, conditions)).view()
         truth = table.__cohort_truth
         counted = table.group_by(*keys).aggregate(
-            __t=truth.fill_null(False).cast("int64").sum(),
-            __u=truth.isnull().cast("int64").sum(),
-            __f=(~truth).fill_null(False).cast("int64").sum(),
+            __t=truth.fill_null(False).ifelse(1, 0).cast("int64").sum(),
+            __u=truth.isnull().ifelse(1, 0).cast("int64").sum(),
+            __f=(~truth).fill_null(False).ifelse(1, 0).cast("int64").sum(),
         )
         left = source.expression.view()
         counted = counted.view()
@@ -1373,7 +1385,7 @@ def _bind(
         value = (
             value.cast("string").cast("float64")
             if stage.node.value_type.name == "float64"
-            else value.cast("int64")
+            else value.cast(stage.node.value_type.name)
         )
         projected = owner_alias.select(
             *(owner_alias[f"member__{i}"].name(key) for i, key in enumerate(keys)),
@@ -1646,7 +1658,7 @@ def _count(stage: SourceMethodStage, source: LoweredRelation) -> tuple[ir.Table,
         cell = source.layout.cell
         if cell is None:
             _fail("Cell tags for defined-count", "missing Cell")
-        value = (table[cell.tag] == "defined").cast("int64").sum().fill_null(0)
+        value = (table[cell.tag] == "defined").ifelse(1, 0).cast("int64").sum().fill_null(0)
     else:
         value = table.count()
     result = grouped.aggregate(value=value)
@@ -3084,7 +3096,7 @@ def _observe(
             .fill_null(0)
             .cast(product_type),
             weight_sum=pair.ifelse(values.weight, 0).sum().fill_null(0).cast(weight_type),
-            non_null_pair_count=pair.cast("int64").sum().fill_null(0).cast("int64"),
+            non_null_pair_count=pair.ifelse(1, 0).sum().fill_null(0).cast("int64"),
             row_count=values.count().cast("int64"),
         )
         dense = targets.left_join(summed, list(target_keys))
@@ -3113,6 +3125,18 @@ def _observe(
             duration=isinstance(stage.node.value_type, DurationType),
         )
     else:
+        wide_decimal_sum = (
+            isinstance(params, ObserveMetric)
+            and params.method in ("sum", "mean")
+            and params.amount_type.startswith("decimal(")
+            and isinstance(stage.implementation.key.shape, SourceShape)
+            and stage.implementation.key.shape.backend == "clickhouse"
+        )
+        if wide_decimal_sum:
+            assert isinstance(params, ObserveMetric)
+            amount_dtype = dt.dtype(params.amount_type)
+            assert isinstance(amount_dtype, dt.Decimal)
+            values = values.mutate(amount=values.amount.cast(dt.Decimal(76, amount_dtype.scale)))
         summed = values.group_by(*target_keys).aggregate(
             absolute_sum=values.amount.abs().sum().fill_null(0.0)
             if values.amount.type().is_floating()
@@ -3137,7 +3161,31 @@ def _observe(
                 if params.method in ("sum", "mean")
                 else params.amount_type
             )
-        total = summed.state_sum.fill_null(0.0 if amount_type == "float64" else 0).cast(amount_type)
+        if wide_decimal_sum:
+            output_dtype = dt.dtype(amount_type)
+            assert isinstance(output_dtype, dt.Decimal)
+            assert output_dtype.precision is not None and output_dtype.scale is not None
+            digits = "9" * (output_dtype.precision - output_dtype.scale) or "0"
+            if output_dtype.scale:
+                digits += "." + "9" * output_dtype.scale
+            sum_in_range = summed.state_sum.between(
+                ibis.literal(Decimal("-" + digits), type=output_dtype),
+                ibis.literal(Decimal(digits), type=output_dtype),
+            )
+            checks.append(
+                IntegrityCheck(
+                    stage.output,
+                    "Decimal sum within declared precision and scale",
+                    summed.filter(~sum_in_range).select(*target_keys),
+                    source_ids,
+                )
+            )
+        bounded_sum = (
+            sum_in_range.ifelse(summed.state_sum, ibis.null().cast(summed.state_sum.type()))
+            if wide_decimal_sum
+            else summed.state_sum
+        )
+        total = bounded_sum.fill_null(0.0 if amount_type == "float64" else 0).cast(amount_type)
         support = summed.support.fill_null(0).cast("int64")
         defined = (
             support > 0
@@ -3205,7 +3253,7 @@ def _observe(
                 .fill_null(0)
                 .cast(product_type),
                 weight_sum=pair.ifelse(values.weight, 0).sum().fill_null(0).cast(weight_type),
-                non_null_pair_count=pair.cast("int64").sum().fill_null(0).cast("int64"),
+                non_null_pair_count=pair.ifelse(1, 0).sum().fill_null(0).cast("int64"),
                 row_count=values.count().cast("int64"),
             )
         else:
@@ -3262,20 +3310,15 @@ def _observe(
         actual = joined.group_by(mapping[time_key].name("time_key")).aggregate(
             actual=joined.count()
         )
-        expected_cells = []
-        for time_cell in grid.cells:
-            selected = source.semi_join(
-                mapping, [*predicates, mapping[time_key] == time_cell.identity]
-            )
-            expected_cells.append(
-                selected.aggregate(expected=selected.count()).mutate(
-                    time_key=ibis.literal(time_cell.identity)
-                )
-            )
-        expected = (
-            expected_cells[0].union(*expected_cells[1:], distinct=False)
-            if len(expected_cells) > 1
-            else expected_cells[0]
+        unique_mapping = mapping.select(*member_keys, time_key).distinct()
+        expected_predicates: list[ir.BooleanValue] = []
+        for predicate in predicates:
+            rewritten = predicate.op().replace({mapping.op(): unique_mapping.op()}).to_expr()
+            assert isinstance(rewritten, ir.BooleanValue)
+            expected_predicates.append(rewritten)
+        selected = source.inner_join(unique_mapping, expected_predicates)
+        expected = selected.group_by(unique_mapping[time_key].name("time_key")).aggregate(
+            expected=selected.count()
         )
         partition = expected.left_join(actual, "time_key").select(
             expected=expected.expected, actual=actual.actual.fill_null(0)
@@ -3854,6 +3897,16 @@ def lower(
         )
         if isinstance(owner, MethodNode) and (
             isinstance(owner.parameters, PreparedObservation)
+            or (
+                isinstance(owner.parameters, (OriginalReduce, CellDerive, AttributionDerive))
+                and any(
+                    isinstance(stage, LocalMethodStage)
+                    and stage.node.identity == owner.identity
+                    and isinstance(stage.implementation.qualification, Qualified)
+                    and stage.implementation.qualification.implementation_id.startswith("r93.c09.")
+                    for stage in admitted.stages
+                )
+            )
             or (
                 isinstance(owner.parameters, RowState)
                 and isinstance(owner.inputs[0].node, MethodNode)

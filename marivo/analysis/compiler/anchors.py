@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from functools import reduce
 from operator import and_
 
@@ -31,6 +32,7 @@ from marivo.analysis.core.model import (
     require_part,
 )
 from marivo.analysis.core.rules import AnchorBind, AnchorObserve, ObserveCount
+from marivo.analysis.methods.physical import SourceShape
 
 
 def bind(
@@ -44,11 +46,17 @@ def bind(
     selected = table.filter(
         (
             table.occurrences__occurred_at
-            >= ibis.literal(params.during_start).cast(table.occurrences__occurred_at.type())
+            >= ibis.literal(
+                datetime.fromisoformat(params.during_start),
+                type=table.occurrences__occurred_at.type(),
+            )
         )
         & (
             table.occurrences__occurred_at
-            < ibis.literal(params.during_end).cast(table.occurrences__occurred_at.type())
+            < ibis.literal(
+                datetime.fromisoformat(params.during_end),
+                type=table.occurrences__occurred_at.type(),
+            )
         )
     )
     fields = {f"key_{i}": selected[name] for i, name in enumerate((*subjects, *originals))}
@@ -110,11 +118,12 @@ def observe(
     assert isinstance(state, OriginalStatePart)
     domain = declaration.domain
     candidates: list[ir.Table] = []
+    candidate_layouts: list[RelationLayout] = []
     component_ids: list[tuple[str, ...]] = []
     ids: tuple[str, ...] = () if stage.operation == "prepare" else inputs[0].source_ids
     members = inputs[0] if stage.operation == "prepare" else inputs[1]
     for observation in params.observations:
-        candidate, _, source_ids = lower_candidates(
+        candidate, candidate_layout, source_ids = lower_candidates(
             stage,
             members,
             bindings,
@@ -125,8 +134,16 @@ def observe(
         )
         ids = tuple(dict.fromkeys((*ids, *source_ids)))
         candidates.append(candidate)
+        candidate_layouts.append(candidate_layout)
         component_ids.append(source_ids)
     if stage.operation == "prepare":
+        if (
+            isinstance(stage.implementation.key.shape, SourceShape)
+            and stage.implementation.key.shape.backend != "duckdb"
+        ):
+            assert len(candidates) == 1
+            candidate = candidates[0]
+            return candidate, candidate_layouts[0], ids
         # Separate typed lists avoid coercing Decimal/Duration and preserve the
         # complete candidate identity even when component roots differ.
         bundles = [

@@ -11,6 +11,29 @@ from tests.shared_fixtures import DslCaseFactory
 
 
 @pytest.mark.runtime
+def test_ratio_without_retained_coverage_rejects_with_typed_error(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    members = case.session.members(ms.ref.entity("sales.customer"))
+    grid = mv.time_grid(
+        during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
+    )
+    history = (
+        members.each(grid)
+        .observe(
+            ms.ref.metric("sales.order_count"),
+            during=grid.window,
+            via=ms.ref.relationship("sales." + case.names.buyer),
+        )
+        .execute()
+    )
+    ratio = history.ratio(history).execute()
+    with pytest.raises(AnalysisError, match="original captured coverage fact"):
+        ratio.runs(where=ratio.value.gt(0)).execute()
+
+
+@pytest.mark.runtime
 def test_public_runs(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
     members = case.session.members(ms.ref.entity("sales.customer"))

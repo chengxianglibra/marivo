@@ -7,7 +7,11 @@ Status: R9.1 static handoff implemented; validation is recorded in the
 and bounded source evidence are recorded in the
 [R9.2 record](2026-10-04-marivo-r92-evidence/README.md): 42 required scenarios
 passed and SQLite exact Decimal remains blocked. R9.2's full exit is open;
-R9.3–R9.7 have not started. Frozen targets grant no execution qualification.
+R9.3 has bounded six-backend association/deviation and complete-grid statistic
+consumers. Current scenario results and candidate bindings are owned by the
+[R9.3 record](2026-10-04-marivo-r93-evidence/README.md); complete R9.3 qualification
+remains open. R9.4–R9.7 have not started.
+Frozen targets grant no execution qualification.
 
 ## 1. 目标、前置交接与文档权威
 
@@ -67,6 +71,12 @@ bootstrap/因果/生存推断。已撤回的 statistical_weight authoring 不恢
 2. R1.3 接受的 `md.raw_sql` 原文提交不做 SQL 解析/诊断分类；只读依连接与后端权限
    尽力控制。必填 reason、正数返回行界、可执行 timeout、截断披露及不可重入照常验证。
    不重新引入早期摘要中的 SQL 文本分类器或把只读尽力控制写成绝对保证。
+
+2026-10-05 用户另行批准了限定的 MySQL 控制例外：认证连接的会话级 SELECT
+截止时间安装/读回，以及当前 SourceSession 自有查询的 `KILL QUERY`。精确边界分别由
+[认证超时方案](2026-10-04-marivo-r93-mysql-authoring-timeout-proposal.md)和
+[自有查询取消方案](2026-10-04-marivo-r93-mysql-cancellation-proposal.md)拥有。
+批准不替代实现、实际提交审计或资格证据，也不扩展到全局设置或跨 Session 查询。
 
 ## 2. 冻结资格单元与证据规则
 
@@ -443,11 +453,41 @@ make typecheck TYPECHECK_TARGETS='marivo/datasource marivo/analysis/methods mari
 make lint-agent LINT_TARGETS='marivo/datasource marivo/analysis tests/test_full_algebra_backend_matrix.py'
 ```
 
-新 fixture/test 修改使用仓库 `marivo-test-fixtures` skill；每次从最窄有意义的反例开始，
-再跑受影响 Runtime 和 shared gate。Python 使用 `.venv/bin/...` 或 Make entrypoint。
-涉及公共/共享行为的包收口执行 `make check-agent`；最终 R9.7 必须完成 broad gate 与
-真实 matrix，默认测试省略的 Runtime 不算通过。API 文档包含在 compact broad gate；
-site 改动执行 `npm run build --prefix site`，latest 中英同时更新。
+新 fixture/test 修改使用仓库 `marivo-test-fixtures` skill。Python 使用 `.venv/bin/...`
+或 Make entrypoint。验收按下述分层流程执行，不为每个小增量重复整套门禁。
+
+### 9.1.1 后续增量验收与去重
+
+| 阶段 | 必需执行 | 不再重复执行 |
+| --- | --- | --- |
+| 修复迭代 | 最窄失败节点及直接受影响的正例/拒绝；必要时 touched-module lint/typecheck | 无相关行为变化的后端、全部历史场景、完整 broad gate |
+| 业务实现收口 | 合并同一工作包的变更；一次受影响 Runtime 批次，按 backend/profile 分组 | 每加一个向量就重跑已通过批次；在 Trino/ClickHouse 间来回切服务 |
+| 证据绑定 | 从已有原始执行包校验实际提交、oracle、parts、取消及哈希；运行受影响 binder 拒绝测试 | 只因 binder、索引、证据打包或披露文案变化重跑业务查询 |
+| R9.3 最终候选门禁 | 一次 `make check-agent`；latest site 有改动时另执行一次 site build | 每个 Cxx、backend、数值类型或证据目录单独跑全量门禁；同一候选再单独执行 full lint、full typecheck、full default tests、API docs build |
+
+同一候选、同一 backend/profile 和相同 Runtime 路径的共享取消/释放/原子性证明只采集
+一次，由多个适用 requirement 引用同一附件。pending、initial-response、fetch 等不同
+取消阶段，以及完整键、Null、版本边界等不同风险仍是独立证据，不能合并成一个 smoke。
+统计工作包的 `--all-statistical-backends` 仅执行 retained numeric、source statistic 和
+source deadline 消费者；C04/C08/C09、cohort、cold continuation 和独立 ratio 回归从该
+入口移除，由所属工作包或本次变更的影响范围执行，不再作为每轮统计验收的附带项。
+
+冻结放在业务实现与消费者稳定后；正式采集期间不改候选。绑定器先利用已有执行包调试，
+待绑定规则稳定后再批量收口。旧包保持其原 candidate/owner/hash，证据整理不复制授予到
+新候选；最终同一候选验收按影响范围补齐，不在每个中间编辑后重建全部历史通过项。
+已通过检查只在新行为变更、失败或未解决疑点时重跑；重跑需说明受影响的节点和原因。
+
+日常执行只保留三步：确定本次变更的受影响节点；在当前已 ready 的后端合并运行这些
+节点并保存原始证据；更新绑定和剩余任务。C04 的多个后端和数值类型属于同一能力
+收口，不因新增开发证据目录触发一次全量门禁。只有共享编译、解码、生命周期等行为
+变化才扩展到其他使用者；单独增加 oracle 断言只验证该节点。正式统计入口不用于
+增量调试，增量直接使用 `make runtime-test TESTS='实际文件或节点与 selector'`。
+验收脚本最多报告五个失败后停止，修复已知问题后再运行受影响批次。
+
+完整 Runtime、固定恢复、fault、成本和 SQL 退出由各自工作包承担；R9.3 不重复执行
+R9.4–R9.7 的全量验收。required IDs 和独立风险分母保持可追踪，删去的是重复执行要求。
+最终 R9.7 仍须完成 broad gate 与真实 matrix，默认测试省略的 Runtime 不算通过。
+API 文档包含在 compact broad gate；latest 中英同时更新。
 
 R9 不运行 release-check 来代替这套真实矩阵，也不为普通门禁启动 MinIO。最终同一候选
 隔离 wheel、installed multisource gate 和真实 Agent 交由 R10；如 R9 独立取得 package
@@ -456,10 +496,19 @@ R9 不运行 release-check 来代替这套真实矩阵，也不为普通门禁�
 
 ### 9.2 证据包与披露同步
 
-每个 ID 至少保存 candidate/owner/contract/environment/input digest、精确命令/节点、
+最终同候选资格的每个 ID 至少保存 candidate/owner/contract/environment/input digest、精确命令/节点、
 开始结束时间/退出码、独立 oracle、实际提交来源/批次、检查/资源/取消、结果/parts/receipt/
 K、附件 hash 和状态。成本还含测量边界与原始重复样本。无日志、失败日志或只引用
 不可取得的 `/tmp` 路径不能构成最终唯一通过证据。
+
+R9.3 实现收口按 §8 的独立出口判定，不提前执行 R9.7 的同候选资格门槛。已有原生
+consumer 可在原始开发包保留的环境、输入、实际提交、独立 oracle、parts/checks 和
+日志完整可取时复用；同时核对当前精确物理键仍连接合法 consumer，引用适用的共享
+资源证明，并保存当前 owner 摘要。原始 candidate、命令和时间仅按已有记录保留，
+缺项明确标未记录，不补造或改写。此类记录授予的只是具体 representative 的 R9.3
+实现完成；不得写入同候选资格索引或隐含 R9.4/R9.7 完成。仅缺最终资格记录格式时，
+将该缺项移交 R9.7，不因整理文档、candidate 或附件重复已通过的业务测试。实际缺失
+的 oracle、执行、parts、独立风险或资源义务仍须补齐，不能用 static 注册替代执行。
 
 保留小型可移植索引与合成 oracle；大型日志/轮子/矩阵按仓库文件限制拆成独立 hash
 shards，验证有序重建摘要。qualification JSON 可能被现有 ignore 规则排除，直接校验
@@ -492,3 +541,30 @@ latest 中英例子。测试 registry snapshot 不当作 runtime 事实，render
 
 部分环境不可用时提供已通过集合、精确阻塞和解除动作，不宣布 full R9 完成。R10 可
 读取交接并准备独立材料，不能越过 R9 未闭合的资格来宣布全重构或发布接受。
+
+### Authorized Duration Unknown quotient extension (2026-10-06)
+
+The user's choice 2 authorizes the existing retained Duration quotient to
+propagate method-owned Unknown coverage/entry Cells as scalar float64 Unknown.
+Self-division retains uncertainty and both ordered endpoint Cells. Defined zero
+denominators retain Undefined(zero_denominator). The implementation uses an
+explicit Duration-only value policy and validates retained endpoint consistency.
+The concrete producer is the fixed microsecond Journey observed_duration ratio.
+Its fixed NoTime float64 zscore/MAD and Pearson/Spearman/Kendall consumers are
+qualified only with actual public execution; forecast/runs still require an
+independently proved complete time grid. This authorization grants no new
+History comparison endpoint, datasource control SQL or snapshot authority.
+
+
+### R9.3 input-read consistency amendment (2026-10-06)
+
+The user permits source changes across successive native reads and explicitly
+rejects introducing domain snapshots. PostgreSQL, MySQL, Trino and ClickHouse
+preparation therefore retains an `independent_reads` authority for the actual
+inputs. It must not start a repeatable-read transaction or claim a shared source
+revision. Retained inputs remain reusable and source-free after acquisition.
+Snapshot consistency is removed from the sixteen remote C11/C12/C13/C18
+acceptance prerequisites; exact connected consumers, keys, multiplicity,
+coverage, cancellation and resource release still require evidence. The earlier
+PostgreSQL transaction-control approval is superseded and its two registrations
+are withdrawn. This change neither grants physical keys nor marks scenarios passed.

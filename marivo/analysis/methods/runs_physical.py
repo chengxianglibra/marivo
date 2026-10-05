@@ -10,6 +10,8 @@ from marivo.analysis.methods.physical import (
     QualificationKey,
     Qualified,
     ScalarType,
+    SourceShape,
+    TimeShape,
     ValueType,
 )
 from marivo.analysis.methods.semantics import MethodKey
@@ -26,7 +28,7 @@ def output_type(field: str) -> ValueType:
 
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
-    return tuple(
+    declarations = tuple(
         replace(
             item,
             key=replace(item.key, method=method),
@@ -38,10 +40,88 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             ),
         )
         for item in numeric_implementations(MethodKey("deviation.read"))
+        if item.key.input_domains != ("journey",)
+        if not isinstance(item.key.shape, SourceShape) or item.key.shape.backend == "duckdb"
     )
+    sqlite = tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend="sqlite")),
+            qualification=Qualified(
+                "r93-sqlite-" + method.name + "-entity-int64-us-utc-v1",
+                "analysis.materialization.runs_execution",
+                "tests/test_r93_method_consumers.py",
+            ),
+        )
+        for item in declarations
+        if isinstance(item.key.shape, SourceShape)
+        and item.key.shape.form == "table"
+        and item.key.shape.time == TimeShape("instant", "us", "UTC")
+        and item.key.input_domains == ("group" if method.name == "time.runs_read" else "entity",)
+        and item.key.input_types == (ScalarType("int64"),)
+    )
+    trino = tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend="trino")),
+            qualification=Qualified(
+                "r93-trino-" + method.name + "-int64-us-utc-v1",
+                "analysis.materialization.runs_execution",
+                "tests/test_r93_method_consumers.py",
+            ),
+        )
+        for item in sqlite
+        if isinstance(item.key.shape, SourceShape)
+    )
+    postgres = tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend="postgres")),
+            qualification=Qualified(
+                "r93-postgres-" + method.name + "-int64-us-utc-v1",
+                "analysis.materialization.runs_execution",
+                "tests/test_r93_method_consumers.py",
+            ),
+        )
+        for item in sqlite
+        if isinstance(item.key.shape, SourceShape)
+    )
+    mysql = tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend="mysql")),
+            qualification=Qualified(
+                "r93-mysql-" + method.name + "-int64-us-utc-v1",
+                "analysis.materialization.runs_execution",
+                "tests/test_r93_method_consumers.py",
+            ),
+        )
+        for item in sqlite
+        if isinstance(item.key.shape, SourceShape)
+    )
+    clickhouse = tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend="clickhouse")),
+            qualification=Qualified(
+                "r93-clickhouse-" + method.name + "-int64-us-utc-v1",
+                "analysis.materialization.runs_execution",
+                "tests/test_r93_method_consumers.py",
+            ),
+        )
+        for item in sqlite
+        if isinstance(item.key.shape, SourceShape)
+    )
+    return (*declarations, *sqlite, *trino, *postgres, *mysql, *clickhouse)
 
 
 def specialize(implementation: Implementation, key: QualificationKey) -> Implementation:
+    if (
+        isinstance(key.shape, SourceShape)
+        and key.shape.backend != "duckdb"
+        and key.input_types != (ScalarType("int64"),)
+    ):
+        return implementation
     if (
         implementation.key.shape != key.shape
         or implementation.key.route != key.route

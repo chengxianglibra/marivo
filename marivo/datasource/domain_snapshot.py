@@ -1,12 +1,13 @@
-"""Driver-owned DuckDB transactions and immutable local file capture authority."""
+"""Driver-owned transactions, SQLite backups and immutable file capture authority."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import sys
 from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager, contextmanager, suppress
+from contextlib import AbstractContextManager, ExitStack, contextmanager, suppress
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -24,7 +25,7 @@ from marivo.datasource.ir import ParquetSourceIR, TableSourceIR
 def fail(constraint: str, received: str, *, stage: str) -> NoReturn:
     raise DatasourceSourceCapabilityError(
         message="Source capture failed.",
-        expected="a snapshot-consistent DuckDB table or immutable local Parquet capture",
+        expected="a qualified native table read or immutable local Parquet capture",
         received=received,
         location=f"datasource.{stage}.{constraint}",
         repair=repair(
@@ -46,13 +47,104 @@ def _hash(path: Path, checkpoint: Callable[[], None]) -> str:
 
 
 @contextmanager
+def _sqlite_capture(
+    source: SourceSession,
+    checkpoint: Callable[[], None],
+    guard: Callable[[Callable[[], object]], AbstractContextManager[None]],
+) -> Iterator[dict[str, object]]:
+    from marivo.datasource.engines.sqlite import connect
+
+    backend = source._backend
+    original = getattr(backend, "con", None)
+    if not isinstance(original, sqlite3.Connection) or any(
+        not isinstance(binding.source, TableSourceIR)
+        or binding.source.database not in (None, "main")
+        for binding in source._bound_sources.values()
+    ):
+        fail(
+            "physical_qualification",
+            "SQLite capture requires main-database tables",
+            stage="admission",
+        )
+    checkpoint()
+    with ExitStack() as resources:
+        directory = resources.enter_context(TemporaryDirectory(prefix="marivo-sqlite-capture-"))
+        snapshot_backend = connect(
+            "domain_capture", {"path": str(Path(directory) / "snapshot.sqlite"), "read_only": True}
+        )
+        resources.callback(snapshot_backend.disconnect)
+        snapshot = getattr(snapshot_backend, "con", None)
+        if not isinstance(snapshot, sqlite3.Connection):
+            fail(
+                "physical_qualification",
+                "SQLite native backup target unavailable",
+                stage="admission",
+            )
+
+        def progress(status: int, remaining: int, total: int) -> None:
+            checkpoint()
+
+        original.backup(snapshot, pages=64, progress=progress, sleep=0.01)
+        checkpoint()
+        authority: dict[str, object] = {
+            "kind": "sqlite_native_backup",
+            "capture_id": uuid4().hex,
+            "files": [],
+        }
+        authority["digest"] = hashlib.sha256(
+            json.dumps(authority, sort_keys=True).encode()
+        ).hexdigest()
+        source._checkpoint = checkpoint
+        backend.con = snapshot
+        try:
+            with guard(snapshot.interrupt):
+                yield authority
+            checkpoint()
+        finally:
+            backend.con = original
+
+
+@contextmanager
 def capture(
     source: SourceSession,
     *,
     checkpoint: Callable[[], None],
     guard: Callable[[Callable[[], object]], AbstractContextManager[None]],
 ) -> Iterator[dict[str, object]]:
-    """Freeze already-bound source inputs before the first business submission."""
+    """Retain bound input-read authority; remote reads may observe different source versions."""
+    if source.provider.name in ("postgres", "mysql", "trino", "clickhouse"):
+        if (
+            source._closed
+            or not source._bound_sources
+            or any(
+                not isinstance(binding.source, TableSourceIR)
+                for binding in source._bound_sources.values()
+            )
+        ):
+            fail(
+                "input_binding",
+                "independent source reads require owned native table bindings",
+                stage="admission",
+            )
+        checkpoint()
+        source._checkpoint = checkpoint
+        source._prepare_interrupt()
+        read_authority: dict[str, object] = {
+            "kind": "independent_reads",
+            "capture_id": uuid4().hex,
+            "files": [],
+        }
+        read_authority["digest"] = hashlib.sha256(
+            json.dumps(read_authority, sort_keys=True).encode()
+        ).hexdigest()
+        with guard(source._request_interrupt):
+            yield read_authority
+        checkpoint()
+        return
+    if source.provider.name == "sqlite":
+        with _sqlite_capture(source, checkpoint, guard) as sqlite_authority:
+            yield sqlite_authority
+        return
     if source.provider.name != "duckdb":
         fail(
             "physical_qualification",

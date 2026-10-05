@@ -4,12 +4,17 @@ from dataclasses import replace
 from typing import Literal
 
 from marivo.analysis.methods.domain_preparation import implementations as preparation
+from marivo.analysis.methods.domain_preparation import (
+    remote_implementations,
+    sqlite_implementations,
+)
 from marivo.analysis.methods.physical import (
     FixedShape,
     Implementation,
     NoTime,
     Qualified,
     ScalarType,
+    SourceShape,
 )
 from marivo.analysis.methods.semantics import MethodKey
 
@@ -18,6 +23,14 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     bases = tuple(
         p
         for p in preparation(MethodKey("occurrence.prepare"))
+        + (
+            (
+                sqlite_implementations(MethodKey("occurrence.prepare"))
+                + remote_implementations(MethodKey("occurrence.prepare"))
+            )
+            if method.name == "anchor.retention"
+            else ()
+        )
         if p.key.input_types == (ScalarType("int64"),)
     )
     fixed = next(p for p in bases if isinstance(p.key.shape, FixedShape))
@@ -41,13 +54,22 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             ),
             parts=("subject", "anchor", "occurrences", "retention"),
             qualification=Qualified(
-                f"r78.{method}.{base.key.shape}.{'artifact_python' if isinstance(base.key.shape, FixedShape) else route}@v1",
+                f"r93.c18.sqlite.event_retention_int64_us_utc.{route}@v1"
+                if isinstance(base.key.shape, SourceShape) and base.key.shape.backend == "sqlite"
+                else f"r78.{method}.{base.key.shape}.{'artifact_python' if isinstance(base.key.shape, FixedShape) else route}@v1",
                 "analysis.materialization.retention_execution",
-                "tests/test_analysis_retention_r78.py",
+                "tests/test_r93_anchor_consumers.py"
+                if isinstance(base.key.shape, SourceShape) and base.key.shape.backend == "sqlite"
+                else "tests/test_analysis_retention_r78.py",
             ),
         )
         for base in bases
         for route in routes
+        if not (
+            isinstance(base.key.shape, SourceShape)
+            and base.key.shape.backend != "duckdb"
+            and route != "ibis_python"
+        )
         if method.name != "anchor.retention" or not isinstance(base.key.shape, FixedShape)
     )
 

@@ -50,6 +50,26 @@ def test_use_backend_disconnects_after_error(
     assert backend.disconnect_calls == 1
 
 
+@pytest.mark.parametrize("fails", [False, True])
+def test_scoped_disconnect_observation_reports_actual_outcome(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fails: bool
+) -> None:
+    class ObservedBackend(FakeBackend):
+        def disconnect(self) -> None:
+            super().disconnect()
+            if fails:
+                raise RuntimeError("connection release failed")
+
+    backend = ObservedBackend()
+    monkeypatch.setattr(runtime, "_build_backend_from_store", lambda *_args, **_kwargs: backend)
+    seen: list[bool] = []
+    service = runtime.DatasourceConnectionService(project_root=tmp_path)
+    with service.use_backend("warehouse", on_disconnect=seen.append):
+        assert seen == []
+    assert backend.disconnect_calls == 1
+    assert seen == [not fails]
+
+
 def test_session_backend_is_reused_until_close(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -159,3 +179,47 @@ def test_layered_datasource_loading_rejects_duplicate_names_with_paths(tmp_path:
     assert "Duplicate datasource name: 'warehouse'" in message
     assert str(project_root / "models" / "datasources" / "warehouse.py") in message
     assert str(external_models / "datasources" / "warehouse.py") in message
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_terminal_scope_replaces_unbounded_cache_and_restores_it_after_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fails: bool,
+) -> None:
+    created: list[FakeBackend] = []
+    options: list[tuple[bool, int | None, bool]] = []
+
+    def build(
+        name: str,
+        project_root: Path | None,
+        *,
+        read_only: bool = False,
+        terminal_timeout_seconds: int | None = None,
+        include_semantic_layers: bool = False,
+    ) -> FakeBackend:
+        backend = FakeBackend()
+        created.append(backend)
+        options.append((read_only, terminal_timeout_seconds, include_semantic_layers))
+        return backend
+
+    monkeypatch.setattr(runtime, "_build_backend_from_store", build)
+    service = runtime.DatasourceConnectionService(
+        project_root=tmp_path, include_semantic_layers=True
+    )
+    original = service.session_backend("warehouse")
+    try:
+        with service.terminal_scope(17):
+            bounded = service.session_backend("warehouse")
+            assert bounded is not original
+            assert bounded is service.session_backend("warehouse")
+            assert options[-1] == (True, 17, True)
+            if fails:
+                raise ValueError("certification failed")
+    except ValueError as exc:
+        assert fails and str(exc) == "certification failed"
+    assert created[1].disconnect_calls == 1
+    assert created[0].disconnect_calls == 0
+    assert service.session_backend("warehouse") is original
+    service.close_all()
+    assert created[0].disconnect_calls == 1

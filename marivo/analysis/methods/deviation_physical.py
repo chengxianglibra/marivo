@@ -64,7 +64,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         ),
         *(FixedShape(time) for time in (NoTime(), *times)),
     )
-    return tuple(
+    declarations = tuple(
         Implementation(
             QualificationKey(
                 method,
@@ -87,20 +87,59 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 "complete", "caller" if isinstance(shape, FixedShape) else "producer", None
             ),
             Qualified(
-                "r8-"
+                "r93-journey-" + method.name + "-float64-v1"
+                if domain == "journey"
+                else "r8-"
                 + method.name.replace(".", "-")
                 + ("-artifact_python-v1" if isinstance(shape, FixedShape) else "-ibis_python-v1"),
                 "analysis.materialization.deviation_execution",
-                "tests/test_analysis_deviation_r82.py",
+                "tests/test_r93_duration_ratio_unknown.py"
+                if domain == "journey"
+                else "tests/test_analysis_deviation_r82.py",
             ),
         )
-        for domain in ("singleton", "entity", "group")
+        for domain in ("singleton", "entity", "group", "journey")
         for typ in (ScalarType("int64"), ScalarType("float64"))
         for shape in shapes
+        if domain != "journey" or (typ == ScalarType("float64") and shape == FixedShape(NoTime()))
     )
+    source_backends: tuple[Literal["sqlite", "clickhouse", "mysql", "postgres", "trino"], ...] = (
+        "sqlite",
+        "clickhouse",
+        "mysql",
+        "postgres",
+        "trino",
+    )
+    sources = tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+            qualification=Qualified(
+                "r93-" + backend + "-" + method.name + "-entity-int64-v1",
+                "analysis.materialization.deviation_execution",
+                "tests/test_r93_method_consumers.py",
+            ),
+        )
+        for backend in source_backends
+        for item in declarations
+        if isinstance(item.key.shape, SourceShape)
+        and item.key.shape.form == "table"
+        and isinstance(item.key.shape.time, NoTime)
+        and item.key.input_domains == ("entity",)
+        and item.key.input_types == (ScalarType("int64"),)
+    )
+    return (*declarations, *sources)
 
 
 def specialize(implementation: Implementation, key: QualificationKey) -> Implementation:
+    if isinstance(key.shape, SourceShape) and key.shape.backend != "duckdb":
+        allowed = (
+            ((ScalarType("int64"),), (ScalarType("float64"),))
+            if key.method.name == "deviation.read"
+            else ((ScalarType("int64"),),)
+        )
+        if key.input_types not in allowed:
+            return implementation
     if not key.method.name.startswith("deviation.") or implementation.key.method != key.method:
         return implementation
     if (

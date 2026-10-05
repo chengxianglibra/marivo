@@ -574,7 +574,11 @@ def acquire_snapshot(
     execute_attempted = False
     try:
         try:
-            session = profile.open(datasource_ir, read_only=True)
+            session = profile.open(
+                datasource_ir,
+                read_only=True,
+                terminal_timeout_seconds=scope.timeout_seconds,
+            )
         except Exception as exc:
             failure = _backend_failure_summary(exc)
             raise _acquisition_error(
