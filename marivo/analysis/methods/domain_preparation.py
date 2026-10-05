@@ -71,6 +71,53 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     )
 
 
+def sqlite_implementations(method: MethodKey) -> tuple[Implementation, ...]:
+    """Bind only native int64 UTC-us occurrence capture; do not fan out consumers."""
+    return tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend="sqlite")),
+            qualification=Qualified(
+                "r93.c11.sqlite.occurrence_prepare_int64_us_utc@v1",
+                "analysis.materialization.domain_preparation",
+                "tests/test_r93_journey_consumers.py",
+            ),
+        )
+        for item in implementations(method)
+        if isinstance(item.key.shape, SourceShape)
+        and item.key.shape
+        == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
+        and item.key.input_types == (ScalarType("int64"),)
+    )
+
+
+def remote_implementations(method: MethodKey) -> tuple[Implementation, ...]:
+    """Connect native int64 UTC-us preparations under independent-read authority."""
+    backends: tuple[Literal["postgres", "mysql", "trino", "clickhouse"], ...] = (
+        "postgres",
+        "mysql",
+        "trino",
+        "clickhouse",
+    )
+    return tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+            qualification=Qualified(
+                f"r93.{backend}.occurrence_prepare_int64_us_utc@v1",
+                "analysis.materialization.domain_preparation",
+                "tests/test_r93_remote_domain_consumers.py",
+            ),
+        )
+        for backend in backends
+        for item in implementations(method)
+        if item.key.shape
+        == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
+        and isinstance(item.key.shape, SourceShape)
+        and item.key.input_types == (ScalarType("int64"),)
+    )
+
+
 def consumers(method: MethodKey) -> tuple[Implementation, ...]:
     bases = tuple(
         item

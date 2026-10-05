@@ -498,6 +498,7 @@ class CoveragePart:
     quantity_id: str
     scope_id: str
     version: str
+    business_windows: tuple[tuple[str, str], ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1708,6 +1709,43 @@ class Signature:
                 "Use separate bound quantities or roles.",
                 "core.signature.parts",
             )
+        if self.parts and isinstance(self.quantity, ObservedQuantity):
+            from marivo.analysis.core.business_coverage import POLICY, identity, validate_windows
+
+            covered = next(
+                (
+                    p
+                    for p in self.parts
+                    if isinstance(p, CoveragePart) and p.business_windows is not None
+                ),
+                None,
+            )
+            if self.quantity.value_policy.startswith(POLICY) != (covered is not None):
+                reject(
+                    "business policy and its exact retained coverage together",
+                    self.quantity.value_policy,
+                    "Retain the owning coverage part.",
+                    "core.signature.business_coverage",
+                )
+            if covered is not None:
+                grid = self.domain.time_grid
+                assert covered.business_windows is not None
+                if (
+                    grid is None
+                    or any(c.partial for c in grid.cells)
+                    or self.quantity.method_version not in ("sum@v1", "sum_zero@v1")
+                    or self.quantity.definition_id
+                    != identity(
+                        self.quantity.value_policy.removeprefix(POLICY), covered.business_windows
+                    )
+                ):
+                    reject(
+                        "original sum quantity and complete grid bound to business coverage",
+                        self.quantity.definition_id,
+                        "Use the original observation declaration.",
+                        "core.signature.business_coverage",
+                    )
+                validate_windows(covered.business_windows, grid)
         for item in self.evidence:
             binding = item.fact.binding
             if (

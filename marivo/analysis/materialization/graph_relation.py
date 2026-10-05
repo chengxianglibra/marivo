@@ -153,11 +153,12 @@ def _shared_root(first: Node, second: Node, known: dict[str, Node] | None = None
     return known[second.identity]
 
 
-def _retained_definition(root: MethodNode) -> MethodNode:
+def _retained_definition(root: MethodNode, *, preserve_fixed: bool = False) -> MethodNode:
     """Isolate an Artifact's metadata closure without altering any definition hash.
 
     Source shape qualification may differ across snapshots of the same capture.
     Receipt data edges retain their original identities; this closure is evidence only.
+    Preserve fixed leaves when reusing the executable Artifact input and its exact receipt.
     """
     from uuid import uuid4
 
@@ -189,7 +190,7 @@ def _retained_definition(root: MethodNode) -> MethodNode:
                     if isinstance(endpoint, MethodNode)
                 ),
             )
-        else:
+        elif not (preserve_fixed and isinstance(node, FixedLeaf)):
             node = replace(node, identity=uuid4().hex)
         # The original capture key is used only while rebuilding this isolated closure.
         known[original.identity] = node
@@ -946,6 +947,28 @@ class Relation:
         contract = normalize_metric_input(live.graph.registry, metric, sidecar=live.sidecar)
         return len(contract.components) > 1
 
+    def business_coverage(self, scopes: tuple[TimeScope, ...]) -> Relation:
+        """Bind completeness to this exact observation, never to a reconstructed grid."""
+        from marivo.analysis.core.business_coverage import invalid, normalize
+
+        grid = self.root.signature.domain.time_grid
+        if grid is None:
+            raise invalid("the observation has no original TimeGrid")
+        windows = normalize(scopes, grid)
+        return self._with(
+            method_node(
+                (self._edge(),),
+                PartsTransport(
+                    "business_coverage",
+                    self.root.signature.domain,
+                    tuple(part_role(p) for p in self.root.signature.parts),
+                    True,
+                    business_windows=windows,
+                ),
+                value_type=self.root.value_type,
+            )
+        )
+
     def observe_routes(
         self,
         metric: Ref[MetricKind] | RuntimeMetricExpr,
@@ -1122,7 +1145,11 @@ class Relation:
                 CellDerive(
                     arithmetic,
                     definition,
-                    "strict",
+                    "duration_ratio_unknown"
+                    if arithmetic == "ratio"
+                    and isinstance(self.root.value_type, DurationType)
+                    and isinstance(other.root.value_type, DurationType)
+                    else "strict",
                     ratio_unit(left.unit, right.unit) if arithmetic == "ratio" else left.unit,
                     left.time_scope,
                     "source.exact_pairing@v1" if pairing == "exact" else "source.unique_key@v1",

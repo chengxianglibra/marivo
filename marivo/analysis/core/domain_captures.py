@@ -239,7 +239,9 @@ class CaptureFile:
 @dataclass(frozen=True, slots=True)
 class CaptureAuthority:
     __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
-    kind: Literal["duckdb_transaction", "immutable_manifest"]
+    kind: Literal[
+        "duckdb_transaction", "immutable_manifest", "sqlite_native_backup", "independent_reads"
+    ]
     capture_id: str
     files: tuple[CaptureFile, ...]
     digest: str

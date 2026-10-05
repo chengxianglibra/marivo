@@ -247,10 +247,12 @@ def test_snapshot_cache_omits_values_and_credentials_by_default(
     )
     monkeypatch.setattr(
         "marivo.datasource.engines.base.EngineProfile.open",
-        lambda profile, datasource, *, read_only=True: snapshot_module.SourceSession(
-            profile,
-            datasource,
-            ibis.duckdb.connect(str(project_root / "warehouse.duckdb")),
+        lambda profile, datasource, *, read_only=True, terminal_timeout_seconds=None: (
+            snapshot_module.SourceSession(
+                profile,
+                datasource,
+                ibis.duckdb.connect(str(project_root / "warehouse.duckdb")),
+            )
         ),
     )
 

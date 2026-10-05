@@ -6,6 +6,7 @@ from marivo.analysis.core.history_types import StateAt
 from marivo.analysis.core.model import DomainKind
 from marivo.analysis.core.rules import HistoryAxesPrepare, HistoryRead, HistoryView
 from marivo.analysis.methods.domain_preparation import implementations as preparations
+from marivo.analysis.methods.domain_preparation import sqlite_implementations
 from marivo.analysis.methods.physical import (
     DurationType,
     FixedShape,
@@ -13,6 +14,7 @@ from marivo.analysis.methods.physical import (
     NoTime,
     Qualified,
     ScalarType,
+    SourceShape,
     ValueType,
 )
 from marivo.analysis.methods.semantics import MethodKey
@@ -58,6 +60,20 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     bases = tuple(
         b
         for b in preparations(MethodKey("occurrence.prepare"))
+        + (
+            sqlite_implementations(MethodKey("occurrence.prepare"))
+            if method.name
+            in (
+                "history.in_state",
+                "history.distribution",
+                "history.transitions",
+                "history.violations",
+                "history.intervals",
+                "history.dwell",
+                "history.read",
+            )
+            else ()
+        )
         if b.key.input_types == (ScalarType("int64"),)
     )
     fixed = next(b for b in bases if isinstance(b.key.shape, FixedShape))
@@ -78,13 +94,22 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             ),
             parts=("history", "history_view", "subject"),
             qualification=Qualified(
-                f"r7.{method.name}.{'artifact_python' if isinstance(base.key.shape, FixedShape) else 'ibis' if method.name == 'history.axes' else 'ibis_python'}@v1",
+                f"r93.c13.sqlite.{method.name}.int64_us_utc@v1"
+                if isinstance(base.key.shape, SourceShape) and base.key.shape.backend == "sqlite"
+                else f"r7.{method.name}.{'artifact_python' if isinstance(base.key.shape, FixedShape) else 'ibis' if method.name == 'history.axes' else 'ibis_python'}@v1",
                 "analysis.materialization.history_views",
-                "tests/test_analysis_history_r76.py",
+                "tests/test_r93_lifecycle_consumers.py"
+                if isinstance(base.key.shape, SourceShape) and base.key.shape.backend == "sqlite"
+                else "tests/test_analysis_history_r76.py",
             ),
         )
         for base in bases
         for types, domains in contracts
+        if not (
+            isinstance(base.key.shape, SourceShape)
+            and base.key.shape.backend == "sqlite"
+            and len(types) != 1
+        )
         if method.name != "history.axes" or not isinstance(base.key.shape, FixedShape)
     )
 

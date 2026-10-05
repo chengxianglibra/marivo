@@ -19,7 +19,9 @@ from marivo.datasource.capabilities import (
     url_is_in_http_scope,
 )
 from marivo.datasource.engines import ENGINE_PROFILES
+from marivo.datasource.engines.base import EngineProfile, MetadataInspectRequest
 from marivo.datasource.errors import DatasourceSourceCapabilityError
+from marivo.datasource.metadata import TableMetadata
 
 
 class _RecordingBackend:
@@ -27,6 +29,7 @@ class _RecordingBackend:
         self.queries: list[str] = []
         self.rows = rows or []
         self.closed = 0
+        self._marivo_certified_authoring = False
 
     def raw_sql(self, sql: str) -> Any:
         self.queries.append(sql)
@@ -60,6 +63,18 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
     # Every registered provider statement must appear here verbatim. Add the
     # (provider, statement_id) -> sha256(template) pair when registering one.
     pinned: dict[tuple[str, str], str] = {
+        (
+            "mysql",
+            "mysql.analysis.cancel_owned_query",
+        ): "02548904a68f6735059c88cdd252b225475ee367d812cbaa460d05653bc4f7bc",
+        (
+            "mysql",
+            "mysql.authoring.install_select_deadline",
+        ): "52da100c9a351a428ffae1adb7616ae4fca2ca3bd6de25dc7a2c1118f788f090",
+        (
+            "mysql",
+            "mysql.authoring.read_select_deadline",
+        ): "9abc2d9f258053bc5bca1f82f73cbada2fb81fc577fb2f4af2dc07f376a8fd6c",
         (
             "clickhouse",
             "clickhouse.columns.fallback",
@@ -311,7 +326,7 @@ def test_render_rejects_slot_mismatch() -> None:
         render_provider_statement(statement, profile, values={})
 
 
-def _probe_profile():
+def _probe_profile() -> EngineProfile:
     from marivo.datasource.engines.base import (
         AuthoringCapabilities,
         EngineMetadataIntrospection,
@@ -319,6 +334,9 @@ def _probe_profile():
         identity_read_only_kwargs,
         identity_str,
     )
+
+    def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
+        raise AssertionError("Probe statements do not inspect table metadata")
 
     return EngineProfile(
         name="probe",
@@ -330,7 +348,7 @@ def _probe_profile():
         identifier_quote='"',
         table_name_parts=lambda request: (request.source.table,),
         inspect_partition_values=None,
-        metadata=EngineMetadataIntrospection(inspect_table=lambda request: None),
+        metadata=EngineMetadataIntrospection(inspect_table=inspect_table),
         authoring_capabilities=AuthoringCapabilities(
             partition_predicate_supported=False,
             transformed_partition_supported=False,
@@ -407,3 +425,113 @@ def test_url_is_in_http_scope_boundaries() -> None:
 def test_json_http_headers_returns_empty_without_credentials() -> None:
     backend = _RecordingBackend()
     assert json_http_headers(backend, "https://api.example.com/v1/orders") == {}
+
+
+@pytest.mark.parametrize("value", [True, 0, -1, 4294967296, "50", "50; KILL QUERY 1"])
+def test_mysql_certification_deadline_rejects_untrusted_integer(value: object) -> None:
+    profile = ENGINE_PROFILES["mysql"]
+    statement = provider_statement("mysql", "mysql.authoring.install_select_deadline")
+    with pytest.raises(ValueError, match="requires timeout_ms"):
+        render_provider_statement(statement, profile, values={"timeout_ms": value})
+
+
+@pytest.mark.parametrize("value", [1, 30000, 4294967295])
+def test_mysql_certification_deadline_renders_only_bounded_integer(value: int) -> None:
+    profile = ENGINE_PROFILES["mysql"]
+    statement = provider_statement("mysql", "mysql.authoring.install_select_deadline")
+    assert (
+        render_provider_statement(statement, profile, values={"timeout_ms": value})
+        == f"SET SESSION max_execution_time = {value}"
+    )
+
+
+@pytest.mark.parametrize(
+    "statement_id",
+    ["mysql.authoring.install_select_deadline", "mysql.authoring.read_select_deadline"],
+)
+def test_mysql_certification_statements_reject_other_purposes(statement_id: str) -> None:
+    backend = _RecordingBackend()
+    with pytest.raises(DatasourceSourceCapabilityError, match="purpose"):
+        execute_provider_statement(
+            backend, ENGINE_PROFILES["mysql"], statement_id, purpose="analysis.execute"
+        )
+    assert backend.queries == []
+    assert provider_statement_log(backend) == ()
+
+
+@pytest.mark.parametrize("fault", ["denied", "mismatch", "empty", "correct"])
+def test_mysql_certification_guard_requires_confirmed_server_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
+) -> None:
+    from collections.abc import Mapping
+
+    from ibis.backends import BaseBackend
+
+    from marivo.datasource.engines import mysql
+
+    backend = _RecordingBackend()
+    monkeypatch.setattr(backend, "_marivo_certified_authoring", True, raising=False)
+    calls: list[str] = []
+
+    def execute(
+        backend: BaseBackend,
+        profile: EngineProfile,
+        statement_id: str,
+        *,
+        values: Mapping[str, object] = {},
+        purpose: str,
+    ) -> tuple[dict[str, object], ...]:
+        calls.append(statement_id)
+        assert purpose == "semantic.certified_preview.deadline"
+        if statement_id.endswith("install_select_deadline"):
+            assert values == {"timeout_ms": 30000}
+            if fault == "denied":
+                raise PermissionError("session setting denied")
+            return ()
+        return (
+            ()
+            if fault == "empty"
+            else ({"@@session.max_execution_time": 0 if fault == "mismatch" else 30000},)
+        )
+
+    monkeypatch.setattr(mysql, "execute_provider_statement", execute)
+    entered = False
+    if fault == "correct":
+        with mysql.certification_timeout(backend, 30):
+            entered = True
+        assert backend._marivo_certified_authoring is False
+    else:
+        with (
+            pytest.raises(DatasourceSourceCapabilityError),
+            mysql.certification_timeout(backend, 30),
+        ):
+            entered = True
+    assert entered is (fault == "correct")
+    assert len(calls) == (1 if fault == "denied" else 2)
+
+
+@pytest.mark.parametrize("value", [True, 0, -1, 18446744073709551616, "123", "123; SELECT 1"])
+def test_mysql_cancel_rejects_untrusted_connection_identity(value: object) -> None:
+    statement = provider_statement("mysql", "mysql.analysis.cancel_owned_query")
+    with pytest.raises(ValueError, match="requires thread_id"):
+        render_provider_statement(statement, ENGINE_PROFILES["mysql"], values={"thread_id": value})
+
+
+def test_mysql_cancel_has_a_closed_purpose_and_numeric_target() -> None:
+    statement = provider_statement("mysql", "mysql.analysis.cancel_owned_query")
+    assert (
+        render_provider_statement(statement, ENGINE_PROFILES["mysql"], values={"thread_id": 123})
+        == "KILL QUERY 123"
+    )
+    backend = _RecordingBackend()
+    with pytest.raises(DatasourceSourceCapabilityError, match="purpose"):
+        execute_provider_statement(
+            backend,
+            ENGINE_PROFILES["mysql"],
+            statement.statement_id,
+            values={"thread_id": 123},
+            purpose="semantic.certified_preview.deadline",
+        )
+    assert backend.queries == []
+    assert provider_statement_log(backend) == ()

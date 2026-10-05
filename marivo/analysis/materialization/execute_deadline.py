@@ -1,4 +1,4 @@
-"""One monotonic execution deadline shared by all R7 stages."""
+"""One monotonic execution deadline shared by all graph stages."""
 
 from __future__ import annotations
 
@@ -40,6 +40,9 @@ class ExecuteDeadline:
         try:
             yield
             self.check()
+        except BaseException:
+            self.check()
+            raise
         finally:
             timer.cancel()
             timer.join()
@@ -57,6 +60,17 @@ def check() -> None:
     deadline = CURRENT.get()
     if deadline is not None:
         deadline.check()
+
+
+def remaining() -> float | None:
+    """Return the current budget for a native read without resetting its start."""
+    if COMMITTED.get():
+        return None
+    deadline = CURRENT.get()
+    if deadline is None:
+        return None
+    deadline.check()
+    return max(0.000001, deadline.seconds - (deadline.clock() - deadline.start))
 
 
 @contextmanager

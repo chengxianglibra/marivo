@@ -36,6 +36,8 @@ class ProviderStatement:
     literal_slots: frozenset[str] = frozenset()
     identifier_slots: frozenset[str] = frozenset()
     parameterized: bool = False
+    allowed_purposes: frozenset[str] = frozenset()
+    integer_ranges: tuple[tuple[str, int, int], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.statement_id or "." not in self.statement_id:
@@ -43,6 +45,11 @@ class ProviderStatement:
         if self.parameterized and (self.literal_slots or self.identifier_slots):
             raise ValueError("parameterized statements carry no render slots")
         slots = self.literal_slots | self.identifier_slots
+        for slot, lower, upper in self.integer_ranges:
+            if slot not in self.literal_slots or lower > upper:
+                raise ValueError(
+                    "integer ranges require a declared literal slot and ordered bounds"
+                )
         for slot in slots:
             if "{" + slot + "}" not in self.template:
                 raise ValueError(f"template is missing the {slot!r} slot")
@@ -157,8 +164,18 @@ def render_provider_statement(
     ):
         raise ValueError("statement slots must use their declared literal or identifier kind")
     rendered: dict[str, str] = {}
+    for slot, lower, upper in statement.integer_ranges:
+        value = values[slot]
+        if type(value) is not int or not lower <= value <= upper:
+            raise ValueError(
+                f"statement {statement.statement_id!r} requires {slot} in [{lower}, {upper}]"
+            )
     for slot, value in values.items():
-        rendered[slot] = _quote_literal(value)
+        rendered[slot] = (
+            str(value)
+            if slot in {item[0] for item in statement.integer_ranges}
+            else _quote_literal(value)
+        )
     for slot, value in identifiers.items():
         parts = value if isinstance(value, tuple) else (value,)
         quote = profile.identifier_quote
@@ -200,6 +217,18 @@ def execute_provider_statement(
     from marivo.datasource.errors import _backend_failure_summary
 
     statement = provider_statement(profile.name, statement_id)
+    if statement.allowed_purposes and purpose not in statement.allowed_purposes:
+        raise DatasourceSourceCapabilityError(
+            message="The provider statement cannot execute for this purpose.",
+            expected=str(sorted(statement.allowed_purposes)),
+            received=purpose,
+            location="datasource capability channel",
+            repair=repair(
+                kind="configure",
+                canonical_id="register",
+                action="Use an authorized statement purpose.",
+            ),
+        )
     if statement.parameterized != (parameters is not None):
         raise ValueError("statement parameters must match the registered parameterized mode")
     sql = render_provider_statement(statement, profile, values=values, identifiers=identifiers)

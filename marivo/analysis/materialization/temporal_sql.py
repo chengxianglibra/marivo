@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timezone
+from sqlite3 import Connection
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -251,3 +252,15 @@ def sqlite_shift(value: str | None, seconds: int) -> str | None:
     return (datetime.fromisoformat(value) + timedelta(seconds=seconds)).isoformat(
         sep=" ", timespec="microseconds"
     )
+
+
+def _initialize_sqlite_functions(connection: Connection) -> None:
+    """Register the existing temporal scalars on one owned execution connection."""
+    for name, function in (
+        ("_marivo_localize", sqlite_localize),
+        ("_marivo_render", sqlite_render),
+        ("_marivo_truncate", sqlite_truncate),
+        ("_marivo_shift", sqlite_shift),
+        ("_marivo_strptime", sqlite_strptime),
+    ):
+        connection.create_function(name, 2, function, deterministic=True)

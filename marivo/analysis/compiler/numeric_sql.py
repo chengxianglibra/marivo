@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Literal
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -21,12 +22,39 @@ def _quotient_definition(numerator: ir.Value, denominator: ir.Value) -> ir.Value
     raise NotImplementedError("SQL builtin")
 
 
+def _postgres_quotient_definition(numerator: ir.Value, denominator: ir.Value) -> ir.Value:
+    """PostgreSQL numeric div truncates without a binary64 intermediate."""
+    raise NotImplementedError("SQL builtin")
+
+
+def _mysql_truncate_definition(value: ir.Value, scale: ir.Value) -> ir.Value:
+    """MySQL TRUNCATE retains an integer numeric coefficient."""
+    raise NotImplementedError("SQL builtin")
+
+
+def _clickhouse_quotient_definition(
+    numerator: ir.Value, denominator: ir.Value, scale: ir.Value
+) -> ir.Value:
+    """ClickHouse divideDecimal returns a Decimal256 quotient at scale zero."""
+    raise NotImplementedError("SQL builtin")
+
+
 _huge: Callable[[ir.Value, ir.Value], ir.Value] = ibis.udf.scalar.builtin(
     name="cast_to_type", signature=((_INTEGER, dt.int64), _INTEGER)
 )(_huge_definition)
 _native_quotient: Callable[[ir.Value, ir.Value], ir.Value] = ibis.udf.scalar.builtin(
     name="divide", signature=((_INTEGER, _INTEGER), _INTEGER)
 )(_quotient_definition)
+_postgres_quotient: Callable[[ir.Value, ir.Value], ir.Value] = ibis.udf.scalar.builtin(
+    name="div", signature=((_INTEGER, _INTEGER), _INTEGER)
+)(_postgres_quotient_definition)
+_mysql_truncate: Callable[[ir.Value, ir.Value], ir.Value] = ibis.udf.scalar.builtin(
+    name="truncate", signature=((_INTEGER, dt.int64), _INTEGER)
+)(_mysql_truncate_definition)
+_clickhouse_quotient: Callable[[ir.Value, ir.Value, ir.Value], ir.Value] = ibis.udf.scalar.builtin(
+    name="divideDecimal",
+    signature=((dt.Decimal(76, 0), dt.Decimal(76, 0), dt.uint8), dt.Decimal(76, 0)),
+)(_clickhouse_quotient_definition)
 
 
 def _quotient(numerator: ir.Value, denominator: ir.Value) -> ir.Value:
@@ -40,8 +68,8 @@ def decimal_divide(
 ) -> ir.Table:
     """Add ``numeric_result`` with one HALF_EVEN finish, preserving all input digits.
 
-    Only grouped states enter this expression. Long division runs entirely in SQL;
-    no contribution vectors or intermediate states are collected in Python.
+    Only grouped states enter this expression. Native integer/Decimal arithmetic
+    keeps finishing exact; no intermediate states enter Python.
     """
     ntype, dtype = table[numerator].type(), table[denominator].type()
     nscale = ntype.scale if isinstance(ntype, dt.Decimal) else 0
@@ -50,6 +78,12 @@ def decimal_divide(
     places = result.scale + dscale - nscale
     if places < 0:
         raise ValueError("Decimal output scale cannot discard numerator digits before division")
+    backends, _ = table._find_backends()
+    native_backend = backends[0].name if len(backends) == 1 else None
+    if native_backend in ("postgres", "mysql", "clickhouse"):
+        return _wide_decimal_divide(
+            table, numerator, denominator, result, places, backend=native_backend
+        )
     zero_table = ibis.literal(0, type="int64").name("zero").as_table()
     huge_zero = zero_table.aggregate(zero=zero_table.zero.sum()).zero.as_scalar()
 
@@ -98,7 +132,7 @@ def decimal_divide(
         + (
             (table.numeric_r > table.numeric_d - table.numeric_r)
             | ((table.numeric_r == table.numeric_d - table.numeric_r) & (table.numeric_q % 2 != 0))
-        ).cast("int64")
+        ).ifelse(1, 0)
     )
     digits = table.numeric_q.cast("string")
     padded = digits.lpad(ibis.greatest(digits.length(), result.scale + 1), "0")
@@ -110,6 +144,109 @@ def decimal_divide(
         else padded
     )
     return table.mutate(numeric_result=(table.numeric_sign.ifelse("-", "") + rendered).cast(result))
+
+
+def _wide_decimal_divide(
+    table: ir.Table,
+    numerator: str,
+    denominator: str,
+    result: dt.Decimal,
+    places: int,
+    *,
+    backend: Literal["postgres", "mysql", "clickhouse"],
+) -> ir.Table:
+    """Finish with native wide numeric intermediates, then enforce output bounds."""
+    assert result.scale is not None
+    if backend == "mysql" and places > 27:
+        raise ValueError("MySQL coefficient scaling must fit native Decimal(65,0)")
+    if backend == "clickhouse" and places > 38:
+        raise ValueError("ClickHouse coefficient scaling must fit native Decimal(76,0)")
+    integer_type = dt.Decimal(76, 0) if backend == "clickhouse" else _INTEGER
+
+    def coefficient(value: ir.Value) -> ir.Value:
+        if backend != "clickhouse":
+            return value.cast("string").replace(".", "").cast(integer_type)
+        value_type = value.type()
+        scale = value_type.scale or 0 if isinstance(value_type, dt.Decimal) else 0
+        # ClickHouse toString omits trailing fractional zeros. Numeric scaling
+        # preserves the declared coefficient instead of parsing that rendering.
+        return (
+            value.cast(dt.Decimal(76, scale)) * ibis.literal(10**scale, type=integer_type)
+        ).cast(integer_type)
+
+    table = table.mutate(
+        numeric_n=coefficient(table[numerator]),
+        numeric_d=coefficient(table[denominator]),
+    )
+    table = table.mutate(
+        numeric_sign=(table.numeric_n < 0) != (table.numeric_d < 0),
+        numeric_n=table.numeric_n.abs(),
+        numeric_d=(table.numeric_d == 0).ifelse(1, table.numeric_d.abs()),
+    )
+    # Each literal fits Decimal(38,0). PostgreSQL uses unbounded numeric;
+    # MySQL's 65-digit capacity is checked before coefficient scaling.
+    while places:
+        chunk = min(places, 37)
+        table = table.mutate(numeric_n=table.numeric_n * ibis.literal(10**chunk, type=_INTEGER))
+        places -= chunk
+    if backend == "clickhouse":
+        table = table.mutate(
+            numeric_q=_clickhouse_quotient(
+                table.numeric_n, table.numeric_d, ibis.literal(0, type="uint8")
+            )
+        )
+        table = table.mutate(numeric_r=table.numeric_n - table.numeric_q * table.numeric_d)
+    else:
+        table = table.mutate(numeric_r=table.numeric_n % table.numeric_d)
+        table = table.mutate(
+            numeric_q=(
+                _mysql_truncate(
+                    (table.numeric_n - table.numeric_r) / table.numeric_d, ibis.literal(0)
+                )
+                if backend == "mysql"
+                else _postgres_quotient(table.numeric_n, table.numeric_d)
+            )
+        )
+    digits = table.numeric_q.cast("string")
+    odd = (
+        digits.substr(digits.length() - 1, 1).isin(("1", "3", "5", "7", "9"))
+        if backend == "clickhouse"
+        else table.numeric_q % 2 != 0
+    )
+    table = table.mutate(
+        numeric_odd=odd,
+        numeric_quotient_exact=(
+            (table.numeric_q * table.numeric_d == table.numeric_n - table.numeric_r)
+            & (table.numeric_r >= 0)
+            & (table.numeric_r < table.numeric_d)
+        ),
+    )
+    table = table.mutate(
+        numeric_q=table.numeric_q
+        + (
+            (table.numeric_r > table.numeric_d - table.numeric_r)
+            | ((table.numeric_r == table.numeric_d - table.numeric_r) & table.numeric_odd)
+        ).ifelse(1, 0)
+    )
+    digits = table.numeric_q.cast("string")
+    padded = digits.lpad(ibis.greatest(digits.length(), result.scale + 1), "0")
+    rendered = (
+        padded.substr(0, padded.length() - result.scale)
+        + "."
+        + padded.substr(padded.length() - result.scale)
+        if result.scale
+        else padded
+    )
+    signed = table.numeric_sign.ifelse("-", "") + rendered
+    # MySQL can clamp an overflowing Decimal cast. A defined/null mismatch must
+    # fail retained validation instead of publishing a clamped numeric value.
+    return table.mutate(
+        numeric_result=(
+            ((digits.length() > result.precision) | ~table.numeric_quotient_exact)
+            .ifelse(ibis.null().cast("string"), signed)
+            .cast(result)
+        )
+    )
 
 
 def _epoch_definition(value: ir.Value) -> ir.Value:

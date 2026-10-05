@@ -637,6 +637,9 @@ def collect(
 
         validate_funnel(contract, primary, parts)
     if contract.state_kind == "none":
+        from marivo.analysis.materialization.business_coverage import partial_primary
+
+        partial = partial_primary(contract, parts, primary)
         # Transport preserves the owning state invariant even without a new method vector.
         for declaration in contract.signature.parts:
             if not isinstance(declaration, (OriginalStatePart, RowStatePart)):
@@ -648,7 +651,7 @@ def collect(
                 raise _invalid("unsupported transported numerical state version")
             table = next(part.table for part in parts if part.role == role)
             keyed = {tuple(row[k] for k in contract.key_fields): row for row in table.to_pylist()}
-            for row in numeric_primary(primary).to_pylist():
+            for row in numeric_primary(partial).to_pylist():
                 if not state_matches(
                     prefix + method,
                     row,
@@ -1051,6 +1054,7 @@ def _verify_difference_parts(
             endpoints["current_endpoint"][key],
             endpoints["baseline_endpoint"][key],
             method=quantity.method_version,
+            duration_ratio=quantity.value_policy == "duration_ratio_unknown",
         ):
             raise _invalid("Difference endpoints and primary Cell disagree")
 

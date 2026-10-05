@@ -198,3 +198,15 @@ shared scalar/R8/R9 owners. AN07's remaining generic connection/setting duties a
 AN23's generic adapter qualification are R9 responsibilities. This amendment closes
 the exclusive Event/Lifecycle chain only, without asserting a global SQL audit,
 remote-server acceptance or release qualification.
+
+
+### R9.3 owned MySQL authoring deadline amendment (2026-10-06)
+
+The user authorized `mysql.analysis.cancel_owned_query` (`KILL QUERY {thread_id}`)
+for `datasource.authoring.deadline`, limited to `sample` / `raw_sql` and the
+isolated reader's own current positive native thread ID. The existing parameter
+range remains 1..18446744073709551615. A separate bounded same-reader-identity
+control connection submits through the registered channel; the reader/control
+connections are closed and timer work joined. Certification-only SET/read
+purposes are unchanged. The PostgreSQL domain snapshot proposal was withdrawn;
+no PostgreSQL BEGIN/ROLLBACK statements were added.

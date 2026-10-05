@@ -39,6 +39,7 @@ from marivo._temporal import (
     WorkScheduleSnapshotV1,
 )
 from marivo.datasource.engines import require_profile_for_backend_type
+from marivo.datasource.errors import DatasourceError, _backend_failure_summary
 from marivo.datasource.ir import (
     AiContextIR,
     DatasourceIR,
@@ -114,6 +115,7 @@ from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.dtos import DatasetSource, PreviewBatchResult
 from marivo.semantic.errors import (
     ErrorKind,
+    SemanticError,
     SemanticLoadFailed,
     SemanticRuntimeError,
     _raise,
@@ -4582,11 +4584,9 @@ def _certification_capture(
             details={"query_executed": False},
         )
     columns = tuple(dict.fromkeys(cast("str", field.source_column) for field in fields))
-    table = resolver.table(ref_factory.entity(entity_id)).select(*columns)
     connections = resolver.connections
-    backend = connections.session_backend(bindings.datasource_id)
     profile = require_profile_for_backend_type(bindings.backend)
-    timeout_guard = profile.authoring_timeout
+    timeout_guard = profile.certification_timeout or profile.authoring_timeout
     if timeout_guard is None:
         _raise(
             ErrorKind.MATERIALIZE_FAILED,
@@ -4595,13 +4595,47 @@ def _certification_capture(
             refs=(ref.key,),
             details={"query_executed": False, "backend": bindings.backend},
         )
-    with timeout_guard(backend, bindings.timeout_seconds):
-        frame = connections.collect_source(
-            bindings.datasource_id,
-            table,
-            purpose="semantic.certified_preview",
-            max_rows=scope.max_rows + 1,
-        )
+    with connections.terminal_scope(bindings.timeout_seconds):
+        backend = connections.session_backend(bindings.datasource_id)
+        with timeout_guard(backend, bindings.timeout_seconds):
+            table = resolver.table(ref_factory.entity(entity_id)).select(*columns)
+            source_owner = connections.source_session(
+                bindings.datasource_id, registry.datasources[bindings.datasource_id]
+            )
+            try:
+                frame = connections.collect_source(
+                    bindings.datasource_id,
+                    table,
+                    purpose="semantic.certified_preview",
+                    max_rows=scope.max_rows + 1,
+                )
+            except (DatasourceError, SemanticError):
+                raise
+            except Exception as error:
+                failure = _backend_failure_summary(error)
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    "Certified artifact source capture failed before snapshot publication.",
+                    cls=SemanticRuntimeError,
+                    refs=(ref.key,),
+                    expected="an exhaustive source capture within the scoped deadline",
+                    received=failure.identity,
+                    details={
+                        "backend": bindings.backend,
+                        "backend_code": failure.backend_code,
+                        "backend_exception": failure.exception_type,
+                        "query_executed": any(
+                            item.purpose == "semantic.certified_preview"
+                            for item in source_owner.submissions
+                        ),
+                        "timeout_seconds": bindings.timeout_seconds,
+                    },
+                    repair_value=repair(
+                        kind="rescope",
+                        canonical_id="preview",
+                        action="Restore the selected source and retry certification with an exhaustive bounded scope and a sufficient timeout.",
+                    ),
+                )
     observed = len(frame)
     if observed > scope.max_rows:
         _raise(

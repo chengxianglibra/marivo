@@ -105,6 +105,19 @@ Ordinary preview returns current execution results and never persists an
 authoring checkpoint. Dedicated period-calendar, temporal-set, and work-schedule
 preview may publish their immutable certified artifact after an exhaustive
 bounded read.
+Certification uses isolated read-only connections configured with the authored
+scope timeout before binding or collecting rows. They close on success or
+failure, and the prior ordinary-preview connection cache is restored. The
+adapter's authoring-timeout guard remains mandatory; a backend without one
+rejects certification rather than issuing an unbounded read.
+MySQL certification uses a separately approved, session-scoped SELECT limit on
+the fresh connection. Both installation and readback are audited; a denied or
+mismatched limit rejects before collecting certification rows. Native source
+capture failure reports a structured SemanticRuntimeError with backend code,
+scoped timeout and actual query-submission state. The isolated connection closes,
+and no new or replacement certified snapshot is published. Existing typed errors
+retain their original repair. This capability
+does not enable ordinary preview, raw-SQL timeout or Analysis cancellation.
 For an exact BusinessOrder ref or a StateModel bound to one, scoped readiness
 includes the order's Event, role, and sequence-field dependencies. It reports
 an advisory that source sequence values and Event history remain unverified;

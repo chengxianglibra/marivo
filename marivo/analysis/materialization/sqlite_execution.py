@@ -115,22 +115,9 @@ class SQLiteExecutionAdapter(ScalarExecutionAdapter):
     def initialize(self) -> None:
         super().initialize()
         self.submit(self.statement("PRAGMA query_only = ON", role="source_setting"))
-        from marivo.analysis.materialization.temporal_sql import (
-            sqlite_localize,
-            sqlite_render,
-            sqlite_shift,
-            sqlite_strptime,
-            sqlite_truncate,
-        )
+        from marivo.analysis.materialization.temporal_sql import _initialize_sqlite_functions
 
-        for name, function in (
-            ("_marivo_localize", sqlite_localize),
-            ("_marivo_render", sqlite_render),
-            ("_marivo_truncate", sqlite_truncate),
-            ("_marivo_shift", sqlite_shift),
-            ("_marivo_strptime", sqlite_strptime),
-        ):
-            self._sqlite.con.create_function(name, 2, function, deterministic=True)
+        _initialize_sqlite_functions(self._sqlite.con)
 
     def get_schema(
         self,

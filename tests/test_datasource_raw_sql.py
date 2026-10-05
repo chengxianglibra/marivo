@@ -638,8 +638,12 @@ def test_raw_sql_trino_select_into_is_not_normalized_to_ctas(
 def test_mysql_raw_sql_timeout_is_not_admitted_without_driver_control() -> None:
     from marivo.datasource.engines.mysql import PROFILE
 
-    assert PROFILE.authoring_timeout is None
-    assert PROFILE.authoring_capabilities.timeout_enforced is False
+    hook = PROFILE.authoring_timeout
+    assert hook is not None
+    assert PROFILE.authoring_capabilities.timeout_enforced is True
+    backend = cast("BaseBackend", SimpleNamespace(_marivo_terminal_timeout_seconds=2))
+    with pytest.raises(RuntimeError, match="isolated owned reader"), hook(backend, 2):
+        pytest.fail("Missing MySQL driver control admitted raw SQL")
 
 
 def test_raw_sql_rejects_non_positive_timeout(tmp_path: Path) -> None:

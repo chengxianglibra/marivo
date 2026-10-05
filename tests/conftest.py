@@ -11,6 +11,7 @@ import ibis
 import pytest
 
 from tests.install_marivo_helpers import InstallerEnv, InstallerToolchain
+from tests.r93_source_trace import SourceTrace
 from tests.shared_fixtures import (
     DSL_NAMES,
     FUNNEL_BASE_EVENTS,
@@ -447,3 +448,11 @@ def retained_r54_case(analysis_dsl_case_factory: DslCaseFactory) -> DslCase:
     )
     ms.load(workspace_dir=case.root)
     return case
+
+
+@pytest.fixture
+def r93_source_trace(monkeypatch: pytest.MonkeyPatch) -> SourceTrace:
+    """Capture native cursor calls and execution-owner receipts for R9.3."""
+    from tests.r93_source_trace import capture_source
+
+    return capture_source(monkeypatch)

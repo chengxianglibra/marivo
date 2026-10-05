@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import date, datetime, time
 from typing import Literal
@@ -61,6 +62,7 @@ def functional_path(
     allow_versioned_target: bool = False,
     allow_versioned_source: bool = False,
     allow_versioned_intermediates: bool = False,
+    entity_columns: Callable[[str], Mapping[str, str]] | None = None,
 ) -> tuple[str, ...]:
     """Prove a unique path whose every destination join key is its full identity."""
     if source == target:
@@ -102,7 +104,11 @@ def functional_path(
         relation = registry.relationships[name]
         left_contract = normalize_target_entity(registry, relation.from_entity)
         right_contract = normalize_target_entity(registry, relation.to_entity)
-        left_types, right_types = dict(left_contract.columns), dict(right_contract.columns)
+        left_types, right_types = (
+            (dict(left_contract.columns), dict(right_contract.columns))
+            if entity_columns is None
+            else (entity_columns(relation.from_entity), entity_columns(relation.to_entity))
+        )
         if any(
             left_key not in left_types
             or right_key not in right_types

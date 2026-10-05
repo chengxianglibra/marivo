@@ -156,6 +156,7 @@ def bind(
         FrozenBinding,
         LiveBinding,
         Relation,
+        _retained_definition,
         _shared_root,
     )
 
@@ -168,7 +169,14 @@ def bind(
         raise invalid("cross-Session reference")
     if isinstance(values.binding, LiveBinding) != isinstance(reference.binding, LiveBinding):
         raise invalid("mixed source/fixed reference")
-    roots: tuple[Node, ...] = (values.root, _shared_root(values.root, reference.root))
+    reference_root = (
+        _retained_definition(reference.root, preserve_fixed=True)
+        if kind == "penetration"
+        and isinstance(values.binding, FrozenBinding)
+        and isinstance(reference.root, MethodNode)
+        else reference.root
+    )
+    roots: tuple[Node, ...] = (values.root, _shared_root(values.root, reference_root))
     if kind == "share":
         basis = share_basis(values.definition, reference.definition)
         if isinstance(values.binding, FrozenBinding):
@@ -239,6 +247,13 @@ def bind(
         value_type=value_type,
         retained_endpoints=(values.definition, reference.definition, basis)
         if kind == "share" and isinstance(values.binding, FrozenBinding)
+        else (
+            values.definition,
+            reference_root
+            if isinstance(reference_root, MethodNode)
+            else _retained_definition(reference.definition, preserve_fixed=True),
+        )
+        if kind == "penetration" and isinstance(values.binding, FrozenBinding)
         else (values.definition, reference.definition)
         if isinstance(values.binding, FrozenBinding)
         else (),
@@ -290,15 +305,23 @@ def finish(
     values, reference = tables["stratum_values"], tables["fixed_reference"]
     keys = tuple(f"key_{index}" for index in range(len(params.output_domain.instance_key)))
     if params.kind == "penetration":
-        if not tables["reference_proof"].equals(values):
+        proof = tables["reference_proof"]
+        ordering = [(name, "ascending") for name in values.column_names]
+        if not proof.schema.equals(values.schema, check_metadata=False) or not proof.sort_by(
+            ordering
+        ).equals(values.sort_by(ordering)):
             raise invalid("intersection proof differs from retained complete identities")
         names = tuple(reference.column_names)
-        if tuple(values.column_names) != names or not values.schema.equals(
-            reference.schema, check_metadata=False
-        ):
+        if tuple(values.column_names) != names or tuple(
+            field.type for field in values.schema
+        ) != tuple(field.type for field in reference.schema):
             raise invalid("complete identity schemas differ")
+        if any(table[name].null_count for table in (values, reference) for name in names):
+            raise invalid("complete identities cannot contain null coordinates")
         first = {tuple(row[name] for name in names) for row in values.to_pylist()}
         second = {tuple(row[name] for name in names) for row in reference.to_pylist()}
+        if len(first) != values.num_rows or len(second) != reference.num_rows:
+            raise invalid("complete identities cannot contain duplicate rows")
         result = [((), penetration(len(first & second), len(second)))]
     else:
         value_physical = physical_type(values.schema.field("value").type)
@@ -370,9 +393,13 @@ def finish(
                 )
             if any(row["cell_tag"] != "defined" for row in refs):
                 raise invalid("reference weights must all be finite Defined")
-            if tables["strata"].to_pylist() != reference.select(names).to_pylist():
+            ordering = [(name, "ascending") for name in names]
+            if (
+                tables["strata"].sort_by(ordering).to_pylist()
+                != reference.select(names).sort_by(ordering).to_pylist()
+            ):
                 raise invalid("retained strata differ from the complete reference key image")
-            if not tables["reference_proof"].equals(values):
+            if not tables["reference_proof"].sort_by(ordering).equals(values.sort_by(ordering)):
                 raise invalid("standardization proof differs from retained stratum values")
             result = [
                 (

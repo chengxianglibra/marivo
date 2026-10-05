@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
 from trino.dbapi import Connection
 from trino.exceptions import TrinoUserError
@@ -61,7 +63,14 @@ def setup() -> dict[str, object]:
                     raise AssertionError("Reader unexpectedly has write privileges")
         finally:
             cur.close()
-    return {"backend": "trino", "version": version, "user": user, "denied": denied}
+    configuration = Path(__file__).with_name("trino") / "config.properties"
+    return {
+        "backend": "trino",
+        "version": version,
+        "user": user,
+        "denied": denied,
+        "configured_profile_sha256": hashlib.sha256(configuration.read_bytes()).hexdigest(),
+    }
 
 
 NON_ICEBERG_COLUMNS = (

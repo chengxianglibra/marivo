@@ -285,6 +285,14 @@ def _series(
             )
             if any(t is None for t in endpoints):
                 raise invalid("statistical time input lacks original complete coverage")
+            if any(
+                role + "__complete" not in t.column_names
+                for role, t in zip(
+                    ("current_endpoint", "baseline_endpoint"), endpoints, strict=True
+                )
+                if t is not None
+            ):
+                raise invalid("statistical endpoint lacks its original captured coverage fact")
             completeness = {}
             for role, t in zip(("current_endpoint", "baseline_endpoint"), endpoints, strict=True):
                 assert t is not None

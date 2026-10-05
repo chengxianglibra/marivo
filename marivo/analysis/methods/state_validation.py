@@ -90,11 +90,35 @@ def difference_matches(
     baseline: Mapping[str, object],
     *,
     method: str = "cell.difference@v1",
+    duration_ratio: bool = False,
 ) -> bool:
     """Verify finite homogeneous endpoints and a once-rounded exact difference."""
     first = current.get("current_endpoint__value")
     second = baseline.get("baseline_endpoint__value")
     value = primary.get("value")
+    if duration_ratio and method == "cell.ratio@v1":
+        unknown_reason: object = None
+        for side, endpoint in (("current", current), ("baseline", baseline)):
+            tag = endpoint.get(side + "_endpoint__cell_tag")
+            reason = endpoint.get(side + "_endpoint__cell_reason")
+            operand = endpoint.get(side + "_endpoint__value")
+            if tag == "unknown":
+                if operand is not None or reason not in (
+                    "coverage_censored",
+                    "entry_unknown",
+                    "insufficient_business_coverage",
+                ):
+                    return False
+                if unknown_reason is None:
+                    unknown_reason = reason
+            elif tag != "defined" or reason is not None or type(operand) is not int:
+                return False
+        if unknown_reason is not None:
+            return (
+                value is None
+                and primary.get("cell_tag") == "unknown"
+                and primary.get("cell_reason") == unknown_reason
+            )
     if not (
         _numeric(first)
         and _numeric(second)

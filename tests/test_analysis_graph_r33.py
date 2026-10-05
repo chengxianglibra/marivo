@@ -440,6 +440,19 @@ def test_binding_method_declares_sources_even_with_fixed_subjects():
         )
 
 
+def test_noncohort_fixed_shapes_remain_exact() -> None:
+    left = _fixed()
+    right = replace(
+        left,
+        identity="other-fixed-input",
+        artifact=ArtifactRef("history/other"),
+        shape=FixedShape(TimeShape("instant", "us", "UTC")),
+    )
+    root = _difference(left, right)
+    with pytest.raises(CoreRuleError, match="different time or source shapes"):
+        plan(root, routes=(RouteChoice(root.identity, "artifact_python"),))
+
+
 def test_time_shape_is_exact_and_fixed_obligations_are_not_recovered():
     source = _source()
     changed = replace(

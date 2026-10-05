@@ -561,6 +561,14 @@ timezones, aggregation, units, additivity, relationship cardinality, null
 semantics, and business meaning remain agent-owned. Marivo does not classify a
 high null rate as a business-quality failure or filter nulls implicitly.
 
+Bounded acquisition opens its isolated reader with the requested scope timeout
+before entering the provider's authoring timeout guard. PostgreSQL configures
+`statement_timeout` through connection options, and Trino configures
+`query_max_run_time` through connection session properties. This uses the same
+connection setup as terminal diagnostics; it does not add control SQL or alter
+shared connections. A provider without an enforceable acquisition timeout
+continues to reject sampling before business submission.
+
 Reacquire evidence only when a required column or value was not captured, or
 when datasource/source/scope identity no longer matches. Snapshot age alone is
 not invalidation.
@@ -623,6 +631,25 @@ of those facts rejects the affected cell. Trino `$partitions` and ClickHouse
 Ibis expressions. Authenticated DuckDB HTTP sources install a scoped temporary
 secret at connection time and send credentials only inside the declared
 `http_scope`; see the credential section above for the declaration contract.
+
+The user separately approved MySQL certified-authoring SELECT deadlines on
+2026-10-05. Exactly two provider statements install and read back the
+session-level max_execution_time value on an isolated certification connection.
+Their purpose is closed to semantic.certified_preview.deadline and their integer
+parameter is bounded to 1..4294967295 milliseconds. Denied or mismatched facts
+reject before certification collection; the connection closes rather than
+resetting a shared session. Native certified-source read failures surface as
+structured SemanticRuntimeError with backend diagnostics, authored timeout and
+actual source-submission facts. Integer DB-API error codes remain available as
+sanitized diagnostic fields. No failed capture publishes or replaces a certified
+snapshot; already typed datasource/semantic failures preserve their original
+repair. On 2026-10-06 the user separately authorized owned-query KILL for
+`sample` and `raw_sql` deadlines. Their isolated reader has its own bounded
+control connection; `datasource.authoring.deadline` may cancel only that
+reader's current native thread ID. The timer covers execution and fetch, joins
+before cleanup, and closes both connections. These purposes do not use or
+extend the certification-only SET/read controls. Independent server termination
+and absence of publication after failure remain separate acceptance proofs.
 
 `md.raw_sql(datasource: Ref[DatasourceKind], sql: str, *, reason: str,
 limit: int = 100, timeout_seconds: int = 30, include_types: bool = True,

@@ -108,6 +108,7 @@ class DatasourceConnectionService:
         self._backend_factory = backend_factory
         self._use_datasources = use_datasources
         self._include_semantic_layers = include_semantic_layers
+        self._terminal_timeout_seconds: int | None = None
         self._session_backends: dict[str, Any] = {}
         self._source_sessions: dict[str, SourceSession] = {}
         self._engine_timezones: dict[str, DatasourceEngineTimezone] = {}
@@ -123,6 +124,7 @@ class DatasourceConnectionService:
         *,
         read_only: bool = False,
         terminal_timeout_seconds: int | None = None,
+        on_disconnect: Callable[[bool], None] | None = None,
     ) -> Iterator[Any]:
         """Yield a live backend, disconnecting on exit (success or error)."""
         datasource_name = _storage_name(name)
@@ -144,7 +146,9 @@ class DatasourceConnectionService:
         try:
             yield backend
         finally:
-            _disconnect(backend)
+            disconnected = _disconnect(backend)
+            if on_disconnect is not None:
+                on_disconnect(disconnected)
 
     def _build_session_backend(self, name: str) -> Any:
         datasource_name = _storage_name(name)
@@ -154,6 +158,17 @@ class DatasourceConnectionService:
         if self._backend_factory is not None:
             return self._backend_factory(datasource_name)
         if self._use_datasources:
+            if self._terminal_timeout_seconds is not None:
+                backend = _build_backend_from_store(
+                    datasource_name,
+                    self._project_root,
+                    read_only=True,
+                    terminal_timeout_seconds=self._terminal_timeout_seconds,
+                    include_semantic_layers=self._include_semantic_layers,
+                )
+                if isinstance(backend, BaseBackend):
+                    backend._marivo_certified_authoring = True
+                return backend
             if self._include_semantic_layers:
                 return _build_backend_from_store(
                     datasource_name,
@@ -174,6 +189,32 @@ class DatasourceConnectionService:
                 candidates=tuple(sorted(self._backend_overrides)),
             ),
         )
+
+    @contextmanager
+    def terminal_scope(self, timeout_seconds: int) -> Iterator[None]:
+        """Isolate bounded authoring connections and release them before restoring the cache."""
+        previous = (
+            self._session_backends,
+            self._source_sessions,
+            self._engine_timezones,
+            self._terminal_timeout_seconds,
+        )
+        self._session_backends = {}
+        self._source_sessions = {}
+        self._engine_timezones = {}
+        self._terminal_timeout_seconds = timeout_seconds
+        try:
+            yield
+        finally:
+            try:
+                self.close_all()
+            finally:
+                (
+                    self._session_backends,
+                    self._source_sessions,
+                    self._engine_timezones,
+                    self._terminal_timeout_seconds,
+                ) = previous
 
     def session_backend(self, name: str) -> Any:
         """Return a cached backend for the named datasource.

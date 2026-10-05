@@ -37,6 +37,7 @@ from marivo.analysis.core.rules import (
     OriginalRatio,
     OriginalReduce,
     PartsTransport,
+    PreparedObservation,
     ReferenceDerive,
     RowState,
     TimeProduct,
@@ -240,6 +241,8 @@ def _comparison_template(
     visit: Callable[[MethodNode], tuple[object, ...]],
 ) -> tuple[object, ...]:
     params = node.parameters
+    if isinstance(params, PreparedObservation):
+        params = params.observation
     if isinstance(params, PartsTransport) and params.keep_quantity:
         return visit(comparison_endpoints(node)[0])
     if isinstance(params, ReferenceDerive):
@@ -390,6 +393,8 @@ def comparison_endpoints(node: MethodNode) -> tuple[MethodNode, ...]:
 def comparison_bindings(node: MethodNode, *, period: bool = False) -> tuple[tuple[str, str], ...]:
     """Keep independent captures distinct, even when their definitions are equal."""
     params = node.parameters
+    if isinstance(params, PreparedObservation):
+        params = params.observation
     if isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
         target = node.inputs[0].node
         if period and isinstance(target, MethodNode) and isinstance(target.parameters, TimeProduct):

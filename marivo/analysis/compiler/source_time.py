@@ -334,6 +334,15 @@ def source_time(
             raise compilation_error("matching declared and physical timezones", "timezone conflict")
         adopted, origin = kind.timezone, "physical"
         instant = value
+        if engine == "mysql" and adopted == "UTC" and boundary_timezone == "UTC":
+            # The physical type already owns UTC. Rendering UTC is identity;
+            # these engines have no DuckDB/PostgreSQL timezone() function.
+            value = timestamp(value.cast(dt.Timestamp(scale=6)))
+            instant = None
+        elif engine in ("clickhouse", "trino") and adopted == "UTC" and boundary_timezone == "UTC":
+            # Preserve the physical UTC type so Ibis also labels boundary
+            # literals UTC. A naive cast would adopt a session zone or an unsupported timezone function.
+            instant = None
     else:
         adopted = declared or read_timezone
         origin = "declared" if declared is not None else read_source

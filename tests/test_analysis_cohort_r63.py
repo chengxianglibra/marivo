@@ -35,7 +35,10 @@ def test_explicit_empty_policy(empty, expected) -> None:
 @pytest.mark.parametrize("parquet", [False, True])
 @pytest.mark.parametrize("event_kind", ["utc", "date", "aware_local"])
 def test_full_entity_time_cohort(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool, event_kind: str
+    analysis_dsl_case_factory: DslCaseFactory,
+    parquet: bool,
+    event_kind: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     n = case.names
@@ -75,7 +78,14 @@ def test_full_entity_time_cohort(
     result = targets.cohort(values.value.gt(0), rule=mv.at_least(2)).execute()
     assert set(result.to_pandas().member) == expected
     fixed_targets, fixed_values = targets.execute(), values.execute()
-    fixed = fixed_targets.cohort(fixed_values.value.gt(0), rule=mv.at_least(2)).execute()
+    from marivo.datasource.adapters import SourceSession
+
+    def forbid_source_read(*args: object, **kwargs: object) -> None:
+        pytest.fail("Fixed full-opportunity cohort must use retained artifacts only")
+
+    with monkeypatch.context() as fixed_only:
+        fixed_only.setattr(SourceSession, "batches", forbid_source_read)
+        fixed = fixed_targets.cohort(fixed_values.value.gt(0), rule=mv.at_least(2)).execute()
     assert set(fixed.to_pandas().member) == expected
     with pytest.raises(Exception, match=r"opportunity|keys"):
         targets.cohort(

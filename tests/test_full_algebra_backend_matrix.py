@@ -12,7 +12,7 @@ from scripts import r9_qualification_requirements as freeze
 
 @pytest.fixture(scope="module")
 def frozen() -> dict[str, freeze.Json]:
-    current = freeze.load(freeze.ROOT / freeze.SPECS / "2026-10-04-marivo-r92-evidence/freeze")
+    current = freeze.build()
     original = freeze.load(freeze.OUTPUT)
     assert {freeze.obj(row)["id"] for row in freeze.arr(current["requirements"])} == {
         freeze.obj(row)["id"] for row in freeze.arr(original["requirements"])

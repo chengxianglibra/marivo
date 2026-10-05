@@ -6,7 +6,8 @@
 expression-only datasource adapters, not the historical Dataset/compiler probes.
 It binds the 19 R9 physical profiles and 24 backend type/identity goals. Start and
 verify profiles explicitly using the lifecycle commands below, then run selected
-tests with the matching opt-in flags. No test or evidence command starts a service.
+tests with the matching opt-in flags. Ordinary tests and evidence commands do not
+start services. The explicit R9.3 exception below owns its lifecycle commands.
 
 `scripts/r92_source_qualification.py` records per-node receipts, native submission
 observations, candidate/driver/service versions and hashes. See the
@@ -21,6 +22,37 @@ This opt-in environment prepares Slice 0 probes. It does not enable a Marivo
 backend and is never started by pytest, `make test`, or `make runtime-test`.
 All lifecycle commands target the dedicated `marivo-multisource` Colima socket.
 Existing `marivo-slice9d` containers and volumes are outside its ownership.
+
+## R9.3 same-candidate statistical phases
+
+`scripts/r93_method_qualification.py --all-statistical-backends --directory ...`
+explicitly orchestrates the approved environment lifecycle. PostgreSQL-analysis
+and MySQL-analysis must already be ready. It starts the Trino group for retained,
+local/PostgreSQL and Iceberg statistical consumers, then switches to ClickHouse
+for MySQL/local MergeTree consumers. Tests remain serial and never start services
+themselves. Both real pytest commands, phase exit codes and original JUnit files
+are retained. The combined observation file must match their exact invocation
+union before qualification. The harness retains one unchanged candidate and
+does not grant scenario passes; the separate result binder owns qualification.
+
+Use this orchestration only when collecting the stable statistical candidate.
+During development, run affected nodes with `make runtime-test TESTS='...'`
+against already-ready services. The statistical phases include retained numeric,
+source statistics, and source deadlines only; C04/C08/C09, cohort, cold recovery,
+and independent ratio regressions belong to their affected capability batches.
+Do not restart these phases for binder, index, or documentation-only changes.
+Run `make check-agent` once at final R9.3 candidate closure, plus one site build
+when latest site content changed. It already owns full lint, typing, default
+tests, and API documentation, so separate full invocations add no coverage.
+
+The local ClickHouse reader remains `readonly=1` and SELECT-only. Its fixture
+permits per-query `max_execution_time` and
+`timeout_before_checking_execution_speed` through `CHANGEABLE_IN_READONLY`, so
+statistical reads can enforce the original execute deadline with native HTTP
+settings. Timeout overflow remains throwing. These permissions do not grant
+CREATE, INSERT, TEMP or DROP. Native timeout/active-query status is observed using
+an independent administrator connection, not product control SQL. Distributed
+profiles retain their separate qualification obligations.
 
 ## Topology and frozen scope
 
@@ -502,3 +534,16 @@ Lifecycle uses one ordered proof/history/parts statement with ordinary CTEs and
 `enable_shared_storage_snapshot_in_query=1`; it does not require materialized CTEs
 or permission to change query-plan optimization. Actual query-log/HTTP observation
 and source-offline cold continuation are separate acceptance checks.
+
+### R9.3 completed-query history
+
+The Trino 483 profile retains at most 100 expired-history entries with a one-minute
+minimum age (`query.max-history=100`, `query.min-expire-age=1m`). The prior default
+15-minute retention exhausted the coordinator heap during two continuous R9.3
+runs after more than 2,000 queries, although the isolated five-call consumer gate
+passed. This setting changes completed-query history, not submitted data or
+query results. Native cancellation observers collect the original query state
+immediately; their proof must still pass under this profile. See the
+[Trino query-management contract](https://trino.io/docs/current/admin/properties-query-management.html#query-min-expire-age).
+No continuous-gate success or performance improvement is inferred from this
+configuration change before the full unchanged-candidate gate executes.

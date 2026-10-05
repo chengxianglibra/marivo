@@ -1,6 +1,7 @@
 """Governed Lifecycle projects for public and independent-process acceptance."""
 
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 import ibis
 import pyarrow as pa
@@ -35,6 +36,7 @@ def build_lifecycle_public(
     empty=False,
     cycle=False,
     observations=False,
+    backend_name: Literal["duckdb", "sqlite"] = "duckdb",
 ):
     import marivo.analysis as mv
     import marivo.semantic as ms
@@ -77,13 +79,34 @@ def build_lifecycle_public(
     if empty:
         tables["subjects"] = tables["subjects"].slice(0, 0)
         tables["facts"] = tables["facts"].slice(0, 0)
-    database = root / "source.duckdb"
-    backend = ibis.duckdb.connect(database)
+    database = root / ("source." + backend_name)
+    if backend_name == "sqlite":
+        if form != "table" or unit != "us" or zone != "UTC":
+            raise ValueError("SQLite Lifecycle fixtures require native UTC-us tables")
+        tables = {
+            name: table.cast(
+                pa.schema(
+                    [
+                        pa.field(
+                            field.name,
+                            pa.timestamp("us") if pa.types.is_timestamp(field.type) else field.type,
+                        )
+                        for field in table.schema
+                    ]
+                )
+            )
+            for name, table in tables.items()
+        }
+    backend = (
+        ibis.duckdb.connect(database) if backend_name == "duckdb" else ibis.sqlite.connect(database)
+    )
     try:
         for name, table in tables.items():
             backend.create_table(name, table)
             if form == "parquet":
                 pq.write_table(table, root / (name + ".parquet"))
+        if backend_name == "sqlite":
+            backend.con.commit()
     finally:
         backend.disconnect()
     models = root / "models"
@@ -91,7 +114,7 @@ def build_lifecycle_public(
     (models / "datasources").mkdir()
     (root / "marivo.toml").write_text('[project]\nname="r75"\n')
     (models / "datasources" / "warehouse.py").write_text(
-        f"import marivo.datasource as md\nmd.duckdb(name='warehouse', path={str(database)!r})\n"
+        f"import marivo.datasource as md\nmd.{backend_name}(name='warehouse', path={str(database)!r})\n"
     )
     (models / "semantic" / "commerce" / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='commerce', owner='Analytics', default=True)\n"

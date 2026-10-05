@@ -389,7 +389,7 @@ class OriginalReduce:
 
 
 TransportMode: TypeAlias = Literal[
-    "where", "projection", "compare", "view", "materialize", "cohort", "limit"
+    "where", "projection", "compare", "view", "materialize", "cohort", "limit", "business_coverage"
 ]
 
 
@@ -411,6 +411,7 @@ class PartsTransport:
     display_view: Literal["values", "ranks"] | None = None
     limit_count: int | None = None
     attribution_view: Literal["contribution", "current", "baseline"] | None = None
+    business_windows: tuple[tuple[str, str], ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1062,7 +1063,14 @@ def _bind_project(inputs: tuple[Signature, ...], params: BindProject) -> RuleDer
                 "core.bind_project.field",
             )
     if params.expression_bodies and (
-        params.ref.kind is not SemanticKind.MEASURE
+        (
+            params.ref.kind is not SemanticKind.MEASURE
+            and not (
+                params.ref.kind is SemanticKind.DIMENSION
+                and params.field_contract is not None
+                and params.field_contract.logical_type == "boolean"
+            )
+        )
         or params.expression_bodies[0][:2] != (params.ref.kind.value, params.ref.path)
         or any(
             not kind or not path or not body_hash
@@ -1072,9 +1080,9 @@ def _bind_project(inputs: tuple[Signature, ...], params: BindProject) -> RuleDer
         != len(params.expression_bodies)
     ):
         reject(
-            "one exact Measure expression and distinct bound body fingerprints",
+            "one exact numeric Measure or Boolean Dimension expression and distinct bound body fingerprints",
             repr(params.expression_bodies),
-            "Freeze the resolved Measure body and each bound field definition.",
+            "Freeze the resolved field body and each bound field definition.",
             "core.bind_project.expression",
         )
     pre = (
@@ -2399,6 +2407,13 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
             "core.original_reduce",
         )
     source = inputs[0]
+    if any(isinstance(p, CoveragePart) and p.business_windows is not None for p in source.parts):
+        reject(
+            "original state without a business-coverage declaration",
+            "business-covered partial contributions",
+            "Keep the original grid and consume its Cells; do not roll up partial business data.",
+            "core.original_reduce.business_coverage",
+        )
     binding = _binding(inputs, "core.original_reduce")
     _output_domain(binding, params.output_domain, "core.original_reduce")
     if type(params.coordinates) is not tuple or any(
@@ -2707,7 +2722,15 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
     source = inputs[0]
     binding = _binding(inputs, "core.parts_transport")
     _output_domain(binding, params.output_domain, "core.parts_transport")
-    if params.mode not in ("where", "projection", "compare", "view", "materialize", "limit"):
+    if params.mode not in (
+        "where",
+        "projection",
+        "compare",
+        "view",
+        "materialize",
+        "limit",
+        "business_coverage",
+    ):
         reject(
             "a closed transport mode",
             str(params.mode),
@@ -2787,6 +2810,47 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
             "analysis.display",
         )
     quantity = source.quantity if params.keep_quantity else None
+    if params.mode == "business_coverage":
+        from marivo.analysis.core.business_coverage import covered_quantity, validate_windows
+
+        grid = source.domain.time_grid
+        if (
+            len(inputs) != 1
+            or not isinstance(quantity, ObservedQuantity)
+            or quantity.method_version not in ("sum@v1", "sum_zero@v1")
+            or grid is None
+            or any(cell.partial for cell in grid.cells)
+            or params.business_windows is None
+            or not params.keep_quantity
+            or params.retained_roles != tuple(part_role(p) for p in source.parts)
+            or not any(isinstance(p, OriginalStatePart) for p in source.parts)
+            or any(
+                isinstance(p, CoveragePart) and p.business_windows is not None for p in source.parts
+            )
+        ):
+            reject(
+                "one original sum observation on a complete, non-partial TimeGrid",
+                repr(source.quantity),
+                "Use members.each(grid).observe(sum_metric, during=grid.window, complete_during=(scope,)).",
+                "core.business_coverage",
+            )
+        validate_windows(params.business_windows, grid)
+        quantity = covered_quantity(quantity, params.business_windows)
+        parts = tuple(
+            replace(p, quantity_id=quantity.definition_id, business_windows=params.business_windows)
+            if isinstance(p, CoveragePart)
+            else replace(p, quantity_id=quantity.definition_id)
+            if isinstance(p, OriginalStatePart)
+            else p
+            for p in parts
+        )
+    elif params.business_windows is not None:
+        reject(
+            "business windows only in their owning transport",
+            params.mode,
+            "Declare completeness through observe(complete_during=...).",
+            "core.business_coverage",
+        )
     if params.attribution_view is not None and quantity is not None:
         quantity = replace(
             quantity, definition_id=source.domain.definition_id + ":" + params.attribution_view

@@ -164,6 +164,17 @@ def _build_backend_from_effective(
                 if credentials is not None:
                     backend._marivo_duckdb_http_auth = credentials
         if terminal_timeout_seconds is not None:
+            if datasource.backend_type == "mysql":
+                control_kwargs = {
+                    **kwargs,
+                    "connect_timeout": 1,
+                    "read_timeout": 1,
+                    "write_timeout": 1,
+                }
+                control = profile.connect(datasource.name, control_kwargs)
+                backend._marivo_authoring_cancel_control = control
+                backend._marivo_authoring_thread_id = backend.con.thread_id()
+                backend._marivo_terminal_timeout_seconds = terminal_timeout_seconds
             if datasource.backend_type == "postgres":
                 backend.con.read_only = True
             if datasource.backend_type in {"postgres", "trino"}:

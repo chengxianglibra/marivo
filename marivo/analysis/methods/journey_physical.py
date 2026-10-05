@@ -3,6 +3,10 @@
 from dataclasses import replace
 
 from marivo.analysis.methods.domain_preparation import implementations as preparations
+from marivo.analysis.methods.domain_preparation import (
+    remote_implementations,
+    sqlite_implementations,
+)
 from marivo.analysis.methods.physical import FixedShape, Implementation, NoTime, Qualified
 from marivo.analysis.methods.semantics import MethodKey
 
@@ -12,7 +16,17 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
 
     bases = tuple(
         item
-        for item in preparations(MethodKey("occurrence.prepare"))
+        for item in (
+            preparations(MethodKey("occurrence.prepare"))
+            + (
+                (
+                    sqlite_implementations(MethodKey("occurrence.prepare"))
+                    + remote_implementations(MethodKey("occurrence.prepare"))
+                )
+                if method.name == "journey.match"
+                else ()
+            )
+        )
         if item.key.input_types == (ScalarType("int64"),)
     )
     fixed = next(item for item in bases if isinstance(item.key.shape, FixedShape))

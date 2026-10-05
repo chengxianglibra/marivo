@@ -137,6 +137,7 @@ class EngineProfile:
     quantile: QuantileCapability | None
     percentile_uses_approx_quantile: bool
     authoring_timeout: AuthoringTimeout | None
+    certification_timeout: AuthoringTimeout | None = None
     http_credentials: Callable[..., ProviderHttpCredentials | None] | None = None
     exact_count_distinct: bool = False
     exact_quantile: bool = False
@@ -149,7 +150,13 @@ class EngineProfile:
                 "whether authoring_timeout is configured"
             )
 
-    def open(self, datasource: DatasourceIR, *, read_only: bool = True) -> SourceSession:
+    def open(
+        self,
+        datasource: DatasourceIR,
+        *,
+        read_only: bool = True,
+        terminal_timeout_seconds: int | None = None,
+    ) -> SourceSession:
         """Open the selected provider's owned source session."""
         from marivo.datasource.adapters import SourceSession
         from marivo.datasource.backends import build_backend_with_secrets
@@ -167,7 +174,14 @@ class EngineProfile:
                     action="Select the provider named by the datasource declaration.",
                 ),
             )
-        selected = build_backend_with_secrets(datasource, read_only=read_only)
+        if terminal_timeout_seconds is None:
+            selected = build_backend_with_secrets(datasource, read_only=read_only)
+        else:
+            selected = build_backend_with_secrets(
+                datasource,
+                read_only=read_only,
+                terminal_timeout_seconds=terminal_timeout_seconds,
+            )
         return SourceSession(self, datasource, selected.backend)
 
     def probe(self, backend: BaseBackend) -> None:

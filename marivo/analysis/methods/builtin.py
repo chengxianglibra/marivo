@@ -58,6 +58,7 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.methods.errors import reject
 from marivo.analysis.methods.physical import (
+    Backend,
     DecimalType,
     DurationType,
     FixedShape,
@@ -72,6 +73,7 @@ from marivo.analysis.methods.physical import (
     TimeShape,
 )
 from marivo.analysis.methods.semantics import MethodKey
+from marivo.semantic.ir import TargetSnapshotVersion, TargetValidityVersion
 
 PARTS: tuple[PartRole, ...] = (
     "pair_inputs",
@@ -261,6 +263,162 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
             and (isinstance(item.key.shape, FixedShape) or item.key.shape.backend == "duckdb")
         )
     declarations = _implementations(method)
+    c04_numeric = tuple(
+        replace(
+            item,
+            key=replace(
+                item.key,
+                input_types=(numeric_type,) * 2,
+                shape=replace(item.key.shape, backend=backend),
+            ),
+            precision="finite_float64" if numeric_type == ScalarType("float64") else "exact",
+            qualification=Qualified(
+                f"r93.c04.{backend}.{method}.{numeric_type.name}@v1",
+                "analysis.compiler.graph_lowering",
+                "tests/test_r93_multiroot_consumers.py",
+            ),
+        )
+        for backend in ("sqlite", "postgres", "mysql", "trino", "clickhouse")
+        for numeric_type in (ScalarType("float64"), DecimalType(38, 6))
+        for item in declarations
+        if not (backend == "sqlite" and isinstance(numeric_type, DecimalType))
+        and (
+            method.name == "metric.linear"
+            or (
+                method.name == "metric.ratio"
+                and (
+                    numeric_type == ScalarType("float64")
+                    or backend in ("postgres", "mysql", "clickhouse")
+                )
+            )
+        )
+        and item.key.input_types == (ScalarType("int64"),) * 2
+        and item.key.input_domains == ("entity",) * 2
+        and item.key.shape
+        == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
+        and item.key.route == "ibis"
+        and isinstance(item.key.shape, SourceShape)
+    )
+    c04_runtime = tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+            qualification=Qualified(
+                f"r93.c04.{backend}.{method}.{item.key.input_types}@v1",
+                "analysis.compiler.graph_lowering",
+                "tests/test_r93_multiroot_consumers.py",
+            ),
+        )
+        for backend in ("sqlite", "postgres", "mysql", "trino", "clickhouse")
+        for item in declarations
+        if (method.name, item.key.input_types, item.key.input_domains)
+        in (
+            ("metric.weighted_mean", (ScalarType("string"),), ("entity",)),
+            ("metric.ratio", (ScalarType("int64"),) * 2, ("entity",) * 2),
+        )
+        and item.key.shape
+        == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
+        and item.key.route == "ibis"
+        and isinstance(item.key.shape, SourceShape)
+    )
+    declarations = (*declarations, *c04_numeric, *c04_runtime)
+    if method.name in (
+        "group.attach",
+        "group.complete",
+        "metric.mean",
+        "metric.linear",
+        "state_rollup.mean",
+        "row.count",
+        "row.count_defined",
+        "row.sum",
+        "row.mean",
+        "map_correspond",
+        "cell.difference",
+    ):
+        return (
+            *declarations,
+            *(
+                replace(
+                    item,
+                    key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+                    qualification=Qualified(
+                        f"r93.{'c07' if method.name == 'cell.difference' else 'c05'}.{backend}.{item.key}",
+                        "analysis.compiler.graph_lowering",
+                        "tests/test_r93_multiroot_consumers.py"
+                        if method.name == "metric.linear"
+                        else "tests/test_r93_capability_consumers.py",
+                    ),
+                )
+                for backend in ("sqlite", "postgres", "mysql", "trino", "clickhouse")
+                for item in declarations
+                if isinstance(item.key.shape, SourceShape)
+                and item.key.shape
+                == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
+                and (method.name, item.key.input_types, item.key.input_domains)
+                in (
+                    (
+                        "group.attach",
+                        (ScalarType("int64"), ScalarType("string")),
+                        ("entity", "entity"),
+                    ),
+                    (
+                        "group.attach",
+                        (ScalarType("int64"), ScalarType("int64")),
+                        ("entity", "entity"),
+                    ),
+                    (
+                        "group.attach",
+                        (ScalarType("string"), ScalarType("int64")),
+                        ("entity", "entity"),
+                    ),
+                    (
+                        "group.attach",
+                        (ScalarType("float64"), ScalarType("string")),
+                        ("entity", "entity"),
+                    ),
+                    (
+                        "group.attach",
+                        (ScalarType("string"), ScalarType("string")),
+                        ("entity", "entity"),
+                    ),
+                    (
+                        "group.complete",
+                        (ScalarType("int64"), ScalarType("string")),
+                        ("group", "group"),
+                    ),
+                    (
+                        "group.complete",
+                        (ScalarType("float64"), ScalarType("string")),
+                        ("group", "group"),
+                    ),
+                    ("row.count", (ScalarType("int64"),), ("entity",)),
+                    ("row.count", (ScalarType("float64"),), ("entity",)),
+                    ("row.count_defined", (ScalarType("int64"),), ("entity",)),
+                    ("row.count_defined", (ScalarType("float64"),), ("entity",)),
+                    ("row.sum", (ScalarType("int64"),), ("entity",)),
+                    ("row.sum", (ScalarType("float64"),), ("entity",)),
+                    ("row.mean", (ScalarType("int64"),), ("entity",)),
+                    ("row.mean", (ScalarType("float64"),), ("entity",)),
+                    ("row.mean", (ScalarType("float64"),), ("group",)),
+                    ("metric.mean", (ScalarType("int64"),), ("entity",)),
+                    (
+                        "metric.linear",
+                        (ScalarType("int64"), ScalarType("int64")),
+                        ("entity", "entity"),
+                    ),
+                    ("metric.mean", (ScalarType("string"),), ("entity",)),
+                    ("state_rollup.mean", (ScalarType("float64"),), ("entity",)),
+                    ("state_rollup.mean", (ScalarType("float64"),), ("group",)),
+                    ("map_correspond", (ScalarType("string"),), ("entity",)),
+                    (
+                        "cell.difference",
+                        (ScalarType("int64"), ScalarType("int64")),
+                        ("entity", "entity"),
+                    ),
+                )
+                and item.key.route == "ibis"
+            ),
+        )
     if method.name not in (
         "parts_transport",
         "bind_project",
@@ -294,7 +452,159 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         and item.key.shape.form == "table"
         and item.key.route == "ibis"
     )
-    return (*declarations, *sqlite)
+    postgres = tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend="postgres")),
+            qualification=Qualified(
+                f"r93.postgres.{method}.{item.key}",
+                "analysis.compiler.graph_lowering",
+                "tests/test_r93_method_consumers.py",
+            ),
+        )
+        for item in sqlite
+        if isinstance(item.key.shape, SourceShape)
+        and method.name
+        in (
+            "parts_transport",
+            "bind_project",
+            "metric.observe",
+            "metric.sum_zero",
+            "time.product",
+            "state_rollup",
+            "state_rollup.sum_zero",
+        )
+        and item.key.shape.time == TimeShape("instant", "us", "UTC")
+        and item.key.input_domains == ("entity",)
+        and item.key.input_types[0] in (ScalarType("int64"), ScalarType("string"))
+    )
+    mysql = tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend="mysql")),
+            qualification=Qualified(
+                f"r93.mysql.{method}.{item.key}",
+                "analysis.compiler.graph_lowering",
+                "tests/test_r93_method_consumers.py",
+            ),
+        )
+        for item in postgres
+        if isinstance(item.key.shape, SourceShape)
+    )
+    trino = tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend="trino")),
+            qualification=Qualified(
+                f"r93.trino.{method}.{item.key}",
+                "analysis.compiler.graph_lowering",
+                "tests/test_r93_method_consumers.py",
+            ),
+        )
+        for item in sqlite
+        if isinstance(item.key.shape, SourceShape)
+        and method.name
+        in (
+            "parts_transport",
+            "bind_project",
+            "metric.observe",
+            "metric.sum_zero",
+            "time.product",
+            "state_rollup",
+            "state_rollup.sum_zero",
+        )
+        and item.key.shape.time == TimeShape("instant", "us", "UTC")
+        and item.key.input_domains == ("entity",)
+        and item.key.input_types[0] in (ScalarType("int64"), ScalarType("string"))
+    )
+    clickhouse = tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend="clickhouse")),
+            qualification=Qualified(
+                f"r93.clickhouse.{method}.{item.key}",
+                "analysis.compiler.graph_lowering",
+                "tests/test_r93_method_consumers.py",
+            ),
+        )
+        for item in trino
+        if isinstance(item.key.shape, SourceShape)
+    )
+    c05_groups = tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+            qualification=Qualified(
+                f"r93.c05.{backend}.{item.key}",
+                "analysis.compiler.graph_lowering",
+                "tests/test_r93_capability_consumers.py",
+            ),
+        )
+        for backend in ("postgres", "mysql", "trino", "clickhouse")
+        for item in declarations
+        if method.name == "state_rollup.sum_zero"
+        and item.key.input_types in ((ScalarType("int64"),), (ScalarType("float64"),))
+        and (
+            item.key.input_domains == ("group",)
+            or (
+                item.key.input_domains == ("entity",)
+                and item.key.input_types == (ScalarType("float64"),)
+            )
+        )
+        and item.key.shape
+        == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
+        and item.key.route == "ibis"
+    )
+    c06_fold = tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+            qualification=Qualified(
+                f"r93.c06.{backend}.{item.key}",
+                "analysis.compiler.graph_lowering",
+                "tests/test_r93_multiroot_consumers.py",
+            ),
+        )
+        for backend in ("postgres", "mysql", "trino", "clickhouse")
+        for item in declarations
+        if method.name == "metric.fold"
+        and item.key.input_types == (ScalarType("string"),)
+        and item.key.input_domains == ("entity",)
+        and item.key.shape
+        == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
+        and item.key.route == "ibis"
+    )
+    c03_members = tuple(
+        replace(
+            item,
+            key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+            qualification=Qualified(
+                f"r93.c03.{backend}.{method}.{item.key.input_types[0]}.no_time@v1",
+                "analysis.compiler.graph_lowering",
+                "tests/test_r93_members_consumers.py",
+            ),
+        )
+        for backend in ("postgres", "mysql", "trino", "clickhouse")
+        for item in declarations
+        if method.name in ("parts_transport", "bind_project", "time.product")
+        and item.key.input_types
+        in ((ScalarType("int64"),), (ScalarType("boolean"),), (ScalarType("date"),))
+        and (method.name == "parts_transport" or item.key.input_types == (ScalarType("int64"),))
+        and item.key.input_domains == ("entity",)
+        and item.key.shape == SourceShape("duckdb", "table", "native", NoTime())
+        and item.key.route == "ibis"
+    )
+    return (
+        *declarations,
+        *sqlite,
+        *postgres,
+        *mysql,
+        *trino,
+        *clickhouse,
+        *c05_groups,
+        *c06_fold,
+        *c03_members,
+    )
 
 
 def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
@@ -948,10 +1258,18 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         from marivo.analysis.methods.domain_preparation import (
             implementations as domain_implementations,
         )
+        from marivo.analysis.methods.domain_preparation import (
+            remote_implementations,
+            sqlite_implementations,
+        )
 
-        return domain_implementations(method)
+        return (
+            domain_implementations(method)
+            + sqlite_implementations(method)
+            + remote_implementations(method)
+        )
     if method.name in ("cell.relative_change", "cell.ratio"):
-        return tuple(
+        comparisons = tuple(
             replace(
                 item,
                 key=replace(
@@ -969,7 +1287,33 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 ),
             )
             for item in implementations(MethodKey("cell.difference"))
+            if not (
+                isinstance(item.qualification, Qualified)
+                and item.qualification.implementation_id.startswith("r93.c09.")
+            )
         )
+        if method.name == "cell.ratio":
+            comparisons += (
+                Implementation(
+                    QualificationKey(
+                        method,
+                        (DurationType("us"), DurationType("us")),
+                        ("journey", "journey"),
+                        FixedShape(NoTime()),
+                        "artifact_python",
+                    ),
+                    ("source.unique_key@v1", "source.exact_pairing@v1", "source.finite_numeric@v1"),
+                    ("subject", "current_endpoint", "baseline_endpoint", "correspondence"),
+                    "finite_float64",
+                    ResourceRequirements("complete", "caller", None),
+                    Qualified(
+                        "r93.c11.fixed.journey_duration_ratio_us@v1",
+                        "analysis.materialization.graph_local_execution",
+                        "tests/test_r93_journey_consumers.py",
+                    ),
+                ),
+            )
+        return comparisons
     from marivo.analysis.methods.anchor_physical import consumers as anchor_consumers
     from marivo.analysis.methods.domain_preparation import consumers
     from marivo.analysis.methods.history_view_physical import consumers as history_consumers
@@ -1155,6 +1499,317 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                             )
                         )
         declarations = (*declarations, *expanded)
+    if method.name in ("parts_transport", "bind_project"):
+        declarations = (
+            *declarations,
+            *(
+                replace(
+                    item,
+                    key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+                    qualification=Qualified(
+                        f"r93.c08.static_target.{backend}.{item.key}",
+                        "analysis.compiler.graph_lowering",
+                        "tests/test_r93_reference_consumers.py",
+                    ),
+                )
+                for backend in ("postgres", "mysql", "trino", "clickhouse")
+                for item in declarations
+                if item.key.shape == SourceShape("duckdb", "table", "native", NoTime())
+                and isinstance(item.key.shape, SourceShape)
+                and item.key.input_types == (ScalarType("string"),)
+                and item.key.input_domains == ("entity",)
+                and item.key.route == "ibis"
+            ),
+        )
+    c08_keys: dict[
+        str,
+        tuple[
+            tuple[tuple[ScalarType, ...], tuple[DomainKind, ...], Literal["ibis", "ibis_python"]],
+            ...,
+        ],
+    ] = {
+        "reference.share": (
+            (
+                (ScalarType("int64"),) * 3,
+                ("entity", "singleton", "entity"),
+                "ibis_python",
+            ),
+            (
+                (ScalarType("int64"),) * 3,
+                ("group", "singleton", "group"),
+                "ibis_python",
+            ),
+        ),
+        "display.rank": (((ScalarType("int64"),), ("entity",), "ibis_python"),),
+        "parts_transport": (((ScalarType("float64"),), ("group",), "ibis"),),
+        "reference.standardize": (
+            (
+                (ScalarType("int64"), ScalarType("float64")),
+                ("group", "group"),
+                "ibis_python",
+            ),
+        ),
+        "domain.cohort": (
+            (
+                (ScalarType("string"), ScalarType("int64")),
+                ("entity", "entity"),
+                "ibis",
+            ),
+        ),
+    }
+    if method.name in c08_keys:
+        declarations = (
+            *declarations,
+            *(
+                replace(
+                    item,
+                    key=replace(
+                        item.key,
+                        input_types=input_types,
+                        input_domains=input_domains,
+                        shape=replace(item.key.shape, backend=backend),
+                    ),
+                    qualification=Qualified(
+                        f"r93.c08.{backend}.{method}.{item.key}",
+                        item.qualification.consumer_id,
+                        "tests/test_r93_reference_consumers.py",
+                    ),
+                )
+                for input_types, input_domains, route in c08_keys[method.name]
+                for backend in (
+                    ("postgres", "mysql", "clickhouse", "trino")
+                    if method.name == "parts_transport"
+                    else ("sqlite", "postgres", "mysql", "clickhouse", "trino")
+                )
+                for item in declarations
+                if item.key.shape
+                == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
+                and item.key.route == route
+                and item.key.input_types
+                == (
+                    (ScalarType("int64"),) * 2
+                    if method.name == "reference.standardize"
+                    else (ScalarType("int64"),)
+                    if method.name == "domain.cohort"
+                    else input_types
+                )
+                and item.key.input_domains
+                == (("entity",) if method.name == "domain.cohort" else input_domains)
+                and isinstance(item.qualification, Qualified)
+                and isinstance(item.key.shape, SourceShape)
+            ),
+        )
+    if method.name == "reference.penetration":
+        declarations = (
+            *declarations,
+            *(
+                replace(
+                    item,
+                    key=replace(
+                        item.key,
+                        input_types=(ScalarType("string"),) * 2,
+                        shape=replace(item.key.shape, backend=backend),
+                    ),
+                    qualification=Qualified(
+                        f"r93.c08.penetration.{backend}.{item.key}",
+                        item.qualification.consumer_id,
+                        "tests/test_r93_reference_consumers.py",
+                    ),
+                )
+                for backend in ("sqlite", "postgres", "mysql", "clickhouse", "trino")
+                for item in declarations
+                if item.key.shape == SourceShape("duckdb", "table", "native", NoTime())
+                and item.key.input_types == (ScalarType("int64"),) * 2
+                and item.key.input_domains == ("entity", "entity")
+                and item.key.route == "ibis_python"
+                and isinstance(item.qualification, Qualified)
+                and isinstance(item.key.shape, SourceShape)
+            ),
+        )
+    if method.name in ("metric.sum_zero", "metric.mean"):
+        declarations = (
+            *declarations,
+            *(
+                replace(
+                    item,
+                    key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+                    qualification=Qualified(
+                        f"r93.c09.prepared.{backend}.{item.key}",
+                        item.qualification.consumer_id,
+                        "tests/test_r93_attribution_consumers.py",
+                    ),
+                )
+                for backend in ("sqlite", "postgres", "mysql", "clickhouse", "trino")
+                for item in declarations
+                if item.key.shape
+                == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
+                and item.key.input_types == (ScalarType("string"),) * 2
+                and item.key.input_domains == ("entity",) * 2
+                and item.key.route == "ibis_python"
+                and isinstance(item.key.shape, SourceShape)
+                and isinstance(item.qualification, Qualified)
+                and item.qualification.consumer_id == "analysis.materialization.graph_preparation"
+            ),
+        )
+    c09_local_keys = {
+        "state_rollup.sum_zero": ((ScalarType("int64"),), ("entity",)),
+        "cell.difference": ((ScalarType("int64"),) * 2, ("singleton",) * 2),
+        "attribution.additive_difference": ((ScalarType("int64"),) * 2, ("singleton",) * 2),
+    }
+    if method.name in c09_local_keys:
+        types, domains = c09_local_keys[method.name]
+        declarations = (
+            *declarations,
+            *(
+                replace(
+                    item,
+                    key=replace(
+                        item.key,
+                        shape=SourceShape(
+                            backend, "table", "native", TimeShape("instant", "us", "UTC")
+                        ),
+                        route="ibis_python",
+                    ),
+                    resources=replace(item.resources, owner="producer"),
+                    checks=NUMERIC_CHECKS,
+                    qualification=Qualified(
+                        f"r93.c09.local.{backend}.{item.key}",
+                        item.qualification.consumer_id,
+                        "tests/test_r93_attribution_consumers.py",
+                    ),
+                )
+                for backend in ("sqlite", "postgres", "mysql", "clickhouse", "trino")
+                for item in declarations
+                if item.key.shape == FixedShape(NoTime())
+                and item.key.input_types == types
+                and (
+                    item.key.input_domains == domains
+                    or (
+                        method.name == "state_rollup.sum_zero"
+                        and item.key.input_domains == ("group",)
+                    )
+                )
+                and item.key.route == "artifact_python"
+                and isinstance(item.qualification, Qualified)
+            ),
+        )
+    if method.name in ("state_rollup.mean", "cell.difference", "attribution.component_mix"):
+        mix_types = (ScalarType("float64"),) * (1 if method.name == "state_rollup.mean" else 2)
+        mix_domains = (
+            (("entity",), ("group",))
+            if method.name == "state_rollup.mean"
+            else (("singleton", "singleton"),)
+        )
+        declarations = (
+            *declarations,
+            *(
+                replace(
+                    item,
+                    key=replace(
+                        item.key,
+                        shape=SourceShape(
+                            backend, "table", "native", TimeShape("instant", "us", "UTC")
+                        ),
+                        route="ibis_python",
+                        input_types=mix_types,
+                    ),
+                    resources=replace(item.resources, owner="producer"),
+                    checks=NUMERIC_CHECKS,
+                    precision="finite_float64",
+                    qualification=Qualified(
+                        f"r93.c09.mix.{backend}.{item.key}",
+                        item.qualification.consumer_id,
+                        "tests/test_r93_attribution_consumers.py",
+                    ),
+                )
+                for backend in ("sqlite", "postgres", "mysql", "clickhouse", "trino")
+                for item in declarations
+                if item.key.shape == FixedShape(NoTime())
+                and item.key.input_types
+                == (
+                    (ScalarType("int64"),) * 2
+                    if method.name in ("cell.difference", "attribution.component_mix")
+                    else mix_types
+                )
+                and item.key.input_domains in mix_domains
+                and item.key.route == "artifact_python"
+                and isinstance(item.qualification, Qualified)
+            ),
+        )
+    c10_backends: dict[str, tuple[Backend, ...]] = {
+        "metric.distinct": ("sqlite", "postgres", "mysql", "trino"),
+        "metric.approx_distinct": ("sqlite", "postgres", "mysql", "trino", "clickhouse"),
+        "metric.quantile": ("postgres",),
+        "metric.approx_quantile": ("postgres", "trino", "clickhouse"),
+    }
+    if method.name in c10_backends:
+        declarations = (
+            *declarations,
+            *(
+                replace(
+                    item,
+                    key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+                    qualification=Qualified(
+                        f"r93.c10.native.{backend}.{item.key}",
+                        item.qualification.consumer_id,
+                        "tests/test_r93_distribution_consumers.py",
+                    ),
+                )
+                for backend in c10_backends[method.name]
+                for item in declarations
+                if item.key.shape
+                == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
+                and item.key.input_types == (ScalarType("string"),)
+                and item.key.input_domains == ("entity",)
+                and item.key.route == "ibis"
+                and isinstance(item.key.shape, SourceShape)
+                and isinstance(item.qualification, Qualified)
+            ),
+        )
+    if method.name in (
+        "parts_transport",
+        "time.product",
+        "metric.sum_zero",
+        "state_rollup.sum_zero",
+    ):
+        declarations = (
+            *declarations,
+            *(
+                replace(
+                    item,
+                    key=replace(
+                        item.key,
+                        shape=replace(
+                            item.key.shape, time=TimeShape("instant", "us", "Asia/Tokyo")
+                        ),
+                    ),
+                    qualification=Qualified(
+                        f"r93.c06.dst_grid.{item.key}@v1",
+                        item.qualification.consumer_id,
+                        "tests/test_r93_capability_consumers.py",
+                    ),
+                )
+                for item in declarations
+                if isinstance(item.qualification, Qualified)
+                and item.key.input_domains == ("entity",)
+                and (
+                    (
+                        item.key.shape
+                        == SourceShape(
+                            "duckdb", "table", "native", TimeShape("instant", "us", "UTC")
+                        )
+                        and item.key.input_types == (ScalarType("string"),)
+                        and item.key.route == "ibis"
+                    )
+                    or (
+                        method.name == "state_rollup.sum_zero"
+                        and item.key.shape == FixedShape(TimeShape("instant", "us", "UTC"))
+                        and item.key.input_types == (ScalarType("int64"),)
+                        and item.key.route == "artifact_python"
+                    )
+                )
+            ),
+        )
     return declarations
 
 
@@ -1180,6 +1835,25 @@ def specialize_arity(implementation: Implementation, arity: int) -> Implementati
 
 def specialize_numeric(implementation: Implementation, key: QualificationKey) -> Implementation:
     """Bind precise numeric families and closed typed predicate inputs."""
+    if isinstance(
+        implementation.qualification, Qualified
+    ) and implementation.qualification.implementation_id.startswith(
+        (
+            "r93.c03.",
+            "r93.c04.",
+            "r93.c05.",
+            "r93.c06.",
+            "r93.c07.",
+            "r93.c08.",
+            "r93.c09.",
+            "r93.c10.",
+            "r93.c11.",
+            "r93.c12.",
+            "r93.c13.",
+            "r93.c18.",
+        )
+    ):
+        return implementation
     if key.method.name in ("time.runs", "time.runs_read"):
         from marivo.analysis.methods.runs_physical import specialize
 
@@ -1460,6 +2134,96 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             repr(implementation.key),
             "Qualify a real lowerer and all required checkers for this exact key.",
         )
+    if (
+        isinstance(implementation.qualification, Qualified)
+        and implementation.qualification.implementation_id.startswith("r93.c12.sqlite.")
+        and isinstance(params, (FunnelAxesPrepare, FunnelReduce))
+        and (
+            tuple(axis.dimension.logical_type for axis in params.axes)
+            not in (("int64",), ("string",), ("int64", "string"))
+            or any(
+                axis.subject.version is not None
+                or (
+                    axis.path
+                    and not (
+                        len(params.axes) == 1
+                        and axis.dimension.logical_type == "string"
+                        and len(axis.path) == 1
+                        and len(axis.entities) == 2
+                        and (
+                            (
+                                isinstance(axis.entities[1].version, TargetSnapshotVersion)
+                                and dict(axis.entities[1].columns).get(
+                                    axis.entities[1].version.source_column
+                                )
+                                == "date32[day]"
+                                and axis.entities[1].version.timezone == "UTC"
+                            )
+                            or (
+                                isinstance(axis.entities[1].version, TargetValidityVersion)
+                                and axis.entities[1].version.interval == "closed_open"
+                                and axis.entities[1].version.open_end == (None,)
+                                and axis.entities[1].version.timezone == "UTC"
+                                and all(
+                                    dict(axis.entities[1].columns).get(column) == "date32[day]"
+                                    for column in (
+                                        axis.entities[1].version.valid_from_column,
+                                        axis.entities[1].version.valid_to_column,
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+                for axis in params.axes
+            )
+        )
+    ):
+        reject(
+            "direct unversioned Subject axes or one string axis through a UTC DATE snapshot or closed-open validity interval",
+            repr(params),
+            "Use one direct string/int64 axis, an ordered int64/string pair, or one to-one string axis through a UTC DATE snapshot or closed-open validity interval with NULL open end; qualify other paths, versions and axis orders separately.",
+        )
+    if (
+        isinstance(implementation.qualification, Qualified)
+        and implementation.qualification.implementation_id.startswith(
+            "r93.c18.sqlite.event_observe_"
+        )
+        and isinstance(params, AnchorObserve)
+        and (
+            params.composition is not None
+            or len(params.observations) != 1
+            or not isinstance(params.observations[0], ObserveMetric)
+            or params.observations[0].amount_type != "int64"
+            or params.observations[0].method != "sum"
+            or params.observations[0].metric.empty_rule != "zero"
+            or params.observations[0].fold is not None
+            or params.observations[0].distinct_columns
+            or params.observations[0].coordinates
+            or params.observations[0].filters
+        )
+    ):
+        reject(
+            "one int64 sum-zero Anchor observation",
+            repr(params),
+            "Use one direct int64 sum-zero Metric without coordinates or filters; other variants require separate physical qualification.",
+        )
+    if (
+        isinstance(implementation.qualification, Qualified)
+        and implementation.qualification.implementation_id.startswith("r93.c10.")
+        and isinstance(params, ObserveMetric)
+        and (
+            params.amount_type != "int64"
+            or params.distinct_columns
+            or params.start is None
+            or params.end is None
+        )
+    ):
+        reject(
+            "a bounded int64 direct-column distribution",
+            repr(params),
+            "Use an int64 Measure with an explicit bounded time scope; other input variants require separate physical qualification.",
+        )
     if isinstance(
         params,
         (
@@ -1630,9 +2394,27 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
                 "Bind the ordered comparable endpoints and registered checks.",
             )
     elif isinstance(params, PartsTransport):
-        if params.mode not in ("where", "projection", "view", "cohort", "limit") or (
-            params.mode == "where" and not params.predicates
+        if params.mode == "business_coverage" and (
+            isinstance(implementation.key.shape, SourceShape)
+            and (
+                implementation.key.shape.backend != "duckdb"
+                or implementation.key.shape.form not in ("table", "parquet")
+                or implementation.key.shape.time != TimeShape("instant", "us", "UTC")
+            )
         ):
+            reject(
+                "DuckDB table or Parquet business-completeness production",
+                repr(implementation.key.shape),
+                "Use the qualified original DuckDB input and its complete grid.",
+            )
+        if params.mode not in (
+            "where",
+            "projection",
+            "view",
+            "cohort",
+            "limit",
+            "business_coverage",
+        ) or (params.mode == "where" and not params.predicates):
             reject(
                 "projection, view, or where with explicit predicates",
                 params.mode,

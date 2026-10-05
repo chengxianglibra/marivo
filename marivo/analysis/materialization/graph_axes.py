@@ -16,7 +16,8 @@ from marivo.analysis.core.model import (
 from marivo.analysis.core.rules import (
     entity_members,
 )
-from marivo.analysis.materialization.graph_preflight import preflight_entities
+from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.materialization.graph_preflight import EntitySchema, preflight_entities
 from marivo.analysis.materialization.graph_protocol import digest, schema_text
 from marivo.analysis.materialization.graph_relation import (
     LiveBinding,
@@ -25,7 +26,11 @@ from marivo.analysis.materialization.graph_relation import (
 from marivo.analysis.observation.coordinates import functional_path
 from marivo.refs import DimensionKind, Ref, ref
 from marivo.semantic.ir import TargetEntityContract
-from marivo.semantic.validator import normalize_target_dimension, normalize_target_relationship
+from marivo.semantic.validator import (
+    normalize_target_dimension,
+    normalize_target_entity,
+    normalize_target_relationship,
+)
 
 
 def capture_axes(
@@ -38,6 +43,31 @@ def capture_axes(
     live = relation.binding
     assert isinstance(live, LiveBinding)
     registry = live.graph.registry
+    observed_schemas: dict[str, EntitySchema] = {}
+
+    def entity_columns(name: str) -> dict[str, str]:
+        if name not in observed_schemas:
+            target = normalize_target_entity(registry, name)
+            if target.datasource_ref != subject.datasource_ref:
+                raise DatasetConstructionError(
+                    expected="one selected datasource",
+                    received=f"{subject.datasource_ref.path}, {target.datasource_ref.path}",
+                    repair="Build the entry-axis path over one governed datasource.",
+                    location="analysis.graph_axes",
+                )
+            observed_schemas[name] = preflight_entities(
+                registry, relation.runtime.store.project_root, (name,)
+            )[0]
+            observed = observed_schemas[name]
+            observed_schemas[name] = replace(
+                observed,
+                contract=replace(
+                    observed.contract,
+                    columns=tuple((field.name, str(field.type)) for field in observed.schema),
+                ),
+            )
+        return {field.name: str(field.type) for field in observed_schemas[name].schema}
+
     dimensions = tuple(normalize_target_dimension(registry, a.path) for a in axes)
     paths = tuple(
         functional_path(
@@ -47,6 +77,7 @@ def capture_axes(
             allow_versioned_target=True,
             allow_versioned_source=True,
             allow_versioned_intermediates=True,
+            entity_columns=entity_columns,
         )
         for a in dimensions
     )
@@ -63,11 +94,10 @@ def capture_axes(
                 else hop.from_entity_ref.path
             )
         entity_paths.append(tuple(names))
-    schemas = preflight_entities(
-        registry,
-        relation.runtime.store.project_root,
-        tuple(sorted({name for names in entity_paths for name in names})),
-    )
+    schemas = []
+    for name in sorted({name for names in entity_paths for name in names}):
+        entity_columns(name)
+        schemas.append(observed_schemas[name])
     entries = {leaf.definition.ref.path: (schema, leaf) for schema, leaf in live.graph.sources}
     shape_leaf = next(
         n for n in topology(relation.root) if isinstance(n, SourceLeaf) and n.identity == source_id

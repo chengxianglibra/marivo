@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import warnings
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager, suppress
+from threading import Event, Timer
 from typing import TYPE_CHECKING, Any, Literal
 
 from ibis.backends import BaseBackend
@@ -10,6 +13,7 @@ from ibis.backends import BaseBackend
 from marivo.datasource.capabilities import (
     ProviderStatement,
     execute_provider_statement,
+    provider_statement_log,
     register_provider_statements,
 )
 from marivo.datasource.engines.base import (
@@ -21,6 +25,11 @@ from marivo.datasource.engines.base import (
     identity_read_only_kwargs,
     require_field,
     structured_exception_chain,
+)
+from marivo.datasource.errors import (
+    DatasourceConnectionError,
+    DatasourceSourceCapabilityError,
+    repair,
 )
 from marivo.datasource.strptime import python_to_mysql_strptime
 
@@ -38,6 +47,36 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
 
     # Ibis optional backend classes do not ship typing metadata.
     class CheckedBackend(Backend):  # type: ignore[misc]
+        def _post_connect(self) -> None:
+            # Ibis owns the UTC initialization statement. A warning means it failed.
+            with warnings.catch_warnings():
+                warnings.filterwarnings("error", message="Unable to set session timezone to UTC.*")
+                try:
+                    super()._post_connect()
+                except Warning as cause:
+                    self.con.close()
+                    raise DatasourceConnectionError(
+                        message="The MySQL reader could not initialize UTC.",
+                        expected="successful Ibis UTC reader initialization",
+                        received="timezone initialization warning",
+                        repair=repair(
+                            kind="reconnect",
+                            canonical_id="test",
+                            action="Restore MySQL UTC timezone support and retry the datasource connection.",
+                        ),
+                    ) from cause
+            self._marivo_timezone_name = "UTC"
+
+        def disconnect(self) -> None:
+            control = getattr(self, "_marivo_authoring_cancel_control", None)
+            try:
+                if control is not None:
+                    self._marivo_authoring_cancel_submissions = provider_statement_log(control)
+                    control.disconnect()
+            finally:
+                self._marivo_authoring_cancel_control = None
+                super().disconnect()
+
         def _fetch_from_cursor(self, cursor: ScalarCursor, schema: sch.Schema) -> pd.DataFrame:
             return checked_dataframe(cursor, schema, MySQLPandasData.convert_table)
 
@@ -62,6 +101,27 @@ def table_name_parts(request: TableRefRequest) -> tuple[str, ...]:
 register_provider_statements(
     "mysql",
     {
+        "analysis.cancel_owned_query": ProviderStatement(
+            statement_id="mysql.analysis.cancel_owned_query",
+            template="KILL QUERY {thread_id}",
+            literal_slots=frozenset({"thread_id"}),
+            integer_ranges=(("thread_id", 1, 18446744073709551615),),
+            allowed_purposes=frozenset(
+                {"analysis.cancel_owned_query", "datasource.authoring.deadline"}
+            ),
+        ),
+        "authoring.install_select_deadline": ProviderStatement(
+            statement_id="mysql.authoring.install_select_deadline",
+            template="SET SESSION max_execution_time = {timeout_ms}",
+            literal_slots=frozenset({"timeout_ms"}),
+            integer_ranges=(("timeout_ms", 1, 4294967295),),
+            allowed_purposes=frozenset({"semantic.certified_preview.deadline"}),
+        ),
+        "authoring.read_select_deadline": ProviderStatement(
+            statement_id="mysql.authoring.read_select_deadline",
+            template="SELECT @@session.max_execution_time",
+            allowed_purposes=frozenset({"semantic.certified_preview.deadline"}),
+        ),
         "tables.comment": ProviderStatement(
             statement_id="mysql.tables.comment",
             template=(
@@ -400,6 +460,131 @@ def classify_table_resolution_failure(exc: Exception) -> Literal["metadata_unava
     return None
 
 
+@contextmanager
+def certification_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
+    """Install a verified SELECT limit only on an isolated certification connection."""
+    milliseconds = timeout_seconds * 1000
+    if (
+        type(timeout_seconds) is not int
+        or not 1 <= milliseconds <= 4294967295
+        or getattr(backend, "_marivo_certified_authoring", False) is not True
+    ):
+        raise DatasourceSourceCapabilityError(
+            message="MySQL certification requires an isolated bounded authoring connection.",
+            expected="fresh certification connection and timeout in 1..4294967 seconds",
+            received=str(timeout_seconds),
+            location="semantic.certified_preview",
+            repair=repair(
+                kind="configure",
+                canonical_id="test",
+                action="Retry certification with a supported positive scope timeout.",
+            ),
+        )
+    purpose = "semantic.certified_preview.deadline"
+    try:
+        execute_provider_statement(
+            backend,
+            PROFILE,
+            "mysql.authoring.install_select_deadline",
+            values={"timeout_ms": milliseconds},
+            purpose=purpose,
+        )
+        rows = execute_provider_statement(
+            backend,
+            PROFILE,
+            "mysql.authoring.read_select_deadline",
+            purpose=purpose,
+        )
+    except Exception as cause:
+        raise DatasourceSourceCapabilityError(
+            message="MySQL certification deadline preparation failed before the source read.",
+            expected="successful installation and verification of the scoped SELECT deadline",
+            received=type(cause).__name__,
+            location="semantic.certified_preview",
+            repair=repair(
+                kind="configure",
+                canonical_id="test",
+                action="Restore session-variable access for this reader and retry certification.",
+            ),
+        ) from cause
+    if rows != ({"@@session.max_execution_time": milliseconds},):
+        raise DatasourceSourceCapabilityError(
+            message="MySQL did not confirm the requested certification deadline.",
+            expected=str(milliseconds),
+            received=str(rows),
+            location="semantic.certified_preview",
+            repair=repair(
+                kind="configure",
+                canonical_id="test",
+                action="Restore MySQL session timeout support and retry certification.",
+            ),
+        )
+    try:
+        yield
+    finally:
+        backend._marivo_certified_authoring = False
+
+
+@contextmanager
+def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
+    """Cancel only this isolated authoring reader's current query at its deadline."""
+    connection = getattr(backend, "con", None)
+    control = getattr(backend, "_marivo_authoring_cancel_control", None)
+    identity = getattr(backend, "_marivo_authoring_thread_id", None)
+    if (
+        type(timeout_seconds) is not int
+        or timeout_seconds <= 0
+        or getattr(backend, "_marivo_terminal_timeout_seconds", None) != timeout_seconds
+        or control is None
+        or type(identity) is not int
+        or identity <= 0
+        or connection is None
+        or connection.thread_id() != identity
+    ):
+        raise RuntimeError(
+            "MySQL authoring timeout requires its isolated owned reader and control connection"
+        )
+    expired = Event()
+
+    def cancel() -> None:
+        expired.set()
+        try:
+            if connection.thread_id() != identity:
+                return
+            execute_provider_statement(
+                control,
+                PROFILE,
+                "mysql.analysis.cancel_owned_query",
+                values={"thread_id": identity},
+                purpose="datasource.authoring.deadline",
+            )
+        except Exception:
+            # The channel retains failure; shutdown alone does not prove server termination.
+            pass
+        finally:
+            # Wake an owner blocked on fetch even when server cancellation fails.
+            import socket
+
+            with (
+                suppress(OSError, ValueError),
+                socket.fromfd(
+                    connection.fileno(), socket.AF_INET, socket.SOCK_STREAM
+                ) as owned_socket,
+            ):
+                owned_socket.shutdown(socket.SHUT_RDWR)
+
+    timer = Timer(timeout_seconds, cancel)
+    timer.daemon = True
+    timer.start()
+    try:
+        yield
+        if expired.is_set():
+            raise TimeoutError("MySQL authoring deadline expired")
+    finally:
+        timer.cancel()
+        timer.join()
+
+
 PROFILE = EngineProfile(
     name="mysql",
     aliases=(),
@@ -417,7 +602,7 @@ PROFILE = EngineProfile(
     authoring_capabilities=AuthoringCapabilities(
         partition_predicate_supported=True,
         transformed_partition_supported=False,
-        timeout_enforced=False,
+        timeout_enforced=True,
         byte_estimate_supported=True,
     ),
     translate_strptime_format=python_to_mysql_strptime,
@@ -425,5 +610,6 @@ PROFILE = EngineProfile(
     exact_count_distinct=True,
     quantile=None,
     percentile_uses_approx_quantile=False,
-    authoring_timeout=None,
+    authoring_timeout=authoring_timeout,
+    certification_timeout=certification_timeout,
 )

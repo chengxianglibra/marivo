@@ -39,6 +39,7 @@ from marivo.analysis.core.model import (
     AssociationStatePart,
     AttributionPart,
     Coordinate,
+    CoveragePart,
     DerivedQuantity,
     DisplayPart,
     FitInputsPart,
@@ -92,6 +93,7 @@ from marivo.analysis.core.rules import (
     ObserveMetric,
     OccurrenceCombine,
     PartsTransport,
+    PreparedObservation,
     ReferenceDerive,
     RetentionBySubject,
     RowState,
@@ -477,6 +479,8 @@ def _kind(node: Relation) -> str:
     if isinstance(params, MapCorrespond):
         return "group" if params.mode in ("group", "group_keys") else "members"
     if isinstance(params, PartsTransport):
+        if params.mode == "business_coverage":
+            return "observe"
         if not params.keep_quantity:
             return "members"
         if isinstance(quantity, DerivedQuantity):
@@ -545,8 +549,16 @@ class _Value:
             self._dataset is None
             and isinstance(self._node.binding, LiveBinding)
             and (
-                isinstance(self._node.root.value_type, DurationType)
-                and isinstance(self._node.root.signature.quantity, RowStatisticQuantity)
+                (
+                    isinstance(self._node.root.value_type, DurationType)
+                    and isinstance(self._node.root.signature.quantity, RowStatisticQuantity)
+                )
+                or any(
+                    isinstance(node, MethodNode)
+                    and isinstance(node.parameters, PreparedObservation)
+                    and node.inputs[0].node.identity != node.inputs[1].node.identity
+                    for node in topology(self._node.root)
+                )
             )
         )
 
@@ -727,6 +739,10 @@ class _Value:
         state = next((p for p in signature.parts if isinstance(p, OriginalStatePart)), None)
         if state is not None and state.temporal_policy in ("repeated", "overlapping"):
             names = tuple(name for name in names if name != "rollup")
+        if any(
+            isinstance(p, CoveragePart) and p.business_windows is not None for p in signature.parts
+        ):
+            names = tuple(name for name in names if name not in ("rollup", "group_by"))
         if isinstance(self, _CountRelation):
             names = tuple(dict.fromkeys((*names, "group_by", "summarize")))
         if (
@@ -1371,6 +1387,27 @@ class _Value:
                         else quantity.metric_ref.path,
                     )
                 )
+                coverage = next(
+                    (
+                        p
+                        for p in signature.parts
+                        if isinstance(p, CoveragePart) and p.business_windows is not None
+                    ),
+                    None,
+                )
+                if coverage is not None:
+                    facts.extend(
+                        (
+                            (
+                                "business_coverage",
+                                f"{len(coverage.business_windows or ())} declared complete intervals; uncovered buckets are Unknown",
+                            ),
+                            (
+                                "partial_state",
+                                "retained for integrity; cannot roll up incomplete business observations",
+                            ),
+                        )
+                    )
             if quantity.method_version == "ratio@v1":
                 facts.append(("weighting", "original numerator and denominator components"))
             if (
@@ -2032,6 +2069,8 @@ class _NumericComparison(_Value):
         Returns: A LogicalNumericRelation with ordinary quotient semantics.
         Example: ``quotient = current.ratio(reference, pairing=mv.ExactKeys())``.
         Constraints: Time roles must match; zero denominators remain Undefined.
+        Duration quotients preserve Unknown coverage or entry reasons as scalar
+        Unknown; they do not cancel uncertainty when dividing a relation by itself.
         Ordinary ratios do not acquire original Metric rollup or attribution.
         Float folds and quantiles without retained error envelopes reject.
         """
@@ -2478,7 +2517,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         """Read one typed attribute for every current complete member identity.
 
         Args:
-            field: Declared Measure, Dimension or TimeDimension Ref.
+            field: Declared Measure, direct Dimension/TimeDimension, or bound Boolean Dimension expression Ref.
             at: Independent aware attribute instant or this product grid endpoint; None for unversioned fields.
             via: Exact single-valued member-to-owner relationship or route.
         Returns: Numeric, Category, Boolean or Temporal relation according to field kind.
@@ -2553,6 +2592,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         at: datetime | GridEndpoint | None = None,
         via: Ref[RelationshipKind] | RootRoutes | None = None,
         coordinates: tuple[Ref[DimensionKind], ...] = (),
+        complete_during: tuple[TimeScope, ...] | None = None,
     ) -> LogicalNumericRelation | LogicalRatioRelation:
         """Observe one governed Metric or runtime expression over this member domain.
 
@@ -2562,9 +2602,11 @@ class LogicalAnalysisDomain(_CohortDomain):
             at: Explicit cumulative endpoint, bound grid endpoint or aware datetime.
             via: Admitted relationship Ref or ordered routes; omit only for the same Entity root.
             coordinates: Optional declared contribution coordinate Dimension Refs.
+            complete_during: Explicit business-complete scopes with aware datetime bounds.
+                Omit for the existing observation policy; an empty tuple declares no complete buckets.
         Returns: A LogicalNumericRelation | LogicalRatioRelation bound to this exact relation.
         Example: ``result = relation.observe(metric, during=during, via=via, coordinates=coordinates)``.
-        Constraints: The Metric, window, path, and member binding must be admitted.
+        Constraints: The Metric, window, path and member binding must be admitted. Completeness requires one original sum on during=grid.window, no coordinates or at, and a complete non-partial grid. Uncovered buckets are Unknown with retained partial state. Business-covered observations cannot roll up; production uses DuckDB table/Parquet.
         """
         point: datetime | GridPoint | None = at if not isinstance(at, GridEndpoint) else None
         if isinstance(at, GridEndpoint):
@@ -2577,6 +2619,17 @@ class LogicalAnalysisDomain(_CohortDomain):
                 )
             point = GridPoint(bound_point, at._side)
         live = self._node._live()
+        if complete_during is not None and (
+            not isinstance(during, GridWindow)
+            or at is not None
+            or coordinates
+            or self._node.resolves_multiple_components(metric)
+        ):
+            raise _reject(
+                "a single original sum on during=grid.window without coordinates or at",
+                "incompatible business-completeness observation",
+                "Use members.each(grid).observe(sum_metric, during=grid.window, complete_during=(scope,)).",
+            )
         if isinstance(during, GridWindow):
             bound = during._grid._bound
             if bound is None or bound != self._node.root.signature.domain.time_grid:
@@ -2635,6 +2688,8 @@ class LogicalAnalysisDomain(_CohortDomain):
             observed = observed.rollup(
                 subject.entity_ref, *coordinates, *((grid,) if grid is not None else ())
             )
+        if complete_during is not None:
+            observed = observed.business_coverage(complete_during)
         return LogicalNumericRelation(_TOKEN, observed, self._runtime, inputs=(self,))
 
 

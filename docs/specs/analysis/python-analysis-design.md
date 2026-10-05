@@ -500,7 +500,24 @@ Defined numeric operands, compatible source/temporal scope and known quotient
 units. A zero denominator retains both endpoints and yields
 `Undefined(zero_denominator)`, not zero, infinity or a dropped row. Any other
 non-Defined matched operand is a structured consumption error, not a guessed
-business value. Endpoint identity, pairing, units, status and coverage remain
+business value. The bounded R9.3 fixed Journey ratio consumer accepts homogeneous
+microsecond Duration operands without a time axis. It retains the complete
+Journey key, endpoint values and zero-denominator status, including cold
+recovery. Other Duration units and source Journey ratio keys remain unqualified.
+
+R9.3 also connects native SQLite main-database table preparation for int64 Event
+and Subject identities with UTC microsecond timestamps. The driver backup API
+copies the complete main database to a private temporary file before business
+reads; prepared reads use that same frozen connection. Copy checkpoints and
+native query interruption share the execution deadline. Success and failure
+restore the original connection and delete the temporary backup. This copy is
+not a bounded-window scan and may include unrelated main-database pages. Attached
+databases, other key/time shapes and other source backends remain unqualified.
+Only occurrence preparation and Journey matching gain this source declaration;
+other capability families do not inherit it. Fixed Journey views and ratios
+continue through their existing retained consumers.
+
+Endpoint identity, pairing, units, status and coverage remain
 parts; K permits selection, current-row summarization and fixed continuation,
 not original-component `rollup()` or automatic share/penetration semantics.
 Ratio failures use structured
@@ -1225,6 +1242,92 @@ whether the requested transition is admitted before source work.
 
 ## Exact execution and persistence
 
+R9.3 adds a bounded SQLite ordinary-table association preparation consumer for
+two int64 entity inputs on a microsecond UTC event axis: Pearson, Spearman and
+Kendall, plus coefficient/selected reads of their grouped output. Complete
+composite string/int64 identities are preserved, including length-qualified
+Ibis strings. This registration does not qualify float/Decimal associations,
+multi-input associations, other source shapes, forecast or runs on SQLite.
+
+PostgreSQL ordinary tables also admit this exact two-int64 entity-pair route.
+The source prefix binds/projections and observations use governed Ibis reads.
+PostgreSQL integral Decimal integer-result carriers are decoded only when finite,
+integral and within the Arrow integer range. Float conversion is never used.
+
+MySQL ordinary tables admit the same two-int64 entity-pair consumers. The
+provider records successful Ibis UTC reader initialization and fails explicitly
+if that initialization warns. UTC-to-UTC rendering uses an identity timestamp
+cast with microsecond precision rather than a foreign timezone function.
+The exact adapter accepts integral Decimal integer results within range, Boolean
+0/1 carriers and naive/text UTC carriers only under explicit UTC Arrow schema.
+
+Trino ordinary Iceberg tables and ClickHouse local MergeTree tables also admit
+the same two-int64 pair route. ClickHouse physical UTC timestamp axes use the
+identity render; no server timezone is inferred from the driver's UTC fallback.
+An axis requiring implicit reader timezone remains rejected when that fact is
+unavailable. These bounded consumers do not qualify other numeric types,
+distributed profiles, cancellation, or complete R9.3 scenarios.
+
+All six ordinary-table backends also admit zscore and MAD over the complete int64 Entity observation
+prepared by this source prefix. The fit preserves original full-width integers
+and retains `fit_inputs`/`fit_state`; score views use the same retained fit.
+This exact registration does not admit float/Decimal source fits, additional
+input shapes.
+
+All six ordinary-table backends also admit complete-grid runs over int64 Entity
+observations and count reads, plus naive/drift/seasonal-naive forecasts over
+complete int64 time-group training and prediction reads on microsecond UTC grids.
+Explicit empty-contribution zero policy supplies Defined empty observations;
+null/unavailable history is not imputed. These exact consumers do not qualify
+other source numeric types, grid zones/precision, or resource cancellation.
+
+Every graph execution creates one 600-second monotonic budget at entry, including
+ordinary source reads, current-row statistics and fixed-input continuation.
+An enclosing execution budget is inherited without restarting its clock. Expiry
+before native submission or publication refuses the result, preserves previous
+artifacts and releases owned resources. Durable publication keeps its existing
+commit/acknowledgement reconciliation boundary.
+
+Ordinary statistical source execution uses the shared execute deadline during
+native submission and batch consumption. DuckDB/SQLite native interruption does
+not require a domain capture. The timer requests interruption; the execution
+thread closes cursors and releases the connection. Unconfirmed connection release
+prevents publication. Expiry reports a structured timeout; remote termination
+remains unknown without independent server proof.
+PostgreSQL uses its connection's native cancellation request at expiry. The
+Runtime still reports remote termination as unknown; server cancellation status
+and session release require an independent observer for qualification.
+Trino registers its native cursor before `execute()` and cancels it at expiry,
+including while waiting for the initial response or fetching batches. The timer
+retries cancellation until the owner releases the cursor because the driver's
+first cancellation can precede the initial HTTP response. Independent server
+query status must confirm cancellation; client close alone grants no proof.
+During fetching, a batch checkpoint can detect expiry before the timer callback
+runs. Owner-thread cursor cleanup then invokes native cancellation; evidence must
+record this as `owner_checkpoint`, including the observed native cancel call and
+independent server termination, rather than claiming timer-thread interruption.
+
+ClickHouse statistical reads pass the current execute deadline's remaining
+seconds through native HTTP `max_execution_time`, with
+`timeout_before_checking_execution_speed=0` and throwing timeout overflow. Each
+read uses the original monotonic start; no client-global settings are mutated.
+The read-only account must permit the two timeout settings and retain or permit
+`timeout_overflow_mode='throw'`. Missing or locked settings reject before the
+business read, with a structured datasource repair. The provider does not issue
+control SQL or reuse authoring timeout wrappers. Native query-log timeout status
+and absence from active queries must be independently observed for qualification;
+client cleanup alone grants no remote termination proof. Local MergeTree proof
+does not qualify Distributed shards or unrelated profiles. Native timeout
+may precede Python monotonic expiry. Verification accepts only native timeout
+code 159 or the structured execute timeout, and still requires the exact native
+settings, query identity/SQL, server log and resource release. Client elapsed time
+is observed separately from the server's clock; it is not a synchronized lower
+bound for native timeout.
+
+ClickHouse keeps the physical UTC timestamp type during UTC identity rendering,
+so Ibis labels boundary literals UTC even under non-UTC session settings. A naive
+timestamp cast would adopt the session timezone and is not used for this route.
+
 Runtime fixes the registered implementation and destination before executing.
 Source execution supports DuckDB and admitted PostgreSQL, MySQL, SQLite, Trino and ClickHouse scalar/relational methods. The private method registry
 selects one exact backend registration for the typed invocation, with full
@@ -1462,6 +1565,63 @@ target key; a shared contribution table is never multiplied or summed across
 branches first. Combination never falls back to per-column projection products,
 root intersections, or row-order alignment.
 
+R9.3 additionally connects exact native-table UTC-us, two-root entity float64
+`metric.linear` keys on SQLite, PostgreSQL, MySQL, Trino Iceberg and ClickHouse. Each contribution
+root reduces independently before complete target-key combination. PostgreSQL,
+MySQL, Trino Iceberg and ClickHouse also connect Decimal(38,6) components reduced from native
+Decimal(18,6) facts, preserving Decimal values as DuckDB does. Other Decimal
+precision/scale keys are not inferred. SQLite non-finite source values reject and
+leave no published result; its Decimal linear composition remains unqualified.
+No float coercion or alternate route is used. These bounded vectors do not grant
+complete C04 qualification.
+
+R9.3 also connects native-table UTC-us Runtime ratio observations with int64
+components and weighted means over int64 facts for string-key Entity targets on
+SQLite, PostgreSQL, MySQL, Trino Iceberg and ClickHouse. Ratio components reduce
+on their own contribution roots; zero-denominator targets remain Undefined and
+zero numerators remain Defined zero when the denominator contributes. Weighted
+means retain empty-contribution targets as Null. Pair support is counted through
+integer CASE expressions, including PostgreSQL where Boolean-to-BIGINT casts are
+unsupported. These bounded keys do not infer additional ratio numeric families
+or complete C04 qualification.
+
+The exact native-table UTC-us, two-root Entity float64 ratio key is also
+connected on all six backends. Dyadic component facts preserve original sums
+3.75 and 4.75 for fixed rollup (15/19), rather than averaging target ratios.
+DuckDB, PostgreSQL, MySQL and ClickHouse additionally retain Decimal(38,6) component sums from Decimal(18,6)
+facts and finishes the merged 10/3 ratio once as Decimal(38,6), 3.333333, using
+HALF_EVEN. PostgreSQL uses native numeric div/mod and unbounded numeric scaling
+in Ibis, avoiding per-digit nested expressions and preserving coefficients
+beyond 38 digits before finishing. Independent positive/negative ties and extreme
+coefficient vectors verify Decimal output. MySQL uses native Decimal quotient
+arithmetic after subtracting the exact remainder, with scaling bounded by its
+65-digit capacity. Final coefficient overflow becomes an invalid defined/null
+Cell and is refused by the existing pre-publication Cell check, rather than
+publishing a clamped Decimal cast. Original sum overflow is independently refused
+by exact Arrow decoding on MySQL. ClickHouse uses native Decimal256 division at
+scale zero and exact scaled coefficients before the single HALF_EVEN finish.
+Its Decimal sum/mean observations aggregate in Decimal256 and check the declared
+component bounds before publication, preventing Decimal128 sum wraparound.
+Original-component and final-ratio overflow both refuse without publication.
+SQLite and Trino
+Decimal ratio keys remain unqualified and reject
+without publication; refusal controls do not prove required Decimal execution.
+The float keys cannot specialize into Decimal keys.
+
+For the bounded int64 ratio vector, fixed rollup merges the original 30/9
+components to 10/3, rather than averaging target ratios 6 and 0 to 3. All six
+source producers preserve these components for continuation with source batch
+reads forbidden and no additional native submission. The empty target's
+Undefined zero-denominator Cell does not replace its retained zero components.
+
+Native-table UTC-us int64 Runtime aggregate and dimension-slice observations also
+have bounded source vectors on all six backends. Runtime sum retains an empty
+target as Null(empty_contribution); slicing a static sum with an explicit zero
+policy retains excluded targets as Defined zero. The slice is applied before
+reduction. These vectors verify complete string-key Entity targets, actual native
+submissions, retained parts and connection release; they do not grant other
+aggregate functions, slice compositions or complete C04 qualification.
+
 ### Runtime expression signatures
 
 The five existing factories remain under `mv.runtime_metric`; the semantic
@@ -1562,10 +1722,25 @@ The member version is never an implicit attribute version: historical `read`
 requires its own `at`. The direct-own-Dimension grouping shorthand inherits the
 already selected member version without discovering another property owner.
 
+R9.3 additionally connects native PostgreSQL/MySQL/Trino/ClickHouse table
+member transmission, int64-key time products and direct int64/date scalar reads for the corresponding
+entity/NoTime physical keys. Native Boolean reads additionally connect on
+PostgreSQL/Trino/ClickHouse; MySQL BOOLEAN is observed as int8 and rejects before
+business reads rather than becoming a Boolean or silently coercing integers.
+A loaded Boolean Dimension row expression (for example `rows.enabled == 1`)
+now uses the existing frozen Semantic/Ibis binder and supports complete member
+reads and filtering on MySQL. It does not reinterpret direct integer Dimensions. Exact UTC DATE snapshots and closed-open validity with NULL open
+end retain complete int64/string composite identity; selected duplicate identities
+reject before publication. A single explicit directed to-one native-table path
+with complete int64/string keys additionally consumes direct int64 attributes.
+Missing and multiple scoped matches reject; matched NULL remains a Null Cell and
+unrelated target duplicates do not become global uniqueness obligations. Other
+scalar types and longer paths retain separate qualification requirements.
+
 The qualified DuckDB table/Parquet scalar reads are direct-column or bound
 row-expression Measures (int64/float64), Dimensions (string/int64 or native boolean), and
 TimeDimensions (native date or aware timestamp). An integer 0/1 Dimension stays
-categorical. Computed Measures retain their ordered expression and bound-field
+categorical. Computed Boolean Dimensions and numeric Measures retain their ordered expression and bound-field
 fingerprints; source execution evaluates them on the scoped owner rows through
 the existing Semantic/Ibis binder, while fixed continuation uses retained values.
 Unqualified parsing, naive attribute
@@ -1630,6 +1805,41 @@ complete string/int64 Entity keys and qualified numeric/time inputs. Time grids
 and coarsening remain R5.5, the complete numeric matrix remains R5.6, and installed
 candidate qualification remains R5.7. The migration ledger and `evidence/r54/`
 record measured acceptance; this section is not installed-package evidence.
+
+R9.3 adds bounded ordinary-table routes on all six backends for int64/float64 observations, string
+classifications, explicit empty targets, count/count_defined/sum/mean row statistics and original
+sum/mean-state rollup with UTC microsecond source time. The added classification,
+completion, row-statistic and member-image keys remain exact; they do not
+specialize to Decimal inputs. DuckDB/SQLite own temporary relations; remote shared
+stages capture complete exchanges and use Ibis-compiled typed literal relations,
+without creating remote tables or rewriting SQL. Capture views have distinct
+ownership even for identical values. Released captures cannot be submitted again.
+Empty schemas, multiplicity, full-width keys and UTC microseconds are retained.
+Shared exchanges use unique row indices and typed conditional projection; the
+cardinality barrier equals the complete captured row count and is not an admission
+quota. ClickHouse uses one typed struct-array expansion to avoid a many-branch
+query plan. Original mean retains its sum/count components: 100 amount-1 facts
+and one amount-100 fact produce grouped values 1 and 100, current mean 50.5 and
+original mean 200/101. Use `grouped.group_by().summarize(mv.mean())` to remove
+the grouped axes for the current-row reduction. Fixed reuse reads retained parts
+only. Null observations remain in count, count_defined includes only Defined
+Cells, and sum/mean reject non-Defined current Cells before consumption.
+These bounded numeric/string executions do not qualify the complete C05 numeric,
+domain, data-check and cancellation matrix.
+
+R9.3 also connects exact ordinary-table UTC-microsecond int64 share and rank
+consumers, and string-identity/int64 cohort predicates, on SQLite, PostgreSQL,
+MySQL, Trino and ClickHouse. Shares retain the explicit original singleton denominator; ranking and
+cohort preserve the full composite identity. Fixed continuations consume retained
+parts without source reads. Cohort truth counts map Boolean conditions to integer
+1/0 before reduction, including PostgreSQL where Boolean-to-BIGINT casts are
+unsupported. These bounded routes do not qualify the complete C08 reference,
+opportunity, numeric-state or cancellation matrix.
+Static string-identity Entity targets also have exact ordinary-table NoTime
+capture routes on the remote backends. Full two-day opportunity controls retain
+all six instances for three composite identities and distinguish `any_instance()`
+from `at_least(2)` across source and fixed execution. ClickHouse Boolean decoding
+accepts only exact integer 0/1 for declared Boolean output; other scalars reject.
 
 R5.4 review repairs keep explicit targets in the executable group-domain graph:
 `group_by(..., groups=target).execute()` validates consumed-key containment and
@@ -1876,6 +2086,11 @@ Entity/time projection expose the producer-owned `subject_binding`, accepted by
 `members(through=...)` and the opportunity consumer's `cohort(through=...)`.
 Groups without such a map reject projection. `domain.cohort@v1` retains complete
 target decisions, including false qualifications, and the exact opportunity grid.
+For a direct fixed cohort, a static target Artifact can be combined with fixed
+Entity/time opportunity Artifacts sharing one exact time shape. Artifact reads
+preserve each input's physical time metadata. The cohort consumer uses the
+retained opportunity grid and therefore selects its non-temporal local key;
+it does not cast or reinterpret timestamps. Other mixed shapes remain rejected.
 Missing opportunities never become Unknown. Existing Unknown consumption is
 qualified independently; no new public Unknown-producing method is introduced.
 The qualification matrix and remaining R7–R10 boundaries are recorded in the
@@ -1890,6 +2105,25 @@ Entity. Classification bindings must already be retained through grouping or
 inclusion; matching display column names is not a correspondence. The receiver
 must retain the same ordered axes, frozen time scope and proven statistical Entity.
 The factory has bounded `repr`/`show` and no standalone `execute`.
+
+R9.3 connects bounded ordinary-table UTC-microsecond int64 group shares and
+int64 stratum values with float64 reference weights on the six backends. Static
+string classifications have exact NoTime capture keys on the remote backends.
+Missing strata and negative weights reject without normalization or publication;
+fixed continuations read retained parts only. Reference proof comparisons use the
+complete stratum key image, preserving duplicate rows and every value while
+allowing different source row orders. These controls do not qualify the complete
+C08 type/domain/state/cancellation matrix.
+
+The bounded ordinary-table NoTime string-identity penetration route preserves
+all composite member columns on the six backends. Independent fixed producer
+member maps retain their original Artifact input identities and receipts while
+historical definition closures remain separate. Key field nullability may differ
+between source projections; names and physical types must match, and actual
+null coordinates and duplicate identities reject. Intersection proof comparison
+uses every typed key rather than source row order. Empty references remain
+Undefined/empty_reference. Rank/limit/table controls retain original ranks and
+canonical terminal-table key order.
 
 Original Metric/runtime Metric sum/count/linear join mean/weighted_mean/ratio in
 standardization admission. Mean/weighted mean use their sample/paired contribution
@@ -1933,6 +2167,18 @@ native tables and local Parquet; fixed continuations consume verified Store 7
 parts. R6.6 attribution, R6.7 same-wheel closure and remote qualifications remain
 separate acceptance work.
 
+R9.3 connects bounded ordinary-table UTC-microsecond int64 direct-column
+native distributions for string-keyed Entity members. Exact distinct is supported
+on DuckDB, SQLite, PostgreSQL, MySQL and Trino; explicitly approximate distinct
+also runs on ClickHouse. Exact quantile is supported on DuckDB and PostgreSQL;
+explicit approximate quantile also runs on Trino and ClickHouse. SQLite/MySQL
+quantiles and ClickHouse exact distinct remain pre-read refusals under the native
+accuracy contract. Ibis may implement an explicitly approximate declaration with
+an exact native operation; the submitted operation and authored intent remain
+separate evidence. Original distribution quantities have no original rollup or
+attribution authority. Fixed recovery uses retained values only. These registrations
+do not qualify other input types, unbounded windows or complete C10.
+
 ### R6.6 connected allocation
 
 Absolute Difference.attribute(axes=..., mode="joint", top_k=None) returns
@@ -1965,6 +2211,23 @@ selects all three views together and unconditionally revokes current completenes
 Views use existing predicate, rank and table consumers and do not gain original
 Metric merge state. Native Help owns static facts and contract() owns current
 continuations; existing packaged workflow guidance remains applicable unchanged.
+
+R9.3 connects a bounded ordinary-table UTC-microsecond int64 sum-zero and original-mean path
+with explicit string contribution coordinates and bounded observation windows
+on the six backends. Non-DuckDB inputs prepare flat native candidate rows before
+registered local original reduction, absolute comparison and additive/component-mix attribution.
+Single/joint axes, retained hierarchy, common Top-K/Other and selection consume
+checked original partitions; missing classifications reject atomically. Fixed
+continuations use retained receipts only. Ordinary source reads keep their normal
+read guarantees and do not claim a shared snapshot. Historical selected-population
+and occurrence preparation still require their existing capture authority. This
+subset does not qualify other original methods, source numeric types or complete C09.
+
+A logical observation over a locally selected population exposes execution as its
+continuation boundary. Execute it before grouping, comparison or other derived
+operations; its materialized result owns those continuations. Ordinary prepared
+observations with identical selected and original populations retain their normal
+logical continuations.
 
 ### R6.7 canonical recovered variants
 
@@ -2091,6 +2354,18 @@ exact Journey domain; where transports that map and members takes its set image.
 `read(mv.dropped_before(step=...))` returns BooleanRelation and is
 first_per_subject only. Unknown is not silently removed by ordinary where.
 
+Retained microsecond Journey Duration ratios preserve Unknown(coverage_censored)
+or Unknown(entry_unknown) as scalar float64 Unknown with complete exact keys and
+both original endpoint Cells. Self-division does not cancel uncertainty. When
+both operands are Defined, zero denominators remain Undefined(zero_denominator).
+Other non-Defined operands reject. This does not qualify History comparison
+endpoints or create a complete time grid for forecasting/runs.
+The fixed NoTime float64 Journey quotient has connected zscore/MAD and
+Pearson/Spearman/Kendall consumers. Deviation preserves unavailable Cells while
+fitting only Defined samples; association refuses Unknown without deleting or
+imputing it. These declarations do not qualify other Journey numeric types,
+source statistical routes, forecast or runs.
+
 FunnelResult owns handles named cohort_count, resolved_cohort_count, entry_count,
 resolved_entry_count, reached_count, lost_count, coverage_censored_count,
 conversion_from_first, conversion_from_previous and loss_rate_from_previous.
@@ -2187,7 +2462,35 @@ exclusive codecs are physically removed. Remaining Event/Lifecycle shared code
 awaits its owning phase. Detailed validation and physical requirement statuses are
 in the R7.4 evidence index; later phases, same-wheel and remote qualification remain separate.
 
+R9.3 additionally admits SQLite native main-table int64/UTC-us preparation for
+one direct, unversioned string/int64 Subject entry axis or an ordered
+int64/string pair, or one string axis through a single to-one UTC daily
+native-DATE snapshot path or UTC native-DATE closed-open validity path with
+NULL open end. Occurrences and entry axes
+are captured before local Journey matching and funnel reduction. Fixed compatible
+comparisons and loss/denominator-mix allocation consume only retained parts;
+recovery can construct a new allocation without source or semantic execution.
+Historical path keys use bound R1 schema types. Snapshot selection requires the
+exact entry period; a missing period rejects and never selects a later or earlier
+row. Validity selection includes the start and excludes the end; a missing or
+overlapping interval rejects the complete historical path before publication.
+SQLite uses the existing governed temporal lowering and registers its
+existing temporal functions on the backup connection before submission.
+A repeated execution of the same continuation retains its exact artifact hit;
+a separately reconstructed continuation does not promise the prior artifact ID.
+Other axis counts/orderings, longer paths, other version/time profiles and complete C12
+qualification are not added by this bounded declaration.
+
 ## R7.6 local History API amendment
+
+R9.3 additionally connects SQLite native main-table int64/UTC-us replay and
+unclassified History views through the registered SQLite backup preparation.
+The frozen prefix feeds the existing canonical replay and view consumers.
+Complete, prefix and unknown source-origin coverage preserve their distinct
+traces and censoring. Source/fixed views and retained scalar reads use the same
+typed contracts; fixed recovery does not read sources or replay events.
+Other identity/time shapes, checkpoint axes and other source backends remain
+independently unqualified. This bounded extension does not grant complete C13.
 
 All six History operations and the five Logical/Materialized view pairs above are
 implemented on governed local DuckDB tables and Parquet. Both History variants
@@ -2246,6 +2549,30 @@ Retention, Subject any/every, complete A13, same-wheel and remote qualification 
 at their existing R7.8/R7.9/R9 owners. AGENTS.md and packaged skills are unchanged.
 
 ### R7.8 implementation amendment (2026-10-03)
+
+R9.3 adds bounded SQLite native main-table int64/UTC-us Event-origin anchors
+and retention. Both elapsed and calendar windows select the registered
+ibis_python preparation/consumption route before submission; SQLite's unsupported
+microsecond interval arithmetic is not emitted or rewritten. Native backup
+authority freezes the source prefix. The original opportunity set, Unknown
+follow-up, deterministic bounds and any/every Subject fibers remain retained
+through selection and cold recovery. Starts-only fixed anchors still reject
+new return inputs. A separately registered SQLite Event-origin Anchor Metric
+observation supports one direct int64 sum-zero Metric without coordinates or
+filters, using elapsed or calendar windows. Its preparation reads flat candidates and packs
+them into typed Arrow lists before local consumption, preserving overlapping
+window contribution multiplicity and business order. Own anchors and exact
+deadlines are excluded; fixed and cold reads retain the contribution evidence.
+SQLite also connects Journey-origin Anchor binding for this same native
+int64/UTC-us shape through the existing local binding consumer. Original Journey
+assignments and start instants are retained; binding recovered fixed Journeys
+does not access a source or repeat matching. These Journey origins also support
+the same direct Metric observations and elapsed/calendar retention, preserving
+original assignments and opportunities. Source candidates are prepared before
+local binding or consumption. Calendar deadlines use wall-time arithmetic; a
+return exactly at the spring-DST 23-hour deadline is excluded, while an elapsed
+24-hour observation includes it. Compositions, other input shapes and complete
+C18 qualification remain separate obligations.
 
 `AnchorDomain.retention` now binds a returning ParticipantRoleHandle on the same
 Subject and captures its finite occurrence envelope before local consumption.
@@ -2459,6 +2786,13 @@ returns `MaterializedTimeRunResult`. The four owned fields are `start`, `end`,
 `count` and `duration`. Conditions classify every original cell before maximal
 segmentation. Missing grid coordinates and partial cells reject; unavailable
 Cells break segments. Selection retains the original condition scope.
+An input also needs actual retained coverage facts. A derived ratio whose
+endpoints lack those facts rejects with a structured analysis error; the domain's
+grid declaration alone does not establish coverage. Continue from a covered
+original observation or an owned fitted field retaining its grid mapping.
+The same requirement applies to time association and forecast consumption:
+missing endpoint coverage raises a structured analysis error before fitting,
+including when every current ratio Cell is Defined.
 
 ```python
 segments = daily.runs(where=daily.value.gt(20))
@@ -2489,3 +2823,74 @@ using the common exact association arithmetic kernel.
 The R8.1 immutable inventory and all prior qualification records remain historical
 evidence. Current R8.5 requirements and symbol/test dispositions are reported in
 the R8.5 evidence index; this cutover does not qualify R8.2–R8.4, R8.6, R9 or R10.
+
+
+### R9.3 remote input-read consistency (2026-10-06)
+
+PostgreSQL, MySQL, Trino and ClickHouse domain preparation reads already bound
+inputs independently. Source changes between those reads are permitted. No
+repeatable-read transaction, database snapshot or cross-read revision guarantee
+is required or created. The retained `independent_reads` authority binds the
+actual acquired inputs and definitions; it does not claim that their database
+versions coincide. All source inputs still precede local evaluation, and fixed
+continuations consume the retained inputs without rereading the source.
+Business completeness declarations and actual read coverage keep their separate
+meaning; an exhaustive read does not prove business completeness. Exact key,
+multiplicity, deadline, cancellation and cleanup checks remain mandatory.
+
+
+### Explicit business completeness on original observations
+
+`LogicalAnalysisDomain.observe(..., complete_during: tuple[TimeScope, ...] | None = None)`
+extends the existing observation entry. The declaration belongs to the exact
+Metric graph, contribution identity, receiver and original TimeGrid captured by
+this call. It requires `during=grid.window`, one original sum or sum-zero Metric,
+no `at` or contribution coordinates, and non-partial original grid cells. Native
+production is admitted for existing DuckDB table/Parquet observations; it does
+not introduce another source route or any domain snapshot.
+
+Each supplied scope must be absolute with aware datetime bounds and lie within
+the original grid. At most 64 scopes are accepted. Their UTC-normalized union is
+canonicalized, including overlapping and adjacent intervals. A bucket is complete
+only if its entire original half-open interval lies in that union. `None` retains
+the existing observation policy; `()` explicitly declares no complete buckets.
+
+The native source read remains physically complete. `coverage__complete` retains
+that actual acquisition fact. The same quantity-bound CoveragePart owns the
+canonical business windows, `coverage__business_complete`, and the original
+partial value/tag/reason. Original additive components stay bound and unchanged.
+Uncovered buckets expose `Unknown(insufficient_business_coverage)` with no value;
+covered buckets retain their original Defined/Null policy. Unknown is not Source
+Null, an empty bucket, zero, or a failed acquisition. The producer does not infer
+business completeness from a successful query.
+
+Publication, fixed reads and cold recovery independently compare declared
+windows against the original bucket boundaries, verify physical completeness,
+reconstruct the partial Cell for original additive-state integrity, and verify
+the public Cell against the business policy. The coverage declaration contributes
+to quantity and graph identity. Changed declarations cannot reuse another result.
+
+Business-covered observations cannot use original-state rollup or coarsening,
+even when all currently requested buckets happen to be declared complete; their
+current contract omits those continuation hints. A fresh original observation is
+required for a different domain or completeness declaration. Fixed selection
+retains the declaration and partial support; selection cannot restore an original
+full-grid statistical input.
+
+Ordinary numeric sums supply actual full-grid scalar Unknown directly. Three
+forecasts reject such training Cells with `r8.cell_policy` and publish no partial
+result. Runs treats them as unavailable and splits maximal segments at their
+original grid boundaries. Duration sums retain their fixed unit; their retained
+Duration quotient propagates this Unknown reason into float64. Duration itself
+still does not acquire scalar statistical admission.
+
+```python
+from datetime import datetime, timezone
+complete = mv.time_scope(
+    start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+    end=datetime(2026, 8, 3, tzinfo=timezone.utc),
+)
+daily = members.each(grid).observe(
+    sum_metric, during=grid.window, complete_during=(complete,),
+)
+```
