@@ -1,3 +1,0 @@
-PROFILE               STATUS     ARCH       CPUS    MEMORY    DISK     RUNTIME    ADDRESS
-default               Stopped    aarch64    2       2GiB      30GiB
-marivo-multisource    Stopped    aarch64    4       6GiB      12GiB

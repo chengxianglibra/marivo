@@ -13,7 +13,7 @@ list before a specific authorization decision.
 
 ## Observed counterexamples and alternatives
 
-[The diagnostic evidence](2026-10-04-marivo-r93-evidence/mysql-cancel-alternatives-01/observations.json)
+The diagnostic evidence (historical record in Git history)
 uses the current SELECT-only MySQL reader and exact Ibis-compiled aggregation.
 At a 0.05-second deadline, the current interruption request leaves the server
 query active at 0.2 seconds. It returns the structured timeout only after the
@@ -62,7 +62,7 @@ unverified; this proposal does not redefine it as passed.
 
 ## Bounded implementation evidence
 
-[Owned cancellation development](2026-10-04-marivo-r93-evidence/mysql-owned-cancel-development-01/README.md)
+Owned cancellation development (historical record in Git history)
 records a real SELECT-only reader cancelling its own long query at a 50ms
 execution deadline. The independent observer finds both original and control
 connection IDs absent after owner cleanup. Recorded cleanup callbacks execute on
@@ -87,7 +87,7 @@ native submission classification, explicit interrupted graph atomicity and
 persistent control-resource reconciliation remain unverified.
 
 
-[Native graph cancellation and resource recovery development](2026-10-04-marivo-r93-evidence/mysql-graph-cancel-development-01/README.md)
+Native graph cancellation and resource recovery development (historical record in Git history)
 adds creation-before-use reservation and acknowledged-only discharge. Native
 cancellation fails the Run, publishes no new artifact, preserves the earlier
 artifact and discharges the control obligation. A deliberately missing close
@@ -101,7 +101,7 @@ and the broader R9.5 metadata/control inventory remain separate obligations.
 
 ## Qualification binding boundary
 
-[MySQL resource binding development](2026-10-04-marivo-r93-evidence/mysql-resource-binding-development-01/README.md)
+MySQL resource binding development (historical record in Git history)
 requires all three resource cases: native 50ms cancellation, atomic interrupted
 graph failure and unconfirmed control-close recovery. Native data/control IDs and
 independent driver observations identify the exact approved KILL target. Actual
@@ -116,7 +116,7 @@ proof set it remains blocked. Historical indexes are preserved; development
 captures do not grant status or bypass candidate identity.
 
 
-[C03 resource dispatch repair](2026-10-04-marivo-r93-evidence/c03-resource-dispatch-01/README.md)
+C03 resource dispatch repair (historical record in Git history)
 now admits the same optional validated three-record resource set to its existing
 predicate. A matching frozen candidate and all original C03 consumers remain
 mandatory. MySQL remains blocked by the independently observed Boolean/int8

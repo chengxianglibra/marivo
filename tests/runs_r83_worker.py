@@ -19,8 +19,10 @@ from marivo.analysis.materialization.runs_execution import CAPTURE, RUNS, _decod
 from marivo.analysis.methods.physical import Qualified
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from scripts.r81_static_freeze import Json, array_json, object_json, read_json
-from scripts.r82_deviation_requirements import key_json
+from tests.json_support import Json, key_json
+from tests.json_support import arr as array_json
+from tests.json_support import obj as object_json
+from tests.json_support import read as read_json
 
 
 def forbidden(*args: object, **kwargs: object) -> None:

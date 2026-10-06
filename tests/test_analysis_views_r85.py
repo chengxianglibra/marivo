@@ -24,8 +24,8 @@ from marivo.analysis.materialization import (
 from marivo.analysis.materialization.graph_protocol import descriptor_plan, receipt_digest
 from marivo.analysis.methods.physical import Qualified
 from marivo.datasource import adapters
-from scripts.r82_deviation_requirements import key_json
 from tests.deviation_r82_fixture import prepare_profiles
+from tests.json_support import key_json
 from tests.shared_fixtures import DslCaseFactory
 
 METHODS = (

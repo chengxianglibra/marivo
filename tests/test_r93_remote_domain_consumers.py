@@ -15,7 +15,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
-from scripts.r9_qualification_requirements import Json
+from tests.json_support import Json
 from tests.lifecycle_r75_fixtures import END, START, build_lifecycle_public
 from tests.lifecycle_r75_oracle import expected_histories
 from tests.r9_source_cases import SourceData, source_case

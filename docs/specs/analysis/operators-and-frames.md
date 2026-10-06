@@ -1380,7 +1380,7 @@ grant additional precision. Exact Decimal
 current-row min/max retain their original carrier and extrema state; prepared
 Decimal sum uses widened exact state and its accepted Decimal(38,s) output.
 Actual qualified profiles and unfinished exits are recorded in the
-[R8.2 evidence index](../../superpowers/specs/2026-10-04-marivo-r82-evidence-index.md).
+R8.2 evidence index (historical record in Git history).
 
 ## R8.1 frozen statistical method rules
 

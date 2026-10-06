@@ -13,10 +13,9 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.materialization.graph_protocol import descriptor_plan, receipt_digest
 from marivo.analysis.methods.physical import Qualified
-from scripts.r81_static_freeze import Json
-from scripts.r82_deviation_requirements import key_json
 from tests.deviation_r82_fixture import prepare_profiles
 from tests.deviation_r82_oracle import expected
+from tests.json_support import Json, key_json
 from tests.shared_fixtures import (
     DSL_NAMES,
     DslCase,

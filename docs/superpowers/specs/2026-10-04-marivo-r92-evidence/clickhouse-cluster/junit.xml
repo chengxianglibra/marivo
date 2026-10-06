@@ -1,1 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="2.441" timestamp="2026-10-04T18:31:23.812507+08:00" hostname="Silins-MacBook-Pro.local"><testcase classname="tests.test_r92_source_profiles" name="test_source_profile[clickhouse-distributed]" time="0.894" /></testsuite></testsuites>

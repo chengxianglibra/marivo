@@ -10,8 +10,8 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.datasource.adapters import SourceSession
-from scripts import r9_qualification_requirements as freeze
-from scripts.r82_deviation_requirements import key_json
+from tests import json_support as freeze
+from tests.json_support import key_json
 from tests.lifecycle_r75_fixtures import END, START, TRIGGERS, build_lifecycle_public
 from tests.r93_source_trace import SourceTrace
 

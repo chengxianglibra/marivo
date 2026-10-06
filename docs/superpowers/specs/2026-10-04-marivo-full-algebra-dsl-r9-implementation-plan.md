@@ -1,26 +1,31 @@
 # Marivo 全量分析代数与 Analysis DSL：R9 实施文档
 
+Historical execution records, qualification inventories and one-time validation
+scripts were removed during the 2026-10-06 cleanup. Committed records remain in
+Git history; local-only execution files were discarded. Recorded phase results
+below describe their original scope.
+
 Date: 2026-10-04
 
 Status: R9.1 static handoff implemented; validation is recorded in the
-[R9 evidence index](2026-10-04-marivo-r9-evidence-index.md). R9.2 implementation
+R9 evidence index (historical record in Git history). R9.2 implementation
 and bounded source evidence are recorded in the
-[R9.2 record](2026-10-04-marivo-r92-evidence/README.md): 42 original success
+R9.2 record (historical record in Git history): 42 original success
 scenarios passed. On 2026-10-06 the user authorized SQLite native Decimal to be
 unsupported, with exact refusal under its unchanged requirement ID. Two actual
 refusal paths passed; the amended owning exit is 42 successes plus one exact
 refusal, with original evidence retained. Final current-candidate impact belongs
 to the R9.7 audit;
 R9.3's original 222 representative implementation requirements are closed by
-the [full-grid Unknown closure](2026-10-04-marivo-r93-evidence/full-grid-unknown-01/README.md);
+the full-grid Unknown closure (historical record in Git history);
 this is bounded implementation acceptance, not final all-profile qualification.
 R9.4's scoped graph/recovery/resource evidence is recorded in its
-[current record](2026-10-06-marivo-r94-evidence/README.md). R9.5 SQL ownership and
+current record (historical record in Git history). R9.5 SQL ownership and
 physical retirement are recorded in the
-[current SQL ledger](2026-10-06-marivo-r95-sql-ledger.md). R9.6 implementation and
+current SQL ledger (historical record in Git history). R9.6 implementation and
 cost boundaries are recorded in the
-[current cost record](2026-10-06-marivo-r96-cost-record.md); the
-[R9.7 completion audit](2026-10-06-marivo-r97-completion-audit.md) now delivers
+current cost record (historical record in Git history); the
+R9.7 completion audit (historical record in Git history) now delivers
 the requested evidence audit and R10 handoff with the explicit forty-group cost
 skip. Full qualification remains incomplete.
 Frozen targets grant no execution qualification.
@@ -57,8 +62,8 @@ method registry、datasource adapters、Runtime、受控 Arrow/Parquet 交换和
 不整理或提交前序改动。实际实施 R9.1 时重新绑定代码 SHA、dirty diff、新增文件摘要、
 依赖和契约版本，不能仅以本段 HEAD 指代候选实现。
 
-[主验收记录](2026-09-26-marivo-full-refactor-acceptance.md)与
-[R8.6 evidence index](2026-10-04-marivo-r86-evidence-index.md)仍保留有界通过、阻塞及
+主验收记录 (historical record in Git history)与
+R8.6 evidence index (historical record in Git history)仍保留有界通过、阻塞及
 未验证记录；用户的阶段完成交接与这些历史证据分别保存。本文不改写历史分母，也不以
 用户交接补授六后端资格。R9.1 将必需格绑定到实际消费者和证据；依赖缺口保留 owner、
 精确复现与阻塞状态，其他独立格可以继续，受影响格不能先登记通过。
@@ -90,7 +95,7 @@ bootstrap/因果/生存推断。已撤回的 statistical_weight authoring 不恢
 | [Python Analysis design](../../specs/analysis/python-analysis-design.md) 与 [Operators](../../specs/analysis/operators-and-frames.md) | 具体类型、方法含义、Cell、域、数值政策、Pre/RequiredParts/K 和结构化拒绝 |
 | [Session/Runtime](../../specs/analysis/session-state-and-runtime.md) | 来源新求值、共享、固定命中、检查期限、资源、Store 7 与断源恢复 |
 | [Timezone/calendar](../../specs/analysis/timezone-and-calendar-design.md) 与 [DSL architecture](2026-09-24-marivo-analysis-dsl-architecture-design.md) | 时间精度、日历邻接、输入边界、统一 deadline 与无容量准入政策 |
-| [R5 ledger](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md)、[R6 ledger](2026-09-30-marivo-full-algebra-dsl-r6-migration-ledger.md)、[R7 ledger](2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md)、[R8 ledger](2026-10-03-marivo-full-algebra-dsl-r8-migration-ledger.md) | 实际方法消费者、部件、退役与各阶段未授予的后端资格 |
+| R5 ledger (historical record in Git history)、R6 ledger (historical record in Git history)、R7 ledger (historical record in Git history)、R8 ledger (historical record in Git history) | 实际方法消费者、部件、退役与各阶段未授予的后端资格 |
 
 两个后续接受的修订优先于主计划中的早期摘要：
 

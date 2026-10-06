@@ -110,12 +110,3 @@ docs/superpowers/specs/*-qualification.md
 
 # Sphinx autosummary-generated stub pages (build artifact)
 docs/api/api/
-
-# Local R9.3 qualification evidence and execution records
-/docs/superpowers/specs/2026-10-04-marivo-r93-evidence*/
-
-# Local R9.4 qualification evidence and execution records
-/docs/superpowers/specs/2026-10-06-marivo-r94-evidence/
-
-# Local R9.5 SQL qualification evidence and execution records
-/docs/superpowers/specs/2026-10-06-marivo-r95-evidence/

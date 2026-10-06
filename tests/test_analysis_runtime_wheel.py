@@ -82,7 +82,6 @@ R7_TESTS = (
     "test_analysis_history_r76",
     "test_analysis_anchors_r77",
     "test_analysis_retention_r78",
-    "test_analysis_retention_r78_evidence",
     "test_analysis_retirement_r79",
     "test_semantic_r23_business_order",
     "test_lazy_public_relationships",
@@ -163,13 +162,6 @@ def _stage_tests(destination: Path, modules: tuple[str, ...] | None = None) -> N
     (destination / "docs/api").mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "docs/api/analysis.rst", destination / "docs/api/analysis.rst")
     shutil.copy2(ROOT / "pyproject.toml", destination / "pyproject.toml")
-    # Qualification assertions read immutable historical inventories; these are
-    # test inputs, never an importable checkout or an installed-package authority.
-    for source in (ROOT / "docs/superpowers/specs").glob("*r7*"):
-        if source.is_file():
-            target = destination / source.relative_to(ROOT)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
     # Explicit configuration prevents pytest.ini's source-root pythonpath from leaking in.
     (destination / "pytest.ini").write_text(
         "[pytest]\npython_classes =\nmarkers =\n"

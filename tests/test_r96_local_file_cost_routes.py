@@ -10,7 +10,6 @@ from typing import Literal
 import pyarrow as pa
 import pytest
 
-from devtools.r96_cost_scenarios import _rows, workload
 from marivo.analysis.methods import builtin
 from marivo.analysis.methods.physical import (
     DecimalType,
@@ -24,6 +23,7 @@ from marivo.analysis.methods.physical import (
 )
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.datasource.adapters import SourceBatchStream
+from tests.physical_workloads import _rows, workload
 
 
 def test_file_cost_keys_are_exact_and_do_not_specialize_other_numeric_inputs() -> None:

@@ -194,7 +194,7 @@ These paths use the common graph, method registry, SourceSession, exchange and
 Store 7 publication. Fixed continuation uses registered local algorithms and
 receipts without Semantic, source or DuckDB access. Qualification scope, independent
 oracles, reproduction commands and remaining release boundaries are recorded in
-the [versioned R5.5 summary](../../superpowers/specs/2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md#r55-qualification-summary).
+the versioned R5.5 summary (historical record in Git history).
 Detailed run logs under `docs/superpowers/specs/evidence/r55/` are intentionally
 local and ignored; they are not shipped as part of this specification.
 
@@ -350,7 +350,7 @@ The current PyArrow fixture writer converts timestamp[s] to timestamp[ms] in
 the Parquet file. Such a fixture cannot prove the frozen Parquet-s target.
 That target and its requirement IDs remain mandatory and unqualified; relabeling
 an ms file or a successful ms execution does not close them. The
-[R8.2 evidence index](../../superpowers/specs/2026-10-04-marivo-r82-evidence-index.md)
+R8.2 evidence index (historical record in Git history)
 records the actual source schemas, executed shapes and remaining exits.
 
 ## R8.1 frozen statistical grid authority

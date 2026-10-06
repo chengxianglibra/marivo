@@ -1,5 +1,10 @@
 # R1：统一 Datasource Adapter 与基础 Ibis 读取实施文档
 
+Historical execution records, qualification inventories and one-time validation
+scripts were removed during the 2026-10-06 cleanup. Committed records remain in
+Git history; local-only execution files were discarded. Recorded phase results
+below describe their original scope.
+
 Date: 2026-09-26
 
 Status: R1 execution plan；R1.1–R1.5 已部分实施，整体验收仍未通过；当前证据见阶段验收主记录。
@@ -14,7 +19,7 @@ R1 接收 R0 的[C01 能力去向](2026-09-26-marivo-full-refactor-r0-capability
 ## 1. 开工依据、范围与成功口径
 
 用户说明 R0 已完成。起草前 checkout 为 `panda`、HEAD `1bd9b7e98a3c9f7878de73e07f89aeabdc740073`，
-工作树无改动；版本化[阶段验收主记录](2026-09-26-marivo-full-refactor-acceptance.md)仍写有
+工作树无改动；版本化阶段验收主记录 (historical record in Git history)仍写有
 R0.6 未开展及 R0.5 控制/认证替代可行性未证。执行 R1 前须核对 R0 的最终交接和实际代码
 基线，将验收主记录与已完成事实对齐；不能因本实施文档或用户的进度说明，把未运行的后端格
 改成通过。若交接中仍有独立阻塞单元，R1 先推进不依赖它的工作，并在同一主记录留下精确格子。

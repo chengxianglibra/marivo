@@ -21,12 +21,12 @@ from marivo.analysis.materialization.graph_protocol import encode as descriptor_
 from marivo.analysis.methods import association_numeric, deviation_numeric, forecast_numeric
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from scripts.r9_qualification_requirements import Json, arr, digest, encode, obj, read
+from tests.json_support import Json, arr, digest, encode, obj, read
 from tests.r86_journeys import Numeric, Result, check, graphs, proof
 from tests.r86_journeys import snapshot as method_snapshot
-from tests.r94_native_domain_k_worker import run_ids
 from tests.r94_recovery_worker import forbidden
 from tests.r94_recovery_worker import snapshot as input_snapshot
+from tests.shared_fixtures import run_ids
 
 
 def snapshot(result: Result) -> dict[str, Json]:

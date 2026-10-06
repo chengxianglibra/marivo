@@ -12,10 +12,10 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from scripts.r9_qualification_requirements import Json, encode
+from tests.json_support import Json, encode
 from tests.r9_source_cases import source_case
 from tests.r94_domain_recovery_worker import snapshot
-from tests.r94_native_domain_k_worker import run_ids
+from tests.shared_fixtures import run_ids
 from tests.test_r93_capability_consumers import _author_c05_project
 from tests.test_r93_reference_consumers import _data
 

@@ -31,8 +31,8 @@ from marivo.analysis.methods.physical import FixedShape, Qualified
 from marivo.datasource.adapters import SourceBatchStream, SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
-from scripts.r82_deviation_requirements import key_json
 from tests.deviation_r82_oracle import expected as deviation_oracle
+from tests.json_support import key_json
 from tests.r9_source_cases import SourceData, source_case
 
 Carrier = int | float | Decimal

@@ -13,7 +13,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.semantic.ir import AggKind
-from scripts.r9_qualification_requirements import Json, checked, encode, obj, read
+from tests.json_support import Json, checked, encode, obj, read
 from tests.r93_source_trace import capture_source
 from tests.r94_attribution_carrier_worker import parts
 from tests.r94_distribution_carrier_worker import check_original

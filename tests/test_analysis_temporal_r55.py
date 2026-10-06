@@ -608,7 +608,7 @@ def test_source_report_and_grid_timezones_are_independent(
 
     import duckdb
 
-    from scripts.r9_qualification_requirements import Json, checked, encode, read
+    from tests.json_support import Json, checked, encode, read
     from tests.r93_source_trace import capture_source
     from tests.r94_domain_recovery_worker import snapshot
 

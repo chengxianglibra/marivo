@@ -1,5 +1,10 @@
 # R4：统一 Runtime、交换与存储，吸收 MVP 实施文档
 
+Historical execution records, qualification inventories and one-time validation
+scripts were removed during the 2026-10-06 cleanup. Committed records remain in
+Git history; local-only execution files were discarded. Recorded phase results
+below describe their original scope.
+
 Date: 2026-09-28
 
 Status: implementation plan；本次仅编写 R4 实施文档，不代表产品实施或验收。
@@ -12,7 +17,7 @@ Status: implementation plan；本次仅编写 R4 实施文档，不代表产品�
 [DSL 接口设计](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md)和
 [执行架构设计](2026-09-24-marivo-analysis-dsl-architecture-design.md)。
 前置交接见 [R3 实施文档](2026-09-27-marivo-full-algebra-dsl-r3-implementation-plan.md)与
-[验收主记录](2026-09-26-marivo-full-refactor-acceptance.md)。
+验收主记录 (historical record in Git history)。
 
 用户确认 R0/R1/R2/R3 任务完成，以此启动 R4 规划。起草 checkout 的 HEAD 为
 `899eac66b5`，当时存在 R3 acceptance corrections 对应的未提交代码、测试和文档。
@@ -279,7 +284,7 @@ analysis skill 与 AGENTS.md 未修改。
 19 skipped**、400 个文件类型检查、格式/lint/导入合同和 API 文档通过；公共披露/
 类型负例/CLI 定向 **98 passed**，最后披露调整回归 **58 passed**；站点 **321 页**，
 Astro 检查 0 errors / 0 warnings。代码、输入与日志哈希及旧测试迁移映射见
-[工作区证据](evidence/r45/README.md)与 [manifest](evidence/r45/manifest.json)。
+工作区证据 (historical record in Git history)与 manifest (historical record in Git history)。
 此前私有通过记录不替代以上公共取证；19 项既有 skip 不计通过。既有 R5 并发失败保持
 独立交接，本包未重跑该套件。R4.6 的同一候选 wheel 隔离安装和 V12 安装包验收仍未运行，
 因此不宣布整个 R4 或 R5–R9 完成。本包未提交、推送或发布。
@@ -309,8 +314,8 @@ wheel 中；私有通用 v6 Dataset/codec/key 消费者仍按既定 R5–R9 owne
 不作为 Store 7 回退或双读。未新增 API、Help 入口或协议版本。
 
 V01–V12 的具体断言、原始日志、脚本/数据 hash、Run/Artifact 引用、删除与剩余消费者、
-中间失败修复及重跑命令见 [R4.6 证据](evidence/r46/README.md)、
-[矩阵](evidence/r46/matrix.json)与 [manifest](evidence/r46/manifest.json)。
+中间失败修复及重跑命令见 R4.6 证据 (historical record in Git history)、
+矩阵 (historical record in Git history)与 manifest (historical record in Git history)。
 本阶段在既定 J1–J4 本机资格内收口；历史 skip、R5 私有并发失败继续单独交接，
 不授予 R5–R10 完整能力、六后端或真实 Agent 资格。未修改 AGENTS.md/packaged skills，
 未运行完整 release-check、启动 MinIO、提交、推送或发布。

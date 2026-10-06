@@ -1,11 +1,16 @@
 # Marivo 全量分析代数与 Analysis DSL：R6 实施文档
 
+Historical execution records, qualification inventories and one-time validation
+scripts were removed during the 2026-10-06 cleanup. Committed records remain in
+Git history; local-only execution files were discarded. Recorded phase results
+below describe their original scope.
+
 Date: 2026-09-30
 
 Status: R6.1 契约冻结完成；R6.2 已完成账本列明的公共对应、比较与 source/fixed 资格验证；R6.3 已完成账本列明的谓词、完整 Entity×Time cohort 与固定恢复资格验证；R6.4 已接通固定参照与标准化，实际资格及门禁记录见 ledger；R6.5 已接通排名与终端展示，实际资格及门禁记录见 ledger；R6.6 已接通归因与部件运输，实际资格及门禁记录见 ledger；R6.7 完成；V01–V12、A02/A06–A08、J1–J4 及同一 wheel 冷恢复在冻结的本地资格格全部通过，R6 完整验收完成；最终证据见 R6.7 evidence index。
 
 R6.1 的实际基线、owner 决策、消费者清单及验证见
-[R6 migration ledger](2026-09-30-marivo-full-algebra-dsl-r6-migration-ledger.md)。
+R6 migration ledger (historical record in Git history)。
 下述起草基线保留为历史；实施基线为 `44ff8478a740c60b23fc1566a52523acaa476851`，
 tracked 工作树干净，仅本计划未跟踪。
 
@@ -19,8 +24,8 @@ tracked 工作树干净，仅本计划未跟踪。
 
 用户确认 R0/R1/R2/R3/R4/R5 任务完成，以此启动 R6 规划。起草分支 `panda`，HEAD 为
 `ea787d116b6c76bb905a3839ad8e0390ec1b239b`；工作树已有 R5.7 未提交代码、测试、文档及新增文件。
-[验收主记录](2026-09-26-marivo-full-refactor-acceptance.md#r57-completed-qualification-2026-09-30)
-与 [R5 migration ledger](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md)
+验收主记录 (historical record in Git history)
+与 R5 migration ledger (historical record in Git history)
 记载 R5.7 在已接受的方法矩阵内完成。本次读取该记录，不重跑或重新授予 R5 资格。
 实施 R6.1 时记录实际 SHA、dirty diff 与新增文件摘要，以最终 R5 交接为准；不清理或覆盖前序改动。
 
@@ -57,7 +62,7 @@ R5.7 未授予 Decimal/Duration 当前行 sum/mean/min/max 资格；R6 不隐式
 | [Session/Runtime](../../specs/analysis/session-state-and-runtime.md) | 有序输入身份、共享实现、交换、receipt、发布与冷恢复 |
 | [Timezone/calendar](../../specs/analysis/timezone-and-calendar-design.md) | PeriodChange 桶绑定及时间权威；不重新定义 R5 时间语义 |
 | [Semantic object model](../../specs/semantic/semantic-object-model.md) | 被消费的量、单位、角色、关系和组件声明；不写入一次分析的执行事实 |
-| [验收主记录](2026-09-26-marivo-full-refactor-acceptance.md) | 方法资格、证据、失败/skip、删除及 R7–R10 交接 |
+| 验收主记录 (historical record in Git history) | 方法资格、证据、失败/skip、删除及 R7–R10 交接 |
 
 [旧 typed operators 设计](2026-09-01-lazy-analysis-typed-operators-design.md#exact-attribution-arithmetic)
 提供已接受的归因算术、Top-K 和核对规则；旧 Dataset 形状及 codec 不是保留要求。

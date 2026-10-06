@@ -26,7 +26,7 @@ from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, encode
 from marivo.analysis.public_dsl import _MaterializedRead
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from scripts.r9_qualification_requirements import Json, checked, digest, obj, read
+from tests.json_support import Json, checked, digest, obj, read
 from tests.lifecycle_r75_fixtures import END, START
 
 Continuation: TypeAlias = (

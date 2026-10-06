@@ -16,7 +16,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.refs import DimensionKind, Ref
 from marivo.semantic.reader import SemanticProject
-from scripts.r9_qualification_requirements import Json, encode, obj, read
+from tests.json_support import Json, encode, obj, read
 from tests.r9_source_cases import source_case
 from tests.r93_source_trace import SourceTrace
 from tests.r94_domain_recovery_worker import snapshot

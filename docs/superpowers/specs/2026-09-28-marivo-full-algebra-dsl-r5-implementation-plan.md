@@ -1,11 +1,16 @@
 # R5：完整成员、观察、坐标与数值归约实施文档
 
+Historical execution records, qualification inventories and one-time validation
+scripts were removed during the 2026-10-06 cleanup. Committed records remain in
+Git history; local-only execution files were discarded. Recorded phase results
+below describe their original scope.
+
 Date: 2026-09-28
 
 Status: R5.7 complete within the accepted per-method R5.6 matrix. V01–V12 and D01–D22 are verified on the final local and same-wheel candidate; the closure section and migration ledger record exact scope, fingerprints and R6–R10 handoff. Earlier sections preserve historical bounded acceptance, not current pending status.
 
-R5.1 的具体交付、消费者与逐格债务见[迁移清单](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md)；
-[静态证据](evidence/r51/README.md)不授予执行资格。
+R5.1 的具体交付、消费者与逐格债务见迁移清单 (historical record in Git history)；
+静态证据 (historical record in Git history)不授予执行资格。
 
 ## 1. 依据、起点与完成定义
 
@@ -15,7 +20,7 @@ R5.1 的具体交付、消费者与逐格债务见[迁移清单](2026-09-28-mari
 [DSL 接口设计 §5](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md#5-观察分组与两种归约)和
 [执行架构](2026-09-24-marivo-analysis-dsl-architecture-design.md)。前置交接见
 [R4 实施文档](2026-09-28-marivo-full-algebra-dsl-r4-implementation-plan.md)与
-[验收主记录](2026-09-26-marivo-full-refactor-acceptance.md)。
+验收主记录 (historical record in Git history)。
 
 用户确认 R0/R1/R2/R3/R4 任务完成，以此启动 R5 规划。起草分支为 `panda`，HEAD 为
 `fabd277a8d4510dce3973bd772f35175ea8c42e4`；工作区含 R4.6 的未提交代码、测试、文档和
@@ -58,7 +63,7 @@ R2.2 已按用户要求撤回 `ms.statistical_weight`；R5.1 再次确认该范�
 | [Methods and states](../../specs/analysis/operators-and-frames.md) | 每方法规则、前提、Cell、部件、状态版本、空状态和动态 K |
 | [Timezones and calendars](../../specs/analysis/timezone-and-calendar-design.md)、[Temporal semantics](../../specs/temporal-semantics.md) | report/source/calendar 权威、边界、格归属、累计及物理时间精度 |
 | [Session/Runtime](../../specs/analysis/session-state-and-runtime.md) | 身份、共享、统一交换、receipt、原子发布、固定命中和冷恢复 |
-| [验收主记录](2026-09-26-marivo-full-refactor-acceptance.md) | 每格资格、旧链删除、历史失败/skip 恢复、证据与下阶段交接 |
+| 验收主记录 (historical record in Git history) | 每格资格、旧链删除、历史失败/skip 恢复、证据与下阶段交接 |
 
 总计划和接口设计是目标，当前 owning specs 中的 historical/inactive 段不是现行物理资格。
 每包先在上述 owner 接受精确增量，再改产品。不得在本计划另造第二份注册表、状态协议
@@ -184,7 +189,7 @@ R5.1 只冻结契约不冒充实现；任何被保留的目标缺口均阻止相
 上表是定位入口，R5.1 必须补齐实际 import/call/registration 清单；不是按历史文件名重建模块。
 保留独立业务预期和故障语义，旧 API 测试按唯一新入口改写，不能要求旧签名继续可用。
 
-[验收主记录中的 14 项 R5 正例](2026-09-26-marivo-full-refactor-acceptance.md)逐项恢复：
+验收主记录中的 14 项 R5 正例 (historical record in Git history)逐项恢复：
 
 | 原测试位置 | 参数格数 | 恢复责任 |
 | --- | ---: | --- |
@@ -200,8 +205,8 @@ R5.1 只冻结契约不冒充实现；任何被保留的目标缺口均阻止相
 记录原业务义务、新契约与替代 oracle 的一一对应，不用测试数量掩盖覆盖损失。
 
 `tests/test_lazy_runtime_concurrency.py` 的 8 项旧来源失败已有
-[基线日志](evidence/r44/baseline-concurrency.log)与
-[诊断摘要](evidence/r44/runtime-initial-observation.md)。将等价并发/取消/故障场景迁入
+基线日志 (historical record in Git history)与
+诊断摘要 (historical record in Git history)。将等价并发/取消/故障场景迁入
 唯一公共图链，保留各场景时序与不重放/不误发布断言，按实际新 owner 安装钩子；
 不通过恢复 `session.observe` 或仅等待旧钩子解决。R4 的新图并发通过不自动清除这些格。
 
@@ -289,7 +294,7 @@ R5 收口要求本阶段必需格无开放阻塞，14/8 债务逐项可核对；
 基线 `panda` / `75d573e87c6a48aa337c3be170c87baa87d5a15c`，初始工作区干净。
 完整复合身份、声明版本、四类直接列属性及单值路径、消费域检查、source/fixed
 筛选和完整 Subject 集合像已接入既有图与 Store 7。
-[V01/V02 与本包 V10/V12 证据](evidence/r52/README.md)记录独立预期、执行路线、
+V01/V02 与本包 V10/V12 证据 (historical record in Git history)记录独立预期、执行路线、
 日志与候选指纹。80 项定向 Runtime、5363 项默认测试通过；19 个原有跳过仍保留。
 站点、API、typing、lint 与 whitespace 门禁通过。旧 v7 快照缺少新增冻结字段时明确
 拒绝，无兼容重建。本包不代表完整 R5、安装 wheel 或真实 Agent 验收。
@@ -299,7 +304,7 @@ R5.3–R5.7 及 D01–D22 不改判；未提交、推送或发布。
 
 候选基线 `panda` / `09a1ef3b73e9cf2420b7e3ee087dcbe8727c3a68`。
 当前工作承接已有未提交变更；本节取代先前 15/26 项用例及「weighted_mean 全部移交
-R5.6」的交接结论。最终命令、候选摘要与矩阵见 [R5.3 证据](evidence/r53/README.md)。
+R5.6」的交接结论。最终命令、候选摘要与矩阵见 R5.3 证据 (historical record in Git history)。
 
 五工厂已在既有公共图、Ibis/SourceSession 与 Store 7 路线上形成可执行切片。
 每个 canonical component 独立绑定根、过滤、路由与时间范围，先归约再按完整目标键
@@ -341,7 +346,7 @@ D01–D22 未解除；D04/D05–D08/D14 既有 skips 保留。M10 source_admissi
 实际启动基线为 `panda` / `3eede8b61e2e7cdeb3e43c78333ad59e8e4777c5`，首次工作区干净；
 本次续作 HEAD 为 `8dccde674ed8a4586b2b4b1ff39d017a39ec44e1`（既有证据忽略规则提交）；
 先记录继承的 dirty-tree 指纹，保留前轮全部修改。用户方案中的旧 HEAD
-没有被检出或覆盖。可版本控制的资格摘要与复现入口见[迁移清单](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md#r55-qualification-summary)。启动、续作及候选指纹保存在本地忽略目录 `evidence/r55/`。
+没有被检出或覆盖。可版本控制的资格摘要与复现入口见迁移清单 (historical record in Git history)。启动、续作及候选指纹保存在本地忽略目录 `evidence/r55/`。
 
 已接入公共网格和完整 Entity×Time、逐格贡献窗口、独立属性版本端点及符号 before_end、
 空格与部分格、保留时间轴及整格粗化。累计以每个 occurrence 的实际端点读取
@@ -393,7 +398,7 @@ exact definitions name their corresponding approximate declaration and explain
 whether the current backend supports it; execution never substitutes it.
 
 R5.6 source-tree implementation and numeric-matrix verification are complete.
-The [migration ledger](2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md#r56-implementation-checkpoint)
+The migration ledger (historical record in Git history)
 records exact method/type/source/fixed boundaries, independent oracles, cold
 recovery, version/corruption rejection and reproduction commands. Related Runtime
 acceptance totals 315 cases in separate batches; `make check-agent` passes with

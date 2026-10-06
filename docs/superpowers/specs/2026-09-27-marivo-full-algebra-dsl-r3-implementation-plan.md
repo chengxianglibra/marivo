@@ -1,5 +1,10 @@
 # R3：统一代数内核、方法注册与执行图实施文档
 
+Historical execution records, qualification inventories and one-time validation
+scripts were removed during the 2026-10-06 cleanup. Committed records remain in
+Git history; local-only execution files were discarded. Recorded phase results
+below describe their original scope.
+
 Date: 2026-09-27
 
 Status: R3 execution plan；本文规划 R3，未实施或验收 R3 产品代码。
@@ -11,7 +16,7 @@ Status: R3 execution plan；本文规划 R3，未实施或验收 R3 产品代码
 [R0.4 六类规则与消费者台账](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#6-r04-六类元算子规则冻结)、
 [R1 实施文档](2026-09-26-marivo-full-algebra-dsl-r1-implementation-plan.md)、
 [R2 实施文档](2026-09-27-marivo-full-algebra-dsl-r2-implementation-plan.md)和
-[阶段验收主记录](2026-09-26-marivo-full-refactor-acceptance.md)为交接依据。
+阶段验收主记录 (historical record in Git history)为交接依据。
 方法的业务含义仍由各 owning spec 决定；本文固定内核、注册、图与纯计划的实施顺序，
 不以一个通用类型代替 C03–C14、C18 的具体方法契约。
 

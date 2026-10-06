@@ -21,7 +21,7 @@ from marivo.analysis.methods.physical import (
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from scripts.r9_qualification_requirements import encode
+from tests.json_support import encode
 from tests.r9_source_cases import source_case
 from tests.r93_source_trace import SourceTrace
 from tests.test_r93_reference_consumers import _data

@@ -26,10 +26,9 @@ from marivo.analysis.materialization.graph_protocol import descriptor_plan, rece
 from marivo.analysis.methods.deviation_numeric import DeviationMethod
 from marivo.analysis.methods.physical import QualificationKey, TimeShape
 from marivo.datasource.adapters import SourceBatchStream
-from scripts.r81_static_freeze import Json
-from scripts.r82_deviation_requirements import key_json
 from tests.deviation_r82_oracle import PROFILES, decimal_finish, expected
 from tests.deviation_r82_time_worker import publish_calendar
+from tests.json_support import Json, key_json
 
 METHODS: tuple[DeviationMethod, ...] = ("zscore", "mad")
 

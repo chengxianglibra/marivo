@@ -1,9 +1,14 @@
 # Marivo 全量分析代数与 Analysis DSL：R10 实施文档
 
+Historical execution records, qualification inventories and one-time validation
+scripts were removed during the 2026-10-06 cleanup. Committed records remain in
+Git history; local-only execution files were discarded. Recorded phase results
+below describe their original scope.
+
 Date: 2026-10-06
 
 Status: R10.1 scoped implementation and validation complete; R10.2-R10.5 pending.
-See the [R10.1 validation record](2026-10-06-marivo-r101-validation.md). Installed-package,
+See the R10.1 validation record (historical record in Git history). Installed-package,
 real-Agent and release acceptance have not been performed.
 
 ## 1. 目标与前置交接
@@ -18,9 +23,9 @@ real-Agent and release acceptance have not been performed.
 本文初次交付仅新增实施文档；实施记录另行绑定实际候选 SHA、未提交 diff、新增文件摘要及依赖版本，
 不把 HEAD 单独当作完整候选身份。
 
-前置证据读取[R9.7 审计](2026-10-06-marivo-r97-completion-audit.md)、
-[R10 交接](2026-10-06-marivo-r10-handoff.md)与
-[验收主记录](2026-09-26-marivo-full-refactor-acceptance.md)。R9 的当前交付保留
+前置证据读取R9.7 审计 (historical record in Git history)、
+R10 交接 (historical record in Git history)与
+验收主记录 (historical record in Git history)。R9 的当前交付保留
 394 个原始 ID：379 个有限 owner-proof 绑定、15 个 `authorized_skipped` 成本出口，
 以及 V17 内四个未验证物理 producer 绑定。这些是交接状态，不能转换成 394 项实测通过，
 也不授予安装包、真实 Agent 或完整成本资格。
@@ -38,7 +43,7 @@ R10 默认不重启用户已明确跳过的成本采集，不机械展开 9,109 
 | [Python Analysis design](../../specs/analysis/python-analysis-design.md)、[Operators](../../specs/analysis/operators-and-frames.md)、[Session/Runtime](../../specs/analysis/session-state-and-runtime.md) | 精确类型、方法语义、Cell/域/parts/K、身份、执行与恢复 |
 | [Semantic overview](../../specs/semantic/overview.md)与[Datasource layer](../../specs/semantic/datasource-layer.md) | 业务声明、读取治理、凭据、真实物理资格及终端边界 |
 | [公共披露规范](../../specs/agent-friendly-public-surface.md)与[AGENTS.md](../../../AGENTS.md) | Help、结果、错误、CLI、文档与 skills 的责任和编辑要求 |
-| [R9 实施文档](2026-10-04-marivo-full-algebra-dsl-r9-implementation-plan.md)、[R9.5 SQL ledger](2026-10-06-marivo-r95-sql-ledger.md)、R9.7/R10 交接 | 有限代表场景、实际证据、成本缺口与已批准 SQL 边界 |
+| [R9 实施文档](2026-10-04-marivo-full-algebra-dsl-r9-implementation-plan.md)、R9.5 SQL ledger (historical record in Git history)、R9.7/R10 交接 | 有限代表场景、实际证据、成本缺口与已批准 SQL 边界 |
 | [marivo-release](../../../.agents/skills/marivo-release/SKILL.md)、当前 [Makefile](../../../Makefile)与[发布 CI](../../../.github/workflows/release.yml) | 发布准备、构建、安装与发布操作的门禁和授权边界 |
 
 本文只安排已有目标的闭合，不新增分析能力、自动 planner、第七种后端、兼容 alias、旧状态
@@ -155,7 +160,7 @@ R10 默认不重启用户已明确跳过的成本采集，不机械展开 9,109 
 
 **主要工作：**
 
-- 在[验收主记录](2026-09-26-marivo-full-refactor-acceptance.md)中闭合 C01–C18、
+- 在验收主记录 (historical record in Git history)中闭合 C01–C18、
   方法义务、A01–A13、旧链退出、SQL owner、公共披露、后端/资源、包和 Agent 维度。
   采用 R9 接受的有限代表场景与后续实际反例，保留历史分母和范围修订依据。
 - 最终执行 `make check-agent`、相关 Runtime、API/site、包与安装门禁；发布准备时按

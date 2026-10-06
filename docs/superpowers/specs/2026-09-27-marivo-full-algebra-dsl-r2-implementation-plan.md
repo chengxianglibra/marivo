@@ -1,5 +1,10 @@
 # R2：统一 Semantic 业务定义和计算图实施文档
 
+Historical execution records, qualification inventories and one-time validation
+scripts were removed during the 2026-10-06 cleanup. Committed records remain in
+Git history; local-only execution files were discarded. Recorded phase results
+below describe their original scope.
+
 Date: 2026-09-27
 
 Status: R2 execution plan；本文只规划 R2，产品实现和 R2 验收尚未开始。
@@ -9,7 +14,7 @@ Status: R2 execution plan；本文只规划 R2，产品实现和 R2 验收尚未
 [loading/validation/introspection](../../specs/semantic/loading-validation-introspection.md)、
 [目标接口设计 §3](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md#3-语义层应该怎样定义)、
 [R0 能力台账](2026-09-26-marivo-full-refactor-r0-capability-ledger.md)和
-[阶段验收主记录](2026-09-26-marivo-full-refactor-acceptance.md)为交接依据。
+阶段验收主记录 (historical record in Git history)为交接依据。
 R2 交付可由 Analysis 消费的规范业务定义、Ref 与内在计算图；一次分析的成员域、坐标、
 执行准入、来源读取和 Artifact 证据仍由后续 owner 决定。
 

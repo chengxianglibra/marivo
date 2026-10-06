@@ -18,7 +18,7 @@ from marivo.analysis.materialization import graph_local_execution
 from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, encode
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from scripts.r9_qualification_requirements import Json, arr, checked, digest, obj, read
+from tests.json_support import Json, arr, checked, digest, obj, read
 
 
 def forbidden(*args: object, **kwargs: object) -> NoReturn:

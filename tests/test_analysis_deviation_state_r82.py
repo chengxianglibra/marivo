@@ -31,7 +31,9 @@ from marivo.analysis.methods.deviation_numeric import DeviationMethod
 from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.analysis.refs import ArtifactRef
-from scripts.r81_static_freeze import array_json, checked, object_json
+from tests.json_support import arr as array_json
+from tests.json_support import checked
+from tests.json_support import obj as object_json
 
 
 def _input(

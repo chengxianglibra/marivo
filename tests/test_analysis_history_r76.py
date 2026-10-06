@@ -16,56 +16,17 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.refs import ref
 from tests.history_r76_oracle import assert_view, views
-from tests.lifecycle_r75_fixtures import END, START, build_lifecycle_public
+from tests.lifecycle_r75_fixtures import (
+    END,
+    KEY_PROFILES,
+    START,
+    TIME_PROFILES,
+    build_lifecycle_public,
+)
 
-TARGET = json.loads(
-    Path("docs/superpowers/specs/2026-10-01-marivo-r71-consumer-snapshot.json").read_text()
-)["qualification_target"]
-PROFILES = [(key, time) for key in TARGET["key_profiles"] for time in TARGET["time_profiles"]]
+PROFILES = [(key, time) for key in KEY_PROFILES for time in TIME_PROFILES]
 KEYS = {"string": "s", "int64": "i", "composite(string,int64)": "c"}
 METHODS = ("in_state", "distribution", "transitions", "violations", "intervals", "dwell")
-
-
-def test_r76_preserves_all_original_cells_requirements_and_later_owners():
-    import base64
-    import zlib
-
-    snapshot = json.loads(
-        Path("docs/superpowers/specs/2026-10-01-marivo-r71-consumer-snapshot.json").read_text()
-    )
-    inventory = json.loads(zlib.decompress(base64.b64decode(snapshot["inventory_payload"]["data"])))
-    profiles = {"P11", "P12", "P13", "P14", "P15", "P16", "P24", "P36", "P49"}
-    original = {row[0]: row for row in inventory["qualification_cells"] if row[1] in profiles}
-    record = json.loads(
-        Path("docs/superpowers/specs/2026-10-02-marivo-r76-qualification.json").read_text()
-    )
-    cells = record["qualification_cells"]
-    assert len(cells) == len(original) == 2430
-    assert {cell["requirement_id"] for cell in cells} == original.keys()
-    requirements = {profile["id"]: profile["requirements"] for profile in TARGET["method_profiles"]}
-    for cell in cells:
-        source = original[cell["requirement_id"]]
-        assert cell["method_profile"] == source[1]
-        assert cell["key_profile"] == source[2]
-        assert cell["time_profile"] == source[3]
-        assert cell["phase"] == source[4]
-        assert cell["original_route"] == source[5]
-        assert cell["original_status"] == source[6]
-        assert cell["mandatory"] == source[7]
-        assert cell["status"] == "passed_bounded_local_r76"
-    assert {profile["id"]: profile["requirements"] for profile in record["method_profiles"]} == {
-        profile: requirements[profile] for profile in profiles
-    }
-    assert record["counts"]["history_views"] == 1620
-    assert record["counts"]["history_consumers"] == 810
-    assert record["later_responsibilities"]["P24"] == ["R7.7", "R7.8"]
-    assert "same-wheel" in record["exclusions"]
-    assert record["requirement_dispositions"]["V18"]["same_wheel"] == "unverified"
-    for journey in record["a10"]:
-        assert journey["phases"] == ["producer", "continue", "cold"]
-        assert len(journey["executed_K"]) == journey["fixed_K_count"] == 109
-        assert journey["fixed_outputs"] == 119
-        assert journey["cold_exact_hit"] is True
 
 
 def replay(session, members, window, claims):

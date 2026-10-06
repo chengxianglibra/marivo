@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.r9_qualification_requirements import Json, encode, obj, read
+from tests.json_support import Json, encode, obj, read
 
 
 @pytest.mark.runtime

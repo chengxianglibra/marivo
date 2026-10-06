@@ -18,9 +18,9 @@ from marivo.analysis.materialization.graph_protocol import encode as descriptor_
 from marivo.analysis.public_dsl import _MaterializedRead
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from scripts.r9_qualification_requirements import Json, checked, digest, encode, obj, read
+from tests.json_support import Json, checked, digest, encode, obj, read
 from tests.r94_domain_recovery_worker import forbidden, snapshot
-from tests.r94_native_domain_k_worker import run_ids
+from tests.shared_fixtures import run_ids
 
 
 class Continuation(Protocol):
