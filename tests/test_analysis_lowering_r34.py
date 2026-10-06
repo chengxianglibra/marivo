@@ -312,10 +312,9 @@ def test_r43_source_spearman_exact_pair_state(
 
         with pytest.raises(MaterializationError, match="violating rows"):
             execute_source_graph(prepared, lowered, session)
-        assert (
-            len([item for item in session.submissions if item.purpose == "analysis.graph.stage"])
-            == 2
-        )
+        assert len(
+            [item for item in session.submissions if item.purpose == "analysis.graph.stage"]
+        ) == (0 if route == "ibis" else 2)
         assert not session._staged_relations
         return
     result = execute_source_graph(prepared, lowered, session)
@@ -1154,7 +1153,7 @@ def test_r43_strict_row_method_rejects_non_defined_input_before_result(source_ca
 
 
 @pytest.mark.parametrize("failure", [ValueError, KeyboardInterrupt])
-def test_r43_source_iteration_failure_releases_prior_temporary_stages(
+def test_r43_source_iteration_failure_closes_terminal_stream_without_temporary_stages(
     source_case, monkeypatch: pytest.MonkeyPatch, failure
 ):
     from marivo.analysis.materialization.graph_execution import PreparedGraph
@@ -1169,6 +1168,9 @@ def test_r43_source_iteration_failure_releases_prior_temporary_stages(
     closed = []
 
     class FailedStream:
+        def __init__(self, schema: pa.Schema) -> None:
+            self.schema = schema
+
         def __iter__(self):
             raise failure("selected stream stopped")
             yield
@@ -1180,13 +1182,13 @@ def test_r43_source_iteration_failure_releases_prior_temporary_stages(
         nonlocal stage_reads
         if read.purpose == "analysis.graph.stage":
             stage_reads += 1
-            if stage_reads == 2:
-                return FailedStream()
+            return FailedStream(read.schema)
         return original(read, chunk_size=chunk_size)
 
     monkeypatch.setattr(session, "batches", failing_batches)
     with pytest.raises(failure, match="selected stream stopped"):
         execute_source_graph(PreparedGraph(admitted), lowered, session)
+    assert stage_reads == 1
     assert closed == [True]
     assert not session._staged_relations
 
@@ -1234,7 +1236,7 @@ def test_r56_decimal_count_admits_but_unqualified_time_rejects_before_business_r
     assert source.submissions == []
 
 
-def test_r43_explicit_shared_source_stage_is_physically_reused(source_case):
+def test_r43_explicit_shared_source_stage_keeps_logical_sharing_with_one_terminal_read(source_case):
     from marivo.analysis.materialization.graph_execution import PreparedGraph
     from marivo.analysis.materialization.graph_source_execution import execute_source_graph
 
@@ -1256,14 +1258,32 @@ def test_r43_explicit_shared_source_stage_is_physically_reused(source_case):
     )
     admitted = _plan(shared)
     lowered = lower(admitted, bindings=bindings)
+    assert (
+        sum(isinstance(stage, LoweredRelation) and stage.node is first for stage in lowered.stages)
+        == 1
+    )
     result = execute_source_graph(PreparedGraph(admitted), lowered, source_case[0])
     assert result.primary.num_rows == 5
+    assert result.contract.key_fields == ("key_0", "key_1")
+    assert result.primary.schema.field("key_1").type == pa.int64()
+    assert {(row["key_0"], row["key_1"]) for row in result.primary.to_pylist()} == {
+        (row["tenant"], row["id"]) for row in _rows().to_pylist()
+    }
     assert source_case[0]._staged_relations == {}
-    assert sum(
-        submission.purpose == "analysis.graph.stage" for submission in source_case[0].submissions
-    ) == len(lowered.stages)
+    terminal = [
+        submission
+        for submission in source_case[0].submissions
+        if submission.purpose == "analysis.graph.stage"
+    ]
+    assert len(terminal) == 1
+    assert terminal[0].source_identity == left.identity
+    assert {
+        identity
+        for submission in source_case[0].submissions
+        for identity in submission.source_identity.split("|")
+    } == {left.identity, right.identity}
     physical = "facts" if source_case[1] == "table" else "ibis_read_parquet_"
-    assert sum(physical in submission.sql for submission in source_case[0].submissions) == 2
+    assert physical in terminal[0].sql
 
 
 def test_l1_cannot_fuse_tag_selection_with_numeric_consumption(source_case):

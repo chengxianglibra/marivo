@@ -451,6 +451,9 @@ def build() -> dict[str, Json]:
                 risk,
                 "R9.2",
                 ("submission", "type_domain_parts", "resource_cancel"),
+                "rejection"
+                if backend == "sqlite" and risk == "decimal-precision-scale"
+                else "success",
             )
             mappings[f"source-risk:{backend}:{risk}"] = [identity]
     for prefix, limit in (("DS", 22), ("AN", 33)):

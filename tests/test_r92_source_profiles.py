@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -188,6 +188,61 @@ RISKS = (
 )
 
 
+def _sqlite_decimal_refusal(
+    session: adapters.SourceSession,
+    read: adapters.CompiledRead,
+    data: SourceData,
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, object]:
+    cursors: list[FaultCursor] = []
+    native_rows: list[tuple[object, ...]] = []
+    native = adapters._native_cursor
+
+    class CapturedCursor(FaultCursor):
+        def fetchmany(self, size: int) -> Sequence[Sequence[object]]:
+            rows = super().fetchmany(size)
+            native_rows.extend(tuple(row) for row in rows)
+            return rows
+
+    def capture(owner: BaseBackend, name: str, sql: str) -> adapters._Cursor:
+        assert name == "sqlite" and sql == read.sql
+        cursor = CapturedCursor(native(owner, name, sql), "")
+        cursors.append(cursor)
+        return cursor
+
+    monkeypatch.setattr(adapters, "_native_cursor", capture)
+    assert read.schema.field("value").type == pa.decimal128(18, 6)
+    batches: list[pa.RecordBatch] = []
+    with pytest.raises(DatasourceSourceCapabilityError) as failure:
+        batches.extend(session.batches(read, chunk_size=1))
+    error = failure.value
+    assert error.expected == "exact decimal128(18, 6) value for value"
+    assert error.received == "float"
+    assert error.repair is not None and error.repair.kind == "inspect"
+    assert error.repair.help_target.surface == "datasource"
+    assert error.repair.help_target.canonical_id == "inspect"
+    assert type(data.rows[0]["value"]) is Decimal
+    assert len(native_rows) == 1
+    assert native_rows[0][0] == data.rows[0]["id"]
+    assert type(native_rows[0][1]) is float
+    assert batches == []
+    assert len(session.submissions) == 1
+    assert session.submissions[0].state == "failed"
+    assert session.submissions[0].cursor_state == "closed"
+    assert len(cursors) == 1 and cursors[0].closed and not session._streams
+    return {
+        "expectation": "exact-refusal",
+        "unsupported": True,
+        "error_type": type(error).__name__,
+        "expected": error.expected,
+        "received": error.received,
+        "repair": error.repair.model_dump(mode="json"),
+        "native_rows": native_rows,
+        "native_value_type": type(native_rows[0][1]).__name__,
+        "arrow_batches": len(batches),
+    }
+
+
 def risk_data(backend: str, risk: str) -> SourceData:
     if risk == "decimal-precision-scale":
         rows: list[dict[str, object]] = [
@@ -279,13 +334,10 @@ def test_source_type_risk(
             expected_schema=expression.schema().to_pyarrow(),
         )
         blocker: str | None = None
+        refusal: dict[str, object] | None = None
         actual: list[dict[str, object]] = []
         if backend == "sqlite" and risk == "decimal-precision-scale":
-            with pytest.raises(DatasourceSourceCapabilityError) as failure:
-                list(session.batches(read, chunk_size=1))
-            assert failure.value.expected and failure.value.received and failure.value.repair
-            assert session.submissions[-1].state == "failed"
-            blocker = "SQLite NUMERIC affinity returns float rather than exact Decimal; required exact-decimal source success remains blocked"
+            refusal = _sqlite_decimal_refusal(session, read, data, monkeypatch)
         else:
             actual = pa.Table.from_batches(
                 session.batches(read, chunk_size=1), schema=read.schema
@@ -315,7 +367,50 @@ def test_source_type_risk(
             "actual": actual,
             "schema": str(read.schema),
             "blocker": blocker,
+            "refusal": refusal,
             "submissions": [asdict(item) for item in session.submissions],
             "remote_termination_proof": False,
         }
     receipt(f"risk-{backend}-{risk}", evidence)
+
+
+def test_sqlite_numeric_type_map_cannot_restore_exact_decimal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data = replace(
+        risk_data("sqlite", "decimal-precision-scale"),
+        columns="id BIGINT, value NUMERIC",
+        sqlite_type_map={"numeric": "decimal(18,6)"},
+    )
+    with source_case("sqlite", "table", tmp_path, monkeypatch, data) as case:
+        session = case.session
+        assert session.datasource.fields["type_map"] == data.sqlite_type_map
+        binding = session.bind(case.source, source_identity="r92:sqlite:decimal-type-map")
+        assert binding.facts.schema.field("value").type == pa.decimal128(18, 6)
+        qualified = session.qualify(
+            binding, PhysicalRequirement("r92.types", 1, frozenset({"scan", "project"}))
+        )
+        expression = binding.relation.order_by("id")
+        read = session.compile(
+            qualified,
+            expression,
+            purpose="r92.types",
+            expected_schema=expression.schema().to_pyarrow(),
+        )
+        refusal = _sqlite_decimal_refusal(session, read, data, monkeypatch)
+        session.close()
+        assert all(item.connection_disconnected for item in session.submissions)
+        evidence: dict[str, object] = {
+            "backend": "sqlite",
+            "risk": "decimal-precision-scale",
+            "declaration": "NUMERIC with explicit Decimal type_map",
+            "environment": case.environment,
+            "oracle": data.rows,
+            "actual": [],
+            "schema": str(read.schema),
+            "type_map": data.sqlite_type_map,
+            "refusal": refusal,
+            "submissions": [asdict(item) for item in session.submissions],
+            "remote_termination_proof": False,
+        }
+    receipt("risk-sqlite-decimal-type-map-refusal", evidence)

@@ -1265,7 +1265,32 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     if method.name.startswith("deviation."):
         from marivo.analysis.methods.deviation_physical import implementations as deviation
 
-        return deviation(method)
+        declarations = deviation(method)
+        if method.name in ("deviation.zscore", "deviation.read"):
+            input_type: ScalarName = "int64" if method.name == "deviation.zscore" else "float64"
+            declarations += tuple(
+                replace(
+                    item,
+                    key=replace(
+                        item.key,
+                        shape=replace(item.key.shape, form=form, table_kind=form),
+                    ),
+                    qualification=Qualified(
+                        f"r96.local_file.{form}.{method.name}.entity.{input_type}.no_time@v1",
+                        item.qualification.consumer_id,
+                        "tests/test_r96_local_file_cost_routes.py",
+                    ),
+                )
+                for item in declarations
+                if item.key.shape == SourceShape("duckdb", "parquet", "parquet", NoTime())
+                and item.key.input_types == (ScalarType(input_type),)
+                and item.key.input_domains == ("entity",)
+                and item.key.route == "ibis_python"
+                and isinstance(item.key.shape, SourceShape)
+                and isinstance(item.qualification, Qualified)
+                for form in ("csv", "json")
+            )
+        return declarations
     if method.name in ("anchor.retention", "retention.by_subject"):
         from marivo.analysis.methods.retention_physical import implementations as retention
 
@@ -1700,6 +1725,9 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     }
     if method.name in c09_local_keys:
         types, domains = c09_local_keys[method.name]
+        local_backends: tuple[Backend, ...] = ("sqlite", "postgres", "mysql", "clickhouse", "trino")
+        if method.name == "state_rollup.sum_zero":
+            local_backends = ("duckdb", *local_backends)
         declarations = (
             *declarations,
             *(
@@ -1717,10 +1745,12 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     qualification=Qualified(
                         f"r93.c09.local.{backend}.{item.key}",
                         item.qualification.consumer_id,
-                        "tests/test_r93_attribution_consumers.py",
+                        "tests/test_r96_cost_scenarios.py"
+                        if backend == "duckdb"
+                        else "tests/test_r93_attribution_consumers.py",
                     ),
                 )
-                for backend in ("sqlite", "postgres", "mysql", "clickhouse", "trino")
+                for backend in local_backends
                 for item in declarations
                 if item.key.shape == FixedShape(NoTime())
                 and item.key.input_types == types
@@ -1880,6 +1910,34 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             and item.key.route == "ibis"
             for form in ("csv", "json")
         )
+    if method.name == "state_rollup.sum_zero":
+        declarations += tuple(
+            replace(
+                item,
+                key=replace(item.key, shape=replace(item.key.shape, form=form, table_kind=form)),
+                qualification=Qualified(
+                    f"r96.local_file.{form}.{method.name}.{item.key.route}.entity.int64.utc_us@v1",
+                    item.qualification.consumer_id,
+                    "tests/test_r96_local_file_cost_routes.py",
+                ),
+            )
+            for item in declarations
+            if isinstance(item.key.shape, SourceShape)
+            and item.key.input_types == (ScalarType("int64"),)
+            and item.key.input_domains == ("entity",)
+            and isinstance(item.qualification, Qualified)
+            for form in (
+                ("csv", "json")
+                if item.key.shape
+                == SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC"))
+                and item.key.route == "ibis"
+                else ("parquet", "csv", "json")
+                if item.key.shape
+                == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
+                and item.key.route == "ibis_python"
+                else ()
+            )
+        )
     return declarations
 
 
@@ -1921,6 +1979,7 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
             "r93.c12.",
             "r93.c13.",
             "r93.c18.",
+            "r96.local_file.",
         )
     ):
         return implementation

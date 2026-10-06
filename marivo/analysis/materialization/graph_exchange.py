@@ -268,6 +268,22 @@ class _PartStream:
             close()
 
 
+def _key_rows(batch: pa.RecordBatch, fields: tuple[str, ...]) -> Iterator[tuple[object, ...]]:
+    from marivo.analysis.materialization.execute_deadline import check
+
+    for start in range(0, batch.num_rows, 1024):
+        check()
+        count = min(1024, batch.num_rows - start)
+        if fields:
+            columns: tuple[list[object], ...] = tuple(
+                batch.column(name).slice(start, count).to_pylist() for name in fields
+            )
+            yield from zip(*columns, strict=True)
+        else:
+            for _ in range(count):
+                yield ()
+
+
 class CheckedStream:
     """Validate one producer; completion requires exhaustion and successful close."""
 
@@ -292,6 +308,7 @@ class CheckedStream:
         self._started = False
         self._closed = False
         self.completed = False
+        self._key_index: set[tuple[object, ...]] | None = None
 
     def __iter__(self) -> Iterator[pa.RecordBatch]:
         if self._started or self._closed:
@@ -310,10 +327,8 @@ class CheckedStream:
                 if not batch.schema.equals(self.schema, check_metadata=False):
                     raise _invalid("batch schema changed")
                 if self._keys:
-                    columns = tuple(batch.column(name) for name in self._keys)
-                    for index in range(batch.num_rows):
+                    for key in _key_rows(batch, self._keys):
                         check()
-                        key = tuple(column[index].as_py() for column in columns)
                         if (
                             any(
                                 value is None and name not in self._nullable_keys
@@ -334,24 +349,33 @@ class CheckedStream:
             self._closed = True
             self._source.close()
             self.completed = exhausted
+            if exhausted:
+                self._key_index = seen_keys
 
     def _validate_cells(self, batch: pa.RecordBatch) -> None:
-        values = batch.column("value")
-        tags = batch.column("cell_tag")
-        reasons = batch.column("cell_reason")
-        for index in range(batch.num_rows):
-            tag = tags[index].as_py()
-            value = values[index]
-            reason = reasons[index].as_py()
-            if tag == "defined":
-                if not value.is_valid or reason is not None:
-                    raise _invalid("invalid Defined Cell")
-            elif (
-                tag not in ("null", "undefined", "unknown")
-                or value.is_valid
-                or reason not in self._cell_reasons.get(tag, ())
-            ):
-                raise _invalid("invalid non-Defined Cell")
+        from marivo.analysis.materialization.execute_deadline import check
+
+        for start in range(0, batch.num_rows, 1024):
+            check()
+            values: list[bool] = batch.column("value").slice(start, 1024).is_valid().to_pylist()
+            tags: list[object] = batch.column("cell_tag").slice(start, 1024).to_pylist()
+            reasons: list[object] = batch.column("cell_reason").slice(start, 1024).to_pylist()
+            for valid, tag, reason in zip(values, tags, reasons, strict=True):
+                if tag == "defined":
+                    if not valid or reason is not None:
+                        raise _invalid("invalid Defined Cell")
+                elif (
+                    tag not in ("null", "undefined", "unknown")
+                    or valid
+                    or reason
+                    not in (self._cell_reasons.get(tag, ()) if isinstance(tag, str) else ())
+                ):
+                    raise _invalid("invalid non-Defined Cell")
+
+    def _complete_key_index(self) -> set[tuple[object, ...]]:
+        if not self.completed or self._key_index is None:
+            raise _invalid("producer key validation did not complete")
+        return self._key_index
 
     def close(self) -> None:
         if not self._closed:
@@ -416,7 +440,11 @@ def collect(
         for p in contract.signature.parts
     ):
         raise _invalid("unsupported required numerical state version")
-    primary_keys = _table_keys(primary, contract.key_fields, nullable)
+    primary_keys = (
+        stream._complete_key_index()
+        if contract.key_fields
+        else _table_keys(primary, contract.key_fields, nullable)
+    )
     for declared, part in zip(contract.parts, parts, strict=True):
         if not part.table.schema.equals(declared.schema, check_metadata=False):
             raise _invalid(f"{declared.role} schema differs")
@@ -1125,20 +1153,21 @@ def _table_keys(
 ) -> set[tuple[object, ...]]:
     from marivo.analysis.materialization.execute_deadline import check
 
-    columns = tuple(table.column(name) for name in fields)
+    for name in fields:
+        table.column(name)
     result: set[tuple[object, ...]] = set()
-    for index in range(table.num_rows):
-        check()
-        key = tuple(column[index].as_py() for column in columns)
-        if (
-            any(
-                value is None and name not in nullable
-                for name, value in zip(fields, key, strict=True)
-            )
-            or key in result
-        ):
-            raise _invalid("null or duplicate complete part key")
-        result.add(key)
+    for batch in table.to_batches(max_chunksize=1024):
+        for key in _key_rows(batch, fields):
+            check()
+            if (
+                any(
+                    value is None and name not in nullable
+                    for name, value in zip(fields, key, strict=True)
+                )
+                or key in result
+            ):
+                raise _invalid("null or duplicate complete part key")
+            result.add(key)
     return result
 
 

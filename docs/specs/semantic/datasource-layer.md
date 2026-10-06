@@ -595,6 +595,12 @@ preserve invalid date text for rejection rather than silently turning it into
 null. A DuckDB result is connection-owned and is released with its connection;
 remote cursor close does not prove server-side query termination.
 
+SQLite native NUMERIC affinity is not an exact Decimal carrier. Declaring a
+Decimal schema, including through `type_map`, does not restore precision already
+lost to a native float. Such reads raise `DatasourceSourceCapabilityError`
+without float-to-Decimal coercion. Use a qualified exact-Decimal datasource
+instead; other backends retain their exact precision/scale requirements.
+
 R3.4's private Analysis handoff explicitly declares join and union in addition
 to scan, filter, project, group and count. The R1 basic physical requirement
 admits join/union only on DuckDB; other providers retain their existing operation

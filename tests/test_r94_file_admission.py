@@ -11,7 +11,13 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.methods import builtin
-from marivo.analysis.methods.physical import NoTime, Qualified, ScalarType, SourceShape, TimeShape
+from marivo.analysis.methods.physical import (
+    NoTime,
+    Qualified,
+    ScalarType,
+    SourceShape,
+    TimeShape,
+)
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -23,21 +29,55 @@ from tests.test_r94_producer_recovery import author_file_case
 
 
 def test_local_file_declarations_are_closed_to_verified_methods() -> None:
-    for name in ("parts_transport", "metric.sum_zero", "bind_project", "metric.mean", "row.sum"):
+    for name in (
+        "parts_transport",
+        "metric.sum_zero",
+        "state_rollup.sum_zero",
+        "deviation.zscore",
+        "deviation.read",
+        "bind_project",
+        "metric.mean",
+        "row.sum",
+    ):
         entries = [
             item
             for item in builtin.implementations(MethodKey(name))
             if isinstance(item.key.shape, SourceShape) and item.key.shape.form in ("csv", "json")
         ]
-        assert len(entries) == {"parts_transport": 4, "metric.sum_zero": 2}.get(name, 0)
+        assert len(entries) == {
+            "parts_transport": 4,
+            "metric.sum_zero": 2,
+            "state_rollup.sum_zero": 4,
+            "deviation.zscore": 2,
+            "deviation.read": 2,
+        }.get(name, 0)
         for item in entries:
             assert isinstance(item.key.shape, SourceShape)
-            assert item.key.input_types == (ScalarType("string"),)
-            assert item.key.input_domains == ("entity",) and item.key.route == "ibis"
+            prior = name in ("parts_transport", "metric.sum_zero")
+            input_type = (
+                ScalarType("string")
+                if prior
+                else ScalarType("float64")
+                if name == "deviation.read"
+                else ScalarType("int64")
+            )
+            assert item.key.input_types == (input_type,)
+            assert item.key.input_domains == ("entity",)
+            assert item.key.route in (("ibis",) if prior else ("ibis", "ibis_python"))
             assert item.key.shape.backend == "duckdb"
-            assert item.key.shape.time in (NoTime(), TimeShape("instant", "us", "UTC"))
+            assert item.key.shape.time in (
+                (NoTime(), TimeShape("instant", "us", "UTC"))
+                if prior
+                else (NoTime(),)
+                if name.startswith("deviation.")
+                else (TimeShape("instant", "us", "UTC"),)
+            )
             assert isinstance(item.qualification, Qualified)
-            assert item.qualification.evidence_id == "tests/test_r94_producer_recovery.py"
+            assert item.qualification.evidence_id == (
+                "tests/test_r94_producer_recovery.py"
+                if prior
+                else "tests/test_r96_local_file_cost_routes.py"
+            )
 
 
 @pytest.mark.runtime

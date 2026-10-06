@@ -312,7 +312,14 @@ queries; an acquired public method can also be passed directly to
 `marivo.help(...)`. Each focused callable supplies its required inputs and return
 routes. Once those facts support the next step, save and run the minimum analysis.
 
-Primary rows and required parts may observe different source states within one execution. Marivo preserves required Artifact checks, single evaluation and atomic publication, but does not reject or retry solely because source data changed between queries.
+Source checks and calculations may observe different source states within one
+execution. A successful check proves only its own query, not facts read later.
+One logical Run/result identity does not promise one physical scan or a shared
+snapshot. Qualified pure-native graphs query Ibis expressions directly without
+staging intermediate Arrow captures back into the source. Final primary rows and
+required parts still need valid complete key bindings, Cells and consistent
+internal arithmetic before atomic publication. Source changes do not excuse an
+internally inconsistent Artifact or trigger a failure fallback.
 
 For the Entity-domain J1–J4 slice, repeated logical source execution reads the
 source again. Fixed continuations can hit the same exact committed Artifact;
@@ -889,6 +896,18 @@ The source and fixed paths distinguish 50.5 from 200/101. Null observations stay
 in count, count_defined includes only Defined Cells, and sum/mean reject
 non-Defined current Cells. This bounded support does not qualify the complete C05 numeric, domain,
 data-check and cancellation matrix.
+
+DuckDB table int64 Entity/group observations with UTC microsecond time can also
+reduce original sum state after a local producer:
+
+```python
+local_total = values.deviation(method="zscore").observed.rollup().execute()
+```
+
+This performs the complete deviation fit before reduction. R9.6 also connects
+this int64 Entity workflow for local CSV/JSON, and the existing Parquet local
+producer can reduce the same original sum state. The added file keys do not
+qualify group domains, MAD, other scalar types or local difference/attribution.
 
 On all six ordinary-table backends, bounded UTC-microsecond int64 reference
 shares, ranks and string-identity cohorts retain full composite member keys.
@@ -1518,7 +1537,9 @@ qualification, same-wheel, remote backend or real-Agent obligations.
 
 Remote preparation on PostgreSQL, MySQL, Trino and ClickHouse permits source
 changes between reads. Retained inputs record the facts actually read; they do
-not promise one database snapshot. Fixed continuations use those retained inputs.
+not promise one database snapshot or extend an earlier query's check to later
+reads. All source dependencies still precede local selection. Fixed continuations
+validate and use those retained inputs without reconnecting to the source.
 
 MySQL sample and raw_sql deadlines cancel only the isolated reader's current query and close its reader/control connections. Certification SET/read controls retain their separate purpose.
 
@@ -1563,9 +1584,13 @@ R1 schema path. The current qualified observation is an ordinary int64 sum with
 `empty=ms.empty.zero()`, an identity beginning with a string field, and a UTC
 microsecond event axis. Complete composite keys remain intact. Construction may
 infer local schema facts but does not compile a business read or allocate a Run.
-HTTP/request-parameter JSON, other numeric carriers and other observation methods
-remain unqualified; no fallback changes the requested semantics. Fixed continuations
-use the exact retained Artifact and existing local consumers.
+The original observation can also use native `rollup()`. Its complete int64
+Entity zscore `observed` view can reduce the original sum state through the
+local route; local Parquet observations also have that exact rollup key.
+These additions do not grant file mean, MAD, group domains or other scalar types.
+HTTP/request-parameter JSON remains refused before source open; no fallback
+changes the requested semantics. Fixed continuations use the exact retained
+Artifact and existing local consumers.
 
 With a DuckDB `warehouse` datasource and `sales` domain already declared, an
 existing `data/facts.csv` with `tenant,id,revision,amount,happened` columns can be

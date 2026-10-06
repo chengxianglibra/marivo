@@ -6,14 +6,12 @@ import sqlite3
 import textwrap
 from pathlib import Path
 
-import ibis.expr.types as ir
-import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource.adapters import CompiledRead, SourceSession
+from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
 from marivo.semantic.catalog import SemanticCatalog
 
 
@@ -164,14 +162,19 @@ def test_sqlite_agent_native_authoring_journey(
     logical = frame.rollup()
     assert isinstance(logical, mv.LogicalRolledNumericRelation)
     primary_reads: list[CompiledRead] = []
-    stage = SourceSession.stage_derived
+    batches = SourceSession.batches
 
-    def capture(source: SourceSession, read: CompiledRead) -> tuple[ir.Table, pa.Table]:
-        if "value" in read.schema.names and "key_0" not in read.schema.names:
+    def capture(source: SourceSession, read: CompiledRead, *, chunk_size: int) -> SourceBatchStream:
+        stream = batches(source, read, chunk_size=chunk_size)
+        if (
+            read.purpose == "analysis.graph.stage"
+            and "value" in read.schema.names
+            and "key_0" not in read.schema.names
+        ):
             primary_reads.append(read)
-        return stage(source, read)
+        return stream
 
-    monkeypatch.setattr(SourceSession, "stage_derived", capture)
+    monkeypatch.setattr(SourceSession, "batches", capture)
     assert logical.execute().to_pandas().value.tolist() == [30.0]
     assert len(session.runs().items) == 1
     assert len(primary_reads) == 1

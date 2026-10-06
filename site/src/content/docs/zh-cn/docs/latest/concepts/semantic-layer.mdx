@@ -299,7 +299,10 @@ settings，且绝不会通过可写连接重试。Analysis 查询取消还需要
 
 SQLite 数据源通过 `md.table(...)` 使用表和视图。`read_only=True` 使用驱动
 authorizer 拒绝写入；当类型亲和推断不足时，可用 `type_map={...}` 把声明的 SQLite
-类型名映射为 Ibis 类型字符串。Parquet、CSV 和 JSON descriptor 仍只属于 DuckDB。
+类型名映射为 Ibis 类型字符串。SQLite 原生 NUMERIC 不是精确 Decimal 载体：
+`type_map` 无法恢复浮点数已经丢失的精度，精确 Decimal 读取会抛出
+`DatasourceSourceCapabilityError`，不会隐式转换。此类数值应使用已获资格的精确
+Decimal 数据源。Parquet、CSV 和 JSON descriptor 仍只属于 DuckDB。
 当前 Ibis SQLite 后端不支持 median、分位数指标或字符串 `strptime` 表达式；Marivo
 会将其报告为结构化的不支持-操作错误。此时应改用受支持的聚合与原生时间
 列。
