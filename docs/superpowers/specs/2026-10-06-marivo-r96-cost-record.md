@@ -7,6 +7,29 @@ requirements remain frozen. This record does not grant R9.7, final wheel,
 real Agent or release acceptance. Raw failures, retries and unexecuted
 requirements retain separate status.
 
+## R9.7 collection instruction (2026-10-06)
+
+The user has explicitly skipped the forty still-open 1k cost groups. Their 160
+scheduled invocations will not execute. The original fourteen shared-scenario
+IDs remain visible as `authorized_skipped`; V17 retains an incomplete cost exit.
+No median, growth comparison, shared-covered pass or new performance claim is
+created. Four outstanding physical producer bindings remain unverified under
+V17, rather than being supplied by the skipped collection.
+
+The thirteen ordinary baseline requirements are audited separately against the
+existing seventy-two selected ordinary cohorts. The two actual Distributed
+100k cohorts, two 1k functional probes and its independent offline producer
+binding retain their original authority. Historical failures and all previous
+collection instructions below remain unchanged. The current instruction
+supersedes only the future forty-group collection.
+
+`evidence/r97/final-01/cost-baselines.json` now independently binds the thirteen
+ordinary IDs against all seventy-two original cohorts and retains sixteen
+historical failed references. Numeric/parts, original candidate/cohort identity,
+source cleanup, fixed source absence and cold-process evidence are checked.
+This is an offline evidence binding with no new cost execution; the fourteen
+shared-cost IDs and incomplete V17 exit remain separately skipped/disclosed.
+
 ## Implementation
 
 `devtools/analysis_r9_cost.py` runs public typed-graph workloads. It binds

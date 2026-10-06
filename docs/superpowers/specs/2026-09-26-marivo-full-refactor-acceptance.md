@@ -1960,3 +1960,33 @@ the unchanged 394-scenario denominator. The remaining 351 goals are unverified.
 43 Runtime tests pass because the blocked goal's test confirms the structured
 refusal; that refusal grants no exact-Decimal success qualification. Full R9.2
 exit remains open. R9.3–R9.7, installed packages, real Agent and release are separate.
+
+## R9.7 requested-scope audit and R10 handoff (2026-10-06)
+
+The user explicitly instructed the current R9.7 delivery to skip forty remaining
+1k cost groups. Their 160 scheduled invocations do not execute. The original
+394 IDs and required proofs remain preserved; fourteen shared-cost requirements
+and V17 retain `authorized_skipped` disposition, without measured passes.
+V17's four outstanding physical producer bindings remain unverified.
+
+The [completion audit](2026-10-06-marivo-r97-completion-audit.md) now owns an
+executable per-ID evidence audit, current unchanged-product adoption, independent
+ordinary raw-cost binding and final engineering evidence. Historical failed
+attempts, omitted execution-time hashes, skipped tests and original measurement
+candidates retain their recorded authority. No business or cost invocation is
+repeated for evidence serialization or metadata alone.
+
+The [R10 handoff](2026-10-06-marivo-r10-handoff.md) supplies the exact delivery
+candidate, hashed original-ID index, public journeys and independent oracles,
+environment/dependency inputs and installed-package/real-Agent/release work.
+This amended requested-scope delivery remains distinct from full R9 cost
+qualification and grants no R10 installation, Agent, publication or release
+acceptance. The final local machine record is `evidence/r97/final-01/audit.json`.
+
+The completed audit records **379 finite owner-proof bindings / 15 authorized
+cost skips**, zero binding defects and four unverified physical producer bindings.
+The actual final `make check-agent` passes **6,273 default tests / five skips**,
+full lint/import checks, 403-source typing and API documentation under one
+unchanged candidate. Four touched-module typing checks pass separately. Complete
+qualification remains false; no new Runtime, cost, installed or Agent pass is
+inferred from these engineering results.
