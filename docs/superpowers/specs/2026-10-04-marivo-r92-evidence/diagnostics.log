@@ -1,8 +1,0 @@
-Development diagnostics (transcribed tool output; no qualification granted):
-
-Initial duckdb-table: 1 failed; close fault left SourceSubmission.state=succeeded. Repaired to failed/close_failed.
-Local/PG/MySQL iteration: 2 failed, 13 passed; SQLite fixture inserts and view creation were not committed before disconnection. Fixture now commits before readonly reader opens.
-Five-backend profile/type iteration: 1 failed, 35 passed; ClickHouse UTC DateTime64 native rows lost tzinfo and exact timestamp[us, tz=UTC] decode refused datetime. Explicit UTC schema restore added; other zones still refuse.
-Initial targeted typing reported row list inference and pytest exception narrowing errors. Concrete row types and explicit isinstance repaired these; completed typing logs own the final result.
-Shared regression failed (3 failed, 5 passed) after task switched ClickHouse to its exclusive cluster profile before pytest completed. Original log and command preserved; the fixed run repeats the whole group with local service ready.
-Shared Trino control regression: 1 failed, 2 passed. The 1-second server budget expired during SHOW SESSION while the broad default suite and source matrix were running concurrently. This run grants no control qualification; a serial rerun after the broad gate is recorded separately.

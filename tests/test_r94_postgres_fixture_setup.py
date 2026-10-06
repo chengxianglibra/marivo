@@ -7,7 +7,7 @@ from threading import Barrier
 
 import pytest
 
-from scripts.r9_qualification_requirements import encode
+from tests.json_support import encode
 
 
 @pytest.mark.runtime

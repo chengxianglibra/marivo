@@ -1,9 +1,0 @@
-{
-  "branch": "panda",
-  "head": "f0b1c5930d993338f94a4c415458729f6d67953f",
-  "status": "",
-  "snapshot_sha256": "b768dd67a0a3a354b2133c05ff323e0f0344f7f4d08ada372aa10f0b784349b5",
-  "requirements": 171,
-  "symbols": 449,
-  "tests": 391
-}

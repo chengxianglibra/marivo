@@ -16,7 +16,7 @@ from marivo.analysis.methods.physical import ScalarType, SourceShape, TimeShape
 from marivo.analysis.methods.runs_physical import implementations
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.semantic.reader import SemanticProject
-from scripts.r9_qualification_requirements import Json, encode, read
+from tests.json_support import Json, encode, read
 from tests.r9_source_cases import SourceData, source_case
 from tests.r86_journeys import check, graphs
 from tests.r93_source_trace import SourceTrace

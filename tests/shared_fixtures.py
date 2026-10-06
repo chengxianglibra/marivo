@@ -1081,3 +1081,14 @@ def graph_count_continuation(record: GraphArtifact) -> MethodNode:
         RowState("count", domain, "current-count", "count_all"),
         value_type=ScalarType("int64"),
     )
+
+
+def run_ids(session: Session) -> set[str]:
+    identities: set[str] = set()
+    cursor: str | None = None
+    while True:
+        page = session.runs(limit=100, cursor=cursor)
+        identities.update(item.run_id for item in page.items)
+        cursor = page.next_cursor
+        if cursor is None:
+            return identities

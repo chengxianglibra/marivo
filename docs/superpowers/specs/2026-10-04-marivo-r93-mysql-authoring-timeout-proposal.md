@@ -12,7 +12,7 @@ by the user on 2026-10-05; this setting does not prove fetch/cancellation covera
 [R9 implementation plan section 5.2](2026-10-04-marivo-full-algebra-dsl-r9-implementation-plan.md)
 explicitly does not approve new internal SQL exceptions. It requires reproducible
 counterexamples, alternatives and the exact operation/backend/purpose boundary.
-The [native calendar development](2026-10-04-marivo-r93-evidence/c06-certified-calendar-development-01/README.md)
+The native calendar development (historical record in Git history)
 records MySQL's certification failure: no adapter-enforced authoring timeout.
 Synthetic calendars or an elapsed client deadline cannot satisfy that requirement.
 
@@ -28,7 +28,7 @@ bounds client waiting, not server termination. Global server configuration would
 mutate unrelated sessions and cannot represent each authored scope's timeout.
 No suitable native mysqlclient query-deadline API is currently exposed.
 
-The [test-only diagnostic](2026-10-04-marivo-r93-evidence/mysql-authoring-timeout-proposal-01/diagnostic.json)
+The test-only diagnostic (historical record in Git history)
 uses the existing SELECT-only analysis_reader on its own disposable connection.
 A 50ms session limit terminates an unmodified Ibis-generated cross-join aggregate
 with native error 3024 after about 0.052s. Independent administrator observation
@@ -82,7 +82,7 @@ owned-query KILL proposal. This document grants no scenario statuses.
 
 ## Native slow-source product evidence
 
-[Certified slow-source development](2026-10-04-marivo-r93-evidence/mysql-certified-slow-development-01/README.md)
+Certified slow-source development (historical record in Git history)
 executes catalog.preview against a native aggregate view with the authored
 one-second scope timeout. The actual SELECT-only driver observes both registered
 controls and the unmodified Ibis business read. MySQL raises error 3024; the

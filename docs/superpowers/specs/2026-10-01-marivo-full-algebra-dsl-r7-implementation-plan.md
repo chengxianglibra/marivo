@@ -1,13 +1,18 @@
 # Marivo 全量分析代数与 Analysis DSL：R7 实施文档
 
+Historical execution records, qualification inventories and one-time validation
+scripts were removed during the 2026-10-06 cleanup. Committed records remain in
+Git history; local-only execution files were discarded. Recorded phase results
+below describe their original scope.
+
 Date: 2026-10-01
 
 Status: R7.1 documentation/static contract freeze complete; R7.2 private preparation implemented;
 R7.3 public Journey integration implemented with bounded evidence below; R7.4 funnel and Findings, R7.5 canonical History and R7.6 History views are recorded below; R7.7 implementation and bounded qualification are recorded below; R7.8 retention is implemented with bounded evidence and unfinished fixed-input targets; R7.9 legacy retirement is implemented and installed qualification is being audited below. Full R7 remains incomplete. Qualification is limited to each phase's recorded evidence.
 
-The [R7.1 migration ledger](2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md),
-[consumer snapshot](2026-10-01-marivo-r71-consumer-snapshot.json) and
-[evidence index](2026-10-01-marivo-r71-evidence-index.md) bind the completed freeze
+The R7.1 migration ledger (historical record in Git history),
+consumer snapshot (historical record in Git history) and
+evidence index (historical record in Git history) bind the completed freeze
 to its actual baseline, sole owners, consumers and mandatory planned requirements.
 
 ## 1. 目标、前置交接与文档权威
@@ -19,9 +24,9 @@ method registry、Runtime、受控交换与 Store 7，不保留另一条领域 D
 
 用户确认 R0/R1/R2/R3/R4/R5/R6 已完成，以此启动 R7 规划。起草分支 `panda`，HEAD 为
 `b8615244129d0f7e83995255c588545e243840b1`，起草前跟踪工作树干净。
-[验收主记录](2026-09-26-marivo-full-refactor-acceptance.md#r67-and-full-frozen-r6-completed-acceptance-2026-10-01)、
-[R6 migration ledger](2026-09-30-marivo-full-algebra-dsl-r6-migration-ledger.md)和
-[R6.7 evidence index](2026-10-01-marivo-r67-evidence-index.md)是当前交接依据。
+验收主记录 (historical record in Git history)、
+R6 migration ledger (historical record in Git history)和
+R6.7 evidence index (historical record in Git history)是当前交接依据。
 本次读取已有验收，不重跑、不扩大前序资格；实施 R7.1 时重新记录实际 SHA、dirty diff
 及输入摘要，不清理或覆盖前序和无关改动。
 
@@ -65,7 +70,7 @@ AttributionResult 是复用基础，不是 R7 领域生产者已经获准的证�
 | [Semantic object model](../../specs/semantic/semantic-object-model.md#business-order-and-simultaneous-events-r23-declaration-implemented) | R2 已实现的 Event occurrence/participant、StateModel、business_order 与版本/依赖；一次分析的覆盖不写回声明 |
 | [Session/Runtime](../../specs/analysis/session-state-and-runtime.md) | 显式依赖、一次实现共享、交换、资源、receipt、原子发布、恢复及求值身份 |
 | [Timezone/calendar](../../specs/analysis/timezone-and-calendar-design.md) | occurrence 时间、排他随访、end 左极限、elapsed/calendar、DST 和固定时间依据 |
-| [验收主记录](2026-09-26-marivo-full-refactor-acceptance.md) | 逐方法资格、独立证据、失败/skip、删除及 R8–R10 交接 |
+| 验收主记录 (historical record in Git history) | 逐方法资格、独立证据、失败/skip、删除及 R8–R10 交接 |
 
 目标语言依据为[DSL 接口设计 §8.1–§8.3](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md#8-事件状态与统计扩展如何接入)，
 组合与执行依据为[分析代数](2026-09-23-analysis-algebra-theory.md)和
@@ -292,7 +297,7 @@ rows and bytes. Assess efficient backend-native operators, including ClickHouse
 parametric sequence/funnel functions, against the complete method contract and
 exact server/source-form/precision qualification before selecting them. Native
 depth, existence or counts alone cannot replace canonical assignments and parts.
-The [R7.1 feasibility evidence](2026-10-01-marivo-r71-evidence-index.md#source-pushdown-and-clickhouse-feasibility)
+The R7.1 feasibility evidence (historical record in Git history)
 records candidates and the current supported-Ibis binding gap; actual remote
 qualification remains R9.
 
@@ -412,7 +417,7 @@ actual baseline symbols/test definitions and future package owners. The snapshot
 records deterministic AST/text/import evidence and mandatory source/fixed/cold
 targets, all planned. Static presence, source admission blockage, unverified
 dynamic unreachability and future deletion are distinct. See the
-[R7.1 acceptance record](2026-09-26-marivo-full-refactor-acceptance.md#r71-documentation-and-static-freeze-completed-acceptance-2026-10-01)
+R7.1 acceptance record (historical record in Git history)
 for validation and excluded execution gates. R7.2 preparation, R7.3 Journey, R7.4 funnel, R7.5 canonical History, R7.6 History views and R7.7 bounded Anchor implementation are recorded below; R7.7 has unfinished original qualification targets and R7.8 bounded retention is recorded below. R7.9 retirement and installed acceptance accounting are recorded in the linked audit.
 
 ### R7.2 — Ibis occurrence 准备、覆盖与业务顺序消费
@@ -427,7 +432,7 @@ lossless ticks extractor is required. Future public `.show()` must disclose it.
 
 **Implementation record:** private captures, occurrence.prepare@v1, source-prefix
 F13 and local count/int64/float64 sum/mean consumers are implemented. The
-[R7.2 evidence index](2026-10-01-marivo-r72-evidence-index.md) owns executed
+R7.2 evidence index (historical record in Git history) owns executed
 qualification and limits. Matching/replay/public domain integration and remaining
 relative Metric expression/type cells stay with their connecting phases.
 
@@ -452,7 +457,7 @@ F13 的准备计划/交换正例与无界准备、隐式回传、source-after-lo
 
 ### R7.3 — Journey matching、耗时、真值与主体映射
 
-**Implementation evidence:** the [R7.3 evidence index](2026-10-01-marivo-r73-evidence-index.md)
+**Implementation evidence:** the R7.3 evidence index (historical record in Git history)
 records the public Journey/Duration/Completed graph path, three assignment policies,
 retained publication and cold continuation, and A09 prepared Metric observation.
 It owns the exact validation results, repaired failures and excluded qualification.
@@ -472,8 +477,8 @@ A09 的 dropout→members→新 Metric 观察包含非空和空选择、完整�
 
 ### R7.4 — funnel、领域 compare/attribute 与单量 read
 
-**Implementation evidence:** the [R7.4 evidence index](2026-10-02-marivo-r74-evidence-index.md)
-and [qualification record](2026-10-02-marivo-r74-qualification.json) bind public
+**Implementation evidence:** the R7.4 evidence index (historical record in Git history)
+and qualification record (historical record in Git history) bind public
 source/fixed funnel, exact owned reads, historical entry axes, ratio-mix allocation,
 nonempty Findings and private Delta/Attribution retirement. Native/source matching
 is not rerun: source preparation precedes the explicit `ibis_python` consumer;
@@ -509,8 +514,8 @@ terminal/illegal/pre-inception、不同违规身份及 end 排他反例成立；
 canonical_history/HistoryPart@v1、注册本地扫描、断源校验和旧 replay 专属链退出已实现。
 冻结 P10 的 270 格全部执行；fixed/cold 只读取并验证已发布 History，不构造新 replay。
 相关 V09/V13–V15、披露和迁移证据见
-[R7.5 evidence index](2026-10-02-marivo-r75-evidence-index.md) 与
-[逐格 qualification record](2026-10-02-marivo-r75-qualification.json)。
+R7.5 evidence index (historical record in Git history) 与
+逐格 qualification record (historical record in Git history)。
 V10/V11 及完整 R7/same-wheel 原始 requirement ID 保留并明确后置；本轮不开放 R7.6 视图。
 
 ### R7.6 — History 视图、Duration 统计与跨家族续算
@@ -533,8 +538,8 @@ transition 计数、裁剪区间与精确 completed-fragment Duration 已接通�
 **109 项 fixed K**，冷恢复精确命中 **119 个输出**。R7.5 剩余 Lifecycle reducer、
 compiler、codec、专属调度与测试已删除，实际 Event/R8 共享消费者保留。
 逐格 ID、失败修复、精度、资源、披露与验证边界见
-[evidence index](2026-10-02-marivo-r76-evidence-index.md) 和
-[qualification record](2026-10-02-marivo-r76-qualification.json)。
+evidence index (historical record in Git history) 和
+qualification record (historical record in Git history)。
 本地实施完成不授予 same-wheel、远端、完整 R7 或 R7.7–R7.9/R8–R10 资格；
 不修改 AGENTS.md 或 packaged skills，不提交、推送或发布。
 
@@ -558,9 +563,9 @@ R7.7 实施记录（2026-10-02）：入口实际为 clean
 依赖随源前缀准备；固定续算与冷恢复保留原窗口、完整身份、原状态及每次贡献使用绑定。
 
 当前验证及原始 **6750 格**的逐格状态见
-[evidence index](2026-10-02-marivo-r77-evidence-index.md)、
-[qualification record](2026-10-02-marivo-r77-qualification.json) 和
-[acceptance record](2026-10-02-marivo-r77-acceptance.md)。P48 原生目标保持 unverified；
+evidence index (historical record in Git history)、
+qualification record (historical record in Git history) 和
+acceptance record (historical record in Git history)。P48 原生目标保持 unverified；
 当前本地路线单列。固定 NumericRelation 续算的通过不能授予未执行的 fixed
 `anchor.observe` 内核资格；starts-only Anchor 缺少 Metric 部件时在读取前拒绝。
 原始 requirement ID、路线和 mandatory 标记保持不变；未通过的必需目标列为未完成。
@@ -599,8 +604,8 @@ This is an implementation record, not full R7.8/A13 or release acceptance.
 compiler, registration, codec and backend SQL consumers are retired, with 39
 exclusive funnel/Event/Lifecycle modules covered by an independent reverse-import
 guard. Current graph Journey binding owns the preserved pure pattern validation.
-The [R7.9 evidence index](2026-10-03-marivo-r79-evidence-index.md) and
-[full R7 acceptance audit](2026-10-03-marivo-r79-acceptance.md) own engineering,
+The R7.9 evidence index (historical record in Git history) and
+full R7 acceptance audit (historical record in Git history) own engineering,
 installed-wheel and original mandatory-cell accounting. The exit remains
 incomplete while fixed input/native route and original profile targets are
 unqualified; successful retained transports do not replace those kernels.

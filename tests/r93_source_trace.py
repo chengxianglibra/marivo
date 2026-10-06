@@ -14,7 +14,7 @@ import marivo.datasource.adapters as adapters
 from marivo.analysis.core.graph import Node
 from marivo.analysis.materialization.graph_protocol import descriptor_plan, schema_from
 from marivo.datasource.adapters import SourceSession, _Cursor
-from scripts.r82_deviation_requirements import key_json
+from tests.json_support import key_json
 
 
 @dataclass

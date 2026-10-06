@@ -8,7 +8,7 @@ Status: R0.5 静态目标与调用链保留，R1.5/R1.6 当前状态覆盖见下
 
 ## R1.5 当前状态覆盖（2026-09-27）
 
-下表更新早期静态“当前定位”，精确实测格见[阶段验收 R1.5](2026-09-26-marivo-full-refactor-acceptance.md#r15-公共连接切换与剩余格复核2026-09-27)；原表的目标路线与内部 SQL 例外空集不变。
+下表更新早期静态“当前定位”，精确实测格见阶段验收 R1.5 (historical record in Git history)；原表的目标路线与内部 SQL 例外空集不变。
 
 | 台账 ID | 当前处置与未闭合格 |
 | --- | --- |
@@ -19,7 +19,7 @@ Status: R0.5 静态目标与调用链保留，R1.5/R1.6 当前状态覆盖见下
 
 ## R1.6 当前状态覆盖（2026-09-28）
 
-用户于 2026-09-28 明确批准"将这些接口必要的部分使用统一的数据源的接口抽象，每种源提供自己的实现，允许使用非 Ibis 的其他手段实现具体能力"。据此建立的例外范围：**操作**=六后端 metadata 事实读取（注释/可空性/主键/唯一约束/分区拓扑/视图/物理 profile/projectable columns）与 DuckDB scoped HTTP 凭据安装；**后端**=六后端 metadata、仅 DuckDB 凭据；**用途**=datasource metadata 检查与带作用域的认证 HTTP JSON 读取。凭据值经参数化提交，绝不进入 SQL 文本或提交记录。精确实测格见[阶段验收 R1.6](2026-09-26-marivo-full-refactor-acceptance.md#r16-provider-能力通道与丰富-metadata-恢复2026-09-28)。
+用户于 2026-09-28 明确批准"将这些接口必要的部分使用统一的数据源的接口抽象，每种源提供自己的实现，允许使用非 Ibis 的其他手段实现具体能力"。据此建立的例外范围：**操作**=六后端 metadata 事实读取（注释/可空性/主键/唯一约束/分区拓扑/视图/物理 profile/projectable columns）与 DuckDB scoped HTTP 凭据安装；**后端**=六后端 metadata、仅 DuckDB 凭据；**用途**=datasource metadata 检查与带作用域的认证 HTTP JSON 读取。凭据值经参数化提交，绝不进入 SQL 文本或提交记录。精确实测格见阶段验收 R1.6 (historical record in Git history)。
 
 | 台账 ID | 当前处置与未闭合格 |
 | --- | --- |
@@ -32,7 +32,7 @@ Status: R0.5 静态目标与调用链保留，R1.5/R1.6 当前状态覆盖见下
 
 ### R9.5 current disposition overlay (2026-10-06)
 
-The [R9.5 SQL ledger](2026-10-06-marivo-r95-sql-ledger.md) owns the current
+The R9.5 SQL ledger (historical record in Git history) owns the current
 55-ID disposition and appended DS23 ClickHouse owned-query cancellation.
 Historical constructor/caller rows below remain traceability records. The
 legacy Analysis SQL adapters, statement constructors, compiled-text patches,
@@ -192,7 +192,7 @@ R8.1 逐类型冻结；`decimal-exact` 格保留原始 Decimal 与方法自己�
 
 ## R7.9 Event/Lifecycle SQL retirement amendment (2026-10-03)
 
-The [R7.9 acceptance audit](2026-10-03-marivo-r79-acceptance.md) and its evidence
+The R7.9 acceptance audit (historical record in Git history) and its evidence
 index supersede the historical current-consumer entries for AN02–AN10 and the
 Event portion of AN23. AN02/AN03 replay/array compilers, AN08/AN09 lifecycle
 integrity/bundle and AN10 statement summaries were deleted in R7.5/R7.6. R7.9

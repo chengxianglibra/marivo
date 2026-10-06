@@ -1,19 +1,24 @@
 # Marivo 全量分析代数与 Analysis DSL：R8 实施文档
 
+Historical execution records, qualification inventories and one-time validation
+scripts were removed during the 2026-10-06 cleanup. Committed records remain in
+Git history; local-only execution files were discarded. Recorded phase results
+below describe their original scope.
+
 Date: 2026-10-03
 
 Status: R8.1 documentation/static freeze complete. R8.2 implementation and
-qualification are in progress; see the [R8.2 evidence index](2026-10-04-marivo-r82-evidence-index.md).
+qualification are in progress; see the R8.2 evidence index (historical record in Git history).
 The final R8.2 ledger retains 15,564 mandatory IDs: 13,212 passed, 2,280 blocked
 and 72 unverified. R8.2 is not complete.
 R8.3 implementation and bounded verification are in progress; see the
-[R8.3 evidence index](2026-10-04-marivo-r83-evidence-index.md).
+R8.3 evidence index (historical record in Git history).
 R8.4 product connection and bounded verification are recorded in the
-[R8.4 evidence index](2026-10-04-marivo-r84-evidence-index.md); its mandatory matrix remains open.
+R8.4 evidence index (historical record in Git history); its mandatory matrix remains open.
 R8.5 public cutover and retirement are complete: 171/171 obligations passed and
-M01-M18 gates closed; see the [R8.5 evidence index](2026-10-04-marivo-r85-evidence-index.md).
+M01-M18 gates closed; see the R8.5 evidence index (historical record in Git history).
 R8.6 local implementation and same-candidate verification are recorded in the
-[R8.6 evidence index](2026-10-04-marivo-r86-evidence-index.md): 287/492 original
+R8.6 evidence index (historical record in Git history): 287/492 original
 obligations passed and 205 remain unverified. R8.6 and full R8 are not complete.
 The accepted 2026-10-02 C14 scope revision is the planning input;
 static inventory, Runtime, installed-wheel, backend and real-Agent evidence
@@ -31,11 +36,11 @@ remain separate.
 测试和文档改动，部分历史资格附件已取消 Git 跟踪，并有 R7.9 新文件。本次仅新增本文，
 不整理、提交或覆盖这些状态；实施 R8.1 时重新绑定实际 SHA、dirty diff、新增文件和输入摘要。
 
-前序交接读取[验收主记录](2026-09-26-marivo-full-refactor-acceptance.md)、
-[R6 migration ledger](2026-09-30-marivo-full-algebra-dsl-r6-migration-ledger.md)、
-[R7 migration ledger](2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md)及
-[R7.9 evidence index](2026-10-03-marivo-r79-evidence-index.md)。起草时
-[R7.9 audit](2026-10-03-marivo-r79-acceptance.md)仍记录原始部分资格目标未完成，与本次
+前序交接读取验收主记录 (historical record in Git history)、
+R6 migration ledger (historical record in Git history)、
+R7 migration ledger (historical record in Git history)及
+R7.9 evidence index (historical record in Git history)。起草时
+R7.9 audit (historical record in Git history)仍记录原始部分资格目标未完成，与本次
 用户的阶段完成交接分别保留；本文不改写历史验收或替前序补授资格。R8 的主依赖为 R5/R6，
 可以先编写和冻结自身契约；实际消费某项 R7 部件时按其已记录契约检查，不依赖未取得的资格。
 
@@ -380,9 +385,9 @@ Artifact、所有 RequiredParts、Evidence、Findings 和 terminal Run 在同一
 ## 4. R8.1 契约与迁移冻结清单
 
 R8.1 只完成文档/静态冻结，不授予任何新 Runtime、backend 或 wheel 资格。
-实际产物为 [R8 migration ledger](2026-10-03-marivo-full-algebra-dsl-r8-migration-ledger.md)、
-[consumer snapshot](2026-10-03-marivo-r81-consumer-snapshot.json) 和
-[evidence index](2026-10-03-marivo-r81-evidence-index.md)。记录实际基线、输入 hashes、
+实际产物为 R8 migration ledger (historical record in Git history)、
+consumer snapshot (historical record in Git history) 和
+evidence index (historical record in Git history)。记录实际基线、输入 hashes、
 生成方式和静态验证；所有新执行资格仍为 planned 或明确 blocked。
 
 | ID | 冻结项 | 唯一落点与出口 |
@@ -579,7 +584,7 @@ wheel、公开脚本、Help 起点、cold 命令、失败/repair 和真实 Agent
 ## 9. R8.5 实施检查点（2026-10-04）
 
 实施基线为 `panda`、`f0b1c5930d993338f94a4c415458729f6d67953f` 的干净工作树。
-[R8.5 独立证据索引](2026-10-04-marivo-r85-evidence-index.md)保留全部 171 个原始 ID：
+R8.5 独立证据索引 (historical record in Git history)保留全部 171 个原始 ID：
 V15 54 项、V19 117 项均通过。449 个符号与 391 个旧测试节点均有当前处置，
 209 个移除节点的断言转移没有未验证项，M01–M18 退役门禁全部闭合。
 25 个保留的共享 Runtime/远端测试节点未在本轮执行，继续明确记为未验证；

@@ -9,7 +9,7 @@ from typing import Literal
 
 import pytest
 
-from scripts.r9_qualification_requirements import Json, encode, obj, read
+from tests.json_support import Json, encode, obj, read
 
 
 def _retention_recovery(

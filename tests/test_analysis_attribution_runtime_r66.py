@@ -75,7 +75,7 @@ def test_numeric_source_fixed_and_axis_expansion(
     from pathlib import Path
 
     from marivo.analysis.public_dsl import MetricInputValue
-    from scripts.r9_qualification_requirements import Json, checked, encode, read
+    from tests.json_support import Json, checked, encode, read
     from tests.r93_source_trace import capture_source
     from tests.r94_attribution_carrier_worker import parts
     from tests.r94_domain_recovery_worker import snapshot

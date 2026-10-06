@@ -21,7 +21,7 @@ from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
-from scripts.r82_deviation_requirements import key_json
+from tests.json_support import key_json
 from tests.r9_source_cases import Case, SourceData, datasource, source_case
 from tests.r93_source_trace import SourceTrace
 

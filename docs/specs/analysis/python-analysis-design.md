@@ -1536,7 +1536,7 @@ Status: target contract frozen, implementation and new physical qualifications
 unverified. This section owns C03-C06/C10 consuming signatures and supersedes
 conflicting historical Population/Metric Dataset shapes for the R5 cutover.
 It does not change currently importable APIs or R4's measured qualifications.
-The [R5 migration ledger](../../superpowers/specs/2026-09-28-marivo-full-algebra-dsl-r5-migration-ledger.md)
+The R5 migration ledger (historical record in Git history)
 owns migration work and evidence, not another API registry.
 
 ### R5 public variants and input types
@@ -1926,7 +1926,7 @@ are accepted explicitly by the R5.4 section of `session-state-and-runtime.md`.
 ## R6.1 frozen relation-composition target
 
 Status (2026-09-30): accepted implementation target for R6.2–R6.7, **not new
-public execution qualification**. The [R6 migration ledger](../../superpowers/specs/2026-09-30-marivo-full-algebra-dsl-r6-migration-ledger.md)
+public execution qualification**. The R6 migration ledger (historical record in Git history)
 records the actual starting surface and test owners. This section owns the
 concrete API target for C07–C09 and supersedes historical Dataset/Delta field
 selection shapes for these capabilities. Existing R4/R5 qualifications remain
@@ -2158,7 +2158,7 @@ it does not cast or reinterpret timestamps. Other mixed shapes remain rejected.
 Missing opportunities never become Unknown. Existing Unknown consumption is
 qualified independently; no new public Unknown-producing method is introduced.
 The qualification matrix and remaining R7–R10 boundaries are recorded in the
-[R6 ledger](../../superpowers/specs/2026-09-30-marivo-full-algebra-dsl-r6-migration-ledger.md#r63-predicates-and-full-opportunity-cohorts-2026-09-30).
+R6 ledger (historical record in Git history).
 
 ### R6.4 public reference qualification
 
@@ -2316,7 +2316,7 @@ complete key, without permitting null Entity identities.
 Status: accepted target, 2026-10-01; documentation/static freeze only. None of
 the new symbols below is made importable by R7.1. Existing Event/Lifecycle
 Dataset APIs remain migration consumers, not implementations of this target.
-The [R7 migration ledger](../../superpowers/specs/2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md)
+The R7 migration ledger (historical record in Git history)
 owns status and test responsibility. This section owns F01/F02 and public
 handles; operators own domain truth/arithmetic, Runtime owns retained schemas
 and placement, and timezone owns instant/window conversion.
@@ -2337,7 +2337,7 @@ the fixed result exposes its qualified retained-state continuations.
 Fixed continuation uses retained parts without rematching; a fixed
 population is not an input to a source match or observation. This amendment covers
 local DuckDB table/Parquet routes only. It does not qualify R7.4–R7.9 or remote
-backends. The [R7.3 evidence index](../../superpowers/specs/2026-10-01-marivo-r73-evidence-index.md)
+backends. The R7.3 evidence index (historical record in Git history)
 records executable scope and final gates. Result cards disclose captured time
 precision and conversion loss; R7 execution shares a 600-second deadline.
 
@@ -2696,7 +2696,7 @@ LogicalDeviationResult. Logical/MaterializedDeviationResult own their four
 numeric projections and synchronized result selection. Construction checks the
 complete Session/mode/category closure without reading business rows or allocating
 a Run. Execution, fixed continuation and restoration use the governed graph and
-Store 7. The [R8.2 evidence index](../../superpowers/specs/2026-10-04-marivo-r82-evidence-index.md)
+Store 7. The R8.2 evidence index (historical record in Git history)
 records exact qualified profiles, open requirements and the incomplete phase
 status. The remaining statistical families retain their current contracts until
 their own implementation stages.
@@ -2730,7 +2730,7 @@ Cell does not force nearby large integers through float64 in `to_pandas()`.
 
 The 2026-10-03 R8.1 freeze is a documentation/static contract, not an importable
 API or an execution qualification. It supersedes the old statistical Dataset
-receiver/container contracts. The [R8 migration ledger](../../superpowers/specs/2026-10-03-marivo-full-algebra-dsl-r8-migration-ledger.md)
+receiver/container contracts. The R8 migration ledger (historical record in Git history)
 owns migration status; operators own formulas, numeric/Cell rules and parts;
 Runtime owns execution, publication and recovery; timezone owns grid authority.
 The five old wrappers MetricDiscovery.point_anomalies/interesting_windows/

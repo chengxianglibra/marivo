@@ -7,7 +7,7 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.datasource.adapters import SourceSession
-from scripts.r82_deviation_requirements import key_json
+from tests.json_support import key_json
 from tests.r93_source_trace import SourceTrace
 from tests.retention_r78_fixtures import build_retention
 

@@ -14,7 +14,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from devtools.r96_cost_scenarios import Workload, workload
 from marivo.analysis.compiler.graph_lowering import LoweredPlan
 from marivo.analysis.compiler.graph_plan import CheckRequirement
 from marivo.analysis.core.graph import MethodNode, topology
@@ -37,6 +36,7 @@ from marivo.analysis.session._lazy_read_model import FailedRun
 from marivo.datasource import adapters
 from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
 from marivo.semantic.reader import SemanticProject
+from tests.physical_workloads import Workload, workload
 from tests.r9_source_cases import source_case
 from tests.test_r93_capability_consumers import _author_c05_project
 from tests.test_r93_reference_consumers import _data

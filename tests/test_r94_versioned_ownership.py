@@ -14,10 +14,10 @@ from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
-from scripts.r9_qualification_requirements import Json, checked, encode
+from tests.json_support import Json, checked, encode
 from tests.r9_source_cases import SourceData, source_case
 from tests.r94_domain_recovery_worker import snapshot
-from tests.r94_native_domain_k_worker import run_ids
+from tests.shared_fixtures import run_ids
 from tests.test_r94_public_refusals import publication_counts
 
 

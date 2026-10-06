@@ -7,6 +7,80 @@ import ibis
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+KEY_PROFILES: tuple[dict[str, str], ...] = (
+    {"id": "K11", "subject": "string", "occurrence": "string"},
+    {"id": "K12", "subject": "string", "occurrence": "int64"},
+    {"id": "K13", "subject": "string", "occurrence": "composite(string,int64)"},
+    {"id": "K21", "subject": "int64", "occurrence": "string"},
+    {"id": "K22", "subject": "int64", "occurrence": "int64"},
+    {"id": "K23", "subject": "int64", "occurrence": "composite(string,int64)"},
+    {"id": "K31", "subject": "composite(string,int64)", "occurrence": "string"},
+    {"id": "K32", "subject": "composite(string,int64)", "occurrence": "int64"},
+    {"id": "K33", "subject": "composite(string,int64)", "occurrence": "composite(string,int64)"},
+)
+TIME_PROFILES: tuple[dict[str, str], ...] = (
+    {
+        "id": "T01",
+        "source_form": "duckdb_native_table",
+        "occurrence_unit": "us",
+        "report_timezone": "UTC",
+    },
+    {
+        "id": "T02",
+        "source_form": "duckdb_native_table",
+        "occurrence_unit": "us",
+        "report_timezone": "America/New_York",
+    },
+    {
+        "id": "T03",
+        "source_form": "duckdb_local_parquet",
+        "occurrence_unit": "s",
+        "report_timezone": "UTC",
+    },
+    {
+        "id": "T04",
+        "source_form": "duckdb_local_parquet",
+        "occurrence_unit": "s",
+        "report_timezone": "America/New_York",
+    },
+    {
+        "id": "T05",
+        "source_form": "duckdb_local_parquet",
+        "occurrence_unit": "ms",
+        "report_timezone": "UTC",
+    },
+    {
+        "id": "T06",
+        "source_form": "duckdb_local_parquet",
+        "occurrence_unit": "ms",
+        "report_timezone": "America/New_York",
+    },
+    {
+        "id": "T07",
+        "source_form": "duckdb_local_parquet",
+        "occurrence_unit": "us",
+        "report_timezone": "UTC",
+    },
+    {
+        "id": "T08",
+        "source_form": "duckdb_local_parquet",
+        "occurrence_unit": "us",
+        "report_timezone": "America/New_York",
+    },
+    {
+        "id": "T09",
+        "source_form": "duckdb_local_parquet",
+        "occurrence_unit": "ns",
+        "report_timezone": "UTC",
+    },
+    {
+        "id": "T10",
+        "source_form": "duckdb_local_parquet",
+        "occurrence_unit": "ns",
+        "report_timezone": "America/New_York",
+    },
+)
+
 START = datetime(2026, 2, 1, tzinfo=UTC)
 END = START + timedelta(seconds=100)
 TRIGGERS = ("started", "paid", "pulse", "finished")

@@ -19,9 +19,9 @@ from marivo.analysis.materialization import graph_local_execution
 from marivo.analysis.public_dsl import _MaterializedRead
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from scripts.r9_qualification_requirements import Json, arr, checked, encode, obj, read
+from tests.json_support import Json, arr, checked, encode, obj, read
 from tests.r94_domain_recovery_worker import forbidden, snapshot
-from tests.r94_native_domain_k_worker import run_ids
+from tests.shared_fixtures import run_ids
 
 
 def table_rows(table: pa.Table) -> list[Json]:

@@ -7,9 +7,9 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from devtools.r96_cost_scenarios import _data, _rows, _tables, workload
 from marivo.datasource.adapters import PhysicalRequirement
 from marivo.datasource.ir import TableSourceIR
+from tests.physical_workloads import _data, _rows, _tables, workload
 
 
 @pytest.mark.parametrize(

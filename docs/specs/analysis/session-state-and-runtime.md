@@ -230,7 +230,7 @@ transaction owner, writer guard and resource journal; no schema migration or
 format-probing fallback is installed.
 
 R4.6 installed-package evidence is recorded in the
-[acceptance ledger](../../superpowers/specs/2026-09-26-marivo-full-refactor-acceptance.md).
+acceptance ledger (historical record in Git history).
 It rechecks this existing boundary with one candidate wheel and source-free
 processes; it grants no additional backend or method qualification. Public
 Dataset Help must disclose the Store 7 rejection even when a private generic
@@ -971,7 +971,7 @@ execution identity, state schemas, placement, resources and Findings. The
 [domain API](python-analysis-design.md#r71-frozen-domain-api-target) and
 [operator rules](operators-and-frames.md#r71-frozen-domain-method-rules) own
 signatures and semantics. The
-[R7 ledger](../../superpowers/specs/2026-10-01-marivo-full-algebra-dsl-r7-migration-ledger.md)
+R7 ledger (historical record in Git history)
 records actual blockers and qualification/test responsibility.
 
 ### Method identity and parts
@@ -1292,7 +1292,7 @@ in artifact receipts; the Evidence descriptor digest binds the schema/parts and
 capture definitions. Reads, exact hits and fixed/cold continuation revalidate
 these closed facts. Public matching, replay and domain results remain disconnected;
 future `.show()` owns precision disclosure when those public results connect.
-See the [R7.2 evidence index](../../superpowers/specs/2026-10-01-marivo-r72-evidence-index.md).
+See the R7.2 evidence index (historical record in Git history).
 
 
 ### R7.4 implementation boundary (2026-10-02)
@@ -1477,14 +1477,14 @@ Both fit and ranking authorities are validated before the terminal table values
 are accepted; malformed arithmetic facts receive a typed retained-part repair.
 The common 600-second deadline, cancellation, cleanup and uncertain-commit coordination
 remain the Runtime authority. See the
-[R8.2 evidence index](../../superpowers/specs/2026-10-04-marivo-r82-evidence-index.md)
+R8.2 evidence index (historical record in Git history)
 for actual commands, qualified profiles and remaining fixed/F11 exits.
 
 ## R8.1 frozen statistical execution and disclosure
 
 This is the sole inactive R8 execution/publication/recovery target. R8.1 adds no
 method registration, producer implementation, new public API or qualification.
-The [R8 migration ledger](../../superpowers/specs/2026-10-03-marivo-full-algebra-dsl-r8-migration-ledger.md)
+The R8 migration ledger (historical record in Git history)
 records exact planned/blocked cells and migration responsibilities. Operator
 r8.<role>/v1 schemas and timezone grid facts are prerequisites, not satisfied by
 this document or by historical Dataset success.
@@ -1615,7 +1615,7 @@ condition_cells, pair_inputs or training_inputs, including retained views and
 fixed exact hits. The inherited budget resets durable-commit state per invocation.
 Below/at/above-600, late-result, cancellation, source reader/close and transaction
 checks for the nine methods are recorded in the
-[R8.6 evidence index](../../superpowers/specs/2026-10-04-marivo-r86-evidence-index.md).
+R8.6 evidence index (historical record in Git history).
 This bounded implementation evidence does not close the entire R8 matrix.
 
 Time-run recovery validates the captured classifications and the stored interval

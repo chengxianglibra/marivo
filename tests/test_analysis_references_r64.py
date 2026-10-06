@@ -303,7 +303,7 @@ def test_original_metric_standardization_matrix(
     import duckdb
 
     from marivo.analysis.public_dsl import MetricInputValue
-    from scripts.r9_qualification_requirements import Json, checked, encode, read
+    from tests.json_support import Json, checked, encode, read
     from tests.r93_source_trace import capture_source
     from tests.r94_domain_recovery_worker import snapshot
     from tests.r94_standardization_recovery_worker import parts

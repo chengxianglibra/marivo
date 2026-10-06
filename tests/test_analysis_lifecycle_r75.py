@@ -15,13 +15,16 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.materialization.history_execution import HISTORY
 from marivo.refs import ref
-from tests.lifecycle_r75_fixtures import END, START, build_lifecycle_public
+from tests.lifecycle_r75_fixtures import (
+    END,
+    KEY_PROFILES,
+    START,
+    TIME_PROFILES,
+    build_lifecycle_public,
+)
 from tests.lifecycle_r75_oracle import expected_histories
 
-SNAPSHOT = json.loads(
-    Path("docs/superpowers/specs/2026-10-01-marivo-r71-consumer-snapshot.json").read_text()
-)["qualification_target"]
-PROFILES = [(key, time) for key in SNAPSHOT["key_profiles"] for time in SNAPSHOT["time_profiles"]]
+PROFILES = [(key, time) for key in KEY_PROFILES for time in TIME_PROFILES]
 KEYS = {"string": "s", "int64": "i", "composite(string,int64)": "c"}
 
 
@@ -622,28 +625,6 @@ def test_legacy_history_retirement_preserves_shared_owners():
 
     assert "lifecycle_dataset" not in REGISTRY.canonical_ids()
     assert not hasattr(REGISTRY, "families")
-
-
-def test_p10_requirement_ids_and_phase_boundaries_are_preserved():
-    import base64
-    import zlib
-
-    frozen = json.loads(
-        Path("docs/superpowers/specs/2026-10-01-marivo-r71-consumer-snapshot.json").read_text()
-    )
-    inventory = json.loads(zlib.decompress(base64.b64decode(frozen["inventory_payload"]["data"])))
-    original = {row[0] for row in inventory["qualification_cells"] if row[1] == "P10"}
-    record = json.loads(
-        Path("docs/superpowers/specs/2026-10-02-marivo-r75-qualification.json").read_text()
-    )
-    assert {item["requirement_id"] for item in record["qualification_cells"]} == original
-    assert len(original) == 270
-    assert all(
-        item["profile_requirements"] == record["profile_requirements"]
-        for item in record["qualification_cells"]
-    )
-    assert "unimplemented" in record["requirement_dispositions"]["V10"]
-    assert "same-wheel" in record["exclusions"]
 
 
 @pytest.mark.runtime

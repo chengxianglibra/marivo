@@ -45,9 +45,8 @@ from marivo.datasource.errors import DatasourceConnectionError, DatasourceSource
 from marivo.refs import RefPayloadV1
 from marivo.semantic.ir import TargetDimensionContract, TimestampParse
 from marivo.semantic.reader import SemanticProject
-from scripts.r9_qualification_requirements import digest
-from scripts.r82_deviation_requirements import key_json
 from tests.deviation_r82_oracle import expected as deviation_oracle
+from tests.json_support import digest, key_json
 from tests.r9_source_cases import SourceData, source_case
 
 

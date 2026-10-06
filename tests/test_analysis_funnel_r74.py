@@ -748,34 +748,6 @@ def test_zero_policy_rejects_an_injected_nonempty_collection(funnel_public):
         zero.findings()
 
 
-def test_qualification_keeps_original_requirement_ids_and_unverified_cells():
-    import base64
-    import json
-    import zlib
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1] / "docs/superpowers/specs"
-    snapshot = json.loads((root / "2026-10-01-marivo-r71-consumer-snapshot.json").read_text())
-    inventory = json.loads(zlib.decompress(base64.b64decode(snapshot["inventory_payload"]["data"])))
-    expected = {
-        row[0] for row in inventory["qualification_cells"] if row[1] in ("P07", "P08", "P09")
-    }
-    current = json.loads((root / "2026-10-02-marivo-r74-qualification.json").read_text())
-    cells = current["qualification_cells"]
-    assert len(cells) == 810 and {cell["requirement_id"] for cell in cells} == expected
-    exercised = [
-        cell
-        for cell in cells
-        if cell["key_profile"]["id"] == "K22" and cell["time_profile"]["id"] in ("T01", "T07")
-    ]
-    assert len(exercised) == 18
-    assert all(cell["status"] == "unverified" for cell in cells if cell not in exercised)
-    assert all(
-        cell["route"] == ("ibis_python" if cell["phase"] == "S" else "artifact_python")
-        for cell in cells
-    )
-
-
 @pytest.mark.runtime
 def test_no_eligible_rows_preserves_frozen_extractor_policy(funnel_public):
     import duckdb

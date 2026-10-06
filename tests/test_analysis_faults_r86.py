@@ -18,7 +18,7 @@ from marivo.analysis.materialization.deviation_execution import load, save
 from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
 from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
 from marivo.datasource.adapters import SourceBatchStream
-from scripts.r81_static_freeze import Json
+from tests.json_support import Json
 from tests.r86_journeys import METHODS, check, graphs, inputs, prepare, proof, snapshot
 from tests.shared_fixtures import DslCaseFactory
 

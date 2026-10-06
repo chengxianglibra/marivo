@@ -33,7 +33,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.multisource_environment import clickhouse_analysis as ch
 from tests.r9_source_cases import source_case
 from tests.r94_domain_recovery_worker import snapshot
-from tests.r94_native_domain_k_worker import run_ids
+from tests.shared_fixtures import run_ids
 from tests.test_r93_capability_consumers import _author_c05_project
 from tests.test_r93_reference_consumers import _data
 

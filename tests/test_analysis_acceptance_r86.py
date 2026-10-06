@@ -26,7 +26,7 @@ from marivo.analysis.materialization import (
 )
 from marivo.analysis.materialization.graph_exchange import ExchangeResult
 from marivo.datasource.adapters import SourceBatchStream
-from scripts.r81_static_freeze import Json
+from tests.json_support import Json
 from tests.r86_journeys import METHODS, Result, check, graphs, inputs, prepare, proof
 from tests.shared_fixtures import DslCaseFactory
 

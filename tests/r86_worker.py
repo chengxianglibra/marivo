@@ -23,7 +23,10 @@ from marivo.analysis.materialization import (
 from marivo.analysis.methods import association_numeric, deviation_numeric, forecast_numeric
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from scripts.r81_static_freeze import Json, array_json, object_json, read_json
+from tests.json_support import Json
+from tests.json_support import arr as array_json
+from tests.json_support import obj as object_json
+from tests.json_support import read as read_json
 from tests.r86_journeys import Numeric, Result, check, create, graphs, inputs, proof, snapshot
 
 

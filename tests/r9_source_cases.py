@@ -30,7 +30,24 @@ from marivo.datasource.ir import (
     SourceParamIR,
     TableSourceIR,
 )
-from scripts import r9_qualification_requirements as freeze
+from tests import json_support as freeze
+
+PROFILES: dict[str, tuple[str, ...]] = {
+    "duckdb": (
+        "table",
+        "view",
+        "csv",
+        "parquet",
+        "local-json",
+        "http-json-public",
+        "http-json-auth",
+    ),
+    "postgres": ("table", "view", "namespace-table", "namespace-view"),
+    "mysql": ("innodb-table", "view"),
+    "sqlite": ("main-table", "main-view"),
+    "trino": ("iceberg", "non-iceberg"),
+    "clickhouse": ("mergetree", "distributed"),
+}
 
 ROWS: list[dict[str, object]] = [
     {"id": 9007199254740992, "amount": 2, "tenant": "a", "revision": 1},

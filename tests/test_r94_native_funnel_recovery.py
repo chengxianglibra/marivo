@@ -11,7 +11,7 @@ import ibis
 import pytest
 
 from marivo.datasource.ir import TableSourceIR
-from scripts.r9_qualification_requirements import Json, encode, read
+from tests.json_support import Json, encode, read
 from tests.r9_source_cases import SourceData, source_case
 from tests.r93_source_trace import SourceTrace
 from tests.r94_funnel_public_recovery_worker import author, materialize

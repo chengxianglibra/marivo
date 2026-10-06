@@ -1,1 +1,0 @@
-{"candidate_sha256":"8ee2f5d0b76fd752d024b8c3bc5d37ec8b708c1f067e12889fbf9580e238f2e4","counts":{"blocked":1,"failed":0,"passed":42,"unverified":351},"original_ids_sha256":"ae31b8cd404fc98d996e9243d8f93d07b72f82c107cc8354f64dd27245b06cc0","r92_required":43,"selected_runs":["qualified-trino","qualified-local-postgres-mysql","qualified-clickhouse","qualified-clickhouse-cluster"]}

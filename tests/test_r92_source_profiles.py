@@ -19,8 +19,7 @@ from marivo.datasource.capabilities import provider_statement_log
 from marivo.datasource.engines.base import MetadataInspectRequest
 from marivo.datasource.errors import DatasourceSourceCapabilityError
 from marivo.datasource.ir import TableSourceIR
-from scripts.r9_qualification_requirements import PROFILES
-from tests.r9_source_cases import ROWS, SourceData, receipt, source_case
+from tests.r9_source_cases import PROFILES, ROWS, SourceData, receipt, source_case
 
 pytestmark = pytest.mark.runtime
 CASES = [(backend, profile) for backend, profiles in PROFILES.items() for profile in profiles]

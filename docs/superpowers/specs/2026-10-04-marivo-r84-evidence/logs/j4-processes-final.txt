@@ -1,1 +1,0 @@
-{"processes": 6, "exit_code": 0, "origins": ["table", "parquet"]}

@@ -15,7 +15,7 @@ import marivo.semantic as ms
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from scripts.r82_deviation_requirements import key_json
+from tests.json_support import key_json
 from tests.r9_source_cases import SourceData, source_case
 from tests.r93_source_trace import SourceTrace
 from tests.test_r93_capability_consumers import _author_c05_project

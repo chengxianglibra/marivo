@@ -19,7 +19,7 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.semantic.reader import SemanticProject
-from scripts.r9_qualification_requirements import Json
+from tests.json_support import Json
 from tests.r9_source_cases import Case, SourceData, source_case
 from tests.r93_source_trace import SourceTrace
 from tests.r94_recovery_worker import snapshot

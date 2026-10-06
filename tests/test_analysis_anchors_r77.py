@@ -17,79 +17,10 @@ from marivo.analysis.anchors import deadline
 from marivo.analysis.errors import AnalysisError
 from tests.anchors_r77_fixtures import build_anchors, event_anchors, journey, observations
 from tests.anchors_r77_oracle import assert_result
+from tests.lifecycle_r75_fixtures import KEY_PROFILES, TIME_PROFILES
 
-TARGET = json.loads(
-    Path("docs/superpowers/specs/2026-10-01-marivo-r71-consumer-snapshot.json").read_text()
-)["qualification_target"]
-PROFILES = [(key, time) for key in TARGET["key_profiles"] for time in TARGET["time_profiles"]]
+PROFILES = [(key, time) for key in KEY_PROFILES for time in TIME_PROFILES]
 KEYS = {"string": "s", "int64": "i", "composite(string,int64)": "c"}
-
-
-def test_qualification_preserves_original_cells_and_unverified_targets():
-    import base64
-    import hashlib
-    import zlib
-
-    snapshot = json.loads(
-        Path("docs/superpowers/specs/2026-10-01-marivo-r71-consumer-snapshot.json").read_text()
-    )
-    inventory = json.loads(zlib.decompress(base64.b64decode(snapshot["inventory_payload"]["data"])))
-    profiles = {
-        profile["id"]: profile
-        for profile in TARGET["method_profiles"]
-        if profile["implementation_package"] == "R7.7"
-    }
-    original = {row[0]: row for row in inventory["qualification_cells"] if row[1] in profiles}
-    record = json.loads(
-        Path("docs/superpowers/specs/2026-10-02-marivo-r77-qualification.json").read_text()
-    )
-    cells = []
-    for shard in record["qualification_shards"]:
-        path = Path("docs/superpowers/specs") / shard["path"]
-        content = path.read_bytes()
-        assert hashlib.sha256(content).hexdigest() == shard["sha256"]
-        payload = json.loads(content)
-        assert payload["schema"] == "marivo.r77-qualification-cells/v1"
-        assert len(payload["cells"]) == shard["count"]
-        cells.extend(payload["cells"])
-    assert len(cells) == len(original) == 6750
-    assert {cell["requirement_id"] for cell in cells} == original.keys()
-    assert {p["id"]: p for p in record["method_profiles"]} == profiles
-    receipts = record["receipts"]
-    for cell in cells:
-        row = original[cell["requirement_id"]]
-        assert [
-            cell["method_profile"],
-            cell["key_profile"],
-            cell["time_profile"],
-            cell["phase"],
-            cell["original_route"],
-            cell["original_status"],
-            cell["mandatory"],
-        ] == row[1:]
-        unfinished = (cell["phase"] == "S" and cell["method_profile"] == "P48") or (
-            cell["phase"] == "F" and cell["method_profile"] not in ("P18", "P48")
-        )
-        executed = cell["receipt"] in receipts
-        assert cell["status"] == (
-            "unverified" if unfinished or not executed else "passed_bounded_local_r77"
-        )
-        assert bool(cell["unfinished_reason"]) == (unfinished or not executed)
-        assert cell["actual_execution_status"] == (
-            "passed_bounded_local_r77" if executed else "not_run"
-        )
-    assert record["counts"]["qualification_status_counts"]["unverified"] == 3894
-    assert record["counts"]["actual_bounded_phase_checks_passed"] == 4200
-    assert len(record["receipts"]) == 56
-    assert all(r["phases"][2]["exact_hit"] for r in record["receipts"].values())
-    assert record["checks"]["r77_runtime"]["status"] == "interrupted_by_user_request"
-    assert record["a13_anchor_slice"]["fixed_K_count"] == 152
-    assert record["a13_anchor_slice"]["full_a13"].startswith("unverified")
-    assert record["p24_anchor"]["original_cells"] == [
-        row for row in inventory["qualification_cells"] if row[1] == "P24"
-    ]
-    assert record["p24_anchor"]["retention_owner"] == "R7.8"
-    assert record["requirement_dispositions"]["V18"]["same_wheel"] == "unverified"
 
 
 @pytest.mark.parametrize(

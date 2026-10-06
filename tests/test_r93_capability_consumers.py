@@ -31,7 +31,7 @@ from marivo.datasource.adapters import SourceSession
 from marivo.datasource.capabilities import provider_statement_log
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
 from marivo.semantic.reader import SemanticProject
-from scripts.r82_deviation_requirements import key_json
+from tests.json_support import key_json
 from tests.r9_source_cases import Case, SourceData, source_case
 from tests.r93_source_trace import SourceTrace
 

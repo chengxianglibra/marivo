@@ -10,7 +10,7 @@ existing `MARIVO_*_ANALYSIS_TEST=1` flag. It covers native SQL ownership for pub
 probe, inspection, members, terminal, scoped HTTP and owned-query control; it
 does not replay or qualify business method families. Existing R9.2–R9.4 evidence
 keeps its original candidate, physical-profile and cancellation scope. See the
-[SQL ledger](../../docs/superpowers/specs/2026-10-06-marivo-r95-sql-ledger.md).
+SQL ledger (historical record in Git history).
 
 ## R9.2 governed source qualification
 
@@ -18,44 +18,31 @@ keeps its original candidate, physical-profile and cancellation scope. See the
 expression-only datasource adapters, not the historical Dataset/compiler probes.
 It binds the 19 R9 physical profiles and 24 backend type/identity goals. Start and
 verify profiles explicitly using the lifecycle commands below, then run selected
-tests with the matching opt-in flags. Ordinary tests and evidence commands do not
-start services. The explicit R9.3 exception below owns its lifecycle commands.
+tests with the matching opt-in flags. Tests do not start services; manage their
+lifecycle explicitly with `manage.sh`.
 
-`scripts/r92_source_qualification.py` records per-node receipts, native submission
-observations, candidate/driver/service versions and hashes. See the
-[R9.2 record](../../docs/superpowers/specs/2026-10-04-marivo-r92-evidence/README.md)
-for collected selectors and immutable evidence commands. Runtime test success
-does not imply every required source goal passed: SQLite's float-backed NUMERIC
-carrier is a blocked exact-Decimal success goal with a passed rejection test.
-Injected resource faults verify local cleanup; server termination and Analysis
-method qualification have separate owners.
+Run the source checks with `make runtime-test TESTS='tests/test_r92_source_profiles.py'`
+after enabling the selected backend flags. Temporary qualification scripts and
+recorded evidence were removed during the 2026-10-06 cleanup; their committed
+contents remain in Git history. Runtime test success does not imply every source
+goal passed: SQLite's float-backed NUMERIC carrier retains its explicit
+exact-Decimal rejection. Injected resource faults verify local cleanup; server
+termination and Analysis method qualification have separate owners.
 
 This opt-in environment prepares Slice 0 probes. It does not enable a Marivo
 backend and is never started by pytest, `make test`, or `make runtime-test`.
 All lifecycle commands target the dedicated `marivo-multisource` Colima socket.
 Existing `marivo-slice9d` containers and volumes are outside its ownership.
 
-## R9.3 same-candidate statistical phases
+## Statistical Runtime checks
 
-`scripts/r93_method_qualification.py --all-statistical-backends --directory ...`
-explicitly orchestrates the approved environment lifecycle. PostgreSQL-analysis
-and MySQL-analysis must already be ready. It starts the Trino group for retained,
-local/PostgreSQL and Iceberg statistical consumers, then switches to ClickHouse
-for MySQL/local MergeTree consumers. Tests remain serial and never start services
-themselves. Both real pytest commands, phase exit codes and original JUnit files
-are retained. The combined observation file must match their exact invocation
-union before qualification. The harness retains one unchanged candidate and
-does not grant scenario passes; the separate result binder owns qualification.
-
-Use this orchestration only when collecting the stable statistical candidate.
-During development, run affected nodes with `make runtime-test TESTS='...'`
-against already-ready services. The statistical phases include retained numeric,
-source statistics, and source deadlines only; C04/C08/C09, cohort, cold recovery,
-and independent ratio regressions belong to their affected capability batches.
-Do not restart these phases for binder, index, or documentation-only changes.
-Run `make check-agent` once at final R9.3 candidate closure, plus one site build
-when latest site content changed. It already owns full lint, typing, default
-tests, and API documentation, so separate full invocations add no coverage.
+Run affected nodes with `make runtime-test TESTS='...'` against already-ready
+services, using the existing backend opt-in flags. Trino and ClickHouse service
+groups remain mutually exclusive; switch them explicitly with `manage.sh`.
+`tests/test_r93_method_consumers.py`, `tests/test_r93_retained_numeric.py` and
+`tests/test_r93_acquisition_timeout.py` own their focused statistical boundaries.
+C04/C08/C09, cohort, cold recovery and independent ratio regressions retain
+their capability-specific tests. Tests never start services themselves.
 
 The local ClickHouse reader remains `readonly=1` and SELECT-only. Its fixture
 permits per-query `max_execution_time` and
