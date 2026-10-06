@@ -389,8 +389,10 @@ def fixed_signature(value: Descriptor) -> Signature:
 DESCRIPTOR = TypeAdapter(Descriptor)
 
 
-def semantic_versions(root: Node) -> tuple[tuple[str, str], ...]:
-    nodes = topology(root)
+def semantic_versions(
+    root: Node, *, _nodes: tuple[Node, ...] | None = None
+) -> tuple[tuple[str, str], ...]:
+    nodes = topology(root) if _nodes is None else _nodes
     versions = [
         (node.definition.ref.path, node.definition.fingerprint)
         for node in nodes

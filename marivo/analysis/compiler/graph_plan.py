@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from typing import Literal, TypeAlias
+from dataclasses import dataclass, field, replace
+from typing import Literal, NoReturn, TypeAlias
+from weakref import ReferenceType, ref
 
-from marivo.analysis.core.graph import FixedLeaf, MethodNode, Node, SourceLeaf, topology
+from marivo.analysis.core.graph import (
+    FixedLeaf,
+    MethodNode,
+    Node,
+    SourceLeaf,
+    _CapturedGraph,
+    _static_digest,
+    capture_graph,
+    topology,
+)
 from marivo.analysis.core.model import (
     ConditionCellsPart,
     CoveragePart,
@@ -78,7 +88,10 @@ class InputClassification:
 
 def classify_inputs(root: Node, *, registry: MethodRegistry = REGISTRY) -> InputClassification:
     """Traverse actual dependencies only; fixed origin history has no graph edge."""
-    nodes = topology(root, registry=registry)
+    return _classify(topology(root, registry=registry))
+
+
+def _classify(nodes: tuple[Node, ...]) -> InputClassification:
     sources = tuple(n for n in nodes if isinstance(n, SourceLeaf))
     artifacts = tuple(n for n in nodes if isinstance(n, FixedLeaf))
     kind: Literal["source", "artifact", "mixed"] = (
@@ -146,7 +159,7 @@ class PhysicalRequirement:
     implementation: Implementation
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class GraphPlan:
     root: Node
     classification: InputClassification
@@ -154,9 +167,70 @@ class GraphPlan:
     checks: tuple[CheckRequirement, ...]
     physical_requirements: tuple[PhysicalRequirement, ...]
     primary_output: str
+    _handoff: _PlanHandoff | None = field(default=None, init=False, repr=False, compare=False)
 
 
-def _refuse(expected: str, received: str, repair: str) -> None:
+@dataclass(frozen=True, slots=True)
+class _PlanHandoff:
+    plan: ReferenceType[GraphPlan]
+    captured: _CapturedGraph
+    state: str
+
+
+def _plan_digest(admitted: GraphPlan, captured: _CapturedGraph) -> str:
+    return _static_digest(
+        (
+            admitted.root,
+            admitted.classification,
+            admitted.stages,
+            admitted.checks,
+            admitted.physical_requirements,
+            admitted.primary_output,
+            (
+                captured.root,
+                id(captured.registry),
+                captured.nodes,
+                captured.retained,
+                tuple(captured.index.items()),
+                tuple(captured.fingerprints.items()),
+                captured.node_states,
+                tuple(
+                    (id(registration), state)
+                    for registration, state in captured.registration_states
+                ),
+                id(captured.registrations),
+            ),
+        )
+    )
+
+
+def admitted_capture(admitted: GraphPlan, registry: MethodRegistry = REGISTRY) -> _CapturedGraph:
+    """Check the exact compiler handoff without selecting or deriving again."""
+    if type(admitted) is not GraphPlan:
+        _refuse(
+            "an unchanged admitted plan",
+            type(admitted).__name__,
+            "Build through the graph planner.",
+        )
+    try:
+        handoff = admitted._handoff
+    except AttributeError:
+        _refuse("an unchanged admitted plan", "missing handoff", "Build through the graph planner.")
+    if (
+        type(handoff) is not _PlanHandoff
+        or handoff.plan() is not admitted
+        or handoff.state != _plan_digest(admitted, handoff.captured)
+        or not handoff.captured.unchanged(admitted.root, registry)
+    ):
+        _refuse(
+            "an unchanged admitted plan",
+            "altered plan, definition or registry interpretation",
+            "Rebuild the plan from the exact definition and registry.",
+        )
+    return handoff.captured
+
+
+def _refuse(expected: str, received: str, repair: str) -> NoReturn:
     reject(expected, received, repair, "analysis.graph_plan")
 
 
@@ -167,7 +241,12 @@ def plan(
     registry: MethodRegistry = REGISTRY,
 ) -> GraphPlan:
     """Select explicit routes before any data work; unavailable keys remain unavailable."""
-    classification = classify_inputs(root, registry=registry)
+    return _plan_captured(capture_graph(root, registry=registry), routes=routes)
+
+
+def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...]) -> GraphPlan:
+    root, registry, nodes = captured.root, captured.registry, captured.nodes
+    classification = _classify(nodes)
     if classification.kind == "mixed":
         _refuse(
             "source-only or fixed Artifact-only dependencies",
@@ -207,7 +286,6 @@ def plan(
     # Cohort reads the retained opportunity grid, not physical timestamp values.
     # ArtifactReadStage retains each leaf's exact shape and publication contract.
     shape = FixedShape(NoTime()) if fixed_cohort else next(iter(shapes))
-    nodes = topology(root, registry=registry)
     methods = tuple(n for n in nodes if isinstance(n, MethodNode))
     if type(routes) is not tuple or any(type(r) is not RouteChoice for r in routes):
         _refuse("immutable route choices", repr(routes), "Choose one route per method node.")
@@ -242,6 +320,7 @@ def plan(
     physical: list[PhysicalRequirement] = []
     outputs: dict[str, str] = {}
     local: set[str] = set()
+    prepared_ancestors: dict[str, bool] = {}
     for node in nodes:
         output = f"stage:{len(stages)}"
         if isinstance(node, SourceLeaf):
@@ -257,13 +336,13 @@ def plan(
                     route,
                     "Select fixed Python or a qualified source route explicitly.",
                 )
-            prepared_consumer = isinstance(
-                node.parameters, (OriginalReduce, CellDerive, AttributionDerive)
-            ) and any(
-                isinstance(ancestor, MethodNode)
-                and isinstance(ancestor.parameters, PreparedObservation)
-                and ancestor.inputs[0].node.identity == ancestor.inputs[1].node.identity
-                for ancestor in topology(node)
+            prepared_ancestors[node.identity] = (
+                isinstance(node.parameters, PreparedObservation)
+                and node.inputs[0].node.identity == node.inputs[1].node.identity
+            ) or any(prepared_ancestors.get(edge.node.identity, False) for edge in node.inputs)
+            prepared_consumer = (
+                isinstance(node.parameters, (OriginalReduce, CellDerive, AttributionDerive))
+                and prepared_ancestors[node.identity]
             )
             if (
                 not prepared_consumer
@@ -379,15 +458,9 @@ def plan(
                 else shape,
                 route,
             )
-            selected = registry.select(
-                key, tuple(e.node.signature for e in node.inputs), node.parameters
+            selected = registry._select_derived(
+                key, tuple(e.node.signature for e in node.inputs), node.parameters, node.derivation
             )
-            if selected.derivation != node.derivation:
-                _refuse(
-                    "the graph's registered derivation",
-                    "different semantic owner",
-                    "Rebuild with the same registry.",
-                )
             implementation = selected.implementation
             inputs = tuple(outputs[e.node.identity] for e in node.inputs) + tuple(
                 outputs[s.identity] for s in node.sources
@@ -542,6 +615,12 @@ def plan(
             *(stage for stage in stages if not isinstance(stage, LocalMethodStage)),
             *(stage for stage in stages if isinstance(stage, LocalMethodStage)),
         ]
-    return GraphPlan(
+    admitted = GraphPlan(
         root, classification, tuple(stages), tuple(checks), tuple(physical), outputs[root.identity]
     )
+    object.__setattr__(
+        admitted,
+        "_handoff",
+        _PlanHandoff(ref(admitted), captured, _plan_digest(admitted, captured)),
+    )
+    return admitted

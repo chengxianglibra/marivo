@@ -1,9 +1,12 @@
 """Pure graph oracles; synthetic implementations confer no production qualification."""
 
 from dataclasses import FrozenInstanceError, replace
+from hashlib import sha256
+from unittest.mock import patch
 
 import pytest
 
+import marivo.analysis.core.graph as graph
 import marivo.semantic as ms
 from marivo.analysis.compiler.graph_plan import (
     ArtifactReadStage,
@@ -18,6 +21,7 @@ from marivo.analysis.core.graph import (
     FixedLeaf,
     SourceDefinition,
     SourceLeaf,
+    capture_graph,
     method_node,
     topology,
 )
@@ -30,7 +34,13 @@ from marivo.analysis.core.model import (
     ObservedQuantity,
     Signature,
 )
-from marivo.analysis.core.rules import BindProject, CellDerive, OriginalReduce, RowState
+from marivo.analysis.core.rules import (
+    BindProject,
+    CellDerive,
+    OriginalReduce,
+    PartsTransport,
+    RowState,
+)
 from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.physical import (
     FixedShape,
@@ -299,8 +309,9 @@ def test_child_obligations_survive_and_post_is_not_evidence():
     assert child.derivation.post
     assert child.signature.evidence == ()
     assert parent.signature.evidence == ()
+    object.__setattr__(parent, "derivation", replace(parent.derivation, obligations=()))
     with pytest.raises(CoreRuleError, match="registered semantic derivation"):
-        replace(parent, derivation=replace(parent.derivation, obligations=()))
+        topology(parent)
 
 
 def test_route_choices_must_cover_exact_reachable_methods():
@@ -504,3 +515,133 @@ def test_same_node_emits_one_stage_but_independent_nodes_do_not_merge():
         result = plan(root, routes=(RouteChoice(root.identity, "ibis"),), registry=registry)
         assert len(result.stages) == expected_count
         assert (result.stages[-1].inputs[0] == result.stages[-1].inputs[1]) == (left is right)
+
+
+@pytest.mark.parametrize("depth", [10, 20, 40])
+def test_o1_chain_construction_derives_and_checks_only_new_nodes(depth: int) -> None:
+    root = _source()
+    with (
+        patch.object(graph, "_validate_method", wraps=graph._validate_method) as checks,
+        patch.object(
+            MethodRegistry, "derive", autospec=True, side_effect=MethodRegistry.derive
+        ) as derivations,
+    ):
+        for _ in range(depth):
+            root = method_node(
+                (Edge("quantity", root),),
+                PartsTransport("view", root.signature.domain, (), True),
+                value_type=root.value_type,
+            )
+    assert checks.call_count == derivations.call_count == depth
+    routes = tuple(
+        RouteChoice(node.identity, "ibis")
+        for node in graph.retained_nodes(root)
+        if isinstance(node, graph.MethodNode)
+    )
+    with (
+        patch.object(graph, "_validate_method", wraps=graph._validate_method) as checks,
+        patch.object(
+            MethodRegistry, "derive", autospec=True, side_effect=MethodRegistry.derive
+        ) as derivations,
+    ):
+        admitted = plan(root, routes=routes)
+    assert checks.call_count == derivations.call_count == depth
+    assert len(admitted.stages) == depth + 1
+
+
+def test_o1_complete_entry_validates_shared_nodes_once() -> None:
+    child = _mean(_source())
+    root = _difference(child, child)
+    with (
+        patch.object(graph, "_validate_method", wraps=graph._validate_method) as checks,
+        patch.object(
+            MethodRegistry, "derive", autospec=True, side_effect=MethodRegistry.derive
+        ) as derivations,
+    ):
+        captured = capture_graph(root)
+    assert len(captured.nodes) == 3
+    assert checks.call_count == derivations.call_count == 2
+    assert captured.fingerprints[root.identity] == root.fingerprint
+
+
+def test_o1_deep_identity_collision_is_rejected_at_complete_entry() -> None:
+    leaf = _source()
+    root = _difference(_mean(leaf), _mean(replace(leaf)))
+    with pytest.raises(CoreRuleError, match="one object per explicit node identity"):
+        capture_graph(root)
+
+
+def test_o1_forged_ancestor_is_rejected_at_complete_entry() -> None:
+    child = _mean(_source())
+    object.__setattr__(child, "derivation", replace(child.derivation, obligations=()))
+    root = method_node(
+        (Edge("quantity", child),),
+        PartsTransport("view", child.signature.domain, (), True),
+        value_type=child.value_type,
+    )
+    with pytest.raises(CoreRuleError, match="registered semantic derivation"):
+        capture_graph(root)
+
+
+def test_o1_retained_source_definitions_do_not_classify_as_execution_inputs() -> None:
+    original = _mean(_source())
+    fixed = FixedLeaf(
+        ArtifactRef("retained"),
+        original.fingerprint,
+        original.signature,
+        original.value_type,
+        FixedShape(NoTime()),
+    )
+    root = method_node(
+        (Edge("current", fixed), Edge("baseline", fixed)),
+        _difference(original, original).parameters,
+        value_type=original.value_type,
+        retained_endpoints=(original, original),
+    )
+    captured = capture_graph(root)
+    assert captured.nodes == (fixed, root)
+    assert original in captured.retained
+    assert classify_inputs(root).kind == "artifact"
+    object.__setattr__(original, "inputs", (Edge("quantity", root),))
+    with pytest.raises(CoreRuleError, match="acyclic"):
+        capture_graph(root)
+
+
+@pytest.mark.parametrize(
+    ("kind", "fingerprint", "plan_hash", "snapshot_hash"),
+    [
+        (
+            "source",
+            "0a5f559f0510fd7b25c4ba420c6c3fa16ea5a29f7853476653e1c8e0f918d3bc",
+            "739d6f94599ea7112fefc74281e352095793d4417b7638a4c422c7436c03b8d7",
+            "7492ec89eb154a1196ec199ced04a45bd4e342b50e390576af7d9d282ba175eb",
+        ),
+        (
+            "fixed",
+            "db3415c7708de89235959ac90e78216e7de6c8996c109cff3092f98f40284e52",
+            "f3cd0cadffa64d98edb193dbdc1530f8bf1fc91bd59d9a0a77c8b846abcfb796",
+            "2f7489c63784123ff0afe1ddbff3ff03be791d710aeb41fbb827f89205749678",
+        ),
+    ],
+)
+def test_o1_persisted_identity_matches_pre_optimization_baseline(
+    kind: str, fingerprint: str, plan_hash: str, snapshot_hash: str
+) -> None:
+    from marivo.analysis.materialization.graph_protocol import freeze_graph, plan_digest
+
+    # Frozen from panda@d7b0526a75 using deterministic capture identities.
+    root = _source() if kind == "source" else _fixed()
+    object.__setattr__(root, "identity", "leaf")
+    routes = []
+    for index in range(2):
+        root = method_node(
+            (Edge("quantity", root),),
+            PartsTransport("view", root.signature.domain, (), True),
+            value_type=root.value_type,
+        )
+        object.__setattr__(root, "identity", f"view-{index}")
+        routes.append(RouteChoice(root.identity, "ibis" if kind == "source" else "artifact_python"))
+    admitted = plan(root, routes=tuple(routes))
+    assert root.fingerprint == fingerprint
+    assert plan_digest(admitted) == plan_hash
+    assert sha256(freeze_graph(root).encode()).hexdigest() == snapshot_hash

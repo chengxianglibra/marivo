@@ -17,13 +17,12 @@ from marivo.analysis.compiler.graph_plan import (
     CheckRequirement,
     GraphPlan,
     LocalMethodStage,
-    RouteChoice,
     SourceInputStage,
     SourceMethodStage,
-    plan,
+    admitted_capture,
 )
 from marivo.analysis.compiler.member_version import select_version, version_predicate
-from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
+from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, _CapturedGraph
 from marivo.analysis.core.model import (
     AnchorDomainPart,
     AnchorObservationPart,
@@ -1204,7 +1203,7 @@ def _transport(
     return _renamed(table, old, target), target
 
 
-def _source_fields(admitted: GraphPlan, binding: SourceBinding) -> tuple[str, ...]:
+def _source_fields(captured: _CapturedGraph, binding: SourceBinding) -> tuple[str, ...]:
     fields = {key.column for key in binding.layout.keys}
     version = binding.leaf.definition.version
     if isinstance(binding.leaf.signature.domain.version_selection, GridVersionSelection):
@@ -1212,7 +1211,7 @@ def _source_fields(admitted: GraphPlan, binding: SourceBinding) -> tuple[str, ..
             fields.add(version.source_column)
         elif isinstance(version, TargetValidityVersion):
             fields.update((version.valid_from_column, version.valid_to_column))
-    for node in topology(admitted.root):
+    for node in captured.nodes:
         if not isinstance(node, MethodNode) or binding.leaf not in node.sources:
             continue
         params = node.parameters
@@ -2168,7 +2167,10 @@ def _weighted_finish(
 
 
 def _fold_rollup(
-    stage: SourceMethodStage, source: LoweredRelation, checks: list[LoweredCheck]
+    stage: SourceMethodStage,
+    source: LoweredRelation,
+    checks: list[LoweredCheck],
+    dependencies: tuple[Node, ...],
 ) -> tuple[ir.Table, RelationLayout]:
     params = stage.node.parameters
     assert isinstance(params, OriginalReduce)
@@ -2199,7 +2201,7 @@ def _fold_rollup(
     )
     kinds = tuple(
         n.parameters.fold
-        for n in topology(source.node)
+        for n in dependencies
         if isinstance(n, MethodNode)
         and isinstance(n.parameters, ObserveMetric)
         and n.parameters.fold is not None
@@ -2226,7 +2228,7 @@ def _fold_rollup(
                     if n.parameters.amount_type.startswith("decimal(")
                     else n.parameters.amount_type
                 )
-                for n in topology(source.node)
+                for n in dependencies
                 if isinstance(n, MethodNode)
                 and isinstance(n.parameters, ObserveMetric)
                 and n.parameters.fold is not None
@@ -3394,10 +3396,8 @@ def _fact_relations(
 def lower(
     admitted: GraphPlan, *, bindings: tuple[SourceBinding, ...], registry: MethodRegistry = REGISTRY
 ) -> LoweredPlan:
-    """Lower a revalidated plan without I/O, SQL, route retries or fulfilled proofs."""
-    routes = tuple(RouteChoice(p.node_id, p.key.route) for p in admitted.physical_requirements)
-    if plan(admitted.root, routes=routes, registry=registry) != admitted:
-        _fail("an unchanged admitted plan", "altered stages or obligations")
+    """Lower an unchanged compiler handoff while validating this invocation's bindings."""
+    captured = admitted_capture(admitted, registry)
     expected = admitted.classification.sources
     if len(bindings) != len(expected) or {id(b.leaf) for b in bindings} != {
         id(s) for s in expected
@@ -3580,12 +3580,12 @@ def lower(
                     ),
                 )
                 and stage.leaf in node.sources
-                for node in topology(admitted.root)
+                for node in captured.nodes
             )
             population_input = any(
                 isinstance(node, MethodNode)
                 and any(edge.node is stage.leaf for edge in node.inputs)
-                for node in topology(admitted.root)
+                for node in captured.nodes
             )
             raw = (
                 bound.source.relation
@@ -3598,7 +3598,7 @@ def lower(
                     stage.leaf.signature.domain.version_selection,
                 )
             )
-            raw_fields = _source_fields(admitted, bound)
+            raw_fields = _source_fields(captured, bound)
             extras = tuple(f"source__{raw.columns.index(column)}" for column in raw_fields)
             selected_columns = tuple(
                 raw[old].name(new)
@@ -3793,7 +3793,7 @@ def lower(
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
             elif isinstance(params, OriginalReduce):
                 table, layout = (
-                    _fold_rollup(stage, inputs[0], checks)
+                    _fold_rollup(stage, inputs[0], checks, captured.dependencies(inputs[0].node))
                     if params.method == "fold"
                     else _original_sum(stage, inputs[0])
                 )
@@ -3834,7 +3834,7 @@ def lower(
         auxiliary = isinstance(node, SourceLeaf) and not any(
             isinstance(candidate, MethodNode)
             and any(edge.node is node for edge in candidate.inputs)
-            for candidate in topology(admitted.root)
+            for candidate in captured.nodes
         )
         if not auxiliary:
             checks.append(
@@ -3894,9 +3894,7 @@ def lower(
         if admitted.classification.kind == "artifact":
             checks.append(requirement)
             continue
-        owner = next(
-            node for node in topology(admitted.root) if node.identity == requirement.node_id
-        )
+        owner = captured.index[requirement.node_id]
         if isinstance(owner, MethodNode) and (
             isinstance(owner.parameters, PreparedObservation)
             or (

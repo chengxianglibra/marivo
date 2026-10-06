@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from collections.abc import Mapping
+from dataclasses import InitVar, dataclass, field, fields, is_dataclass, replace
 from hashlib import sha256
+from types import MappingProxyType
 from typing import Literal, TypeAlias
 from uuid import uuid4
 
@@ -36,7 +38,7 @@ from marivo.analysis.core.rules import (
     TimeRuns,
 )
 from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType, SourceShape, ValueType
-from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
+from marivo.analysis.methods.registry import REGISTRY, MethodRegistration, MethodRegistry
 from marivo.analysis.methods.semantics import MethodKey, key_for_parameters
 from marivo.analysis.refs import ArtifactRef
 from marivo.refs import DatasourceKind, EntityKind, MetricKind, Ref, SemanticKind
@@ -90,6 +92,7 @@ class SourceLeaf:
         _identifier(self.identity)
         if type(self.definition) is not SourceDefinition or type(self.signature) is not Signature:
             _fail("a typed source definition and signature", self.identity)
+        self.definition.__post_init__()
         if any(item.basis not in ("declaration", "builder") for item in self.signature.evidence):
             _fail(
                 "a live source signature with only static declaration or builder evidence",
@@ -171,14 +174,16 @@ class MethodNode:
     method: MethodKey
     parameters: RuleParameters
     inputs: tuple[Edge, ...]
-    derivation: RuleDerivation
+    derivation: RuleDerivation = field(init=False)
     value_type: ValueType
     sources: tuple[SourceLeaf, ...] = ()
     identity: str = field(default_factory=lambda: uuid4().hex)
     retained_endpoints: tuple[MethodNode, ...] = ()
 
-    def __post_init__(self) -> None:
-        _validate_method(self, REGISTRY)
+    registry: InitVar[MethodRegistry] = field(default=REGISTRY, kw_only=True)
+
+    def __post_init__(self, registry: MethodRegistry) -> None:
+        _validate_method(self, registry, constructing=True)
 
     @property
     def signature(self) -> Signature:
@@ -191,34 +196,26 @@ class MethodNode:
 
 def definition_fingerprints(root: Node) -> dict[str, str]:
     """Hash each captured definition once per call, never cache across executions."""
-    result: dict[str, str] = {}
-    active: set[str] = set()
+    return _fingerprints(_ordered_nodes(root, retained=True))
 
-    def visit(node: Node) -> str:
-        if node.identity in active:
-            _fail("an acyclic definition closure", node.identity)
-        if node.identity in result:
-            return result[node.identity]
-        active.add(node.identity)
+
+def _fingerprints(nodes: tuple[Node, ...]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for node in nodes:
         if isinstance(node, MethodNode):
-            value = _digest(
+            result[node.identity] = _digest(
                 (
                     node.method,
                     node.parameters,
-                    tuple((edge.role, visit(edge.node)) for edge in node.inputs),
+                    tuple((edge.role, result[edge.node.identity]) for edge in node.inputs),
                     node.derivation,
                     node.value_type,
-                    tuple(visit(source) for source in node.sources),
-                    tuple(visit(endpoint) for endpoint in node.retained_endpoints),
+                    tuple(result[source.identity] for source in node.sources),
+                    tuple(result[endpoint.identity] for endpoint in node.retained_endpoints),
                 )
             )
         else:
-            value = node.fingerprint
-        active.remove(node.identity)
-        result[node.identity] = value
-        return value
-
-    visit(root)
+            result[node.identity] = node.fingerprint
     return result
 
 
@@ -257,6 +254,10 @@ def retained_nodes(root: Node) -> tuple[Node, ...]:
 def retained_inclusion(receiver: Node, dependency: Node) -> bool:
     """Prove an ancestor or total field/observation map on a retained ancestor."""
     topology(receiver)
+    return _retained_inclusion(receiver, dependency)
+
+
+def _retained_inclusion(receiver: Node, dependency: Node) -> bool:
     nodes = retained_nodes(receiver)
 
     def captured(candidate: Node) -> bool:
@@ -322,7 +323,13 @@ def retained_inclusion(receiver: Node, dependency: Node) -> bool:
     return False
 
 
-def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
+def _validate_method(
+    node: MethodNode,
+    registry: MethodRegistry,
+    *,
+    constructing: bool = False,
+    fingerprints: Mapping[str, str] | None = None,
+) -> None:
     _identifier(node.identity)
     _value_type(node.value_type)
     if (
@@ -331,6 +338,18 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
         or any(type(e) is not Edge for e in node.inputs)
     ):
         _fail("ordered immutable data dependencies", node.identity)
+    direct: dict[str, Node] = {node.identity: node}
+    for edge in node.inputs:
+        edge.__post_init__()
+        prior = direct.setdefault(edge.node.identity, edge.node)
+        if prior is not edge.node:
+            _fail("one object per explicit node identity", edge.node.identity)
+    if constructing:
+        object.__setattr__(
+            node,
+            "derivation",
+            registry.derive(tuple(edge.node.signature for edge in node.inputs), node.parameters),
+        )
     if isinstance(node.parameters, (PartsTransport, TimeRuns)):
         from marivo.analysis.core.predicates import leaves
         from marivo.analysis.methods.predicates import validate_operand
@@ -372,7 +391,7 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
             receiver = (
                 node.retained_endpoints[0] if node.retained_endpoints else node.inputs[0].node
             )
-            if not retained_inclusion(receiver, input_node):
+            if not _retained_inclusion(receiver, input_node):
                 _fail("a retained ancestor inclusion", input_node.identity)
     if node.method != key_for_parameters(node.parameters):
         _fail("the parameter variant's exact method version", str(node.method))
@@ -493,15 +512,7 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
             _fail("retained endpoints only for comparison or state transport", node.identity)
         if len(node.retained_endpoints) != len(node.inputs):
             _fail("one retained endpoint per ordered input", node.identity)
-        fingerprints = definition_fingerprints(node)
         for endpoint, edge in zip(node.retained_endpoints, node.inputs, strict=True):
-            endpoint_expected = (
-                edge.node.definition_fingerprint
-                if isinstance(edge.node, FixedLeaf)
-                else fingerprints[edge.node.identity]
-            )
-            if fingerprints[endpoint.identity] != endpoint_expected:
-                _fail("a retained endpoint matching its exact input definition", node.identity)
             if endpoint.signature.domain.binding != edge.node.signature.domain.binding:
                 _fail("retained endpoints with exact input ownership and scope", node.identity)
     signatures = tuple(e.node.signature for e in node.inputs)
@@ -522,51 +533,217 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
     registry.lookup(node.method).semantics.validate_output_type(
         tuple(edge.node.value_type for edge in node.inputs), node.value_type, node.parameters
     )
-    if node.derivation != registry.derive(signatures, node.parameters):
+    if not constructing and node.derivation != registry.derive(signatures, node.parameters):
         _fail("the registered semantic derivation without promoted Post", node.identity)
+    if node.retained_endpoints and not constructing:
+        _validate_endpoints(
+            node, definition_fingerprints(node) if fingerprints is None else fingerprints
+        )
 
 
-def topology(root: Node, *, registry: MethodRegistry = REGISTRY) -> tuple[Node, ...]:
-    """Validate the reachable DAG and retain explicit sharing in dependency order."""
+def _validate_endpoints(node: MethodNode, fingerprints: Mapping[str, str]) -> None:
+    if not node.retained_endpoints:
+        return
+    for endpoint, edge in zip(node.retained_endpoints, node.inputs, strict=True):
+        expected = (
+            edge.node.definition_fingerprint
+            if isinstance(edge.node, FixedLeaf)
+            else fingerprints[edge.node.identity]
+        )
+        if fingerprints[endpoint.identity] != expected:
+            _fail("a retained endpoint matching its exact input definition", node.identity)
+
+
+def _ordered_nodes(root: Node, *, retained: bool) -> tuple[Node, ...]:
     ordered: list[Node] = []
     identities: dict[str, Node] = {}
     active: set[str] = set()
-    done: set[str] = set()
+    done: set[int] = set()
 
     def visit(node: Node) -> None:
         if type(node) not in (SourceLeaf, FixedLeaf, MethodNode):
             _fail("a typed graph root", type(node).__name__)
         _identifier(node.identity)
         previous = identities.setdefault(node.identity, node)
-        if previous is not node:
+        if previous is not node and (
+            not retained
+            or _node_digest(previous, capture_ids=True) != _node_digest(node, capture_ids=True)
+        ):
             _fail("one object per explicit node identity", node.identity)
         if node.identity in active:
             _fail("an acyclic definition graph", node.identity)
-        if node.identity in done:
+        if id(node) in done:
             return
         active.add(node.identity)
         if isinstance(node, MethodNode):
+            if type(node.derivation) is not RuleDerivation:
+                _fail("a typed registered semantic derivation", node.identity)
             if type(node.inputs) is not tuple or any(type(e) is not Edge for e in node.inputs):
                 _fail("immutable typed edges", node.identity)
+            if type(node.sources) is not tuple or any(
+                type(s) is not SourceLeaf for s in node.sources
+            ):
+                _fail("immutable explicit source dependencies", node.identity)
+            if type(node.retained_endpoints) is not tuple or any(
+                type(endpoint) is not MethodNode for endpoint in node.retained_endpoints
+            ):
+                _fail("immutable typed retained endpoint definitions", node.identity)
             for edge in node.inputs:
+                edge.__post_init__()
                 visit(edge.node)
             for source in node.sources:
                 visit(source)
-            _validate_method(node, registry)
-        else:
-            node.__post_init__()
+            if retained:
+                for endpoint in node.retained_endpoints:
+                    visit(endpoint)
         active.remove(node.identity)
-        done.add(node.identity)
+        done.add(id(node))
         ordered.append(node)
 
     visit(root)
+    return tuple(ordered)
+
+
+def _static_digest(value: object, *, capture_ids: bool = False) -> str:
+    """Snapshot exact static values without expanding shared value objects."""
+    return _static_value_digest(value, {}, {}, capture_ids).hex()
+
+
+def _static_value_digest(
+    item: object, memo: dict[int, bytes], kinds: dict[type, bytes], capture_ids: bool
+) -> bytes:
+    previous = memo.get(id(item))
+    if previous is not None:
+        return previous
+    kind = kinds.get(type(item))
+    if kind is None:
+        kind = f"{type(item).__module__}.{type(item).__qualname__}".encode()
+        kinds[type(item)] = kind
+    if isinstance(item, (SourceLeaf, FixedLeaf, MethodNode)):
+        payload = (b"" if capture_ids else str(id(item)).encode() + b"\0") + _static_value_digest(
+            item.identity, memo, kinds, capture_ids
+        )
+    elif isinstance(item, Ref):
+        payload = _static_value_digest(item.kind, memo, kinds, capture_ids) + _static_value_digest(
+            item.path, memo, kinds, capture_ids
+        )
+    elif isinstance(item, tuple):
+        payload = len(item).to_bytes(8, "big") + b"".join(
+            _static_value_digest(child, memo, kinds, capture_ids) for child in item
+        )
+    elif is_dataclass(item) and not isinstance(item, type):
+        payload = b"".join(
+            f.name.encode()
+            + b"\0"
+            + _static_value_digest(getattr(item, f.name), memo, kinds, capture_ids)
+            for f in fields(item)
+        )
+    else:
+        payload = repr(item).encode()
+    result = sha256(kind + b"\0" + payload).digest()
+    memo[id(item)] = result
+    return result
+
+
+def _node_digest(node: Node, *, capture_ids: bool = False) -> str:
+    return _static_digest(
+        tuple((f.name, getattr(node, f.name)) for f in fields(node)), capture_ids=capture_ids
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _CapturedGraph:
+    """One invocation's validated definitions; never a source or receipt proof."""
+
+    root: Node
+    registry: MethodRegistry
+    nodes: tuple[Node, ...]
+    retained: tuple[Node, ...]
+    index: Mapping[str, Node]
+    fingerprints: Mapping[str, str]
+    node_states: tuple[str, ...]
+    registration_states: tuple[tuple[MethodRegistration, str], ...]
+    registrations: tuple[MethodRegistration, ...]
+
+    def unchanged(self, root: Node, registry: MethodRegistry) -> bool:
+        return (
+            self.root is root
+            and self.registry is registry
+            and self.registrations is registry.registrations
+            and self.node_states == tuple(_node_digest(node) for node in self.retained)
+            and all(
+                state == _static_digest(registration)
+                and registry.lookup(registration.semantics.key) is registration
+                for registration, state in self.registration_states
+            )
+        )
+
+    def dependencies(self, root: Node) -> tuple[Node, ...]:
+        """Read a validated subgraph without repeating semantic checks."""
+        if self.index.get(root.identity) is not root:
+            _fail("a node in this exact captured closure", root.identity)
+        pending = [root]
+        reached: set[str] = set()
+        while pending:
+            node = pending.pop()
+            if node.identity in reached:
+                continue
+            reached.add(node.identity)
+            if isinstance(node, MethodNode):
+                pending.extend(edge.node for edge in node.inputs)
+                pending.extend(node.sources)
+        return tuple(node for node in self.nodes if node.identity in reached)
+
+
+def _validated_closure(
+    root: Node, registry: MethodRegistry, *, summaries: bool = False
+) -> tuple[tuple[Node, ...], dict[str, str]]:
+    retained = _ordered_nodes(root, retained=True)
+    for node in retained:
+        if not isinstance(node, MethodNode):
+            node.__post_init__()
+    fingerprints = (
+        _fingerprints(retained)
+        if summaries
+        or any(isinstance(node, MethodNode) and node.retained_endpoints for node in retained)
+        else {}
+    )
+    for node in retained:
+        if isinstance(node, MethodNode):
+            _validate_method(node, registry, fingerprints=fingerprints)
     owners = {
-        (n.signature.domain.binding.session_id, n.signature.domain.binding.owner_id)
-        for n in ordered
+        (node.signature.domain.binding.session_id, node.signature.domain.binding.owner_id)
+        for node in retained
     }
     if len(owners) != 1:
         _fail("one graph Session and owner", repr(owners))
-    return tuple(ordered)
+    return retained, fingerprints
+
+
+def capture_graph(root: Node, *, registry: MethodRegistry = REGISTRY) -> _CapturedGraph:
+    """Validate data and retained definitions once for this compiler invocation."""
+    retained, fingerprints = _validated_closure(root, registry, summaries=True)
+    methods = dict.fromkeys(node.method for node in retained if isinstance(node, MethodNode))
+    nodes = _ordered_nodes(root, retained=False)
+    index = {node.identity: node for node in retained}
+    index.update((node.identity, node) for node in nodes)
+    return _CapturedGraph(
+        root,
+        registry,
+        nodes,
+        retained,
+        MappingProxyType(index),
+        MappingProxyType(fingerprints),
+        tuple(_node_digest(node) for node in retained),
+        tuple((registry.lookup(key), _static_digest(registry.lookup(key))) for key in methods),
+        registry.registrations,
+    )
+
+
+def topology(root: Node, *, registry: MethodRegistry = REGISTRY) -> tuple[Node, ...]:
+    """Validate the complete definition closure and return execution dependencies."""
+    _validated_closure(root, registry)
+    return _ordered_nodes(root, retained=False)
 
 
 def method_node(
@@ -579,16 +756,12 @@ def method_node(
     retained_endpoints: tuple[MethodNode, ...] = (),
 ) -> MethodNode:
     """Construct through the sole semantic owner; execution qualification is separate."""
-    for edge in inputs:
-        topology(edge.node, registry=registry)
-    node = MethodNode(
+    return MethodNode(
         key_for_parameters(parameters),
         parameters,
         inputs,
-        registry.derive(tuple(e.node.signature for e in inputs), parameters),
         value_type,
         sources,
         retained_endpoints=retained_endpoints,
+        registry=registry,
     )
-    topology(node, registry=registry)
-    return node

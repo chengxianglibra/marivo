@@ -278,8 +278,18 @@ class MethodRegistry:
         """Select exactly the requested route; static evidence never discharges Pre."""
         if type(key) is not QualificationKey:
             reject("an exact qualification key", repr(key), "Bind the complete physical shape.")
+        derivation = self.lookup(key.method).semantics.derive(inputs, params)
+        return self._select_derived(key, inputs, params, derivation)
+
+    def _select_derived(
+        self,
+        key: QualificationKey,
+        inputs: tuple[Signature, ...],
+        params: RuleParameters,
+        derivation: RuleDerivation,
+    ) -> SelectedImplementation:
+        """Select for the graph owner's already-validated semantic derivation."""
         registration = self.lookup(key.method)
-        derivation = registration.semantics.derive(inputs, params)
         if tuple(item.domain.kind for item in inputs) != key.input_domains:
             reject(
                 "qualification for these ordered input domains",

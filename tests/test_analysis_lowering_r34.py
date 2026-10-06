@@ -2,12 +2,15 @@
 
 from dataclasses import replace
 from pathlib import Path
+from types import MappingProxyType
+from unittest.mock import patch
 
 import ibis
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+import marivo.analysis.core.graph as graph
 import marivo.semantic as ms
 from marivo.analysis.compiler.graph_lowering import (
     CellColumns,
@@ -70,6 +73,7 @@ from marivo.analysis.methods.physical import (
     SourceShape,
     TimeShape,
 )
+from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 from marivo.analysis.refs import ArtifactRef
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import (
@@ -1301,3 +1305,101 @@ def test_l1_cannot_fuse_tag_selection_with_numeric_consumption(source_case):
     )
     with pytest.raises(CoreRuleError, match="consumption domain"):
         fuse_selection(_selection(defined, unknown="reject"))
+
+
+@pytest.mark.parametrize("route", ["ibis", "artifact_python"])
+def test_o1_lowering_reuses_static_admission(source_case, route: str) -> None:
+    leaf = _leaf(source_case[1])
+    if route == "artifact_python":
+        fixed = FixedLeaf(
+            ArtifactRef("o1-fixed"),
+            leaf.fingerprint,
+            leaf.signature,
+            leaf.value_type,
+            FixedShape(NoTime()),
+        )
+        admitted = _plan(_count(fixed), route)
+        bindings = ()
+    else:
+        admitted = _plan(_count(leaf))
+        bindings = (_bind(source_case, leaf),)
+    with (
+        patch.object(graph, "_validate_method", side_effect=AssertionError("revalidated graph")),
+        patch.object(MethodRegistry, "derive", side_effect=AssertionError("rederived semantics")),
+        patch.object(MethodRegistry, "select", side_effect=AssertionError("reselected method")),
+        patch.object(
+            MethodRegistry, "_select_derived", side_effect=AssertionError("reselected method")
+        ),
+    ):
+        lowered = lower(admitted, bindings=bindings)
+    assert lowered.admitted is admitted
+    assert source_case[0].submissions == []
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["stages", "checks", "physical", "output", "node", "literal_type", "registry", "capture"],
+)
+def test_o1_in_place_handoff_tampering_rejects_before_submission(source_case, change: str) -> None:
+    leaf = _leaf(source_case[1])
+    selected = _selection(leaf, unknown="reject")
+    admitted = _plan(_count(selected, "count_defined"))
+    assert admitted.checks
+    binding = _bind(source_case, leaf)
+    if change == "stages":
+        target, field, altered = admitted, "stages", admitted.stages[:-1]
+    elif change == "checks":
+        target, field, altered = admitted, "checks", ()
+    elif change == "physical":
+        target, field, altered = admitted, "physical_requirements", ()
+    elif change == "output":
+        target, field, altered = admitted, "primary_output", "forged"
+    elif change == "node":
+        target, field, altered = leaf.signature.domain, "definition_id", "forged"
+    elif change == "literal_type":
+        predicate = selected.parameters.predicates[0]
+        target, field, altered = predicate, "value", float(predicate.value)
+        assert altered == predicate.value
+    elif change == "registry":
+        registration = REGISTRY.lookup(admitted.physical_requirements[0].key.method)
+        target, field, altered = registration, "implementations", ()
+    else:
+        assert admitted._handoff is not None
+        target, field, altered = admitted._handoff.captured, "index", MappingProxyType({})
+    original = getattr(target, field)
+    object.__setattr__(target, field, altered)
+    try:
+        with pytest.raises(CoreRuleError, match="unchanged admitted plan"):
+            lower(admitted, bindings=(binding,))
+    finally:
+        object.__setattr__(target, field, original)
+    assert source_case[0].submissions == []
+
+
+def test_o1_handoff_is_bound_to_registry_instance(source_case) -> None:
+    leaf = _leaf(source_case[1])
+    admitted = _plan(_count(leaf))
+    other = MethodRegistry(REGISTRY.registrations)
+    with pytest.raises(CoreRuleError, match="unchanged admitted plan"):
+        lower(admitted, bindings=(_bind(source_case, leaf),), registry=other)
+    assert source_case[0].submissions == []
+
+
+def test_o1_shadowed_registration_rejects_handoff(source_case) -> None:
+    leaf = _leaf(source_case[1])
+    root = _count(leaf)
+    selected = REGISTRY.lookup(root.method)
+    shadow = replace(
+        next(item for item in REGISTRY.registrations if item.semantics.key != root.method)
+    )
+    registry = MethodRegistry((shadow, selected))
+    admitted = plan(root, routes=(RouteChoice(root.identity, "ibis"),), registry=registry)
+    binding = _bind(source_case, leaf)
+    assert lower(admitted, bindings=(binding,), registry=registry).admitted is admitted
+
+    object.__setattr__(shadow, "semantics", selected.semantics)
+    object.__setattr__(shadow, "implementations", ())
+    assert registry.lookup(root.method) is shadow
+    with pytest.raises(CoreRuleError, match="unchanged admitted plan"):
+        lower(admitted, bindings=(binding,), registry=registry)
+    assert source_case[0].submissions == []
