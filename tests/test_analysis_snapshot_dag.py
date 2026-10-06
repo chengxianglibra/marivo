@@ -14,6 +14,7 @@ from marivo.analysis.core.graph import (
     MethodNode,
     SourceDefinition,
     SourceLeaf,
+    capture_graph,
     method_node,
     topology,
 )
@@ -145,6 +146,14 @@ def test_retained_closure_shares_definitions_but_does_not_schedule_them() -> Non
         value_type=original.value_type,
         retained_endpoints=(original, replace(original)),
     )
+    captured = capture_graph(node)
+    assert captured.nodes == (fixed, node)
+    assert len(captured.retained) == 5
+    assert captured.unchanged(node, captured.registry)
+    alias = node.retained_endpoints[1]
+    object.__setattr__(alias, "derivation", replace(alias.derivation, eval_id="tampered"))
+    assert not captured.unchanged(node, captured.registry)
+    object.__setattr__(alias, "derivation", original.derivation)
     document = graph_document(node)
     assert len(document.nodes) == 4
     restored = thaw_graph(freeze_graph(node))

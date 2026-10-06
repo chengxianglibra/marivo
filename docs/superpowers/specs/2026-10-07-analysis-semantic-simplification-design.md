@@ -2,7 +2,7 @@
 
 Date: 2026-10-07
 
-Status: proposed; implementation has not started.
+Status: O1 implemented and validated within the stated scope. O2–O5 remain proposed.
 
 Baseline: `panda@ccbed62962e21beef5778c738037e62d912ec8fb`.
 
@@ -10,9 +10,9 @@ Baseline: `panda@ccbed62962e21beef5778c738037e62d912ec8fb`.
 目标是减少同一事实的重复推导、重复表示和重复检查，同时保持结果正确性与清晰的失败边界。
 前三项先按等价内部整理实施；改变支持范围、恢复协议或作者语法的部分分别交付。
 
-本文是优化提案，不改变当前生效契约，不授予新的后端、类型或方法组合资格，也不表示
-R10、安装包、真实 Agent 或发布验收已经完成。本次文档交付不修改产品实现、已有规范、
-`AGENTS.md` 或 packaged skills。
+O1 已按本文的等价内部整理边界实施，并更新对应私有构造与编译交接规范。
+其他工作包仍是优化提案；本次不授予新的后端、类型或方法组合资格，也不表示
+R10、安装包、真实 Agent 或发布验收已经完成。`AGENTS.md` 与 packaged skills 保持原样。
 
 ## 1. 范围与设计原则
 
@@ -108,6 +108,68 @@ fingerprint 或调用方传入的布尔值信任对象。`frozen=True` 本身也
   移到 O4 协议变更中处理。
 
 不以消除所有检查为目标，也不把所有静态错误推迟到 `execute()`。
+
+### O1 实施记录（2026-10-07）
+
+- `MethodNode.derivation` 由指定 registry 在构造时产生；新增节点只推导和局部校验一次。
+  深层 identity 冲突、伪造祖先及 retained 证据错误在完整编译入口拒绝，反例继续保留。
+- 一次编译捕获执行顺序、完整 retained 定义、索引、derivation 与原 fingerprint；
+  classification、实现选择与 lowering 静态查询复用它。retained 定义不生成执行阶段。
+  独立恢复的 retained 历史定义允许等定义的同 identity 对象，逐对象检查并保护交接；
+  执行依赖仍严格要求一个 identity 对应一个对象。
+- 计划交接绑定原计划对象与 registry，检查节点、阶段、checks、物理要求及所用注册的
+  精确类型内容快照；对象复制、嵌套修改和 registry 替换不能借用该交接。
+  审查修复另确认每个已使用方法仍 lookup 到原 registration，防止其他注册修改 key 后
+  抢先匹配。table/Parquet 反例均先复现旧交接被接受，再验证修复后拒绝。
+- 删除构造期输入/结果全图校验、planner 的第二次拓扑校验和重复 derivation、lowering
+  的重新规划及静态查询全图校验。同次执行复用一次 snapshot 写出，独立解码仍推导
+  并比较保存的 derivation，完整 retained endpoint 匹配仍由图 owner 校验。
+  执行入口仍先做 snapshot 结构与预算检查，保持环、深度和节点预算的原错误边界。
+- 快照比较仅在当前调用内按对象共享复用值哈希；没有全局编译缓存。计划绑定使用弱引用，
+  捕获对象随计划释放。业务数据、物理绑定、receipt、取消与资源检查保留原责任。
+- 两个确定身份的 source/fixed 样例对照 `panda@d7b0526a75`：definition fingerprint、
+  plan digest 与 snapshot 字节哈希完全一致。未修改 Store 格式、版本或摘要规则。
+
+固定大小 `PartsTransport("view", ...)` 链的独立本地探针结果如下。
+时间为 7 次重复的中位数；内存另用 `tracemalloc` 单次测量，不与计时混跑。
+这些测量取自补充 registry lookup 一致性检查之前，未重新测量该检查的增量开销。
+基线从提交归档加载，优化版从当前工作区加载；测试 oracle 不依赖这些临时探针文件。
+
+| 节点数 | 构造校验：前 → 后 | 规划校验：前 → 后 | 构造时间 ms：前 → 后 | 规划时间 ms：前 → 后 |
+| ---: | ---: | ---: | ---: | ---: |
+| 10 | 110 → 10 | 20 → 10 | 6.833 → 2.160 | 8.099 → 28.265 |
+| 20 | 420 → 20 | 40 → 20 | 19.604 → 2.714 | 16.250 → 36.914 |
+| 40 | 1,640 → 40 | 80 → 40 | 72.823 → 3.747 | 33.956 → 54.970 |
+
+| 节点数 | 构造峰值 bytes：前 → 后 | 计划保留 bytes：前 → 后 | 规划峰值 bytes：前 → 后 |
+| ---: | ---: | ---: | ---: |
+| 10 | 36,600 → 14,917 | 11,369 → 26,049 | 18,129 → 1,124,134 |
+| 20 | 114,286 → 22,506 | 23,539 → 50,055 | 30,811 → 1,141,882 |
+| 40 | 204,369 → 41,034 | 36,263 → 72,195 | 44,527 → 1,166,242 |
+
+构造期校验已从二次增长降为线性；完整入口每个方法验证一次，lowering 的回归测试
+要求零次重新验证、推导和选择。防篡改内容快照增加规划时间、保留状态和临时内存；
+40 节点的构造加规划从 106.779 ms 降为 58.717 ms，10/20 节点的总时间并未改善。
+这些仅是纯内存样例，不证明完整执行加速或 provider 资格。
+
+验收结果：
+
+- R3.3/R3.4 首轮基线为 127 passed；实施后先运行这些测试，再覆盖 graph execution、
+  snapshot 与 publication。新增线性计数、共享 DAG、深层冲突、伪造祖先、retained
+  别名及交接篡改反例，保留现有跨 owner、环、错误 derivation 和 endpoint 错配反例。
+- 最终 `make check-agent` 通过：729 个文件的格式/lint、import contracts、333 个源码文件的
+  typing、默认测试 4,731 passed / 1 skipped（49.30 s），以及 API 文档构建。
+  审查修复后的 R3.3/R3.4 定向回归为 160 passed（8.20 s）。
+- 定向 `make runtime-test TESTS='tests/test_analysis_graph_publication_r44.py'` 为
+  17 passed（46.70 s），包括真实 source/fixed、parts、状态、共享阶段和冷进程恢复。
+  另以 `.venv/bin/pytest -m runtime -n 0` 运行公开 comparison 的 BIGINT、Decimal、Duration
+  source/fixed 用例及 additive attribution：4 passed（26.81 s）。
+  上述 Runtime 结果来自初次实施；registry lookup 交接修复后未重复运行。
+- 结构环、节点/深度预算、非法图与交接修改在业务读取及 Run 分配之前拒绝。
+  这些证据没有扩大 provider 支持范围；未运行完整 Runtime、安装包或发布验收。
+- 相对实施基线 `panda@d7b0526a75`，生产源码新增 402 行、删除 118 行，净增 284 行；
+  测试新增 266 行、删除 4 行，净增 262 行。删除的是上述重复路径，新增内容主要是
+  捕获与精确交接保护，并非净代码削减。`AGENTS.md` 与 packaged skills 无变更。
 
 ## 5. O2 将能力限制归还给实现消费者
 

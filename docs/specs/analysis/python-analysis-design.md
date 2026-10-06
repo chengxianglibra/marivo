@@ -100,8 +100,23 @@ source occurs once and retains the exact Session, owner and scope. Other
 connected methods cannot introduce hidden source edges. Each node has an
 explicit identity independent of its definition fingerprint. Equal definitions
 constructed separately remain separate; repeated references to the same node
-share one stage. Identity collisions, cycles, method/version/role mismatches,
-foreign owners and altered derivations fail before planning.
+share one stage. Construction derives each new MethodNode once through its
+specified registry and checks direct roles, types, ownership and required parts.
+The private constructor does not accept a supplied derivation. Deep identity
+collisions, cycles and forged ancestors are rejected by the complete compiler
+entry, before business reads or Run allocation; direct invalid authoring inputs
+keep their construction-time rejection. Independent topology calls also perform
+complete validation.
+
+The compiler captures execution dependencies and retained definition evidence
+separately. Both closures are checked, but retained endpoints do not add read or
+method stages. Separately recovered retained definitions may share a capture
+identity only when their exact typed definitions agree, as required by the
+existing snapshot format; execution dependencies still require one object per
+identity. Dependency order, node indexing, semantic derivations and unchanged
+definition fingerprints are reused within the compiler handoff. Classification and
+implementation selection consume this capture, with no repeated semantic
+inference. Equal fingerprints never merge independent execution nodes.
 `BindProject` also rejects an output type that contradicts a known bound field
 or Metric logical type; unresolved physical details remain R4 obligations.
 
@@ -141,9 +156,13 @@ publication and recovery remain outside this increment.
 
 `analysis/compiler/graph_lowering.py` consumes an unchanged GraphPlan and exact
 R1 BoundSources associated with its reachable SourceLeaf identities. It
-revalidates admission before lowering; missing, duplicate, foreign-owner or
-additional bindings fail. CoordinateColumn, CellColumns and PartColumns describe
-the complete typed physical layout. The lowerer validates declared column types
+checks the exact compiler handoff before lowering, including typed node and plan
+contents and the same registry's relevant registration interpretation. A copied,
+fabricated or altered plan cannot reuse another plan's handoff. This check does
+not rerun planning, derivation or implementation selection. Missing, duplicate,
+foreign-owner or additional invocation bindings still fail. CoordinateColumn, CellColumns and PartColumns describe
+the complete typed physical layout. Static lowerer queries reuse the captured
+order and index; the lowerer validates declared column types
 and complete component sets and creates a canonical layout without reading data.
 A field projection consumes the normalized direct field owner and source column;
 it retains the actual subject restriction instead of scanning the owner as the

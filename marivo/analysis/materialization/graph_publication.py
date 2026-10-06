@@ -14,7 +14,7 @@ import pyarrow as pa
 
 from marivo.analysis.compiler.graph_lowering import SourceBinding, lower
 from marivo.analysis.compiler.graph_plan import RouteChoice
-from marivo.analysis.core.graph import MethodNode, Node, topology
+from marivo.analysis.core.graph import MethodNode, Node, capture_graph
 from marivo.analysis.core.model import CorrespondencePart
 from marivo.analysis.core.rules import (
     CellDerive,
@@ -45,7 +45,7 @@ from marivo.analysis.materialization.graph_exchange import (
     VerifiedFixedInput,
     from_arrow,
 )
-from marivo.analysis.materialization.graph_execution import prepare_graph
+from marivo.analysis.materialization.graph_execution import _prepare_captured_graph
 from marivo.analysis.materialization.graph_local_execution import (
     execute_verified_fixed,
     validate_fixed_schedule,
@@ -70,13 +70,13 @@ from marivo.analysis.materialization.graph_protocol import (
     encode,
     evidence_identity,
     fixed_signature,
-    freeze_graph,
     invalid,
     plan_digest,
     receipt_digest,
     schema_text,
     semantic_versions,
 )
+from marivo.analysis.materialization.graph_snapshot import _encode_document, graph_document
 from marivo.analysis.materialization.graph_source_execution import execute_source_graph
 from marivo.analysis.materialization.graph_storage import read_result, write_table
 from marivo.analysis.materialization.reconciliation import reconcile_session
@@ -199,8 +199,10 @@ def _execute(
 ) -> graph_store.GraphArtifact:
     store, session, event = runtime.store, runtime.session_ref, runtime._event
     # Admit the complete bounded definition closure before source I/O or cache lookup.
-    freeze_graph(root)
-    prepared = prepare_graph(root, session_ref=session, routes=routes)
+    document = graph_document(root)
+    captured = capture_graph(root)
+    frozen_graph = _encode_document(document)
+    prepared = _prepare_captured_graph(captured, session_ref=session, routes=routes)
     plan = prepared.admitted
     if not isinstance(root, MethodNode):
         raise invalid("publication requires a qualified method root")
@@ -365,7 +367,7 @@ def _execute(
                                 and node.inputs[0].node.identity != node.inputs[1].node.identity
                             )
                         )
-                        for node in topology(root)
+                        for node in captured.nodes
                     )
                     from marivo.analysis.materialization.execute_deadline import (
                         check,
@@ -499,7 +501,7 @@ def _execute(
                     )
                 )
                 event("graph_part_written")
-            nodes = topology(root)
+            nodes = captured.nodes
             methods = tuple(
                 MethodBinding(
                     item.key.method,
@@ -511,7 +513,7 @@ def _execute(
             )
             snapshot = Continuation(
                 "marivo.analysis.continuation/v2",
-                freeze_graph(root),
+                frozen_graph,
                 tuple(
                     dict.fromkeys(
                         c.entity_ref.path for n in nodes for c in n.signature.domain.instance_key
@@ -520,7 +522,7 @@ def _execute(
                 tuple(
                     dict.fromkeys(c.field for n in nodes for c in n.signature.domain.instance_key)
                 ),
-                semantic_versions(root),
+                semantic_versions(root, _nodes=captured.nodes),
                 tuple(n.method for n in nodes if isinstance(n, MethodNode)),
                 state.input_binding,
                 receipt_digest(primary),

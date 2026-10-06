@@ -17,6 +17,8 @@ from marivo.analysis.core.graph import (
     Node,
     SourceDefinition,
     SourceLeaf,
+    _validate_endpoints,
+    definition_fingerprints,
 )
 from marivo.analysis.core.model import Signature
 from marivo.analysis.core.rules import (
@@ -315,12 +317,13 @@ def _restore(document: GraphDocument) -> Node:
                 record.method,
                 record.parameters,
                 tuple(Edge(edge.role, nodes[edge.node]) for edge in record.inputs),
-                record.derivation,
                 record.value_type,
                 tuple(source for source in sources if isinstance(source, SourceLeaf)),
                 record.identity,
                 tuple(endpoint for endpoint in endpoints if isinstance(endpoint, MethodNode)),
             )
+            if node.derivation != record.derivation:
+                raise invalid("saved method derivation differs from its registered semantics")
         nodes[record.identity] = node
     owners = {
         (node.signature.domain.binding.session_id, node.signature.domain.binding.owner_id)
@@ -328,15 +331,25 @@ def _restore(document: GraphDocument) -> Node:
     }
     if len(owners) != 1:
         raise invalid("definition closure has multiple Session or owner bindings")
-    return nodes[document.root]
+    root = nodes[document.root]
+    fingerprints = definition_fingerprints(root)
+    for node in nodes.values():
+        if isinstance(node, MethodNode):
+            _validate_endpoints(node, fingerprints)
+    return root
 
 
 def freeze_graph(root: Node) -> str:
     """Encode the single current graph format, independent of method family."""
-    from marivo.analysis.materialization.graph_protocol import encode, invalid
-
     document = graph_document(root)
     _restore(document)
+    return _encode_document(document)
+
+
+def _encode_document(document: GraphDocument) -> str:
+    """Write the bounded document after its owning entry has validated semantics."""
+    from marivo.analysis.materialization.graph_protocol import encode, invalid
+
     body = encode(document, GRAPH).encode()
     if len(body) > MAX_EXPANDED_BYTES:
         raise invalid("definition exceeds its 4 MiB expanded bound")

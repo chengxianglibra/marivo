@@ -14,9 +14,9 @@ from marivo.analysis.compiler.graph_plan import (
     SourceInputStage,
     SourceMethodStage,
     Stage,
-    plan,
+    _plan_captured,
 )
-from marivo.analysis.core.graph import Node, topology
+from marivo.analysis.core.graph import Node, _CapturedGraph, capture_graph
 from marivo.analysis.core.model import reject
 from marivo.analysis.methods.builtin import admit
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
@@ -79,8 +79,15 @@ def prepare_graph(
             "Use the owning Session for this graph.",
             "analysis.graph_execution.session",
         )
-    nodes = topology(root, registry=registry)
-    for node in nodes:
+    return _prepare_captured_graph(
+        capture_graph(root, registry=registry), session_ref=session_ref, routes=routes
+    )
+
+
+def _prepare_captured_graph(
+    captured: _CapturedGraph, *, session_ref: str, routes: tuple[RouteChoice, ...]
+) -> PreparedGraph:
+    for node in captured.nodes:
         if node.signature.domain.binding.session_id != session_ref:
             reject(
                 f"a graph owned by Session {session_ref}",
@@ -88,7 +95,7 @@ def prepare_graph(
                 "Rebuild the graph from this Session's exact inputs.",
                 "analysis.graph_execution.session",
             )
-    admitted = plan(root, routes=routes, registry=registry)
+    admitted = _plan_captured(captured, routes=routes)
     stage_owners = {
         stage.output: stage.node.identity
         for stage in admitted.stages

@@ -1387,11 +1387,21 @@ def test_invalid_dag_cannot_hit_or_admit(case, target):
     assert case[4] == opens
 
 
-def test_dag_budget_rejects_before_source_open_or_run_admission(case, monkeypatch):
+@pytest.mark.parametrize("budget", ["MAX_NODES", "MAX_DEPTH"])
+def test_dag_budget_rejects_before_source_open_or_run_admission(case, monkeypatch, budget):
     from marivo.analysis.materialization import graph_snapshot
 
-    monkeypatch.setattr(graph_snapshot, "MAX_NODES", 1)
+    monkeypatch.setattr(graph_snapshot, budget, 1)
     with pytest.raises(IntegrityError, match="budget"):
+        _execute(case)
+    assert case[4] == []
+    assert _counts(case[0].store) == (0, 0, 0, 0)
+
+
+def test_o1_live_cycle_keeps_snapshot_error_before_source_or_run(case) -> None:
+    root = case[1]
+    object.__setattr__(root, "inputs", (Edge("quantity", root),))
+    with pytest.raises(IntegrityError, match="cyclic definition reference"):
         _execute(case)
     assert case[4] == []
     assert _counts(case[0].store) == (0, 0, 0, 0)
