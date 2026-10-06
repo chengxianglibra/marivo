@@ -898,7 +898,7 @@ consistency, strata and primary arithmetic before cache reuse or continuation.
 It does not load current Semantic, connect a source or depend on DuckDB.
 Publication uses the existing atomic writer and cleans only the failed Run's
 resources. Table/Parquet fresh-process recovery and publication faults are covered
-by `tests/test_analysis_references_r64.py`; installed-wheel closure belongs to R6.7.
+by `tests/analysis/numeric/test_analysis_references.py`; installed-wheel closure belongs to R6.7.
 
 ### R6.5 ranking and terminal table state v1
 

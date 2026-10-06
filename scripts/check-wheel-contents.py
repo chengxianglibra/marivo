@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from zipfile import ZipFile
 
-from r101_package_contents import check_archives
+from package_contents import check_archives
 
 
 def main() -> int:

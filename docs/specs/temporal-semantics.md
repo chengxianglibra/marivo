@@ -778,14 +778,15 @@ temporal kinds.
 
 ## Current verification ownership
 
-`tests/test_lazy_temporal_source.py` verifies actual native source parsing,
+`tests/analysis/temporal/` and the temporal consumer tests under
+`tests/analysis/graph/` verify actual native source parsing,
 physical precision, read precedence, report identity, DST, calendar boundaries,
 validity selection and exact84/85-hour comparison endpoints. Runtime tests cover
 atomic publication, failure cleanup,23/25-hour cumulative coverage and independent
 source-offline recovery. Source/fold suites retain independent numerical
 expectations for cumulative, first/last, weighted and distinct behavior.
 
-`tests/test_lazy_temporal_public_runtime.py` verifies the public Session wiring for
+`tests/analysis/temporal/test_temporal_public_runtime.py` verifies the public Session wiring for
 declared UTC, engine-default native timestamps and string parsing. Tests for
 semantic certification remain with their authoring owner. Public Help, bounded
 state protocols and executable examples are independently checked during cutover.

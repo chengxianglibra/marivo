@@ -30,5 +30,5 @@ Packaged agent guidance lives under:
 - `../marivo/skills/marivo-semantic`
 - `../marivo/skills/marivo-analysis`
 
-Run `make test TESTS='tests/test_packaged_skill_shape.py'` after changing either
+Run `make test TESTS='tests/packaging/test_skills.py'` after changing either
 packaged skill.

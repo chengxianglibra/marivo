@@ -979,7 +979,7 @@ F within 1e-12, without changing any weight. Zero weights retain
 non-Defined values; positive weights, however small, consume only finite Defined
 values. Malformed Defined values reject even at zero weight. Public source/fixed
 qualification and independent numeric/corruption tests are owned by
-`tests/test_analysis_references_r64.py`. R6.5 ranking/Top-K and R6.7 wheel
+`tests/analysis/numeric/test_analysis_references.py`. R6.5 ranking/Top-K and R6.7 wheel
 qualification remain separate.
 
 ### R6.5 registered display execution
@@ -1010,7 +1010,7 @@ A source Ibis preparation checks those facts before the registered local finish;
 fixed preparation consumes checked exchange data. It never joins outer keys or
 pairs rows by position. Exact Arrow-backed export preserves values but collapses
 all non-Defined states to pandas missing. `show()` retains tags and reasons.
-The independent acceptance owner is `tests/test_analysis_display_r65.py`; tested
+The independent acceptance owner is `tests/analysis/numeric/test_analysis_display.py`; tested
 qualification is recorded in the R6 ledger, rather than inferred from registration.
 
 Ranking numeric views may be ranked again. Each new ranking rebuilds its display

@@ -201,7 +201,7 @@ process-recovery Runtime suite and packaging checks. Functional tests use local
 Parquet files, with native engine cases for engine-specific contracts. No object
 storage service is required. See [CONTRIBUTING.md](CONTRIBUTING.md) for release prerequisites.
 Use
-`make runtime-test TESTS='tests/test_lazy_local_execution.py'` for a focused
+`make runtime-test TESTS='tests/analysis/materialization/test_numeric_recovery.py'` for a focused
 Runtime test only when needed to verify the development change; daily development
 does not automatically run the full Runtime suite. `runtime-test-agent` provides
 compact output for the same selected scope. Both Runtime targets default to two
