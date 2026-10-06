@@ -2,6 +2,8 @@
 
 import json
 import os
+import subprocess
+import sys
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -13,10 +15,12 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
+from scripts.r9_qualification_requirements import Json
 from tests.lifecycle_r75_fixtures import END, START, build_lifecycle_public
 from tests.lifecycle_r75_oracle import expected_histories
 from tests.r9_source_cases import SourceData, source_case
 from tests.r93_source_trace import SourceTrace
+from tests.r94_domain_recovery_worker import snapshot
 
 
 def _data(table: list[dict[str, object]], backend: str, *, events: bool) -> SourceData:
@@ -208,6 +212,22 @@ def test_native_remote_domain_consumers(
         )
         assert history.transitions().count.execute().to_pandas().value.sum() == 2
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
+        if os.environ.get("MARIVO_R94_DOMAIN_RECOVERY") == "1":
+            (tmp_path / "r94-domain.json").write_text(
+                json.dumps(
+                    {
+                        "session": session.id,
+                        "sources": {
+                            "journey": snapshot(fixed),
+                            "history": snapshot(history),
+                            "anchors": snapshot(anchors),
+                            "retention": snapshot(retained),
+                            "observation": snapshot(observation),
+                        },
+                    },
+                    sort_keys=True,
+                )
+            )
         if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
             Path(directory, f"remote-domain-{backend}.json").write_text(
                 json.dumps(
@@ -220,6 +240,40 @@ def test_native_remote_domain_consumers(
                         "fixed_source_reads": 0,
                         "resources": 0,
                         "native_sql": r93_source_trace.native_sql,
+                    },
+                    sort_keys=True,
+                )
+            )
+    if os.environ.get("MARIVO_R94_DOMAIN_RECOVERY") == "1":
+        reports: list[Json] = []
+        for phase in ("fixed", "cold"):
+            report = tmp_path / f"r94-domain-{phase}.json"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "tests.r94_domain_recovery_worker",
+                    str(tmp_path),
+                    phase,
+                    str(report),
+                ],
+                env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert completed.returncode == 0, completed.stdout + completed.stderr
+            reports.append(json.loads(report.read_text()))
+        assert len({row["pid"] for row in reports if isinstance(row, dict)} | {os.getpid()}) == 3
+        if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
+            Path(directory, f"r94-native-domain-{backend}.json").write_text(
+                json.dumps(
+                    {
+                        "backend": backend,
+                        "profile": profile,
+                        "producer_pid": os.getpid(),
+                        "manifest": json.loads((tmp_path / "r94-domain.json").read_text()),
+                        "reports": reports,
                     },
                     sort_keys=True,
                 )

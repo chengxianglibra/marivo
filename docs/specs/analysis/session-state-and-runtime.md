@@ -344,6 +344,15 @@ import retained rows or retry on a different executor.
 
 ## MySQL and SQLite Group A execution
 
+SQLite graph execution installs the temporary owned-query SIGINT relay only
+on the main thread with Python's default handler. The relay calls the native
+connection interrupt while execute is blocked; cursor and connection cleanup
+remain on the execution thread. It restores the prior wakeup descriptor and
+preserves custom-handler and worker-thread signal behavior. DuckDB retains its
+native SIGINT behavior. The same source owner supplies deadline interruption;
+publication checks preserve the original execution start and reject partial or
+late output.
+
 The concrete adapters own metadata, read-only cursors, cancellation and physical
 validation. They share private scalar identity lowering and typed Arrow transport;
 no public executor or retained-import capability is added. MySQL uses SSCursor;
@@ -359,6 +368,9 @@ Neither execution path reuses datasource authoring timeout/transaction wrappers.
 Source storage/date assertions and normal semantic assertions precede publication.
 MySQL floating SUM triggers native overflow before lossy conversion, and statement
 warnings reject potential truncation. SQLite preserves native integer overflow.
+Captured SQLite exchanges retain nullable integer columns as object-typed inputs
+to the temporary Ibis relation. Null does not convert int64 keys or values through
+floating-point storage; timestamp strings retain their exact lexical form.
 Original errors survive cleanup failures. Each engine retains atomic publication,
 process-death reconciliation and source-free cold Artifact/binding reads; unknown
 remote read termination alone does not block safe local recovery.
@@ -410,12 +422,28 @@ integer/Decimal sums widen internally to Decimal256 before checked output
 conversion; overflow and non-finite output fail without publication.
 
 Native row streams preserve Decimal and typed Entity identities without pandas
-or raw source transfer to another engine. Each response is owned and closed;
-driver close can drain unread data, so cancellation has no hard latency promise.
-Connection close does not prove remote termination. Unknown remote status does
-not prevent safe local recovery; partial output is never published. No shared
-snapshot, execution budget, upload, temporary object or implicit retry is added.
-Batch size is transport configuration, not a result cap.
+or raw source transfer to another engine. Each issued query ID remains owned
+through its pending response and stream consumption. A separate same-reader
+control connection uses the approved bound query-ID/user cancellation statement;
+connect/read timeouts and server control execution are each one second, with
+retries disabled. The account requires operator-configured
+`SELECT(query, query_id, user) ON system.processes`, which allows general
+visibility of those metadata columns. Missing permission yields structured
+repair; Marivo does not grant privileges or escalate credentials.
+
+Owner cleanup joins control work, closes the response and both connections,
+and clears the private HTTP pool. Driver close can drain unread data, so
+cancellation has no hard end-to-end latency promise. Connection close or a
+successful control call alone does not prove remote termination. Unknown remote
+status does not prevent safe local recovery; partial output is never published.
+The Run reserves `clickhouse_owned_control_close@v1` before creating the control
+and acknowledges it only after confirmed release. An unconfirmed close retains
+an incomplete Run and typed pending recovery error. No shared snapshot,
+execution budget, upload, temporary object or implicit retry is added.
+Batch size is transport configuration, not a result cap. The
+[ClickHouse cancellation contract](../semantic/datasource-layer.md)
+owns exact SQL, parameters and permission authority; precise native Runtime
+witnesses retain their own phase and physical-profile scope.
 
 ## Relational scalar sufficient-state execution
 
@@ -1131,6 +1159,23 @@ the shared execution budget. Cancellation also shuts down the owned data socket,
 then owner-thread cleanup waits for control work before closing cursors and both
 connections. Control errors do not establish remote termination: receipts retain
 `remote_unknown`, and a control-close error prevents successful publication.
+During a main-thread graph with Python's default SIGINT handler, a temporary
+signal wakeup listener requests the same owned cancellation while mysqlclient
+blocks in a native read. It preserves the handler and forwards notifications to
+the previous wakeup descriptor, restoring that descriptor before releasing the
+listener. Concurrent timer and signal requests issue at most one owned KILL.
+Cursor close remains on the execution thread. Query ownership lasts until cursor
+release, including failed/early-closed unread streams; terminal submission state
+alone cannot remove an active query's cancellation target. If interrupted
+mysqlclient response draining fails, confirmed disconnection of the owned data
+connection replaces that drain and preserves the original KeyboardInterrupt.
+For a borrowed backend, only native connection-loss errors 2006/2013 after the
+exact owned cancellation preserve the original interruption while retaining
+`close_failed`. SourceSession does not disconnect the borrowed backend. Its
+outer datasource connection owner must confirm disconnection before
+`mark_backend_disconnected()` changes that cursor state to closed; failed outer
+release retains the existing typed error and unconfirmed state. Custom signal
+handlers and worker-thread callers retain their existing signal behavior.
 The Run reserves `mysql_owned_control_close@v1` before control creation and only
 discharges it after confirmed owner release. Unconfirmed creation/close retains
 the obligation and an incomplete Run; reconciliation raises a typed pending error
@@ -1335,6 +1380,9 @@ that version at the captured occurrence instant and verifies complete single-val
 Subject correspondence. Internal relative Metric captures are construction templates;
 they cannot execute as ordinary Metric nodes. R5 numeric state and finishing remain
 the numeric owners for Anchor count/sum/ratio/linear observation.
+Relative Metric source shapes retain the captured UTC instant authority when
+combined with Event/Anchor preparation. The report timezone remains a rendering
+and calendar-window authority; it does not create a second physical source shape.
 
 The Anchor part owns the exact Subject/Event/occurrence identity, source definition,
 start, captured order, Journey assignment where applicable, exact deadline and typed
@@ -1382,7 +1430,10 @@ Event elapsed witness selection runs in Ibis; calendar and Journey inputs follow
 source preparation before local consumption. Every source read completes before
 local retention, quantification or status transport starts. Fixed status views and
 quantification consume verified retained parts without loading current semantics,
-opening a datasource or rematching Journeys. A starts-only Anchor Artifact lacks
+opening a datasource or rematching Journeys. Artifact recovery preserves the Boolean
+status-view and selected-Boolean protocols even when a retention quantity is
+retained; predicates such as `value.eq(True)` remain valid after resume.
+A starts-only Anchor Artifact lacks
 return inputs and rejects retention construction before a Run. Fixed retention
 kernel qualification remains unfinished; continuation evidence cannot replace it.
 

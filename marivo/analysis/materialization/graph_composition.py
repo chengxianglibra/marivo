@@ -364,7 +364,12 @@ def _comparison_template(
             else (),
             tuple(visit(child) for child in comparison_endpoints(node)),
         )
-    raise _invalid_composition("quantity template has no registered comparison rule")
+    raise DatasetConstructionError(
+        expected="a registered comparison rule for every frozen quantity node",
+        received="quantity template has no registered comparison rule",
+        repair="Read relation.contract() and choose one of its currently supported continuations.",
+        location="analysis.graph_composition",
+    )
 
 
 def comparison_endpoints(node: MethodNode) -> tuple[MethodNode, ...]:

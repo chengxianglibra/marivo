@@ -14,6 +14,7 @@ from marivo.analysis.materialization.store import SessionStore
 _LOCAL_CAPABILITY = "local_owned_path@v1"
 _READ_CAPABILITY = "read_only_execution@v1"
 _MYSQL_CONTROL_CAPABILITY = "mysql_owned_control_close@v1"
+_CLICKHOUSE_CONTROL_CAPABILITY = "clickhouse_owned_control_close@v1"
 
 
 def backend_reservation(run_ref: str, domain: str) -> ResourceRecord:
@@ -32,6 +33,13 @@ def mysql_control_reservation(run_ref: str, domain: str) -> ResourceRecord:
     """Reserve an owned control whose release needs a live acknowledgement."""
     return replace(
         backend_reservation(run_ref, domain), cleanup_capability_id=_MYSQL_CONTROL_CAPABILITY
+    )
+
+
+def clickhouse_control_reservation(run_ref: str, domain: str) -> ResourceRecord:
+    """Reserve the reader's control client and private HTTP pool until release."""
+    return replace(
+        backend_reservation(run_ref, domain), cleanup_capability_id=_CLICKHOUSE_CONTROL_CAPABILITY
     )
 
 
@@ -89,9 +97,17 @@ def discharge_resources(
             raise _invalid_resource(resource)
         if resource.resource_kind not in ("backend_execution", "planner_temporary_relation"):
             continue
-        if resource.cleanup_capability_id == _MYSQL_CONTROL_CAPABILITY:
+        if resource.cleanup_capability_id in (
+            _MYSQL_CONTROL_CAPABILITY,
+            _CLICKHOUSE_CONTROL_CAPABILITY,
+        ):
+            provider = (
+                "MySQL"
+                if resource.cleanup_capability_id == _MYSQL_CONTROL_CAPABILITY
+                else "ClickHouse"
+            )
             raise RecoveryPendingError(
-                expected="confirmed owned MySQL control connection release",
+                expected=f"confirmed owned {provider} control connection release",
                 received="the original control close acknowledgement is unavailable",
                 repair="Inspect the original Run and its control connection obligation; do not replay or cancel a different connection.",
                 stage="reconciliation",

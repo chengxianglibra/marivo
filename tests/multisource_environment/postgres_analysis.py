@@ -41,6 +41,9 @@ def setup() -> dict[str, object]:
     """Provision restrictive reader grants and verify disposable admin-owned fixture access."""
     fixture = sql.Identifier("smoke_" + uuid4().hex)
     with connection(admin=True) as admin:
+        # Serialize shared role/grant updates across workers. The session lock
+        # is released when this admin connection closes, including failures.
+        admin.execute("SELECT pg_advisory_lock(%s)", (0x6D617269766F,))
         if admin.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (READER,)).fetchone() is None:
             admin.execute(sql.SQL("CREATE ROLE {} LOGIN").format(sql.Identifier(READER)))
         admin.execute(

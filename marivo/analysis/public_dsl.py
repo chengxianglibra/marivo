@@ -573,6 +573,7 @@ class _Value:
         if self._dataset is not None:
             self._dataset.verified()
         signature = self._node.root.signature
+        comparison_unavailable = self._node.comparison_error
         kind, fixed = _kind(self._node), self._dataset is not None
         roles = tuple(part_role(part) for part in signature.parts)
         names: tuple[str, ...]
@@ -714,7 +715,10 @@ class _Value:
         elif kind in ("compare", "relation_ratio"):
             names = ("where", "summarize")
         elif kind == "where":
-            names = ("members", "summarize") if signature.quantity is not None else ("members",)
+            names = (
+                *(("members",) if any(isinstance(p, SubjectPart) for p in signature.parts) else ()),
+                *(("summarize",) if signature.quantity is not None else ()),
+            )
         elif kind in ("observe", "ratio_observe", "rollup", "ratio_rollup"):
             names = (
                 *(
@@ -887,6 +891,20 @@ class _Value:
                     "rank",
                 )
             )
+        if isinstance(self, _NumericComparison) and "compare" in names:
+            from marivo.analysis.materialization.graph_composition import (
+                comparison_bindings,
+                comparison_template,
+            )
+
+            try:
+                comparison_template(self._node.definition)
+                comparison_bindings(self._node.definition)
+            except DatasetConstructionError as error:
+                names = tuple(name for name in names if name != "compare")
+                comparison_unavailable = error.received
+        if isinstance(self, _NumericComparison) and not signature.domain.instance_key:
+            names = tuple(name for name in names if name != "correlate")
         required = tuple(role for role in roles if role != "subject")
         actions = self._action_contract(names)
         if kind == "time_runs":
@@ -928,6 +946,9 @@ class _Value:
                     else (action,)
                 )
             )
+        facts = self._contract_facts()
+        if comparison_unavailable is not None and self._node.comparison_error is None:
+            facts += (("comparison_unavailable", comparison_unavailable),)
         return AnalysisContract(
             kind,
             "materialized" if fixed else "logical",
@@ -936,7 +957,7 @@ class _Value:
             None if signature.quantity is None else signature.quantity.kind,
             required,
             roles if fixed else (),
-            self._contract_facts(),
+            facts,
         )
 
     def _contract_facts(self) -> tuple[tuple[str, str], ...]:
@@ -1288,6 +1309,10 @@ class _Value:
                 )
         if self._node.comparison_error is not None:
             facts.append(("comparison_unavailable", self._node.comparison_error))
+        if isinstance(self, _NumericComparison) and not signature.domain.instance_key:
+            facts.append(
+                ("correlation_unavailable", "Scalar has no Entity/category/time statistical units")
+            )
         params = self._node.definition.parameters
         attribution = next((p for p in signature.parts if isinstance(p, AttributionPart)), None)
         if attribution is not None:
@@ -2029,7 +2054,8 @@ class _NumericComparison(_Value):
             value: Absolute difference or change divided by the absolute baseline.
         Returns: A LogicalDifferenceRelation bound to this exact relation.
         Example: ``result = relation.compare(baseline)``.
-        Constraints: Time/period comparisons share target captures; cohorts share Group/Singleton coordinates and time.
+        Constraints: Every frozen quantity node needs a registered comparison template.
+        Time/period comparisons share target captures; cohorts share Group/Singleton coordinates and time.
         Use homogeneous numeric types; absolute Decimal differences need equal scales and Duration units must match.
         Float folds and quantiles require an error envelope and are not comparison-qualified.
         Restoring an old Difference requires re-executing its source comparison.
@@ -3056,11 +3082,10 @@ class MaterializedSelectedCategoryRelation(_MaterializedValue, _CountRelation):
     def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
         """Project selected fixed member identity without a source read.
 
-        Args:
-            None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A LogicalFixedAnalysisDomain bound to this exact relation.
         Example: ``result = relation.members()``.
-        Constraints: Projects exact selected keys and cannot introduce a new source into fixed state.
+        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
         return LogicalFixedAnalysisDomain(
             _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
@@ -3253,7 +3278,7 @@ class LogicalNumericRelation(_NumericComparison):
         """Select current numeric values using their bound predicate.
 
         Args: predicate: A comparison from this or an exactly corresponding numeric relation.value.
-        Returns: A logical numeric selection preserving the Subject part.
+        Returns: A logical numeric selection preserving any retained Subject part.
         Example: ``selected = relation.where(relation.value.gt(0))``.
         Constraints: Numeric dependencies require exact corresponding keys; non-Defined predicates reject.
         """
@@ -3372,7 +3397,7 @@ class MaterializedNumericRelation(_MaterializedValue, _NumericComparison):
         """Select current numeric values using their bound predicate.
 
         Args: predicate: A comparison from this or an exactly corresponding numeric relation.value.
-        Returns: A logical numeric selection preserving the Subject part.
+        Returns: A logical numeric selection preserving any retained Subject part.
         Example: ``selected = relation.where(relation.value.gt(0))``.
         Constraints: Numeric dependencies require exact corresponding keys; non-Defined predicates reject.
         """
@@ -4009,11 +4034,10 @@ class MaterializedSelectedDifferenceRelation(_MaterializedValue, _NumericCompari
     def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
         """Project fixed selected members without source access.
 
-        Args:
-            None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A LogicalFixedAnalysisDomain bound to this exact relation.
         Example: ``result = relation.members()``.
-        Constraints: Projects exact selected keys and cannot introduce a new source into fixed state.
+        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
         return LogicalFixedAnalysisDomain(
             _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
@@ -4996,6 +5020,11 @@ def wrap_materialized(
             return MaterializedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
         return MaterializedCategoryRelation(_TOKEN, node, runtime, dataset=dataset)
     if kind == "where":
+        if node.root.value_type == ScalarType("boolean"):
+            params = node.definition.parameters
+            if isinstance(params, PartsTransport) and params.mode == "view":
+                return MaterializedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
+            return MaterializedSelectedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
         if any(isinstance(p, JourneyPart) for p in node.root.signature.parts) and isinstance(
             node.root.value_type, DurationType
         ):
@@ -5229,11 +5258,10 @@ class MaterializedSelectedBooleanRelation(_MaterializedValue, _CountRelation):
     def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
         """Project selected fixed member identity without a source read.
 
-        Args:
-            None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A LogicalFixedAnalysisDomain bound to this exact relation.
         Example: ``result = relation.members()``.
-        Constraints: Projects exact selected keys and cannot introduce a new source into fixed state.
+        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
         return LogicalFixedAnalysisDomain(
             _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
@@ -5424,11 +5452,10 @@ class MaterializedSelectedTemporalRelation(_MaterializedValue, _CountRelation):
     def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
         """Project selected fixed member identity without a source read.
 
-        Args:
-            None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A LogicalFixedAnalysisDomain bound to this exact relation.
         Example: ``result = relation.members()``.
-        Constraints: Projects exact selected keys and cannot introduce a new source into fixed state.
+        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
         return LogicalFixedAnalysisDomain(
             _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
@@ -5454,7 +5481,7 @@ class LogicalSelectedNumericRelation(_OriginalContinuation):
         """Select current numeric values using their bound predicate.
 
         Args: predicate: A comparison from this or an exactly corresponding numeric relation.value.
-        Returns: A logical numeric selection preserving the Subject part.
+        Returns: A logical numeric selection preserving any retained Subject part.
         Example: ``selected = relation.where(relation.value.gt(0))``.
         Constraints: Numeric dependencies require exact corresponding keys; non-Defined predicates reject.
         """
@@ -5492,7 +5519,7 @@ class LogicalSelectedNumericRelation(_OriginalContinuation):
 
 
 class MaterializedSelectedNumericRelation(_MaterializedValue, _OriginalContinuation):
-    """Fixed numeric selection with an exact retained member projection."""
+    """Fixed numeric selection preserving any retained Subject map."""
 
     @property
     def value(self) -> NumericField:
@@ -5510,7 +5537,7 @@ class MaterializedSelectedNumericRelation(_MaterializedValue, _OriginalContinuat
         """Select current numeric values using their bound predicate.
 
         Args: predicate: A comparison from this or an exactly corresponding numeric relation.value.
-        Returns: A logical numeric selection preserving the Subject part.
+        Returns: A logical numeric selection preserving any retained Subject part.
         Example: ``selected = relation.where(relation.value.gt(0))``.
         Constraints: Numeric dependencies require exact corresponding keys; non-Defined predicates reject.
         """
@@ -5521,11 +5548,10 @@ class MaterializedSelectedNumericRelation(_MaterializedValue, _OriginalContinuat
     def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
         """Project selected fixed member identity without a source read.
 
-        Args:
-            None.
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
         Returns: A LogicalFixedAnalysisDomain bound to this exact relation.
         Example: ``result = relation.members()``.
-        Constraints: Projects exact selected keys and cannot introduce a new source into fixed state.
+        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
         return LogicalFixedAnalysisDomain(
             _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)

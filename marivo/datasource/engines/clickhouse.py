@@ -161,6 +161,12 @@ def _system_parts_projection(
 register_provider_statements(
     "clickhouse",
     {
+        "analysis.cancel_owned_query": ProviderStatement(
+            statement_id="clickhouse.analysis.cancel_owned_query",
+            template="KILL QUERY WHERE query_id={id:String} AND user={user:String} SYNC",
+            parameterized=True,
+            allowed_purposes=frozenset({"analysis.cancel_owned_query"}),
+        ),
         "tables.full": ProviderStatement(
             statement_id="clickhouse.tables.full",
             template=(

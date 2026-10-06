@@ -116,21 +116,70 @@ def test_c03_complete_versioned_members(
         session = mv.session.get_or_create("c03-versions", report_timezone="UTC")
         entity = ms.ref.entity("sales.subjects")
         august = datetime(2026, 8, 1, tzinfo=timezone.utc)
-        with pytest.raises(AnalysisError):
-            session.members(entity)
+        before_runs = len(session.runs().items)
+        construction_calls: list[str] = []
+
+        def no_construction_read(*args: object, **kwargs: object) -> None:
+            construction_calls.append("read-or-admit")
+            raise AssertionError("Missing version attempted a business read or Run admission")
+
+        with monkeypatch.context() as construction:
+            for name in ("bind", "compile", "batches"):
+                construction.setattr(SourceSession, name, no_construction_read)
+            construction.setattr(session._runtime.store, "admit", no_construction_read)
+            with pytest.raises(AnalysisError) as missing_version:
+                session.members(entity)
+        assert construction_calls == [] and len(session.runs().items) == before_runs
+        assert missing_version.value.expected and missing_version.value.received
+        assert missing_version.value.repair is not None and missing_version.value.repair.action
         if kind in ("duplicate", "overlap", "null_id", "null_tenant"):
+            from tests.test_r94_public_refusals import publication_counts
+
+            before_publication = publication_counts(session)
             before_files = set(tmp_path.rglob("*.parquet"))
             with pytest.raises(
                 AnalysisError, match=r"unique|non-overlapping|duplicate|identity|null"
-            ):
+            ) as invalid_identity:
                 session.members(entity, at=august).execute()
+            assert invalid_identity.value.expected and invalid_identity.value.received
+            assert (
+                invalid_identity.value.repair is not None and invalid_identity.value.repair.action
+            )
             assert set(tmp_path.rglob("*.parquet")) == before_files
+            assert publication_counts(session) == before_publication == [0, 0, 0]
+            assert len(session.runs().items) == before_runs + 1
+            assert session._runtime.last_run_ref is not None
+            failed = session._runtime.store._graph_run(session._runtime.last_run_ref)
+            assert failed is not None and failed.lifecycle == "failed"
             assert session._runtime.store.resources(session._runtime.session_ref) == ()
             trace.save(
                 f"c03-members-{kind}-{backend}",
                 case.environment,
                 {"columns": data.columns, "values": data.values},
-                {"rejected_invalid_identity": True, "published_parquet": 0, "resources": 0},
+                {
+                    "rejected_invalid_identity": True,
+                    "published_parquet": 0,
+                    "resources": 0,
+                    "missing_version_pre_read_pre_run": True,
+                    "construction_calls": list(construction_calls),
+                    "run_counts_before": before_runs,
+                    "run_counts_after": len(session.runs().items),
+                    "run_lifecycle": failed.lifecycle,
+                    "publication_counts_before": before_publication,
+                    "publication_counts_after": publication_counts(session),
+                    "missing_version_error": {
+                        "type": type(missing_version.value).__name__,
+                        "expected": missing_version.value.expected,
+                        "received": missing_version.value.received,
+                        "repair": missing_version.value.repair.action,
+                    },
+                    "invalid_identity_error": {
+                        "type": type(invalid_identity.value).__name__,
+                        "expected": invalid_identity.value.expected,
+                        "received": invalid_identity.value.received,
+                        "repair": invalid_identity.value.repair.action,
+                    },
+                },
                 None,
                 (case.session,),
             )

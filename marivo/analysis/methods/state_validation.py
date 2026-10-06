@@ -460,8 +460,9 @@ def state_matches(
             (
                 (type(component) is int and -(2**63) <= component < 2**63)
                 or (kind == "row_sum" and type(component) is float and math.isfinite(component))
+                or (kind == "row_sum" and type(component) is Decimal and component.is_finite())
             )
-            and isinstance(component, (int, float))
+            and isinstance(component, (int, float, Decimal))
             and (kind == "row_sum" or component >= 0)
             and primary.get("cell_tag") == "defined"
             and type(value) is type(component)
@@ -549,6 +550,7 @@ def state_matches(
             not (
                 (type(total) is int and -(2**63) <= total < 2**63)
                 or (type(total) is float and math.isfinite(total))
+                or (type(total) is Decimal and total.is_finite())
             )
             or not isinstance(total, (int, float, Decimal))
             or type(count) is not int
@@ -568,11 +570,13 @@ def state_matches(
                 and primary.get("cell_tag") == "undefined"
                 and primary.get("cell_reason") == "empty_mean"
             )
-        return (
-            primary.get("cell_tag") == "defined"
-            and type(value) is float
-            and math.isfinite(value)
-            and value == float(total) / count
+        return primary.get("cell_tag") == "defined" and (
+            (type(value) is float and math.isfinite(value) and value == float(total) / count)
+            or (
+                type(value) is Decimal
+                and type(total) is Decimal
+                and _division_matches(value, total, count)
+            )
         )
     if kind == "spearman":
         counts = tuple(

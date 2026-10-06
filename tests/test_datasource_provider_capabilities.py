@@ -64,6 +64,10 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
     # (provider, statement_id) -> sha256(template) pair when registering one.
     pinned: dict[tuple[str, str], str] = {
         (
+            "clickhouse",
+            "clickhouse.analysis.cancel_owned_query",
+        ): "8407fff8e636b6bf444a67ebf40ba37a02277f63c7d8f53239d65815cd7e9d9b",
+        (
             "mysql",
             "mysql.analysis.cancel_owned_query",
         ): "02548904a68f6735059c88cdd252b225475ee367d812cbaa460d05653bc4f7bc",
@@ -535,3 +539,41 @@ def test_mysql_cancel_has_a_closed_purpose_and_numeric_target() -> None:
         )
     assert backend.queries == []
     assert provider_statement_log(backend) == ()
+
+
+def test_clickhouse_cancel_keeps_bound_identity_and_closed_purpose() -> None:
+    profile = ENGINE_PROFILES["clickhouse"]
+    statement = provider_statement("clickhouse", "clickhouse.analysis.cancel_owned_query")
+    assert statement.parameterized
+    assert render_provider_statement(statement, profile) == (
+        "KILL QUERY WHERE query_id={id:String} AND user={user:String} SYNC"
+    )
+    backend = _RecordingBackend()
+    with pytest.raises(DatasourceSourceCapabilityError, match="purpose"):
+        execute_provider_statement(
+            backend,
+            profile,
+            statement.statement_id,
+            parameters={"id": "owned-native-id", "user": "reader"},
+            purpose="datasource.metadata.clickhouse",
+        )
+    assert backend.queries == []
+    assert provider_statement_log(backend) == ()
+
+
+@pytest.mark.parametrize(
+    "parameters", [{}, {"id": "x"}, {"id": "", "user": "reader"}, {"id": "x", "user": ""}]
+)
+def test_clickhouse_cancel_requires_both_nonempty_owned_identity_parameters(
+    parameters: dict[str, str],
+) -> None:
+    backend = _RecordingBackend()
+    with pytest.raises(ValueError, match="bound nonempty id and user"):
+        execute_provider_statement(
+            backend,
+            ENGINE_PROFILES["clickhouse"],
+            "clickhouse.analysis.cancel_owned_query",
+            parameters=parameters,
+            purpose="analysis.cancel_owned_query",
+        )
+    assert backend.queries == []

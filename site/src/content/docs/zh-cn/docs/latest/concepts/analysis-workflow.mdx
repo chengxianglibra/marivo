@@ -171,6 +171,7 @@ aov = customers.observe(
 overall_aov = aov.rollup().execute()
 channel_aov = aov.group_by(channel).rollup().execute()
 current_row_mean = aov.summarize(mv.mean()).execute()
+current_row_mean.show()
 
 order_count = customers.observe(
     ms.ref.metric("sales.order_count"), during=august, via=buyer
@@ -182,6 +183,12 @@ negative = coefficient.where(coefficient.value.lt(0)).execute()
 
 `rollup()` 依据保留的原始组件重新计算；`summarize(mv.mean())` 对当前行
 等权求均值。Spearman 只描述同一观测范围内完整成员配对的关联，不构成因果判断。
+
+对于保留的 `NoTime` Entity 分位数量，若值类型是 `Decimal(18,2)`，当前行 sum
+返回 `Decimal(38,2)`，mean 通过一次 HALF_EVEN 舍入返回 `Decimal(38,6)`。
+新 RowStatistic 的 `rollup()` 合并已捕获的精确 sum/count 状态；mean 保留 sum
+原有的小数位。空集 sum 为零，mean 为 `Undefined(empty_mean)`。原分位数量仍不能
+rollup。其他 Decimal group/time/source 当前行归约键需要各自的资格。
 
 ## 按确切语义继续分析
 
@@ -321,6 +328,13 @@ rollup 从保留的 sum/count 状态重新计算均值，不对分组均值直�
 nearest-even tick 舍入。原生 DuckDB INTERVAL 必须先拒绝日历成分，按微秒处理；
 Parquet 保留四种 Arrow Duration 单位。原状态上卷和时间 fold 在冷恢复后仍保留这些
 类型。源端计算由 Ibis 编译为 SQL，断源续算只消费已校验的保留状态。
+
+普通原生表的时间均值保留 string 与 int64 Subject 身份，包括大于 `2**53` 的相邻
+int64 键。计算先归约空间贡献，再折叠时间样本。原始上卷消费保留样本和支持量，
+而不是对显示的 Subject 值取均值。其他源形状与时间戳单位需要独立取得资格。
+DuckDB 原生表的微秒时间、string Subject 观察及 int64 原量归约还支持 Asia/Tokyo
+报告时区。原生 DATE 和显式解析的原生 timestamp 输入在固定归约中保留原网格与窗口事实。
+比较报告时区下的同一瞬时时间范围时，应使用带时区的 scope 端点；civil 字面量按选定的报告时区解释。
 
 精确与近似 distinct/quantile 由 Metric 定义选择，原生分位数的舍入限制会明确披露。
 数据源不支持精确定义时，错误会提示对应的近似定义、保留 q，并说明是否支持；不会
@@ -604,6 +618,8 @@ TimeDimension 返回 Temporal。整数指示列仍是分类；原生日期保持
 
 ## 坐标分组与当前行统计
 
+版本化属性读的汇总保留输入的精确版本选择，从 Artifact 恢复筛选结果后也遵循这一约束。
+
 使用完整的已保留坐标，或按完整键对应的显式分类关系。原 Metric 合并原组件；
 `summarize` 则对当前完成值建立独立统计量：
 
@@ -690,7 +706,9 @@ mean、weighted_mean、ratio 在冻结组件能证明统计单位时准入。总
 完整 C08 矩阵仍未收口。
 
 fixed 续算须同时使用 fixed 值、分类与权重。恢复后，即使来源断开，`where` 也使用
-原保留参照执行。通过 `marivo.help("analysis.methods.metric.reference")` 发现聚焦入口。
+原保留参照执行。数值筛选仅在保留完整 Subject 映射时，才在 contract 中披露
+`members()`。数值坐标和参照 parts 本身不授予该映射；缺少映射时，投影在执行前拒绝。
+通过 `marivo.help("analysis.methods.metric.reference")` 发现聚焦入口。
 排名与 Top-K 参照不变验收见下节；安装 wheel 收口仍归 R6.7。
 
 ## 排名与终端表格
@@ -761,8 +779,10 @@ Top-K 在两侧完整基底的并集上使用一个共同映射。余项掩码�
 并无条件撤销当前子域的完整性，不重新分配或平衡残差。
 
 逻辑输入缺轴时，以显式图依赖展开冻结的观测定义；固定输入缺轴会在访问来源前拒绝。
-完整固定状态支持断源归因、视图筛选与表格导出，包括新进程恢复。加法 int64、Decimal
-和 Duration 使用精确载体；component_mix 接受 int64/float64/Decimal 分量，拒绝 Duration。
+完整固定状态支持断源归因、视图筛选与表格导出，包括新进程恢复。
+原始 UTC 微秒周期桶和日→月归约分区保留此固定归因路线；其他时间精度与报告时区
+仍需要各自资格。
+加法 int64、Decimal 和 Duration 使用精确载体；component_mix 接受 int64/float64/Decimal 分量，拒绝 Duration。
 整体分母为零或不稳定、非零分子与零基底矛盾、舍入残差超限都会拒绝。相对或嵌套变化、
 distinct/distribution/extrema 与未经证明的重叠状态没有分配方法。通过
 `marivo.help("analysis.dsl.LogicalDifferenceRelation.attribute")` 阅读聚焦契约。
@@ -849,6 +869,9 @@ coverage_censored、not_entered、entry_unknown。只有已完成步骤对有 du
 当前行 Duration `mean` 保留 Journey 分母：10、30、100 秒的均值为 140/3 秒，
 仅在微秒输出时舍入一次到 46.666667 秒；先按主体得到 20、100 秒再平均则为
 60 秒。选人不会替换原 Journey 分母。
+状态和时间字段经过多次 `where` 与冷恢复后，仍保留值和 Cell 标签及原因。
+保留的状态、时间戳和微秒 Duration 字段支持当前行 `count` 与 `count_defined`，
+分组使用已保留的完整 Subject 坐标。
 
 保留的微秒 Journey 耗时支持 `duration.ratio(duration)`，配对使用完整 Journey 键。
 Defined 操作数正常相除；零分母产生 `Undefined(zero_denominator)`。
@@ -892,6 +915,10 @@ relative = anchors.observe(
 ).execute()
 relative.show()
 relative.contract().show()
+relative.rank(order="descending", ties="ordinal").execute().show()
+row_count = relative.where(relative.value.is_defined()).summarize(mv.count()).execute()
+row_count.contract().show()
+row_count.ratio(row_count).execute().show()
 selected = relative.where(relative.value.is_defined()).execute()
 selected.members().execute().show()
 ```
@@ -901,6 +928,11 @@ DST 导致不存在或有歧义的 deadline 会返回具体修复。Event elapse
 和当前 Journey 起点先准备有界候选，再在本地消费。基于本地筛选后 Journey 成员的观察须先执行，再进行后续操作；物化结果的 `contract()` 提供有效延续。重叠窗口分别保留贡献使用绑定，删除
 Anchor 坐标不能取得原状态 rollup。固定续算只消费已保留输入，不能引入新的 live Metric。
 Retention 不属于本轮 R7.7。
+固定 Anchor 数值观察和 Journey Duration 可以在不重连来源的情况下排序。排序保留完整
+实例键及方法 parts；冷进程精确命中复用原 Artifact。
+从这个相对观察得到的当前行统计量可以使用普通 ratio。其捕获的 quantity template 尚无
+已注册的比较规则，因此卡片不建议 `compare()` 并披露原因；选择下一步前读取当前 contract。
+Scalar 也没有 Entity/category/time 统计单位，因此其卡片不建议 `correlate()`。
 
 ## 固定 Anchor 总体上的留存
 
@@ -931,7 +963,10 @@ subjects.known_true().members().execute().show()
 
 SQLite main 原生表的 int64 身份、UTC 微秒 Event 起点 retention 支持 elapsed 与 calendar
 窗口，使用冻结来源准备及已注册的本地消费者。Unknown 保留在原机会域中；选择和独立进程
-恢复保持其界与 any/every Subject 分组。独立的 elapsed/calendar Anchor 观察支持一个直接 int64
+恢复保持其界与 any/every Subject 分组。该 Event 起点 retention 路线也接受 string Subject
+键。int64 与 string occurrence 键在固定执行和冷恢复中保留完整的 Subject/Event/occurrence
+身份；occurrence 键的类型不决定 Subject 键的类型。其他源形状仍需独立取得资格。
+独立的 elapsed/calendar Anchor 观察支持一个直接 int64
 sum-zero Metric，不带坐标或过滤。准备过程保留重叠窗口的贡献重数、业务顺序与 fixed/冷恢复证据。
 组合与其他输入形状仍未取得资格。
 同一 SQLite 形状支持从 Journey 绑定 Anchor，保留原始分配与起点时间。
@@ -954,6 +989,8 @@ Subject 状态无需 `through`。结果不提供界的算术或 rollup。
 会在执行前拒绝新增 return 输入。已物化留存结果保留完整真值、覆盖与实例纤维，支持
 断源状态选择和量化。R7.8 证据记录区分已验证的有界执行和原 fixed-retention 资格中
 未完成的目标；同 wheel、远端与完整 R7 验收仍独立。
+恢复状态或已选择状态的 Artifact 时，布尔字段协议保持不变，
+`value.eq(True)` 在恢复后仍可使用。
 
 ## 精确漏斗比较与证据
 
@@ -994,7 +1031,12 @@ SQLite main 原生表的 int64 身份与 UTC 微秒时间支持在本地匹配�
 保留轴，可断源续算与冷恢复。snapshot 轴要求精确入口期；缺失时拒绝，不选择最新或较早的行。validity 包含起点、排除终点；缺失或重叠区间在发布前拒绝。其他轴数与顺序、路径/版本条件及形状尚未由此路线取得资格。
 
 来源路线为显式 Ibis 准备后本地消费，固定续算为 `artifact_python`。
-此处不授予 native funnel、远端、same-wheel 或完整 R7 资格。
+此处未增加原生 SQL 漏斗消费者，也不授予 same-wheel 或完整 R7 资格。
+
+R9.4 将 PostgreSQL、MySQL、Trino、ClickHouse 原生表的 int64 occurrence 身份和
+UTC 微秒时间接入同一 Ibis 入口轴准备与本地归约。限定证据使用一个普通 int64
+Subject Dimension，以及 retained 比较和归因，覆盖非空 Findings 和独立公开
+Session 恢复。其他轴、版本、状态与远端取消 profile 仍需分别完成资格验证。
 
 ## 完整网格的连续区间
 
@@ -1013,6 +1055,13 @@ Runs 还要求保留实际覆盖事实。派生 ratio 的端点若缺少这些�
 应从具有覆盖事实的原始观察，或保留完整网格映射的拟合结果字段继续。
 时间相关与预测也要求这些覆盖事实，即使当前 ratio 的所有 Cell 都是 Defined。
 事实缺失时，会在拟合前返回结构化错误。
+
+原始每日 int64 观察可以按自己的网格分组并 rollup，再执行 runs。该路线支持
+SQLite/PostgreSQL/MySQL 普通表、Trino Iceberg 和本地 ClickHouse MergeTree，要求
+UTC 微秒事件时间轴。使用
+`members.each(grid).observe(metric, during=grid.window).group_by(grid).rollup()`
+保留原始完整网格。这些原生 Group 声明不新增 float/Decimal、其他时间形态或文件来源
+的 Group 路线。离线执行消费保留的输入，exact-hit 复用已存储的分类结果。
 
 
 ## 相关与预测
@@ -1044,8 +1093,12 @@ Trino 在提交前登记游标，可在执行或分批读取期间取消查询�
 声称发生了定时器中断。
 ClickHouse 每次读取通过原生 HTTP 超时设置使用 execute 预算的剩余时间。只读账户须允许
 修改 `max_execution_time` 和 `timeout_before_checking_execution_speed`，并保持超时抛错。
-设置不可用时在业务读取前结构化拒绝；保留原始 deadline，不返回部分结果，不提交控制 SQL。
-服务端超时和查询终止须独立验证，本地 MergeTree 证明不授予 Distributed 分片资格。
+设置不可用时在业务读取前结构化拒绝；保留原始 deadline，不发布部分结果。
+独立的有界控制连接使用同一 reader 认证，仅取消当前 Session 自有的 query ID 和 user。
+账户需要由运维配置 `SELECT(query, query_id, user) ON system.processes`；这些列允许查看
+一般查询元数据。权限缺失时提供结构化修复，不提升凭据权限。控制连接关闭未确认时保留
+incomplete Run，并阻止自动恢复。服务端超时和查询终止须独立验证，本地 MergeTree
+证明不授予 Distributed 分片资格。
 服务器原生超时可能先于 Python 的期限触发；其证明依赖已配置的期限和独立服务器查询
 状态，客户端与服务器时钟分别记录。
 
@@ -1157,3 +1210,48 @@ daily = members.each(grid).observe(
 Forecast 拒绝 Unknown 训练输入；runs 将其视为 unavailable 并切断区间。
 Duration 商会将该 Unknown 原因保留为 float64。此类观测不能通过 rollup 或合并时间桶把
 部分业务数据变成完整值；固定和冷恢复消费会在不读取源的情况下核对同一声明。
+
+
+### 本地 CSV 与 JSON 的 sum-zero 执行
+
+现有本地 CSV 文件和不带请求参数的 GET JSON 文件可以进入 DuckDB 的 R1 schema
+路径。当前已限定的 observation 是 int64 Measure 的 sum 配合
+`empty=ms.empty.zero()`，成员身份的首字段为字符串，事件时间轴为 UTC 微秒精度。
+完整复合键保持不变。构造可以推断本地 schema 事实，但不提交业务读取或分配 Run。
+HTTP/请求参数 JSON、其他数值载体和 observation 方法仍需各自的精确资格；没有改变
+请求语义的回退。固定续算继续使用精确保留的 Artifact 和既有本地执行路线。
+
+已声明 DuckDB `warehouse` datasource 和 `sales` domain 后，可以对已有的
+`data/facts.csv` 执行以下声明与分析。文件需包含
+`tenant,id,revision,amount,happened`；`amount` 推断为 int64，`happened` 推断为
+微秒 timestamp。JSON 使用相同声明，将来源替换为 `md.json(...)`。
+将这些声明保存到 `models/semantic/sales/models.py`：
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+facts = ms.entity(name="facts", datasource=ms.ref.datasource("warehouse"),
+                  source=md.csv("data/facts.csv"),
+                  primary_key=["tenant", "id", "revision"])
+amount = ms.measure_column(name="amount", entity=facts, column="amount",
+                           additivity=ms.additive_all())
+happened = ms.time_dimension_column(name="happened", entity=facts,
+                                    column="happened", granularity="second",
+                                    parse=ms.timestamp(timezone="UTC"), is_default=True)
+total = ms.aggregate(name="total", measure=amount, agg="sum", time=happened,
+                     empty=ms.empty.zero())
+```
+
+在项目根目录单独执行分析：
+
+```python
+import marivo.semantic as ms
+import marivo.analysis as mv
+
+session = mv.session.get_or_create("file-analysis", report_timezone="UTC")
+result = session.members(ms.ref.entity("sales.facts")).observe(
+    ms.ref.metric("sales.total")
+).execute()
+result.show()
+```

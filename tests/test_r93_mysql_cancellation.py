@@ -19,6 +19,7 @@ from marivo.analysis.materialization.errors import MaterializationError, Recover
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.datasource.adapters import CompiledRead, Parameter, QualifiedSource, SourceSession
 from marivo.semantic.reader import SemanticProject
+from tests.mysql_server_observation import wait_for_owned_connection_release
 from tests.r9_source_cases import SourceData, source_case
 from tests.test_r93_capability_consumers import _author_c05_project
 from tests.test_r93_source_deadline import receipt
@@ -50,7 +51,6 @@ def test_mysql_graph_failure_preserves_original_artifact_and_control_obligation(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     fault: str,
 ) -> None:
-    from tests.multisource_environment import mysql_analysis as mysql
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
@@ -221,12 +221,7 @@ def test_mysql_graph_failure_preserves_original_artifact_and_control_obligation(
         with runtime.store._connection() as connection:
             assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 1
         assert previous.to_pandas().equals(saved)
-        with mysql.connection(admin=True) as observer, observer.cursor() as cursor:
-            for native_id in native_ids:
-                cursor.execute(
-                    "SELECT ID FROM information_schema.PROCESSLIST WHERE ID=%s", (native_id,)
-                )
-                assert cursor.fetchall() == ()
+        release_observation_seconds = wait_for_owned_connection_release(*native_ids)
         receipt(
             "mysql-graph-" + fault,
             {
@@ -238,6 +233,7 @@ def test_mysql_graph_failure_preserves_original_artifact_and_control_obligation(
                 "remaining_control_obligations": len(obligations),
                 "reconciliation_refused": fault == "control_close",
                 "independent_connection_release": True,
+                "release_observation_seconds": release_observation_seconds,
                 "slow_expression_injected": fault == "cancel",
                 "native_cancel_submissions": [
                     {"connection_id": identity, "sql": sql} for identity, sql in native_cancels

@@ -109,6 +109,8 @@ the original retained components. A materialized result can construct only
 continuations justified by its own retained parts and exact input binding.
 These public operations use the method rules and implementation registrations
 below; they do not introduce a second method policy or source adapter.
+For versioned attribute reads, current-row reduction preserves the exact input
+version selection in its singleton or grouped output domain.
 
 ### R4.5 current public qualification
 
@@ -138,6 +140,14 @@ consume those rows, while rollup merges original components. Subject and ordered
 endpoint parts are retained only where the frozen method definition requires
 them. Every advertised continuation requires verified receipts, exact binding,
 state version and completed checks; it cannot be inferred from displayed values.
+Numeric cards disclose comparison only when the compiler recognizes every frozen
+quantity-template node and its retained target bindings. This also applies through
+row-statistic and ordinary-ratio wrappers. An unsupported template reports
+`comparison_unavailable` and directs callers to the current contract; ordinary
+ratio remains independently available when its own qualification is satisfied.
+A Scalar with no instance keys has no Entity/category/time statistical units;
+its card omits correlation and reports `correlation_unavailable`. Time or grouped
+coordinates remain eligible for the existing correlation admission checks.
 Public Spearman rejects coordinate-bearing endpoints. Fixed coefficient
 selection and sum/count/mean execute from the verified coefficient and pair counts
 without reopening sources or recomputing ranks.
@@ -975,6 +985,10 @@ qualification remain separate.
 ### R6.5 registered display execution
 
 `display.rank@v1` and `display.table@v1` use `display@v1` in the common registry.
+Fixed `display.rank` also consumes retained Anchor and Journey instance values
+through the same checked display consumer. This does not qualify live source
+display on those domains; complete instance keys and retained parts remain
+mandatory in offline continuation and exact cold recovery.
 Ranking sorts exact represented int64/float64/Decimal values or Duration ticks;
 float64 ties have no epsilon. Canonical partition tuples precede the Defined
 rank blocks; each tied block and the non-Defined tail use complete typed instance
@@ -1138,6 +1152,11 @@ nonfinite/invalid time input rejects. Published sum state must itself fit int64.
 
 The only newly required current-row Duration reducer is row.mean for a bound
 Duration NumericRelation, with exact tick sum/count state and the above finish.
+Fixed Journey status, timestamp and microsecond Duration fields support current-row
+`count` and `count_defined`; grouping by the retained Subject coordinate counts
+Journey rows within each complete Subject key.
+Journey status and temporal-field selection preserve values and Cell tags/reasons
+through repeated `where` and fixed recovery; they do not become key-only domains.
 This includes CompletedJourneys.duration and intervals().observed_duration;
 it does not activate Decimal reducers, generic Duration sum/min/max/quantile or
 weighted mean. Dwell median/p90 belong to dwell's domain method only. The Journey
@@ -1172,6 +1191,13 @@ Undefined(zero_denominator), including a legal empty ungrouped dense funnel.
 Axes bind historical Dimension values at the first assigned occurrence;
 complete actual tuples including real null are retained, without Cartesian
 invented groups. Group components must reproduce the ungrouped target exactly.
+
+R9.4 connects native PostgreSQL/MySQL/Trino/ClickHouse int64 occurrence identities
+with UTC microsecond timestamps to the existing Ibis entry-axis preparation and
+two-input local Funnel reduction. The bounded producer witness uses one ordinary
+int64 Subject Dimension, followed by retained comparison and ratio-mix allocation.
+It adds no native SQL Funnel consumer. Other axis/version profiles, states and
+resource termination obligations require their own evidence.
 
 Funnel-period comparison binds identical pattern/matching/Subject, the same
 explicit population realization/definition, exact Event and axis definitions,
@@ -1676,3 +1702,23 @@ Complete-grid admission checks row selection since the owning `each(grid)`
 boundary: both where and limit reject, while Subject selection before a new
 grid does not invalidate that new observation. Runs admission errors route to
 the runs Help contract.
+
+The R9.4 native-table int64 route also admits a Group input obtained by rolling
+up an original UTC microsecond grid observation. SQLite, PostgreSQL, MySQL,
+Trino Iceberg and local ClickHouse MergeTree share the existing runs preparation
+and Python classification path. The new declarations retain exact int64,
+native-table and UTC/us shape boundaries; float, Decimal, other time shapes and
+file-source Group keys are not added. The source/fixed/cold witness uses a
+complete built-in day grid and preserves its actual UTC interval boundaries.
+
+
+### Local CSV and JSON sum-zero production
+
+Existing local CSV and unparameterized GET JSON files can enter the DuckDB
+R1 schema path. The current qualified observation is an ordinary int64 sum with
+`empty=ms.empty.zero()`, an identity beginning with a string field, and a UTC
+microsecond event axis. Complete composite keys remain intact. Construction may
+infer local schema facts but does not compile a business read or allocate a Run.
+HTTP/request-parameter JSON, other numeric carriers and other observation methods
+remain unqualified; no fallback changes the requested semantics. Fixed continuations
+use the exact retained Artifact and existing local consumers.

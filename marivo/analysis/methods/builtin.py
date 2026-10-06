@@ -164,6 +164,7 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
                 SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
                 FixedShape(NoTime()),
+                FixedShape(TimeShape("instant", "us", "UTC")),
             )
         )
     if method.name.startswith("display."):
@@ -177,7 +178,14 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     "artifact_python" if isinstance(shape, FixedShape) else "ibis_python",
                 ),
                 NUMERIC_CHECKS,
-                (*PARTS, "current_endpoint", "baseline_endpoint", "correspondence", "pair_counts"),
+                (
+                    *PARTS,
+                    *(("journey",) if domain == "journey" else ()),
+                    "current_endpoint",
+                    "baseline_endpoint",
+                    "correspondence",
+                    "pair_counts",
+                ),
                 "exact",
                 ResourceRequirements(
                     "complete", "caller" if isinstance(shape, FixedShape) else "producer", None
@@ -185,10 +193,12 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 Qualified(
                     f"r65.{method}.{domain}.{shape}",
                     "analysis.materialization.graph_display",
-                    "tests/test_analysis_display_r65.py",
+                    "tests/test_r93_remote_domain_consumers.py"
+                    if domain in ("anchor", "journey")
+                    else "tests/test_analysis_display_r65.py",
                 ),
             )
-            for domain in ("entity", "group", "singleton")
+            for domain in ("entity", "group", "singleton", "anchor", "journey")
             for shape in (
                 SourceShape("duckdb", "table", "native", NoTime()),
                 SourceShape("duckdb", "parquet", "parquet", NoTime()),
@@ -196,6 +206,8 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
                 FixedShape(NoTime()),
             )
+            if domain not in ("anchor", "journey")
+            or (method.name == "display.rank" and isinstance(shape, FixedShape))
         )
     if method.name.startswith("reference."):
         shapes: tuple[SourceShape | FixedShape, ...] = (
@@ -560,15 +572,19 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
             item,
             key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
             qualification=Qualified(
-                f"r93.c06.{backend}.{item.key}",
+                f"r94.c06.int64_subject.{backend}.{item.key}"
+                if item.key.input_types == (ScalarType("int64"),)
+                else f"r93.c06.{backend}.{item.key}",
                 "analysis.compiler.graph_lowering",
-                "tests/test_r93_multiroot_consumers.py",
+                "tests/test_r94_temporal_recovery.py"
+                if item.key.input_types == (ScalarType("int64"),)
+                else "tests/test_r93_multiroot_consumers.py",
             ),
         )
         for backend in ("postgres", "mysql", "trino", "clickhouse")
         for item in declarations
         if method.name == "metric.fold"
-        and item.key.input_types == (ScalarType("string"),)
+        and item.key.input_types in ((ScalarType("string"),), (ScalarType("int64"),))
         and item.key.input_domains == ("entity",)
         and item.key.shape
         == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
@@ -1136,6 +1152,32 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
                             ),
                         )
                     )
+    if method.name in ("row.sum", "row.mean"):
+        decimal_rows: tuple[tuple[DecimalType, DomainKind], ...] = (
+            (DecimalType(18, 2), "entity"),
+            (DecimalType(38, 6 if method.name == "row.mean" else 2), "singleton"),
+        )
+        for decimal_type, decimal_domain in decimal_rows:
+            declarations.append(
+                Implementation(
+                    QualificationKey(
+                        method,
+                        (decimal_type,),
+                        (decimal_domain,),
+                        FixedShape(NoTime()),
+                        "artifact_python",
+                    ),
+                    NUMERIC_CHECKS,
+                    ("row_state",),
+                    "exact",
+                    ResourceRequirements("complete", "caller", None),
+                    Qualified(
+                        f"r94.local.{method}.{decimal_type.name}.{decimal_domain}@v1",
+                        "analysis.materialization.graph_local_execution",
+                        "tests/test_r94_decimal_row_statistics.py",
+                    ),
+                )
+            )
     if method.name == "parts_transport":
         unary = tuple(declarations)
         for item in unary:
@@ -1769,7 +1811,9 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     if method.name in (
         "parts_transport",
         "time.product",
+        "metric.observe",
         "metric.sum_zero",
+        "state_rollup",
         "state_rollup.sum_zero",
     ):
         declarations = (
@@ -1784,9 +1828,13 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         ),
                     ),
                     qualification=Qualified(
-                        f"r93.c06.dst_grid.{item.key}@v1",
+                        f"r94.c06.report_zone.{item.key}@v1"
+                        if method.name in ("metric.observe", "state_rollup")
+                        else f"r93.c06.dst_grid.{item.key}@v1",
                         item.qualification.consumer_id,
-                        "tests/test_r93_capability_consumers.py",
+                        "tests/test_analysis_temporal_r55.py"
+                        if method.name in ("metric.observe", "state_rollup")
+                        else "tests/test_r93_capability_consumers.py",
                     ),
                 )
                 for item in declarations
@@ -1798,17 +1846,39 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         == SourceShape(
                             "duckdb", "table", "native", TimeShape("instant", "us", "UTC")
                         )
-                        and item.key.input_types == (ScalarType("string"),)
+                        and item.key.input_types
+                        == (ScalarType("int64" if method.name == "state_rollup" else "string"),)
                         and item.key.route == "ibis"
                     )
                     or (
-                        method.name == "state_rollup.sum_zero"
+                        method.name in ("state_rollup", "state_rollup.sum_zero")
                         and item.key.shape == FixedShape(TimeShape("instant", "us", "UTC"))
                         and item.key.input_types == (ScalarType("int64"),)
                         and item.key.route == "artifact_python"
                     )
                 )
             ),
+        )
+    if method.name in ("parts_transport", "metric.sum_zero"):
+        declarations += tuple(
+            replace(
+                item,
+                key=replace(item.key, shape=replace(item.key.shape, form=form, table_kind=form)),
+                qualification=Qualified(
+                    f"r94.local_file.{form}.{method.name}.{'no_time' if isinstance(item.key.shape.time, NoTime) else 'utc_us'}@v1",
+                    "analysis.compiler.graph_lowering",
+                    "tests/test_r94_producer_recovery.py",
+                ),
+            )
+            for item in declarations
+            if isinstance(item.key.shape, SourceShape)
+            and item.key.shape.backend == "duckdb"
+            and item.key.shape.form == "parquet"
+            and item.key.shape.time in (NoTime(), TimeShape("instant", "us", "UTC"))
+            and item.key.input_types == (ScalarType("string"),)
+            and item.key.input_domains == ("entity",)
+            and item.key.route == "ibis"
+            for form in ("csv", "json")
         )
     return declarations
 

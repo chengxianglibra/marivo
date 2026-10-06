@@ -73,6 +73,7 @@ from marivo.analysis.materialization.graph_spearman_execution import finish_spea
 from marivo.analysis.methods.comparison import evaluate as evaluate_comparison
 from marivo.analysis.methods.comparison import propagated_error, roundoff
 from marivo.analysis.methods.local import arithmetic, count, count_defined
+from marivo.analysis.methods.numeric_state import checked_sum, finish_division
 from marivo.analysis.methods.physical import (
     DecimalType,
     DurationType,
@@ -212,9 +213,12 @@ def _row_result(
     cells = _cells(verified)
     name = method.stage.node.method.name
     state: dict[str, list[int | float | Decimal | None]]
+    state_sum_type: pa.DataType | None = None
     params = method.stage.node.parameters
     if isinstance(params, RowState) and params.merge:
         retained = next(p.table for p in verified.parts if p.role == "row_state")
+        if "row_state__sum" in retained.column_names:
+            state_sum_type = retained.schema.field("row_state__sum").type
         state = {}
         for field in retained.column_names:
             if not field.startswith("row_state__"):
@@ -230,17 +234,24 @@ def _row_result(
                 ):
                     raise _invalid("invalid retained row state operand")
                 operands.append(raw)
-            floating = pa.types.is_floating(retained.schema.field(field).type)
-            total = (
-                (min(operands) if operands else None)
-                if field == "row_state__min"
-                else (max(operands) if operands else None)
-                if field == "row_state__max"
-                or (field == "row_state__error_bound" and params.method in ("min", "max"))
-                else math.fsum(operands)
-                if floating
-                else sum(operands)
-            )
+            physical = retained.schema.field(field).type
+            floating = pa.types.is_floating(physical)
+            total: int | float | Decimal | None
+            try:
+                total = (
+                    (min(operands) if operands else None)
+                    if field == "row_state__min"
+                    else (max(operands) if operands else None)
+                    if field == "row_state__max"
+                    or (field == "row_state__error_bound" and params.method in ("min", "max"))
+                    else math.fsum(operands)
+                    if floating
+                    else checked_sum(operands, physical)
+                    if pa.types.is_decimal(physical)
+                    else sum(operands)
+                )
+            except (ValueError, OverflowError) as error:
+                raise _invalid("row state merge exceeds its exact numeric type") from error
             if total is not None and (
                 not math.isfinite(total) or (type(total) is int and not -(2**63) <= total < 2**63)
             ):
@@ -250,8 +261,17 @@ def _row_result(
         assert isinstance(support, (int, float))
         if params.method == "mean":
             numerator = state["row_state__sum"][0]
-            assert isinstance(numerator, (int, float))
-            value: int | float | Decimal | None = float(numerator) / support if support else None
+            assert isinstance(numerator, (int, float, Decimal))
+            try:
+                value: int | float | Decimal | None = (
+                    finish_division(numerator, support, method.stage.node.value_type)
+                    if isinstance(method.stage.node.value_type, DecimalType) and support
+                    else float(numerator) / support
+                    if support
+                    else None
+                )
+            except OverflowError as error:
+                raise _invalid("row mean finish exceeds its exact Decimal type") from error
         else:
             value = state[f"row_state__{params.method}"][0]
         tag, reason = ("defined", None) if support else ("undefined", "empty_" + params.method)
@@ -287,21 +307,53 @@ def _row_result(
         assert isinstance(output_type, (ScalarType, DecimalType))
         value_type = arrow_scalar_type(output_type)
     elif name in ("row.sum", "row.mean"):
-        outcome = arithmetic(method.stage, cells)
-        if isinstance(outcome.cell, Defined):
-            raw = outcome.cell.value
-            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-                raise _invalid("non-numeric local arithmetic result")
-            value = raw
+        output_type = method.stage.node.value_type
+        if isinstance(output_type, DecimalType):
+            input_type = verified.primary.schema.field("value").type
+            if not pa.types.is_decimal(input_type):
+                raise _invalid("Decimal row statistics require their exact Decimal input")
+            state_sum_type = pa.decimal128(38, input_type.scale)
+            decimal_values: list[Decimal] = []
+            for cell in cells:
+                if (
+                    not isinstance(cell, Defined)
+                    or type(cell.value) is not Decimal
+                    or not cell.value.is_finite()
+                ):
+                    raise _invalid("Decimal row statistics require finite Defined Decimal Cells")
+                decimal_values.append(cell.value)
+            try:
+                total = checked_sum(decimal_values, state_sum_type)
+                value = (
+                    total
+                    if name == "row.sum"
+                    else finish_division(total, len(cells), output_type)
+                    if cells
+                    else None
+                )
+            except (ValueError, OverflowError) as error:
+                raise _invalid("Decimal row statistic exceeds its exact numeric type") from error
+            tag, reason = ("defined", None) if value is not None else ("undefined", "empty_mean")
+            state = {"row_state__sum": [total], "row_state__count": [len(cells)]}
+            value_type = arrow_scalar_type(output_type)
         else:
-            value = None
-        tag = "defined" if isinstance(outcome.cell, Defined) else "undefined"
-        reason = None if isinstance(outcome.cell, Defined) else outcome.cell.reason
-        state = {"row_state__sum": [outcome.current_sum]}
-        state["row_state__count"] = [outcome.current_count]
-        value_type = (
-            pa.float64() if name == "row.mean" or type(outcome.current_sum) is float else pa.int64()
-        )
+            outcome = arithmetic(method.stage, cells)
+            if isinstance(outcome.cell, Defined):
+                raw = outcome.cell.value
+                if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                    raise _invalid("non-numeric local arithmetic result")
+                value = raw
+            else:
+                value = None
+            tag = "defined" if isinstance(outcome.cell, Defined) else "undefined"
+            reason = None if isinstance(outcome.cell, Defined) else outcome.cell.reason
+            state = {"row_state__sum": [outcome.current_sum]}
+            state["row_state__count"] = [outcome.current_count]
+            value_type = (
+                pa.float64()
+                if name == "row.mean" or type(outcome.current_sum) is float
+                else pa.int64()
+            )
     else:
         raise _invalid("unqualified fixed row method")
     if isinstance(params, RowState) and params.retain_error:
@@ -360,6 +412,8 @@ def _row_result(
                 field,
                 value_type
                 if field in ("row_state__min", "row_state__max")
+                else state_sum_type
+                if field == "row_state__sum" and state_sum_type is not None
                 else pa.float64()
                 if field == "row_state__error_bound"
                 or (field == "row_state__sum" and type(values[0]) is float)

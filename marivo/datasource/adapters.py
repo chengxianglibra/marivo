@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import re
 import socket
+from base64 import b64decode
+from binascii import Error as Base64Error
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import closing, nullcontext, suppress
 from contextvars import ContextVar
@@ -38,7 +40,11 @@ from marivo.datasource.engines import (
     EngineProfile,
     require_profile_for_backend_type,
 )
-from marivo.datasource.errors import DatasourceSourceCapabilityError, repair
+from marivo.datasource.errors import (
+    DatasourceSourceCapabilityError,
+    _backend_failure_summary,
+    repair,
+)
 from marivo.datasource.ir import (
     CsvSourceIR,
     DatasourceIR,
@@ -174,6 +180,10 @@ class _Cursor(Protocol):
     def close(self) -> None: ...
 
 
+class _ControlPool(Protocol):
+    def clear(self) -> None: ...
+
+
 _CURSOR_OWNER: ContextVar[Callable[[_Cursor], None] | None] = ContextVar(
     "source_cursor_owner", default=None
 )
@@ -229,8 +239,16 @@ class _ClickHouseCursor:
 
     def __init__(self, native: _ClickHouseNativeStream):
         self._native = native
-        self._rows = iter(native.__enter__())
         self._closed = False
+        self._rows: Iterator[Sequence[object]] = iter(())
+        try:
+            owner = _CURSOR_OWNER.get()
+            if owner is not None:
+                owner(self)
+            self._rows = iter(native.__enter__())
+        except BaseException:
+            self.close()
+            raise
 
     def fetchmany(self, size: int) -> Sequence[Sequence[object]]:
         if self._closed:
@@ -298,9 +316,10 @@ def _native_cursor(backend: BaseBackend, backend_name: str, sql: str) -> _Cursor
         if not callable(stream):
             raise _invalid("a ClickHouse row stream", "stream unavailable")
         settings = _CLICKHOUSE_DEADLINE.get()
-        return _ClickHouseCursor(
+        cursor = _ClickHouseCursor(
             stream(sql, settings=settings) if settings is not None else stream(sql)
         )
+        return cursor
     factory = getattr(connection, "cursor", None)
     if not callable(factory):
         raise _invalid("a selected backend native cursor", "cursor unavailable")
@@ -324,16 +343,26 @@ def _native_cursor(backend: BaseBackend, backend_name: str, sql: str) -> _Cursor
             raise
     else:
         cursor = factory()
+    pending: _Cursor | None = (
+        _MySQLCursor(cursor, converter, original)
+        if converter is not None and original is not None and isinstance(cursor, _Cursor)
+        else cursor
+        if isinstance(cursor, _Cursor)
+        else None
+    )
+    owner = _CURSOR_OWNER.get()
     try:
-        if backend_name == "trino" and isinstance(cursor, _Cursor):
-            owner = _CURSOR_OWNER.get()
-            if owner is not None:
-                owner(cursor)
+        if backend_name in ("mysql", "trino") and pending is not None and owner is not None:
+            owner(pending)
         cursor.execute(sql)
     except BaseException:
-        cursor.close()
-        if converter is not None and original is not None:
-            converter.update(original)
+        if backend_name == "mysql" and owner is not None:
+            raise
+        try:
+            cursor.close()
+        finally:
+            if converter is not None and original is not None:
+                converter.update(original)
         raise
     if not isinstance(cursor, _Cursor):
         cursor.close()
@@ -341,8 +370,8 @@ def _native_cursor(backend: BaseBackend, backend_name: str, sql: str) -> _Cursor
             converter.update(original)
         raise _invalid("a closable native batch cursor", type(cursor).__name__)
     return (
-        _MySQLCursor(cursor, converter, original)
-        if converter is not None and original is not None
+        pending
+        if converter is not None and original is not None and pending is not None
         else cursor
     )
 
@@ -549,6 +578,11 @@ class SourceBatchStream:
     def close(self) -> None:
         if not self._closed:
             self._closed = True
+            if (
+                self._session.provider.name in {"clickhouse", "mysql"}
+                and self._submission.state != "succeeded"
+            ):
+                self._session._request_interrupt()
             if self._submission.state == "submitted":
                 self._submission.state = "closed_early"
             try:
@@ -560,19 +594,12 @@ class SourceBatchStream:
                         close_active()
             finally:
                 try:
-                    self._session._synchronize_interrupt()
-                    self._cursor.close()
+                    self._session._release_cursor(self._cursor, self._submission)
                 except BaseException:
                     self._submission.state = "failed"
-                    self._submission.cursor_state = "close_failed"
                     raise
-                else:
-                    self._submission.cursor_state = (
-                        "connection_owned" if isinstance(self._cursor, _DuckDBCursor) else "closed"
-                    )
                 finally:
                     self._session._streams.discard(self)
-                    self._session._cursor_released.set()
 
 
 def _capture_indices(count: int, checkpoint: Callable[[], None]) -> ir.Table:
@@ -741,6 +768,7 @@ class SourceSession:
         self.datasource = datasource
         self._backend = backend
         self._owns_backend = owns_backend
+        self._backend_disconnected = False
         self._token = object()
         self._issued: dict[int, tuple[CompiledRead, _IssuedRead]] = {}
         self._bindings_by_identity: dict[str, tuple[SourceIR, dict[str, object]]] = {}
@@ -753,7 +781,14 @@ class SourceSession:
         self._interrupted_submissions: tuple[SourceSubmission, ...] = ()
         self._pending_cursor: _Cursor | None = None
         self._cancel_control: BaseBackend | None = None
+        self._cancel_pool: _ControlPool | None = None
         self._cancel_thread_id: int | None = None
+        self._mysql_cancel_requested = False
+        self._mysql_active: SourceSubmission | None = None
+        self._clickhouse_reader: str | None = None
+        self._clickhouse_active: tuple[SourceSubmission, str] | None = None
+        self._clickhouse_cancel_requested = False
+        self._clickhouse_cancel_failure: DatasourceSourceCapabilityError | None = None
         self._cancel_control_released = True
         self._cancel_lock = Lock()
         self.cancel_submissions: tuple[ProviderStatementSubmission, ...] = ()
@@ -1035,6 +1070,8 @@ class SourceSession:
         ):
             try:
                 if self.provider.name == "sqlite":
+                    from pandas import DataFrame
+
                     columns: dict[str, list[object]] = {
                         field.name: [
                             value.isoformat(sep=" ", timespec="microseconds")
@@ -1044,10 +1081,12 @@ class SourceSession:
                         ]
                         for field in table.schema
                     }
-                    # SQLite compares timestamp storage lexically. Ibis registers
-                    # pandas Timestamp with a T separator, unlike its literals.
+                    # Object columns preserve nullable int64 low bits. Timestamp
+                    # strings match SQLite's lexical comparison with Ibis literals.
                     data = (
-                        ibis.memtable(columns, schema=ibis.schema(table.schema))
+                        ibis.memtable(
+                            DataFrame(columns, dtype=object), schema=ibis.schema(table.schema)
+                        )
                         .op()
                         .copy(name=name + "_input")
                         .to_expr()
@@ -1133,26 +1172,52 @@ class SourceSession:
             proof.purpose, proof.source_identity, id(proof.expression.op()), proof.sql
         )
         self.submissions.append(submission)
+        if self.provider.name == "mysql" and self._cancel_control is not None:
+            with self._cancel_lock:
+                self._mysql_active = submission
+                self._mysql_cancel_requested = False
+        if self.provider.name == "clickhouse" and self._cancel_control is not None:
+            if native_settings is None:
+                native_settings = {"query_id": uuid4().hex}
+            native_id = native_settings["query_id"]
+            assert isinstance(native_id, str)
+            with self._cancel_lock:
+                self._clickhouse_active = (submission, native_id)
+                self._clickhouse_cancel_requested = False
+                self._clickhouse_cancel_failure = None
         cursor: _Cursor | None = None
         owner_token = _CURSOR_OWNER.set(self._own_pending_cursor)
         deadline_token = _CLICKHOUSE_DEADLINE.set(native_settings)
         try:
             cursor = _native_cursor(self._backend, self.provider.name, proof.sql)
             self._checkpoint()
-        except BaseException:
+        except BaseException as error:
+            if (
+                self.provider.name == "mysql" and isinstance(error, KeyboardInterrupt)
+            ) or self.provider.name == "clickhouse":
+                self._request_interrupt()
             try:
-                self._synchronize_interrupt()
-                if cursor is not None:
-                    cursor.close()
-            except BaseException:
-                submission.cursor_state = "close_failed"
-                raise
-            else:
-                submission.cursor_state = (
-                    "connection_owned" if self.provider.name == "duckdb" else "closed"
+                selected_cursor = (
+                    cursor
+                    if cursor is not None
+                    else self._pending_cursor
+                    if self.provider.name in {"mysql", "clickhouse"}
+                    else None
                 )
+                self._release_cursor(selected_cursor, submission)
+            except BaseException:
+                if (
+                    self.provider.name == "mysql"
+                    and isinstance(error, KeyboardInterrupt)
+                    and self._owns_backend
+                ):
+                    self._backend.disconnect()
+                    self.mark_backend_disconnected()
+                    submission.cursor_state = "closed"
+                else:
+                    submission.cursor_state = "close_failed"
+                    raise
             finally:
-                self._cursor_released.set()
                 submission.state = "failed"
             raise
         finally:
@@ -1216,21 +1281,67 @@ class SourceSession:
 
     def _request_interrupt(self) -> None:
         """Request native cancellation; leave resource cleanup on the owner thread."""
-        self._interrupted_submissions = tuple(
-            submission for submission in self.submissions if submission.state == "submitted"
-        )
-        if self.provider.name in {"duckdb", "sqlite"}:
-            native = getattr(getattr(self._backend, "con", None), "interrupt", None)
-            if callable(native):
-                native()
-        elif self.provider.name == "postgres":
-            native = getattr(getattr(self._backend, "con", None), "cancel", None)
-            if callable(native):
-                native()
-        elif self.provider.name == "mysql":
+        if self.provider.name == "clickhouse":
             with self._cancel_lock:
-                if self._closed or not self._interrupted_submissions:
+                active = self._clickhouse_active
+                if self._closed or active is None or self._clickhouse_cancel_requested:
                     return
+                submission, query_id = active
+                if submission.state == "succeeded":
+                    return
+                self._interrupted_submissions = (submission,)
+                self._clickhouse_cancel_requested = True
+                control = self._cancel_control
+                reader = self._clickhouse_reader
+                if control is None or reader is None:
+                    return
+                try:
+                    execute_provider_statement(
+                        control,
+                        self.provider,
+                        "clickhouse.analysis.cancel_owned_query",
+                        parameters={"id": query_id, "user": reader},
+                        purpose="analysis.cancel_owned_query",
+                    )
+                except Exception as error:
+                    observed = _backend_failure_summary(error)
+                    permission_refused = observed.backend_code in {"497", "497."}
+                    failure = DatasourceSourceCapabilityError(
+                        message="ClickHouse could not cancel the owned reader query.",
+                        expected=(
+                            "same-reader cancellation with SELECT(query, query_id, user) ON system.processes"
+                            if permission_refused
+                            else "an available bounded control connection for the authenticated reader"
+                        ),
+                        received=observed.message,
+                        location="datasource adapter cancellation",
+                        repair=repair(
+                            kind="reconnect",
+                            canonical_id="test",
+                            action=(
+                                f"Allow the reported system.processes column permissions for connected reader {reader!r}, then retry the governed read; remote termination is unconfirmed."
+                                if permission_refused
+                                else f"Repair the bounded control connection for connected reader {reader!r}, then retry the governed read; remote termination is unconfirmed."
+                            ),
+                        ),
+                    )
+                    failure.__cause__ = error
+                    self._clickhouse_cancel_failure = failure
+                finally:
+                    self.cancel_submissions = provider_statement_log(control)
+            return
+        if self.provider.name == "mysql":
+            with self._cancel_lock:
+                mysql_active = self._mysql_active
+                if (
+                    self._closed
+                    or self._mysql_cancel_requested
+                    or mysql_active is None
+                    or mysql_active.state == "succeeded"
+                ):
+                    return
+                self._interrupted_submissions = (mysql_active,)
+                self._mysql_cancel_requested = True
                 connection = self._backend.con
                 control = self._cancel_control
                 try:
@@ -1256,6 +1367,18 @@ class SourceSession:
                         ) as owned_socket,
                     ):
                         owned_socket.shutdown(socket.SHUT_RDWR)
+            return
+        self._interrupted_submissions = tuple(
+            submission for submission in self.submissions if submission.state == "submitted"
+        )
+        if self.provider.name in {"duckdb", "sqlite"}:
+            native = getattr(getattr(self._backend, "con", None), "interrupt", None)
+            if callable(native):
+                native()
+        elif self.provider.name == "postgres":
+            native = getattr(getattr(self._backend, "con", None), "cancel", None)
+            if callable(native):
+                native()
         elif self.provider.name == "trino":
             # A first cancel can precede the driver's initial HTTP response and
             # do nothing. Retry until the execution thread releases the cursor.
@@ -1275,10 +1398,151 @@ class SourceSession:
     def _synchronize_interrupt(self) -> None:
         """Wait for owned control work before native cursor cleanup."""
         with self._cancel_lock:
-            pass
+            failure = self._clickhouse_cancel_failure
+        if failure is not None:
+            raise failure
+
+    def _release_clickhouse_query(self, submission: SourceSubmission) -> None:
+        with self._cancel_lock:
+            if self._clickhouse_active is not None and self._clickhouse_active[0] is submission:
+                self._clickhouse_active = None
+
+    def _release_cursor(self, cursor: _Cursor | None, submission: SourceSubmission) -> None:
+        failure: BaseException | None = None
+        try:
+            self._synchronize_interrupt()
+        except BaseException as error:
+            failure = error
+        try:
+            if cursor is not None:
+                cursor.close()
+        except BaseException as close_error:
+            submission.cursor_state = "close_failed"
+            if (
+                self.provider.name == "mysql"
+                and self._mysql_cancel_requested
+                and self._owns_backend
+            ):
+                self._backend.disconnect()
+                self.mark_backend_disconnected()
+                submission.cursor_state = "closed"
+            elif (
+                self.provider.name == "mysql"
+                and self._mysql_cancel_requested
+                and not self._owns_backend
+                and isinstance(close_error, Exception)
+                and _backend_failure_summary(close_error).backend_code in {"2006", "2013"}
+            ):
+                # The external connection owner must acknowledge release.
+                pass
+            else:
+                raise
+        else:
+            submission.cursor_state = (
+                "connection_owned" if self.provider.name == "duckdb" else "closed"
+            )
+        finally:
+            self._cursor_released.set()
+            self._release_clickhouse_query(submission)
+            with self._cancel_lock:
+                if self._mysql_active is submission:
+                    self._mysql_active = None
+        if failure is not None:
+            raise failure
 
     def _prepare_interrupt(self) -> None:
-        """Prepare the selected MySQL reader's own bounded control connection."""
+        """Prepare the selected reader's authorized bounded control connection."""
+        if self.provider.name == "clickhouse":
+            if self._cancel_control is not None:
+                return
+            self._ensure_open()
+            self._checkpoint()
+            captured: object = getattr(self._backend, "_con_kwargs", None)
+            if not isinstance(captured, Mapping):
+                raise _invalid(
+                    "the connected ClickHouse reader credentials", "connection facts unavailable"
+                )
+            native: object = getattr(self._backend, "con", None)
+            native_headers: object = getattr(native, "headers", None)
+            authentication: object = (
+                native_headers.get("Authorization") if isinstance(native_headers, Mapping) else None
+            )
+            if not isinstance(authentication, str) or not authentication.startswith("Basic "):
+                raise _invalid(
+                    "the authenticated ClickHouse username from the selected reader transport",
+                    "username authentication identity unavailable",
+                )
+            try:
+                reader, separator, _password = (
+                    b64decode(authentication.removeprefix("Basic "), validate=True)
+                    .decode("utf-8")
+                    .partition(":")
+                )
+            except (Base64Error, UnicodeError):
+                raise _invalid(
+                    "the authenticated ClickHouse username from the selected reader transport",
+                    "invalid username authentication identity",
+                ) from None
+            if not reader or not separator:
+                raise _invalid(
+                    "a nonempty authenticated ClickHouse reader identity",
+                    "username authentication identity unavailable",
+                )
+            raw_settings: object = captured.get("settings")
+            settings: dict[str, object] = (
+                dict(raw_settings) if isinstance(raw_settings, Mapping) else {}
+            )
+            settings.update({"readonly": 1, "max_execution_time": 1})
+            connection_kwargs: dict[str, object] = dict(captured)
+            connection_kwargs.pop("session_id", None)
+            raw_headers: object = captured.get("headers")
+            headers: dict[str, object] = (
+                dict(raw_headers) if isinstance(raw_headers, Mapping) else {}
+            )
+            headers["Authorization"] = authentication
+            connection_kwargs["headers"] = headers
+            settings.pop("session_id", None)
+            from urllib3 import PoolManager
+
+            pool = PoolManager()
+            self._cancel_pool = pool
+            self._cancel_control_released = False
+            control: BaseBackend | None = None
+            try:
+                control = self.provider.connect(
+                    self.datasource.name,
+                    {
+                        **connection_kwargs,
+                        "connect_timeout": 1,
+                        "send_receive_timeout": 1,
+                        "query_retries": 0,
+                        "autogenerate_session_id": False,
+                        "pool_mgr": pool,
+                        "settings": settings,
+                    },
+                )
+                if control.name != "clickhouse" or control.con is self._backend.con:
+                    raise _invalid(
+                        "an independent ClickHouse reader control", "data connection reused"
+                    )
+                self._checkpoint()
+            except BaseException:
+                try:
+                    try:
+                        if control is not None:
+                            control.disconnect()
+                    finally:
+                        pool.clear()
+                except BaseException:
+                    raise
+                else:
+                    self._cancel_control_released = True
+                finally:
+                    self._cancel_pool = None
+                raise
+            self._clickhouse_reader = reader
+            self._cancel_control = control
+            return
         if self.provider.name != "mysql" or self._cancel_control is not None:
             return
         self._ensure_open()
@@ -1326,6 +1590,8 @@ class SourceSession:
     def close(self) -> None:
         if self._closed:
             return
+        if self.provider.name in {"clickhouse", "mysql"}:
+            self._request_interrupt()
         self._closed = True
         control_error: BaseException | None = None
         try:
@@ -1335,7 +1601,13 @@ class SourceSession:
                     self.cancel_submissions = provider_statement_log(control)
                     self._cancel_control = None
                     try:
-                        control.disconnect()
+                        try:
+                            control.disconnect()
+                        finally:
+                            if self._cancel_pool is not None:
+                                pool = self._cancel_pool
+                                self._cancel_pool = None
+                                pool.clear()
                     except BaseException as error:
                         control_error = error
                     else:
@@ -1351,7 +1623,7 @@ class SourceSession:
             self._issued.clear()
             self._bindings_by_identity.clear()
             self._bound_sources.clear()
-            if self._owns_backend:
+            if self._owns_backend and not self._backend_disconnected:
                 disconnect = getattr(self._backend, "disconnect", None)
                 if callable(disconnect):
                     disconnect()
@@ -1365,8 +1637,15 @@ class SourceSession:
 
     def mark_backend_disconnected(self) -> None:
         """Record the connection release performed by this session's owner."""
+        self._backend_disconnected = True
         for submission in self.submissions:
             submission.connection_disconnected = True
+            if (
+                self.provider.name == "mysql"
+                and submission.cursor_state == "close_failed"
+                and any(submission is active for active in self._interrupted_submissions)
+            ):
+                submission.cursor_state = "closed"
             if submission.state in {"failed", "closed_early"}:
                 submission.termination = (
                     "local_closed"
