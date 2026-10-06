@@ -274,9 +274,10 @@ def test_timestamp_precision_and_sqlite_storage_type_reject_loss(tmp_path: Path)
 
 
 def test_common_analysis_adapter_exposes_no_text_statement() -> None:
-    from marivo.analysis.materialization.execution import ExecutionAdapter
+    from marivo.analysis.materialization import execution
 
-    assert "statement" not in vars(ExecutionAdapter)
+    for name in ("Statement", "ExecutionContext", "ExecutionAdapter", "resolve_execution"):
+        assert not hasattr(execution, name)
 
 
 def test_selected_provider_does_not_import_unselected_modules() -> None:

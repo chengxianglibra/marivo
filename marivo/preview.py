@@ -13,6 +13,8 @@ import pandas as pd
 from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
+    import ibis.expr.types as ir
+
     from marivo.datasource.source import AuthoringScope
 
 PreviewKind = Literal[
@@ -287,7 +289,7 @@ def preview_from_pandas(
 
 
 def preview_ibis_table(
-    table: Any,
+    table: ir.Table,
     *,
     kind: PreviewKind,
     ref: str,
@@ -296,11 +298,11 @@ def preview_ibis_table(
     include_types: bool = True,
     timezones: Mapping[str, PreviewTimezoneInfo] | None = None,
     report_tz: str | None = None,
-    read_table: Callable[[Any, int], pd.DataFrame] | None = None,
+    read_table: Callable[[ir.Table, int], pd.DataFrame],
 ) -> PreviewResult:
     limit = validate_preview_limit(limit)
     bounded = table.limit(limit + 1)
-    dataframe = bounded.execute() if read_table is None else read_table(bounded, limit + 1)
+    dataframe = read_table(bounded, limit + 1)
     schema_types = (
         {name: str(dtype) for name, dtype in table.schema().items()} if include_types else {}
     )
@@ -311,32 +313,6 @@ def preview_ibis_table(
         requested_limit=limit,
         sample_policy=sample_policy,
         types=schema_types,
-        timezones=timezones,
-        report_tz=report_tz,
-    )
-
-
-def preview_ibis_value(
-    value: Any,
-    *,
-    kind: PreviewKind,
-    ref: str,
-    limit: int,
-    column_name: str,
-    sample_policy: PreviewSamplePolicy,
-    include_types: bool = True,
-    timezones: Mapping[str, PreviewTimezoneInfo] | None = None,
-    report_tz: str | None = None,
-) -> PreviewResult:
-    named_value = value.name(column_name) if callable(getattr(value, "name", None)) else value
-    table = named_value.as_table()
-    return preview_ibis_table(
-        table,
-        kind=kind,
-        ref=ref,
-        limit=limit,
-        sample_policy=sample_policy,
-        include_types=include_types,
         timezones=timezones,
         report_tz=report_tz,
     )

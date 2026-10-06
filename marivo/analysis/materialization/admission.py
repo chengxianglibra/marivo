@@ -420,16 +420,12 @@ class DatasetRuntime:
         return result
 
     def _execute(self, dataset: LogicalDataset) -> MaterializedDataset:
-        from marivo.analysis.materialization import dataset_execution
+        from marivo.analysis.datasets.errors import DatasetConstructionError
 
-        if self.store.layout.generation == 7:
-            from marivo.analysis.datasets.errors import DatasetConstructionError
-
-            raise DatasetConstructionError(
-                expected="a qualified Store 7 typed relation",
-                received="an unqualified Dataset family execution",
-                repair="Use session.members(...); R6–R9 Dataset execution has no Store 7 qualification.",
-                location="analysis.execution_admission",
-                help_target="session.members",
-            )
-        return dataset_execution.execute(self, dataset)
+        raise DatasetConstructionError(
+            expected="a qualified Store 7 typed relation",
+            received="an unqualified Dataset family execution",
+            repair="Use session.members(...); R6–R9 Dataset execution has no Store 7 qualification.",
+            location="analysis.execution_admission",
+            help_target="session.members",
+        )

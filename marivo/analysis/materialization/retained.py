@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING
 
 import ibis.expr.datatypes as dt
-import ibis.expr.types as ir
 import pyarrow as pa
 
 from marivo.analysis.datasets.base import Dataset, LogicalDataset, MaterializedDataset
@@ -37,9 +35,6 @@ from marivo.analysis.observation.fold_contracts import (
 )
 from marivo.analysis.observation.private_parts import source_private_part_authorities
 
-if TYPE_CHECKING:
-    from marivo.analysis.materialization.execution import ExecutionAdapter
-
 _STATE_TYPE_CHECKS: dict[str, tuple[Callable[[pa.DataType], bool], ...]] = {
     "integer": (pa.types.is_integer,),
     "numeric": (pa.types.is_integer, pa.types.is_floating, pa.types.is_decimal),
@@ -65,9 +60,9 @@ def source_private_part(part: RetainedPart) -> bool:
 
 def reject_source_private_transfer() -> None:
     raise MaterializationError(
-        expected="source-native use of exact retained membership or distribution",
-        received="a local or generic retained-part transfer",
-        repair="Use the registered native Parquet scan for exact retained-state execution.",
+        expected="a qualified Store 7 typed part",
+        received="a retired Dataset membership or distribution part",
+        repair="Use the current typed graph and its published parts.",
         stage="execution_boundary",
     )
 
@@ -198,53 +193,6 @@ def membership_schema(row: DatasetRowContract, role: str, schema: pa.Schema) -> 
     if not supported:
         _integrity("the exact registered private member key type", "part member type differs")
     return tuple(field.name for field in keys)
-
-
-def validate_source_private_relation(
-    backend: ExecutionAdapter,
-    table: ir.Table,
-    primary: ir.Table,
-    row: DatasetRowContract,
-    role: str,
-) -> None:
-    """Inspect source-private state natively; return only scalar violations."""
-    from marivo.analysis.observation.distinct_contracts import membership_part_authorities
-
-    if role.startswith(("metric_distribution.", "delta_distribution.")):
-        from marivo.analysis.materialization.distribution import validate_distribution_relation
-
-        validate_distribution_relation(backend, table, primary, row, role)
-        return
-    membership_schema(
-        row,
-        role,
-        backend.read_table(
-            backend.prepare(table.limit(0), role="engine_check.membership_schema")
-        ).schema,
-    )
-    authority = next(item for name, item in membership_part_authorities(row) if name == role)
-    assert authority.membership is not None
-    from marivo.analysis.compiler.distinct import membership_validations
-
-    checks = membership_validations(row, primary, {role: table}, required=False)
-    for check in checks:
-        violations = backend.read_scalar(
-            backend.prepare(check.expression, role="engine_check." + check.name)
-        )
-        if violations != 0:
-            _integrity(
-                "unique complete membership with exact primary endpoints",
-                "private membership support or endpoint mismatch",
-            )
-    for name, _ in authority.membership.identity_signature:
-        violations = backend.read_scalar(
-            backend.prepare(
-                table.filter(table["__mv_distinct_key"][name].isnull()).count(),
-                role="engine_check.membership_identity_non_null",
-            )
-        )
-        if violations != 0:
-            _integrity("complete Entity identity", "private member identity contains null")
 
 
 def selected_parts(

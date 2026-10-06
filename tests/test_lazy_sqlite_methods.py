@@ -24,7 +24,6 @@ from tests.lazy_distinct_fixtures import (
     make_distinct_registry,
 )
 from tests.lazy_distribution_fixtures import make_distribution_registry
-from tests.lazy_private_transfer_fixtures import guard_private_batches
 from tests.lazy_scalar_source_fixtures import TimeFoldIR, registry_for
 from tests.lazy_shared_assertions import (
     assert_cross_root_ratio,
@@ -103,7 +102,6 @@ def test_exact_distinct_membership(
     )
     registry.freeze()
     runtime = DatasetRuntime.create(tmp_path / "distinct-project", "sqlite-distinct")
-    private_batches = guard_private_batches(runtime, monkeypatch)
     metric = DISTINCT_BUYERS if shape == "measure" else ref.metric("sales.distinct_orders")
     logical = (
         runtime.sources(semantic_registry=registry, sidecar=sidecar)
@@ -122,7 +120,6 @@ def test_exact_distinct_membership(
         part.contract_id == "metric.distinct_membership"
         for part in record.descriptor.retained_parts
     )
-    assert private_batches
     assert_no_raw_keys(frame.to_dict("records"))
     assert_no_raw_keys(record.descriptor)
     assert_no_raw_keys(runtime.statistics.statements)
@@ -178,82 +175,6 @@ def test_exact_composite_entity_membership(tmp_path: Path, method_database: Path
     assert record is not None and record.descriptor.retained_parts
 
 
-def test_remote_membership_rejects_duplicate_pair_even_with_matching_endpoint(
-    tmp_path: Path, method_database: Path
-) -> None:
-    from unittest.mock import patch
-
-    import ibis
-
-    from marivo.analysis.compiler.distinct import membership_validations
-    from marivo.analysis.materialization.errors import MaterializationError
-    from marivo.analysis.materialization.retained import validate_source_private_relation
-    from marivo.analysis.materialization.sqlite_execution import SQLiteExecutionAdapter
-    from marivo.analysis.observation.distinct_contracts import (
-        DISTINCT_KEY_COLUMN,
-        membership_endpoint_name,
-        membership_part_authorities,
-    )
-
-    sqlite_registry, _ = registry_for(method_database)
-    distinct_registry, sidecar = make_distinct_registry()
-    registry = replace(
-        distinct_registry,
-        entities={
-            **distinct_registry.entities,
-            "sales.orders": sqlite_registry.entities["sales.orders"],
-        },
-        datasources=sqlite_registry.datasources,
-    )
-    registry.freeze()
-    runtime = DatasetRuntime.create(tmp_path / "integrity", "sqlite-duplicate-member")
-    result = (
-        runtime.sources(semantic_registry=registry, sidecar=sidecar)
-        .observe(DISTINCT_BUYERS)
-        .with_dimensions(CHANNEL)
-        .aggregate()
-        .execute()
-    )
-    role = membership_part_authorities(result.row_contract)[0][0]
-    endpoint = membership_endpoint_name(result.row_contract, role)
-    with sqlite3.connect(method_database) as connection:
-        connection.execute(f'CREATE TABLE c7_primary (channel TEXT, "{endpoint}" INTEGER)')
-        connection.execute(f'CREATE TABLE c7_members (channel TEXT, "{DISTINCT_KEY_COLUMN}" TEXT)')
-        connection.execute("INSERT INTO c7_primary VALUES (?, ?)", ("web", 2))
-        connection.executemany(
-            "INSERT INTO c7_members VALUES (?, ?)", [("web", "shared"), ("web", "shared")]
-        )
-    source = ibis.sqlite.connect(str(method_database))
-    backend = SQLiteExecutionAdapter(source)
-    with pytest.raises(MaterializationError, match="private membership support"):
-        validate_source_private_relation(
-            backend,
-            source.table("c7_members"),
-            source.table("c7_primary"),
-            result.row_contract,
-            role,
-        )
-
-    def without_pair_uniqueness(*args: object, **kwargs: object) -> tuple[object, ...]:
-        return tuple(
-            check
-            for check in membership_validations(*args, **kwargs)
-            if not check.name.endswith(".pair_unique")
-        )
-
-    with patch(
-        "marivo.analysis.compiler.distinct.membership_validations",
-        side_effect=without_pair_uniqueness,
-    ):
-        validate_source_private_relation(
-            backend,
-            source.table("c7_members"),
-            source.table("c7_primary"),
-            result.row_contract,
-            role,
-        )
-
-
 def test_distribution_raw_values_stay_in_private_part(
     tmp_path: Path, method_database: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -276,7 +197,6 @@ def test_distribution_raw_values_stay_in_private_part(
     )
     registry.freeze()
     runtime = DatasetRuntime.create(tmp_path / "private-values", "sqlite-private-values")
-    private_batches = guard_private_batches(runtime, monkeypatch)
     result = (
         runtime.sources(semantic_registry=registry, sidecar=sidecar)
         .observe(ref.metric("sales.revenue"))
@@ -287,7 +207,7 @@ def test_distribution_raw_values_stay_in_private_part(
     frame = result.to_pandas()
     assert frame["revenue"].tolist() == [913004.25]
     record = runtime.store.artifact(result.state.artifact_ref.ref)
-    assert record is not None and private_batches
+    assert record is not None
     disclosed = json.dumps(
         (frame.to_dict("records"), record.descriptor, runtime.statistics.statements),
         default=str,

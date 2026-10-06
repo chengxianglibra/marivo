@@ -26,8 +26,8 @@ from marivo.analysis.materialization.ownership import validate_receipt_owner
 from marivo.analysis.materialization.reads import payload_batches
 from marivo.analysis.materialization.retained import (
     checked_component_batches,
+    reject_source_private_transfer,
     source_private_part,
-    validate_source_private_relation,
 )
 from marivo.analysis.materialization.storage import ReadPolicy
 from marivo.analysis.refs import ArtifactRef
@@ -63,8 +63,7 @@ def _payload_check(
 ) -> None:
     receipt = descriptor.storage_receipt if part is None else part.storage_receipt
     if part is not None and source_private_part(part):
-        _source_private_check(root, descriptor, part)
-        return
+        reject_source_private_transfer()
     row, rows = descriptor.row_contract, descriptor.row_set_contract
     validator = (
         storage._RowValidator(row, rows, source_key_validation=True) if part is None else None
@@ -107,50 +106,6 @@ def _payload_check(
             validator.finish()
     finally:
         stream.close()
-
-
-def _source_private_check(
-    root: Path,
-    descriptor: ArtifactDescriptor,
-    part: RetainedPart,
-) -> None:
-    """Inspect exact private Parquet state with the fixed native query adapter."""
-    import ibis
-
-    from marivo.analysis.materialization.contracts import LocalReceipt
-    from marivo.analysis.materialization.parquet_scan import (
-        attach_parquet_scan,
-        checked_local_path,
-        validate_parquet_relation,
-    )
-
-    primary_receipt, receipt = descriptor.storage_receipt, part.storage_receipt
-    from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
-
-    backend = DuckDBExecutionAdapter(ibis.duckdb.connect())
-    try:
-        backend.configure()
-        primary = attach_parquet_scan(backend, root, primary_receipt)
-        table = attach_parquet_scan(backend, root, receipt)
-        validate_parquet_relation(backend, primary, primary_receipt, descriptor.row_contract)
-        schema = backend.read_table(
-            backend.prepare(table.limit(0), role="inspection.schema")
-        ).schema
-        if (
-            hashlib.sha256(schema.serialize().to_pybytes()).hexdigest()
-            != receipt.schema_fingerprint
-            or backend.read_scalar(backend.prepare(table.count(), role="inspection.count"))
-            != receipt.realized_row_count
-        ):
-            raise StorageAccessError("mutated")
-        validate_source_private_relation(
-            backend, table, primary, descriptor.row_contract, part.role
-        )
-        for checked in (receipt, primary_receipt):
-            if isinstance(checked, LocalReceipt):
-                checked_local_path(root, checked)
-    finally:
-        backend.disconnect()
 
 
 def _storage_checks(

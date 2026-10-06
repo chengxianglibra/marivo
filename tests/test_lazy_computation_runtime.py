@@ -367,47 +367,6 @@ def test_mysql_decimal_mean_stays_rejected_until_the_mean_equation_lands(
         _drop_remote_table(backend, table)
 
 
-def test_mysql_div_precision_guard_refuses_non_default_server_value() -> None:
-    """The execution guard names the server fact and the repair, without I/O."""
-    from marivo.analysis.materialization.errors import MaterializationError
-    from marivo.analysis.materialization.mysql_execution import (
-        MySQLExecutionAdapter as _Adapter,
-    )
-
-    class _GuardProbe:
-        """Stub carrying only the guard's own collaborators, no connection."""
-
-        def __init__(self, value: object) -> None:
-            self._probe_value = value
-            self._div_precision_increment = None
-            self._run_ref = None
-            self._closed = False
-
-        require_div_precision_increment = _Adapter.require_div_precision_increment
-        _div_precision = _Adapter._div_precision
-
-        def error(self, *args: object, **kwargs: object) -> MaterializationError:
-            return MaterializationError(
-                expected=str(args[0]),
-                received=str(args[1]),
-                repair=str(args[2]),
-                stage=kwargs.get("stage", "output_validation"),
-                run_ref=None,
-            )
-
-        def read_scalar(self, value: object, **kwargs: object) -> object:
-            return self._probe_value
-
-        def statement(self, *args: object, **kwargs: object) -> object:
-            return None
-
-    probe = _GuardProbe(6)
-    with pytest.raises(MaterializationError, match="div_precision_increment=6"):
-        probe.require_div_precision_increment()
-    ok = _GuardProbe(4)
-    ok.require_div_precision_increment()
-
-
 # ---------------------------------------------------------------------------
 # Trino (plan section 4, probe-decided): the live probe measured exact
 # DECIMAL arithmetic for mul/add/sub and SUM, but AVG(DECIMAL) stays at the

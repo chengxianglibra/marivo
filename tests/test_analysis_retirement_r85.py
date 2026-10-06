@@ -18,7 +18,6 @@ from marivo.analysis.materialization.contracts import (
     decode_descriptor,
     descriptor_payload,
 )
-from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
 from marivo.analysis.observation.contracts import producer_contract
 from marivo.analysis.operators import registry as operator_registry
 from tests.lazy_materialization_fixtures import descriptor
@@ -92,7 +91,7 @@ def test_public_and_hidden_old_entries_are_absent() -> None:
             assert not hasattr(cls, name)
     for name in ("execute_candidate", "execute_association", "execute_forecast"):
         assert not hasattr(DatasetRuntime, name)
-    assert not hasattr(DuckDBExecutionAdapter, "install_numeric")
+    assert not (ROOT / "marivo/analysis/materialization/duckdb_execution.py").exists()
     assert not hasattr(operator_registry, "legacy_source_migration_stage")
     for path in (ROOT / "marivo/analysis").rglob("*.py"):
         text = path.read_text()

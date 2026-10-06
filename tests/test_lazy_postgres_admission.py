@@ -208,7 +208,7 @@ def test_median_qualifies_postgres_placement_without_source_io(
         raise AssertionError("Unsupported placement touched source I/O")
 
     monkeypatch.setattr(
-        "marivo.analysis.materialization.source_preparation._build_backend_from_effective",
+        "marivo.datasource.backends._build_backend_from_effective",
         forbidden,
     )
     dataset = sources.observe(ref.metric("sales.mean_amount"))

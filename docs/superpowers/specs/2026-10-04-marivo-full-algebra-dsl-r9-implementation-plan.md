@@ -10,7 +10,10 @@ passed and SQLite exact Decimal remains blocked. R9.2's full exit is open;
 R9.3 has bounded six-backend association/deviation and complete-grid statistic
 consumers. Current scenario results and candidate bindings are owned by the
 [R9.3 record](2026-10-04-marivo-r93-evidence/README.md); complete R9.3 qualification
-remains open. R9.4–R9.7 have not started.
+remains open. R9.4's scoped graph/recovery/resource evidence is recorded in its
+[current record](2026-10-06-marivo-r94-evidence/README.md). R9.5 SQL ownership and
+physical retirement are recorded in the
+[current SQL ledger](2026-10-06-marivo-r95-sql-ledger.md); R9.6/R9.7 remain separate.
 Frozen targets grant no execution qualification.
 
 ## 1. 目标、前置交接与文档权威

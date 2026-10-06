@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
@@ -101,48 +100,6 @@ def parse_timezone(value: str) -> tuple[str, tzinfo]:
             raise ValueError("missing fixed timezone offset")
         return "UTC" + offset, zone
     return value, ZoneInfo(value)
-
-
-def resolve_engine_timezone(
-    query: str | None, execute: Callable[[str], object]
-) -> DatasourceEngineTimezone:
-    """Resolve actual engine facts; only absence of capability permits fallback."""
-    if query is None:
-        return _fallback()
-    try:
-        value = execute(query)
-    except Exception as cause:
-        raise DatasourceConnectionError(
-            message="Could not resolve the reader timezone.",
-            expected="a successful engine timezone probe",
-            received="timezone_probe_failed",
-            repair=repair(
-                kind="reconnect",
-                canonical_id="test",
-                action="Repair the reader timezone query or declare the source parser timezone explicitly.",
-            ),
-        ) from cause
-    try:
-        if not isinstance(value, str) or not value:
-            raise ValueError("missing timezone name")
-        name, zone = parse_timezone(value)
-    except (ValueError, ZoneInfoNotFoundError) as cause:
-        raise DatasourceConnectionError(
-            message="The reader returned an invalid timezone.",
-            expected="a valid IANA timezone or explicit UTC offset",
-            received="invalid_engine_timezone",
-            repair=repair(
-                kind="reconnect",
-                canonical_id="test",
-                action="Configure a valid reader timezone or declare the source parser timezone explicitly.",
-            ),
-        ) from cause
-    return DatasourceEngineTimezone(
-        engine_timezone_name=name,
-        engine_timezone_tz=zone,
-        engine_timezone_resolution="fixed_offset" if isinstance(zone, timezone) else "iana",
-        read_tz_resolution="engine",
-    )
 
 
 def probe_engine_timezone(backend: object) -> DatasourceEngineTimezone:

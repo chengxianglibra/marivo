@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Protocol, TypeGuard
 
 import ibis.expr.types as ir
@@ -27,26 +26,9 @@ class TableLookupBackend(Protocol):
     ) -> ir.Table: ...
 
 
-class TableSqlBackend(Protocol):
-    """Backend capability for callers that create a typed SQL relation directly."""
-
-    def sql(
-        self,
-        query: str,
-        /,
-        *,
-        schema: Mapping[str, str],
-    ) -> ir.Table: ...
-
-
 def supports_table_lookup(value: object) -> TypeGuard[TableLookupBackend]:
     """Return whether *value* exposes callable table lookup."""
     return callable(getattr(value, "table", None))
-
-
-def supports_table_sql(value: object) -> TypeGuard[TableSqlBackend]:
-    """Return whether *value* exposes callable SQL relation construction."""
-    return callable(getattr(value, "sql", None))
 
 
 def _missing_capability(

@@ -13,7 +13,6 @@ import pytest
 
 from marivo.analysis import grain, time_scope
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.observation.predicates import gt
 from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
@@ -233,17 +232,3 @@ def test_receipt_audit_free_of_iceberg_metadata(
     assert any("connector_name" in sql for sql in sql_texts)
     assert not any(re.search(r"\biceberg\b", sql) for sql in sql_texts)
     assert runtime.store.resources(runtime.session_ref) == ()
-
-
-def test_partitions_internal_table_rejected() -> None:
-    import ibis
-
-    from marivo.analysis.materialization.trino_execution import TrinoExecutionAdapter
-
-    with trino.connection(catalog=trino.NON_ICEBERG_CATALOG) as con:
-        adapter = TrinoExecutionAdapter(ibis.trino.from_connection(con))
-        try:
-            with pytest.raises(MaterializationError, match=r"\$partitions"):
-                adapter.get_schema("orders$partitions")
-        finally:
-            adapter.finish()

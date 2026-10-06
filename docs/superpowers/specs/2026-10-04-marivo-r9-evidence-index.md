@@ -1,3 +1,19 @@
+## Current R9.5 SQL implementation closure (2026-10-06)
+
+The [R9.5 SQL ledger](2026-10-06-marivo-r95-sql-ledger.md) preserves all 55
+original DS/AN obligations and appends the separately approved ClickHouse owned
+control as DS23. [Scoped evidence](2026-10-06-marivo-r95-evidence/README.md) binds
+394 current product modules, physical retirement of twelve legacy production
+modules, 49 provider statements with exact purposes, and eight successful native
+SQL witnesses across six ordinary source profiles and HTTP/control supplements.
+All 1,239 observed native submissions have closed owners; unknown submissions are
+zero. Original failed attempts, successful remote captures, omitted optional
+receipt fields, Store observation-versus-ack boundaries and reused historical
+candidates remain explicit. No business matrix is replayed, no local-environment
+tampering cases are added, and the original 394-requirement freeze is unchanged.
+This closes the R9.5 implementation exit; all-profile final-candidate R9.7,
+R9.6 costs and full R9 qualification remain separate.
+
 ## Current R9.3 implementation acceptance (2026-10-06)
 
 **222 passed / 0 blocked / 0 unverified**, preserving all original requirement IDs. [Full-grid Unknown closure](2026-10-04-marivo-r93-evidence/full-grid-unknown-01/README.md) supplies the last four obligations with an actual public native producer, three strict forecast refusals and independently checked unavailable run splits. Original read coverage and partial contributions remain retained; Parquet cold recovery forbids source reads. This completes the original bounded R9.3 implementation acceptance, not all-profile or R9.7 qualification. Earlier counts below are historical.

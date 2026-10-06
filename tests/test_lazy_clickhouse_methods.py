@@ -25,7 +25,6 @@ from tests.lazy_distinct_fixtures import (
     make_distinct_registry,
 )
 from tests.lazy_distribution_fixtures import make_distribution_registry
-from tests.lazy_private_transfer_fixtures import guard_private_batches
 from tests.lazy_scalar_source_fixtures import TimeFoldIR
 from tests.lazy_scalar_source_fixtures import registry_for as scalar_registry
 from tests.lazy_shared_assertions import (
@@ -132,7 +131,6 @@ def test_exact_distinct_membership(
     )
     registry.freeze()
     runtime = DatasetRuntime.create(tmp_path, "clickhouse-private-state")
-    private_batches = guard_private_batches(runtime, monkeypatch)
     result = (
         runtime.sources(semantic_registry=registry, sidecar=sidecar)
         .observe(metric)
@@ -144,7 +142,6 @@ def test_exact_distinct_membership(
     assert frame[metric.path.rsplit(".", 1)[-1]].tolist() == pytest.approx(expected)
     record = runtime.store.artifact(result.state.artifact_ref.ref)
     assert record is not None and record.descriptor.retained_parts
-    assert private_batches
     if shape == "measure":
         assert_no_raw_keys(frame.to_dict("records"))
         assert_no_raw_keys(record.descriptor)
@@ -179,7 +176,6 @@ def test_exact_distribution(
     )
     registry.freeze()
     runtime = DatasetRuntime.create(tmp_path, "clickhouse-distribution")
-    private_batches = guard_private_batches(runtime, monkeypatch)
     result = (
         runtime.sources(semantic_registry=registry, sidecar=sidecar)
         .observe(ref.metric("sales.revenue"))
@@ -193,7 +189,6 @@ def test_exact_distribution(
     assert record is not None and any(
         part.contract_id == "metric.distribution" for part in record.descriptor.retained_parts
     )
-    assert private_batches
 
 
 @pytest.fixture

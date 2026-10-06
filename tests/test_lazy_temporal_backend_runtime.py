@@ -302,11 +302,11 @@ import sys
 from pathlib import Path
 from marivo.analysis import grain
 from marivo.analysis.materialization.admission import DatasetRuntime
-import marivo.analysis.materialization.source_preparation as source_preparation
+import marivo.datasource.backends as backends
 
 def no_source(*args, **kwargs):
     raise AssertionError('cold continuation accessed source')
-source_preparation._build_backend_from_effective = no_source
+backends._build_backend_from_effective = no_source
 runtime = DatasetRuntime.open(Path(sys.argv[1]), sys.argv[2])
 source = runtime.artifact(sys.argv[3])
 original = runtime.store.artifact(sys.argv[3]).descriptor.temporal_execution

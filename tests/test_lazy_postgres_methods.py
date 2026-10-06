@@ -27,7 +27,6 @@ from tests.lazy_distinct_fixtures import (
 )
 from tests.lazy_distribution_fixtures import VALUES, make_distribution_registry
 from tests.lazy_postgres_fixtures import registry_for
-from tests.lazy_private_transfer_fixtures import guard_private_batches
 from tests.lazy_scalar_source_fixtures import TimeFoldIR
 from tests.lazy_shared_assertions import assert_primary_status_gate, assert_status_fold_values
 from tests.multisource_environment import postgres_analysis as pg
@@ -129,7 +128,6 @@ def test_exact_private_state(
     )
     registry.freeze()
     runtime = DatasetRuntime.create(tmp_path, "postgres-private-state")
-    private_batches = guard_private_batches(runtime, monkeypatch)
     result = (
         runtime.sources(semantic_registry=registry, sidecar=sidecar)
         .observe(metric)
@@ -142,7 +140,6 @@ def test_exact_private_state(
     record = runtime.store.artifact(result.state.artifact_ref.ref)
     assert record is not None
     assert any(part.contract_id == contract_id for part in record.descriptor.retained_parts)
-    assert private_batches
     if shape == "distinct":
         assert_no_raw_keys(frame.to_dict("records"))
         assert_no_raw_keys(record.descriptor)

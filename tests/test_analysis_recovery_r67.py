@@ -86,13 +86,13 @@ def test_retired_r6_consumers_have_no_export_registration_or_runtime_dispatch() 
         "compiler/placement.py",
         "compiler/normalize.py",
         "materialization/local_execution.py",
-        "materialization/local_stage.py",
         "materialization/dataset_publication.py",
     ):
         source = (Path(marivo.__file__).parent / "analysis" / relative).read_text()
         assert "ComparePayload" not in source.replace("FunnelComparePayload", "")
         assert "AttributePayload" not in source.replace("FunnelAttributePayload", "")
     for relative in (
+        "materialization/local_stage.py",
         "materialization/comparison_codec.py",
         "materialization/attribution_codec.py",
         "materialization/comparison_publication.py",

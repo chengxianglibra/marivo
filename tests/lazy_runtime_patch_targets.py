@@ -1,26 +1,27 @@
-"""Resolve private Runtime patch points after the execution split."""
+"""Resolve the remaining pure compiler and datasource patch owners."""
 
 from types import ModuleType
 
-from marivo.analysis.materialization import (
-    dataset_execution,
-    local_stage,
-    source_preparation,
-)
+from marivo.analysis import compiler
+from marivo.analysis.compiler import placement
+from marivo.analysis.materialization import local_execution
+from marivo.datasource import backends, json_source
 
 
 def runtime_patch_owner(symbol: str) -> ModuleType:
-    """Return the module that actually looks up a patched private operation."""
+    """Return the current module that owns the requested private operation."""
     if symbol in {"place", "source_binding"}:
-        return dataset_execution
+        return placement
     if symbol == "execute_local":
-        return local_stage
+        return local_execution
     if symbol in {
         "_build_backend_from_effective",
         "_effective_kwargs",
         "require_profile_for_backend_type",
-        "compile_dataset",
-        "read_json_source",
     }:
-        return source_preparation
+        return backends
+    if symbol == "compile_dataset":
+        return compiler
+    if symbol == "read_json_source":
+        return json_source
     raise ValueError(f"Unknown Runtime patch point: {symbol}")

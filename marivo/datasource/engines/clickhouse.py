@@ -175,6 +175,7 @@ register_provider_statements(
                 "AND database = {database} LIMIT 1"
             ),
             literal_slots=frozenset({"table", "database"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
         ),
         "tables.comment": ProviderStatement(
             statement_id="clickhouse.tables.comment",
@@ -184,6 +185,7 @@ register_provider_statements(
                 "AND database = {database} LIMIT 1"
             ),
             literal_slots=frozenset({"table", "database"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
         ),
         "tables.create_query": ProviderStatement(
             statement_id="clickhouse.tables.create_query",
@@ -193,6 +195,7 @@ register_provider_statements(
                 "AND database = {database} LIMIT 1"
             ),
             literal_slots=frozenset({"table", "database"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
         ),
         "tables.local_partition_key": ProviderStatement(
             statement_id="clickhouse.tables.local_partition_key",
@@ -202,6 +205,7 @@ register_provider_statements(
                 "AND database = {database} LIMIT 1"
             ),
             literal_slots=frozenset({"table", "database"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
         ),
         "columns.full": ProviderStatement(
             statement_id="clickhouse.columns.full",
@@ -213,6 +217,7 @@ register_provider_statements(
                 "ORDER BY position"
             ),
             literal_slots=frozenset({"table", "database"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
         ),
         "columns.fallback": ProviderStatement(
             statement_id="clickhouse.columns.fallback",
@@ -224,6 +229,7 @@ register_provider_statements(
                 "ORDER BY position"
             ),
             literal_slots=frozenset({"table", "database"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
         ),
         "parts.profile": ProviderStatement(
             statement_id="clickhouse.parts.profile",
@@ -235,6 +241,7 @@ register_provider_statements(
                 "AND table = {table}"
             ),
             literal_slots=frozenset({"database", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
         ),
         "parts_columns.active": ProviderStatement(
             statement_id="clickhouse.parts_columns.active",
@@ -246,6 +253,7 @@ register_provider_statements(
                 "GROUP BY column, type ORDER BY column, type"
             ),
             literal_slots=frozenset({"database", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
         ),
     },
 )

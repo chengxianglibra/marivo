@@ -26,7 +26,6 @@ from tests.lazy_distinct_fixtures import (
     make_distinct_registry,
 )
 from tests.lazy_distribution_fixtures import make_distribution_registry
-from tests.lazy_private_transfer_fixtures import guard_private_batches
 from tests.lazy_scalar_source_fixtures import TimeFoldIR, registry_for
 from tests.lazy_shared_assertions import assert_primary_status_gate, assert_status_fold_values
 from tests.multisource_environment import trino_analysis as trino
@@ -122,7 +121,6 @@ def test_exact_private_state(
     )
     registry.freeze()
     runtime = DatasetRuntime.create(tmp_path, "trino-private-state")
-    private_batches = guard_private_batches(runtime, monkeypatch)
     result = (
         runtime.sources(semantic_registry=registry, sidecar=sidecar)
         .observe(metric)
@@ -134,7 +132,6 @@ def test_exact_private_state(
     assert frame[metric.path.rsplit(".", 1)[-1]].tolist() == pytest.approx(expected)
     record = runtime.store.artifact(result.state.artifact_ref.ref)
     assert record is not None and record.descriptor.retained_parts
-    assert private_batches
     if shape == "distinct":
         assert_no_raw_keys(frame.to_dict("records"))
         assert_no_raw_keys(record.descriptor)

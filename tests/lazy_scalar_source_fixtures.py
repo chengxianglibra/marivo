@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 
-from marivo.analysis.materialization.execution import Parameter
-from marivo.analysis.materialization.scalar_sql_execution import Cursor, ScalarExecutionAdapter
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.ir import (
@@ -182,48 +179,21 @@ def capture_receipt(
     )
 
 
-class _CursorFactory(Protocol):
-    def __call__(self, adapter: ScalarExecutionAdapter, /, *, stream: bool) -> Cursor: ...
-
-
 def capture_submissions(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
-    """Capture adapter cursor calls; downstream native-driver rewriting is not observed."""
-    from marivo.analysis.materialization.clickhouse_execution import ClickHouseExecutionAdapter
-    from marivo.analysis.materialization.mysql_execution import MySQLExecutionAdapter
-    from marivo.analysis.materialization.sqlite_execution import SQLiteExecutionAdapter
-    from marivo.analysis.materialization.trino_execution import TrinoExecutionAdapter
+    """Capture the selected native governed-read entry before driver transport."""
+    from ibis.backends import BaseBackend
+
+    from marivo.datasource import adapters
+    from marivo.datasource.adapters import _Cursor
 
     submitted: list[dict[str, object]] = []
+    original = adapters._native_cursor
 
-    def wrap(original: _CursorFactory) -> _CursorFactory:
-        def cursor(adapter: ScalarExecutionAdapter, *, stream: bool) -> Cursor:
-            native = original(adapter, stream=stream)
+    def native_cursor(backend: BaseBackend, backend_name: str, sql: str) -> _Cursor:
+        submitted.append({"engine": backend_name, "sql": sql, "parameters": ()})
+        return original(backend, backend_name, sql)
 
-            class RecordedCursor:
-                def execute(self, sql: str, parameters: tuple[Parameter, ...] = ()) -> object:
-                    submitted.append(
-                        {"engine": adapter.engine, "sql": sql, "parameters": parameters}
-                    )
-                    return native.execute(sql, parameters) if parameters else native.execute(sql)
-
-                def fetchmany(self, size: int) -> Sequence[tuple[object, ...]]:
-                    return native.fetchmany(size)
-
-                def close(self) -> None:
-                    return native.close()
-
-            return RecordedCursor()
-
-        return cursor
-
-    adapter_types: tuple[type[ScalarExecutionAdapter], ...] = (
-        MySQLExecutionAdapter,
-        SQLiteExecutionAdapter,
-        TrinoExecutionAdapter,
-        ClickHouseExecutionAdapter,
-    )
-    for adapter_type in adapter_types:
-        monkeypatch.setattr(adapter_type, "cursor", wrap(adapter_type.cursor))
+    monkeypatch.setattr(adapters, "_native_cursor", native_cursor)
     return submitted
 
 

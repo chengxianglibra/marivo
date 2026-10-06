@@ -26,7 +26,6 @@ import marivo.analysis as mv
 import marivo.semantic.runtime_metric_lowering
 import marivo.analysis.compiler as compiler
 import marivo.analysis.compiler.lowering as lowering
-import marivo.analysis.materialization.source_preparation as source_preparation
 import marivo.analysis.materialization.dataset_presentation as dataset_presentation
 import marivo.analysis.materialization.dataset_publication as dataset_publication
 import marivo.analysis.materialization.storage as storage
@@ -130,8 +129,6 @@ guards = (
     (backends, 'build_backend_with_secrets', 'backend'),
     (backends, '_build_backend_from_effective', 'backend'),
     (backends, '_effective_kwargs', 'credentials'),
-    (source_preparation, '_build_backend_from_effective', 'backend'),
-    (source_preparation, '_effective_kwargs', 'credentials'),
     (secrets, 'resolve', 'credentials'),
     (secrets.EnvProvider, 'get', 'credentials'),
     (secrets.LocalPlaintextCache, 'get', 'credentials'),
@@ -148,10 +145,8 @@ guards = (
     (Backend, 'read_csv', 'source'),
     (Backend, 'read_parquet', 'source'),
     (Backend, 'read_json', 'source'),
-    (source_preparation, 'read_json_source', 'source'),
     (compiler, 'compile_dataset', 'compiler'),
     (lowering, 'compile_dataset', 'compiler'),
-    (source_preparation, 'compile_dataset', 'compiler'),
     (DatasetRuntime, '__init__', 'session'),
     (DatasetRuntime, 'create', 'session'),
     (DatasetRuntime, 'open', 'session'),
@@ -318,7 +313,7 @@ def test_complete_source_construction_has_no_io() -> None:
     assert evidence["aggregates"] == 8
     assert evidence["ties"] == 4
     assert evidence["guarded_negative_failures"] == 6
-    assert evidence["guarded_entrypoints"] == 58
+    assert evidence["guarded_entrypoints"] == 54
     assert evidence["checked_definitions"] == 44
     assert evidence["telemetry_enabled"] is True
     assert set(evidence["attempts"]) == {

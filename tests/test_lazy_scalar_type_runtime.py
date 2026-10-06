@@ -804,26 +804,3 @@ def test_mysql_mediumint_unsigned_maps_to_uint32(
         table = arrow_result(runtime, result.state.artifact_ref.ref)
         assert table.schema.field("channel").type == pa.uint32()
         assert set(table.column("channel").to_pylist()) == {0, 2**24 - 1, None}
-
-
-def test_mysql_timestamp_non_utc_session_is_rejected(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from ibis.backends.mysql import Backend
-
-    from marivo.analysis.materialization.mysql_execution import MySQLExecutionAdapter
-    from tests.multisource_environment.credentials import password
-
-    with source(
-        "mysql", tmp_path, monkeypatch, "TIMESTAMP(6)", "timestamp", ["'2024-02-29 00:00:00'"]
-    ) as (registry, _, name):
-        spec = registry.datasources["warehouse"]
-        backend = Backend().connect(**dict(spec.fields), password=password())
-        try:
-            with backend.con.cursor() as cursor:
-                cursor.execute("SET SESSION time_zone = '+01:00'")
-            adapter = MySQLExecutionAdapter(backend)
-            with pytest.raises(MaterializationError, match="verified UTC"):
-                adapter.get_schema(name)
-        finally:
-            backend.disconnect()

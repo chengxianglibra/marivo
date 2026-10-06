@@ -30,6 +30,21 @@ Status: R0.5 静态目标与调用链保留，R1.5/R1.6 当前状态覆盖见下
 
 ## 1. 源端与 Semantic SQL 入口
 
+### R9.5 current disposition overlay (2026-10-06)
+
+The [R9.5 SQL ledger](2026-10-06-marivo-r95-sql-ledger.md) owns the current
+55-ID disposition and appended DS23 ClickHouse owned-query cancellation.
+Historical constructor/caller rows below remain traceability records. The
+legacy Analysis SQL adapters, statement constructors, compiled-text patches,
+source preparation and Artifact-to-DuckDB scans are physically retired.
+SourceSession-issued Ibis reads, the original-text terminal, authorized provider
+templates and Store persistence retain separate ownership. Provider purposes
+are now closed for every metadata/credential template; MySQL and ClickHouse
+controls keep their separately approved purposes and identities. The later
+independent-read amendment withdrew PostgreSQL snapshot-control registration.
+No historical execution candidate or all-profile method qualification is
+changed by this SQL closure.
+
 `marivo/datasource/metadata.py` 的 `_query_rows` 是六个 engine metadata SQL 的实际 `backend.raw_sql` 提交点；`manage.py` 的 `raw_sql` 是公共任意语句提交点。`source_health.py` 实际位于 `marivo/semantic/`。下表以构造符号为行，列出其调用方和提交点；同一符号内的不同用途分列。
 
 | ID | 当前构造/调用方 → 实际提交；分类、后端、输入 | 目标处置；owner/阶段；真实证明 |

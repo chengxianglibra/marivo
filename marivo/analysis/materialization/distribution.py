@@ -1,42 +1,17 @@
-"""Native distribution integrity inspection without numeric sample transfer."""
+"""Independently owned retained distribution schema validation."""
 
 from __future__ import annotations
 
 import ibis.expr.datatypes as dt
-import ibis.expr.types as ir
 import pyarrow as pa
 
-from marivo.analysis.compiler.distribution import distribution_validations
 from marivo.analysis.datasets.descriptors import DatasetRowContract, _EntityFieldIdentity
-from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.materialization.storage import _integrity, _matches_type
 from marivo.analysis.observation.distribution_contracts import (
     FREQUENCY,
     VALUE,
     distribution_part_authorities,
 )
-
-
-def validate_distribution_relation(
-    backend: ExecutionAdapter,
-    table: ir.Table,
-    primary: ir.Table,
-    row: DatasetRowContract,
-    role: str,
-) -> None:
-    distribution_schema(row, role, table.schema().to_pyarrow())
-    checks = distribution_validations(row, primary, {role: table}, required=False)
-    for check in checks:
-        if (
-            backend.read_scalar(
-                backend.prepare(check.expression, role="engine_check." + check.name)
-            )
-            != 0
-        ):
-            _integrity(
-                "complete exact distribution and independent endpoint",
-                "distribution integrity failed",
-            )
 
 
 def distribution_schema(row: DatasetRowContract, role: str, schema: pa.Schema) -> tuple[str, ...]:

@@ -9,7 +9,6 @@ import pytest
 from marivo.analysis.compiler import compile_dataset
 from marivo.analysis.compiler.normalize import required_source_dependencies
 from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
-from marivo.analysis.materialization.source_preparation import _declared_table
 from marivo.analysis.operators.registry import implementation
 from marivo.analysis.session._lazy_sources import make_lazy_sources
 from marivo.datasource.ir import TableSourceIR
@@ -34,6 +33,18 @@ def _observed_schema(entry: EntitySourceDependency) -> ibis.Schema:
     return ibis.schema(
         {column.physical: _PHYSICAL_TYPES[column.physical] for column in entry.columns}
     )
+
+
+def _physical_relation(entry: EntitySourceDependency) -> ibis.Table:
+    source = entry.entity.source
+    assert isinstance(source, TableSourceIR)
+    database = source.database
+    namespace = database if isinstance(database, str) else database[-1] if database else None
+    catalog = database[0] if isinstance(database, tuple) and len(database) == 2 else None
+    table = ibis.table(
+        _observed_schema(entry), name=source.table, database=namespace, catalog=catalog
+    )
+    return table.select(*(table[column.physical].name(column.logical) for column in entry.columns))
 
 
 @pytest.mark.parametrize("engine", ["duckdb", "postgres", "mysql", "sqlite", "trino", "clickhouse"])
@@ -69,7 +80,7 @@ def test_unused_complex_column_and_hidden_weight(engine: str, hidden: bool) -> N
     )
     registration = implementation(target).for_backend(engine)
     assert registration is not None
-    table = _declared_table(entry.entity, _observed_schema(entry), dependency=entry)
+    table = _physical_relation(entry)
     assert "tenant" not in table.columns
     recipe = compile_dataset(target, {entry.entity.ref.path: table}, dependencies=dependencies)
     assert recipe.validations == ()
@@ -201,10 +212,6 @@ def test_dependency_owner_cannot_be_swapped() -> None:
     with pytest.raises(DatasetCompilationError, match="source binding mismatch"):
         compile_dataset(
             target,
-            {
-                entry.entity.ref.path: _declared_table(
-                    entry.entity, _observed_schema(entry), dependency=entry
-                )
-            },
+            {entry.entity.ref.path: _physical_relation(entry)},
             dependencies=replace(dependencies, entries=(foreign,)),
         )

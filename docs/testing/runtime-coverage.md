@@ -49,7 +49,7 @@ engine process recovery is the actual contract.
 | R9.4 MySQL and Trino graph transport phases | `test_r94_graph_transport_phases.py`: real MySQL fetch timer/SIGINT retain issued-read ownership after submission failure, exact owned KILL, real native close failure and subsequent external-owner disconnect acknowledgement. Three Trino fetch timer/owner-checkpoint/SIGINT cases observe RUNNING before cancellation and FAILED/USER_CANCELED afterward. The repaired Trino 483 initial-response case records queued registration without dispatch/cursor ID, first timer no-op, then the original driver's dispatch and exact-ID cancellation. All preserve complete prior parts, one failed Run, unchanged publication and zero resources. |
 | R9.4 local native interruption | `test_r94_local_graph_interrupts.py`: actual DuckDB pending SIGINT/deadline and SQLite pending/fetch SIGINT pass without rescue. SQLite's scoped main-thread/default-handler relay interrupts its native read; original interruption chains, owner-thread cleanup, full previous primary/parts, one failed Run and zero resources remain asserted. The final native/local and Trino increment contains 19 unique passed cases. |
 | File integrity, complete-input limits, atomic publication and crash recovery | Local-file and engine-specific Runtime checks |
-| SQLite publication interrupted inside its transaction | `test_lazy_materialization_store.py::test_process_exit_preserves_atomic_publication`, with actual child exit and a reopened Store; the native adapter retains an `insert_terminal` crash journey |
+| SQLite publication interrupted inside its transaction | `test_lazy_materialization_store.py::test_process_exit_preserves_atomic_publication`, with actual child exit and a reopened Store; `test_analysis_graph_publication_r44.py` owns current graph process-exit and publication faults. |
 | Retained attribution with a missing axis | `test_lazy_attribute_contracts.py::test_retained_missing_axis_rejects_before_any_action`, using trusted metadata and a port that forbids execution |
 | Distribution method and input-state variants | Focused Runtime publication/authority tests; exact and approximate fresh-process journeys own cold continuation and result reuse |
 | Unified Journey matching, Duration, dropout and Subject images | `test_analysis_domain_preparation_r72.py` and `test_analysis_journey_matching_r73.py`: captured identities/order/coverage, independent assignment oracles, exact Duration and the public A09 selection into prepared Metric observation |
@@ -74,6 +74,18 @@ bypass the local execution boundary being tested. Public scoped-read acceptance 
 uses the default native route and real nonempty Findings in three processes.
 
 ## Commands
+
+R9.5 physically removes the old SQL adapter tests and routes their still-current
+assertions to `test_datasource_adapter_contract.py`, `test_r92_source_profiles.py`
+and current graph publication/recovery tests. Seven independent SQLite temporal
+oracles remain in `test_lazy_temporal_backends.py`, now through SourceSession.
+`test_r95_sql_audit.py` guards the whole product tree and physical retirement;
+`test_r95_driver_audit.py` verifies exact native/Store ownership.
+`test_r95_sql_runtime.py` captures six small public native witnesses, scoped HTTP
+credentials and the actual owned ClickHouse control SQL. Business methods,
+physical-profile and resource/cold evidence retain their original R9 owners.
+The [R9.5 SQL ledger](../superpowers/specs/2026-10-06-marivo-r95-sql-ledger.md)
+maps all original DS/AN rows and the appended control obligation.
 
 - `make test`: daily contracts and local storage regressions.
 - `make runtime-test TESTS='tests/test_lazy_local_execution.py'`: focused functional checks.
@@ -131,7 +143,7 @@ protocols; their historical acceptance is not evidence for caller execution.
 
 ## Multi-datasource Slice 1c
 
-- `test_lazy_duckdb_execution_adapter.py`: real Ibis parameters/hooks, repeated
+- `test_datasource_adapter_contract.py`: current source-issued Ibis parameters, repeated
   pure compilation, actual submissions, complete typed transport and error cause.
 - `test_lazy_materialization_failures.py`: unknown open without query ID, failed
   cancel/close, safe later same-Session work and committed readback.
