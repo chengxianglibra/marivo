@@ -25,7 +25,7 @@ def _blocks(language: str, page: str) -> tuple[str, ...]:
 
 
 @pytest.mark.parametrize(
-    "page,count", [("analysis-workflow", 24), ("evidence", 2), ("semantic-layer", 47)]
+    "page,count", [("analysis-workflow", 26), ("evidence", 2), ("semantic-layer", 47)]
 )
 def test_bilingual_examples_have_identical_executable_contracts(page: str, count: int) -> None:
     assert len(_blocks("en", page)) == count
@@ -181,7 +181,9 @@ def test_workflow_evidence_and_cold_recovery_examples(
 
 
 @pytest.mark.runtime
-def test_coordinate_row_statistic_workflow_example(analysis_dsl_case_factory: DslCaseFactory):
+def test_coordinate_row_statistic_workflow_example(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
     case = analysis_dsl_case_factory("j1")
     namespace: dict[str, object] = {"session": case.session, "mv": mv, "ms": ms}
     block = next(b for b in _blocks("en", "analysis-workflow") if b.startswith("all_members ="))
@@ -230,7 +232,9 @@ def test_display_workflow_example_executes(
     result = namespace["result"]
     assert isinstance(result, mv.MaterializedTable)
     assert result.to_pandas().columns.tolist() == ["member", "amount", "rank"]
-    assert result.to_pandas().equals(namespace["restored"].to_pandas())
+    restored = namespace["restored"]
+    assert isinstance(restored, mv.MaterializedTable)
+    assert result.to_pandas().equals(restored.to_pandas())
 
 
 @pytest.mark.runtime

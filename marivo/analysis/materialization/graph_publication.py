@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Callable
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -81,6 +81,7 @@ from marivo.analysis.materialization.graph_source_execution import execute_sourc
 from marivo.analysis.materialization.graph_storage import read_result, write_table
 from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.resources import (
+    clickhouse_control_reservation,
     discharge_resources,
     mysql_control_reservation,
     reserve_output,
@@ -381,11 +382,21 @@ def _execute(
                             run_ref, source.datasource.name
                         )
                         store.reserve(control_resource)
+                    elif source.provider.name == "clickhouse":
+                        control_resource = clickhouse_control_reservation(
+                            run_ref, source.datasource.name
+                        )
+                        store.reserve(control_resource)
                     source._prepare_interrupt()
+                    from marivo.datasource.interrupts import owned_sigint
+
                     with (
+                        owned_sigint(source._request_interrupt)
+                        if source.provider.name in {"mysql", "clickhouse", "sqlite"}
+                        else nullcontext(),
                         capture(source, checkpoint=check, guard=guard)
                         if uses_preparation
-                        else guard(source._request_interrupt) as authority
+                        else guard(source._request_interrupt) as authority,
                     ):
                         if uses_preparation:
                             source.domain_authority = authority
@@ -422,7 +433,7 @@ def _execute(
             if control_resource is not None:
                 if source_owner is None or not source_owner._cancel_control_released:
                     raise RecoveryPendingError(
-                        expected="confirmed owned MySQL control connection release",
+                        expected=f"confirmed owned {source_owner.provider.name if source_owner is not None else 'reader'} control connection release",
                         received="control release is unconfirmed",
                         repair="Inspect the original Run and control resource obligation before retrying.",
                         stage="source_cleanup",

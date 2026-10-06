@@ -332,7 +332,11 @@ state such as temporary tables, opt in explicitly with
 `settings={...}`; client keyword arguments belong in `extra={...}`.
 Marivo's bounded read-only paths enforce the ClickHouse server setting
 `readonly=1`; they preserve other declared settings and never retry through a
-write-enabled connection.
+write-enabled connection. Analysis query cancellation also requires
+operator-configured `SELECT(query, query_id, user) ON system.processes` for the
+same reader; these columns allow general query-metadata visibility. The bounded
+control targets only the current Session-owned query ID and user. Marivo never
+grants this permission or escalates credentials.
 
 SQLite datasources use `md.table(...)` for tables and views. `read_only=True`
 uses a driver authorizer to reject writes, and `type_map={...}` can map

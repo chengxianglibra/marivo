@@ -336,6 +336,32 @@ def test_basic_group_and_count_use_the_bound_expression(session: SourceSession) 
     ]
 
 
+def test_local_staging_preserves_nullable_int64_low_bits(session: SourceSession) -> None:
+    from marivo.datasource.adapters import _native_cursor
+
+    read = _read(session)
+    exchange = pa.Table.from_pydict(
+        {"id": [9007199254740992, 9007199254740993, None], "amount": [1, 2, 3]},
+        schema=read.schema,
+    )
+    relation = session.stage_calculated(read, exchange)
+    try:
+        sql = session._backend.compile(relation.order_by("amount"))
+        assert isinstance(sql, str)
+        cursor = _native_cursor(session._backend, session.provider.name, sql)
+        try:
+            assert tuple(tuple(row) for row in cursor.fetchmany(10)) == (
+                (9007199254740992, 1),
+                (9007199254740993, 2),
+                (None, 3),
+            )
+        finally:
+            cursor.close()
+    finally:
+        session.release_staged((relation,))
+    assert session._staged_relations == {}
+
+
 def test_local_view_is_a_separate_bound_source(session: SourceSession) -> None:
     bound = session.bind(TableSourceIR("facts_view"), source_identity="view@v1")
     qualified = session.qualify(
@@ -813,6 +839,7 @@ def test_mysql_interrupt_targets_only_the_prepared_owned_connection(
     session._cancel_control_released = fault == "unavailable"
     submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
     session.submissions.append(submission)
+    session._mysql_active = submission
     execute = Mock(side_effect=RuntimeError("control failed") if fault == "failed" else None)
     monkeypatch.setattr(adapters, "execute_provider_statement", execute)
     monkeypatch.setattr(adapters, "provider_statement_log", lambda _backend: ())
@@ -823,6 +850,10 @@ def test_mysql_interrupt_targets_only_the_prepared_owned_connection(
     fromfd = Mock(return_value=socket_context)
     monkeypatch.setattr(socket, "fromfd", fromfd)
 
+    session._request_interrupt()
+    captured = session._interrupted_submissions
+    session._request_interrupt()
+    assert session._interrupted_submissions == captured == (submission,)
     assert session.interrupt() == "remote_unknown"
     if fault in {"foreign", "unavailable"}:
         execute.assert_not_called()
@@ -842,6 +873,120 @@ def test_mysql_interrupt_targets_only_the_prepared_owned_connection(
     assert submission.termination == "remote_unknown"
     assert submission.connection_disconnected
     assert session._cancel_control is None
+
+
+@pytest.mark.parametrize("state", ["failed", "closed_early", "succeeded", "unowned"])
+def test_mysql_interrupt_owns_unreleased_read_after_state_change(
+    monkeypatch: pytest.MonkeyPatch, state: str
+) -> None:
+    from marivo.datasource import adapters
+
+    backend = Mock()
+    backend.name = "mysql"
+    backend.con.thread_id.return_value = 123
+    session = SourceSession(provider_for("mysql"), _datasource("mysql"), backend)
+    session._cancel_thread_id = 123
+    session._cancel_control = Mock()
+    submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
+    session.submissions.append(submission)
+    if state == "failed":
+        submission.state = "failed"
+    elif state == "closed_early":
+        submission.state = "closed_early"
+    elif state == "succeeded":
+        submission.state = "succeeded"
+    if state != "unowned":
+        session._mysql_active = submission
+    execute = Mock()
+    monkeypatch.setattr(adapters, "execute_provider_statement", execute)
+    monkeypatch.setattr(adapters, "provider_statement_log", lambda _backend: ())
+    monkeypatch.setattr(socket, "fromfd", Mock(side_effect=OSError("unit transport unavailable")))
+    session._request_interrupt()
+    session._request_interrupt()
+    if state in {"failed", "closed_early"}:
+        execute.assert_called_once()
+        assert session._interrupted_submissions == (submission,)
+    else:
+        execute.assert_not_called()
+        assert session._interrupted_submissions == ()
+    session._release_cursor(None, submission)
+    assert session._mysql_active is None
+    session.close()
+
+
+@pytest.mark.parametrize("code", [2006, 2013, 2014])
+def test_borrowed_mysql_interrupted_cursor_waits_for_external_release_ack(code: int) -> None:
+    backend = Mock()
+    backend.name = "mysql"
+    session = SourceSession(
+        provider_for("mysql"), _datasource("mysql"), backend, owns_backend=False
+    )
+    submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL", state="failed")
+    session.submissions.append(submission)
+    session._mysql_active = submission
+    session._mysql_cancel_requested = True
+    session._interrupted_submissions = (submission,)
+    cursor = Mock()
+    cursor.close.side_effect = RuntimeError(code, "native cursor drain failed")
+    if code == 2014:
+        with pytest.raises(RuntimeError):
+            session._release_cursor(cursor, submission)
+    else:
+        session._release_cursor(cursor, submission)
+    assert submission.cursor_state == "close_failed"
+    assert not submission.connection_disconnected
+    assert session._mysql_active is None
+    backend.disconnect.assert_not_called()
+    session.close()
+    assert submission.cursor_state == "close_failed"
+    assert submission.termination == "remote_unknown"
+    backend.disconnect.assert_not_called()
+    session.mark_backend_disconnected()
+    assert submission.cursor_state == "closed" and submission.connection_disconnected
+    assert submission.termination == "remote_unknown"
+
+
+@pytest.mark.parametrize("owns_backend", [True, False])
+def test_mysql_interrupted_cursor_drain_requires_owned_disconnect(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch, owns_backend: bool
+) -> None:
+    from marivo.datasource import adapters
+
+    read = _read(session)
+    session.provider = provider_for("mysql")
+    session._owns_backend = owns_backend
+    cursor = Mock()
+    cursor.close.side_effect = RuntimeError("drain failed")
+    disconnect = Mock(wraps=session._backend.disconnect)
+    monkeypatch.setattr(session._backend, "disconnect", disconnect)
+    monkeypatch.setattr(session, "_request_interrupt", Mock())
+    monkeypatch.setattr(session, "_synchronize_interrupt", Mock())
+
+    def interrupted_read(_backend: object, _name: str, _sql: str) -> None:
+        session._own_pending_cursor(cursor)
+        raise KeyboardInterrupt("caller interrupted")
+
+    monkeypatch.setattr(adapters, "_native_cursor", interrupted_read)
+    try:
+        with pytest.raises(
+            KeyboardInterrupt if owns_backend else RuntimeError,
+            match="caller interrupted" if owns_backend else "drain failed",
+        ):
+            session.batches(read, chunk_size=1)
+        cursor.close.assert_called_once_with()
+        assert session.submissions[-1].state == "failed"
+        assert session._cursor_released.is_set() and session._pending_cursor is None
+        if owns_backend:
+            assert session.submissions[-1].cursor_state == "closed"
+            assert session.submissions[-1].connection_disconnected
+            session.close()
+            disconnect.assert_called_once_with()
+        else:
+            assert session.submissions[-1].cursor_state == "close_failed"
+            assert not session.submissions[-1].connection_disconnected
+            disconnect.assert_not_called()
+    finally:
+        session._owns_backend = True
 
 
 def test_mysql_control_close_failure_still_releases_owned_read(

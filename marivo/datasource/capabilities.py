@@ -5,8 +5,8 @@ R0 SQL ledger R1.6 overlay. Providers register fixed statement templates here; t
 channel renders them with strictly quoted literals or provider-quoted identifiers and
 submits the rendered text through the backend's native raw SQL transport. Statement
 text is pinned by a catalog snapshot test, and every submission is recorded on the
-backend for auditing. Credential values never appear in rendered text: the only
-parameterized statements are the DuckDB scoped HTTP secret installs.
+backend for auditing. Credential values never appear in rendered text. Bound
+parameters also carry the exact ClickHouse owned-query cancellation identity.
 """
 
 from __future__ import annotations
@@ -163,6 +163,8 @@ def render_provider_statement(
         or supplied_identifiers != statement.identifier_slots
     ):
         raise ValueError("statement slots must use their declared literal or identifier kind")
+    if statement.parameterized:
+        return statement.template
     rendered: dict[str, str] = {}
     for slot, lower, upper in statement.integer_ranges:
         value = values[slot]
@@ -205,7 +207,7 @@ def execute_provider_statement(
     values: Mapping[str, object] = {},
     identifiers: Mapping[str, str | tuple[str, ...]] = {},
     purpose: StatementPurpose,
-    parameters: Sequence[object] | None = None,
+    parameters: Sequence[object] | Mapping[str, str] | None = None,
 ) -> tuple[dict[str, object], ...]:
     """Submit one registered statement through the backend's native transport.
 
@@ -231,6 +233,12 @@ def execute_provider_statement(
         )
     if statement.parameterized != (parameters is not None):
         raise ValueError("statement parameters must match the registered parameterized mode")
+    if statement_id == "clickhouse.analysis.cancel_owned_query" and (
+        not isinstance(parameters, Mapping)
+        or set(parameters) != {"id", "user"}
+        or any(type(value) is not str or not value for value in parameters.values())
+    ):
+        raise ValueError("ClickHouse cancellation requires bound nonempty id and user strings")
     sql = render_provider_statement(statement, profile, values=values, identifiers=identifiers)
     submission = ProviderStatementSubmission(
         provider=profile.name,

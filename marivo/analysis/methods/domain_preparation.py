@@ -72,22 +72,26 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
 
 
 def sqlite_implementations(method: MethodKey) -> tuple[Implementation, ...]:
-    """Bind only native int64 UTC-us occurrence capture; do not fan out consumers."""
+    """Bind native int64/string Subject UTC-us capture; do not fan out consumers."""
     return tuple(
         replace(
             item,
             key=replace(item.key, shape=replace(item.key.shape, backend="sqlite")),
             qualification=Qualified(
-                "r93.c11.sqlite.occurrence_prepare_int64_us_utc@v1",
+                "r94.c18.sqlite.occurrence_prepare_string_subject_us_utc@v1"
+                if item.key.input_types == (ScalarType("string"),)
+                else "r93.c11.sqlite.occurrence_prepare_int64_us_utc@v1",
                 "analysis.materialization.domain_preparation",
-                "tests/test_r93_journey_consumers.py",
+                "tests/test_r94_retention_states.py"
+                if item.key.input_types == (ScalarType("string"),)
+                else "tests/test_r93_journey_consumers.py",
             ),
         )
         for item in implementations(method)
         if isinstance(item.key.shape, SourceShape)
         and item.key.shape
         == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
-        and item.key.input_types == (ScalarType("int64"),)
+        and item.key.input_types in ((ScalarType("int64"),), (ScalarType("string"),))
     )
 
 

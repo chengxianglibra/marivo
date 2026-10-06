@@ -743,7 +743,6 @@ def test_mysql_cancel_has_independent_server_termination_proof(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from tests.multisource_environment import mysql_analysis as mysql
 
     with source_case("mysql", "table", tmp_path, monkeypatch) as case:
         source = case.session
@@ -812,16 +811,14 @@ def test_mysql_cancel_has_independent_server_termination_proof(
         assert source.submissions[-1].cursor_state == "closed"
         assert len(cleanup_threads) >= 3
         assert set(cleanup_threads) == {owner_thread}
-        with mysql.connection(admin=True) as observer, observer.cursor() as cursor:
-            cursor.execute(
-                "SELECT ID FROM information_schema.PROCESSLIST WHERE ID IN (%s, %s)",
-                (thread_id, control_id),
-            )
-            assert cursor.fetchall() == ()
+        from tests.mysql_server_observation import wait_for_owned_connection_release
+
+        release_observation_seconds = wait_for_owned_connection_release(thread_id, control_id)
         receipt(
             "deadline-native-mysql",
             {
                 "backend": "mysql",
+                "release_observation_seconds": release_observation_seconds,
                 "deadline_seconds": 0.05,
                 "elapsed_seconds": elapsed,
                 "sql": read.sql,

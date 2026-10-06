@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pyarrow as pa
 
@@ -22,7 +23,7 @@ from marivo.datasource.adapters import (
     SourceSession,
     provider_for,
 )
-from marivo.datasource.ir import ParquetSourceIR, TableSourceIR
+from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.ir import TargetEntityContract, TargetSnapshotVersion, TargetValidityVersion
 from marivo.semantic.validator import Registry, normalize_target_entity
@@ -131,6 +132,11 @@ def _identity_type(schema: pa.Schema, column: str) -> ScalarType:
     )
 
 
+def _local_file(path: str) -> bool:
+    file = Path(path)
+    return (not urlsplit(path).scheme or bool(file.drive)) and file.is_file()
+
+
 def preflight_entities(
     registry: Registry, project_root: Path, entity_paths: tuple[str, ...]
 ) -> tuple[EntitySchema, ...]:
@@ -198,9 +204,37 @@ def preflight_entities(
             )
         elif isinstance(contract.source, ParquetSourceIR) and datasource.backend_type == "duckdb":
             shapes.append(SourceShape("duckdb", "parquet", "parquet", NoTime()))
+        elif (
+            isinstance(contract.source, CsvSourceIR)
+            and datasource.backend_type == "duckdb"
+            and _local_file(contract.source.path)
+        ):
+            shapes.append(SourceShape("duckdb", "csv", "csv", NoTime()))
+        elif (
+            isinstance(contract.source, JsonSourceIR)
+            and datasource.backend_type == "duckdb"
+            and _local_file(contract.source.path)
+            and contract.source.method == "GET"
+            and not contract.source.query_params
+            and contract.source.body_json is None
+            and not contract.source.body_params
+        ):
+            shapes.append(SourceShape("duckdb", "json", "json", NoTime()))
+        elif isinstance(contract.source, (CsvSourceIR, JsonSourceIR)):
+            file_source = contract.source
+            request_facts = (
+                f", method={file_source.method}, query_parameters={len(file_source.query_params)}, body_parameters={len(file_source.body_params)}"
+                if isinstance(file_source, JsonSourceIR)
+                else ""
+            )
+            raise _reject(
+                "an existing local CSV or unparameterized GET JSON file on DuckDB",
+                f"{type(file_source).__name__}: existing_local_file={_local_file(file_source.path)}, backend={datasource.backend_type}{request_facts}",
+                "Use an existing local file without runtime request parameters, or a qualified table/Parquet source.",
+            )
         else:
             raise _reject(
-                "a qualified table or Parquet Entity source",
+                "a qualified table, Parquet or local CSV/JSON Entity source",
                 type(contract.source).__name__,
                 "Use a source form with exact R1 schema qualification.",
             )

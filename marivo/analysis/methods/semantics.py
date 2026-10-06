@@ -833,6 +833,22 @@ class MethodSemantics:
             if inputs != (output,):
                 reject("unchanged fold result type", repr(output), "Preserve the bound fold type.")
             return
+        if (
+            name in ("row.sum", "row.mean")
+            and isinstance(params, rules.RowState)
+            and len(inputs) == 1
+            and isinstance(inputs[0], DecimalType)
+        ):
+            expected_row = DecimalType(
+                38, max(inputs[0].scale, 6) if name == "row.mean" else inputs[0].scale
+            )
+            if output != expected_row:
+                reject(
+                    "the exact Decimal row-statistic finish type",
+                    repr(output),
+                    "Preserve the input scale for sums and finish means once at the declared scale.",
+                )
+            return
         if name in (
             "association.spearman",
             "metric.quantile",

@@ -37,10 +37,12 @@ def setup() -> dict[str, object]:
         )
         con.command("REVOKE ALL ON *.* FROM analysis_reader")
         con.command("GRANT SELECT ON qualification.* TO analysis_reader")
+        con.command("GRANT SELECT(query, query_id, user) ON system.processes TO analysis_reader")
         con.command(
             "ALTER USER analysis_reader SETTINGS readonly=1, join_use_nulls=1, "
             "enable_materialized_cte=0 CHANGEABLE_IN_READONLY, "
             "max_execution_time=0 CHANGEABLE_IN_READONLY, "
+            "cancel_http_readonly_queries_on_client_close=0 CHANGEABLE_IN_READONLY, "
             "timeout_before_checking_execution_speed=0 CHANGEABLE_IN_READONLY"
         )
         con.command(
@@ -93,6 +95,9 @@ def setup_cluster() -> dict[str, object]:
                 " (id Int64, amount Decimal(9, 2)) ENGINE=MergeTree ORDER BY id"
             )
             con.command("GRANT SELECT ON qualification_cluster.* TO analysis_reader")
+            con.command(
+                "GRANT SELECT(query, query_id, user) ON system.processes TO analysis_reader"
+            )
     for port in CLUSTER_HTTP_PORTS:
         with connection(admin=True, port=port) as con:
             con.command(

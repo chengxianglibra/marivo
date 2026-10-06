@@ -289,9 +289,24 @@ def test_public_share_numeric_matrix(
 @pytest.mark.parametrize("physical", ["BIGINT", "DOUBLE", "DECIMAL(30,6)"])
 @pytest.mark.parametrize("parquet", [False, True])
 def test_original_metric_standardization_matrix(
-    analysis_dsl_case_factory: DslCaseFactory, physical: str, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory,
+    physical: str,
+    parquet: bool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import os
+    import shutil
+    import subprocess
+    import sys
+    from pathlib import Path
+
     import duckdb
+
+    from marivo.analysis.public_dsl import MetricInputValue
+    from scripts.r9_qualification_requirements import Json, checked, encode, read
+    from tests.r93_source_trace import capture_source
+    from tests.r94_domain_recovery_worker import snapshot
+    from tests.r94_standardization_recovery_worker import parts
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
@@ -305,11 +320,13 @@ def test_original_metric_standardization_matrix(
     if parquet:
         export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
+    trace = capture_source(monkeypatch)
     members = case.session.members(ms.ref.entity("sales.customer"))
     categories = members.read(ms.ref.dimension("sales.customer.region"))
+    assert isinstance(categories, mv.LogicalCategoryRelation)
     amount = ms.ref.measure("sales.order.amount")
     base = ms.ref.metric("sales.revenue")
-    metrics = {
+    metrics: dict[str, MetricInputValue] = {
         "sum": base,
         "mean": mv.runtime_metric.aggregate(amount, agg="mean", label="mean"),
         "weighted_mean": mv.runtime_metric.weighted_mean(
@@ -327,6 +344,16 @@ def test_original_metric_standardization_matrix(
         .rollup()
     )
     weights = volume.share_of(volume.rollup())
+    offline = physical != "BIGINT"
+    originals: dict[str, Json] = {}
+    original_parts: dict[str, Json] = {}
+    sources: dict[str, Json] = {}
+    source_parts: dict[str, Json] = {}
+    expectations: dict[str, Json] = {}
+    retained_weights, retained_categories = weights.execute(), categories.execute()
+    assert isinstance(retained_categories, mv.MaterializedCategoryRelation)
+    for name, value in (("weights", retained_weights), ("categories", retained_categories)):
+        originals[name], original_parts[name] = snapshot(value), parts(value)
     for kind, metric in metrics.items():
         groups = (
             members.observe(metric, during=scope, via=ms.ref.relationship("sales.order_buyer"))
@@ -337,15 +364,12 @@ def test_original_metric_standardization_matrix(
             weights, strata=(categories,), unit=ms.ref.entity("sales.order")
         )
         source = groups.standardize(reference=reference).execute()
-        fixed_groups, fixed_weights, fixed_categories = (
-            groups.execute(),
-            weights.execute(),
-            categories.execute(),
-        )
+        fixed_groups = groups.execute()
+        fixed_weights, fixed_categories = retained_weights, retained_categories
         fixed_reference = mv.reference_weights(
             fixed_weights, strata=(fixed_categories,), unit=ms.ref.entity("sales.order")
         )
-        fixed = fixed_groups.standardize(reference=fixed_reference).execute()
+        fixed = None if offline else fixed_groups.standardize(reference=fixed_reference).execute()
         raw = analysis_dsl_rows("j2")
         region_by_member = dict(raw.customers)
         totals_by_region = dict.fromkeys(region_by_member.values(), Fraction())
@@ -376,16 +400,26 @@ def test_original_metric_standardization_matrix(
             if physical.startswith("DECIMAL")
             else float(exact_expected)
         )
-        assert source.to_pandas().value.tolist() == fixed.to_pandas().value.tolist() == [expected]
-        assert fixed._dataset.verified().contract.state_kind == "standardized"
-        assert not any(action.call == "relation.rollup()" for action in fixed.contract().actions)
+        assert source.to_pandas().value.tolist() == [expected]
+        sources[kind] = snapshot(source)
+        source_parts[kind] = parts(source)
+        originals["groups:" + kind] = snapshot(fixed_groups)
+        original_parts["groups:" + kind] = parts(fixed_groups)
+        expectations[kind] = str(expected) if isinstance(expected, Decimal) else expected
+        if fixed is not None:
+            assert fixed.to_pandas().value.tolist() == [expected]
+            assert fixed._dataset is not None
+            assert fixed._dataset.verified().contract.state_kind == "standardized"
+            assert not any(
+                action.call == "relation.rollup()" for action in fixed.contract().actions
+            )
         if kind == "linear":
             raw = analysis_dsl_rows("j2")
             region_by_member = dict(raw.customers)
-            totals = dict.fromkeys(region_by_member.values(), 0)
-            for _, buyer, _, _, date, amount in raw.orders:
+            totals = dict.fromkeys(region_by_member.values(), Fraction())
+            for _, buyer, _, _, date, order_amount in raw.orders:
                 if str(date).startswith("2026-08"):
-                    totals[region_by_member[buyer]] += 2 * amount
+                    totals[region_by_member[buyer]] += 2 * Fraction(order_amount)
             expected_shares = {
                 key: Fraction(total, sum(totals.values())) for key, total in totals.items()
             }
@@ -395,6 +429,56 @@ def test_original_metric_standardization_matrix(
                     key: Fraction(value)
                     for key, value in zip(shares.group, shares.value, strict=True)
                 } == expected_shares
+
+    if offline:
+        state: dict[str, Json] = {
+            "phase": "produce",
+            "pid": os.getpid(),
+            "session": case.session.id,
+            "physical": physical,
+            "form": "parquet" if parquet else "table",
+            "originals": originals,
+            "parts": original_parts,
+            "source_results": sources,
+            "source_parts": source_parts,
+            "expected": expectations,
+            "native_sql": [*trace.native_sql],
+            "source_closed": all(owner._closed for owner in trace.owners),
+        }
+        assert trace.native_sql and trace.owners and state["source_closed"] is True
+        (case.root / "r94-standardization.json").write_bytes(encode(state))
+        shutil.rmtree(case.root / "models")
+        case.database_path.unlink()
+        if (case.root / "source_files").exists():
+            shutil.rmtree(case.root / "source_files")
+        reports: list[Json] = [state]
+        for phase in ("fixed", "cold"):
+            output = case.root / ("standardization-" + phase + ".json")
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "tests.r94_standardization_recovery_worker",
+                    str(case.root),
+                    phase,
+                    str(output),
+                ],
+                cwd=Path(__file__).resolve().parents[1],
+                env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert completed.returncode == 0, completed.stdout + completed.stderr
+            reports.append(read(output))
+        if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
+            name = (
+                "standardization-"
+                + ("decimal" if physical.startswith("DECIMAL") else "float")
+                + ("-parquet" if parquet else "-table")
+                + ".json"
+            )
+            Path(directory, name).write_bytes(encode({"reports": checked(reports)}))
 
 
 @pytest.mark.runtime

@@ -717,7 +717,11 @@ def test_latest_funnel_example_executes(funnel_public):
     for locale in ("docs", "zh-cn/docs"):
         for page in ("first-analysis.mdx", "concepts/analysis-workflow.mdx"):
             text = (root / locale / "latest" / page).read_text()
-            examples.append(text.rsplit("```python\n", 1)[1].split("```", 1)[0])
+            marker = "```python\nfunnel = journeys.funnel()\n"
+            assert text.count(marker) == 1
+            examples.append(
+                "funnel = journeys.funnel()\n" + text.split(marker, 1)[1].split("```", 1)[0]
+            )
     assert len(set(examples)) == 1
     namespace = {
         "mv": mv,

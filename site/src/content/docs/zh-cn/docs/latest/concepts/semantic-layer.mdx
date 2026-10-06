@@ -292,7 +292,10 @@ ClickHouse 数据源默认关闭 clickhouse-connect 自动生成的会话 id，�
 `extra={"autogenerate_session_id": True}`。`settings={...}` 用于 server/查询
 settings；Ibis/clickhouse-connect client keyword arguments 放在 `extra={...}`。
 Marivo 的有界只读路径使用 ClickHouse server setting `readonly=1`，保留其他已声明
-settings，且绝不会通过可写连接重试。
+settings，且绝不会通过可写连接重试。Analysis 查询取消还需要由运维为同一 reader 配置
+`SELECT(query, query_id, user) ON system.processes`；这些列允许查看一般查询元数据。
+有界控制仅针对当前 Session 自有的 query ID 和 user。Marivo 不授予此权限，也不提升
+凭据权限。
 
 SQLite 数据源通过 `md.table(...)` 使用表和视图。`read_only=True` 使用驱动
 authorizer 拒绝写入；当类型亲和推断不足时，可用 `type_map={...}` 把声明的 SQLite

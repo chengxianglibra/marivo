@@ -198,6 +198,7 @@ aov = customers.observe(
 overall_aov = aov.rollup().execute()
 channel_aov = aov.group_by(channel).rollup().execute()
 current_row_mean = aov.summarize(mv.mean()).execute()
+current_row_mean.show()
 
 order_count = customers.observe(
     ms.ref.metric("sales.order_count"), during=august, via=buyer
@@ -210,6 +211,14 @@ negative = coefficient.where(coefficient.value.lt(0)).execute()
 `rollup()` recombines retained original components; `summarize(mv.mean())`
 calculates an equal-current-row mean. Spearman is descriptive and uses complete
 member pairs from the same observation scope.
+
+For a retained `NoTime` Entity quantile with `Decimal(18,2)` values,
+current-row sum returns `Decimal(38,2)` and mean returns `Decimal(38,6)` with
+one HALF_EVEN finish. Their new row-statistic `rollup()` merges captured exact
+sum/count state; mean preserves the sum's original scale. Empty sum is zero,
+and empty mean is `Undefined(empty_mean)`. Original quantile rollup remains
+unavailable. Other Decimal group/time/source row-reducer keys require their
+own qualification.
 
 ## Continue from exact meaning
 
@@ -424,6 +433,17 @@ DuckDB INTERVAL contributes microseconds only after calendar components are reje
 Parquet preserves all four Arrow Duration units. Original-state rollup and typed
 time folds retain these types through cold recovery. Source computations run as
 Ibis-compiled SQL; fixed continuations use verified retained state.
+
+Ordinary native-table temporal means preserve both string and int64 Subject
+identities, including adjacent int64 keys above `2**53`. They reduce spatial
+contributions before time samples. Original rollup consumes the retained samples
+and support rather than averaging displayed Subject values. Other source shapes
+and timestamp units need their own qualification.
+For DuckDB native tables, microsecond observations with string Subject keys and
+int64 original reductions also support Asia/Tokyo report authority. Native DATE
+and explicitly parsed native timestamp inputs retain their grid/window facts
+through fixed reduction. Use aware scope endpoints when comparing report zones
+over the same instants; civil scope literals follow the selected report zone.
 
 Exact and approximate distinct/quantile operations are chosen in the Metric
 definition. Native quantile rounding is disclosed. A datasource that cannot execute
@@ -822,6 +842,9 @@ from an earlier frozen-definition contract are rejected rather than migrated.
 
 ## Group coordinates and current rows
 
+Summaries of versioned attribute reads preserve the exact input version selection,
+including when the selected values are recovered from an Artifact.
+
 Use complete retained axes or an explicitly corresponding category relation.
 The original Metric merges its components, while `summarize` creates a new
 statistic over the current finished values:
@@ -929,7 +952,10 @@ The complete C08 matrix remains open.
 
 Use fixed values, classifications and weights together for fixed continuation.
 After recovery, `where` executes with the retained reference even when sources
-are offline. Read `marivo.help("analysis.methods.metric.reference")` for the
+are offline. A numeric selection exposes `members()` in its contract only when
+it retains a total Subject map. Numeric coordinates and reference parts alone
+do not provide that map; projection rejects before execution.
+Read `marivo.help("analysis.methods.metric.reference")` for the
 focused constructors and methods. Ranking/Top-K reference invariance is covered
 below; installed-wheel closure remains R6.7 acceptance.
 
@@ -1009,6 +1035,9 @@ of the selected subdomain. It does not reallocate or rebalance residuals.
 Logical missing axes expand the frozen observations as explicit graph inputs.
 Fixed missing axes reject before source access. Fixed complete states support
 allocation, view selection and table export offline, including fresh processes.
+Original UTC microsecond period buckets and day-to-month coarsened partitions
+retain this fixed allocation route; other time precisions and report timezones
+require their own qualification.
 Additive int64, Decimal and Duration use exact carriers; component_mix accepts
 int64/float64/Decimal components and rejects Duration. Zero or unstable total
 denominators, contradictory nonzero numerator/zero basis and excess rounding
@@ -1105,10 +1134,14 @@ Complete Journey opportunities can feed the existing explicit Subject cohort rul
 EventDurationResult exposes `status`, `started_at`, `completed_at`, `duration`,
 `observed_duration`, and `followup_until`. Status distinguishes complete, incomplete,
 coverage_censored, not_entered, and entry_unknown. Only completed pairs have a
-duration; `completed()` returns CompletedJourneys. Duration predicates take
+duration; `completed()` returns CompletedJourneys. Selecting status or temporal
+fields retains their values and Cell tags/reasons, including repeated `where` and
+cold recovery. Duration predicates take
 `datetime.timedelta`. Current-row Duration `mean` retains the Journey denominator:
 10, 30 and 100 seconds yield 140/3 seconds, rounded once to 46.666667 seconds at
 microsecond precision. Subject means 20 and 100 instead average to 60 seconds.
+Retained status, timestamp and microsecond Duration fields also support current-row
+`count` and `count_defined`. Grouping uses the retained complete Subject coordinate.
 Selecting members does not replace the original Journey denominator.
 
 Retained Journey durations in microseconds support `duration.ratio(duration)`
@@ -1159,6 +1192,10 @@ relative = anchors.observe(
 ).execute()
 relative.show()
 relative.contract().show()
+relative.rank(order="descending", ties="ordinal").execute().show()
+row_count = relative.where(relative.value.is_defined()).summarize(mv.count()).execute()
+row_count.contract().show()
+row_count.ratio(row_count).execute().show()
 selected = relative.where(relative.value.is_defined()).execute()
 selected.members().execute().show()
 ```
@@ -1172,6 +1209,14 @@ operations. Read its materialized result's `contract()` for valid continuations.
 Overlapping windows keep each contribution use and cannot be rolled up by removing
 the Anchor coordinate. Fixed continuations consume retained inputs; they cannot
 introduce a new live Metric. Retention remains outside this R7.7 slice.
+Fixed Anchor numeric observations and Journey duration values can be ranked
+without reconnecting their source. Ranking preserves complete instance keys and
+retained method parts; cold exact hits reuse the original Artifact.
+A current-row statistic derived from this relative observation can use ordinary
+ratio. Its captured quantity template has no registered comparison rule, so its
+card omits `compare()` and explains the constraint. Consult the current contract
+before choosing a continuation. A Scalar also has no Entity/category/time
+statistical units, so its card omits `correlate()`.
 
 ## Retention on a fixed Anchor population
 
@@ -1218,6 +1263,10 @@ For SQLite native main tables with int64 identities and UTC microsecond timestam
 Event-origin retention uses the frozen source prefix and registered local consumer
 for elapsed and calendar windows. Unknown stays in the original opportunity set;
 selection and cold recovery preserve its bounds and any/every Subject fibers.
+This Event-origin retention path also accepts string Subject keys. Int64 and
+string occurrence keys retain the complete Subject/Event/occurrence identity
+through fixed execution and cold recovery; string occurrence support does not
+mean that the Subject key is int64. Other source shapes keep their own qualification.
 A separate elapsed/calendar Anchor observation supports one direct int64 sum-zero Metric
 without coordinates or filters. Preparation preserves contribution reuse across overlapping
 windows, business order, and fixed/cold evidence. Compositions and other input shapes
@@ -1233,7 +1282,9 @@ from one calendar day.
 Construct retention while Anchors are logical. A MaterializedAnchorDomain has
 starts only and rejects new return input before execution. Materialized retention
 results retain complete truth/coverage/fibers for source-free status selection and
-quantification. The R7.8 evidence record keeps bounded execution and unfinished
+quantification. Restoring a status or selected status Artifact preserves its Boolean
+field, so `value.eq(True)` remains valid after resume. The R7.8 evidence record
+keeps bounded execution and unfinished
 original fixed-retention qualifications distinct; same-wheel, remote and full R7
 acceptance remain separate.
 
@@ -1277,7 +1328,7 @@ Compare/allocation cap emission at 1000 and retain eligible/emitted/truncated co
 
 The qualified placement is explicit Ibis source preparation followed by local
 consumption, or source-free `artifact_python` for fixed continuation. No native
-funnel route, remote backend, same-wheel or full R7 qualification is claimed here.
+SQL funnel consumer, same-wheel or full R7 qualification is claimed here.
 
 SQLite native main tables with int64 identities and UTC microsecond timestamps
 support preparation of one direct, unversioned string/int64 Subject entry axis or an ordered int64/string pair, plus one string axis through a to-one UTC daily DATE snapshot path or a UTC DATE closed-open validity path with NULL open end before
@@ -1287,6 +1338,13 @@ Snapshot axes require the exact entry period; missing periods reject without sel
 a latest or earlier row. Validity intervals include their start and exclude their end;
 missing or overlapping coverage rejects before publication. Other axis counts/orderings, paths/version profiles and shapes remain unqualified
 by this bounded route.
+
+R9.4 connects PostgreSQL, MySQL, Trino and ClickHouse native tables with int64
+occurrence identities and UTC microsecond timestamps to the same Ibis entry-axis
+preparation and local reduction. The bounded witness uses one ordinary int64
+Subject Dimension and retained comparison/allocation, including nonempty Findings
+and independent public Session recovery. Other axes, versions, states and remote
+cancellation profiles remain separate qualification obligations.
 
 ## Complete-grid runs
 
@@ -1309,6 +1367,14 @@ those facts rejects with a structured analysis error. Use a covered original
 observation or an owned fitted field retaining its grid mapping.
 Time correlation and forecast use the same coverage requirement, even when
 every current ratio Cell is Defined. Missing facts reject before fitting.
+
+An original daily int64 observation can be grouped by its own grid and rolled
+up before runs on SQLite/PostgreSQL/MySQL ordinary tables, Trino Iceberg and
+local ClickHouse MergeTree, with a UTC microsecond event axis. Use
+`members.each(grid).observe(metric, during=grid.window).group_by(grid).rollup()`
+to retain the original complete grid. These native Group declarations add no
+float/Decimal, other time-shape or file-source Group routes. Offline execution
+uses retained inputs; exact hits reuse their stored classification.
 
 
 ## Correlation and prediction
@@ -1361,9 +1427,15 @@ ClickHouse uses native HTTP timeout settings for the remaining execute budget on
 each read. Its read-only account must allow `max_execution_time` and
 `timeout_before_checking_execution_speed`, with throwing timeout overflow.
 Unavailable settings cause a structured rejection before the business read.
-The original deadline is preserved; no partial result or control SQL is used.
-Server timeout and query termination require independent verification, and local
-MergeTree proof does not qualify Distributed shards.
+The original deadline is preserved and partial results are never published.
+A separate bounded connection with the same reader authentication cancels only
+the current Session-owned query ID and user. The reader needs operator-configured
+`SELECT(query, query_id, user) ON system.processes`; these columns permit general
+query-metadata visibility. Missing permission gives a structured repair instead
+of credential escalation. An unconfirmed control close retains an incomplete
+Run and blocks automatic recovery. Server timeout and query termination require
+independent verification, and local MergeTree proof does not qualify Distributed
+shards.
 Native server timeout can precede Python expiry. Its proof uses the configured
 deadline and independent server query status; client and server clocks are
 observed separately.
@@ -1482,3 +1554,50 @@ Forecasts reject Unknown training input; runs treats it as unavailable and split
 segments. Duration quotients preserve this Unknown reason as float64. These
 observations cannot roll up or coarsen partial business data into a complete value.
 Fixed and cold continuations verify the same declaration without source reads.
+
+
+### Local CSV and JSON sum-zero production
+
+Existing local CSV and unparameterized GET JSON files can enter the DuckDB
+R1 schema path. The current qualified observation is an ordinary int64 sum with
+`empty=ms.empty.zero()`, an identity beginning with a string field, and a UTC
+microsecond event axis. Complete composite keys remain intact. Construction may
+infer local schema facts but does not compile a business read or allocate a Run.
+HTTP/request-parameter JSON, other numeric carriers and other observation methods
+remain unqualified; no fallback changes the requested semantics. Fixed continuations
+use the exact retained Artifact and existing local consumers.
+
+With a DuckDB `warehouse` datasource and `sales` domain already declared, an
+existing `data/facts.csv` with `tenant,id,revision,amount,happened` columns can be
+authored and executed as follows. `amount` must infer as int64 and `happened` as a
+microsecond timestamp; JSON can use the same declaration with `md.json(...)`.
+Place these declarations in `models/semantic/sales/models.py`:
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+facts = ms.entity(name="facts", datasource=ms.ref.datasource("warehouse"),
+                  source=md.csv("data/facts.csv"),
+                  primary_key=["tenant", "id", "revision"])
+amount = ms.measure_column(name="amount", entity=facts, column="amount",
+                           additivity=ms.additive_all())
+happened = ms.time_dimension_column(name="happened", entity=facts,
+                                    column="happened", granularity="second",
+                                    parse=ms.timestamp(timezone="UTC"), is_default=True)
+total = ms.aggregate(name="total", measure=amount, agg="sum", time=happened,
+                     empty=ms.empty.zero())
+```
+
+Run the analysis separately from the project root:
+
+```python
+import marivo.semantic as ms
+import marivo.analysis as mv
+
+session = mv.session.get_or_create("file-analysis", report_timezone="UTC")
+result = session.members(ms.ref.entity("sales.facts")).observe(
+    ms.ref.metric("sales.total")
+).execute()
+result.show()
+```

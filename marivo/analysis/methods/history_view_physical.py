@@ -136,6 +136,7 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
         )
         for item in journey_consumers(method)
         if "journey" in item.key.input_domains
+        and method.name not in ("row.count", "row.count_defined")
         for domain in (
             ("interval", "occurrence")
             if method.name in ("map_correspond", "parts_transport")

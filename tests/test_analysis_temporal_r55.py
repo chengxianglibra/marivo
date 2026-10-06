@@ -429,7 +429,7 @@ def test_time_product_codec_does_not_capture_complete_group_parameters() -> None
     domain = DomainSignature(
         Binding("session", "owner", "input", "scope"), "singleton", (), (), "all"
     )
-    adapter = TypeAdapter(RuleParameters)
+    adapter: TypeAdapter[RuleParameters] = TypeAdapter(RuleParameters)
     for value in (CompleteGroups(domain), TimeProduct(domain, "time_product")):
         recovered = adapter.validate_json(adapter.dump_json(value), strict=True)
         assert type(recovered) is type(value)
@@ -575,16 +575,42 @@ def test_source_wall_clock_gap_and_fold_reject_before_publication(
     observed = case.session.members(ms.ref.entity("sales.customer")).observe(
         ms.ref.metric("sales.revenue"), via=ms.ref.relationship("sales.order_buyer")
     )
-    with pytest.raises(AnalysisError, match="instants"):
+    with pytest.raises(AnalysisError) as caught:
         observed.execute()
+    error = caught.value
+    assert (
+        error.expected == "one unique native instant for sales.order.ordered_at in America/New_York"
+    )
+    assert error.received == "invalid or ambiguous wall timestamp " + wall.replace(" ", "T")
+    assert error.repair is not None
+    assert "America/New_York" in error.repair.action
+    assert "explicit UTC offsets" in error.repair.action
+    with case.session._runtime.store._read() as connection:
+        for table in ("dataset_artifacts", "dataset_evidence", "findings"):
+            count = connection.execute("SELECT COUNT(*) FROM " + table).fetchone()
+            assert count is not None and count[0] == 0
 
 
 @pytest.mark.runtime
 @pytest.mark.parametrize("civil_date", [False, True])
+@pytest.mark.parametrize("report_zone", ["America/New_York", "Asia/Tokyo"])
 def test_source_report_and_grid_timezones_are_independent(
-    analysis_dsl_case_factory: DslCaseFactory, civil_date: bool
+    analysis_dsl_case_factory: DslCaseFactory,
+    civil_date: bool,
+    report_zone: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import os
+    import shutil
+    import subprocess
+    import sys
+    from pathlib import Path
+
     import duckdb
+
+    from scripts.r9_qualification_requirements import Json, checked, encode, read
+    from tests.r93_source_trace import capture_source
+    from tests.r94_domain_recovery_worker import snapshot
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -624,14 +650,18 @@ def test_source_report_and_grid_timezones_are_independent(
     session = mv.session.get_or_create(
         name="three-zones",
         question="Independent temporal authority",
-        report_timezone="America/New_York",
+        report_timezone=report_zone,
     )
     grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-03" if civil_date else "2026-08-02"),
+        during=mv.time_scope(
+            start=datetime(2026, 8, 1, 4, tzinfo=timezone.utc),
+            end=datetime(2026, 8, 3 if civil_date else 2, 4, tzinfo=timezone.utc),
+        ),
         grain=mv.grain("day"),
         timezone="America/New_York" if civil_date else "Asia/Tokyo",
     )
-    result = (
+    trace = capture_source(monkeypatch)
+    logical = (
         session.members(ms.ref.entity("sales.customer"))
         .each(grid)
         .observe(
@@ -639,11 +669,57 @@ def test_source_report_and_grid_timezones_are_independent(
             during=grid.window,
             via=ms.ref.relationship("sales.order_buyer"),
         )
-        .group_by(grid)
-        .rollup()
-        .execute()
     )
+    original = logical.execute()
+    result = logical.group_by(grid).rollup().execute()
     assert result.to_pandas().value.tolist() == [10, 20]
+    retained_grid = original._node.root.signature.domain.time_grid
+    assert retained_grid is not None
+    source: dict[str, Json] = {
+        "phase": "produce",
+        "pid": os.getpid(),
+        "session": session.id,
+        "source": original.state.artifact_ref.ref,
+        "civil_date": civil_date,
+        "report_zone": report_zone,
+        "original": snapshot(original),
+        "source_reduction": snapshot(result),
+        "grid": checked(TypeAdapter(BoundTimeGrid).dump_python(retained_grid, mode="json")),
+        "native_sql": [*trace.native_sql],
+        "source_closed": all(owner._closed for owner in trace.owners),
+    }
+    assert trace.native_sql and trace.owners and source["source_closed"] is True
+    (case.root / "r94-temporal-zone.json").write_bytes(encode(source))
+    shutil.rmtree(case.root / "models")
+    case.database_path.unlink()
+    reports: list[Json] = [source]
+    for phase in ("fixed", "cold"):
+        report = case.root / ("temporal-zone-" + phase + ".json")
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tests.r94_temporal_zone_recovery_worker",
+                str(case.root),
+                phase,
+                str(report),
+            ],
+            cwd=Path(__file__).resolve().parents[1],
+            env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        reports.append(read(report))
+    if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
+        name = (
+            "temporal-zone-"
+            + report_zone.replace("/", "-")
+            + ("-date" if civil_date else "-timestamp")
+            + ".json"
+        )
+        Path(directory, name).write_bytes(encode({"reports": checked(reports)}))
 
 
 def test_trailing_day_uses_seconds_across_civil_dst_day() -> None:

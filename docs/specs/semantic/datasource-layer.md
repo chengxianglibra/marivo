@@ -651,6 +651,19 @@ before cleanup, and closes both connections. These purposes do not use or
 extend the certification-only SET/read controls. Independent server termination
 and absence of publication after failure remain separate acceptance proofs.
 
+On 2026-10-06 the user approved a closed ClickHouse owned-query cancellation
+operation. It binds the submitting SourceSession's issued query ID and
+authenticated reader user in `KILL QUERY ... SYNC`, through a separate bounded
+control connection with the same authentication. The reader requires
+`SELECT(query, query_id, user) ON system.processes`; this column permission also
+permits general query-metadata visibility. Operators configure it explicitly.
+Marivo does not grant permissions or issue product `currentUser()` probes.
+This permission and lifecycle boundary applies to the exact issued query and
+authenticated reader. Runtime regression coverage includes pending, initial-
+response and fetch phases, permission refusal, and a retained resource
+obligation when control-close acknowledgement is unavailable; see
+[Runtime test coverage](../../testing/runtime-coverage.md).
+
 `md.raw_sql(datasource: Ref[DatasourceKind], sql: str, *, reason: str,
 limit: int = 100, timeout_seconds: int = 30, include_types: bool = True,
 project_root: Path | None = None) -> RawSqlResult` remains Marivo's managed

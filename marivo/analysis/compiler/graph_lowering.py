@@ -120,7 +120,7 @@ from marivo.analysis.methods.physical import (
 )
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 from marivo.datasource.adapters import BoundSource, PhysicalRequirement
-from marivo.datasource.ir import ParquetSourceIR, TableSourceIR
+from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.semantic._expression_binding import (
     CompiledExpressionSidecar,
     evaluate_expression_body,
@@ -3552,6 +3552,8 @@ def lower(
             if not (
                 (shape.form == "table" and isinstance(bound.source.source, TableSourceIR))
                 or (shape.form == "parquet" and isinstance(bound.source.source, ParquetSourceIR))
+                or (shape.form == "csv" and isinstance(bound.source.source, CsvSourceIR))
+                or (shape.form == "json" and isinstance(bound.source.source, JsonSourceIR))
             ):
                 _fail("the declared physical source form", type(bound.source.source).__name__)
             if not bound.source.relation.schema().to_pyarrow().equals(bound.source.facts.schema):

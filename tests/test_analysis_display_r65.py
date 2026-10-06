@@ -947,3 +947,20 @@ def test_ranking_views_can_be_ranked_again(
     values_frame = result.values.to_pandas()
     assert values_frame.member.tolist() == ordered
     assert values_frame.value.tolist() == [scores[key] for key in ordered]
+
+
+@pytest.mark.parametrize("domain", ("anchor", "journey"))
+def test_fixed_rank_instance_routes_do_not_grant_live_source_domains(domain: str) -> None:
+    from marivo.analysis.methods.builtin import implementations
+    from marivo.analysis.methods.physical import FixedShape, Qualified, SourceShape
+    from marivo.analysis.methods.semantics import MethodKey
+
+    ranked = tuple(
+        item
+        for item in implementations(MethodKey("display.rank"))
+        if item.key.input_domains == (domain,)
+    )
+    assert ranked
+    assert all(isinstance(item.key.shape, FixedShape) for item in ranked)
+    assert all(isinstance(item.qualification, Qualified) for item in ranked)
+    assert not any(isinstance(item.key.shape, SourceShape) for item in ranked)

@@ -390,6 +390,16 @@ def observe_members(
         if aggregate_kind != "count" and body is not None and body.source_column is not None
         else ScalarType("int64")
     )
+    if contribution_schema.shape.form in ("csv", "json") and (
+        aggregate_kind != "sum" or amount_type != ScalarType("int64")
+    ):
+        raise DatasetConstructionError(
+            expected="an ordinary int64 sum-zero observation from local CSV/JSON",
+            received=f"aggregation={aggregate_kind}, value_type={amount_type!r}",
+            repair="Use an int64 Measure with sum and empty=ms.empty.zero(), or a source form with the exact required qualification.",
+            location="analysis.graph_observation",
+            help_target="dsl.LogicalAnalysisDomain.observe",
+        )
     if amount_type.name not in ("int64", "float64") and not (
         (
             isinstance(amount_type, DecimalType)
@@ -524,7 +534,9 @@ def observe_members(
         else event_type.unit
         if pa.types.is_timestamp(event_type)
         else "us",
-        report_timezone if contribution_schema.shape.backend == "duckdb" else "UTC",
+        report_timezone
+        if contribution_schema.shape.backend == "duckdb" and not relative
+        else "UTC",
     )
     nodes: dict[str, Node] = {}
     for node in topology(members.root):

@@ -4,7 +4,10 @@ from dataclasses import replace
 
 from marivo.analysis.core.model import DomainKind
 from marivo.analysis.methods.domain_preparation import implementations as preparations
-from marivo.analysis.methods.domain_preparation import sqlite_implementations
+from marivo.analysis.methods.domain_preparation import (
+    remote_implementations,
+    sqlite_implementations,
+)
 from marivo.analysis.methods.physical import (
     FixedShape,
     Implementation,
@@ -23,6 +26,11 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         for i in preparations(MethodKey("occurrence.prepare"))
         + (
             sqlite_implementations(MethodKey("occurrence.prepare"))
+            if method.name in ("funnel.entry_axes", "funnel.reduce")
+            else ()
+        )
+        + (
+            remote_implementations(MethodKey("occurrence.prepare"))
             if method.name in ("funnel.entry_axes", "funnel.reduce")
             else ()
         )
@@ -58,11 +66,17 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             if method.name == "funnel.entry_axes"
             else ("funnel_state", "finding_policy"),
             qualification=Qualified(
-                f"r93.c12.sqlite.{method.name}.int64_us_utc@v1"
+                f"r94.{base.key.shape.backend}.{method.name}.int64_us_utc@v1"
+                if isinstance(base.key.shape, SourceShape)
+                and base.key.shape.backend in ("postgres", "mysql", "trino", "clickhouse")
+                else f"r93.c12.sqlite.{method.name}.int64_us_utc@v1"
                 if isinstance(base.key.shape, SourceShape) and base.key.shape.backend == "sqlite"
                 else f"r7.{method.name}.{'artifact_python' if isinstance(base.key.shape, FixedShape) else 'ibis' if method.name == 'funnel.entry_axes' else 'ibis_python'}@v1",
                 "analysis.materialization.funnel_execution",
-                "tests/test_r93_journey_consumers.py"
+                "tests/test_r94_native_funnel_recovery.py"
+                if isinstance(base.key.shape, SourceShape)
+                and base.key.shape.backend in ("postgres", "mysql", "trino", "clickhouse")
+                else "tests/test_r93_journey_consumers.py"
                 if isinstance(base.key.shape, SourceShape) and base.key.shape.backend == "sqlite"
                 else "tests/test_analysis_funnel_r74.py",
             ),
@@ -72,7 +86,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         if method.name != "funnel.entry_axes" or not isinstance(base.key.shape, FixedShape)
         if not (
             isinstance(base.key.shape, SourceShape)
-            and base.key.shape.backend == "sqlite"
+            and base.key.shape.backend != "duckdb"
             and method.name == "funnel.reduce"
             and len(types) != 2
         )

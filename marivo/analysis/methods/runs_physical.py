@@ -112,7 +112,25 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         for item in sqlite
         if isinstance(item.key.shape, SourceShape)
     )
-    return (*declarations, *sqlite, *trino, *postgres, *mysql, *clickhouse)
+    grouped = tuple(
+        replace(
+            item,
+            key=replace(item.key, input_domains=("group",)),
+            qualification=Qualified(
+                "r94-" + item.key.shape.backend + "-runs-group-int64-us-utc-v1",
+                "analysis.materialization.runs_execution",
+                "tests/test_r94_statistical_recovery.py",
+            ),
+        )
+        for item in (*sqlite, *trino, *postgres, *mysql, *clickhouse)
+        if method.name == "time.runs"
+        and isinstance(item.key.shape, SourceShape)
+        and item.key.input_domains == ("entity",)
+        and item.key.input_types == (ScalarType("int64"),)
+        and item.key.shape.time == TimeShape("instant", "us", "UTC")
+        and item.key.route == "ibis_python"
+    )
+    return (*declarations, *sqlite, *trino, *postgres, *mysql, *clickhouse, *grouped)
 
 
 def specialize(implementation: Implementation, key: QualificationKey) -> Implementation:

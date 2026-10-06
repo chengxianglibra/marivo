@@ -54,24 +54,32 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
 
 
 @pytest.mark.parametrize(
-    "family,kind,parquet",
+    "family,parquet",
     [
-        (family, kind, parquet)
-        for family in ("int64", "float64", "decimal")
-        for kind in ("sum", "count", "linear", "mean", "weighted", "ratio")
+        (family, parquet)
+        for family in ("int64", "float64", "decimal", "duration")
         for parquet in (False, True)
     ]
-    + [("duration", kind, parquet) for kind in ("sum", "linear") for parquet in (False, True)]
-    + [
-        ("duration_" + unit, kind, True) for unit in ("s", "ms", "us") for kind in ("sum", "linear")
-    ],
+    + [("duration_" + unit, True) for unit in ("s", "ms", "us")],
 )
 def test_numeric_source_fixed_and_axis_expansion(
     analysis_dsl_case_factory: DslCaseFactory,
     family: str,
-    kind: str,
     parquet: bool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import os
+    import shutil
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from marivo.analysis.public_dsl import MetricInputValue
+    from scripts.r9_qualification_requirements import Json, checked, encode, read
+    from tests.r93_source_trace import capture_source
+    from tests.r94_attribution_carrier_worker import parts
+    from tests.r94_domain_recovery_worker import snapshot
+
     case = analysis_dsl_case_factory("j1")
     facts = [(8, "web", 12, 3), (8, "app", 6, 1), (7, "web", 4, 2), (7, "Other", 2, 2)]
     dtype = {
@@ -114,85 +122,151 @@ def test_numeric_source_fixed_and_axis_expansion(
                 path,
             )
     ms.load(workspace_dir=case.root)
-    measure = ms.ref.measure("sales.order.amount")
-    base = mv.runtime_metric.aggregate(measure, agg="sum", label="sum")
-    expression = (
-        base
-        if kind == "sum"
-        else ms.ref.metric("sales.order_count")
-        if kind == "count"
-        else mv.runtime_metric.linear(add=[base, base], label="linear")
-        if kind == "linear"
-        else mv.runtime_metric.aggregate(measure, agg="mean", label="mean")
-        if kind == "mean"
-        else mv.runtime_metric.weighted_mean(
-            measure, ms.ref.measure("sales.order.weight"), label="weighted"
-        )
-        if kind == "weighted"
-        else mv.runtime_metric.ratio(base, base, label="ratio")
+    trace = capture_source(monkeypatch)
+    methods = (
+        ("sum", "linear")
+        if family.startswith("duration")
+        else ("sum", "count", "linear", "mean", "weighted", "ratio")
     )
+    originals: dict[str, Json] = {}
+    original_parts: dict[str, Json] = {}
     members = case.session.members(ms.ref.entity("sales.customer"))
     axes = (ms.ref.dimension("sales.order.channel"),)
 
-    def endpoint(month: int, retain: bool):
+    def endpoint(
+        month: int, retain: bool, metric: MetricInputValue
+    ) -> mv.LogicalRolledNumericRelation | mv.LogicalRolledRatioRelation:
         return members.observe(
-            expression,
+            metric,
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=ms.ref.relationship("sales.order_buyer"),
             coordinates=axes if retain else (),
         ).rollup()
 
-    retained = endpoint(8, True).compare(endpoint(7, True))
-    expanded = endpoint(8, False).compare(endpoint(7, False))
-    by_side = []
-    for month in (8, 7):
-        denominators = sum(
-            w if kind == "weighted" else a if kind == "ratio" else 1
-            for m, _, a, w in facts
-            if m == month
+    for kind in methods:
+        measure = ms.ref.measure("sales.order.amount")
+        base = mv.runtime_metric.aggregate(measure, agg="sum", label="sum")
+        expression = (
+            base
+            if kind == "sum"
+            else ms.ref.metric("sales.order_count")
+            if kind == "count"
+            else mv.runtime_metric.linear(add=[base, base], label="linear")
+            if kind == "linear"
+            else mv.runtime_metric.aggregate(measure, agg="mean", label="mean")
+            if kind == "mean"
+            else mv.runtime_metric.weighted_mean(
+                measure, ms.ref.measure("sales.order.weight"), label="weighted"
+            )
+            if kind == "weighted"
+            else mv.runtime_metric.ratio(base, base, label="ratio")
         )
-        side = {}
-        for m, channel, amount, weight in facts:
-            if m == month:
-                side[channel] = Fraction(
-                    1
-                    if kind == "count"
-                    else amount * (2 if kind == "linear" else weight if kind == "weighted" else 1),
-                    denominators if kind in ("mean", "weighted", "ratio") else 1,
+        retained = endpoint(8, True, expression).compare(endpoint(7, True, expression))
+        expanded = endpoint(8, False, expression).compare(endpoint(7, False, expression))
+        by_side = []
+        for month in (8, 7):
+            denominators = sum(
+                w if kind == "weighted" else a if kind == "ratio" else 1
+                for m, _, a, w in facts
+                if m == month
+            )
+            side = {}
+            for m, channel, amount, weight in facts:
+                if m == month:
+                    side[channel] = Fraction(
+                        1
+                        if kind == "count"
+                        else amount
+                        * (2 if kind == "linear" else weight if kind == "weighted" else 1),
+                        denominators if kind in ("mean", "weighted", "ratio") else 1,
+                    )
+            by_side.append(side)
+        fixed_difference = retained.execute()
+        originals[kind + ":difference"], original_parts[kind + ":difference"] = (
+            snapshot(fixed_difference),
+            parts(fixed_difference),
+        )
+        for label, change in (("allocation", retained), ("expanded", expanded)):
+            result = change.attribute(axes=axes).execute()
+            assert result._dataset is not None
+            originals[kind + ":" + label], original_parts[kind + ":" + label] = (
+                snapshot(result),
+                parts(result),
+            )
+            verified = result._dataset.verified()
+            allocation = next(p.table for p in verified.parts if p.role == "allocation")
+            if family.startswith("duration"):
+                allocation = allocation.set_column(
+                    allocation.schema.get_field_index("allocation__contribution"),
+                    "allocation__contribution",
+                    allocation["allocation__contribution"].cast(pa.int64()),
                 )
-        by_side.append(side)
-    for change in (retained, retained.execute(), expanded):
-        result = change.attribute(axes=axes).execute()
-        checked = result._dataset.verified()
-        allocation = next(p.table for p in checked.parts if p.role == "allocation")
-        if family.startswith("duration"):
-            allocation = allocation.set_column(
-                allocation.schema.get_field_index("allocation__contribution"),
-                "allocation__contribution",
-                allocation["allocation__contribution"].cast(pa.int64()),
+            actual = {r["key_1"]: r["allocation__contribution"] for r in allocation.to_pylist()}
+            expected = {
+                key: by_side[0].get(key, Fraction()) - by_side[1].get(key, Fraction())
+                for key in set(by_side[0]) | set(by_side[1])
+            }
+            if family == "decimal" and kind != "count":
+                assert all(
+                    abs(Fraction(actual[k]) - v) <= Fraction(1, 10**6) for k, v in expected.items()
+                )
+            elif family == "float64" or kind in ("mean", "weighted", "ratio"):
+                assert actual == pytest.approx(
+                    {k: float(v) for k, v in expected.items()}, rel=1e-12, abs=1e-12
+                )
+            else:
+                assert actual == {k: int(v) for k, v in expected.items()}
+            assert (
+                result.current.to_pandas().shape
+                == result.baseline.to_pandas().shape
+                == result.contribution.to_pandas().shape
             )
-        actual = {r["key_1"]: r["allocation__contribution"] for r in allocation.to_pylist()}
-        expected = {
-            key: by_side[0].get(key, Fraction()) - by_side[1].get(key, Fraction())
-            for key in set(by_side[0]) | set(by_side[1])
-        }
-        if family == "decimal" and kind != "count":
-            assert all(
-                abs(Fraction(actual[k]) - v) <= Fraction(1, 10**6) for k, v in expected.items()
-            )
-        elif family == "float64" or kind in ("mean", "weighted", "ratio"):
-            assert actual == pytest.approx(
-                {k: float(v) for k, v in expected.items()}, rel=1e-12, abs=1e-12
-            )
-        else:
-            assert actual == {k: int(v) for k, v in expected.items()}
-        assert (
-            result.current.to_pandas().shape
-            == result.baseline.to_pandas().shape
-            == result.contribution.to_pandas().shape
+        with pytest.raises(AnalysisError):
+            expanded.execute().attribute(axes=axes)
+
+    state: dict[str, Json] = {
+        "phase": "produce",
+        "pid": os.getpid(),
+        "session": case.session.id,
+        "family": family,
+        "form": "parquet" if parquet else "table",
+        "methods": list(methods),
+        "originals": originals,
+        "parts": original_parts,
+        "native_sql": [*trace.native_sql],
+        "source_closed": all(owner._closed for owner in trace.owners),
+        "expanded_fixed_axes_refused": True,
+    }
+    assert trace.native_sql and trace.owners and state["source_closed"] is True
+    (case.root / "r94-attribution-carrier.json").write_bytes(encode(state))
+    shutil.rmtree(case.root / "models")
+    case.database_path.unlink()
+    if (case.root / "source_files").exists():
+        shutil.rmtree(case.root / "source_files")
+    repository = Path(__file__).resolve().parents[1]
+    reports: list[Json] = [state]
+    for phase in ("fixed", "cold"):
+        output = case.root / ("attribution-carrier-" + phase + ".json")
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tests.r94_attribution_carrier_worker",
+                str(case.root),
+                phase,
+                str(output),
+            ],
+            cwd=repository,
+            env={**os.environ, "PYTHONPATH": str(repository)},
+            capture_output=True,
+            text=True,
+            timeout=180,
         )
-    with pytest.raises(AnalysisError):
-        expanded.execute().attribute(axes=axes)
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        reports.append(read(output))
+    if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
+        name = "attribution-carrier-" + family + ("-parquet" if parquet else "-table") + ".json"
+        Path(directory, name).write_bytes(encode({"reports": checked(reports)}))
 
 
 @pytest.mark.parametrize("mode", ["joint", "hierarchy"])

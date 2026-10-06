@@ -56,9 +56,26 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
 
 
 def consumers(method: MethodKey) -> tuple[Implementation, ...]:
-    """Qualify only retained Journey selection, Subject image and Duration mean."""
+    """Qualify retained Journey selection, Subject image and current-row reducers."""
     from marivo.analysis.methods.physical import DurationType, ScalarType
 
+    if method.name in ("row.count", "row.count_defined"):
+        return tuple(
+            replace(
+                item,
+                key=replace(item.key, method=method, input_types=(value,)),
+                parts=("row_state",),
+                precision="checked_int64",
+                qualification=Qualified(
+                    f"r94.{method.name}.{value}.{item.key.shape}@v1",
+                    "analysis.materialization.graph_local_execution",
+                    "tests/test_r94_archived_domain_recovery.py",
+                ),
+            )
+            for item in implementations(MethodKey("journey.read"))
+            if item.key.shape == FixedShape(NoTime())
+            for value in (ScalarType("string"), ScalarType("timestamp"), DurationType("us"))
+        )
     if method.name not in ("map_correspond", "parts_transport", "row.mean", "domain.cohort"):
         return ()
     values = (

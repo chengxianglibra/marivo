@@ -80,7 +80,13 @@ from marivo.analysis.materialization.graph_protocol import (
 )
 from marivo.analysis.materialization.graph_snapshot import same_node_definition
 from marivo.analysis.methods.comparison import output_type
-from marivo.analysis.methods.physical import DurationType, FixedShape, NoTime, ScalarType
+from marivo.analysis.methods.physical import (
+    DecimalType,
+    DurationType,
+    FixedShape,
+    NoTime,
+    ScalarType,
+)
 from marivo.analysis.refs import ArtifactRef
 from marivo.refs import (
     DimensionKind,
@@ -831,7 +837,10 @@ class Relation:
                 "where",
                 self.root.signature.domain,
                 tuple(part_role(part) for part in self.root.signature.parts),
-                self.root.signature.quantity is not None or field_kind is not None,
+                self.root.signature.quantity is not None
+                or field_kind is not None
+                or isinstance(definition, JourneyRead)
+                or (isinstance(definition, PartsTransport) and definition.keep_quantity),
                 (predicate,),
                 field_kind,
                 external_predicate=bool(dependencies),
@@ -1325,10 +1334,18 @@ class Relation:
             coordinates,
             coordinates,
             definition,
+            version_selection=self.root.signature.domain.version_selection,
         )
         value_type = (
             ScalarType("int64")
             if method in ("count", "count_defined")
+            else DecimalType(
+                38,
+                max(self.root.value_type.scale, 6)
+                if method == "mean"
+                else self.root.value_type.scale,
+            )
+            if method in ("sum", "mean") and isinstance(self.root.value_type, DecimalType)
             else self.root.value_type
             if method == "mean" and isinstance(self.root.value_type, DurationType)
             else ScalarType("float64")

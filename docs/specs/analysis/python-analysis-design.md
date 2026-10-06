@@ -343,6 +343,14 @@ remote backend. A private result is transient and grants no Run, Store,
 publication, cache-hit or recovery authority. R4.4 owns its durable encoding;
 R4.5 owns the public cutover.
 
+R9.4 additionally qualifies the existing local CSV and unparameterized GET JSON
+R1 schema bindings for `parts_transport` (string Entity identity, NoTime or UTC/us)
+and `metric.sum_zero` (string Entity identity, UTC/us, ordinary int64 measure).
+The lowering verifies the exact source descriptor kind and uses its existing
+Ibis relation. Local schema inference is permitted metadata, not business-result
+proof. HTTP/parameterized JSON and other methods/carriers require their own exact
+qualifications; admission never fetches remote JSON merely to infer a schema.
+
 The verified private source prefix is DuckDB native table or Parquet, `NoTime`,
 complete int64 identity, and exact registered `bind_project`,
 `parts_transport`, `map_correspond`, `row.count`, `row.count_defined`,
@@ -538,6 +546,13 @@ method/version, time and empty-state premises. A legal empty `(0,0)` state can
 merge although its displayed mean or ratio is Undefined; absent or unknown
 state cannot be replaced by zero. Exact version selection uses the declared
 instant/before-end policy and full Entity identity, never a last-known row.
+R9.4 additionally qualifies fixed `NoTime` Entity `Decimal(18,2)` current-row
+sum and mean: sum and its state are `Decimal(38,2)`, while mean finishes once
+to `Decimal(38,6)` with HALF_EVEN from exact sum/int64 count. The resulting
+singleton statistics can roll up their captured state; mean keeps the original
+sum scale 2 even though its displayed scale is 6. Empty sum is defined zero;
+empty mean is Undefined(empty_mean). This adds neither source row reducers nor
+Decimal group/time keys. The original quantile remains nonadditive.
 Direct exact distinct and quantile observations have no original-state rollup
 or attribution K from a displayed scalar; a coarser result requires a fresh
 observation at that target domain. Source I/O and data checks are built as
@@ -951,6 +966,14 @@ backend. Admission is probe-then-open per backend and fold kind: the
 status-time component and the node-level fold override consult the same
 per-backend qualified kind set.
 
+The source graph's ordinary native-table UTC-microsecond temporal fold route
+accepts string and int64 Subject identities. Int64 Subject transport preserves
+adjacent identities above `2**53`; native mean recovery retains each Subject's
+ordered samples and spatial support before applying the time fold. This carrier
+qualification does not add a fold kind, view/Distributed shape, timestamp unit,
+or implicit source-after-local route. Fixed recovery consumes those original
+samples rather than averaging the displayed Subject values.
+
 Comparison and attribution use complete non-Entity axis state, including
 hidden-axis expansion on PostgreSQL, SQLite, Trino and ClickHouse for
 additive difference and component mix. SQLite encodes source masks as
@@ -1031,6 +1054,13 @@ and invalid names fail when reader authority is needed. Physical instants and
 explicit parser authority do not require a reader probe. IANA and explicit fixed
 offsets are supported for reader/report authority; native parser declarations
 retain their existing IANA validation. Report authority is persisted once.
+The bounded DuckDB native-table microsecond/string-Subject route also qualifies
+`metric.observe` and int64 `state_rollup` under Asia/Tokyo report authority,
+including native DATE and explicitly parsed native timestamp inputs. Source
+and fixed reductions retain the same grid/window facts. Comparing report zones
+uses the same aware scope endpoints; civil scope literals intentionally change
+their instant boundaries with report authority. Other method/type/shape keys
+retain their own qualification.
 
 Scopes compare exact instants before producing report-local civil coordinates.
 Naive timestamps in DST gaps or folds fail rather than selecting an implicit
@@ -1515,6 +1545,8 @@ CategoryRelation. Wrong Session, incompatible phase, ambiguous kind/path or a
 multivalued read rejects at the earliest known boundary. Scalar read requires
 one value per complete target identity, including checked coverage of that
 consumer's domain. Historical read requires explicit `at`; no implicit latest.
+Current-row summaries of a versioned read retain that exact version selection
+in their output domain, including after selection and fixed recovery.
 The shorthand member-domain `group_by(OwnDimension)` may inherit the uniquely
 bound member version as its explicit property dependency. It cannot search for
 cross-Entity attributes or inherit an observation window.
@@ -2138,6 +2170,9 @@ then use the exact callable/type targets and current result `.contract()`.
 `where` retains original reference identity, denominator, support/intersection
 proof and all weights/values, including zero-weight non-Defined strata. Fixed
 recovery executes those continuations without current Semantic or DuckDB.
+Selected numeric results disclose `members()` only when they retain a total
+Subject map. Complete numeric keys and reference parts do not grant Subject
+authority; without that map, projection rejects before execution.
 R6.5 ranking/Top-K invariance and R6.7 installed-wheel acceptance are not qualified
 by this source-checkout implementation.
 
@@ -2222,6 +2257,11 @@ continuations use retained receipts only. Ordinary source reads keep their norma
 read guarantees and do not claim a shared snapshot. Historical selected-population
 and occurrence preparation still require their existing capture authority. This
 subset does not qualify other original methods, source numeric types or complete C09.
+
+The connected fixed allocation route also retains UTC microsecond time shape
+for original period buckets and day-to-month coarsened partitions. Source and
+fixed allocation consume the same complete retained partition; this exact
+registration does not qualify other time precisions or report timezones.
 
 A logical observation over a locally selected population exposes execution as its
 continuation boundary. Execute it before grouping, comparison or other derived
@@ -2556,7 +2596,12 @@ ibis_python preparation/consumption route before submission; SQLite's unsupporte
 microsecond interval arithmetic is not emitted or rewritten. Native backup
 authority freezes the source prefix. The original opportunity set, Unknown
 follow-up, deterministic bounds and any/every Subject fibers remain retained
-through selection and cold recovery. Starts-only fixed anchors still reject
+through selection and cold recovery. R9.4 additionally qualifies string Subject capture for this
+same native main-table UTC-us Event-origin retention path. Int64 and string
+occurrence identities preserve their complete Subject/Event/occurrence tuples;
+the preparation key describes the Subject carrier, not the occurrence carrier.
+This capture qualification does not add Journey/History consumers or new source
+forms and timestamp units. Starts-only fixed anchors still reject
 new return inputs. A separately registered SQLite Event-origin Anchor Metric
 observation supports one direct int64 sum-zero Metric without coordinates or
 filters, using elapsed or calendar windows. Its preparation reads flat candidates and packs
@@ -2793,6 +2838,14 @@ original observation or an owned fitted field retaining its grid mapping.
 The same requirement applies to time association and forecast consumption:
 missing endpoint coverage raises a structured analysis error before fitting,
 including when every current ratio Cell is Defined.
+
+For the native-table int64 UTC/us route, an original complete daily observation
+may be grouped by the same grid and rolled up before runs. R9.4 connects this
+Group key on SQLite, PostgreSQL, MySQL, Trino Iceberg and local ClickHouse
+MergeTree through the existing prepared graph and classification owner. It adds
+no float/Decimal, other time-shape or file Group declarations. Retained numeric
+inputs continue through the existing fixed route without current Semantic or
+source access; exact hits do not execute another segmentation kernel.
 
 ```python
 segments = daily.runs(where=daily.value.gt(20))
