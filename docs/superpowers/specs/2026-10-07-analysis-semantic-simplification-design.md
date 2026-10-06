@@ -1,0 +1,298 @@
+# Analysis DSL 与语义层简化方案
+
+Date: 2026-10-07
+
+Status: proposed; implementation has not started.
+
+Baseline: `panda@ccbed62962e21beef5778c738037e62d912ec8fb`.
+
+优先收敛重复图校验、物理实现声明和语义规范化，再处理持久化依赖与表达式书写约束。
+目标是减少同一事实的重复推导、重复表示和重复检查，同时保持结果正确性与清晰的失败边界。
+前三项先按等价内部整理实施；改变支持范围、恢复协议或作者语法的部分分别交付。
+
+本文是优化提案，不改变当前生效契约，不授予新的后端、类型或方法组合资格，也不表示
+R10、安装包、真实 Agent 或发布验收已经完成。本次文档交付不修改产品实现、已有规范、
+`AGENTS.md` 或 packaged skills。
+
+## 1. 范围与设计原则
+
+优化覆盖 Semantic 编译状态、Analysis 定义图、方法选择、lowering 和固定 Artifact 读取。
+保留现有 Semantic、Analysis、Datasource、Runtime、Store 分层，优先复用已有类型和 owner。
+不引入通用证明引擎、第二套 registry、跨进程编译缓存或新的公共“已验证”令牌。
+
+每个检查应回答三个问题：它验证哪个事实，该事实在哪个边界可能变化，失败由谁报告。
+同一不可变定义的事实可以复用；当前源数据、当前物理绑定和本次执行完成情况必须由
+相应执行边界验证。删除一项检查前，应能指出接替它的唯一责任位置或说明该检查没有独立责任。
+
+以下规范继续拥有当前契约；相应工作包实施时，只修改受影响章节：
+
+- [Python Analysis design](../../specs/analysis/python-analysis-design.md)：图、方法选择和执行交接。
+- [Operators and frames](../../specs/analysis/operators-and-frames.md)：算子语义和保留状态。
+- [Session state and runtime](../../specs/analysis/session-state-and-runtime.md)：运行、发布与恢复。
+- [Semantic overview](../../specs/semantic/overview.md)、[Semantic object model](../../specs/semantic/semantic-object-model.md)：业务定义和表达式契约。
+- [Loading and validation](../../specs/semantic/loading-validation-introspection.md)：加载、编译与 readiness。
+- [Public surface](../../specs/agent-friendly-public-surface.md)、[AGENTS.md](../../../AGENTS.md)：公共披露与仓库规则。
+
+## 2. 当前证据与优先级
+
+以下观察绑定上述基线。调用次数来自纯内存构图探针，声明数量来自当前 `REGISTRY`；
+二者均不证明端到端加速或真实后端资格。未测量的时间、内存和代码削减比例不预填估计值。
+
+| 工作包 | 当前问题与证据 | 优先级 | 首次交付边界 |
+| --- | --- | --- | --- |
+| O1 图校验 | `method_node()` 验证输入拓扑、节点构造再次校验、随后再验证完整拓扑；`lower()` 重新规划并比较 | 最高 | 复用静态校验结果，保持公开拒绝边界 |
+| O2 实现声明 | 84 个方法注册、11,470 条物理实现声明；部分准入按 `r93.c…` 实现 ID 前缀判断 | 高 | 支持集合、路线和持久化身份保持等价 |
+| O3 语义编译 | `normalize_target_metric()` 每次进入 Metric forest lowering 与规范化 | 高 | 在同一编译状态内按需复用成功的静态契约 |
+| O4 持久化 | `validate_descriptor()` 恢复图并调用 `descriptor_plan()`，后者重新选择原生产实现 | 中 | 先消除一次操作内的重复验证，再单独调整协议 |
+| O5 作者语法 | 表达式体只允许单个 return；验证、列提取和编译分别处理 AST | 中 | 先统一解析，局部表达式绑定另作语法增量 |
+
+O1 的基线探针连续添加 `PartsTransport("view", ...)`，记录 `_validate_method` 调用次数：
+
+| 新增节点数 | 方法校验调用次数 |
+| ---: | ---: |
+| 10 | 110 |
+| 20 | 420 |
+| 40 | 1,640 |
+
+该构图路径出现二次增长。它不是整个编译器的复杂度结论；签名大小、保留 parts、
+输出布局和方法自身推导可能另有成本，优化后需分别测量。
+
+主要代码入口：
+
+- O1：[graph.py](../../../marivo/analysis/core/graph.py)、[graph_plan.py](../../../marivo/analysis/compiler/graph_plan.py)、[graph_lowering.py](../../../marivo/analysis/compiler/graph_lowering.py)。
+- O2：[builtin.py](../../../marivo/analysis/methods/builtin.py)、[registry.py](../../../marivo/analysis/methods/registry.py)、[physical.py](../../../marivo/analysis/methods/physical.py)。
+- O3：[compiled state](../../../marivo/semantic/_compiled_state.py)、[metric graph lowering](../../../marivo/semantic/metric_graph_lowering.py)、[graph observation](../../../marivo/analysis/materialization/graph_observation.py)。
+- O4：[graph protocol](../../../marivo/analysis/materialization/graph_protocol.py)、[graph snapshot](../../../marivo/analysis/materialization/graph_snapshot.py)、[graph storage](../../../marivo/analysis/materialization/graph_storage.py)。
+- O5：[validator](../../../marivo/semantic/validator.py)、[expression binding](../../../marivo/semantic/_expression_binding.py)。
+
+## 3. 保留的语义边界
+
+| 事实 | 责任位置 | 优化后的要求 |
+| --- | --- | --- |
+| Entity、Metric、单位、业务时间和依赖含义 | Semantic 编译状态 | 同一不可变定义复用；重新加载后使用新状态 |
+| DAG 身份、角色、派生签名与归属 | Analysis 构造与编译入口 | 新节点局部检查；外部输入和执行入口完整检查 |
+| 后端、字段类型、schema、时区和实际绑定 | Datasource 与执行准备 | 按本次绑定验证，静态缓存不替代物理事实 |
+| 唯一键、配对、覆盖、数值有效性 | 对应执行消费者 | 绑定实际输入与检查时机；不复用旧源读取证明新读取 |
+| Cell 状态、聚合分量和 retained parts | 方法语义与结果消费者 | 保留 Unknown、Null、Undefined、缺失坐标的区别 |
+| receipt、文件完整性和发布状态 | Store 读取与发布边界 | 读取当前受约束字节，完整性校验不被元数据缓存跳过 |
+| 取消、截止时间和资源释放 | Runtime 与 provider | 完成条件不因静态简化而放宽 |
+
+跨 Session/owner 输入、错误粒度与比较对齐、Decimal/Duration 精度、时间解释、
+完整性不足和原始聚合状态不足仍必须正确拒绝或返回既有状态。声明、静态资格、
+当前执行证据仍是不同事实，不能互相替代。
+
+## 4. O1 收敛图校验与编译遍历
+
+### 目标结构
+
+构造新节点时从直接输入签名推导一次结果，检查新增参数、直接输入角色、类型和归属。
+由既有内部构造路径产生且未跨边界的节点，不为每次追加节点重新遍历全部祖先。
+
+编译入口对捕获的定义闭包完整检查一次，得到依赖顺序、节点索引、派生结果和必要摘要。
+计划生成、classification、lowering 和同一次调用内的静态消费者复用这些结果。
+lowering 继续校验实际绑定与计划的对应关系，停止通过重新运行整个 planner 验证内部交接。
+
+完整检查至少覆盖重复 identity、环、外部伪造节点、错误签名、跨 owner 输入、被修改的
+计划和持久化解码。复用只能绑定同一个捕获对象及其 registry 解释，不能仅凭业务
+fingerprint 或调用方传入的布尔值信任对象。`frozen=True` 本身也不构成跨边界证明。
+
+### 范围与出口
+
+- 保持节点身份与定义 fingerprint 的区别：共享同一节点只执行一次，等定义独立节点不合并。
+- 保持公开非法输入的拒绝时机，尤其是业务读取和 Run 分配之前的拒绝。内部伪造对象
+  测试若改在编译入口拒绝，应明确修改该私有边界契约，不删除反例。
+- 反序列化、跨调用输入和新的物理绑定仍经过各自入口检查；不缓存跨 Run 的源数据检查结果。
+- 上述固定大小签名的链式探针，其构造期方法校验调用次数随节点数线性增长；共享 DAG
+  的完整入口遍历按节点与边访问，不按展开后的路径重复计算。
+- 现有 source/fixed 路线、结果、parts、错误种类和持久化摘要保持等价；摘要需要改变时
+  移到 O4 协议变更中处理。
+
+不以消除所有检查为目标，也不把所有静态错误推迟到 `execute()`。
+
+## 5. O2 将能力限制归还给实现消费者
+
+### O2a 等价整理
+
+保留唯一 `MethodRegistry` 和精确的输入类型、域、shape、route 判断。相同消费者拥有的
+重复声明用小型静态表和现有专用函数表达；方法语义继续拥有 required checks、parts、
+精度和结果类型，消费者拥有可执行参数范围。
+
+删除依据 `implementation_id.startswith("r93.c…")` 决定能力的逻辑。实现 ID 保留为
+稳定身份或溯源信息，行为限制由明确的消费者规则决定。第一步保持现有 ID、版本和
+exact-key 选择结果，避免把内部整理变成已存 Artifact 的身份变更。
+
+只提取真实重复的能力维度，不建设可配置规则语言或通用插件调度器。选择仍得到唯一
+实现；不得因为一条路线失败而自动重试另一条路线。
+
+### O2b 支持范围简化
+
+在 O2a 完成后，逐项检查仅支持某个路径长度、类型组合或完全一致 shape 的限制：
+它来自算法、provider 能力、语义要求，还是仅来自历史验收样例。
+每次只扩大一个有明确消费者依据的范围，并补充对应边界与实际执行证据。
+
+全图相同 shape、禁止 mixed source/fixed 等现有规则不随声明整理自动放开。若要调整，
+应先给出具体合法操作、输入绑定和执行责任，再修改 owning spec。
+
+### 出口
+
+O2a 对基线声明集比较方法、输入类型与域、shape、route、实现 ID/版本、检查、parts、
+精度和资源契约；同时覆盖 Decimal 参数族、可变输入个数、特殊参数限制和相邻拒绝案例。
+只比较 11,470 条基础声明不足以覆盖动态 specialization。
+
+通过条件为支持/拒绝集合及选择结果等价，且生产逻辑不再根据验收阶段前缀分支。
+O2b 的新增资格单独记录，不反向改写历史验收结论，也不机械展开所有维度的笛卡尔积。
+
+## 6. O3 复用已编译的语义契约
+
+在现有 `CompiledSemanticState` 所属生命周期内，按需复用已成功产生的
+`TargetMetricContract`、规范化 Metric forest 和静态依赖事实。首次请求才处理所需
+依赖闭包，避免在 `ms.load()` 时强制编译全部未使用对象或提前拒绝仍可加载的定义。
+
+缓存由内部编译上下文拥有，不暴露为公共能力；不修改对外不可变状态。实施前核对
+registry、sidecar 和嵌套定义的真实不可变性，不能仅根据 dataclass 外壳判断安全。
+同一加载状态必须保持确定解释；改变定义通过新加载状态生效。
+
+缓存标识包含实际语义输入、依赖版本和解释规则版本。对 Runtime Metric 输入保留有序
+根与重复位置，以及适用的 presentation 信息；不能只用 Metric 名称、相同显示标签或
+一个与依赖无关的字符串作为键。新加载、不同 project/编译状态相互隔离。
+
+仅保存成功的静态结果。不缓存连接、物理 schema、行数据、readiness 的外部完整性事实
+或失败异常对象。未知物理类型仍保持待绑定状态；命中缓存不能跳过本次物理类型校验。
+源表达式的构建预算和输入合法性要求仍由适用入口负责。
+
+出口包括：同一编译状态中重复消费同一 Metric 不再重复 forest lowering；依赖变化、
+新加载、不同 sidecar 和不同 Runtime Metric 顺序不会错误命中；缓存命中与首次路径
+给出相同语义结果和公开失败边界。记录重复调用收益以及保留对象的内存成本。
+
+## 7. O4 缩小固定结果对生产计划的依赖
+
+### O4a 一次读取内复用验证结果
+
+先保持 Store 格式、摘要、版本和恢复规则不变。在一次读取或续算操作内传递已经验证的
+descriptor、恢复图和计划，避免不同 helper 再次解码、恢复和规划相同元数据。
+适用位置包括固定签名、结果读取和 Materialized 对象构造。
+
+复用元数据解释不代表磁盘字节仍未变化。文件读取继续验证对应 receipt 与实际读入内容；
+同一次操作中的复用必须绑定同一已验证输入。后续独立调用、文件被替换和损坏恢复仍按
+当前契约处理，不能靠路径相同或曾经读成功绕过完整性检查。
+
+### O4b 调整持久化契约
+
+进一步把三项责任明确分开：
+
+| 责任 | 所需信息 |
+| --- | --- |
+| 读取固定结果 | 发布身份、receipt、实际 schema、语义签名、行与 Cell 契约 |
+| 执行新的固定续算 | 对应 retained parts、状态版本、输入身份及新方法的能力 |
+| 解释历史来源 | 生产图、原实现身份、历史 lineage 与执行证据 |
+
+目标是固定结果的读取不再以“当前 registry 还能重新选择原生产实现”为前提。
+新的续算仍检查自身方法、所需状态和输入绑定；保留的历史契约必须有明确的解码与验证
+语义，不能把从生产 planner 去掉的检查原样搬到第二套 planner。
+
+O4b 实施前必须确定最小冻结契约如何支撑现有 continuation、错误、Findings 与证据读取，
+以及哪些生产图字段仍被这些消费者需要。尚未完成该清单之前不删除完整 DAG 或来源信息。
+
+这是独立协议调整。具体版本、摘要变化和旧状态处置在其实施设计中确定；本提案不授权
+迁移或删除旧文件，也不默认增加双读兼容路径。不兼容状态需有明确版本错误和修复路径。
+
+出口为：已支持格式的固定读取不访问源、不重新选择生产路线；新续算保留所需状态检查；
+跨进程冷恢复、损坏 receipt/parts、错误版本和输入替换仍正确处理。O4a 可以独立完成，
+不以 O4b 完成为前提。
+
+## 8. O5 统一表达式解析并放宽局部书写
+
+### O5a 等价解析整理
+
+在现有 expression sidecar/编译流程中复用同一函数的解析结果，为验证、依赖提取、
+列访问分析和 body identity 提供输入。保留各 owner 的职责，避免将 validator 扩展为
+执行调度器。既有合法函数的身份、错误和依赖集合必须保持等价。
+
+### O5b 有限局部表达式绑定
+
+在 O5a 后，允许表达式函数使用顺序局部绑定及一个最终 return。示意函数体如下；
+它是拟议语法，目前不满足单返回表达式约束：
+
+```python
+def amount(orders):
+    gross = orders["price"] * orders["quantity"]
+    discount = orders["discount"].fill_null(0)
+    return gross - discount
+```
+
+增量限于普通局部名字、之前已定义的局部值、现有合法字段绑定与表达式运算。
+拒绝局部重赋值、属性或容器写入、覆盖参数、使用未定义名字及控制流。
+不新增任意 helper、动态 I/O、SQL 执行或外部表引用能力；既有表达式调用范围不扩大。
+Event 等独立受限语法不自动获得相同扩展。
+
+局部值按原顺序构建并保留共享，不能用简单文本替换导致同一表达式被重复求值。
+依赖和列访问从规范化绑定结构提取。局部名字变更的 fingerprint 规则、已有单 return
+函数的身份保持方式以及不支持表达式的错误位置，需要与该语法一起定义和验证。
+
+该项主要减少作者重复表达式与深层链式调用，初期不承诺减少 validator 行数。
+若实现需要扩展成通用 Python 静态解释器，应缩小语法范围。实施时同步
+Semantic object model、原生 Help 约束、正反例、typing 和最新中英文文档；
+packaged skills 仅在确需修改且取得仓库要求的明确授权后编辑。
+
+## 9. 交付顺序与验收
+
+推荐主顺序为 `O1 → O2a → O3 → O4a → O5a`。每项单独形成可审查、可回退的变更。
+O2b、O4b、O5b 是分别调整能力、恢复协议和作者语法的后续工作，不捆绑进首轮优化。
+它们需要相应契约决策落定后实施，不以本文存在代替实施授权。
+
+每包提交简短的变更说明、受影响检查责任、实际删除/合并的重复逻辑和验收结果。
+不建立新的大型阶段台账，不将旧资格记录复制成另一份运行时清单。
+
+| 维度 | 验收方式 |
+| --- | --- |
+| 正确性 | 独立结果 oracle、Cell/parts/身份、错误种类和公开拒绝时机对照 |
+| 构图成本 | 链式与共享 DAG 的节点数、方法推导/校验次数；时间和内存另测 |
+| 能力等价 | O2a 基础声明、动态 specialization、参数边界与邻近拒绝案例 |
+| 语义复用 | 同状态重复调用次数、新状态失效、依赖与顺序隔离 |
+| 固定结果 | 元数据恢复/规划次数、receipt 完整性、固定续算和冷恢复 |
+| 维护成本 | 删除的重复分支、减少的事实 owner、新增辅助类型和净代码变化 |
+
+调用次数用于解释成本，功能反例用于证明边界；不把内部调用次数测试当作唯一正确性
+证据。首轮不承诺统一加速比例。若仅增加缓存、标志位和 wrapper，却没有删除重复路径
+或取得可测收益，应停止该实现并重新缩小方案。
+
+测试遵循现有仓库入口：先用 `make test TESTS='...'` 跑受影响的最小范围，再按共享
+行为影响运行 `make check-agent`。O1 首查 `tests/test_analysis_graph_r33.py` 与
+`tests/test_analysis_lowering_r34.py`；O4 首查 `tests/test_analysis_graph_publication_r44.py`。
+O2、O3、O5 的精确测试范围在实施时按实际消费者确定；新增或修改测试遵循
+[marivo-test-fixtures](../../../.agents/skills/marivo-test-fixtures/SKILL.md)。
+
+真实 provider 行为变更使用受影响的 `make runtime-test TESTS='...'` 范围；完整 Runtime
+验收、安装包和发布检查仍由对应交付阶段负责。不能把静态声明等价、默认测试通过或
+本次纯内存探针升级为这些层次的资格。
+
+## 10. 基线复核
+
+以下只读命令在上述基线上输出 `84`、`11470`，以及 `10 110`、`20 420`、`40 1640`。
+它借用当前测试文件中的 source builder，不执行测试函数；该私有辅助函数变化后应随
+实现重新选择等价 fixture。此命令用于复核历史基线，不是优化后的黄金行为要求。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B - <<'PY'
+from runpy import run_path
+from unittest.mock import patch
+
+import marivo.analysis.core.graph as graph
+from marivo.analysis.core.rules import PartsTransport
+from marivo.analysis.methods.registry import REGISTRY
+
+print(len(REGISTRY.registrations))
+print(sum(len(item.implementations) for item in REGISTRY.registrations))
+source = run_path("tests/test_analysis_graph_r33.py")["_source"]
+for depth in (10, 20, 40):
+    root = source()
+    with patch.object(graph, "_validate_method", wraps=graph._validate_method) as checks:
+        for _ in range(depth):
+            root = graph.method_node(
+                (graph.Edge("quantity", root),),
+                PartsTransport("view", root.signature.domain, (), True),
+                value_type=root.value_type,
+            )
+        print(depth, checks.call_count)
+PY
+```
