@@ -682,7 +682,7 @@ def authoring_session(*, domain: str):
     """Context manager that enters a LoaderContext with a default domain.
 
     Exposes helpers for declaring measure dimensions and inspecting pending
-    metric IR objects. Used by tests/test_metric_split_foundation.py.
+    metric IR objects. Used by tests/semantic/test_metric_split_foundation.py.
     """
     from marivo.semantic import authoring
     from marivo.semantic.ir import MetricIR

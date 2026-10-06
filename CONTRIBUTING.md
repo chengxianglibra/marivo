@@ -128,16 +128,16 @@ cd site && npm run build
 make test
 
 # Run focused Runtime checks when the change needs them
-make runtime-test TESTS='tests/test_lazy_local_execution.py'
+make runtime-test TESTS='tests/analysis/materialization/test_numeric_recovery.py'
 
 # Run daily tests, static checks, and API documentation checks
 make check-agent
 
 # Run a specific test file with compact output
-make test TESTS='tests/test_sessions.py'
+make test TESTS='tests/analysis/session/test_analysis_session_core.py'
 
 # Run a specific test method
-make test TESTS='tests/test_sessions.py::SessionAPITests::test_get_session_after_create'
+make test TESTS='tests/analysis/session/test_analysis_session_core.py::test_session_public_fields_are_read_only'
 
 # 显示详细输出
 .venv/bin/pytest -v
@@ -167,7 +167,7 @@ cases for engine-specific execution, receipts, and recovery. See
 For test performance investigations, measure the same suite with
 `.venv/bin/pytest -m runtime -n 2 --durations=40 <selected-tests>`, then compare
 explicit worker counts and simultaneous invocations. Compiler oracle tests can use
-`assert_compiled_validations` from `tests/lazy_execution_fixtures.py` to check
+`assert_compiled_validations` from `tests/analysis/graph/execution_fixtures.py` to check
 every named validation in one query without repeatedly compiling shared Ibis
 nodes. Keep independent budget checks parametrized so xdist can distribute them.
 

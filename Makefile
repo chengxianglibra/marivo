@@ -44,14 +44,14 @@ runtime-test-agent:
 installed-multisource-test:
 	@test "$$MARIVO_INSTALLED_MULTISOURCE_TEST" = "1" || (echo "Set MARIVO_INSTALLED_MULTISOURCE_TEST=1 and start the selected services first."; exit 1)
 	@./scripts/require-venv.sh pytest
-	@$(VENV_PYTEST) $(PYTEST_FLAGS) -n 0 -m release tests/test_installed_multisource.py
+	@$(VENV_PYTEST) $(PYTEST_FLAGS) -n 0 -m release tests/packaging/test_installed_sources.py
 
 release-test: pypi-build pypi-check
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) -n 0 -m release \
-		tests/test_install_marivo_script.py \
-		tests/test_install_marivo_script_uv.py \
-		tests/test_analysis_runtime_wheel.py \
+		tests/packaging/test_installer.py \
+		tests/packaging/test_installer_uv.py \
+		tests/packaging/test_wheel.py
 
 typecheck:
 	@./scripts/require-venv.sh mypy

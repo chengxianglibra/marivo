@@ -10,8 +10,8 @@ from typing import Any
 import ibis
 import pytest
 
-from tests.install_marivo_helpers import InstallerEnv, InstallerToolchain
-from tests.r93_source_trace import SourceTrace
+from tests.packaging.installer_helpers import InstallerEnv, InstallerToolchain
+from tests.packaging.wheel_support import InstalledWheel, prepare_wheel
 from tests.shared_fixtures import (
     DSL_NAMES,
     FUNNEL_BASE_EVENTS,
@@ -28,6 +28,7 @@ from tests.shared_fixtures import (
     seed_analysis_dsl_database,
     seed_lifecycle_backend,
 )
+from tests.support.source_trace import SourceTrace
 
 # Cap DuckDB to a single thread per connection. DuckDB defaults to
 # hardware_concurrency() threads; with one pytest-xdist worker per CPU that
@@ -426,8 +427,8 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
 
 
 @pytest.fixture
-def retained_r54_case(analysis_dsl_case_factory: DslCaseFactory) -> DslCase:
-    """Preserve the historical 147 total and selected 140/3 fold oracle."""
+def retained_coordinates_case(analysis_dsl_case_factory: DslCaseFactory) -> DslCase:
+    """Preserve the independent 147 total and selected 140/3 fold oracle."""
     import duckdb
 
     import marivo.semantic as ms
@@ -451,8 +452,38 @@ def retained_r54_case(analysis_dsl_case_factory: DslCaseFactory) -> DslCase:
 
 
 @pytest.fixture
-def r93_source_trace(monkeypatch: pytest.MonkeyPatch) -> SourceTrace:
-    """Capture native cursor calls and execution-owner receipts for R9.3."""
-    from tests.r93_source_trace import capture_source
+def source_trace(monkeypatch: pytest.MonkeyPatch) -> SourceTrace:
+    """Capture native cursor calls and execution-owner receipts."""
+    from tests.support.source_trace import capture_source
 
     return capture_source(monkeypatch)
+
+
+@pytest.fixture(scope="session")
+def installed_wheel(tmp_path_factory: pytest.TempPathFactory) -> InstalledWheel:
+    """Prepare one candidate wheel without replaying development test matrices."""
+    return prepare_wheel(tmp_path_factory.mktemp("installed-wheel"))
+
+
+@pytest.fixture(scope="session")
+def installed_multisource_wheel(installed_wheel: InstalledWheel) -> InstalledWheel:
+    """Add native drivers only for explicitly opted-in installed-source checks."""
+    wheel = installed_wheel.wheel
+    installed_wheel.run(
+        "install-native-drivers",
+        [
+            str(installed_wheel.interpreter),
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--constraint",
+            str(installed_wheel.work / "constraints.txt"),
+            f"{wheel}[all]",
+            "psycopg[binary]",
+        ],
+    )
+    installed_wheel.run(
+        "native-dependency-check", [str(installed_wheel.interpreter), "-m", "pip", "check"]
+    )
+    return installed_wheel

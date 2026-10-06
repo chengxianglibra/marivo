@@ -156,7 +156,7 @@ make check
 `make test` 运行日常回归测试；`make check` 和 `make check-agent` 合并日常测试、
 静态检查和 API 文档检查。完整 Runtime 验收由 `make release-check` 执行。
 主要功能测试使用本地 Parquet 文件，engine 专属契约保留 DuckDB 验证。发布检查不需要对象存储服务。
-日常开发按需使用 `make runtime-test TESTS='tests/test_lazy_local_execution.py'`；
+日常开发按需使用 `make runtime-test TESTS='tests/analysis/materialization/test_numeric_recovery.py'`；
 `runtime-test-agent` 为同一范围提供精简输出。这两个 Runtime 入口默认使用两个
 worker，可在测量主机可用容量后通过 `RUNTIME_WORKERS=4` 覆盖。含 `::` 的单个
 测试节点仍串行执行。并发数限制针对每次调用，同机多个测试任务仍共享主机资源。
