@@ -79,8 +79,8 @@ def methods(v: mv.LogicalNumericRelation, b: mv.LogicalNumericRelation) -> None:
     assert positive.returncode == 0, positive.stdout + positive.stderr
     calls = (
         "v.discover.point_anomalies()",
-        "old.correlate()",
-        "old.forecast()",
+        "session.population()",
+        "session.observe()",
         'v.correlate(b, method="invalid")',
         "v.forecast(horizon=1)",
         "r.rollup()",
@@ -91,7 +91,7 @@ def methods(v: mv.LogicalNumericRelation, b: mv.LogicalNumericRelation) -> None:
     )
     source = tmp_path / "r85_negative.py"
     source.write_text(
-        "import marivo.analysis as mv\ndef invalid(v: mv.LogicalNumericRelation, b: mv.LogicalNumericRelation, old: mv.LogicalMetricDataset, r: mv.LogicalDeviationResult, c: mv.LogicalCoefficientRelation, f: mv.LogicalForecastResult) -> None:\n"
+        "import marivo.analysis as mv\ndef invalid(v: mv.LogicalNumericRelation, b: mv.LogicalNumericRelation, session: mv.Session, r: mv.LogicalDeviationResult, c: mv.LogicalCoefficientRelation, f: mv.LogicalForecastResult) -> None:\n"
         + "".join("    " + c + "\n" for c in calls)
     )
     negative = check(source)

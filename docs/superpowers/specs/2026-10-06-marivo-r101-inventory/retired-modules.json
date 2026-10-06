@@ -1,0 +1,1627 @@
+[
+  {
+    "baseline_sha256": "f7b7247a8147cfe17fbc609699a47da31db537f75b371f986f0115a714bad4c2",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_numeric",
+      "_finite",
+      "_close",
+      "_group"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/distribution.py"
+    ],
+    "path": "marivo/analysis/compiler/attribution.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "4c69baeb9a455e31d3f982b03fa0fea6b20f45f0e3c68605b4a32a81e7410138",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_numeric",
+      "_finite",
+      "_full_join",
+      "lower_compare"
+    ],
+    "former_import_consumers": [
+      "tests/test_lazy_compare_compiler.py",
+      "tests/test_lazy_distinct_alignment.py"
+    ],
+    "path": "marivo/analysis/compiler/comparison.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "b7c571edef8deb73ee9a23e2cade99a9e16a03e163d7ee4e5d98d6ed47291423",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "row_keys",
+      "selected_memberships",
+      "membership_specs",
+      "comparison_memberships",
+      "membership_validations"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/distinct_fold.py",
+      "marivo/analysis/compiler/private_parts.py",
+      "tests/test_lazy_distinct_alignment.py",
+      "tests/test_lazy_distinct_compiler.py",
+      "tests/test_lazy_distinct_fold.py"
+    ],
+    "path": "marivo/analysis/compiler/distinct.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "329037b717a37be36b14a5fcb6ca1fedabc79632067c392fe27896c34b9d0f8b",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "fold_memberships"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/lowering.py",
+      "tests/test_lazy_distinct_fold.py"
+    ],
+    "path": "marivo/analysis/compiler/distinct_fold.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "d58d3ece2de54af13979c27880ab06d1d32c3cf617829fde9704cadcca13d250",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_ordered_tdigest",
+      "source_quantile",
+      "frequency_quantile",
+      "row_keys",
+      "selected_distributions",
+      "distribution_specs",
+      "comparison_distributions",
+      "distribution_validations"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/lowering.py",
+      "marivo/analysis/compiler/private_parts.py"
+    ],
+    "path": "marivo/analysis/compiler/distribution.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "7713b85491578092a7eca3c00b916e3478ca1f5cafc81dc2ce34101f0f744c17",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_Selection",
+      "_Rows",
+      "_named_validations",
+      "_boolean",
+      "_numeric",
+      "_linear_coefficient",
+      "_identity",
+      "_and",
+      "_hidden",
+      "_state_names",
+      "retained_part_specs",
+      "_state_projection",
+      "_declared_cast",
+      "_physical_casts",
+      "_fold_zone",
+      "_duration_seconds",
+      "_fold_value",
+      "lower_fold",
+      "_Compiler",
+      "compile_dataset",
+      "_lower_retained_scan",
+      "compile_retained_rows"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/__init__.py",
+      "marivo/analysis/compiler/comparison.py",
+      "tests/test_lazy_decimal_precision.py",
+      "tests/test_lazy_distinct_fold.py"
+    ],
+    "path": "marivo/analysis/compiler/lowering.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "d661a7a5ecfd12f3f60e2770aefe601bbff35c0c9443aa4a7c0ba6d9262313f1",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "CompiledArtifactScan",
+      "CompiledValidation",
+      "RetainedPartSpec",
+      "RetainedRelationSpec",
+      "CompiledRelationFence",
+      "CompiledDataset"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/__init__.py",
+      "marivo/analysis/compiler/comparison.py",
+      "marivo/analysis/compiler/distinct.py",
+      "marivo/analysis/compiler/distribution.py",
+      "marivo/analysis/compiler/lowering.py",
+      "marivo/analysis/compiler/private_parts.py",
+      "marivo/analysis/materialization/basic_source.py",
+      "marivo/analysis/materialization/execution_state.py",
+      "tests/lazy_execution_fixtures.py",
+      "tests/lazy_multisource_qualification.py",
+      "tests/multisource_environment/qualify.py",
+      "tests/test_lazy_distinct_compiler.py",
+      "tests/test_lazy_distinct_fold.py",
+      "tests/test_lazy_execution_fixtures.py",
+      "tests/test_lazy_local_fold.py"
+    ],
+    "path": "marivo/analysis/compiler/nodes.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "72d30d07a4e4015110c7b14b6413627cd836e3c4a66640c6020ffd7bf88a167c",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "logical_roots",
+      "InputClassification",
+      "_input_kind",
+      "classify_inputs",
+      "require_unmixed_inputs",
+      "_mixed_input_error",
+      "_required_entities",
+      "required_entities",
+      "required_source_dependencies",
+      "artifact_inputs",
+      "captured_parameters"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/__init__.py",
+      "marivo/analysis/compiler/lowering.py",
+      "marivo/analysis/compiler/placement.py",
+      "marivo/analysis/compiler/source_admission.py",
+      "marivo/analysis/compiler/source_time.py",
+      "marivo/analysis/materialization/basic_source.py",
+      "marivo/analysis/materialization/publication.py",
+      "marivo/analysis/operators/scalar_support.py",
+      "tests/lazy_execution_fixtures.py",
+      "tests/lazy_multisource_qualification.py",
+      "tests/test_analysis_dsl_contracts.py",
+      "tests/test_lazy_artifact_adapters.py",
+      "tests/test_lazy_calendar_buckets.py",
+      "tests/test_lazy_retained_membership.py",
+      "tests/test_lazy_source_dependencies.py",
+      "tests/test_lazy_source_dependency_runtime.py",
+      "tests/typing/analysis_dsl_internal_contract.py"
+    ],
+    "path": "marivo/analysis/compiler/normalize.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "677fea9c022955a92ba045458bc87d27fbffb9860816b56d79f5c8617aa754d3",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "ordered_relation"
+    ],
+    "former_import_consumers": [],
+    "path": "marivo/analysis/compiler/ordering.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "86e5604368a985639f04f6853d7917edff26af12a47f19f86f96dbdb9673e3d3",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "SourceBinding",
+      "ParquetBinding",
+      "SourceStep",
+      "ArtifactReadStep",
+      "PandasStep",
+      "PhysicalStageGraph",
+      "source_binding",
+      "source_eligible",
+      "place"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/source_admission.py",
+      "marivo/analysis/materialization/basic_source.py",
+      "tests/lazy_acceptance_capture.py",
+      "tests/lazy_local_runtime_worker.py",
+      "tests/lazy_runtime_patch_targets.py",
+      "tests/test_lazy_backend_dispatch.py",
+      "tests/test_lazy_contract_source_admission.py",
+      "tests/test_lazy_dispatch_authority.py",
+      "tests/test_lazy_execution_economics.py",
+      "tests/test_lazy_group_b_admission.py",
+      "tests/test_lazy_local_execution.py",
+      "tests/test_lazy_local_placement.py",
+      "tests/test_lazy_postgres_admission.py",
+      "tests/test_lazy_postgres_runtime.py",
+      "tests/test_lazy_scalar_admission.py",
+      "tests/test_lazy_slice4_boundaries.py",
+      "tests/test_lazy_state_admission.py"
+    ],
+    "path": "marivo/analysis/compiler/placement.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "3bc51ea3bbaefd121f93b64ade893abbfdfc577e794482722bd1cbc49abfbadb",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "predicate_leaves",
+      "_boolean",
+      "_literal",
+      "lower_bound_predicate"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/lowering.py",
+      "marivo/analysis/compiler/normalize.py",
+      "marivo/analysis/compiler/temporal.py",
+      "marivo/analysis/operators/scalar_support.py",
+      "tests/test_lazy_predicate_algebra.py",
+      "tests/typing/lazy_predicate_contract.py"
+    ],
+    "path": "marivo/analysis/compiler/predicates.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "417eaeea8bcd41868ec75a0db39dabbb8507b96a8cf6d50d689420e9c1358b1d",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "selected_private_parts",
+      "private_part_specs",
+      "comparison_private_parts",
+      "private_part_validations"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/lowering.py"
+    ],
+    "path": "marivo/analysis/compiler/private_parts.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "33117a96d21eb70a537f1262ef975b304e1d45ce8953bbf88f9fff0d38a7ca35",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "basic_population_candidate",
+      "basic_metric_candidate",
+      "mysql_composite_identity_candidate",
+      "source_admission_fact"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/_capabilities/registry.py",
+      "marivo/analysis/session/_lazy_sources.py"
+    ],
+    "path": "marivo/analysis/compiler/source_admission.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "638a3025591cb41188ff5f039a9afbe918a71f34d1e8a315f750399c06c9cf3f",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "SourceColumnDependency",
+      "EntitySourceDependency",
+      "SourceDependencies",
+      "ColumnCollector"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/lowering.py",
+      "marivo/analysis/compiler/normalize.py",
+      "marivo/analysis/materialization/errors.py",
+      "tests/test_lazy_source_dependencies.py"
+    ],
+    "path": "marivo/analysis/compiler/source_dependencies.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "89febe42f1ddf9fa840f24ce8bd8525e42794e238d4159f8246caed505858cd0",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "bucket",
+      "_civil_midnight_width",
+      "_civil_midnight_bucket",
+      "bucket_end",
+      "endpoint_reset_start",
+      "cumulative_start"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/distinct_fold.py",
+      "marivo/analysis/compiler/lowering.py",
+      "tests/test_analysis_executor_subday_bucketing.py",
+      "tests/test_lazy_temporal_backends.py"
+    ],
+    "path": "marivo/analysis/compiler/temporal.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "d1e8ac42754e46b8d819140eefd01c5c530c0545ede5a33ee218e8f885c9b54e",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "construct_operator"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/observation/aggregation.py",
+      "marivo/analysis/observation/coordinates.py",
+      "marivo/analysis/observation/metric.py",
+      "marivo/analysis/observation/ordering.py",
+      "marivo/analysis/observation/population.py",
+      "marivo/analysis/observation/rollup.py",
+      "tests/lazy_dataset_fixtures.py",
+      "tests/test_lazy_calendar_buckets.py"
+    ],
+    "path": "marivo/analysis/datasets/actions.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "e9f95aeadc4c91daad27d1f6124b9bcaf11d765d868029594f7962d37eead32a",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_construction_error",
+      "DatasetOwner",
+      "Dataset",
+      "LogicalDataset",
+      "MaterializedDataset",
+      "_dataset_repr",
+      "_validate_input_ownership",
+      "_input_binding",
+      "_make_logical_dataset",
+      "_make_materialized_dataset"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/__init__.py",
+      "marivo/analysis/_capabilities/dataset_registry.py",
+      "marivo/analysis/_public.py",
+      "marivo/analysis/compiler/lowering.py",
+      "marivo/analysis/compiler/normalize.py",
+      "marivo/analysis/compiler/placement.py",
+      "marivo/analysis/compiler/source_admission.py",
+      "marivo/analysis/compiler/source_time.py",
+      "marivo/analysis/datasets/_disclosure.py",
+      "marivo/analysis/datasets/actions.py",
+      "marivo/analysis/datasets/contract.py",
+      "marivo/analysis/datasets/fields.py",
+      "marivo/analysis/datasets/registry.py",
+      "marivo/analysis/domains/subject.py",
+      "marivo/analysis/materialization/admission.py",
+      "marivo/analysis/materialization/basic_source.py",
+      "marivo/analysis/materialization/dataset_presentation.py",
+      "marivo/analysis/materialization/dataset_publication.py",
+      "marivo/analysis/materialization/publication.py",
+      "marivo/analysis/materialization/recovery.py",
+      "marivo/analysis/materialization/retained.py",
+      "marivo/analysis/observation/aggregation.py",
+      "marivo/analysis/observation/contracts.py",
+      "marivo/analysis/observation/coordinates.py",
+      "marivo/analysis/observation/metric.py",
+      "marivo/analysis/observation/ordering.py",
+      "marivo/analysis/observation/population.py",
+      "marivo/analysis/observation/rollup.py",
+      "marivo/analysis/operators/attribute_expansion.py",
+      "marivo/analysis/operators/clickhouse_support.py",
+      "marivo/analysis/operators/contracts.py",
+      "marivo/analysis/operators/mysql_support.py",
+      "marivo/analysis/operators/postgres_support.py",
+      "marivo/analysis/operators/registry.py",
+      "marivo/analysis/operators/scalar_support.py",
+      "marivo/analysis/operators/sqlite_support.py",
+      "marivo/analysis/operators/trino_support.py",
+      "marivo/analysis/session/core.py",
+      "tests/lazy_acceptance_capture.py",
+      "tests/lazy_adapter_runtime_worker.py",
+      "tests/lazy_dataset_fixtures.py",
+      "tests/lazy_execution_fixtures.py",
+      "tests/lazy_local_fixtures.py",
+      "tests/lazy_observation_fixtures.py",
+      "tests/lazy_result_fixtures.py",
+      "tests/lazy_retained_runtime_worker.py",
+      "tests/test_lazy_backend_dispatch.py",
+      "tests/test_lazy_compiler.py",
+      "tests/test_lazy_dataset_contract.py",
+      "tests/test_lazy_dataset_registry.py",
+      "tests/test_lazy_dataset_values.py",
+      "tests/test_lazy_disclosure.py",
+      "tests/test_lazy_distinct_compiler.py",
+      "tests/test_lazy_local_execution.py",
+      "tests/test_lazy_local_placement.py",
+      "tests/test_lazy_observation_contracts.py",
+      "tests/test_lazy_retained_review_runtime.py",
+      "tests/test_lazy_retained_runtime.py",
+      "tests/test_lazy_state_admission.py",
+      "tests/typing/lazy_dataset_core_contract.py"
+    ],
+    "path": "marivo/analysis/datasets/base.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "5b7c7b68c1113fc3d5943b1e8edd92b59eabbf111ab8a71642e4af4244c9eff8",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_install_continuation_reader",
+      "DatasetContract",
+      "_bounded_facts",
+      "_field_ids",
+      "_identity_text",
+      "_physical_type_text",
+      "make_contract"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/__init__.py",
+      "marivo/analysis/_capabilities/registry.py",
+      "marivo/analysis/_public.py",
+      "marivo/analysis/datasets/_disclosure.py",
+      "marivo/analysis/datasets/base.py",
+      "tests/test_lazy_dataset_contract.py",
+      "tests/typing/lazy_dataset_core_contract.py"
+    ],
+    "path": "marivo/analysis/datasets/contract.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "3585e1d01b2a99db04fee78a7dc80d4c54ed02f87a4f05fb775d506a20408e9d",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "DatasetFieldRef",
+      "DatasetFields",
+      "_selection_error",
+      "_make_field_ref",
+      "make_fields",
+      "validate_field_ref"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/__init__.py",
+      "marivo/analysis/_public.py",
+      "marivo/analysis/datasets/_disclosure.py",
+      "marivo/analysis/datasets/base.py",
+      "marivo/analysis/observation/contracts.py",
+      "marivo/analysis/observation/metric.py",
+      "marivo/analysis/observation/ordering.py",
+      "marivo/analysis/observation/predicates.py",
+      "tests/test_lazy_dataset_fields.py",
+      "tests/typing/lazy_dataset_core_contract.py"
+    ],
+    "path": "marivo/analysis/datasets/fields.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "51d9deae038cc5d8b834298e6f1d081fc2fd81b947b557dcdc2eed0ec0374a89",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_registration_error",
+      "_immutable_sequence",
+      "ConsumerRegistration",
+      "DatasetFamilyRegistration",
+      "DatasetFamilyRegistry"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/_capabilities/dataset_model.py",
+      "marivo/analysis/_capabilities/dataset_registry.py",
+      "marivo/analysis/datasets/_disclosure.py",
+      "marivo/analysis/datasets/actions.py",
+      "marivo/analysis/datasets/base.py",
+      "marivo/analysis/domains/_disclosure.py",
+      "marivo/analysis/domains/subject.py",
+      "marivo/analysis/observation/_disclosure.py",
+      "marivo/analysis/observation/contracts.py",
+      "marivo/analysis/observation/metric.py",
+      "marivo/analysis/observation/population.py",
+      "marivo/analysis/operators/_disclosure.py",
+      "marivo/analysis/session/_disclosure.py",
+      "marivo/analysis/session/_lazy_sources.py",
+      "tests/lazy_dataset_fixtures.py",
+      "tests/test_analysis_methods_r32.py",
+      "tests/test_lazy_attribution_masks.py",
+      "tests/test_lazy_dataset_contract.py",
+      "tests/test_lazy_dataset_registry.py",
+      "tests/test_lazy_dataset_values.py"
+    ],
+    "path": "marivo/analysis/datasets/registry.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "7322d2cbf3a7d961b627d963012ab91ba5230d01d71678e8481fce64d33aaf13",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "admit_population"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/observation/metric.py"
+    ],
+    "path": "marivo/analysis/domains/subject.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "fbdaa0c1a2898c128ff03f9d054518d304867bd89f865d3fa2bec3959f80d518",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "CoordinateRule",
+      "FindingRegistration",
+      "evidence_digest",
+      "_selection_error",
+      "_registration",
+      "_scalar_matches",
+      "_coordinate",
+      "_validate",
+      "_row",
+      "findings",
+      "finding",
+      "audit_findings"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/materialization/dataset_presentation.py",
+      "marivo/analysis/materialization/inspection.py",
+      "tests/test_lazy_finding_reads.py"
+    ],
+    "path": "marivo/analysis/evidence/_dataset_reads.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "f7949d5b7de674aef49bd9122e539ad0d0a41bfd414c678dddc5a672f51a3e1c",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_unqualified",
+      "_read_batches",
+      "_restore_single_identity",
+      "execute_basic_source"
+    ],
+    "former_import_consumers": [],
+    "path": "marivo/analysis/materialization/basic_source.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "a4e81dd9f5004edcdd9aeab3763e264305c4088a0587f82795bbc410c36fa34e",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "revalidate",
+      "recover",
+      "selected",
+      "show",
+      "to_pandas",
+      "evidence_digest",
+      "findings",
+      "finding",
+      "validate_reader_owner"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/materialization/admission.py"
+    ],
+    "path": "marivo/analysis/materialization/dataset_presentation.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "e2c70fe68f7b32460608fc0e71a5a2e18e1216ec765dffec658d774877e8760b",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "write_output"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/materialization/basic_source.py"
+    ],
+    "path": "marivo/analysis/materialization/dataset_publication.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "9a2eb0fe50e204464de919b76f366673b763896720d937e2ad1033158b0165a2",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "distribution_schema"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/materialization/retained.py"
+    ],
+    "path": "marivo/analysis/materialization/distribution.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "5e5a1f64e46c2d6ef59d185e696bac04b350b96470569d775691267265379037",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "ExecutionProgress",
+      "StageResult"
+    ],
+    "former_import_consumers": [],
+    "path": "marivo/analysis/materialization/execution_state.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "ca36039ede015f429054f46d2521950734cd4307bb18ec4504fd0128a663c59c",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_scalar",
+      "_number",
+      "_share"
+    ],
+    "former_import_consumers": [],
+    "path": "marivo/analysis/materialization/finding_values.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "5541a73f404fb3003c905193ea8fd6a0c09f761042accf85eb6c8086999a7886",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "IbisBatchStream",
+      "ProjectedBatchStream"
+    ],
+    "former_import_consumers": [
+      "tests/test_analysis_dsl_exchange.py"
+    ],
+    "path": "marivo/analysis/materialization/ibis_batches.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "2db12edbb4dfbf5c79d81ff4db634ae0ba946cfc2fb338ff7a0797e452e2d95a",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "population_payload",
+      "decode_population",
+      "comparison_inputs_payload",
+      "decode_comparison_inputs",
+      "comparison_basis_text",
+      "_counts"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/materialization/contracts.py"
+    ],
+    "path": "marivo/analysis/materialization/input_bindings_codec.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "b8985818edb77b937f533630c95399661efbdaa3d2fc71758ce97327b14580b1",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "fail",
+      "collect_primary",
+      "to_local_frame",
+      "collect_part",
+      "PartCollector",
+      "to_part_frame",
+      "validate_frame",
+      "execute_suffix",
+      "execute_retained_suffix",
+      "frame_to_arrow"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/materialization/local_execution.py",
+      "tests/lazy_local_fixtures.py",
+      "tests/test_lazy_in_process_execution.py",
+      "tests/test_lazy_local_fold.py",
+      "tests/test_lazy_local_guards.py",
+      "tests/test_lazy_local_rows.py"
+    ],
+    "path": "marivo/analysis/materialization/local.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "db12c3c3ad52c3ef2052f9f7596e6f76a067d147b973f056d8f72a6174a3ed80",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "StreamInput",
+      "LocalPartInput",
+      "ArtifactInput",
+      "LocalRequest",
+      "LocalPartResult",
+      "LocalResult",
+      "_part_to_arrow",
+      "LocalBoundary",
+      "LocalStage",
+      "LocalGraphRequest",
+      "LocalInputStreams",
+      "_Frames",
+      "_collect_input",
+      "_GraphResult",
+      "_execute_graph",
+      "execute_local"
+    ],
+    "former_import_consumers": [
+      "tests/lazy_runtime_patch_targets.py",
+      "tests/test_lazy_attribute_guards.py",
+      "tests/test_lazy_in_process_execution.py",
+      "tests/test_lazy_local_fold.py"
+    ],
+    "path": "marivo/analysis/materialization/local_execution.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "eb02e165cea2cb1d3b7a137f0a812cf3f52e5ff776948a3ef6a8d153b09de9d4",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "checked_local_path"
+    ],
+    "former_import_consumers": [],
+    "path": "marivo/analysis/materialization/parquet_scan.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "d5f21aa23ff382a1d7c9de33927c650040c5f689e613c008937f927f170f5a6d",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "independent_contracts",
+      "checked_private_batches"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/materialization/retained.py",
+      "marivo/analysis/materialization/storage.py"
+    ],
+    "path": "marivo/analysis/materialization/private_parquet.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "1cf4d96df266f3505de59424adc86ba563c13b12960cf959156d62b106d0aa50",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "materialization_contract",
+      "make_descriptor"
+    ],
+    "former_import_consumers": [],
+    "path": "marivo/analysis/materialization/publication.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "86ad7786daca9684815d317b52fe7885d23ac0a6ca39bf4e72283007cfbf0db2",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "recover_dataset"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/materialization/dataset_presentation.py"
+    ],
+    "path": "marivo/analysis/materialization/recovery.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "10c548c170a181f3f0b38f7364a00662b87226c2eeeb4969aeb97b2739907fad",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "source_private_role",
+      "source_private_part",
+      "reject_source_private_transfer",
+      "guard_part_transfer",
+      "guard_receipt_transfer",
+      "metric_parts",
+      "required_part_roles",
+      "_row_part_roles",
+      "membership_schema",
+      "selected_parts",
+      "component_schema",
+      "checked_component_batches",
+      "_part_state_columns",
+      "required_primary_input"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/materialization/inspection.py",
+      "marivo/analysis/materialization/local.py",
+      "marivo/analysis/materialization/local_execution.py",
+      "marivo/analysis/materialization/private_parquet.py",
+      "marivo/analysis/materialization/reads.py",
+      "marivo/analysis/materialization/storage.py",
+      "tests/test_lazy_distinct_runtime.py",
+      "tests/test_lazy_retained_roles.py"
+    ],
+    "path": "marivo/analysis/materialization/retained.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "d43b8e8c8600100794ad4a9d025b7f8f3b35be346fe4de588e53c9840e87ad4b",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_name",
+      "_leaves",
+      "_values",
+      "ScalarProjection",
+      "project"
+    ],
+    "former_import_consumers": [
+      "tests/test_lazy_distinct_compiler.py",
+      "tests/test_lazy_scalar_transport.py"
+    ],
+    "path": "marivo/analysis/materialization/scalar_projection.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "0133b2c11720b84bcfba832f8d5c1b056538d7a7c3f0c3978e990fafc0e194b5",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "aggregate"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/observation/metric.py"
+    ],
+    "path": "marivo/analysis/observation/aggregation.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "27129953874cb9f07b8a3a691943e85d6dabd74a0265d26626ea29401833e98a",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "supported_distinct_key_type",
+      "make_distinct_membership",
+      "validate_membership_authority",
+      "membership_authority_reason",
+      "metric_membership_role",
+      "membership_part_authorities",
+      "membership_endpoint_name"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/distinct.py",
+      "marivo/analysis/compiler/distinct_fold.py",
+      "marivo/analysis/compiler/lowering.py",
+      "marivo/analysis/materialization/contracts.py",
+      "marivo/analysis/materialization/private_parquet.py",
+      "marivo/analysis/materialization/retained.py",
+      "marivo/analysis/materialization/storage.py",
+      "marivo/analysis/observation/fold_contracts.py",
+      "marivo/analysis/observation/metric.py",
+      "marivo/analysis/observation/private_parts.py",
+      "marivo/analysis/operators/attribute.py",
+      "tests/lazy_distinct_fixtures.py",
+      "tests/test_lazy_distinct_alignment.py",
+      "tests/test_lazy_distinct_contracts.py",
+      "tests/test_lazy_distinct_fold.py",
+      "tests/test_lazy_state_admission.py"
+    ],
+    "path": "marivo/analysis/observation/distinct_contracts.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "2407138f0cbef11b46a61ef62df96f31ccb7fb43729779b11710132ea2c397bd",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "make_distribution",
+      "validate_distribution_authority",
+      "distribution_part_authorities",
+      "distribution_endpoint_name",
+      "semantic_approximation"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/distribution.py",
+      "marivo/analysis/compiler/lowering.py",
+      "marivo/analysis/materialization/contracts.py",
+      "marivo/analysis/materialization/dataset_presentation.py",
+      "marivo/analysis/materialization/distribution.py",
+      "marivo/analysis/materialization/private_parquet.py",
+      "marivo/analysis/materialization/retained.py",
+      "marivo/analysis/materialization/storage.py",
+      "marivo/analysis/observation/fold_contracts.py",
+      "marivo/analysis/observation/metric.py",
+      "marivo/analysis/observation/private_parts.py",
+      "marivo/analysis/operators/attribute.py",
+      "tests/lazy_distribution_fixtures.py",
+      "tests/test_lazy_state_admission.py"
+    ],
+    "path": "marivo/analysis/observation/distribution_contracts.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "39b9bfd495019b0457460e0dab2a0be6e0938bddf789643eb1989bff5cc5d3e0",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "FoldNodeV1",
+      "FoldComponentV1",
+      "DistinctMembershipAuthorityV1",
+      "DistributionAuthorityV1",
+      "MetricFoldAuthorityV1",
+      "FoldAuthorityV1",
+      "grain_authority",
+      "decode_fold_authority",
+      "_validate_metric_authority",
+      "fold_part_role",
+      "coverage_columns",
+      "fold_state_names",
+      "_metric_authority",
+      "make_fold_authority",
+      "FoldSpecV1",
+      "RetainedFoldPayload",
+      "fold_state_columns"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/distinct_fold.py",
+      "marivo/analysis/compiler/lowering.py",
+      "marivo/analysis/compiler/normalize.py",
+      "marivo/analysis/compiler/placement.py",
+      "marivo/analysis/materialization/contracts.py",
+      "marivo/analysis/materialization/retained.py",
+      "marivo/analysis/observation/contracts.py",
+      "marivo/analysis/observation/distinct_contracts.py",
+      "marivo/analysis/observation/distribution_contracts.py",
+      "marivo/analysis/observation/metric.py",
+      "marivo/analysis/observation/private_parts.py",
+      "marivo/analysis/observation/rollup.py",
+      "marivo/analysis/operators/attribute.py",
+      "marivo/analysis/operators/attribute_values.py",
+      "marivo/analysis/operators/attribution_contracts.py",
+      "marivo/analysis/operators/delta_state.py",
+      "marivo/analysis/operators/registry.py",
+      "marivo/analysis/operators/rollup.py",
+      "marivo/analysis/operators/row.py",
+      "tests/lazy_attribute_fixtures.py",
+      "tests/r8_arithmetic_fixtures.py",
+      "tests/test_lazy_cumulative_sources.py",
+      "tests/test_lazy_distinct_contracts.py",
+      "tests/test_lazy_distinct_fold.py",
+      "tests/test_lazy_local_fold.py",
+      "tests/test_lazy_observation_contracts.py",
+      "tests/test_lazy_retained_compiler.py",
+      "tests/test_lazy_retained_fold_matrix.py",
+      "tests/test_lazy_retained_linear_rollup_equation.py",
+      "tests/test_lazy_retained_roles.py",
+      "tests/test_lazy_temporal_runtime.py"
+    ],
+    "path": "marivo/analysis/observation/fold_contracts.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "02053a410e2c4a1d00dc67149c83714f3643a42eb9fd11226da859512e9c4f7c",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "LogicalMetricDataset",
+      "MaterializedMetricDataset",
+      "_checked",
+      "make_observation",
+      "_where",
+      "_project"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/__init__.py",
+      "marivo/analysis/_public.py",
+      "marivo/analysis/domains/subject.py",
+      "marivo/analysis/materialization/admission.py",
+      "marivo/analysis/observation/contracts.py",
+      "marivo/analysis/session/_lazy_sources.py",
+      "marivo/analysis/session/core.py",
+      "tests/lazy_compare_runtime_fixtures.py",
+      "tests/lazy_local_fixtures.py",
+      "tests/lazy_local_runtime_worker.py",
+      "tests/lazy_materialization_crash_worker.py",
+      "tests/lazy_observation_fixtures.py",
+      "tests/lazy_parquet_fixtures.py",
+      "tests/lazy_retained_runtime_worker.py",
+      "tests/lazy_runtime_metric_worker.py",
+      "tests/lazy_runtime_read_worker.py",
+      "tests/lazy_scope_recovery_worker.py",
+      "tests/lazy_source_runtime_worker.py",
+      "tests/lazy_temporal_runtime_worker.py",
+      "tests/r8_arithmetic_fixtures.py",
+      "tests/test_analysis_recovery_r67.py",
+      "tests/test_lazy_calendar_buckets.py",
+      "tests/test_lazy_cumulative_sources.py",
+      "tests/test_lazy_distinct_retained.py",
+      "tests/test_lazy_distinct_runtime.py",
+      "tests/test_lazy_in_process_execution.py",
+      "tests/test_lazy_local_fold.py",
+      "tests/test_lazy_materialization_execution.py",
+      "tests/test_lazy_materialization_failures.py",
+      "tests/test_lazy_observation_contracts.py",
+      "tests/test_lazy_retained_fold_matrix.py",
+      "tests/test_lazy_retained_review_folds.py",
+      "tests/test_lazy_retained_review_runtime.py",
+      "tests/test_lazy_retained_roles.py",
+      "tests/test_lazy_source_algebra.py",
+      "tests/test_lazy_source_natural_order.py",
+      "tests/test_lazy_source_ordering.py",
+      "tests/test_lazy_temporal_backend_runtime.py",
+      "tests/test_lazy_temporal_parsing.py",
+      "tests/test_lazy_temporal_runtime.py",
+      "tests/test_lazy_temporal_source.py",
+      "tests/typing/lazy_observation_contract.py",
+      "tests/typing/lazy_ordering_contract.py"
+    ],
+    "path": "marivo/analysis/observation/metric.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "a244e2e720c9963ea66d1442b025973c4368d81e9008414eb5931257d90ac311",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "rank",
+      "limit"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/observation/metric.py"
+    ],
+    "path": "marivo/analysis/observation/ordering.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "3337bb3b3e202ccd7961bb8d59975a1f61f694fd3bd7e3139d8f79dbb9f80a4b",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_is_membership_dimension",
+      "LogicalPopulationDataset",
+      "MaterializedPopulationDataset",
+      "make_population",
+      "_where"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/__init__.py",
+      "marivo/analysis/_public.py",
+      "marivo/analysis/domains/subject.py",
+      "marivo/analysis/materialization/admission.py",
+      "marivo/analysis/observation/contracts.py",
+      "marivo/analysis/observation/metric.py",
+      "marivo/analysis/session/_lazy_sources.py",
+      "marivo/analysis/session/core.py",
+      "tests/lazy_adapter_runtime_worker.py",
+      "tests/lazy_observation_fixtures.py",
+      "tests/lazy_retained_runtime_worker.py",
+      "tests/test_lazy_materialization_execution.py",
+      "tests/test_lazy_observation_contracts.py",
+      "tests/test_lazy_retained_membership.py",
+      "tests/test_lazy_retained_review_runtime.py",
+      "tests/test_lazy_source_natural_order.py",
+      "tests/typing/lazy_observation_contract.py"
+    ],
+    "path": "marivo/analysis/observation/population.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "21b1d4109391486a622dcf9a88b9e29fb84469c281909ac7c0e9a255b5e9551d",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_error",
+      "AnalysisPredicate",
+      "_operand",
+      "_scalar",
+      "_comparison",
+      "eq",
+      "not_eq",
+      "lt",
+      "lte",
+      "gt",
+      "gte",
+      "is_in",
+      "is_null",
+      "is_not_null",
+      "_combinator",
+      "all_of",
+      "any_of",
+      "not_",
+      "BoundPredicate",
+      "_decimal_text",
+      "_literal",
+      "_merge_occurrences",
+      "_compare_literals",
+      "_allows",
+      "_contradictions",
+      "_normalize_boolean",
+      "bind_predicates"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/__init__.py",
+      "marivo/analysis/_public.py",
+      "marivo/analysis/compiler/predicates.py",
+      "marivo/analysis/observation/_disclosure.py",
+      "marivo/analysis/observation/contracts.py",
+      "marivo/analysis/observation/metric.py",
+      "marivo/analysis/observation/population.py",
+      "marivo/analysis/operators/row.py",
+      "tests/lazy_local_runtime_worker.py",
+      "tests/lazy_multisource_qualification.py",
+      "tests/lazy_retained_runtime_worker.py",
+      "tests/lazy_runtime_metric_worker.py",
+      "tests/lazy_runtime_read_worker.py",
+      "tests/lazy_source_runtime_worker.py",
+      "tests/lazy_temporal_runtime_worker.py",
+      "tests/test_lazy_adapter_failures.py",
+      "tests/test_lazy_artifact_adapters.py",
+      "tests/test_lazy_clickhouse_distributed_runtime.py",
+      "tests/test_lazy_compiler.py",
+      "tests/test_lazy_cumulative_sources.py",
+      "tests/test_lazy_execution_economics.py",
+      "tests/test_lazy_in_process_execution.py",
+      "tests/test_lazy_local_execution.py",
+      "tests/test_lazy_local_fold.py",
+      "tests/test_lazy_local_placement.py",
+      "tests/test_lazy_local_rows.py",
+      "tests/test_lazy_materialization_execution.py",
+      "tests/test_lazy_mysql_runtime.py",
+      "tests/test_lazy_observation_contracts.py",
+      "tests/test_lazy_observation_predicates.py",
+      "tests/test_lazy_postgres_admission.py",
+      "tests/test_lazy_postgres_runtime.py",
+      "tests/test_lazy_predicate_algebra.py",
+      "tests/test_lazy_retained_compiler.py",
+      "tests/test_lazy_retained_failures.py",
+      "tests/test_lazy_retained_fold_matrix.py",
+      "tests/test_lazy_retained_membership.py",
+      "tests/test_lazy_retained_review_folds.py",
+      "tests/test_lazy_retained_review_runtime.py",
+      "tests/test_lazy_retained_runtime.py",
+      "tests/test_lazy_runtime_metric.py",
+      "tests/test_lazy_scalar_type_runtime.py",
+      "tests/test_lazy_slice4_boundaries.py",
+      "tests/test_lazy_source_algebra.py",
+      "tests/test_lazy_source_dependency_runtime.py",
+      "tests/test_lazy_source_ordering.py",
+      "tests/test_lazy_sqlite_runtime.py",
+      "tests/test_lazy_temporal_backend_runtime.py",
+      "tests/test_lazy_trino_non_iceberg_runtime.py",
+      "tests/typing/lazy_observation_contract.py",
+      "tests/typing/lazy_predicate_contract.py"
+    ],
+    "path": "marivo/analysis/observation/predicates.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "669771498cdc88ee7cc436d2f9e8640d3a79ef0191c8d29486e98c2f742fd210",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "source_private_part_authorities"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/lowering.py",
+      "marivo/analysis/materialization/retained.py",
+      "marivo/analysis/operators/registry.py"
+    ],
+    "path": "marivo/analysis/observation/private_parts.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "e7039fe66a758a2a1fe3bb3fe4669d9fe5f1776de4122eb6e6fe200a5a8bfb2f",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_coarser",
+      "_admit",
+      "_fold",
+      "retained_aggregate",
+      "rollup"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/observation/aggregation.py",
+      "marivo/analysis/observation/contracts.py",
+      "marivo/analysis/observation/metric.py",
+      "tests/test_lazy_retained_roles.py"
+    ],
+    "path": "marivo/analysis/observation/rollup.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "7918b38eff6602c24e8fc7d12deed5b7751dc0f12d25375c65d62aa96ef78c5b",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "attribute_method",
+      "_axis_ref",
+      "_generated",
+      "validate_attribution"
+    ],
+    "former_import_consumers": [
+      "tests/r8_arithmetic_fixtures.py",
+      "tests/test_lazy_distinct_contracts.py"
+    ],
+    "path": "marivo/analysis/operators/attribute.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "bb9ebd9e9292d2d3a9c3d2fe1924084ad7a0d06db300c74e67a76c33abf21403",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_definition"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/lowering.py"
+    ],
+    "path": "marivo/analysis/operators/attribute_expansion.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "8e2523f3525074bb5a2192593278645e8af99d77af09608acb2d678bd4636d91",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_finite",
+      "exact_magnitude",
+      "_sum",
+      "reconciles",
+      "_state_fold",
+      "_difference",
+      "prepare_partition_states",
+      "partition_endpoints"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/operators/distribution_values.py"
+    ],
+    "path": "marivo/analysis/operators/attribute_values.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "3e2542b28ffa499caf5d63e57848272556a08f612123af59090d864e96c74110",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "delta_state_name",
+      "delta_presence_name",
+      "delta_part_authorities",
+      "AttributionSemantics",
+      "AttributeSpecV1"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/lowering.py",
+      "marivo/analysis/materialization/contracts.py",
+      "marivo/analysis/materialization/retained.py",
+      "marivo/analysis/materialization/storage.py",
+      "marivo/analysis/observation/distinct_contracts.py",
+      "marivo/analysis/observation/distribution_contracts.py",
+      "marivo/analysis/operators/attribute.py",
+      "marivo/analysis/operators/attribute_values.py",
+      "marivo/analysis/operators/compare.py",
+      "marivo/analysis/operators/delta_state.py",
+      "marivo/analysis/operators/distribution_values.py",
+      "marivo/analysis/operators/row.py",
+      "tests/lazy_attribute_fixtures.py",
+      "tests/r8_arithmetic_fixtures.py",
+      "tests/test_lazy_distribution_numeric.py"
+    ],
+    "path": "marivo/analysis/operators/attribution_contracts.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "d081f83ca3dd13a044df652a043208692b242eabef85bfec9fe28002855519fd",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "supported_type",
+      "unsupported_reason"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/operators/registry.py",
+      "tests/test_lazy_row_expression_admission.py",
+      "tests/test_lazy_scalar_admission.py"
+    ],
+    "path": "marivo/analysis/operators/clickhouse_support.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "f2a604109c2343320735070754d56263d4fc036c615bb8839f6bda2a9de4c5f2",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "promoted_numeric_type",
+      "_field_signature",
+      "_generated",
+      "validate_delta",
+      "_missing",
+      "_number",
+      "_observed_numeric_type",
+      "_subtract",
+      "_relative",
+      "execute_compare"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/operators/delta_state.py",
+      "tests/lazy_attribute_fixtures.py",
+      "tests/r8_arithmetic_fixtures.py",
+      "tests/test_lazy_compare_compiler.py",
+      "tests/test_lazy_compare_numeric.py"
+    ],
+    "path": "marivo/analysis/operators/compare.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "ee259f0d0ae717ae2a804c5634ff6ae4f6b425ca8ec18ace70f7974b3695a29a",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "ComparisonBasisV1",
+      "decode_comparison_basis",
+      "comparison_basis",
+      "DeltaSemantics",
+      "CompareSpecV1"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/comparison.py",
+      "marivo/analysis/compiler/distinct.py",
+      "marivo/analysis/compiler/distribution.py",
+      "marivo/analysis/compiler/private_parts.py",
+      "marivo/analysis/materialization/contracts.py",
+      "marivo/analysis/materialization/input_bindings_codec.py",
+      "marivo/analysis/materialization/publication.py",
+      "marivo/analysis/observation/distinct_contracts.py",
+      "marivo/analysis/observation/distribution_contracts.py",
+      "marivo/analysis/operators/attribution_contracts.py",
+      "marivo/analysis/operators/compare.py",
+      "marivo/analysis/operators/delta_state.py",
+      "marivo/analysis/operators/row.py",
+      "tests/lazy_compare_fixtures.py",
+      "tests/r8_arithmetic_fixtures.py",
+      "tests/test_lazy_compare_compiler.py",
+      "tests/test_lazy_distinct_alignment.py"
+    ],
+    "path": "marivo/analysis/operators/contracts.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "6736d26da7ce269e6c467b3093bdce4d1e9253367ae488854a8a9da2e3322aea",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "execute_compare_parts",
+      "validate_delta_parts"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/operators/attribute_values.py",
+      "tests/lazy_attribute_fixtures.py"
+    ],
+    "path": "marivo/analysis/operators/delta_state.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "d42c5217da1e5a8a1a174e8f5799c616b47cbe9971153710f9916c36c62b52ea",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "validate_coalition_schema",
+      "_number",
+      "execute_distribution"
+    ],
+    "former_import_consumers": [
+      "tests/test_lazy_distribution_numeric.py"
+    ],
+    "path": "marivo/analysis/operators/distribution_values.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "08fe80bb137c107664bebf9b3d61d9e69b4946ef63760f747ced47f5e5aaab57",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "supported_type",
+      "unsupported_reason"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/operators/registry.py",
+      "tests/test_lazy_row_expression_admission.py",
+      "tests/test_lazy_scalar_admission.py"
+    ],
+    "path": "marivo/analysis/operators/mysql_support.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "6de3bbb6a283dfbb79da35bfad979c623b824483fd3db7db10696fbcd27a73e0",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "supported_type",
+      "unsupported_reason"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/operators/registry.py",
+      "tests/test_lazy_postgres_admission.py",
+      "tests/test_lazy_row_expression_admission.py",
+      "tests/test_lazy_scalar_admission.py"
+    ],
+    "path": "marivo/analysis/operators/postgres_support.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "1a4dba17d9c0136e10e8052de471c66410f1590930d9d0fd8ec06b220f00dc52",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "BackendExecution",
+      "backend_execution",
+      "BackendRegistration",
+      "ImplementationRegistration",
+      "_method_error",
+      "MethodContract",
+      "MethodImplementation",
+      "MethodRegistration",
+      "supports_retained_import",
+      "_source_admissions",
+      "source_unsupported_reason",
+      "implementation",
+      "admit_local",
+      "admit_retained_rows"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/compiler/lowering.py",
+      "marivo/analysis/compiler/placement.py",
+      "marivo/analysis/compiler/source_admission.py",
+      "marivo/analysis/materialization/basic_source.py",
+      "marivo/analysis/materialization/contracts.py",
+      "tests/lazy_acceptance_capture.py",
+      "tests/lazy_local_fixtures.py",
+      "tests/test_analysis_dsl_contracts.py",
+      "tests/test_analysis_dsl_exchange.py",
+      "tests/test_analysis_methods_r32.py",
+      "tests/test_analysis_retirement_r85.py",
+      "tests/test_lazy_backend_dispatch.py",
+      "tests/test_lazy_contract_source_admission.py",
+      "tests/test_lazy_local_execution.py",
+      "tests/test_lazy_local_placement.py",
+      "tests/test_lazy_parsed_time_admission.py",
+      "tests/test_lazy_postgres_admission.py",
+      "tests/test_lazy_retained_runtime.py",
+      "tests/test_lazy_scalar_admission.py",
+      "tests/test_lazy_source_dependencies.py",
+      "tests/test_lazy_state_admission.py",
+      "tests/test_lazy_status_fold_admission.py",
+      "tests/typing/analysis_dsl_internal_contract.py"
+    ],
+    "path": "marivo/analysis/operators/registry.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "4df8e11359a20e373eb1abdcc22d196de7c52dfe5eafacb446ca14c1adb47002",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "_timestamp",
+      "bucket_bounds",
+      "_civil_start",
+      "_reached_bound",
+      "_merge",
+      "_number",
+      "_add_exact",
+      "_component_value",
+      "_value",
+      "validate_parts",
+      "_coverage",
+      "_part_schema",
+      "execute_fold"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/materialization/local.py",
+      "marivo/analysis/operators/attribute_values.py",
+      "marivo/analysis/operators/delta_state.py",
+      "tests/test_analysis_executor_subday_bucketing.py",
+      "tests/test_lazy_local_fold.py",
+      "tests/test_lazy_retained_linear_rollup_equation.py",
+      "tests/test_lazy_retained_runtime.py"
+    ],
+    "path": "marivo/analysis/operators/rollup.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "fbacef740afd44b2de08a33cda1dbc5c7736c0dff4ece7f71e110888aa4e3fd8",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "RowCall",
+      "PartFrame",
+      "aligned_part_positions",
+      "select_parts",
+      "_literal",
+      "predicate_mask",
+      "frame_comparator",
+      "ordered",
+      "_rank",
+      "execute_row"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/materialization/local.py",
+      "marivo/analysis/materialization/local_execution.py",
+      "marivo/analysis/operators/attribute_values.py",
+      "marivo/analysis/operators/delta_state.py",
+      "marivo/analysis/operators/distribution_values.py",
+      "marivo/analysis/operators/rollup.py",
+      "tests/lazy_attribute_fixtures.py",
+      "tests/lazy_local_fixtures.py",
+      "tests/test_lazy_in_process_execution.py",
+      "tests/test_lazy_local_fold.py",
+      "tests/test_lazy_local_rows.py"
+    ],
+    "path": "marivo/analysis/operators/row.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "3f4bc9cc3bb6c6e203f9c01f056ae534452fb5e775161aa4cebc2ff88c251229",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "row_key_names",
+      "frame_keys",
+      "normalize_key_value",
+      "_missing",
+      "compare_value"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/materialization/local.py",
+      "marivo/analysis/operators/attribute_values.py",
+      "marivo/analysis/operators/compare.py",
+      "marivo/analysis/operators/delta_state.py",
+      "marivo/analysis/operators/distribution_values.py",
+      "marivo/analysis/operators/row.py"
+    ],
+    "path": "marivo/analysis/operators/row_values.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "97f5ba3c4a59ec564dc9956dc31be3a16c4b925ceeb7925c19b588a2890b98be",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "supports_scalar_type",
+      "supports_plain_timestamp",
+      "supports_timestamp",
+      "_prefix_is_same_entity_civil_date",
+      "_admitted_bucket",
+      "_decimal_facts",
+      "_measure_input_facts",
+      "_decimal_unit",
+      "_fold_kind",
+      "unsupported_reason"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/operators/clickhouse_support.py",
+      "marivo/analysis/operators/mysql_support.py",
+      "marivo/analysis/operators/postgres_support.py",
+      "marivo/analysis/operators/sqlite_support.py",
+      "marivo/analysis/operators/trino_support.py",
+      "tests/test_lazy_group_b_admission.py",
+      "tests/test_lazy_parsed_time_admission.py",
+      "tests/test_lazy_state_admission.py"
+    ],
+    "path": "marivo/analysis/operators/scalar_support.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "42fcc4b48547b7834fe9df0d8fd81776788f3cf44086d17143ddfdb6c241766d",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "supported_type",
+      "unsupported_reason"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/operators/registry.py",
+      "tests/test_lazy_row_expression_admission.py",
+      "tests/test_lazy_scalar_admission.py"
+    ],
+    "path": "marivo/analysis/operators/sqlite_support.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  },
+  {
+    "baseline_sha256": "4b098111e5ad7e551d6ec9b2962912b7f3e84c9a47340b20e4c0e739e2f1d147",
+    "current_package_entry": "absent",
+    "decision": "retired_exclusive_legacy_chain",
+    "former_definitions": [
+      "supported_type",
+      "unsupported_reason"
+    ],
+    "former_import_consumers": [
+      "marivo/analysis/operators/registry.py",
+      "tests/test_lazy_row_expression_admission.py",
+      "tests/test_lazy_scalar_admission.py"
+    ],
+    "path": "marivo/analysis/operators/trino_support.py",
+    "validation": "tests/test_analysis_retirement_r101.py::test_retired_modules_have_no_current_product_imports_or_files"
+  }
+]

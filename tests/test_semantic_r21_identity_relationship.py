@@ -9,8 +9,6 @@ import pytest
 import marivo.semantic as ms
 from marivo.analysis.observation.coordinates import (
     functional_path,
-    governed_path,
-    path_is_functional,
 )
 from marivo.analysis.observation.errors import ObservationConstructionError
 from marivo.semantic.catalog import RelationshipDetails, SemanticCatalog
@@ -131,7 +129,10 @@ def test_incomplete_identity_coverage_does_not_grant_functional_path(
     SemanticCatalog(project)
     mapping = normalize_target_relationship(project._registry, "sales.line_to_order")
     assert mapping.cardinality == "many_to_many"
-    assert not path_is_functional(project._registry, "sales.lines", ("sales.line_to_order",))
+    with pytest.raises(ObservationConstructionError):
+        functional_path(
+            project._registry, "sales.lines", "sales.orders", allow_versioned_target=True
+        )
 
 
 def test_extra_join_condition_preserves_complete_target_key_coverage(
@@ -168,8 +169,11 @@ def test_role_choice_and_fanout_are_not_inferred_from_join_success(
 ) -> None:
     project = _project(semantic_project_factory)
     registry = project._registry
-    assert path_is_functional(registry, "sales.lines", ("sales.line_to_order",))
-    assert not path_is_functional(registry, "sales.orders", ("sales.line_to_order",))
+    assert functional_path(
+        registry, "sales.lines", "sales.orders", allow_versioned_target=True
+    ) == ("sales.line_to_order",)
+    with pytest.raises(ObservationConstructionError):
+        functional_path(registry, "sales.orders", "sales.lines", allow_versioned_source=True)
 
     second = (
         _OBJECTS
@@ -182,8 +186,10 @@ def test_role_choice_and_fanout_are_not_inferred_from_join_success(
     )
     ambiguous = _project(semantic_project_factory, second)
     assert SemanticCatalog(ambiguous).relationships.get("alternate_order") is not None
-    with pytest.raises(ObservationConstructionError, match="ambiguous path"):
-        governed_path(ambiguous._registry, "sales.lines", "sales.orders")
+    with pytest.raises(ObservationConstructionError, match="ambiguous"):
+        functional_path(
+            ambiguous._registry, "sales.lines", "sales.orders", allow_versioned_target=True
+        )
 
 
 def test_nonversioned_duplicate_identity_declaration_fails_at_load(

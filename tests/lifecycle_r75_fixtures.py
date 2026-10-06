@@ -170,7 +170,7 @@ model = ms.state_model(name='model', subject=subjects, states=(open_state, paid_
         code += "amount = ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all(), unit='USD')\nrevenue = ms.aggregate(name='revenue', measure=amount, agg='sum', time=instant, nulls=ms.nulls.ignore(), empty=ms.empty.zero())\nfact_count = ms.count(name='fact_count', entity=facts, time=instant)\n"
     (models / "semantic" / "commerce" / "objects.py").write_text(code)
     ms.load(workspace_dir=root)
-    store = SessionStore._graph_store(root)
+    store = SessionStore(root)
     session_record = store.create_session("r75", report_timezone_name=zone)
     runtime = DatasetRuntime(store, session_record.session_ref)
     session = Session._from_runtime(runtime)

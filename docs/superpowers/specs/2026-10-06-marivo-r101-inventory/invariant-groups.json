@@ -1,0 +1,52 @@
+{
+  "comparison-and-attribution": [
+    "tests/test_analysis_comparison_runtime_r62.py",
+    "tests/test_analysis_attribution_runtime_r66.py",
+    "tests/test_analysis_attribution_r66.py"
+  ],
+  "coordinates-and-rows": [
+    "tests/test_analysis_coordinates_r54.py",
+    "tests/test_analysis_display_r65.py",
+    "tests/test_analysis_cohort_r63.py"
+  ],
+  "disclosure": [
+    "tests/test_public_surface.py",
+    "tests/test_lazy_disclosure.py",
+    "tests/test_analysis_help_resolution.py",
+    "tests/test_agent_api_drift.py",
+    "tests/test_analysis_retirement_r101.py"
+  ],
+  "numeric-and-distribution": [
+    "tests/test_analysis_numeric_r56.py",
+    "tests/test_analysis_numeric_review_r56.py",
+    "tests/test_analysis_dsl_exchange.py",
+    "tests/test_lazy_computation_runtime.py",
+    "tests/test_lazy_computation_rollup_runtime.py"
+  ],
+  "runtime-recovery-and-faults": [
+    "tests/test_analysis_graph_publication_r44.py",
+    "tests/test_analysis_state_r101.py",
+    "tests/test_analysis_recovery_r57.py",
+    "tests/test_analysis_recovery_r67.py",
+    "tests/test_lazy_runtime_concurrency.py",
+    "tests/test_lazy_materialization_guard.py"
+  ],
+  "shared-descriptors": [
+    "tests/test_lazy_dataset_descriptors.py",
+    "tests/test_lazy_dataset_row_contract.py",
+    "tests/test_lazy_artifact_receipts.py"
+  ],
+  "source-and-identity": [
+    "tests/test_analysis_members_r52.py",
+    "tests/test_analysis_observation_r53.py",
+    "tests/test_lazy_semantic_normalization.py",
+    "tests/test_lazy_observation_source_bindings.py",
+    "tests/test_datasource_adapter_contract.py"
+  ],
+  "time-and-fold": [
+    "tests/test_analysis_temporal_r55.py",
+    "tests/test_lazy_temporal_backends.py",
+    "tests/test_lazy_temporal_parsing.py",
+    "tests/test_lazy_temporal_public_runtime.py"
+  ]
+}

@@ -47,7 +47,7 @@ from marivo.analysis.datasets.state import (
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.refs import ArtifactRef
 from marivo.refs import ref
-from tests.lazy_dataset_fixtures import TEST_IDS, make_materialized_dataset, make_row_contracts
+from tests.lazy_dataset_fixtures import TEST_IDS, make_materialized_state, make_row_contracts
 
 
 def test_all_closed_variants_have_exact_non_optional_fields() -> None:
@@ -434,7 +434,7 @@ def test_materialized_state_rejects_deferred_schema_and_unsafe_refs() -> None:
 
 
 def test_materialized_state_revalidates_counts_storage_and_byte_reason() -> None:
-    state = make_materialized_dataset().state
+    state = make_materialized_state()
     _validate_materialized_state(state, ids=TEST_IDS)
     foreign_ids = replace(
         TEST_IDS, byte_unavailable_reasons=TEST_IDS.byte_unavailable_reasons | {"foreign.reason"}

@@ -13,7 +13,6 @@ from marivo.analysis._capabilities.dataset_model import (
     CallableInput,
     Descriptor,
     DisclosureProvider,
-    FamilyInput,
     NavigationInput,
     TypeInput,
     invalid,
@@ -23,8 +22,6 @@ from marivo.analysis._capabilities.dataset_model import (
 )
 from marivo.analysis._capabilities.dataset_navigation import navigation
 from marivo.analysis._capabilities.model import ReadCapability
-from marivo.analysis.datasets.base import Dataset
-from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.analysis.errors import AnalysisError
 from marivo.introspection.live.resolve import (
     LiveSuggestionIndex,
@@ -43,7 +40,6 @@ def _unwrapped(value: object) -> object:
 @dataclass(frozen=True, slots=True)
 class DatasetDisclosureRegistry:
     providers: tuple[DisclosureProvider, ...]
-    families: DatasetFamilyRegistry
     descriptors: tuple[Descriptor, ...]
     _suggestions: LiveSuggestionIndex = field(init=False, repr=False, compare=False)
 
@@ -74,51 +70,6 @@ class DatasetDisclosureRegistry:
         members = {m for d in self.descriptors if isinstance(d, NavigationInput) for m in d.members}
         return tuple(d.canonical_id for d in self.descriptors if d.canonical_id in members)
 
-    def consumer_descriptor(self, consumer_id: str) -> CallableInput | None:
-        """Join a current consumer to its sole native public disclosure owner."""
-        return next(
-            (
-                d
-                for d in self.descriptors
-                if isinstance(d, CallableInput) and consumer_id in d.registration_ids
-            ),
-            None,
-        )
-
-    def continuation_descriptor(self, dataset: Dataset, consumer_id: str) -> CallableInput | None:
-        """Select the same exact receiver specialization as public callable Help."""
-        descriptor = self.consumer_descriptor(consumer_id)
-        if descriptor is None:
-            return None
-        value: object = dataset
-        for member in descriptor.public_entrypoint.removeprefix("dataset.").split("."):
-            value = getattr(value, member)
-        resolved = self.by_callable(value)
-        if not isinstance(resolved, CallableInput):
-            raise invalid("a callable continuation owner", consumer_id)
-        return resolved
-
-    def continuation_help(
-        self, dataset: Dataset, consumer_id: str
-    ) -> tuple[str, str, tuple[str, ...]] | None:
-        """Project native call/target identity across Core's dependency boundary."""
-        descriptor = self.continuation_descriptor(dataset, consumer_id)
-        if descriptor is None:
-            return None
-        return descriptor.public_entrypoint, descriptor.canonical_id, descriptor.registration_ids
-
-    def family_routes(self, descriptor: FamilyInput) -> tuple[str, ...]:
-        """Narrow static discovery using the family's actual registered consumers."""
-        groups = tuple(
-            dict.fromkeys(
-                d.discovery_group
-                for consumer in descriptor.registration.consumers
-                if (d := self.consumer_descriptor(consumer.id)) is not None
-                and d.discovery_group is not None
-            )
-        )
-        return (*groups, "datasets")
-
     def callable_routes(self, descriptor: CallableInput) -> tuple[str, ...]:
         """Link prerequisites and exact exported return types from native facts."""
         names = set(re.findall(r"\b[A-Z][A-Za-z0-9_]+\b", descriptor.output))
@@ -138,10 +89,6 @@ class DatasetDisclosureRegistry:
                 )
             )
         )
-        if "Materialized Dataset" in descriptor.output:
-            outputs = (*outputs, "datasets.materialized")
-        elif "Logical Dataset" in descriptor.output:
-            outputs = (*outputs, "datasets.logical")
         return tuple(
             dict.fromkeys(
                 (
@@ -175,28 +122,6 @@ class DatasetDisclosureRegistry:
                 for b in d.bindings
             )
         ]
-        if isinstance(receiver, Dataset) and len(matches) > 1:
-            shape = receiver.row_contract.shape_id
-            scopes = {
-                d.canonical_id: frozenset(
-                    s
-                    for f in self.families.registrations
-                    for c in f.consumers
-                    if c.id in d.registration_ids
-                    for s in c.accepted_shape_ids
-                )
-                for d in matches
-            }
-            admitted = [d for d in matches if shape in scopes[d.canonical_id]]
-            # An exact receiver selects the most specific registered shape scope.
-            # Equal or overlapping scopes remain ambiguous; ordering never wins.
-            matches = [
-                d
-                for d in admitted
-                if not any(
-                    scopes[other.canonical_id] < scopes[d.canonical_id] for other in admitted
-                )
-            ]
         if not matches:
             from marivo.introspection.live.reflect import callable_identity
 
@@ -217,7 +142,7 @@ class DatasetDisclosureRegistry:
         types = {
             b.implementation: d.canonical_id
             for d in self.descriptors
-            if isinstance(d, (TypeInput, FamilyInput))
+            if isinstance(d, TypeInput)
             for b in d.bindings
         }
         types.update(
@@ -309,7 +234,7 @@ class DatasetDisclosureRegistry:
             if export.target not in ids:
                 raise invalid("a registered export Help target", export.target)
             descriptor = self.by_canonical_id(export.target)
-            if isinstance(descriptor, (TypeInput, FamilyInput)) and not any(
+            if isinstance(descriptor, TypeInput) and not any(
                 b.implementation is export.implementation for b in descriptor.bindings
             ):
                 raise invalid("exact native type export binding", export.name)
@@ -317,12 +242,7 @@ class DatasetDisclosureRegistry:
                 b.implementation is export.implementation for b in descriptor.bindings
             ):
                 raise invalid("exact native callable export binding", export.name)
-        registrations = {
-            c.id for f in self.families.registrations for c in f.consumers if c.discoverable
-        }
-        links: Counter[str] = Counter()
         memberships: Counter[str] = Counter()
-        family_ids: list[str] = []
         for descriptor in self.descriptors:
             if not descriptor.summary.strip():
                 raise invalid("owned nonempty disclosure content", descriptor.canonical_id)
@@ -369,13 +289,8 @@ class DatasetDisclosureRegistry:
                             "parameter names matching the reflected signature",
                             descriptor.canonical_id + ": " + repr(expected),
                         )
-                from marivo.analysis.observation.contracts import producer_contract
-
-                for registration_id in descriptor.registration_ids:
-                    producer_contract(registration_id)
-                links.update(descriptor.registration_ids)
                 targets = self.callable_routes(descriptor)
-            elif isinstance(descriptor, (TypeInput, FamilyInput)):
+            elif isinstance(descriptor, TypeInput):
                 for type_binding in descriptor.bindings:
                     if type_binding.fields != public_fields(
                         type_binding.implementation
@@ -383,27 +298,12 @@ class DatasetDisclosureRegistry:
                         raise invalid(
                             "complete current fields and methods", descriptor.canonical_id
                         )
-                if isinstance(descriptor, FamilyInput):
-                    f = descriptor.registration
-                    if self.families.get(f.family_id) is not f or tuple(
-                        b.implementation for b in descriptor.bindings
-                    ) != (f.logical_type, f.materialized_type):
+                for variant_input in descriptor.variants:
+                    if variant_input.fields != variant_fields(variant_input.implementation):
                         raise invalid(
-                            "the exact production family registration", descriptor.canonical_id
+                            "complete current sealed value fields", descriptor.canonical_id
                         )
-                    family_ids.append(f.family_id)
-                    if not descriptor.variants:
-                        raise invalid("complete family semantics variants", f.family_id)
-                    for variant in descriptor.variants:
-                        if variant.fields != variant_fields(variant.implementation):
-                            raise invalid("complete current semantics fields", f.family_id)
-                else:
-                    for variant_input in descriptor.variants:
-                        if variant_input.fields != variant_fields(variant_input.implementation):
-                            raise invalid(
-                                "complete current sealed value fields", descriptor.canonical_id
-                            )
-                    targets = descriptor.producers + descriptor.consumers
+                targets = descriptor.producers + descriptor.consumers
             elif isinstance(descriptor, NavigationInput):
                 targets = descriptor.members + descriptor.related
                 memberships.update(descriptor.members)
@@ -412,15 +312,6 @@ class DatasetDisclosureRegistry:
             for target in targets:
                 if target not in ids:
                     raise invalid("independently resolvable linked target", target)
-        if set(family_ids) != {f.family_id for f in self.families.registrations} or len(
-            family_ids
-        ) != len(set(family_ids)):
-            raise invalid("one disclosure per registered family", "family coverage mismatch")
-        if registrations - links.keys() or any(links[k] != 1 for k in registrations):
-            raise invalid(
-                "one capability link per discoverable consumer",
-                repr(sorted(registrations - links.keys())),
-            )
         for descriptor in self.descriptors:
             if isinstance(descriptor, CallableInput):
                 for binding in descriptor.bindings:
@@ -456,13 +347,9 @@ class DatasetDisclosureRegistry:
                 raise invalid("discoverable analytical capability", descriptor.canonical_id)
 
 
-def assemble(
-    families: DatasetFamilyRegistry,
-    providers: tuple[DisclosureProvider, ...],
-) -> DatasetDisclosureRegistry:
+def assemble(providers: tuple[DisclosureProvider, ...]) -> DatasetDisclosureRegistry:
     result = DatasetDisclosureRegistry(
         providers,
-        families,
         tuple(d for p in providers for d in p.descriptors) + navigation(providers),
     )
     result.validate()
@@ -470,23 +357,19 @@ def assemble(
 
 
 def prepare() -> DatasetDisclosureRegistry:
-    """Build the production private inputs explicitly, without activation or I/O."""
+    """Assemble the five current native disclosure owners without I/O."""
     from marivo.analysis.datasets import _disclosure as core
     from marivo.analysis.domains import _disclosure as domains
     from marivo.analysis.observation import _disclosure as observation
-    from marivo.analysis.observation.contracts import make_family_registry, make_ids
     from marivo.analysis.operators import _disclosure as operators
     from marivo.analysis.session import _disclosure as runtime
-    from marivo.analysis.session.core import Session
 
-    families = make_family_registry(make_ids(()))
     return assemble(
-        families,
         (
-            core.provider(families),
-            observation.provider(families, source_receiver=Session),
-            operators.provider(families),
-            domains.provider(families),
-            runtime.provider(families),
-        ),
+            core.provider(),
+            observation.provider(),
+            operators.provider(),
+            domains.provider(),
+            runtime.provider(),
+        )
     )

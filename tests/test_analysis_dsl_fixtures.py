@@ -12,14 +12,12 @@ import duckdb
 import pytest
 
 import marivo.semantic as ms
-from marivo.analysis.observation.contracts import derive_metric_components
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     EntityDetails,
     RelationshipDetails,
     SimpleMetricDetails,
 )
-from marivo.semantic.metric_graph_lowering import normalize_target_metric
 from tests.shared_fixtures import DslCase, DslCaseFactory, DslNames, DslScenario
 
 
@@ -86,16 +84,6 @@ def test_real_declarations_load_with_distinct_roots_and_pending_authority(
     assert ratio.composition == "ratio"
     assert {name for name, _ in ratio.components} == {"numerator", "denominator"}
 
-    state = case.catalog._state
-    lowered = normalize_target_metric(
-        state.registry, _metric_id(case, n.aov), sidecar=state.sidecar
-    )
-    components = derive_metric_components(lowered)
-    assert components.method == "ratio"
-    assert len(components.component_roles) == 2
-    assert components.required_parts
-    assert "contribution_partition" in components.evidence.pending_checks
-    assert not components.evidence.completed_checks
     assert case.session.project_root == case.root
     assert case.session.report_tz_name == "UTC"
 

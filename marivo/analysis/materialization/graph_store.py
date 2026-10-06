@@ -62,7 +62,6 @@ class GraphArtifact:
 
 
 def run(store: SessionStore, conn: sqlite3.Connection, ref: str) -> GraphRun | None:
-    store._require_generation(7)
     row = _one(conn, "SELECT * FROM analysis_action_runs WHERE run_ref=?", (ref,))
     if row is None:
         return None
@@ -118,8 +117,10 @@ def run(store: SessionStore, conn: sqlite3.Connection, ref: str) -> GraphRun | N
     )
 
 
-def artifact(store: SessionStore, conn: sqlite3.Connection, ref: str) -> GraphArtifact | None:
-    store._require_generation(7)
+def artifact_metadata(
+    store: SessionStore, conn: sqlite3.Connection, ref: str
+) -> GraphArtifact | None:
+    """Validate descriptor, producer and ownership independently of retained Evidence."""
     row = _one(conn, "SELECT * FROM dataset_artifacts WHERE artifact_ref=?", (ref,))
     if row is None:
         return None
@@ -129,7 +130,6 @@ def artifact(store: SessionStore, conn: sqlite3.Connection, ref: str) -> GraphAr
     admitted = descriptor_plan(descriptor, root)
     producer = run(store, conn, descriptor.producing_run_ref)
     session, key = _text(row, "session_ref"), _text(row, "execution_key_digest")
-    evidence = _one(conn, "SELECT * FROM dataset_evidence WHERE artifact_ref=?", (ref,))
     if (
         producer is None
         or producer.lifecycle != "succeeded"
@@ -140,10 +140,8 @@ def artifact(store: SessionStore, conn: sqlite3.Connection, ref: str) -> GraphAr
         or descriptor.signature.domain.binding.session_id != session
         or producer.dataset_input.definition_fingerprint != descriptor.definition_fingerprint
         or producer.dataset_input.plan_digest != plan_digest(admitted)
-        or evidence is None
-        or _text(evidence, "evidence_digest") != digest(text)
     ):
-        raise invalid("Artifact, producer, key or Evidence differs")
+        raise invalid("Artifact, producer or key differs")
     from marivo.analysis.materialization.execution_key import (
         FixedKeyInput,
         SourceKeyBinding,
@@ -203,6 +201,14 @@ def artifact(store: SessionStore, conn: sqlite3.Connection, ref: str) -> GraphAr
         validate_receipt_owner(receipt.local, prefix)
         if any(owns_resource(receipt.local, r) for r in store._resources(conn, session)):
             raise invalid("committed output still has a cleanup obligation")
+    return GraphArtifact(ref, session, key, descriptor, producer.run_ref)
+
+
+def artifact(store: SessionStore, conn: sqlite3.Connection, ref: str) -> GraphArtifact | None:
+    value = artifact_metadata(store, conn, ref)
+    if value is None:
+        return None
+    descriptor = value.descriptor
     from marivo.analysis.core.model import FindingPolicyPart
     from marivo.analysis.materialization.graph_findings import collection
 
@@ -213,11 +219,10 @@ def artifact(store: SessionStore, conn: sqlite3.Connection, ref: str) -> GraphAr
         ref,
         verify_receipts=any(isinstance(p, FindingPolicyPart) for p in descriptor.signature.parts),
     )
-    return GraphArtifact(ref, session, key, descriptor, producer.run_ref)
+    return value
 
 
 def admit(store: SessionStore, session: str, key: str, selected: RunInput, ref: str) -> GraphRun:
-    store._require_generation(7)
     payload = encode(selected, RUN_INPUT)
     decode(payload, RUN_INPUT)
     refs = (
@@ -268,7 +273,6 @@ def publish(
     resources: tuple[ResourceRecord, ...],
     event: Callable[[str], None],
 ) -> GraphArtifact:
-    store._require_generation(7)
     payload = encode(descriptor, DESCRIPTOR)
     descriptor = decode(payload, DESCRIPTOR)
     validate_descriptor(descriptor)

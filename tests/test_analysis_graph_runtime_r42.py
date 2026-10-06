@@ -182,8 +182,10 @@ def test_mixed_and_foreign_session_reject_before_business_io_or_run(
     def forbidden(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("business I/O or Run allocation happened")
 
-    monkeypatch.setattr(runtime.store, "artifact", forbidden)
-    monkeypatch.setattr(runtime.store, "admit", forbidden)
+    from marivo.analysis.materialization import graph_store
+
+    monkeypatch.setattr(graph_store, "artifact", forbidden)
+    monkeypatch.setattr(graph_store, "admit", forbidden)
     monkeypatch.setattr(SourceSession, "bind", forbidden)
     foreign = _count(_source("other_session", quantity=True))
     with pytest.raises(CoreRuleError, match="Session"):

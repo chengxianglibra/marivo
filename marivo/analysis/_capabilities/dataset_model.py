@@ -9,7 +9,6 @@ from typing import Literal
 
 from marivo.analysis._capabilities.model import ReadCapability
 from marivo.analysis.datasets.errors import DatasetRegistrationError
-from marivo.analysis.datasets.registry import DatasetFamilyRegistration
 from marivo.refs import SemanticKind
 
 
@@ -212,20 +211,6 @@ class TypeInput:
 
 
 @dataclass(frozen=True, slots=True)
-class FamilyInput:
-    canonical_id: str
-    summary: str
-    registration: DatasetFamilyRegistration
-    bindings: tuple[TypeBinding, ...]
-    variants: tuple[VariantInput, ...]
-    acquisition: str
-    constraints: tuple[str, ...]
-    kind: Literal["family"] = field(default="family", init=False)
-    public_entrypoint: None = field(default=None, init=False)
-    callable_path: None = field(default=None, init=False)
-
-
-@dataclass(frozen=True, slots=True)
 class NavigationInput:
     canonical_id: str
     summary: str
@@ -239,7 +224,7 @@ class NavigationInput:
     callable_path: None = field(default=None, init=False)
 
 
-Descriptor = CallableInput | TypeInput | FamilyInput | NavigationInput | ReadCapability
+Descriptor = CallableInput | TypeInput | NavigationInput | ReadCapability
 
 
 def with_sealed_variants(
@@ -287,26 +272,6 @@ def value_type(
 ) -> TypeInput:
     return TypeInput(
         target, summary, (type_binding(value),), acquisition, producers, consumers, constraints
-    )
-
-
-def family(
-    target: str,
-    registration: DatasetFamilyRegistration,
-    *,
-    summary: str,
-    variants: tuple[type[object], ...],
-    acquisition: str,
-    constraints: tuple[str, ...],
-) -> FamilyInput:
-    return FamilyInput(
-        target,
-        summary,
-        registration,
-        (type_binding(registration.logical_type), type_binding(registration.materialized_type)),
-        tuple(variant(v) for v in variants),
-        acquisition,
-        constraints,
     )
 
 

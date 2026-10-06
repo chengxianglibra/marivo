@@ -34,9 +34,7 @@ def run(root):
         patch.object(SourceSession, "batches", forbidden),
         patch("marivo.analysis.materialization.history_execution.execute", forbidden),
     ):
-        session = Session._from_runtime(
-            DatasetRuntime(SessionStore._graph_store(root), manifest["session"])
-        )
+        session = Session._from_runtime(DatasetRuntime(SessionStore(root), manifest["session"]))
         history = session.artifact(manifest["history"])
         expected = views(manifest["rows"], manifest["subject"], manifest["occurrence"])
         for name, artifact in manifest["views"].items():

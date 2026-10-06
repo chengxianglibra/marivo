@@ -9,7 +9,6 @@ from marivo.analysis._capabilities.dataset_model import (
     DisclosureProvider,
     ExampleInput,
     ExportInput,
-    bind,
     operation,
     value_type,
 )
@@ -17,7 +16,6 @@ from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
 from marivo.analysis._comparison import WindowBucketAlignment, window_bucket
-from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.analysis.forecast_models import (
     ForecastHorizon,
     ForecastModel,
@@ -28,77 +26,11 @@ from marivo.analysis.forecast_models import (
 )
 
 
-def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
+def provider() -> DisclosureProvider:
     parameters: tuple[P, ...]
-    requires: tuple[str, ...]
     value: object
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
-
-    for name, parameters, code, requires, summary in (
-        (
-            "where",
-            (
-                P(
-                    "predicates",
-                    "Construct typed predicates using fields admitted by the receiver's family.",
-                    ("filters",),
-                ),
-            ),
-            "result = dimensioned.where(eq(region, 'north'))",
-            ("dimensioned", "eq", "region"),
-            "Filter rows; Population filters membership, while result filters do not redefine source membership.",
-        ),
-        (
-            "rank",
-            (
-                P("by", "Select a current sortable field.", ("datasets.fields",)),
-                P("order", "Choose ascending or descending."),
-                P(
-                    "ties",
-                    "Choose ordinal, dense, min or max; ordinal uses a registered unique tie-breaker.",
-                ),
-                P("partition_by", "Select an ordered tuple of current grouping fields."),
-            ),
-            "result = dimensioned.aggregate().rank(dimensioned.aggregate().fields.metric(revenue))",
-            ("dimensioned", "revenue"),
-            "Add stable rank metadata without dropping rows; limit is a separate operation.",
-        ),
-        (
-            "limit",
-            (P("count", "Choose a positive row count after establishing total ordering."),),
-            "ranked = dimensioned.aggregate().rank(dimensioned.aggregate().fields.metric(revenue))\nresult = ranked.limit(1)",
-            ("dimensioned", "revenue"),
-            "Keep a bounded prefix of an explicitly totally ordered Dataset.",
-        ),
-    ):
-        admitted = tuple(
-            f
-            for f in registry.registrations
-            if any(c.id == f.family_id + "." + name for c in f.consumers)
-        )
-        bindings = tuple(
-            bind(getattr(t, name), t)
-            for f in admitted
-            for t in (f.logical_type, f.materialized_type)
-        )
-        descriptors.append(
-            operation(
-                "datasets." + name,
-                "dataset." + name,
-                bindings[0].implementation,
-                bindings=bindings,
-                summary=summary,
-                discovery_group="methods.rows",
-                parameters=parameters,
-                output="Logical Dataset of the receiver family",
-                constraints=(summary,),
-                effects=CONSTRUCTION_EFFECT,
-                failures=CONSTRUCTION_FAILURES,
-                example=ExampleInput(code, requires, "result", "Logical Dataset"),
-                registration_ids=tuple(f.family_id + "." + name for f in admitted),
-            )
-        )
 
     for name, target, value, parameters, code, output, constraint in (
         (

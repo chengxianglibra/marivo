@@ -7,7 +7,6 @@ from dataclasses import replace
 from marivo.analysis._capabilities.dataset_model import (
     CallableInput,
     DisclosureProvider,
-    FamilyInput,
     NavigationInput,
     invalid,
 )
@@ -80,7 +79,7 @@ _HUBS = (
         (),
         "decision_hub",
         guidance=(
-            "For Entity-member relations, follow the receiver's contract() actions and their exact Help targets; method groups also cover existing Dataset families.",
+            "For Entity-member relations, follow the receiver's contract() actions and their exact Help targets.",
         ),
     ),
     NavigationInput(
@@ -135,9 +134,7 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
         for descriptor in provider.descriptors:
             if descriptor.canonical_id in nested:
                 continue
-            if isinstance(descriptor, FamilyInput):
-                group = "artifacts"
-            elif isinstance(descriptor, (CallableInput, NavigationInput)):
+            if isinstance(descriptor, (CallableInput, NavigationInput)):
                 group = descriptor.discovery_group
             else:
                 continue

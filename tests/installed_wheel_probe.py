@@ -101,14 +101,13 @@ def surface_snapshot() -> list[dict[str, object]]:
     from tests.test_public_surface import ANALYSIS_PUBLIC
 
     assert set(names) == set(exports) == ANALYSIS_PUBLIC
-    for family in (
-        "Population",
-        "Metric",
+    for logical_name, materialized_name in (
+        ("LogicalAnalysisDomain", "MaterializedAnalysisDomain"),
+        ("LogicalNumericRelation", "MaterializedNumericRelation"),
+        ("LogicalRatioRelation", "MaterializedRatioRelation"),
     ):
-        logical = getattr(mv, f"Logical{family}Dataset")
-        materialized = getattr(mv, f"Materialized{family}Dataset")
-        assert issubclass(logical, mv.LogicalDataset)
-        assert issubclass(materialized, mv.MaterializedDataset)
+        logical = getattr(mv, logical_name)
+        materialized = getattr(mv, materialized_name)
         assert not any(hasattr(logical, member) for member in ("render", "show", "to_pandas"))
         assert not hasattr(materialized, "render")
         assert all(callable(getattr(materialized, member)) for member in ("show", "to_pandas"))

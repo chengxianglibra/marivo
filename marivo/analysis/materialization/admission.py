@@ -3,25 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
-import pandas as pd
 import pyarrow as pa
 
 from marivo._temporal import PeriodCalendarSnapshotV1
 from marivo.analysis.core.time_authority import ReportTimeAuthority
-from marivo.analysis.datasets.base import LogicalDataset, MaterializedDataset
 from marivo.analysis.evidence._dataset_types import (
-    ArtifactDigest,
     ArtifactRevalidation,
-    Finding,
-    FindingPage,
-)
-from marivo.analysis.materialization.contracts import (
-    ArtifactRecord,
 )
 from marivo.analysis.materialization.errors import (
     _execution_error as _error,
@@ -36,27 +28,21 @@ from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.submissions import Submission
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.observation.contracts import (
+    ObservationOwner,
     ObservationSourceContext,
 )
-from marivo.analysis.observation.metric import LogicalMetricDataset, MaterializedMetricDataset
-from marivo.analysis.observation.population import (
-    LogicalPopulationDataset,
-    MaterializedPopulationDataset,
-)
 from marivo.analysis.refs import ArtifactRef
-from marivo.analysis.session import _lazy_graph, _lazy_history, _lazy_runtime_reads
+from marivo.analysis.session import _lazy_graph, _lazy_runtime_reads
 from marivo.analysis.session._lazy_read_model import (
     GraphDirection,
     RunLifecycle,
     RunPage,
     SessionGraph,
-    SessionInspection,
-    SessionSummaryPage,
 )
 from marivo.analysis.session._lazy_read_model import (
     RunRecord as ReadRunRecord,
 )
-from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
+from marivo.analysis.session._lazy_sources import make_source_owner
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.validator import Registry
@@ -122,7 +108,6 @@ class DatasetRuntime:
         question: str | None = None,
         report_timezone: str | None = None,
         event: Callable[[str], None] | None = None,
-        _generation: Literal[6, 7] = 6,
     ) -> DatasetRuntime:
         from marivo.analysis.timezone import resolve_system_timezone, zoneinfo_from_name
 
@@ -143,11 +128,7 @@ class DatasetRuntime:
                 zoneinfo_from_name(report_timezone)
                 raise
             timezone_resolution = "fixed_offset" if isinstance(resolved_zone, timezone) else "iana"
-        store = (
-            SessionStore._graph_store(project_root)
-            if _generation == 7
-            else SessionStore(project_root)
-        )
+        store = SessionStore(project_root)
         record = store.session_by_name(name)
         if record is None:
             candidate_ref = "session_" + uuid4().hex
@@ -205,16 +186,11 @@ class DatasetRuntime:
         session_ref: str,
         *,
         event: Callable[[str], None] | None = None,
-        _generation: Literal[6, 7] = 6,
     ) -> DatasetRuntime:
-        if not MaterializationLayout(project_root, generation=_generation).store_db.is_file():
+        if not MaterializationLayout(project_root).store_db.is_file():
             raise _error("authority_resolution")
         return cls(
-            (
-                SessionStore._graph_store(project_root, existing_only=True)
-                if _generation == 7
-                else SessionStore.open_existing(project_root)
-            ),
+            SessionStore.open_existing(project_root),
             session_ref,
             event=event,
         )
@@ -226,42 +202,18 @@ class DatasetRuntime:
         sidecar: CompiledExpressionSidecar,
         catalog: SemanticCatalog | None = None,
         period_calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
-    ) -> LazySources:
-        sources = make_lazy_sources(
+    ) -> ObservationOwner:
+        owner = make_source_owner(
             semantic_registry=semantic_registry,
             sidecar=sidecar,
-            action_port=self,
             session_id=self.session_ref,
             store_id=self.store.store_id,
             catalog=catalog,
             period_calendar_snapshots=period_calendar_snapshots,
             report_time=self.report_time,
         )
-        self._source_context.current = sources._owner
-        return sources
-
-    @staticmethod
-    def recent(
-        project_root: Path, *, limit: int = 20, cursor: str | None = None
-    ) -> SessionSummaryPage:
-        """Read existing v6 Session history without creating or activating a Session."""
-        _lazy_runtime_reads.page_after(limit, cursor, operation="recent")
-        return _lazy_history.recent(
-            SessionStore.open_existing(project_root), limit=limit, cursor=cursor
-        )
-
-    @staticmethod
-    def inspect(
-        project_root: Path, name: str, *, run_limit: int = 5, run_cursor: str | None = None
-    ) -> SessionInspection:
-        """Read a named existing v6 Session and one bounded Run page."""
-        _lazy_runtime_reads.page_after(run_limit, run_cursor, operation="inspect")
-        return _lazy_history.inspect(
-            SessionStore.open_existing(project_root),
-            name,
-            run_limit=run_limit,
-            run_cursor=run_cursor,
-        )
+        self._source_context.current = owner
+        return owner
 
     def _event(self, point: str) -> None:
         self.statistics.events[point] = self.statistics.events.get(point, 0) + 1
@@ -278,12 +230,6 @@ class DatasetRuntime:
             "validation_batch",
         }:
             self.statistics.validation_queries += 1
-
-    def artifact(self, reference: str | ArtifactRef) -> MaterializedDataset:
-        record = self.store.artifact(str(reference))
-        if record is None:
-            raise _lazy_runtime_reads.missing_artifact(str(reference))
-        return self._recover(record)
 
     def runs(
         self, *, status: RunLifecycle | None = None, limit: int = 20, cursor: str | None = None
@@ -315,19 +261,9 @@ class DatasetRuntime:
         _lazy_runtime_reads.recap(self.store, self.session_ref).show()
 
     def revalidate(self, reference: str | ArtifactRef) -> ArtifactRevalidation:
-        from marivo.analysis.materialization import dataset_presentation
+        from marivo.analysis.materialization.inspection import revalidate
 
-        return dataset_presentation.revalidate(self, reference)
-
-    def _recover(self, record: ArtifactRecord) -> MaterializedDataset:
-        from marivo.analysis.materialization import dataset_presentation
-
-        return dataset_presentation.recover(self, record)
-
-    def _selected(self, dataset: MaterializedDataset) -> ArtifactRecord:
-        from marivo.analysis.materialization import dataset_presentation
-
-        return dataset_presentation.selected(self, dataset)
+        return revalidate(self.store, reference)
 
     def _execute_graph(
         self,
@@ -355,77 +291,3 @@ class DatasetRuntime:
         from marivo.analysis.materialization.graph_execution import prepare_graph
 
         return prepare_graph(root, session_ref=self.session_ref, routes=routes)
-
-    def show(self, dataset: MaterializedDataset, *, max_output_bytes: int | None = None) -> None:
-        from marivo.analysis.materialization import dataset_presentation
-
-        dataset_presentation.show(
-            self, dataset, max_output_bytes=max_output_bytes, policy=_READ_POLICY
-        )
-
-    def to_pandas(self, dataset: MaterializedDataset) -> pd.DataFrame:
-        from marivo.analysis.materialization import dataset_presentation
-
-        return dataset_presentation.to_pandas(self, dataset, policy=_READ_POLICY)
-
-    def evidence_digest(self, dataset: MaterializedDataset) -> ArtifactDigest:
-        from marivo.analysis.materialization import dataset_presentation
-
-        return dataset_presentation.evidence_digest(self, dataset)
-
-    def findings(
-        self, dataset: MaterializedDataset, *, limit: int, cursor: str | None
-    ) -> FindingPage:
-        from marivo.analysis.materialization import dataset_presentation
-
-        return dataset_presentation.findings(self, dataset, limit=limit, cursor=cursor)
-
-    def finding(self, dataset: MaterializedDataset, finding_id: str) -> Finding:
-        from marivo.analysis.materialization import dataset_presentation
-
-        return dataset_presentation.finding(self, dataset, finding_id)
-
-    def _validate_reader_owner(self, dataset: MaterializedDataset) -> None:
-        from marivo.analysis.materialization import dataset_presentation
-
-        dataset_presentation.validate_reader_owner(self, dataset)
-
-    def execute_metric(self, dataset: LogicalMetricDataset) -> MaterializedMetricDataset:
-        result = self._execute(dataset)
-        if not isinstance(result, MaterializedMetricDataset):
-            raise _error("presentation")
-        if dataset._owner.runtime_metric_bindings:
-            from marivo.analysis.datasets.base import _make_materialized_dataset
-
-            result = _make_materialized_dataset(
-                owner=replace(
-                    result._owner, runtime_metric_bindings=dataset._owner.runtime_metric_bindings
-                ),
-                registry=result._registry,
-                family_id="metric",
-                row_contract=result.row_contract,
-                row_set_contract=result.row_set_contract,
-                state=result.state,
-                definition_fingerprint=result.definition_fingerprint,
-            )
-            assert isinstance(result, MaterializedMetricDataset)
-        return result
-
-    def execute_population(
-        self, dataset: LogicalPopulationDataset
-    ) -> MaterializedPopulationDataset:
-        result = self._execute(dataset)
-        if not isinstance(result, MaterializedPopulationDataset):
-            raise _error("presentation")
-        return result
-
-    def _execute(self, dataset: LogicalDataset) -> MaterializedDataset:
-        from marivo.analysis.datasets.errors import DatasetConstructionError
-
-        raise DatasetConstructionError(
-            expected="a qualified Store 7 typed relation",
-            received="an unqualified Dataset family execution",
-            repair="Use session.members(...); R6–R9 Dataset execution has no Store 7 qualification.",
-            location="analysis.execution_admission",
-            help_target="session.members",
-        )

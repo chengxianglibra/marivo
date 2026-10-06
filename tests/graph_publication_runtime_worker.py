@@ -21,7 +21,7 @@ from tests.shared_fixtures import graph_count_continuation
 
 def _run() -> None:
     project, reference, mode, point = sys.argv[1:]
-    store = SessionStore._graph_store(Path(project), existing_only=True)
+    store = SessionStore(Path(project), existing_only=True)
     record = _read_artifact(store, reference)
     runtime = DatasetRuntime(store, record.session_ref)
     root = graph_count_continuation(record)

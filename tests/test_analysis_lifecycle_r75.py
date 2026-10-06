@@ -600,9 +600,9 @@ def test_executed_latest_history_example(tmp_path, edition):
 
 
 def test_legacy_history_retirement_preserves_shared_owners():
-    from marivo.analysis.session._lazy_sources import LazySources
+    from marivo.analysis.session import _lazy_sources
 
-    assert not hasattr(LazySources, "lifecycle")
+    assert not hasattr(_lazy_sources, "LazySources")
     for name in (
         "compiler/lifecycle.py",
         "compiler/lifecycle_array.py",
@@ -621,7 +621,7 @@ def test_legacy_history_retirement_preserves_shared_owners():
     from marivo.analysis._capabilities.registry import REGISTRY
 
     assert "lifecycle_dataset" not in REGISTRY.canonical_ids()
-    assert all(family.family_id != "lifecycle" for family in REGISTRY.families.registrations)
+    assert not hasattr(REGISTRY, "families")
 
 
 def test_p10_requirement_ids_and_phase_boundaries_are_preserved():

@@ -25,7 +25,7 @@ from marivo._help.model import (
 )
 from marivo._help.render import PublicHelpTarget
 from marivo._help.route import _resolve_one, route_help_target
-from marivo.analysis._capabilities.dataset_model import FamilyInput, TypeInput
+from marivo.analysis._capabilities.dataset_model import TypeInput
 from marivo.analysis._capabilities.registry import REGISTRY as ANALYSIS_REGISTRY
 from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
@@ -288,7 +288,7 @@ def test_type_and_error_names_remain_exactly_resolvable() -> None:
                 assert route.resolved.kind == "descriptor"
                 assert isinstance(
                     route.resolved.descriptor,
-                    (FamilyInput, TypeInput),
+                    (TypeInput),
                 )
                 assert route.resolved.descriptor.canonical_id == type_name
             elif owner == "semantic" and type_name == "ref":
@@ -308,13 +308,13 @@ def test_receiver_members_and_grouped_leaves_remain_exactly_resolvable() -> None
     for target in (
         "datasource.SourceInspection.sample",
         "semantic.readiness",
-        "analysis.datasets.where",
+        "analysis.dsl.LogicalNumericRelation.where",
         "analysis.artifact.findings",
         "analysis.session.artifact",
         "analysis.session.get_run",
         "analysis.session.revalidate",
         "analysis.actions.to_pandas",
-        "analysis.metric_dataset.metric",
+        "analysis.dsl.LogicalAnalysisDomain.observe",
     ):
         assert isinstance(route_help_target(target), NativeHelpRoute)
 
@@ -379,8 +379,8 @@ def test_bound_method_renders_the_same_descriptor(
     session = mv.session.get_or_create(name="unified_help")
     from marivo.introspection.live.resolve import resolve_live_target
 
-    resolved = resolve_live_target(session.observe, ANALYSIS_LIVE_SURFACE)
-    assert resolved.descriptor is ANALYSIS_REGISTRY.by_canonical_id("observe")
+    resolved = resolve_live_target(session.members, ANALYSIS_LIVE_SURFACE)
+    assert resolved.descriptor is ANALYSIS_REGISTRY.by_canonical_id("session.members")
 
 
 def test_unknown_target_raises_one_bounded_global_error() -> None:

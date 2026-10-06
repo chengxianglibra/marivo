@@ -9,34 +9,22 @@ sqlglot keeps the compiler's Python-format alias in the ``AS`` clause and a
 substring match there cannot tell a correct format from a wrong one.
 """
 
-import os
 import re
-from dataclasses import replace
-from datetime import date, datetime
-from pathlib import Path
+from datetime import datetime
 
 import ibis
 import pytest
 import sqlglot
 from sqlglot import expressions as sge
 
-from marivo.analysis import grain, time_scope
-from marivo.analysis.compiler import compile_dataset
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.source_time import (
-    entity_engine,
     parse_strptime,
     translated_strptime_format,
 )
 from marivo.analysis.materialization.temporal_sql import sqlite_strptime
-from marivo.analysis.observation.metric import LogicalMetricDataset
-from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
 from marivo.datasource.engines import ENGINE_PROFILES
-from marivo.refs import ref
 from marivo.semantic.ir import StrptimeParse
-from tests.lazy_execution_fixtures import ExecutionFixture, assert_compiled_validations
-from tests.lazy_observation_fixtures import NoIoActionPort
-from tests.lazy_temporal_fixtures import AXIS, temporal_fixture
 
 ENGINES = ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
 
@@ -70,7 +58,6 @@ _STRING_LITERAL = re.compile(r"'((?:[^']|'')*)'")
 # The projection alias ibis adds after the parse expression. It repeats the
 # authored Python format, so any assertion over the whole statement can pass on
 # the alias alone; only the ``AS`` immediately before ``FROM`` is removed.
-_ALIAS_SUFFIX = re.compile(r" AS (`[^`]*`|\"[^\"]*\")\s+FROM ")
 
 
 def _sql(engine: str, fmt: str, *, timezone: str | None = None) -> str:
@@ -93,23 +80,6 @@ def _parse_projection(engine: str, fmt: str, *, timezone: str | None = None) -> 
     return select.expressions[0].unalias()
 
 
-def _parse_expression(engine: str, fmt: str, *, timezone: str | None = None) -> str:
-    """Return only the emitted parse expression, without SELECT, alias or FROM."""
-    statement = _sql(engine, fmt, timezone=timezone)
-    select = _ALIAS_SUFFIX.sub(" FROM ", statement).split("SELECT ", 1)[1]
-    return select.split(" FROM ", 1)[0]
-
-
-def _with_cell(sql: str, cell: str) -> str:
-    """Inline one cell literal into compiled SQL, keeping the emitted format text.
-
-    Cells are inlined rather than bound because MySQLdb's own parameter binding
-    percent-formats the statement and would read the emitted ``%`` directives as
-    placeholders.
-    """
-    return sql.replace("`t0`.`c`", f"'{cell}'")
-
-
 def _parser_arguments(engine: str, fmt: str, *, timezone: str | None = None) -> list[str]:
     """Read the string literals actually passed to *engine*'s parser function.
 
@@ -122,36 +92,6 @@ def _parser_arguments(engine: str, fmt: str, *, timezone: str | None = None) -> 
     literals = [match.group(1).replace("''", "'") for match in _STRING_LITERAL.finditer(rendered)]
     assert literals, f"{engine} emitted no literal parser argument in {rendered!r}"
     return literals
-
-
-def _sources_declared_for(fixture: ExecutionFixture, engine: str) -> LazySources:
-    """Declare every datasource of *fixture* as *engine*, keeping the same physical rows."""
-    registry = replace(
-        fixture.registry,
-        datasources={
-            name: replace(datasource, backend_type=engine)
-            for name, datasource in fixture.registry.datasources.items()
-        },
-    )
-    registry.freeze()
-    return make_lazy_sources(
-        semantic_registry=registry,
-        sidecar=fixture.sidecar,
-        action_port=NoIoActionPort(),
-        session_id="strptime",
-        store_id="strptime",
-    )
-
-
-def _daily_dataset(sources: LazySources) -> LogicalMetricDataset:
-    return (
-        sources.observe(
-            ref.metric("sales.revenue"),
-            time_scope=time_scope(start="2026-07-01", end="2026-07-03"),
-        )
-        .with_time_axis(ref.time_dimension(AXIS), grain=grain("day"))
-        .aggregate()
-    )
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -345,29 +285,6 @@ def test_clickhouse_keeps_the_calendar_directives_it_expresses_exactly() -> None
     assert translated_strptime_format("clickhouse", "%Y-%m-%d %H:%M:%S") == "%Y-%m-%d %H:%i:%s"
 
 
-def test_clickhouse_weekday_format_is_refused_before_publication(tmp_path: Path) -> None:
-    """A well-formed weekday cell is refused at compilation, never published.
-
-    The source holds exactly the cells the format asks for and the datasource is
-    declared as ClickHouse, so nothing about the data or the declaration is
-    malformed. Compilation still stops before a single query is submitted: the
-    wrong instant the server would answer for these cells is unreachable.
-    """
-    fmt = "%Y-%m-%d %a"
-    with temporal_fixture(
-        tmp_path,
-        physical="VARCHAR",
-        parse=StrptimeParse(fmt),
-        values=("2026-07-01 Wed", "2026-07-02 Thu"),
-    ) as fixture:
-        logical = _daily_dataset(_sources_declared_for(fixture, "clickhouse"))
-        with pytest.raises(DatasetCompilationError) as failure:
-            compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
-    received = failure.value.received or ""
-    assert "%a" in received, received
-    assert fmt in received, received
-
-
 def test_escaped_percent_is_not_mistaken_for_a_directive() -> None:
     """``%%`` is a literal percent, so ``%%f`` carries no sub-second directive."""
     assert translated_strptime_format("clickhouse", "%%f-%Y%m%d") == "%%f-%Y%m%d"
@@ -382,25 +299,6 @@ def test_every_engine_profile_has_a_strptime_translator() -> None:
     for backend_type in ENGINE_PROFILES:
         assert callable(ENGINE_PROFILES[backend_type].translate_strptime_format)
         assert ENGINE_PROFILES[backend_type].translate_strptime_format("%Y%m%d")
-
-
-@pytest.mark.parametrize("engine", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"])
-@pytest.mark.parametrize(
-    "fmt", ["%Y%m%d", "%Y-%m-%d %H:%M:%S", "%d/%m/%Y"], ids=["date-only", "timed", "slashes"]
-)
-def test_compiled_dataset_has_no_strptime_preflight(engine: str, fmt: str, tmp_path: Path) -> None:
-    """Every backend keeps time provenance without a source-data parse check."""
-    with temporal_fixture(
-        tmp_path,
-        physical="VARCHAR",
-        parse=StrptimeParse(fmt, timezone="UTC") if "%H" in fmt else StrptimeParse(fmt),
-        values=("20260701", "20260702"),
-    ) as fixture:
-        logical = _daily_dataset(_sources_declared_for(fixture, engine))
-        compiled = compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
-        assert compiled.temporal_execution is not None
-        assert AXIS in {axis.axis for axis in compiled.temporal_execution.axes}
-        assert not any(check.name.startswith("temporal.") for check in compiled.validations)
 
 
 def test_sqlite_scalar_parses_to_canonical_microsecond_text() -> None:
@@ -421,129 +319,3 @@ def test_sqlite_scalar_answers_null_for_an_unparseable_cell() -> None:
     """
     assert sqlite_strptime("not-a-date", "%Y-%m-%d") is None
     assert sqlite_strptime("2026-02-30", "%Y-%m-%d") is None
-
-
-@pytest.mark.parametrize("engine", ["sqlite", "mysql", "trino", "clickhouse"])
-def test_entity_engine_resolves_from_the_declared_datasource(engine: str, tmp_path: Path) -> None:
-    """The compiler learns the target engine from the owning datasource.
-
-    This is the same authority ``placement.source_binding`` reads, so the
-    parse never invents a backend of its own.
-    """
-    from marivo.semantic.validator import normalize_target_entity
-    from tests.lazy_scalar_source_fixtures import registry_for
-
-    registry, _sidecar = registry_for(tmp_path / "source.db", engine=engine)
-    entity = normalize_target_entity(registry, "sales.orders")
-    assert entity_engine(registry, entity) == engine
-
-
-@pytest.mark.parametrize(
-    "fmt,values,key",
-    [
-        ("%Y-%m-%d %H:%M:%S", ("2026-07-01 15:59:00", "2026-07-01 16:01:00"), "2026-07-01"),
-        ("%Y%m%d", ("20260701", "20260702"), "2026-07-01"),
-    ],
-)
-def test_duckdb_strptime_paths_still_execute(
-    fmt: str, values: tuple[str, str], key: str, tmp_path: Path
-) -> None:
-    """The unconditioned DuckDB path keeps its pre-existing behavior."""
-    parse = StrptimeParse(fmt, timezone="UTC") if "%H" in fmt else StrptimeParse(fmt)
-    with temporal_fixture(tmp_path, physical="VARCHAR", parse=parse, values=values) as fixture:
-        logical = (
-            fixture.sources.observe(
-                ref.metric("sales.revenue"),
-                time_scope=time_scope(start="2026-07-01", end="2026-07-03"),
-            )
-            .with_time_axis(ref.time_dimension(AXIS), grain=grain("day"))
-            .aggregate()
-        )
-        compiled = compile_dataset(logical, fixture.tables(logical), read_timezone="UTC")
-        assert_compiled_validations(compiled.validations)
-        rows = compiled.expression.to_pyarrow().to_pylist()
-        assert {str(row["order_time"])[:10]: row["revenue"] for row in rows} == {
-            key: 1.0,
-            str(date.fromisoformat(key).replace(day=2)): 2.0,
-        }
-
-
-def _live_mysql_connection() -> object:
-    from tests.multisource_environment import mysql_analysis as mysql
-
-    if os.environ.get("MARIVO_MYSQL_ANALYSIS_TEST") != "1":
-        pytest.skip("opt-in MySQL service")
-    import MySQLdb
-
-    return MySQLdb.connect(
-        host=mysql.HOST,
-        port=mysql.PORT,
-        database=mysql.DATABASE,
-        user=mysql.READER,
-        password=mysql.password(),
-        autocommit=True,
-    )
-
-
-@pytest.mark.runtime
-def test_mysql_keeps_the_microseconds_the_parse_reads() -> None:
-    """``DATETIME(6)`` preserves the fraction a bare ``DATETIME`` truncates.
-
-    Both statements are MySQL's own execution of the emitted ``STR_TO_DATE``
-    text, so the difference comes only from the binding Marivo emits. Cells are
-    inlined because MySQLdb's parameter binding itself percent-formats the SQL
-    and would read the format's ``%`` directives as placeholders.
-    """
-    cell = "2026-07-01 15:59:00.123456"
-    unpinned = "2026-07-01 15:59:00"
-    projection = _parse_expression("mysql", "%Y-%m-%d %H:%M:%S.%f", timezone="UTC")
-    assert "DATETIME(6)" in projection, projection
-    unbound = projection.replace("DATETIME(6)", "DATETIME")
-    connection = _live_mysql_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(f"SELECT CAST({_with_cell(projection, cell)} AS CHAR)")
-            parsed = cursor.fetchone()[0]
-            cursor.execute(f"SELECT CAST({_with_cell(unbound, cell)} AS CHAR)")
-            truncated = cursor.fetchone()[0]
-            cursor.execute(f"SELECT CAST({_with_cell(unbound, unpinned)} AS CHAR)")
-            unpinned_ok = cursor.fetchone()[0]
-    finally:
-        connection.close()
-    assert str(parsed) == "2026-07-01 15:59:00.123456", (
-        "the emitted DATETIME(6) binding must keep the parsed fraction"
-    )
-    assert str(truncated) == "2026-07-01 15:59:00", (
-        "without the binding the same parse loses the fraction"
-    )
-    assert str(unpinned_ok) == unpinned, (
-        "a text cell without the fraction is unaffected by the binding"
-    )
-
-
-@pytest.mark.runtime
-def test_postgres_lenient_to_timestamp_is_a_documented_limitation() -> None:
-    """PostgreSQL answers a malformed cell with a wrong non-NULL instant.
-
-    ``TO_TIMESTAMP`` fills missing fields and ignores trailing input instead of
-    raising. This pins the known parser behavior without a source-data guard.
-    """
-    if os.environ.get("MARIVO_POSTGRES_ANALYSIS_TEST") != "1":
-        pytest.skip("opt-in PostgreSQL service")
-    from tests.multisource_environment import postgres_analysis as pg
-
-    os.environ.setdefault("MARIVO_TEST_POSTGRES_PASSWORD", pg.password())
-    with pg.connection(admin=True) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT to_timestamp(%s, %s)", ("2026-07-01 15:59:00", "YYYYMMDD"))
-            wrong = cursor.fetchone()[0]
-            cursor.execute(
-                "SELECT to_timestamp(%s, %s)",
-                ("2026-07-01 15:59:00 not-a-time", "YYYY-MM-DD HH24:MI:SS"),
-            )
-            trailing = cursor.fetchone()[0]
-        connection.rollback()
-    assert wrong is not None and str(wrong).startswith("2026-01-07"), (
-        "the documented leniency changed; revisit parser expectations"
-    )
-    assert trailing is not None, "trailing garbage is ignored, not rejected"

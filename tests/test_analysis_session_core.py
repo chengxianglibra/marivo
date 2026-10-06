@@ -96,8 +96,10 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
     external_models = tmp_path / "external" / "models"
     db_path = tmp_path / "warehouse.duckdb"
     con = duckdb.connect(str(db_path))
-    con.execute("CREATE TABLE refunds (id BIGINT, amount DOUBLE)")
-    con.execute("INSERT INTO refunds VALUES (1, 100.0), (2, 50.0)")
+    con.execute("CREATE TABLE refunds (id BIGINT, amount DOUBLE, occurred_at DATE)")
+    con.execute(
+        "INSERT INTO refunds VALUES (1, 100.0, DATE '2026-07-01'), (2, 50.0, DATE '2026-07-01')"
+    )
     con.close()
     project_root.mkdir()
     (project_root / "marivo.toml").write_text(
@@ -131,9 +133,10 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
             import marivo.semantic as ms
 
             source = ms.ref.datasource("warehouse")
-            rows = ms.entity(name="refunds", datasource=source, source=md.table("refunds", columns={"id": "id", "amount": "amount"}), primary_key=["id"])
+            rows = ms.entity(name="refunds", datasource=source, source=md.table("refunds", columns={"id": "id", "amount": "amount", "occurred_at": "occurred_at"}), primary_key=["id"])
 
             amount = ms.measure_column(name="amount", entity=rows, column="amount", additivity=ms.additive_all())
+            instant = ms.time_dimension_column(name="instant", entity=rows, column="occurred_at", granularity="day", parse=None, is_default=True)
             refunds_total = ms.aggregate(name="refunds_total", measure=amount, agg="sum")
             """
         ),
@@ -141,8 +144,8 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
     )
     monkeypatch.chdir(project_root)
 
-    session = mv.session.get_or_create(name="external_layer_observe")
+    session = mv.session.get_or_create(name="external_layer_observe", report_timezone="UTC")
     metric = session.catalog.require(ms.ref.metric("finance.refunds_total")).ref
-    frame = session.observe(metric).aggregate().execute()
+    frame = session.members(ms.ref.entity("finance.refunds")).observe(metric).rollup().execute()
 
-    assert frame.to_pandas()["refunds_total"].tolist() == [150.0]
+    assert frame.to_pandas()["value"].tolist() == [150.0]

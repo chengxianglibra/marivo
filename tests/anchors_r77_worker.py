@@ -83,9 +83,7 @@ def offline(root, cold):
             patch("marivo.analysis.materialization.journey_execution.execute", forbidden)
         )
         guards.enter_context(patch("marivo.analysis.methods.journey_matching.match", forbidden))
-        session = Session._from_runtime(
-            DatasetRuntime(SessionStore._graph_store(root), data["session"])
-        )
+        session = Session._from_runtime(DatasetRuntime(SessionStore(root), data["session"]))
         for profile, reference in data["source"].items():
             result = session.artifact(reference)
             assert artifact(result) == reference

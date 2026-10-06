@@ -15,7 +15,6 @@ from marivo.semantic.catalog import (
     SemanticKind,
 )
 from marivo.semantic.errors import SemanticRuntimeError
-from tests.lazy_observation_fixtures import make_sources
 from tests.ref_helpers import make_ref
 
 _DOMAIN_PY = """\
@@ -182,11 +181,13 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
     assert "dimension" in str(exc_info.value)
 
 
-def test_analysis_axis_inputs_reject_loaded_measure_objects(semantic_project_factory) -> None:
+def test_analysis_axis_inputs_reject_loaded_measure_objects(
+    semantic_project_factory, analysis_dsl_case_factory
+) -> None:
     catalog = _catalog(semantic_project_factory)
 
     with pytest.raises(DatasetConstructionError) as exc_info:
-        make_sources().observe(ms.ref.metric("sales.revenue")).with_dimensions(
+        analysis_dsl_case_factory("j2").session.members(ms.ref.entity("sales.customer")).group_by(
             catalog.require(ms.ref.measure("sales.orders.amount"))
         )
 

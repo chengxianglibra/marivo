@@ -89,7 +89,7 @@ def distribution_metric_input(
             ``duckdb_tdigest@v1`` for explicit semantic approximation.
 
     Returns:
-        An immutable DistributionMetricInput accepted by Session.observe.
+        An immutable DistributionMetricInput accepted by AnalysisDomain.observe.
 
     Example:
         >>> selected = distribution_metric_input(

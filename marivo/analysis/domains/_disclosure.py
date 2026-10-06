@@ -16,7 +16,6 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
-from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.analysis.domains.completeness import (
     BoundedCompletenessDeclarationV1,
     SourceOriginCompletenessDeclarationV1,
@@ -39,7 +38,7 @@ from marivo.analysis.subject import DroppedBefore, dropped_before
 from marivo.refs import SemanticKind
 
 
-def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
+def provider() -> DisclosureProvider:
     parameters: tuple[P, ...]
     requires: tuple[str, ...]
     registrations: tuple[str, ...]

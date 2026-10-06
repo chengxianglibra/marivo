@@ -7,12 +7,10 @@ from typing import Literal
 
 import ibis
 import ibis.expr.datatypes as dt
-import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.core.time_authority import SourceTimeAuthority, time_zone
-from marivo.analysis.datasets.base import LogicalDataset
 from marivo.semantic.ir import (
     DateParse,
     DatetimeParse,
@@ -92,10 +90,6 @@ _clickhouse_strptime: Callable[[ir.StringValue, str, str], ir.TimestampValue] = 
 # The neutral parse operations the presence guard must admit. They stay out of
 # ``governed_temporal_operation``, whose rewrite expects the localize/render
 # two-argument shape rather than the parse shape.
-NATIVE_PARSE_OPERATIONS: tuple[type[ops.Node], ...] = (
-    type(_sqlite_strptime(ibis.literal("x"), "%Y").op()),
-    type(_clickhouse_strptime(ibis.literal("x"), "%Y", "UTC").op()),
-)
 
 
 def translated_strptime_format(engine: str, fmt: str) -> str:
@@ -238,23 +232,6 @@ def render(zone: str, value: ir.TimestampValue) -> ir.TimestampValue:
     return _render_native(zone, value)
 
 
-def boundary_instant(zone: str, value: ir.Value) -> ir.TimestampValue:
-    """Use the first occurrence of a repeated civil boundary, with no machine tick."""
-    wall = timestamp(value)
-    native = localize(zone, wall)
-    if time_zone(zone).utcoffset(None) is not None:
-        return render("UTC", native)
-    day = ibis.interval(seconds=86400)
-    before = localize(zone, wall - day) + day
-    after = localize(zone, wall + day) - day
-    first = ibis.least(
-        native,
-        (render(zone, before) == wall).ifelse(before, native),
-        (render(zone, after) == wall).ifelse(after, native),
-    )
-    return render("UTC", timestamp(first))
-
-
 def source_time(
     value: ir.Value,
     axis: TargetDimensionContract,
@@ -373,38 +350,3 @@ def source_time(
         value if instant is None else render(boundary_timezone, instant),
         authority,
     )
-
-
-def needs_reader_timezone(dataset: LogicalDataset) -> bool:
-    """Read engine timezone for time axes whose semantics do not declare one."""
-    from marivo.analysis.compiler.normalize import logical_roots
-    from marivo.analysis.observation.contracts import MetricPayload, PopulationPayload
-
-    for root in logical_roots(dataset):
-        payload = root.payload
-        axes: tuple[TargetDimensionContract | None, ...]
-        if isinstance(payload, PopulationPayload):
-            axes = (payload.reference_axis,)
-        elif isinstance(payload, MetricPayload):
-            axes = (
-                payload.definition.reference_axis,
-                payload.definition.time_axis,
-                *payload.definition.dimensions,
-            )
-        else:
-            continue
-        for axis in axes:
-            if axis is None or not axis.is_time_dimension or axis.logical_type == "date":
-                continue
-            parser = axis.parse
-            if (
-                isinstance(parser, (DatetimeParse, TimestampParse, StrptimeParse))
-                and parser.timezone
-            ):
-                continue
-            if isinstance(parser, StrptimeParse) and (
-                "%z" in parser.format or "%Z" in parser.format
-            ):
-                continue
-            return True
-    return False

@@ -596,6 +596,7 @@ def test_all_six_rules_construct_without_source_store_or_run_io(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from marivo.analysis.materialization import graph_store
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.store import SessionStore
     from marivo.datasource.adapters import SourceSession
@@ -615,11 +616,10 @@ def test_all_six_rules_construct_without_source_store_or_run_io(
     monkeypatch.setattr(SourceSession, "__init__", forbidden)
     monkeypatch.setattr(SessionStore, "__init__", forbidden)
     monkeypatch.setattr(SessionStore, "open_existing", forbidden)
-    monkeypatch.setattr(SessionStore, "run", forbidden)
-    monkeypatch.setattr(SessionStore, "artifact", forbidden)
+    monkeypatch.setattr(graph_store, "run", forbidden)
+    monkeypatch.setattr(graph_store, "artifact", forbidden)
     monkeypatch.setattr(DatasetRuntime, "__init__", forbidden)
     monkeypatch.setattr(DatasetRuntime, "get_run", forbidden)
-    monkeypatch.setattr(DatasetRuntime, "artifact", forbidden)
     assert (
         derive(
             (source,), BindProject(region, ms.ref.entity("sales.customer"), field, None, (), ())

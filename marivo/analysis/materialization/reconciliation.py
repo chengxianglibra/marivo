@@ -1,15 +1,8 @@
-"""Guarded cold reconciliation never resumes computation or publishes staging."""
-
-from __future__ import annotations
+"""Guarded Store 7 reconciliation never replays origins or publishes staging."""
 
 from collections.abc import Callable
 
-from marivo.analysis.errors import AnalysisRepair
-from marivo.analysis.materialization.contracts import RunFailure
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.resources import discharge_resources
 from marivo.analysis.materialization.store import SessionStore
-from marivo.introspection.live.model import LiveHelpTarget
 
 
 def reconcile_session(
@@ -19,59 +12,7 @@ def reconcile_session(
     event: Callable[[str], None],
     run_ref: str | None = None,
 ) -> None:
-    """Resolve guarded Session obligations, optionally selecting one exact Run.
+    """Resolve the selected Session obligations under its owning writer guard."""
+    from marivo.analysis.materialization.graph_publication import _reconcile_graph
 
-    The caller owns the Session writer guard. Selection never bypasses publication
-    ownership or admits a successful publication.
-    """
-    if store.layout.generation == 7:
-        from marivo.analysis.materialization.graph_publication import _reconcile_graph
-
-        _reconcile_graph(store, session_ref, event, run_ref=run_ref)
-        return
-    event("reconciliation")
-    entries = store.recovery_snapshot(session_ref)
-    if run_ref is not None:
-        selected = store.run(run_ref)
-        if (
-            selected is None
-            or selected.session_ref != session_ref
-            or selected.lifecycle == "succeeded"
-        ):
-            raise MaterializationError(
-                expected="an incomplete or failed Run belonging to the selected Session",
-                received="unknown or foreign Run"
-                if selected is None or selected.session_ref != session_ref
-                else "committed success",
-                repair="Inspect this Session's Runs and select an incomplete or failed Run for recovery.",
-                stage="reconciliation",
-                run_ref=run_ref,
-            )
-        # A failed Run with no remaining obligations is an idempotent success.
-    # The read transaction is closed before local resource cleanup.
-    for entry in entries:
-        run = entry.run
-        if run_ref is not None and run.run_ref != run_ref:
-            continue
-        resolved = discharge_resources(store, entry.resources)
-        if run.lifecycle == "incomplete":
-            store.fail(
-                run.run_ref,
-                RunFailure(
-                    phase="process_lost",
-                    kind="process_lost",
-                    safe_message="The prior action has no successful local publication.",
-                    safe_location="dataset.reconciliation",
-                    expected="a committed output from a completed producer",
-                    received="no committed output and no conflicting local publisher; remote read status may be unknown",
-                    repair=AnalysisRepair(
-                        kind="inspect",
-                        action="Retry the logical definition after Session recovery completes.",
-                        help_target=LiveHelpTarget(surface="analysis", canonical_id="runtime.runs"),
-                    ),
-                ),
-                resolved_resources=resolved,
-            )
-        else:
-            for resource in resolved:
-                store.discharge(resource)
+    _reconcile_graph(store, session_ref, event, run_ref=run_ref)

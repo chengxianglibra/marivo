@@ -1990,3 +1990,33 @@ full lint/import checks, 403-source typing and API documentation under one
 unchanged candidate. Four touched-module typing checks pass separately. Complete
 qualification remains false; no new Runtime, cost, installed or Agent pass is
 inferred from these engineering results.
+
+
+## R10.1 scoped closure (2026-10-06)
+
+Entry is clean `panda@61e5a4eed5817c58215d27ca79cee002a0dced7d`. The
+[finite C01-C18 closure ledger](2026-10-06-marivo-r101-closure-ledger.md) and
+[validation record](2026-10-06-marivo-r101-validation.md) bind the uncommitted
+source candidate, original function identities, current owners, actual commands
+and hashed local evidence. Old Session population/observe and Population/Metric
+Dataset families, their exclusive consumers and Store 6 are retired. Public
+execution/recovery/disclosure now point to the typed graph, method registry,
+Runtime and Store 7. Shared descriptors, current Findings, mathematical oracles,
+source bindings, Event/Lifecycle/Anchor initialization and auxiliary tools remain.
+
+The final `make check-agent` passes 5,044 default tests with one existing skip,
+full lint/import checks, 333-source typing and API documentation. Affected local
+Runtime passes 61 tests with nine remote opt-in skips; six owner-initialization
+cases pass separately under unchanged product/test bytes. Current bilingual
+examples execute with independent numeric and complete-key assertions. The site
+verifies 343 required files and builds 321 pages. R9.5 static SQL inventory has
+zero unapproved submission sites. The wheel/sdist content gate verifies all 330
+current code/resources and absence of 66 retired modules; this grants archive
+contents only. **R10.1 is complete in its approved scope.**
+
+No commit, push, isolated installation, same-wheel full journeys, real Agent,
+full Runtime or release-check occurs. R10.2-R10.5 remain unexecuted. AGENTS.md
+and both packaged skills retain baseline bytes. The original R9 394 IDs,
+379 finite owner-proof bindings, 15 authorized cost skips and V17's four
+unverified physical producer bindings remain unchanged. Historical, static,
+engineering, local Runtime and archive-content evidence are separate authorities.

@@ -8,12 +8,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, overload
 
 from marivo._temporal import BeforeEndBoundary, TimeScope
-from marivo.analysis.datasets.base import MaterializedDataset
 from marivo.analysis.evidence._dataset_types import ArtifactRevalidation
 from marivo.analysis.materialization.contracts import SessionRecord
-from marivo.analysis.observation.contracts import EntityInput, MetricInput, TimeDimensionInput
-from marivo.analysis.observation.metric import LogicalMetricDataset, PopulationInput
-from marivo.analysis.observation.population import LogicalPopulationDataset
+from marivo.analysis.observation.contracts import ObservationOwner
 from marivo.analysis.observation.source_bindings import SourceBindingMap
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session._lazy_read_model import (
@@ -23,7 +20,6 @@ from marivo.analysis.session._lazy_read_model import (
     RunRecord,
     SessionGraph,
 )
-from marivo.analysis.session._lazy_sources import LazySources
 from marivo.refs import BusinessOrderKind, EntityKind, Ref
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.event import ParticipantRoleHandle
@@ -65,10 +61,10 @@ class Session:
         return result
 
     _runtime: DatasetRuntime
-    _sources_value: LazySources | None
+    _sources_value: ObservationOwner | None
     _catalog_value: SemanticCatalog | None
 
-    def _sources(self) -> LazySources:
+    def _sources(self) -> ObservationOwner:
         if self._sources_value is None:
             from marivo.semantic.catalog import load
 
@@ -167,14 +163,14 @@ class Session:
         """Return Event source construction bound to this Session."""
         from marivo.analysis.session._journey_events import JourneyEvents
 
-        return JourneyEvents(self._sources()._owner)
+        return JourneyEvents(self._sources())
 
     @property
     def lifecycle(self) -> HistoryLifecycle:
         """Return canonical Lifecycle source construction bound to this Session."""
         from marivo.analysis.session._history_lifecycle import HistoryLifecycle
 
-        return HistoryLifecycle(self._sources()._owner)
+        return HistoryLifecycle(self._sources())
 
     @overload
     def anchors(
@@ -239,7 +235,7 @@ class Session:
         if isinstance(source, ParticipantRoleHandle):
             if not isinstance(population._node.binding, LiveBinding):
                 fail("input_mode", "fixed population plus a live Event is mixed")
-            owner = self._sources()._owner
+            owner = self._sources()
             input_source = source
         elif isinstance(source, (LogicalJourneyResult, MaterializedJourneyResult)):
             if source._runtime.session_ref != self._runtime.session_ref:
@@ -255,27 +251,6 @@ class Session:
             business_order=business_order,
         )
         return LogicalAnchorDomain(_TOKEN, node, self._runtime)
-
-    def population(
-        self,
-        entity: EntityInput,
-        *,
-        time_scope: TimeScope | None = None,
-        time_dimension: TimeDimensionInput | None = None,
-    ) -> LogicalPopulationDataset:
-        """Construct governed Entity membership without executing a query.
-
-        Args:
-            entity: Exact Entity ref or loaded catalog entry.
-            time_scope: Explicit membership-selection scope for versioned Entities.
-            time_dimension: Exact membership time axis when required.
-        Returns: A Logical Population Dataset.
-        Example: ``population = session.population(customers)``.
-        Constraints: Versioned Entities require their own finite membership scope.
-        """
-        return self._sources().population(
-            entity, time_scope=time_scope, time_dimension=time_dimension
-        )
 
     def members(
         self, entity: Ref[EntityKind], *, at: datetime | BeforeEndBoundary | None = None
@@ -300,40 +275,17 @@ class Session:
         )
         return new_members(relation, self._runtime)
 
-    def observe(
-        self,
-        metrics: MetricInput | list[MetricInput] | tuple[MetricInput, ...],
-        *,
-        population: PopulationInput | None = None,
-        time_scope: TimeScope | None = None,
-        time_dimension: TimeDimensionInput | None = None,
-    ) -> LogicalMetricDataset:
-        """Construct ordered Metric observations without executing a query.
-
-        Args:
-            metrics: One Metric or an ordered collection of exact Metric inputs.
-            population: Optional admitted identity-bearing Dataset.
-            time_scope: Independent observation window.
-            time_dimension: Exact observation time axis when required.
-        Returns: A Logical Metric Dataset.
-        Example: ``result = session.observe(revenue).aggregate().execute()``.
-        Constraints: Membership scope does not implicitly select observation time.
-        """
-        return self._sources().observe(
-            metrics, population=population, time_scope=time_scope, time_dimension=time_dimension
-        )
-
     def source_bindings(self, bindings: SourceBindingMap) -> AbstractContextManager[None]:
         """Capture source parameters while constructing logical sources.
 
         Args: bindings: Exact Entity refs mapped to declared non-secret parameters.
         Returns: A restoring authoring-scope context manager.
-        Example: ``with session.source_bindings(values): dataset = session.observe(metric)``.
+        Example: ``with session.source_bindings(values): dataset = session.members(entity).observe(metric)``.
         Constraints: execute() never rereads ambient bindings; values are not persisted.
         """
-        return self._sources().source_bindings(bindings)
+        return self._sources().binding_scopes.scope(bindings)
 
-    def artifact(self, reference: str | ArtifactRef) -> MaterializedDataset | PublicMaterialized:
+    def artifact(self, reference: str | ArtifactRef) -> PublicMaterialized:
         """Recover an exact committed Dataset without reading current sources.
 
         Args: reference: Exact ArtifactRef or reference string.

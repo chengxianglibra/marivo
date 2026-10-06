@@ -998,6 +998,13 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             if name.startswith("_") or not isfunction(value):
                 continue
             target = "dsl." + owner.__name__.lstrip("_") + "." + name
+            if owner is dsl._MaterializedRead:
+                target = {
+                    "show": "actions.show",
+                    "to_pandas": "actions.to_pandas",
+                    "findings": "artifact.findings",
+                    "finding": "artifact.finding",
+                }.get(name, target)
             arguments = tuple(
                 f"*{key}"
                 if parameter.kind is Parameter.VAR_POSITIONAL

@@ -47,7 +47,7 @@ def observation(session: Session, metric: str) -> mv.LogicalNumericRelation:
 
 def contend(project: Path, session: str, metric: str, artifact: str) -> dict[str, object]:
     os.environ["MARIVO_PROJECT_ROOT"] = str(project)
-    handle = Session._from_runtime(DatasetRuntime.open(project, session, _generation=7))
+    handle = Session._from_runtime(DatasetRuntime.open(project, session))
     runtime = handle._runtime
     logical = observation(handle, metric)
     before = snapshot(runtime)
@@ -83,7 +83,7 @@ def create_race(project: Path) -> dict[str, object]:
 
     with patch.object(SessionStore, "session_by_name", synchronized):
         try:
-            runtime = DatasetRuntime.create(project, "raced", _generation=7)
+            runtime = DatasetRuntime.create(project, "raced")
             return {"pid": os.getpid(), "session": runtime.session_ref, "status": "created"}
         except SessionBusyError as error:
             return {"pid": os.getpid(), "session": error.session_ref, "status": "busy"}

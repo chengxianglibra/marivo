@@ -14,8 +14,8 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
     session = _session(tmp_path, monkeypatch)
     names = set(dir(session))
     for advertised in (
-        "observe",
-        "population",
+        "members",
+        "anchors",
         "events",
         "lifecycle",
         "source_bindings",
@@ -28,6 +28,8 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
     ):
         assert advertised in names, f"missing advertised member: {advertised}"
     for hidden in (
+        "observe",
+        "population",
         "layout",
         "semantic_project",
         "backend_factory",

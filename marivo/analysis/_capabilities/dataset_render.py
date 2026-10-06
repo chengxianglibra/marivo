@@ -6,7 +6,6 @@ import inspect
 
 from marivo.analysis._capabilities.dataset_model import (
     CallableInput,
-    FamilyInput,
     NavigationInput,
     TypeInput,
     invalid,
@@ -107,22 +106,6 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
         lines.extend("Failure/repair: " + text for text in descriptor.failures)
         lines.extend("Input " + p.name + ": " + p.acquisition for p in descriptor.parameters)
         routes = registry.callable_routes(descriptor)
-        for f in registry.families.registrations:
-            for consumer in f.consumers:
-                if consumer.id in descriptor.registration_ids:
-                    shapes = ", ".join(str(s) for s in consumer.accepted_shape_ids)
-                    operands = "; ".join(
-                        role + "=" + ",".join(str(s) for s in accepted)
-                        for role, accepted in zip(
-                            consumer.input_roles, consumer.operand_shape_ids, strict=False
-                        )
-                    )
-                    lines.append(
-                        f"Admission {consumer.id}: {shapes}; roles={consumer.input_roles}; output={consumer.output_family}"
-                        + ("; " + operands if operands else "")
-                    )
-                    if consumer.requirements:
-                        lines.append("Requirements: " + ", ".join(consumer.requirements))
         lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)
         exports = {e.name: e for p in registry.providers for e in p.exports if e.name != "session"}
         bindings = tuple(name for name in descriptor.example.requires if name in exports)
@@ -160,17 +143,7 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
             lines.append("Type: " + name)
             lines.extend("  " + f.name + ": " + f.annotation for f in binding.fields)
             lines.append("Methods: " + (", ".join(binding.methods) or "none"))
-        if isinstance(descriptor, FamilyInput):
-            lines.append("Shapes: " + ", ".join(str(s) for s in descriptor.registration.shape_ids))
-            for index, variant in enumerate(descriptor.variants, 1):
-                lines.append(
-                    f"Row semantics variant {index}: "
-                    + "; ".join(f.name + ": " + f.annotation for f in variant.fields)
-                )
-            routes = registry.family_routes(descriptor)
-            lines.extend("Methods: marivo.help('analysis." + t + "')" for t in routes)
-            lines.append("Current legal calls and exact Help targets: dataset.contract().show()")
-        elif isinstance(descriptor, TypeInput):
+        if isinstance(descriptor, TypeInput):
             for index, variant in enumerate(descriptor.variants, 1):
                 lines.append(
                     f"Value variant {index}: "
@@ -192,7 +165,7 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
                     )
                     if owner is None:
                         continue
-                    target = f"dsl.{owner.__name__.lstrip('_')}.{name}"
+                    target = registry.by_callable(getattr(implementation, name)).canonical_id
                     callable_descriptor = registry.by_canonical_id(target)
                     group = (
                         callable_descriptor.discovery_group

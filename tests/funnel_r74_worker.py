@@ -52,7 +52,7 @@ if phase == "produce":
     manifest.write_text(json.dumps(payload))
 else:
     payload = json.loads(manifest.read_text())
-    store = SessionStore._graph_store(root / "graph")
+    store = SessionStore(root / "graph")
     runtime = DatasetRuntime(store, payload["session"])
     session = Session._from_runtime(runtime)
 

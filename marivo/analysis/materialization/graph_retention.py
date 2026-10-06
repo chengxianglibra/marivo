@@ -92,7 +92,7 @@ def bind(
         fail("window_overflow", "return preparation envelope overflows the captured instant range")
     from marivo.analysis.session.core import Session
 
-    owner = Session._from_runtime(anchors.runtime)._sources()._owner
+    owner = Session._from_runtime(anchors.runtime)._sources()
     capture = prepare(
         population,
         owner,

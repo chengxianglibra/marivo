@@ -26,8 +26,6 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_TESTS = (
     "test_public_surface",
     "test_agent_result_protocol",
-    "test_lazy_dataset_values",
-    "test_lazy_dataset_contract",
     "test_analysis_help_resolution",
     "test_unified_help",
     "test_lazy_disclosure",
@@ -41,9 +39,10 @@ CONTRACT_TESTS = (
     "test_analysis_graph_r33",
     "test_analysis_lowering_r34",
     "test_analysis_dsl_exchange",
-    "test_analysis_dsl_contracts",
     "test_analysis_dsl_p2_disclosure",
     "test_cli",
+    "test_analysis_state_r101",
+    "test_analysis_retirement_r101",
 )
 
 
@@ -59,10 +58,6 @@ R5_TESTS = (
     "test_analysis_decimal_e2e",
     "test_analysis_cumulative_decimal",
     "test_lazy_runtime_concurrency",
-    "test_lazy_source_algebra",
-    "test_lazy_local_placement",
-    "test_lazy_status_fold_admission",
-    "test_lazy_retained_compiler",
     "test_sqlite_semantic_integration",
     "test_public_quantile_input",
 )

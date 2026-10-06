@@ -67,7 +67,8 @@ def test_first_round_help_has_receiver_specific_constraints() -> None:
         "Use session.members(...) for typed analysis graphs and numeric statistical methods."
         in entry
     )
-    assert entry.index("analysis.session.members") < entry.index("analysis.observe")
+    assert "analysis.session.members" in entry
+    assert "analysis.observe" not in entry
     assert "receiver's contract() actions" in render(REGISTRY, "methods")
     time_scope = render(REGISTRY, "time_scope")
     assert "start is included and end is excluded" in time_scope

@@ -58,33 +58,36 @@ def test_decimal_and_int64_linear_cold_rollup_equal_warm(tmp_path: Path) -> None
     assert produced["warm_monthly"] == MONTH_EXPECTED
     assert cold["values"] == produced["warm_monthly"]
     assert cold["dtypes"] == {
-        "gmv": "decimal128(38, 2)[pyarrow]",
-        "net_amount": "decimal128(38, 2)[pyarrow]",
-        "net_qty": "int64[pyarrow]",
-        "amount_mean": "double[pyarrow]",
+        "gmv": "object",
+        "net_amount": "object",
+        "net_qty": "int64",
+        "amount_mean": "float64",
     }
-    assert cold["day_label"] == "2026-07-01"
 
 
-def test_duckdb_decimal_mean_stays_rejected_with_unresolved_type_diagnostic(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_duckdb_decimal_mean_retains_exact_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The DuckDB decimal-mean cell stays closed: AVG is DOUBLE, not Decimal.
+    from decimal import Decimal
 
-    The engine's native AVG over DECIMAL publishes an unresolved double, which
-    the declared-cast transport rule refuses; the structured error names the
-    missing resolved Decimal fact instead of silently publishing a float.
-    """
+    import duckdb
+
     import marivo.analysis as mv
     import marivo.semantic as ms
-    from marivo.analysis.compiler.errors import DatasetCompilationError
-    from tests.lazy_rollup_equation_worker import author_decimal_mean_project
+    from tests.lazy_rollup_equation_worker import DAY_ROWS, author_decimal_mean_project
 
     project = author_decimal_mean_project(tmp_path)
+    with duckdb.connect(str(project / "warehouse.duckdb")) as connection:
+        connection.executemany("INSERT INTO orders VALUES (?, ?, ?, ?, ?)", DAY_ROWS)
     monkeypatch.chdir(project)
     session = mv.session.get_or_create("equation-mean", report_timezone="UTC")
-    logical = session.observe(ms.ref.metric("sales.amount_mean")).aggregate()
-    with pytest.raises(DatasetCompilationError, match="resolved exact Decimal precision"):
-        logical.execute()
-    assert (project / "marivo.toml").is_file()
+    fixed = (
+        session.members(ms.ref.entity("sales.orders"))
+        .observe(ms.ref.metric("sales.amount_mean"))
+        .execute()
+    )
+    result = fixed.rollup().execute()
+    assert result.to_pandas()["value"].tolist() == [Decimal("18.046667")]
+    assert session.artifact(result.state.artifact_ref).to_pandas()["value"].tolist() == [
+        Decimal("18.046667")
+    ]

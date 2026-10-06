@@ -13,18 +13,16 @@ execution boundaries, inspect the Dataset contract, and follow the concrete
 structured repair for unsupported shapes. Remote sources require read-only
 accounts; uploading retained results to bypass admission is unsupported.
 
-Public Sessions now use Store 7. J1–J4 member reads, selection, grouping, windowed
-observation, comparison, original-component ratio/rollup, row statistics and
-Spearman use one graph Runtime. Qualified routes cover DuckDB tables, local
-Parquet sources and verified fixed Arrow/Parquet-to-pandas continuations.
-R6–R9 Dataset methods retain their signatures but reject before business reads
-or Run allocation until they gain Store 7 qualification. Old-generation projects
-remain unchanged; create a Session in a fresh project.
+Public Sessions use the typed graph, method registry, Runtime and Store 7 for
+member reads, observation, comparison, statistics, Event and Lifecycle work.
+Every source and fixed method requires its exact physical qualification; the
+bounded backend vectors below do not grant other combinations. Old-generation
+projects reject without modification; create a Session in a fresh project.
 
-Construction may use R1 schema-only preflight to determine exact identity and
-value types, without reading business rows. Member identity is the complete declared tuple of string/int64 columns;
-the event axis uses its governed DATE or aware-timestamp interpretation. Each method still
-requires its exact physical qualification.
+Construction may use schema-only preflight to determine exact identity and
+value types without reading business rows. Member identity retains the complete
+declared tuple of string/int64 columns. The event axis uses its governed DATE
+or aware-timestamp interpretation.
 
 ## Construct and execute
 
@@ -163,7 +161,7 @@ and admitted in the project. Logical source execution evaluates the source on
 each call. Exact fixed continuations can reuse a committed execution key;
 `session.artifact(ref)` restores a public J1–J4 result from its validated
 snapshot and retained parts without reading the current source or Semantic
-catalog. Other Dataset execution remains unavailable until qualified for Store 7.
+catalog. Each other capability follows its current typed entry point and exact qualification.
 The bounded result card includes the available unit, method, Cell fields and
 current-row weighting, and masks Entity member values. Each `AnalysisAction`
 contains one mechanically admitted receiver call and its exact
@@ -249,12 +247,12 @@ dependency fails with a structured repair before a source connection opens.
 
 ## Inspect evidence and recover
 
-For source-bound Metric and Population graphs, `contract()` reports the selected
+For source-bound typed graphs, `contract()` reports the selected
 backend's static source admission. `rejected` includes its reason; `static_pass`
 only means the pure check passed, while graphs with retained Artifact inputs show
 `not_checked`. `execute()` still decides final placement. The contract also
-describes mechanical continuations; a Materialized Dataset's `show()` provides
-bounded retained inspection. Read exact Findings or recover an Artifact
+describes mechanical continuations; a materialized relation's `show()` provides
+bounded retained inspection. Read exact Findings from the materialized result or recover an Artifact
 through its owning Session. A small preview is not permission to omit rows from
 computation. See [Evidence](/docs/latest/concepts/evidence/) for the read contract.
 Duration columns in the preview are explicitly labeled in microseconds;
@@ -323,7 +321,7 @@ internally inconsistent Artifact or trigger a failure fallback.
 
 For the Entity-domain J1–J4 slice, repeated logical source execution reads the
 source again. Fixed continuations can hit the same exact committed Artifact;
-recover it explicitly with `session.artifact(ref)`. Other Dataset paths reject before execution until their R6–R9 migration.
+recover it explicitly with `session.artifact(ref)`. Other paths use their exact current method and physical-input qualifications.
 Recovery integrity checks cover Artifact, storage authority and Evidence, not
 current semantic authority or datasource freshness.
 
@@ -385,12 +383,10 @@ contributions; slicing a static sum with an explicit zero policy preserves
 excluded targets as Defined zero. Other aggregate functions, slice compositions
 and complete C04 qualification remain unverified.
 
-The backend and method descriptions below preserve pre-refactor qualification
-history. At the current R1 checkout, they do not grant execution to the older
-source routes: Event, Attribution, mean, time-scoped observation,
-ranking and other non-basic methods reject at `source_admission` until their
-R6–R9 migration and fresh backend qualification. Check the Dataset contract
-and the repository's R1 acceptance record for current evidence.
+The backend and method descriptions below record bounded qualification scopes.
+Current execution follows the typed graph, method registry, Runtime and Store 7.
+Check the returned relation's contract and the current owning qualification record;
+historical passes do not grant a different physical input or method combination.
 
 Operators share one semantic contract and backend registration mechanism. DuckDB
 executes typed graphs through Ibis source preparation and common local methods.
@@ -612,16 +608,16 @@ seven, while the DST day itself still starts at local midnight.
 import marivo.analysis as mv
 import marivo.semantic as ms
 
-orders_by_hour = (
-    session.observe(
-        ms.ref.metric("sales.revenue"),
-        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
-    )
-    .with_time_axis(ms.ref.time_dimension("sales.orders.order_time"), grain=mv.grain("hour"))
-    .aggregate()
-    .execute()
-)
-orders_by_hour.rollup(grain=mv.grain("day")).execute().show()
+window = mv.time_scope(start="2026-07-01", end="2026-07-03")
+orders = session.members(ms.ref.entity("sales.orders"))
+hours = mv.time_grid(during=window, grain=mv.grain("hour"))
+orders_by_hour = (orders.each(hours)
+    .observe(ms.ref.metric("sales.revenue"), during=hours.window)
+    .group_by(hours).rollup().execute())
+# A new daily observation uses the same business window.
+days = mv.time_grid(during=window, grain=mv.grain("day"))
+orders.each(days).observe(ms.ref.metric("sales.revenue"), during=days.window).group_by(days).rollup().execute().show()
+
 ```
 
 Actual adapter submissions own SQL diagnostics, with source/local domain, role
@@ -632,7 +628,7 @@ observed submission boundary are not claimed as captured queries.
 ### PostgreSQL scalar Metrics
 
 PostgreSQL Group A accepts a single datasource and a single unversioned table,
-with direct-column `sum`, `count`, `min` or `max` Metrics. You can select Population
+with direct-column `sum`, `count`, `min` or `max` Metrics. You can select member-domain
 membership, scope observations by native dates, add dimensions, aggregate Entity
 rows, filter, project Metrics, rank deterministically and select Top-N. The entire
 dependency graph must be supported, including Metrics removed by projection.
@@ -642,11 +638,11 @@ For example, with a sum Metric `sales.revenue` and a direct dimension
 
 ```python
 revenue = ms.ref.metric("sales.revenue")
-by_channel = session.observe(
-    revenue,
-    time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-).with_dimensions(ms.ref.dimension("sales.orders.channel")).aggregate()
-top_channels = by_channel.rank(by_channel.fields.metric(revenue)).limit(5).execute()
+by_channel = session.members(ms.ref.entity("sales.orders")).observe(
+    revenue, during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+    coordinates=(ms.ref.dimension("sales.orders.channel"),),
+).group_by(ms.ref.dimension("sales.orders.channel")).rollup()
+top_channels = by_channel.rank(order="descending", ties="ordinal").limit(5).execute()
 top_channels.show()
 ```
 
@@ -667,16 +663,18 @@ Retained results use the existing reader and are not imported into PostgreSQL.
 ### MySQL and SQLite scalar Metrics
 
 The Group A workflow above also applies to a single unversioned MySQL or SQLite
-table: direct-column `sum/count/min/max`, Population, date-scoped observation,
+table: direct-column `sum/count/min/max`, members, date-scoped observation,
 dimensions, aggregation, filters, projection, deterministic rank and Top-N.
 For example, the same authored `sales.revenue` and channel dimension use:
 
 ```python
 revenue = ms.ref.metric("sales.revenue")
-by_channel = session.observe(revenue).with_dimensions(
+by_channel = session.members(ms.ref.entity("sales.orders")).observe(
+    revenue, coordinates=(ms.ref.dimension("sales.orders.channel"),),
+).group_by(
     ms.ref.dimension("sales.orders.channel")
-).aggregate()
-by_channel.rank(by_channel.fields.metric(revenue)).limit(5).execute().show()
+).rollup()
+by_channel.rank(order="descending", ties="ordinal").limit(5).execute().show()
 ```
 
 MySQL admits tables and views with a SELECT-only account. Inputs include signed and unsigned
@@ -719,7 +717,7 @@ Sampling and source-private advanced methods remain outside this subset.
 ### Trino scalar Metrics
 
 Trino Group A supports one datasource and one unversioned ordinary relation —
-table or view — with direct-column `sum`, `count`, `min` and `max`, Population
+table or view — with direct-column `sum`, `count`, `min` and `max`, member-domain
 filtering, native-date scopes, same-Entity dimensions, aggregation, projection,
 rank and limit. Use the existing catalog/schema/table declaration; both tuple and
 dotted catalog/schema overrides are resolved consistently for metadata and
@@ -751,7 +749,7 @@ The scalar workflow example above also applies to an authored Trino Metric.
 ### ClickHouse scalar Metrics
 
 ClickHouse Group A admits one datasource and one unversioned ordinary relation —
-table or view — under any engine: direct-column sum/count/min/max, Population
+table or view — under any engine: direct-column sum/count/min/max, member-domain
 filters, native-date scopes, same-Entity dimensions, aggregation, projection,
 deterministic rank and limit. Distributed and multi-shard relations are accepted,
 as are unstable reads: engines whose reads depend on background merge state (for

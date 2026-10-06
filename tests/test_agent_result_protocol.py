@@ -39,9 +39,10 @@ RENDER_MAX_CHARS = _DEFAULT_MAX_OUTPUT_BYTES
 
 
 def test_result_repr_wraps_identity_single_line() -> None:
-    out = result_repr("MaterializedMetricDataset artifact=artifact_ab12 rows=7")
+    out = result_repr("MaterializedNumericRelation artifact=artifact_ab12 rows=7")
     assert (
-        out == "<MaterializedMetricDataset artifact=artifact_ab12 rows=7; call .show() to inspect>"
+        out
+        == "<MaterializedNumericRelation artifact=artifact_ab12 rows=7; call .show() to inspect>"
     )
     assert "\n" not in out
 
@@ -223,19 +224,31 @@ def test_terminal_type_byte_contract(builder: Callable[[], object]) -> None:
         obj.render(max_output_bytes=1)  # type: ignore[attr-defined]
 
 
-def test_committed_runtime_projections_satisfy_terminal_protocol(tmp_path) -> None:
-    from marivo.analysis.materialization.admission import DatasetRuntime
-    from marivo.analysis.materialization.store import SessionStore
-    from tests.lazy_runtime_read_fixtures import failure, input_value, publish
+@pytest.mark.runtime
+def test_committed_runtime_projections_satisfy_terminal_protocol(analysis_dsl_case_factory) -> None:
+    from marivo.analysis.materialization import graph_store
+    from marivo.analysis.materialization.contracts import RunFailure
+    from tests.test_analysis_state_r101 import _values
 
-    store = SessionStore(tmp_path)
-    store.create_session("protocol", session_ref="session")
-    publish(store, "succeeded", "artifact")
-    store.admit("session", "failed-key", input_value(), run_ref="failed")
-    store.fail("failed", failure())
-    store.admit("session", "pending-key", input_value(), run_ref="pending")
-    runtime = DatasetRuntime(store, "session")
+    case = analysis_dsl_case_factory("j2")
+    fixed = _values(case).execute()
+    runtime = case.session._runtime
+    store = runtime.store
+    with store._read() as connection:
+        artifact = graph_store.artifact(store, connection, fixed.state.artifact_ref.ref)
+        assert artifact is not None
+        succeeded = graph_store.run(store, connection, artifact.producing_run_ref)
+    assert succeeded is not None
+    graph_store.admit(store, runtime.session_ref, "failed-key", succeeded.dataset_input, "failed")
+    store.fail(
+        "failed",
+        RunFailure(
+            "stage_execution", "execution_failed", "fixture stopped", None, "success", "stop", None
+        ),
+    )
+    graph_store.admit(store, runtime.session_ref, "pending-key", succeeded.dataset_input, "pending")
     page = runtime.runs()
+    assert {item.lifecycle for item in page.items} == {"succeeded", "failed", "incomplete"}
     candidates = (*page.items, page, runtime.graph(), _artifact_digest())
     for candidate in candidates:
         assert_conforms(candidate)

@@ -51,14 +51,23 @@ def test_corrupt_finding_body_discards_native_exception_context(damage: str) -> 
 
 
 def _finding(value: t.FindingValueV1) -> t.Finding:
-    subject: t.FindingSubjectV1 = t.MetricFindingSubjectV1(
-        metric=d._catalog_identity("metric:sales.revenue")
+    quantity = t.ObservedGraphQuantityV1(
+        quantity_identity="revenue",
+        definition_fingerprint="test-revenue",
+        unit="CNY",
+        value_type="decimal",
+        approximation_identity="exact",
+        graph_fingerprint="test-graph",
+        contribution_identity="test-contribution",
+        metric=t.CatalogGraphMetricV1(
+            metric=RefPayloadV1(
+                schema="marivo.semantic_ref/v1", kind=SemanticKind.METRIC, path="sales.revenue"
+            )
+        ),
     )
+    subject: t.FindingSubjectV1 = t.ForecastFindingSubjectV2(quantity=quantity)
     if isinstance(value, t.AssociationFindingValueV1):
-        subject = t.AssociationFindingSubjectV1(
-            metric_a=d._catalog_identity("metric:sales.revenue"),
-            metric_b=d._catalog_identity("metric:sales.order_count"),
-        )
+        subject = t.AssociationFindingSubjectV2(quantity_a=quantity, quantity_b=quantity)
     elif isinstance(value, (t.FunnelDeltaFindingValueV1, t.ContributionFindingValueV1)):
         subject = t.FunnelFindingSubjectV1(
             subject_entity_ref=RefPayloadV1(
@@ -78,12 +87,16 @@ def _finding(value: t.FindingValueV1) -> t.Finding:
         coordinates=(),
         canonical_item_key='["row",0]',
         value=value,
-        derivation=t.FindingDerivationV1(
+        derivation=t.GraphFindingDerivationV1(
             producer_id="test.finding",
             extractor_contract_id="test_finding",
             extractor_contract_version="1",
-            source_artifact_refs=(ArtifactRef(ref="source"),),
-            source_fields=(d._make_field_id("metric.revenue"),),
+            state_contract_version="1",
+            policy_contract_id="test-policy",
+            policy_contract_version="1",
+            ordered_input_bindings=("source",),
+            definition_fingerprint="test-definition",
+            scope_id="august",
         ),
         committed_at=datetime(2026, 9, 8, tzinfo=timezone.utc),
     )

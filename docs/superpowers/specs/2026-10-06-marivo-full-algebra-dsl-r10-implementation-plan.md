@@ -2,8 +2,9 @@
 
 Date: 2026-10-06
 
-Status: implementation plan only. R10 implementation, installed-package,
-real-Agent and release acceptance have not been performed by this document.
+Status: R10.1 scoped implementation and validation complete; R10.2-R10.5 pending.
+See the [R10.1 validation record](2026-10-06-marivo-r101-validation.md). Installed-package,
+real-Agent and release acceptance have not been performed.
 
 ## 1. 目标与前置交接
 
@@ -14,7 +15,7 @@ real-Agent and release acceptance have not been performed by this document.
 
 用户确认 R0–R9 任务完成，以此启动 R10 规划。文档交付时基线为 `panda`，HEAD 为
 `f944ebad394462391eeb4494c4b929e53903ab67`，已包含 R9.7 审计与 R10 交接提交。
-本文仅新增实施文档；实施时重新绑定实际候选 SHA、未提交 diff、新增文件摘要及依赖版本，
+本文初次交付仅新增实施文档；实施记录另行绑定实际候选 SHA、未提交 diff、新增文件摘要及依赖版本，
 不把 HEAD 单独当作完整候选身份。
 
 前置证据读取[R9.7 审计](2026-10-06-marivo-r97-completion-audit.md)、

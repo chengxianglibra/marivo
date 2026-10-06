@@ -337,7 +337,7 @@ def test_zero_io_on_construction_planning_and_refusal(monkeypatch):
 
     import duckdb
 
-    from marivo.analysis.materialization import storage
+    from marivo.analysis.materialization import graph_store, storage
     from marivo.analysis.materialization.store import SessionStore
     from marivo.datasource.adapters import SourceSession
 
@@ -351,8 +351,8 @@ def test_zero_io_on_construction_planning_and_refusal(monkeypatch):
     monkeypatch.setattr(SourceSession, "batches", forbidden)
     monkeypatch.setattr(SourceSession, "collect_bounded", forbidden)
     monkeypatch.setattr(SessionStore, "__init__", forbidden)
-    monkeypatch.setattr(SessionStore, "admit", forbidden)
-    monkeypatch.setattr(SessionStore, "artifact", forbidden)
+    monkeypatch.setattr(graph_store, "admit", forbidden)
+    monkeypatch.setattr(graph_store, "artifact", forbidden)
     monkeypatch.setattr(storage, "_open_payload", forbidden)
     for leaf, route in (
         (_source(), "ibis"),

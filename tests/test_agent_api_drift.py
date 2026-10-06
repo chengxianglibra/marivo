@@ -19,7 +19,6 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.authoring import DuckDBSpec
-from tests.lazy_observation_fixtures import make_sources
 
 # ---------------------------------------------------------------------------
 # Minimal project files for tests that need a loaded SemanticProject
@@ -105,13 +104,17 @@ def test_richness_is_silent(semantic_project_factory, capsys) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_logical_metric_repr_is_bounded_and_has_identity() -> None:
-    result = make_sources().observe(ms.ref.metric("sales.revenue"))
+def test_logical_metric_repr_is_bounded_and_has_identity(analysis_dsl_case_factory) -> None:
+    result = (
+        analysis_dsl_case_factory("j2")
+        .session.members(ms.ref.entity("sales.customer"))
+        .observe(ms.ref.metric("sales.revenue"), via=ms.ref.relationship("sales.order_buyer"))
+    )
     rendered = repr(result)
     assert "\n" not in rendered
     assert len(rendered) <= 200
     assert "logical" in rendered.lower()
-    assert "execute()" in rendered
+    assert ".show()" in rendered
 
 
 def test_catalog_collection_repr_is_one_line(semantic_project_factory) -> None:
@@ -126,16 +129,31 @@ def test_catalog_collection_repr_is_one_line(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_dataset_contract_render_is_silent(capsys) -> None:
-    result = make_sources().observe(ms.ref.metric("sales.revenue")).contract()
-    result.render()
+def test_dataset_contract_render_is_silent(analysis_dsl_case_factory, capsys) -> None:
+    result = (
+        analysis_dsl_case_factory("j2")
+        .session.members(ms.ref.entity("sales.customer"))
+        .observe(ms.ref.metric("sales.revenue"), via=ms.ref.relationship("sales.order_buyer"))
+        .contract()
+    )
+    assert result.actions
     assert capsys.readouterr().out == ""
 
 
-def test_dataset_contract_show_prints_render_plus_newline(capsys) -> None:
-    result = make_sources().observe(ms.ref.metric("sales.revenue")).contract()
+def test_dataset_contract_show_prints_render_plus_newline(
+    analysis_dsl_case_factory, capsys
+) -> None:
+    result = (
+        analysis_dsl_case_factory("j2")
+        .session.members(ms.ref.entity("sales.customer"))
+        .observe(ms.ref.metric("sales.revenue"), via=ms.ref.relationship("sales.order_buyer"))
+        .contract()
+    )
     assert result.show() is None
-    assert capsys.readouterr().out == result.render() + "\n"
+    first = capsys.readouterr().out
+    assert first and len(first) <= 8192
+    result.show()
+    assert capsys.readouterr().out == first
 
 
 def test_catalog_collection_render_contains_refs_affordance(semantic_project_factory) -> None:
@@ -226,32 +244,8 @@ def test_analysis_public_exports_are_ordered_default_workflow_surface() -> None:
         "any_instance",
         "at_least",
         "all_instances",
-        "Dataset",
-        "LogicalDataset",
-        "MaterializedDataset",
-        "DatasetShapeId",
-        "DatasetFieldId",
-        "DatasetFieldIdentity",
-        "DatasetPhysicalTypeState",
-        "DatasetField",
-        "DatasetRowBound",
-        "DatasetCardinality",
-        "DatasetOrderTerm",
-        "DatasetOrdering",
         "DatasetByteCount",
-        "DatasetFamilyRowSemantics",
-        "DatasetRowContract",
-        "DatasetRowSetContract",
-        "DatasetSchema",
-        "LogicalDatasetState",
         "MaterializedDatasetState",
-        "DatasetContract",
-        "DatasetFields",
-        "DatasetFieldRef",
-        "LogicalPopulationDataset",
-        "MaterializedPopulationDataset",
-        "LogicalMetricDataset",
-        "MaterializedMetricDataset",
         "LogicalHistoryResult",
         "LogicalStateDistributionResult",
         "MaterializedStateDistributionResult",
@@ -264,7 +258,6 @@ def test_analysis_public_exports_are_ordered_default_workflow_surface() -> None:
         "LogicalStateIntervalResult",
         "MaterializedStateIntervalResult",
         "MaterializedHistoryResult",
-        "AnalysisPredicate",
         "ForecastHorizon",
         "ForecastModel",
         "WindowBucketAlignment",
@@ -379,15 +372,6 @@ def test_analysis_public_exports_are_ordered_default_workflow_surface() -> None:
         "min",
         "max",
         "count_defined",
-        "eq",
-        "not_eq",
-        "lt",
-        "lte",
-        "gt",
-        "gte",
-        "is_in",
-        "is_null",
-        "is_not_null",
         "all_of",
         "any_of",
         "not_",
@@ -439,10 +423,10 @@ def test_analysis_dir_hides_advanced_and_internal_objects() -> None:
 @pytest.mark.parametrize(
     "path",
     [
-        "marivo/analysis/observation/metric.py",
-        "marivo/analysis/observation/population.py",
-        "marivo/analysis/compiler/normalize.py",
-        "marivo/analysis/compiler/lowering.py",
+        "marivo/analysis/materialization/graph_observation.py",
+        "marivo/analysis/materialization/graph_members.py",
+        "marivo/analysis/materialization/graph_axes.py",
+        "marivo/analysis/compiler/graph_lowering.py",
         "marivo/analysis/materialization/admission.py",
     ],
 )

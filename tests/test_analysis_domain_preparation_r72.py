@@ -107,7 +107,7 @@ def _keys(profile, prefix, size):
 def _case(
     tmp_path, subject="s", occurrence="s", form="table", unit="us", zone="UTC", *, empty=False
 ):
-    store = SessionStore._graph_store(tmp_path)
+    store = SessionStore(tmp_path)
     session = store.create_session("r72")
     runtime = DatasetRuntime(store, session.session_ref)
     users = _keys(subject, "subject", 2)
@@ -380,7 +380,7 @@ def forbidden(*args, **kwargs):
     raise AssertionError('source must be offline')
 SourceSession.bind = forbidden
 ibis.duckdb.connect = forbidden
-store = SessionStore._graph_store(Path(sys.argv[1]))
+store = SessionStore(Path(sys.argv[1]))
 with store._connection() as connection:
     record = artifact(store, connection, sys.argv[2])
 result = read_result(store.project_root, record.descriptor)
@@ -2212,7 +2212,7 @@ def forbidden(*args, **kwargs):
     raise AssertionError('cold Journey recovery must not read sources')
 SourceSession.bind = forbidden
 ibis.duckdb.connect = forbidden
-store = SessionStore._graph_store(Path(sys.argv[1]))
+store = SessionStore(Path(sys.argv[1]))
 with store._connection() as connection:
     record = artifact(store, connection, sys.argv[2])
 result = read_result(store.project_root, record.descriptor)

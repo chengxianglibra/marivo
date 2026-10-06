@@ -1,0 +1,624 @@
+{
+  "authority": "R10.1 engineering, affected local Runtime, static disposition and archive contents only.",
+  "candidate_index": "candidate-index.json",
+  "candidate_index_sha256": "0a7ca51dd968d2bdfdcd7ea99b7ed1fced99d68bc7cb359173069b7280ed6ad2",
+  "closure": {
+    "baseline": "61e5a4eed5817c58215d27ca79cee002a0dced7d",
+    "baseline_functions": 4224,
+    "dispositions": {
+      "retained": 3264,
+      "retired_legacy_assertion": 867,
+      "updated_current_consumer": 93
+    },
+    "evidence_kind": "finite_static_disposition_only",
+    "retired_modules": 66,
+    "status": "passed"
+  },
+  "commands": [
+    {
+      "command": "make check-agent",
+      "exit_code": 0,
+      "id": "engineering",
+      "log": "check-delivery-final.log",
+      "result": "lint/imports; 333-source typing; 5044 passed/1 existing skip; API docs"
+    },
+    {
+      "command": "make runtime-test TESTS='tests/test_analysis_state_r101.py tests/test_lazy_computation_rollup_runtime.py tests/test_lazy_computation_runtime.py tests/test_agent_result_protocol.py tests/test_cutover_documentation_examples.py tests/test_analysis_session_core.py tests/test_analysis_session_profile_integration.py tests/test_analysis_recovery_r57.py tests/test_lazy_inspection_boundaries.py tests/test_analysis_graph_publication_r44.py tests/test_lazy_public_relationships.py'",
+      "exit_code": 0,
+      "id": "affected-runtime",
+      "log": "runtime-delivery-final.log",
+      "result": "61 passed/9 remote opt-in skips; local current source/fixed/cold only"
+    },
+    {
+      "command": "make runtime-test TESTS='tests/test_analysis_lifecycle_r75.py::test_independent_full_trace_with_origin_coverage tests/test_analysis_anchors_r77.py::test_overlap_parts_and_fixed_transport tests/test_analysis_retention_r78.py::test_fixed_omega_truth_quantifiers_and_selection'",
+      "exit_code": 0,
+      "id": "owner-initialization",
+      "log": "runtime-owners.log",
+      "result": "6 passed; unchanged product and owning test hashes verified"
+    },
+    {
+      "command": "make typecheck MYPY_FLAGS='--explicit-package-bases' TYPECHECK_TARGETS='scripts/r101_closure_audit.py scripts/r101_package_contents.py'",
+      "exit_code": 0,
+      "id": "tool-typing",
+      "log": "tool-type-final.log",
+      "result": "2 source files passed"
+    },
+    {
+      "command": ".venv/bin/pytest -n 0 tests/test_analysis_retirement_r101.py tests/test_lazy_finding_types.py -q --tb=short",
+      "exit_code": 0,
+      "id": "retirement-finding",
+      "log": "narrow-final.log",
+      "result": "49 passed; covered again by engineering gate"
+    },
+    {
+      "command": ".venv/bin/pytest -n 0 tests/test_full_algebra_backend_matrix.py -q --tb=short",
+      "exit_code": 0,
+      "id": "candidate-freeze",
+      "log": "freeze-rerun.log",
+      "result": "14 passed; covered again by engineering gate"
+    },
+    {
+      "command": ".venv/bin/python -m scripts.r101_closure_audit",
+      "exit_code": 0,
+      "id": "closure-ledger",
+      "log": "closure-report.json",
+      "result": "4224 baseline identities/66 retirement paths; static only"
+    },
+    {
+      "command": ".venv/bin/python scripts/r95_sql_audit.py --output /tmp/marivo-r101/sql-audit-final.json",
+      "exit_code": 0,
+      "id": "sql-inventory",
+      "log": "sql-audit-final.json",
+      "result": "328 production files/259 sites/62 exact manifest entries; zero failures"
+    },
+    {
+      "command": "npm run verify:content",
+      "cwd": "site",
+      "exit_code": 0,
+      "id": "site-content",
+      "log": "site-verify-delivery-final.log",
+      "result": "343 required files verified"
+    },
+    {
+      "command": "npm run build",
+      "cwd": "site",
+      "exit_code": 0,
+      "id": "site-build",
+      "log": "site-build-delivery-final.log",
+      "result": "Astro check/build; 321 pages; both installer outputs verified"
+    },
+    {
+      "command": ".venv/bin/python -m build --outdir /tmp/marivo-r101/delivery-dist",
+      "exit_code": 0,
+      "id": "package-build",
+      "log": "package-build-delivery-final.log",
+      "result": "wheel/sdist built; no installation"
+    },
+    {
+      "command": ".venv/bin/python scripts/check-wheel-contents.py /tmp/marivo-r101/delivery-dist",
+      "exit_code": 0,
+      "id": "package-contents",
+      "log": "package-contents-delivery-final.log",
+      "result": "330 product files/resources exact; 66 retired paths absent"
+    },
+    {
+      "command": ".venv/bin/twine check /tmp/marivo-r101/delivery-dist/*",
+      "exit_code": 0,
+      "id": "package-metadata",
+      "log": "twine-delivery-final.log",
+      "result": "both archives passed metadata checks; no publication"
+    }
+  ],
+  "default_skip": {
+    "count": 1,
+    "reason": "owner implementation propagates channel failure to the dispatcher fallback",
+    "test": "tests/test_datasource_metadata_schema_only.py:81"
+  },
+  "files": [
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/check-delivery-final.log",
+      "role": "final_scope_evidence",
+      "sha256": "1055ec6c8426015243c2caa83b7e6557c093173866a94af01351640408247d14",
+      "size": 5916
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/check-final.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "aeac12ebaf2621083b73f2ec4381b9fee66f54404ff3140887eeded21d097c8b",
+      "size": 6590
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/check-stable-final.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "4f4019b3c1d4072892f8736d6827236eaec8a2724ca8751029e11098d0328993",
+      "size": 5916
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/check1.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "b262e8d726f901b44ffb733d79c15bedf65150fd069f94e7fb56b39a2a2d9cf0",
+      "size": 2402
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/check2.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "f91507bd63f4d3d3ec30040f52b25500000bf7fbed9a1898446f3b9a12944556",
+      "size": 5916
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/closure-audit.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "1bfa0c48747bb05baae77e6118c259fb9629059e501f83ad51f7dd020ef7f6e7",
+      "size": 280
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/closure-report.json",
+      "role": "final_scope_evidence",
+      "sha256": "be17dd845fb9b709c792a0a1801c0e73926caa62814c6e2bf54e1b470d514525",
+      "size": 310
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/collect.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "75b7a1ab172936b3e23306494d7f52e302eee707331b2140219fa936ba0e3f5d",
+      "size": 578393
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/collect2.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "591a7884b1b37827ffcc7bbae7f94db4cd08db5835aa24343280fd366d88a81c",
+      "size": 520436
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/commands.json",
+      "role": "final_scope_evidence",
+      "sha256": "34a175792befc13756c30c782b7c5e666227fb8c6e13845ae30f5f9f728fb087",
+      "size": 3874
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/default-skip.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "6ab53fe796338ba11f1f36269abb75fcc2ae88b7b7b2cce5e2c266ebd49d49e0",
+      "size": 328
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/default1.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "9938873ca40417449f2a5bdfa0b7a44f086f427f5f57cabf0e13c8dd9232f172",
+      "size": 23811
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/default2.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "38cfa27c3755a254ed14cf10e68cd1bb02bb940e046712510166f5d5f2f114f0",
+      "size": 16151
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/delivery-candidate.json",
+      "role": "final_scope_evidence",
+      "sha256": "122a878d6dcc7514614858f8a89eecf7058b73409933a67ee47fce0d0cb83575",
+      "size": 127401
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/finalization.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/format-final1.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "f434b22955e5c2c5a8934e1e0bc7481d1eea6aec55f95aa83b10649da7a3368a",
+      "size": 45
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/format.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "0fdde6f633687a13832bfd6e14157a51e145c24f40bccce4077f2ae1747c0f2c",
+      "size": 47
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/format4.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "76a2f45dccf41a6af6d2b17bea1cc5c29af60fa2787b0f2dbe720e2b1a468ca1",
+      "size": 46
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/format5.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "625f55083bced73b008648524a91051b077904d71d9f93a0e11324319939687e",
+      "size": 46
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/freeze-rerun.log",
+      "role": "final_scope_evidence",
+      "sha256": "2758ac8bd5f8d9cd8cfba2c30457b2636a409a290edb351926a30eb517ca990d",
+      "size": 100
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/inventory-delivery-final.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "d263429e319b2cbb03de66bc95594d71742431227c09fb05d853d05114d2b888",
+      "size": 102
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/inventory-final.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "d263429e319b2cbb03de66bc95594d71742431227c09fb05d853d05114d2b888",
+      "size": 102
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/lint1.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "6bab5f339e624a2095d0033d24338f0d583bdfd035ecdcadae9ca7f1a3638506",
+      "size": 925
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/lint2.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "5c52e8b1d5a0bf62cbf81c10002df2c5d750e71db63861786ddac8f36ddb60e9",
+      "size": 1316
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/lintfix.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "e1e5f1a743cbe32ff5f783a099049cd764e164ca7e389624bb18ac625f6d82d9",
+      "size": 39
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/marivo-0.5.3.dev0-py3-none-any.whl",
+      "role": "final_scope_evidence",
+      "sha256": "81570760e8fa4d74e32ce63b7b547f357f264da985585f40770a9f1096ec7044",
+      "size": 1303419
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/marivo-0.5.3.dev0.tar.gz",
+      "role": "final_scope_evidence",
+      "sha256": "3a82457b5e598a6a83f211c7dda86cf48f982230f6ba87884419ca38a8f912cf",
+      "size": 2016113
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/narrow-final.log",
+      "role": "final_scope_evidence",
+      "sha256": "60ee6c4734b27c6c9b46d8bcfa32fe2e943d61653bb84e1a7dca94820624d230",
+      "size": 99
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/narrow2.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "b96eb469260ddc3ef5cbde3ad4915a736d96f49491918ea7bff434ec6680277e",
+      "size": 3381
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/narrow3.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "d203e43e262c641e179fe318ca742c6a685190f772ad9dc009fce7d29ef31f17",
+      "size": 14730
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/narrow4.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "19dfe0224982a3eb9911ae0025c249056b576c593e5ed66e0aac4507b098f767",
+      "size": 224
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/package-build-delivery-final.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "94f8f306bc76a9f28b4bf895d4923daf133a937f77f31d953c9754aa9a81358d",
+      "size": 144329
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/package-build-final.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "3f7d800f58a09bdab4429e766913ce263aa6bb320fd92246886441986b708996",
+      "size": 144326
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/package-build.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "c0d03741e75f3489c26d9768d550461f1b22d838e3bce3909d766344300c26ed",
+      "size": 144246
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/package-contents-delivery-final.log",
+      "role": "final_scope_evidence",
+      "sha256": "f1165c81adc171a80f8faa0b4d300feb5c16c03816d7717218661c1afd681f9d",
+      "size": 351
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/package-contents-final.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "b547c9055d777372624d39a99da27058a0159de0e41bed4ee34810eaec89196d",
+      "size": 348
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/package-contents.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "a733e2b381d3a0a2b4d7f8defc3d66964409d4dcb2cbb62f1b7a76c0fd51715c",
+      "size": 342
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/package-report.json",
+      "role": "final_scope_evidence",
+      "sha256": "8d9348791810264ba71f6caec15ff255a0127cc6d56e04e308ffeca51cb3d484",
+      "size": 266
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/ruff-final1.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "6f4e3c8cb6a43f32a8b47add0b65207f17bd814c84308623b3720ad789c0d769",
+      "size": 39
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/ruff3.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "a3283f00004afa2818d216549f6cee4e21323d8c0e0a481b772a2c36c09d7b6d",
+      "size": 3479
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/ruff4.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "e1e5f1a743cbe32ff5f783a099049cd764e164ca7e389624bb18ac625f6d82d9",
+      "size": 39
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-delivery-final.log",
+      "role": "final_scope_evidence",
+      "sha256": "2e7c9d90f21c4b7515fdf1a921ac50ce81846cf61f0859633b42c511b2e708d1",
+      "size": 449
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-doc-final1.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "9acfffba77822f1a1989ea9b0dbaa72d1a6a6cfa78088032ec45d67fe9401005",
+      "size": 1518
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-doc-final2.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "29d21a273059d8fbc8559aee87a493115c6ad16b0e939ef8ba336c8916029476",
+      "size": 3986
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-doc-final3.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "925745e5683ba6b3e5c31967c8a6d06cb74c21097b06acf354d300f49d294543",
+      "size": 709
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-docs-complete-final.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "7e66a93c38339df1f227515b438a84b66a3de0b805230639dc4f44442de8e9f9",
+      "size": 4013
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-final1.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "a86b0159b3066f73c3e2618424f4f347802b34778f9b2bc5fc9bd47742bdf0e6",
+      "size": 22492
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-final2.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "d4fb3d4ff9201f1ed99a3cec7f40aaa3d7fd09208f5cdc9d2682f81ddb4a8d87",
+      "size": 449
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-first.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "98c2867149cd463ab2a5525b81d5b17902570dedbc0d46e960dd8f981c505656",
+      "size": 1061
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-first2.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "4db70cd02d8e214d631a0554554f79769a37aca60c624462616cfc80ac115af9",
+      "size": 878
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-first3.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "65deaea2d75a6203bf3f9a70539748904b2aec44c97ac5dbc29cc3c392019759",
+      "size": 1790
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-hourly-daily-final.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "a0779282cae12aed3c19c701b2d22ddf89cde9fa0b125c9f09df5b76eb526846",
+      "size": 425
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-migrated-examples-final.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "4c867b0533299a6533e31dfbfc6f865effcde67ce68a33eb598f7b83d0746b8e",
+      "size": 10929
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-migrated-examples-final2.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "3c40a61d02b1991246fdd911868aef7f24bb31f33b197cf134d199627b3c2ed1",
+      "size": 426
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-migrated-examples.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "b0f31b5f745e8bce281c47430f488a8520a32c49c03be773072372e1207af9c8",
+      "size": 13878
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-owners.log",
+      "role": "final_scope_evidence",
+      "sha256": "841a29b82b566e334d34d77be92bb996d861528b56a6210154d9fb7403a71de7",
+      "size": 586
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-rollup2.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "a18279fee1cca2f50033bf144a4188acf36bc277488b1a2e9932abcd6471129e",
+      "size": 9878
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-state.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "97c4b92b848ea878fc8afc899bf58ba949102bb816d37dad1dfa036041879f3f",
+      "size": 4150
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime-state2.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "47840833db400348aa0a4c3b6d4ccc16372623f2a83f0ada112312ae66a44725",
+      "size": 448
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime3.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "cef4b0f22ef8b50679eea834696567c2b27978f355d42ca8329a0c0fbaa91d1c",
+      "size": 83682
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime4.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "16f2ede6f0496c03354fc139bc3aa2741fe10dee9a156694831b71168540b812",
+      "size": 14077
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/runtime5.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "7aa1c89f72b1a2f423f3f14f23a96bbadd65d91708bf7b7ba3a9d1f85b94212f",
+      "size": 34467
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/site-build-delivery-final.log",
+      "role": "final_scope_evidence",
+      "sha256": "f3d4d648bd0fee187fc437e183020b7141a452d69498ff1a389a934bdab6b7d1",
+      "size": 49101
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/site-build-final.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "1068b2d38277dad3c0d30a48447f825d4694387d44c5d322587845e341e717f9",
+      "size": 49482
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/site-build-stable-final.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "42989c205ec35da815ba4b4d6638c364a1f1208e0e492fe586c3f1020ae77f91",
+      "size": 49099
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/site-build.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "1791d4d482067f6a879944eb0575a50711eefb9f6ca553ce02ac447d0b06932a",
+      "size": 49099
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/site-verify-delivery-final.log",
+      "role": "final_scope_evidence",
+      "sha256": "89f6f74103323e7f0c5352e30bbe3f45d0d36da77f659e043b2c4b45b91b9e83",
+      "size": 110
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/site-verify-final.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "89f6f74103323e7f0c5352e30bbe3f45d0d36da77f659e043b2c4b45b91b9e83",
+      "size": 110
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/site-verify-stable-final.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "89f6f74103323e7f0c5352e30bbe3f45d0d36da77f659e043b2c4b45b91b9e83",
+      "size": 110
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/site-verify.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "89f6f74103323e7f0c5352e30bbe3f45d0d36da77f659e043b2c4b45b91b9e83",
+      "size": 110
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/sql-audit-final.json",
+      "role": "final_scope_evidence",
+      "sha256": "6263fb0d33fea7f00afa18f29c99abfd33c056b881ba8102f3749d9a251b6886",
+      "size": 188922
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/tool-type-final.log",
+      "role": "final_scope_evidence",
+      "sha256": "97ce74dac4da0752563b9cb51198d9aee4cb21d821b478d921d6aa5cbad93ac3",
+      "size": 117
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/tool-type.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "dcaa2772cdfc2d0b89bf9139efca3dd36b8e417a154b79c5a257e0c755bafaac",
+      "size": 640
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/twine-delivery-final.log",
+      "role": "final_scope_evidence",
+      "sha256": "ddc20b993e345b9511ba5ce4a6b3237b1fe18c970949d90a4643e3fa69b7f298",
+      "size": 156
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/twine-final.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "35a6294ea35bf5ca7c3a8921079676d4c6f50f09cca801b6c76f27e29abb9cc4",
+      "size": 150
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/twine.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "3bcb9bea01156e569c10d1d4544a45e4ab3f69d7273096440941e83f9e39a80e",
+      "size": 138
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/type1.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "ccb916401a1dd2f0f8b7db0397eda2a1983956f2a8a5b3e06018fa01298919c4",
+      "size": 424
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/type2.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "030ec796f345f566c2b1d4660a361a489b58ab457aa8baff5d9c2c615df6b4af",
+      "size": 635
+    },
+    {
+      "path": "docs/superpowers/specs/evidence/r101/final-01/type3.log",
+      "role": "retained_iteration_log_no_final_grant",
+      "sha256": "4e8d7d6ccd18d3fa1c2b1c206e1bf926aa57418cae9b1beb19f50ad9c84fcf8d",
+      "size": 45
+    }
+  ],
+  "local_evidence_policy": "Raw logs and archives are ignored local files. Tracked hashes and finite source/test indexes are portable; no new test depends on ignored evidence.",
+  "package": {
+    "evidence_kind": "archive_contents_only",
+    "product_files": 330,
+    "retired_paths": 66,
+    "sdist_sha256": "3a82457b5e598a6a83f211c7dda86cf48f982230f6ba87884419ca38a8f912cf",
+    "wheel_sha256": "81570760e8fa4d74e32ce63b7b547f357f264da985585f40770a9f1096ec7044"
+  },
+  "qualification_exclusions": [
+    "R10.2-R10.5",
+    "isolated installation",
+    "same-wheel full journeys",
+    "real Agent",
+    "full Runtime",
+    "release-check",
+    "R9 authorized cost skips",
+    "V17 four unverified producers"
+  ],
+  "runtime_skips": {
+    "count": 9,
+    "reason": "remote postgres/mysql/clickhouse/trino service opt-in absent; no remote execution grant"
+  },
+  "schema": "marivo.r101.evidence-index.v1",
+  "source_content_sha256": "800f7732299444909111694aeb61fdc287daae56c790ddd41f7d28792b9140bc",
+  "sql": {
+    "evidence_kind": "static_ast_inventory",
+    "failures": [],
+    "manifest_sha256": "c31f91d506330f618dde0d0cecf26d8d4beeb08b40c81cf193354b3ae5dfaf28",
+    "status": "passed"
+  },
+  "status": "passed"
+}

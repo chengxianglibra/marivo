@@ -6,43 +6,26 @@ import os
 import secrets
 import sqlite3
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Literal
 
 from marivo._compat import UTC
-from marivo.analysis.evidence._dataset_types import Finding
 from marivo.analysis.materialization.contracts import (
-    ArtifactDescriptor,
-    ArtifactMetadata,
-    ArtifactRecord,
-    EvidenceRecord,
     ResourceRecord,
-    RunDatasetInput,
     RunFailure,
-    RunRecord,
     SessionRecord,
     canonical_json,
-    decode_descriptor,
     decode_failure,
-    decode_run_input,
-    encode_descriptor,
-    evidence_for,
     failure_payload,
     invalid,
     parse_timestamp,
-    run_input_payload,
 )
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
-from marivo.analysis.materialization.ownership import (
-    owns_resource,
-    validate_receipt_owner,
-)
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.graph_store import GraphRun
@@ -128,7 +111,7 @@ CREATE INDEX artifact_recency ON dataset_artifacts(session_ref,committed_at,arti
 """
 
 
-def _generation_error(version: object, expected: int = 6) -> IntegrityError:
+def _generation_error(version: object, expected: int = 7) -> IntegrityError:
     return IntegrityError(
         expected=f"an existing complete Session Store with user_version={expected}",
         received=f"Session Store user_version={version}",
@@ -146,31 +129,6 @@ def _new_run_ref() -> str:
     return "run_" + secrets.token_hex(12)
 
 
-@dataclass(frozen=True, slots=True)
-class RecoveryEntry:
-    """One selected producer and its obligations from a single Store snapshot."""
-
-    run: RunRecord
-    resources: tuple[ResourceRecord, ...]
-
-
-@contextmanager
-def _recovery_metadata(run_ref: str | None = None) -> Iterator[None]:
-    """Give selected nested decoders the recovery operation's diagnostic context."""
-    try:
-        yield
-    except IntegrityError as error:
-        if error.stage == "reconciliation":
-            raise
-        raise IntegrityError(
-            expected="valid admissions, terminals, Artifacts, Evidence and resource obligations for Session recovery",
-            received=error.received or "invalid selected recovery metadata",
-            repair="Preserve the selected Session's metadata, outputs and resource journal; inspect and repair the inconsistent metadata before retrying Session recovery.",
-            stage="reconciliation",
-            run_ref=run_ref,
-        ) from None
-
-
 def _enable_wal(conn: sqlite3.Connection) -> None:
     # SQLite does not consistently invoke its busy handler when changing the
     # journal mode. Concurrent generation creators must retry that transition.
@@ -186,7 +144,7 @@ def _enable_wal(conn: sqlite3.Connection) -> None:
             time.sleep(0.01)
         else:
             if mode != "wal":
-                raise invalid("v6 Store requires WAL durability")
+                raise invalid("Store 7 requires WAL durability")
             return
 
 
@@ -234,40 +192,20 @@ def _one(
 class SessionStore:
     """Private Store; the caller holds the owning guard around all mutations."""
 
-    def __init__(self, project_root: str | Path) -> None:
+    def __init__(self, project_root: str | Path, *, existing_only: bool = False) -> None:
         self.layout = MaterializationLayout(Path(project_root))
-        if (self.layout.generation_dir.parent / "v7").exists():
-            raise invalid("v6 cannot open a v7 project; preserve the existing generation")
-        self._initialize()
+        generations = self.layout.generation_dir.parent
+        if generations.exists() and any(p.name != "v7" for p in generations.iterdir()):
+            raise _generation_error("old generation directory")
+        self._initialize(existing_only=existing_only)
 
     @classmethod
     def open_existing(cls, project_root: str | Path) -> SessionStore:
-        """Open only an existing complete v6 authority without initializing state."""
-        result = cls.__new__(cls)
-        result.layout = MaterializationLayout(Path(project_root))
-        unavailable = False
+        """Open an existing complete Store 7 without initializing state."""
         try:
-            result._initialize(existing_only=True)
+            return cls(project_root, existing_only=True)
         except (sqlite3.Error, OSError):
-            unavailable = True
-        if unavailable:
-            raise invalid("selected v6 Store is unavailable")
-        return result
-
-    @classmethod
-    def _graph_store(cls, project_root: str | Path, *, existing_only: bool = False) -> SessionStore:
-        result = cls.__new__(cls)
-        root = Path(project_root).resolve()
-        generations = root / ".marivo" / "analysis" / "generations"
-        if generations.exists() and any(p.name != "v7" for p in generations.iterdir()):
-            raise _generation_error("old generation directory", expected=7)
-        result.layout = MaterializationLayout(root, generation=7)
-        result._initialize(existing_only=existing_only)
-        return result
-
-    def _require_generation(self, generation: int) -> None:
-        if self.layout.generation != generation:
-            raise invalid("operation belongs to a different Store generation")
+            raise invalid("selected Store 7 is unavailable") from None
 
     @property
     def project_root(self) -> Path:
@@ -344,11 +282,11 @@ class SessionStore:
                         with self.db_path.open("rb") as source:
                             wal_header = source.read(20)[18:20]
                         if wal_header != b"\x02\x02":
-                            raise invalid("v6 Store requires WAL durability")
+                            raise invalid("Store 7 requires WAL durability")
                     else:
                         journal: object = read.execute("PRAGMA journal_mode").fetchone()[0]
                         if journal != "wal":
-                            raise invalid("v6 Store requires WAL durability")
+                            raise invalid("Store 7 requires WAL durability")
             finally:
                 read.close()
             if version == self.layout.generation:
@@ -500,156 +438,20 @@ class SessionStore:
             )
             return None if row is None else self._session(row)
 
-    def _run(self, conn: sqlite3.Connection, run_ref: str) -> RunRecord | None:
-        self._require_generation(6)
-        row = _one(conn, "SELECT * FROM analysis_action_runs WHERE run_ref=?", (run_ref,))
-        if row is None:
-            return None
-        session_ref = _text(row, "session_ref")
-        input_rows = _rows(
-            conn,
-            "SELECT * FROM analysis_action_run_inputs WHERE run_ref=? ORDER BY input_ordinal",
-            (run_ref,),
-        )
-        for ordinal, input_row in enumerate(input_rows):
-            if (
-                _cell(input_row, "input_ordinal") != ordinal
-                or _text(input_row, "session_ref") != session_ref
-            ):
-                raise invalid("invalid Run input order or owner")
-        inputs = tuple(_text(item, "artifact_ref") for item in input_rows)
-        terminal = _one(
-            conn, "SELECT * FROM analysis_action_run_terminals WHERE run_ref=?", (run_ref,)
-        )
-        arguments = (
-            _text(row, "run_ref"),
-            session_ref,
-            _text(row, "execution_key_digest"),
-            _text(row, "admitted_at"),
-            decode_run_input(_text(row, "dataset_input_payload")),
-            inputs,
-        )
-        admitted_at = parse_timestamp(arguments[3])
-        if terminal is None:
-            return RunRecord(*arguments, lifecycle="incomplete")
-        if _text(terminal, "session_ref") != session_ref:
-            raise invalid("foreign Run terminal owner")
-        outcome = _text(terminal, "outcome")
-        output = _optional(terminal, "output_artifact_ref")
-        failure = _optional(terminal, "failure_payload")
-        terminal_at = _text(terminal, "terminal_at")
-        if parse_timestamp(terminal_at) < admitted_at:
-            raise invalid("Run terminal predates admission")
-        if outcome == "succeeded" and output is not None and failure is None:
-            return RunRecord(
-                *arguments,
-                lifecycle="succeeded",
-                terminal_at=terminal_at,
-                output_artifact_ref=output,
-            )
-        if outcome == "failed" and output is None and failure is not None:
-            return RunRecord(
-                *arguments,
-                lifecycle="failed",
-                terminal_at=terminal_at,
-                failure=decode_failure(failure),
-            )
-        raise invalid("contradictory Run terminal")
-
-    def run(self, run_ref: str) -> RunRecord | None:
-        with self._read() as conn:
-            run = self._run(conn, run_ref)
-            if (
-                run is not None
-                and run.output_artifact_ref is not None
-                and self._artifact(conn, run.output_artifact_ref) is None
-            ):
-                raise invalid("succeeded Run has no Artifact")
-            return run
-
-    def incomplete(self, session_ref: str) -> tuple[RunRecord, ...]:
-        with self._read() as conn:
-            rows = _rows(
-                conn,
-                "SELECT a.run_ref FROM analysis_action_runs a LEFT JOIN analysis_action_run_terminals t USING(run_ref) WHERE a.session_ref=? AND t.run_ref IS NULL ORDER BY a.admitted_at,a.run_ref",
-                (session_ref,),
-            )
-            if len(rows) > 1:
-                raise invalid("multiple incomplete Runs in one Session")
-            result = []
-            for row in rows:
-                run = self._run(conn, _text(row, "run_ref"))
-                if run is None:
-                    raise invalid("selected incomplete Run is absent")
-                result.append(run)
-            return tuple(result)
-
-    def admit(
-        self,
-        session_ref: str,
-        execution_key_digest: str,
-        dataset_input: RunDatasetInput,
-        *,
-        input_artifact_refs: tuple[str, ...] = (),
-        run_ref: str | None = None,
-    ) -> RunRecord:
-        self._require_generation(6)
-        payload = canonical_json(run_input_payload(dataset_input))
-        decode_run_input(payload)
-        ref = run_ref or _new_run_ref()
-        with self._write() as conn:
-            pending = _one(
-                conn,
-                "SELECT a.run_ref FROM analysis_action_runs a LEFT JOIN analysis_action_run_terminals t USING(run_ref) WHERE a.session_ref=? AND t.run_ref IS NULL",
-                (session_ref,),
-            )
-            if pending is not None:
-                raise invalid("Session already has an incomplete Run")
-            if (
-                _one(
-                    conn,
-                    "SELECT artifact_ref FROM dataset_artifacts WHERE session_ref=? AND execution_key_digest=?",
-                    (session_ref, execution_key_digest),
-                )
-                is not None
-            ):
-                raise invalid("execution key already has an Artifact")
-            for artifact_ref in input_artifact_refs:
-                if self._artifact(conn, artifact_ref) is None:
-                    raise invalid("Run input Artifact is absent")
-            conn.execute(
-                "INSERT INTO analysis_action_runs VALUES(?,?,?,?,?)",
-                (ref, session_ref, execution_key_digest, _now(), payload),
-            )
-            conn.executemany(
-                "INSERT INTO analysis_action_run_inputs VALUES(?,?,?,?)",
-                (
-                    (ref, session_ref, ordinal, artifact_ref)
-                    for ordinal, artifact_ref in enumerate(input_artifact_refs)
-                ),
-            )
-            result = self._run(conn, ref)
-            if result is None:
-                raise invalid("admitted Run is absent")
-        return result
-
     def _graph_run(self, run_ref: str) -> GraphRun | None:
         from marivo.analysis.materialization.graph_store import run
 
         with self._read() as conn:
             return run(self, conn, run_ref)
 
-    def _resource_run(self, run_ref: str) -> GraphRun | RunRecord | None:
-        return self._graph_run(run_ref) if self.layout.generation == 7 else self.run(run_ref)
+    def _resource_run(self, run_ref: str) -> GraphRun | None:
+        return self._graph_run(run_ref)
 
     def reserve(self, resource: ResourceRecord) -> None:
         with self._write() as conn:
-            if self.layout.generation == 7:
-                from marivo.analysis.materialization.graph_store import run as graph_run
+            from marivo.analysis.materialization.graph_store import run as graph_run
 
-                run: GraphRun | RunRecord | None = graph_run(self, conn, resource.run_ref)
-            else:
-                run = self._run(conn, resource.run_ref)
+            run = graph_run(self, conn, resource.run_ref)
             if run is None or run.lifecycle != "incomplete":
                 raise invalid("resource reservation requires incomplete admission")
             conn.execute(
@@ -705,92 +507,6 @@ class SessionStore:
             for row in rows
         )
 
-    def recovery_snapshot(self, session_ref: str) -> tuple[RecoveryEntry, ...]:
-        """Validate only this Session's incomplete or still-obligated producers."""
-        with _recovery_metadata(), self._read() as conn:
-            if (
-                _one(conn, "SELECT session_ref FROM sessions WHERE session_ref=?", (session_ref,))
-                is None
-            ):
-                raise IntegrityError(
-                    expected="an existing Session selected for recovery",
-                    received="missing recovery Session",
-                    repair="Select an existing Session or restore its metadata before retrying recovery.",
-                    stage="reconciliation",
-                )
-            rows = _rows(
-                conn,
-                "SELECT a.run_ref FROM analysis_action_runs a LEFT JOIN analysis_action_run_terminals t USING(run_ref) WHERE a.session_ref=? AND (t.run_ref IS NULL OR EXISTS (SELECT 1 FROM action_resource_journal j WHERE j.run_ref=a.run_ref)) ORDER BY a.admitted_at,a.run_ref",
-                (session_ref,),
-            )
-            resources = self._resources(conn, session_ref)
-            entries: list[RecoveryEntry] = []
-            incomplete_count = 0
-            for row in rows:
-                run_ref = _text(row, "run_ref")
-                with _recovery_metadata(run_ref):
-                    run = self._run(conn, run_ref)
-                    if run is None or run.session_ref != session_ref:
-                        raise IntegrityError(
-                            expected="the selected producer owned by the recovering Session",
-                            received="selected recovery producer is absent or foreign",
-                            repair="Preserve the resource journal and repair the selected producer's Session ownership before retrying recovery.",
-                            stage="reconciliation",
-                            run_ref=run_ref,
-                        )
-                    owned = tuple(item for item in resources if item.run_ref == run.run_ref)
-                    if run.lifecycle == "incomplete":
-                        incomplete_count += 1
-                        if incomplete_count > 1:
-                            raise IntegrityError(
-                                expected="at most one incomplete producer in a serialized Session",
-                                received="multiple incomplete Runs in one Session",
-                                repair="Preserve the Run records and resource journal; repair the conflicting admissions before retrying Session recovery.",
-                                stage="reconciliation",
-                                run_ref=run_ref,
-                            )
-                        if (
-                            _one(
-                                conn,
-                                "SELECT artifact_ref FROM dataset_artifacts WHERE session_ref=? AND execution_key_digest=?",
-                                (session_ref, run.execution_key_digest),
-                            )
-                            is not None
-                        ):
-                            raise IntegrityError(
-                                expected="an incomplete producer without a committed output",
-                                received="incomplete producer has a committed output",
-                                repair="Preserve the Run and output; inspect their terminal and ownership metadata before retrying recovery. Do not reconstruct publication.",
-                                stage="reconciliation",
-                                run_ref=run_ref,
-                            )
-                    elif run.output_artifact_ref is not None:
-                        output = self._artifact(conn, run.output_artifact_ref)
-                        if output is None:
-                            raise IntegrityError(
-                                expected="the selected succeeded producer's complete output",
-                                received="succeeded Run has no Artifact",
-                                repair="Preserve the Run and resource journal; restore the complete committed output metadata before retrying Session recovery.",
-                                stage="reconciliation",
-                                run_ref=run_ref,
-                            )
-                        receipts = (
-                            output.descriptor.storage_receipt,
-                            *(part.storage_receipt for part in output.descriptor.retained_parts),
-                        )
-                        if any(
-                            owns_resource(receipt, item) for item in owned for receipt in receipts
-                        ):
-                            raise IntegrityError(
-                                expected="Session recovery with output ownership transferred in the publication transaction",
-                                received="committed output remains a cleanup obligation",
-                                repair="Preserve the committed outputs; inspect and repair their conflicting resource journal ownership before retrying Session recovery.",
-                                stage="reconciliation",
-                                run_ref=run_ref,
-                            )
-                    entries.append(RecoveryEntry(run, owned))
-            return tuple(entries)
-
     @staticmethod
     def _delete_resources(
         conn: sqlite3.Connection, run_ref: str, resources: tuple[ResourceRecord, ...]
@@ -826,12 +542,9 @@ class SessionStore:
         payload = canonical_json(failure_payload(failure))
         decode_failure(payload)
         with self._write() as conn:
-            if self.layout.generation == 7:
-                from marivo.analysis.materialization.graph_store import run as graph_run
+            from marivo.analysis.materialization.graph_store import run as graph_run
 
-                run: GraphRun | RunRecord | None = graph_run(self, conn, run_ref)
-            else:
-                run = self._run(conn, run_ref)
+            run = graph_run(self, conn, run_ref)
             if run is None or run.lifecycle != "incomplete":
                 raise invalid("terminal history cannot be rewritten")
             conn.execute(
@@ -839,193 +552,3 @@ class SessionStore:
                 (run_ref, run.session_ref, "failed", _now(), None, payload),
             )
             self._delete_resources(conn, run_ref, resolved_resources)
-
-    def _artifact_metadata(
-        self, conn: sqlite3.Connection, artifact_ref: str
-    ) -> ArtifactMetadata | None:
-        row = _one(conn, "SELECT * FROM dataset_artifacts WHERE artifact_ref=?", (artifact_ref,))
-        if row is None:
-            return None
-        descriptor = decode_descriptor(_text(row, "descriptor_payload"))
-        session_ref = _text(row, "session_ref")
-        execution_key = _text(row, "execution_key_digest")
-        terminals = _rows(
-            conn,
-            "SELECT * FROM analysis_action_run_terminals WHERE output_artifact_ref=?",
-            (artifact_ref,),
-        )
-        if len(terminals) != 1:
-            raise invalid("Artifact has no unique producer")
-        producer = self._run(conn, _text(terminals[0], "run_ref"))
-        if (
-            producer is None
-            or producer.lifecycle != "succeeded"
-            or producer.session_ref != session_ref
-            or producer.execution_key_digest != execution_key
-        ):
-            raise invalid("Artifact producer identity mismatch")
-        definition = producer.dataset_input
-        if producer.terminal_at is None or parse_timestamp(
-            _text(row, "committed_at")
-        ) != parse_timestamp(producer.terminal_at):
-            raise invalid("Artifact publication time disagrees with its producer terminal")
-        if (
-            definition.definition_fingerprint != descriptor.definition_fingerprint
-            or definition.row_contract_fingerprint != descriptor.row_contract_fingerprint
-            or definition.row_set_contract_fingerprint != descriptor.row_set_contract_fingerprint
-            or definition.shape_id != descriptor.row_contract.shape_id
-        ):
-            raise invalid("Artifact contracts disagree with admission")
-        prefix = (
-            self.layout.artifact_dir(session_ref, artifact_ref)
-            .relative_to(self.project_root)
-            .as_posix()
-        )
-        receipts = (
-            descriptor.storage_receipt,
-            *(part.storage_receipt for part in descriptor.retained_parts),
-        )
-        for receipt in receipts:
-            validate_receipt_owner(receipt, prefix)
-        return ArtifactMetadata(
-            artifact_ref,
-            session_ref,
-            execution_key,
-            descriptor,
-            _text(row, "committed_at"),
-            producer.run_ref,
-        )
-
-    @staticmethod
-    def _artifact_evidence(conn: sqlite3.Connection, metadata: ArtifactMetadata) -> EvidenceRecord:
-        evidence_row = _one(
-            conn, "SELECT * FROM dataset_evidence WHERE artifact_ref=?", (metadata.artifact_ref,)
-        )
-        evidence = evidence_for(metadata.descriptor)
-        if (
-            evidence_row is None
-            or _text(evidence_row, "evidence_digest") != evidence.evidence_digest
-            or _cell(evidence_row, "finding_count") != evidence.finding_count
-            or _text(evidence_row, "finding_set_digest") != evidence.finding_set_digest
-            or _text(evidence_row, "extractor_contract_versions_payload")
-            != canonical_json(evidence.extractor_contract_versions)
-        ):
-            raise invalid("incomplete or inconsistent Evidence summary")
-        return evidence
-
-    def _artifact(self, conn: sqlite3.Connection, artifact_ref: str) -> ArtifactRecord | None:
-        metadata = self._artifact_metadata(conn, artifact_ref)
-        if metadata is None:
-            return None
-        evidence = self._artifact_evidence(conn, metadata)
-        return ArtifactRecord(
-            metadata.artifact_ref,
-            metadata.session_ref,
-            metadata.execution_key_digest,
-            metadata.descriptor,
-            metadata.committed_at,
-            metadata.producing_run_ref,
-            evidence,
-        )
-
-    def artifact(self, artifact_ref: str) -> ArtifactRecord | None:
-        with self._read() as conn:
-            return self._artifact(conn, artifact_ref)
-
-    def lookup(self, session_ref: str, execution_key_digest: str) -> ArtifactRecord | None:
-        with self._read() as conn:
-            row = _one(
-                conn,
-                "SELECT artifact_ref FROM dataset_artifacts WHERE session_ref=? AND execution_key_digest=?",
-                (session_ref, execution_key_digest),
-            )
-            return None if row is None else self._artifact(conn, _text(row, "artifact_ref"))
-
-    def publish(
-        self,
-        run_ref: str,
-        artifact_ref: str,
-        descriptor: ArtifactDescriptor,
-        *,
-        resolved_resources: tuple[ResourceRecord, ...] = (),
-        event: Callable[[str], None] | None = None,
-        findings: tuple[Finding, ...] = (),
-    ) -> ArtifactRecord:
-        self._require_generation(6)
-        payload = encode_descriptor(descriptor)
-        checked = decode_descriptor(payload)
-        evidence = evidence_for(checked)
-        from marivo.analysis.evidence._dataset_codec import (
-            encode_finding_body,
-            finding_identity,
-            finding_set_digest,
-        )
-
-        if (
-            len(findings) != evidence.finding_count
-            or finding_set_digest(findings) != evidence.finding_set_digest
-        ):
-            raise invalid("Finding publication differs from its complete Evidence envelope")
-        with self._write() as conn:
-            run = self._run(conn, run_ref)
-            if run is None or run.lifecycle != "incomplete":
-                raise invalid("publication requires one incomplete producer")
-            now = _now()
-            conn.execute(
-                "INSERT INTO dataset_artifacts VALUES(?,?,?,?,?)",
-                (artifact_ref, run.session_ref, run.execution_key_digest, payload, now),
-            )
-            if event is not None:
-                event("insert_artifact")
-            conn.execute(
-                "INSERT INTO dataset_evidence VALUES(?,?,?,?,?)",
-                (
-                    artifact_ref,
-                    evidence.evidence_digest,
-                    evidence.finding_count,
-                    evidence.finding_set_digest,
-                    canonical_json(evidence.extractor_contract_versions),
-                ),
-            )
-            if event is not None:
-                event("insert_evidence")
-            conn.executemany(
-                "INSERT INTO findings VALUES(?,?,?,?,?)",
-                (
-                    (
-                        item.finding_id,
-                        artifact_ref,
-                        ordinal,
-                        finding_identity(item),
-                        encode_finding_body(item),
-                    )
-                    for ordinal, item in enumerate(findings)
-                ),
-            )
-            if event is not None:
-                event("insert_findings")
-            conn.execute(
-                "INSERT INTO analysis_action_run_terminals VALUES(?,?,?,?,?,?)",
-                (run_ref, run.session_ref, "succeeded", now, artifact_ref, None),
-            )
-            if event is not None:
-                event("insert_terminal")
-            self._delete_resources(conn, run_ref, resolved_resources)
-            result = self._artifact(conn, artifact_ref)
-            if result is None:
-                raise invalid("newly published Artifact is absent")
-            receipts = (
-                result.descriptor.storage_receipt,
-                *(part.storage_receipt for part in result.descriptor.retained_parts),
-            )
-            if any(
-                owns_resource(receipt, resource)
-                for resource in self._run_resources(conn, run_ref)
-                for receipt in receipts
-            ):
-                raise invalid("committed output remains a cleanup obligation")
-            if event is not None:
-                event("before_commit")
-        if event is not None:
-            event("after_commit")
-        return result
