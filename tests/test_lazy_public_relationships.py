@@ -93,10 +93,6 @@ def test_authored_relationship_keys_construct_without_source_io(
     monkeypatch.setattr(backends, "build_backend", forbidden)
     monkeypatch.setattr(backends, "build_backend_with_secrets", forbidden)
     session = mv.session.get_or_create("relationship", report_timezone="UTC")
-    metric = session.observe(ms.ref.metric("sales.event_count")).with_dimensions(
-        ms.ref.dimension("sales.orders.region")
-    )
-    assert isinstance(metric, mv.LogicalMetricDataset)
     from marivo.analysis.materialization.graph_journey import _normalize_steps
 
     created = mv.step(
@@ -106,7 +102,7 @@ def test_authored_relationship_keys_construct_without_source_io(
     paid = mv.step(
         participant=ms.participant_role(event=ms.ref.event("sales.paid"), name="order"), key="paid"
     )
-    steps = _normalize_steps(session._sources()._owner, mv.sequence(created, paid))
+    steps = _normalize_steps(session._sources(), mv.sequence(created, paid))
     assert {item.subject.ref.path for item in steps} == {"sales.orders"}
     assert session.runs().items == ()
     assert not (relationship_project / "warehouse.duckdb").exists()

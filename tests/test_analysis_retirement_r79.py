@@ -9,11 +9,9 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.materialization.contracts import _semantics
+from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.observation.contracts import make_family_registry, make_ids, producer_contract
-from marivo.analysis.observation.errors import ObservationConstructionError
-from marivo.analysis.session._lazy_sources import LazySources
+from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, decode
 
 RETIRED_MODULES = (
     "domains.event",
@@ -83,12 +81,10 @@ def test_retired_families_have_no_public_export_facade_or_registration() -> None
     ):
         assert name not in public_names
         assert not hasattr(mv, name)
-    assert not hasattr(LazySources, "events")
-    families = make_family_registry(make_ids(()))
-    assert {family.family_id for family in families.registrations} == {
-        "population",
-        "metric",
-    }
+    from marivo.analysis.observation import contracts
+
+    for name in ("make_family_registry", "producer_contract", "owner_of"):
+        assert not hasattr(contracts, name)
 
 
 @pytest.mark.parametrize(
@@ -96,8 +92,8 @@ def test_retired_families_have_no_public_export_facade_or_registration() -> None
     ["session.events.match", "event.funnel", "event.time_to_event", "event.select_subjects"],
 )
 def test_retired_producer_registration_rejects(producer: str) -> None:
-    with pytest.raises(ObservationConstructionError):
-        producer_contract(producer)
+    with pytest.raises(MaterializationError):
+        decode(canonical_json({"producer": producer}), DESCRIPTOR)
 
 
 @pytest.mark.parametrize(
@@ -106,4 +102,4 @@ def test_retired_producer_registration_rejects(producer: str) -> None:
 )
 def test_retired_semantics_cannot_enter_current_descriptor_decode(kind: str) -> None:
     with pytest.raises(MaterializationError):
-        _semantics({"kind": kind})
+        decode(canonical_json({"kind": kind}), DESCRIPTOR)

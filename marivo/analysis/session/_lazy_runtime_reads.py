@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Literal
 
 from marivo.analysis._pages import decode_keyset_cursor, encode_keyset_cursor
-from marivo.analysis.datasets.descriptors import _exact_byte_count, _unavailable_byte_count
+from marivo.analysis.datasets.descriptors import _exact_byte_count
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
@@ -20,13 +20,11 @@ from marivo.analysis.errors import (
 from marivo.analysis.evidence._dataset_types import ArtifactEvidenceSummary, ArtifactIssueCounts
 from marivo.analysis.materialization import graph_store
 from marivo.analysis.materialization.contracts import (
-    ArtifactRecord,
     SessionRecord,
     invalid,
     parse_timestamp,
 )
 from marivo.analysis.materialization.store import SessionStore, _one, _rows, _text
-from marivo.analysis.observation.contracts import make_ids
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session._lazy_read_model import (
     ArtifactSummary,
@@ -188,11 +186,7 @@ def run_in_snapshot(
     )
     if row is None:
         raise RunNotFoundError.for_id(run_id)
-    value = (
-        graph_store.run(store, conn, run_id)
-        if store.layout.generation == 7
-        else store._run(conn, run_id)
-    )
+    value = graph_store.run(store, conn, run_id)
     if value is None or value.session_ref != session_ref:
         raise invalid("selected Run identity mismatch")
     admitted_at = aware_datetime(value.admitted_at)
@@ -331,54 +325,6 @@ def get_run(store: SessionStore, session_ref: str, run_id: str) -> RunRecord:
 
 
 def summary_in_snapshot(
-    store: SessionStore,
-    conn: sqlite3.Connection,
-    record: ArtifactRecord | graph_store.GraphArtifact,
-) -> ArtifactSummary:
-    if isinstance(record, graph_store.GraphArtifact):
-        return _graph_summary(store, conn, record)
-    producer = store._run(conn, record.producing_run_ref)
-    if producer is None or producer.terminal_at is None or producer.lifecycle != "succeeded":
-        raise invalid("Artifact summary has no succeeded producer")
-    admitted = aware_datetime(producer.admitted_at)
-    finished = aware_datetime(producer.terminal_at)
-    committed = aware_datetime(record.committed_at)
-    if finished < admitted or committed < admitted:
-        raise invalid("Artifact publication precedes producer admission")
-    descriptor = record.descriptor
-    receipt = descriptor.storage_receipt
-    evidence = record.evidence
-    return ArtifactSummary(
-        artifact_ref=ArtifactRef(ref=record.artifact_ref),
-        artifact_session_ref=record.session_ref,
-        run_admitted_at=admitted,
-        run_finished_at=finished,
-        family_id=descriptor.row_contract.shape_id.family_id,
-        shape_id=str(descriptor.row_contract.shape_id),
-        definition_fingerprint=descriptor.definition_fingerprint,
-        committed_at=committed,
-        producing_run_ref=record.producing_run_ref,
-        realized_row_count=receipt.realized_row_count,
-        realized_byte_count=_exact_byte_count(receipt.realized_byte_count)
-        if receipt.realized_byte_count is not None
-        else _unavailable_byte_count("not_measured", ids=make_ids(())),
-        storage_kind_id="parquet",
-        content_authority_digest=receipt.identity_digest,
-        evidence=ArtifactEvidenceSummary(
-            quality_summary_digest=evidence.quality_summary_digest,
-            typed_issue_digest=evidence.typed_issue_digest,
-            evidence_digest=evidence.evidence_digest,
-            finding_count=evidence.finding_count,
-            finding_set_digest=evidence.finding_set_digest,
-        ),
-        issue_counts=ArtifactIssueCounts(
-            warning=sum(item.severity == "warning" for item in descriptor.typed_issues),
-            blocking=sum(item.severity == "blocking" for item in descriptor.typed_issues),
-        ),
-    )
-
-
-def _graph_summary(
     store: SessionStore, conn: sqlite3.Connection, record: graph_store.GraphArtifact
 ) -> ArtifactSummary:
     from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, digest, encode
@@ -442,11 +388,7 @@ def missing_artifact(artifact_ref: str) -> ArtifactNotFoundError:
 
 def artifact_summary(store: SessionStore, artifact_ref: str) -> ArtifactSummary:
     with store._read() as conn:
-        record = (
-            graph_store.artifact(store, conn, artifact_ref)
-            if store.layout.generation == 7
-            else store._artifact(conn, artifact_ref)
-        )
+        record = graph_store.artifact(store, conn, artifact_ref)
         if record is None:
             raise missing_artifact(artifact_ref)
         return summary_in_snapshot(store, conn, record)

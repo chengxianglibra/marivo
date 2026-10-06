@@ -639,8 +639,6 @@ def test_finding_swap_binding_and_receipt_reject(funnel_public, fault):
 def test_private_funnel_chain_is_physically_retired():
     from pathlib import Path
 
-    from marivo.analysis.observation.contracts import make_family_registry, make_ids
-
     root = Path(__file__).resolve().parents[1] / "marivo" / "analysis"
     for file in (
         "domains/funnel_delta.py",
@@ -656,10 +654,8 @@ def test_private_funnel_chain_is_physically_retired():
         "materialization/event_comparison_publication.py",
     ):
         assert not (root / file).exists()
-    families = make_family_registry(make_ids(()))
-    assert not {"delta", "attribution"} & {f.family_id for f in families.registrations}
     assert not (root / "domains/event.py").exists()
-    assert (root / "operators/attribute_values.py").exists()
+    assert not (root / "operators/attribute_values.py").exists()
 
 
 @pytest.mark.runtime

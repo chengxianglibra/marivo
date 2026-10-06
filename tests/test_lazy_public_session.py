@@ -7,7 +7,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import ArtifactNotFoundError, SessionNotFoundError
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
@@ -19,7 +18,7 @@ def test_new_public_session_starts_with_empty_v7_store(
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("fresh-generation", report_timezone="UTC")
     assert session.runs().items == ()
-    assert session._runtime.store.db_path == MaterializationLayout(tmp_path, generation=7).store_db
+    assert session._runtime.store.db_path == MaterializationLayout(tmp_path).store_db
     with pytest.raises(ArtifactNotFoundError):
         session.artifact("old-artifact")
     with pytest.raises(SessionNotFoundError):
@@ -52,29 +51,21 @@ def test_public_session_rejects_existing_store_without_modifying_it(
     assert tuple(path.parent.iterdir()) == files
 
 
-@pytest.mark.parametrize("runtime_metric", [False, True])
-def test_unqualified_dataset_family_rejects_before_business_io_and_run(
-    authoring_evidence_project: Path, monkeypatch: pytest.MonkeyPatch, runtime_metric: bool
+def test_retired_session_constructors_are_absent_before_business_io(
+    authoring_evidence_project, monkeypatch
 ) -> None:
     from marivo.datasource.runtime import DatasourceConnectionService
 
     monkeypatch.chdir(authoring_evidence_project)
-    session = mv.session.get_or_create("unqualified", report_timezone="UTC")
-    metric = (
-        mv.runtime_metric.aggregate(
-            ms.ref.measure("sales.orders.amount"), agg="sum", label="runtime_total"
-        )
-        if runtime_metric
-        else ms.ref.metric("sales.revenue")
-    )
-    logical = session.observe(metric).aggregate()
+    session = mv.session.get_or_create("retired")
 
     def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("unqualified Dataset execution opened a source")
+        raise AssertionError("retired construction opened a source")
 
     monkeypatch.setattr(DatasourceConnectionService, "use_backend", forbidden)
-    with pytest.raises(DatasetConstructionError, match="R6–R9"):
-        logical.execute()
+    for name in ("population", "observe"):
+        assert not hasattr(session, name)
+        assert name not in dir(session)
     assert session.runs().items == ()
 
 
@@ -82,7 +73,6 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     semantic_project_factory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.observation.contracts import owner_of
     from marivo.semantic.catalog import SemanticCatalog
     from tests.shared_fixtures import (
         fiscal_analysis_project_files,
@@ -114,11 +104,7 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     from marivo._temporal import TemporalSnapshotStore
 
     monkeypatch.setattr(TemporalSnapshotStore, "inspect_current", forbidden)
-    logical = (
-        session.observe(metric, time_scope=scope).with_time_axis(axis, grain=grain).aggregate()
-    )
-    assert isinstance(logical, mv.LogicalMetricDataset)
-    snapshots = owner_of(logical).period_calendar_snapshots
+    snapshots = session._sources().period_calendar_snapshots
     assert len(snapshots) == 1
     assert snapshots[0].period_scope("fiscal_week", "M1-W1") == scope
     assert session.runs().items == ()
@@ -127,9 +113,7 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
 def test_dataset_help_does_not_advertise_private_harness_execution() -> None:
     from marivo._help.render import render_help_text
 
-    for target in ("analysis.actions.execute", "analysis.datasets.dataset.contract"):
-        text = render_help_text(target)[0]
-        assert "Store 7" in text
-        assert "R6–R9" in text
-        assert "session.members" in text
-        assert "qualified one-table Population" not in text
+    text = render_help_text("analysis.actions.execute")[0]
+    assert "Store 7" in text
+    assert "session.members" in text
+    assert "Population" not in text

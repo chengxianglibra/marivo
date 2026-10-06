@@ -8,10 +8,10 @@ marivo.analysis
 
 Construct typed algebra through ``session.members(entity_ref)`` and its owned
 read/observe operations. Journey, History, Anchor and retention use the unified
-graph. Remaining R8 Dataset families retain their documented migration boundaries.
-Logical Datasets describe work
+graph. The former Population, Metric Dataset and generic Dataset APIs have been retired.
+Logical typed values describe work
 without source I/O. ``execute()`` commits a Run and returns an immutable
-Materialized Dataset. Its owned fields and methods describe valid continuations.
+Materialized value. Its owned fields and methods describe valid continuations.
 Use ``show()`` for bounded current state and ``contract()`` for mechanical input
 requirements. ``to_pandas()`` is the terminal boundary for custom analysis.
 
@@ -25,8 +25,8 @@ Entry provides Session bootstrap/recovery and source selection. Named method and
 input groups narrow discovery by task. ``dataset.contract().show()`` links current
 admitted calls to their canonical Help leaves; return types and prerequisites
 provide focused continuations without enumerating the entire API. Exact current semantic
-refs or catalog entries select governed inputs, while Dataset field refs carry
-exact Dataset ownership. Cross-Session Dataset operands are rejected.
+refs or catalog entries select governed inputs, while bound relation fields carry
+exact graph ownership. Cross-Session operands are rejected.
 
 The admitted J1–J4 Entity-domain path starts at ``session.members(entity_ref)``.
 Its logical relations expose ``execute()`` and ``contract()``; materialized
@@ -141,91 +141,16 @@ Public exports
 The following entries follow the pinned public export order. Case-colliding
 constructors are documented inline to support case-insensitive filesystems.
 
-.. autoclass:: Dataset
-   :members:
-
-.. autoclass:: LogicalDataset
-   :members:
-
-.. autoclass:: MaterializedDataset
-   :members:
-
-.. autoclass:: DatasetShapeId
-   :members:
-
-.. autoclass:: DatasetFieldId
-   :members:
-
-.. autoclass:: DatasetFieldIdentity
-   :members:
-
-.. autoclass:: DatasetPhysicalTypeState
-   :members:
-
-.. autoclass:: DatasetField
-   :members:
-
-.. autoclass:: DatasetRowBound
-   :members:
-
-.. autoclass:: DatasetCardinality
-   :members:
-
-.. autoclass:: DatasetOrderTerm
-   :members:
-
-.. autoclass:: DatasetOrdering
-   :members:
-
 .. autoclass:: DatasetByteCount
    :members:
 
-.. autoclass:: DatasetFamilyRowSemantics
-   :members:
-
-.. autoclass:: DatasetRowContract
-   :members:
-
-.. autoclass:: DatasetRowSetContract
-   :members:
-
-.. autoclass:: DatasetSchema
-   :members:
-
-.. autoclass:: LogicalDatasetState
-   :members:
-
 .. autoclass:: MaterializedDatasetState
-   :members:
-
-.. autoclass:: DatasetContract
-   :members:
-
-.. autoclass:: DatasetFields
-   :members:
-
-.. autoclass:: DatasetFieldRef
-   :members:
-
-.. autoclass:: LogicalPopulationDataset
-   :members:
-
-.. autoclass:: MaterializedPopulationDataset
-   :members:
-
-.. autoclass:: LogicalMetricDataset
-   :members:
-
-.. autoclass:: MaterializedMetricDataset
    :members:
 
 .. autoclass:: LogicalHistoryResult
    :members:
 
 .. autoclass:: MaterializedHistoryResult
-   :members:
-
-.. autoclass:: AnalysisPredicate
    :members:
 
 .. autoclass:: ForecastHorizon
@@ -312,24 +237,6 @@ constructors are documented inline to support case-insensitive filesystems.
 .. autoclass:: Session
    :members:
 
-.. autofunction:: eq
-
-.. autofunction:: not_eq
-
-.. autofunction:: lt
-
-.. autofunction:: lte
-
-.. autofunction:: gt
-
-.. autofunction:: gte
-
-.. autofunction:: is_in
-
-.. autofunction:: is_null
-
-.. autofunction:: is_not_null
-
 .. autofunction:: all_of
 
 .. autofunction:: any_of
@@ -378,8 +285,7 @@ R4.5 qualification boundary
 Public J1–J4 relations share the typed graph Runtime and Store 7. R1 schema-only
 preflight may precede Run allocation; business rows are read only after admission.
 Exact Artifact recovery verifies its snapshot, primary receipt and required parts
-without current Semantic or datasource access. R5–R9 Dataset families retain
-their signatures but reject execution before business reads and Run allocation.
+without current Semantic or datasource access. Retired Dataset families have no current API.
 Old-generation projects are preserved and are not migrated or read through a fallback.
 
 Ranking and terminal tables

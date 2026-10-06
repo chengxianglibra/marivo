@@ -184,13 +184,13 @@ def test_describe_frame_suppresses_dataclass_init_and_methods() -> None:
         examples=(),
         see_also=(),
         frame_symbols={"_FrameLike"},
-        constructed_by={"_FrameLike": "session.observe(...)"},
+        constructed_by={"_FrameLike": "members.observe(...)"},
     )
 
     data = render_json(descriptor)
     assert data["kind"] == "frame"
     assert "signature" not in data
-    assert data["constructed_by"] == "session.observe(...)"
+    assert data["constructed_by"] == "members.observe(...)"
     assert "next_intents" not in data
     assert data["methods"] == [{"name": "to_pandas", "summary": "Return a defensive copy."}]
 
@@ -205,7 +205,7 @@ def test_frame_descriptors_include_inherited_frame_methods() -> None:
         examples=(),
         see_also=(),
         frame_symbols={"_InheritedFrameLike"},
-        constructed_by={"_InheritedFrameLike": "session.observe(...)"},
+        constructed_by={"_InheritedFrameLike": "members.observe(...)"},
     )
 
     data = render_json(descriptor)

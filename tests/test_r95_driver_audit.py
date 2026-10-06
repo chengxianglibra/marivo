@@ -33,7 +33,7 @@ def test_store_connection_authority_is_separate_from_datasource_sqlite(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with native_audit(monkeypatch, "sqlite") as audit:
-        store = SessionStore._graph_store(tmp_path)
+        store = SessionStore(tmp_path)
         assert store.db_path.exists()
         with sqlite3.connect(tmp_path / "ordinary.sqlite") as datasource:
             datasource.execute("SELECT 13 AS outside_store")

@@ -1,13 +1,11 @@
 """Closed local receipts and metadata-only recovery."""
 
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from marivo.analysis.materialization import contracts as c
 from marivo.analysis.materialization.errors import IntegrityError
-from tests.lazy_materialization_fixtures import descriptor
 
 
 def _local() -> c.LocalReceipt:
@@ -30,26 +28,6 @@ def test_closed_receipt_round_trip() -> None:
     assert recovered == receipt
     assert recovered.identity_digest == receipt.identity_digest
     assert "datasource" not in repr(receipt)
-
-
-def test_descriptor_round_trip_with_all_required_parts() -> None:
-    receipt = _local()
-    original = descriptor(metric=True)
-    updated = replace(
-        original,
-        storage_receipt=replace(receipt, schema_fingerprint=original.realized_schema_fingerprint),
-        retained_parts=tuple(
-            replace(
-                part,
-                storage_receipt=replace(
-                    receipt, schema_fingerprint=part.storage_receipt.schema_fingerprint
-                ),
-            )
-            for part in original.retained_parts
-        ),
-    )
-    encoded = c.encode_descriptor(updated)
-    assert c.encode_descriptor(c.decode_descriptor(encoded)) == encoded
 
 
 @pytest.mark.parametrize(

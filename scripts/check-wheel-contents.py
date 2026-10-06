@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from zipfile import ZipFile
+
+from r101_package_contents import check_archives
 
 
 def main() -> int:
@@ -16,6 +19,10 @@ def main() -> int:
         raise SystemExit(f"expected exactly one Marivo wheel in {dist_dir}; found {wheels!r}")
 
     wheel = wheels[0]
+    sdists = tuple(sorted(dist_dir.glob("marivo-*.tar.gz")))
+    if len(sdists) != 1:
+        raise SystemExit(f"expected exactly one Marivo sdist; found {sdists!r}")
+    evidence = check_archives(Path(__file__).resolve().parents[1], wheel, sdists[0])
     with ZipFile(wheel) as archive:
         names = tuple(sorted(archive.namelist()))
 
@@ -46,6 +53,7 @@ def main() -> int:
         raise SystemExit(f"wheel contains forbidden generated or stale files: {forbidden!r}")
 
     print(f"wheel content contract passed: {wheel}")
+    print(json.dumps(evidence, sort_keys=True))
     return 0
 
 

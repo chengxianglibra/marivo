@@ -8,19 +8,11 @@ import pytest
 import marivo.analysis as mv
 from marivo._help.model import MarivoHelpTargetError
 from marivo._help.render import help as help_api
-from marivo.analysis._capabilities.dataset_registry import prepare
 from marivo.analysis._public import __all__ as analysis_exports
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.contracts import (
-    _semantics,
-    canonical_json,
-    decode_descriptor,
-    descriptor_payload,
-)
-from marivo.analysis.observation.contracts import producer_contract
-from marivo.analysis.operators import registry as operator_registry
-from tests.lazy_materialization_fixtures import descriptor
+from marivo.analysis.materialization.contracts import canonical_json
+from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, decode
 from tests.shared_fixtures import DslCaseFactory
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,13 +78,10 @@ def test_exclusive_module_cannot_import_or_execute(module: str) -> None:
 def test_public_and_hidden_old_entries_are_absent() -> None:
     for name in RETIRED_EXPORTS:
         assert name not in analysis_exports and not hasattr(mv, name)
-    for cls in (mv.LogicalMetricDataset, mv.MaterializedMetricDataset):
-        for name in ("discover", "correlate", "forecast"):
-            assert not hasattr(cls, name)
     for name in ("execute_candidate", "execute_association", "execute_forecast"):
         assert not hasattr(DatasetRuntime, name)
     assert not (ROOT / "marivo/analysis/materialization/duckdb_execution.py").exists()
-    assert not hasattr(operator_registry, "legacy_source_migration_stage")
+    assert not (ROOT / "marivo/analysis/operators/registry.py").exists()
     for path in (ROOT / "marivo/analysis").rglob("*.py"):
         text = path.read_text()
         assert not any(
@@ -117,15 +106,10 @@ def test_old_help_routes_reject(target: str) -> None:
 @pytest.mark.parametrize("kind", ("candidate", "association", "forecast"))
 def test_old_family_and_payload_do_not_decode(kind: str) -> None:
     with pytest.raises(AnalysisError):
-        prepare().families.get(kind)
-    with pytest.raises(AnalysisError):
-        _semantics({"kind": kind})
-    payload = descriptor_payload(descriptor())
-    decode_descriptor(canonical_json(payload))
-    # Even a formerly nullable field belongs to a retired closed envelope.
+        decode(canonical_json({"kind": kind}), DESCRIPTOR)
     for evidence in (None, {"kind": kind}):
         with pytest.raises(AnalysisError):
-            decode_descriptor(canonical_json({**payload, kind + "_evidence": evidence}))
+            decode(canonical_json({kind + "_evidence": evidence}), DESCRIPTOR)
 
 
 @pytest.mark.parametrize(
@@ -152,7 +136,7 @@ def test_old_family_and_payload_do_not_decode(kind: str) -> None:
 )
 def test_old_producer_contract_cannot_authorize_publication(producer: str) -> None:
     with pytest.raises(AnalysisError):
-        producer_contract(producer)
+        decode(canonical_json({"producer": producer}), DESCRIPTOR)
 
 
 @pytest.mark.runtime
@@ -181,13 +165,13 @@ def test_public_and_private_artifact_reads_reject_old_envelopes_without_replay(
     monkeypatch.setattr(SourceSession, "batches", forbidden)
     try:
         for kind in ("candidate", "association", "forecast"):
-            payload = {**descriptor_payload(descriptor()), kind + "_evidence": {"kind": kind}}
+            payload = {**__import__("json").loads(saved), kind + "_evidence": {"kind": kind}}
             with store._write() as connection:
                 connection.execute(
                     "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
                     (canonical_json(payload), ref.ref),
                 )
-            for read in (case.session.artifact, case.session._runtime.artifact):
+            for read in (case.session.artifact,):
                 with pytest.raises(AnalysisError):
                     read(ref)
                 assert case.session.runs().items == before
@@ -202,11 +186,8 @@ def test_public_and_private_artifact_reads_reject_old_envelopes_without_replay(
     assert restored.to_pandas().equals(current.to_pandas())
 
 
-def test_remaining_distribution_helpers_have_real_consumers() -> None:
-    path = ROOT / "marivo/analysis/compiler/distribution.py"
-    text = path.read_text()
-    for helper in ("_numeric", "_finite", "_close", "_group"):
-        assert helper + "(" in text
+def test_forecast_model_policies_keep_their_current_owner() -> None:
+    assert not (ROOT / "marivo/analysis/compiler/distribution.py").exists()
     from marivo.analysis.forecast_models import drift, naive, periods, seasonal_naive
 
     assert (

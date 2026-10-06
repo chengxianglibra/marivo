@@ -29,9 +29,7 @@ def run(root):
         patch.object(ms, "load", forbidden),
         patch("marivo.analysis.materialization.history_execution.execute", forbidden),
     ):
-        session = Session._from_runtime(
-            DatasetRuntime(SessionStore._graph_store(root), manifest["session"])
-        )
+        session = Session._from_runtime(DatasetRuntime(SessionStore(root), manifest["session"]))
         history = session.artifact(manifest["history"])
         operations = {
             name: operation

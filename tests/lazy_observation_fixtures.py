@@ -5,11 +5,6 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
-from marivo._compat import Never
-from marivo.analysis.datasets.base import MaterializedDataset
-from marivo.analysis.observation.metric import LogicalMetricDataset
-from marivo.analysis.observation.population import LogicalPopulationDataset
-from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
 from marivo.datasource.ir import (
     AiContextIR,
     CsvSourceIR,
@@ -57,31 +52,6 @@ _SCHEMA = (
     ("start", "date"),
     ("end", "date"),
 )
-
-
-class NoIoActionPort:
-    """Explicit test port proving definition actions do not cross runtime boundaries."""
-
-    def execute_population(self, dataset: LogicalPopulationDataset) -> Never:
-        raise AssertionError("Population execution is not part of definition-only acceptance")
-
-    def execute_metric(self, dataset: LogicalMetricDataset) -> Never:
-        raise AssertionError("Metric execution is not part of definition-only acceptance")
-
-    def show(self, dataset: MaterializedDataset, *, max_output_bytes: int | None) -> Never:
-        raise AssertionError("No retained row read is authorized")
-
-    def to_pandas(self, dataset: MaterializedDataset) -> Never:
-        raise AssertionError("No retained row collection is authorized")
-
-    def evidence_digest(self, dataset: MaterializedDataset) -> Never:
-        raise AssertionError("No retained Evidence read is authorized")
-
-    def findings(self, dataset: MaterializedDataset, *, limit: int, cursor: str | None) -> Never:
-        raise AssertionError("No Finding page read is authorized")
-
-    def finding(self, dataset: MaterializedDataset, finding_id: str) -> Never:
-        raise AssertionError("No Finding read is authorized")
 
 
 def _metric(name: str, entity: str = "orders", agg: AggKind = "sum") -> MetricIR:
@@ -281,16 +251,3 @@ def make_semantic_registry() -> tuple[Registry, CompiledExpressionSidecar]:
         bodies=bodies, field_owners=field_owners, catalog_refs=references
     )
     return registry, sidecar
-
-
-def make_sources(
-    *, session_id: str = "session-observation", store_id: str = "store-observation"
-) -> LazySources:
-    registry, sidecar = make_semantic_registry()
-    return make_lazy_sources(
-        semantic_registry=registry,
-        sidecar=sidecar,
-        action_port=NoIoActionPort(),
-        session_id=session_id,
-        store_id=store_id,
-    )

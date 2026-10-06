@@ -2039,7 +2039,7 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
         and len(key.input_types) == 1
         and isinstance(implementation.key.shape, SourceShape)
     ):
-        # Population projections carry an upstream scalar type but no scalar column.
+        # AnalysisDomain projections carry an upstream scalar type but no scalar column.
         # Preparation consumes complete member keys, independently of that marker.
         return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
     if (

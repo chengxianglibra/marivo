@@ -624,10 +624,9 @@ def test_stale_statistical_weights_cannot_enable_a_method() -> None:
 def test_registry_and_core_consumer_use_no_io_or_legacy_registry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.datasets.registry import DatasetFamilyRegistration
+    from marivo.analysis.materialization import graph_store
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.store import SessionStore
-    from marivo.analysis.operators import registry
     from marivo.datasource.adapters import SourceSession
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -639,11 +638,9 @@ def test_registry_and_core_consumer_use_no_io_or_legacy_registry(
         (SourceSession, "__init__"),
         (SessionStore, "__init__"),
         (SessionStore, "open_existing"),
-        (SessionStore, "run"),
-        (SessionStore, "artifact"),
+        (graph_store, "run"),
+        (graph_store, "artifact"),
         (DatasetRuntime, "__init__"),
-        (DatasetFamilyRegistration, "__post_init__"),
-        (registry, "implementation"),
     ):
         monkeypatch.setattr(owner, name, forbidden)
     source = _input()

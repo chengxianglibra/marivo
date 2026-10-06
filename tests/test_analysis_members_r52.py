@@ -427,7 +427,7 @@ def test_complete_subject_set_image_source_and_fixed(tmp_path: Path) -> None:
         ParquetSourceIR,
     )
 
-    store = SessionStore._graph_store(tmp_path)
+    store = SessionStore(tmp_path)
     runtime = DatasetRuntime(store, store.create_session("subject-image").session_ref)
     instance, subject_ref = ms.ref.entity("test.instance"), ms.ref.entity("test.subject")
     binding = Binding(runtime.session_ref, store.store_id, "image", "all")

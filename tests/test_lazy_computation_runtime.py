@@ -21,6 +21,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis import runtime_metric as rm
 
@@ -54,7 +55,7 @@ def computation_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.S
         "'amount': 'amount', "
         "'cost': 'cost', "
         "'quantity': 'quantity'}), primary_key=['id'])\n"
-        "day = ms.time_dimension_column(name='day', entity=orders, column='day', granularity='day')\n"
+        "day = ms.time_dimension_column(name='day', entity=orders, column='day', granularity='day', parse=None, is_default=True)\n"
         "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
         "cost = ms.measure_column(name='cost', entity=orders, column='cost', additivity=ms.additive_all())\n"
         "quantity = ms.measure_column(name='quantity', entity=orders, column='quantity', additivity=ms.additive_all())\n"
@@ -80,7 +81,7 @@ def computation_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.S
         "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
         "cost_total = ms.aggregate(name='cost_total', measure=cost, agg='sum')\n"
         "quantity_total = ms.aggregate(name='quantity_total', measure=quantity, agg='sum')\n"
-        "gmv_quantity = ms.aggregate(name='gmv_quantity', measure=quantity, agg='count')\n"
+        "gmv_quantity = ms.count(name='gmv_quantity', entity=orders)\n"
         "net_weighted = ms.weighted_mean(name='net_weighted', value=net, weight=quantity)\n"
         "net_revenue = ms.linear(name='net_revenue', add=[gmv], subtract=[cost_total])\n"
     )
@@ -93,42 +94,48 @@ def computation_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.S
     return mv.session.get_or_create("computation", report_timezone="UTC")
 
 
-def _aggregate(session: mv.Session, metric: str) -> mv.MaterializedMetricDataset:
-    return session.observe(ms.ref.metric(f"sales.{metric}")).aggregate().execute()
+def _aggregate(session: mv.Session, metric: str) -> mv.MaterializedNumericRelation:
+    return (
+        session.members(ms.ref.entity("sales.orders"))
+        .observe(ms.ref.metric(f"sales.{metric}"))
+        .rollup()
+        .execute()
+    )
+
+
+def _semantic_value(session: mv.Session, metric: str) -> object:
+    preview = session.catalog.preview(
+        ms.ref.metric(f"sales.{metric}"), scope=md.unpruned(max_rows=10, timeout_seconds=30)
+    )
+    assert preview.returned_row_count == 1
+    return preview.rows[0]["value"]
 
 
 def test_computed_measure_multiplication_publishes_exact_decimal(
     computation_session: mv.Session,
 ) -> None:
-    result = _aggregate(computation_session, "net_total")
-    rows = result.to_pandas()
-    assert isinstance(rows["net_total"].iloc[0], Decimal)
-    assert rows["net_total"].iloc[0] == Decimal("51.50")
+    # Semantic preview retains the independent calculation oracle; this is not graph qualification.
+    assert _semantic_value(computation_session, "net_total") == Decimal("51.50")
 
 
 def test_computed_measure_decimal_subtraction_aggregates_exactly(
     computation_session: mv.Session,
 ) -> None:
-    # amount - decimal literal 1.00 over rows 15.75 and 4.25.
-    assert _aggregate(computation_session, "minus_sum").to_pandas()["minus_sum"].iloc[0] == Decimal(
-        "18.00"
-    )
-    assert _aggregate(computation_session, "minus_min").to_pandas()["minus_min"].iloc[0] == Decimal(
-        "3.25"
-    )
-    assert _aggregate(computation_session, "minus_max").to_pandas()["minus_max"].iloc[0] == Decimal(
-        "14.75"
-    )
+    assert _semantic_value(computation_session, "minus_sum") == Decimal("18.00")
+    assert _semantic_value(computation_session, "minus_min") == Decimal("3.25")
+    assert _semantic_value(computation_session, "minus_max") == Decimal("14.75")
 
 
 def test_computed_measure_integer_arithmetic_aggregates_exactly(
     computation_session: mv.Session,
 ) -> None:
-    # quantity * 2 over rows 3 and 1.
-    assert _aggregate(computation_session, "double_sum").to_pandas()["double_sum"].iloc[0] == 8
-    assert _aggregate(computation_session, "double_count").to_pandas()["double_count"].iloc[0] == 2
-    assert _aggregate(computation_session, "double_min").to_pandas()["double_min"].iloc[0] == 2
-    assert _aggregate(computation_session, "double_max").to_pandas()["double_max"].iloc[0] == 6
+    for metric, expected in (
+        ("double_sum", 8),
+        ("double_count", 2),
+        ("double_min", 2),
+        ("double_max", 6),
+    ):
+        assert _semantic_value(computation_session, metric) == expected
 
 
 def test_runtime_linear_over_int64_measures_stays_int64(
@@ -139,10 +146,15 @@ def test_runtime_linear_over_int64_measures_stays_int64(
         subtract=[ms.ref.metric("sales.quantity_total")],
         label="net_quantity",
     )
-    result = computation_session.observe(expression).aggregate().execute()
+    result = (
+        computation_session.members(ms.ref.entity("sales.orders"))
+        .observe(expression)
+        .rollup()
+        .execute()
+    )
     rows = result.to_pandas()
-    assert pd.api.types.is_integer_dtype(rows["net_quantity"])
-    assert rows["net_quantity"].iloc[0] == 2
+    assert pd.api.types.is_integer_dtype(rows["value"])
+    assert rows["value"].iloc[0] == 2
 
 
 def test_catalog_linear_over_decimal_metrics_publishes_exact_decimal(
@@ -150,23 +162,21 @@ def test_catalog_linear_over_decimal_metrics_publishes_exact_decimal(
 ) -> None:
     result = _aggregate(computation_session, "net_revenue")
     rows = result.to_pandas()
-    assert isinstance(rows["net_revenue"].iloc[0], Decimal)
-    assert rows["net_revenue"].iloc[0] == Decimal("13.00")
+    assert isinstance(rows["value"].iloc[0], Decimal)
+    assert rows["value"].iloc[0] == Decimal("13.00")
 
 
 def test_weighted_mean_over_computed_measure_executes(
     computation_session: mv.Session,
 ) -> None:
-    # net rows are 15.75 * 3 = 47.25 and 4.25 * 1 = 4.25, weights 3 and 1:
-    # (47.25 * 3 + 4.25 * 1) / (3 + 1) = 146.0 / 4 = 36.5.
-    rows = _aggregate(computation_session, "net_weighted").to_pandas()
-    assert rows["net_weighted"].iloc[0] == pytest.approx(36.5)
+    # (47.25 * 3 + 4.25 * 1) / 4 = 36.5 in Semantic preview.
+    assert _semantic_value(computation_session, "net_weighted") == pytest.approx(36.5)
 
 
 def test_direct_column_decimal_measure_regression(computation_session: mv.Session) -> None:
     rows = _aggregate(computation_session, "gmv").to_pandas()
-    assert isinstance(rows["gmv"].iloc[0], Decimal)
-    assert rows["gmv"].iloc[0] == Decimal("20.00")
+    assert isinstance(rows["value"].iloc[0], Decimal)
+    assert rows["value"].iloc[0] == Decimal("20.00")
 
 
 # ---------------------------------------------------------------------------
@@ -315,8 +325,7 @@ def _remote_matrix_case(
     _create_remote_table(backend, table)
     try:
         session = _remote_project_session(tmp_path, monkeypatch, backend, table)
-        rows = session.observe(ms.ref.metric(f"sales.{metric}")).aggregate().execute().to_pandas()
-        value = rows[metric].iloc[0]
+        value = _semantic_value(session, metric)
         assert isinstance(value, Decimal), f"{backend}: {type(value).__name__}"
         assert value == expected, f"{backend}: {value}"
     finally:
@@ -353,15 +362,19 @@ def test_mysql_decimal_mean_stays_rejected_until_the_mean_equation_lands(
     backend keeps ``mean`` out of its resolved-decimal units and admission
     rejects the metric with the engine-fact diagnostic.
     """
-    from marivo.analysis.compiler.errors import DatasetCompilationError
+    from marivo.analysis.errors import AnalysisError
 
     _opt_in_backend(backend)
     table = "c4_" + uuid4().hex
     _create_remote_table(backend, table)
     try:
         session = _remote_project_session(tmp_path, monkeypatch, backend, table)
-        logical = session.observe(ms.ref.metric("sales.amount_mean")).aggregate()
-        with pytest.raises(DatasetCompilationError, match="AVG scale is a public contract"):
+        logical = (
+            session.members(ms.ref.entity("sales.orders"))
+            .observe(ms.ref.metric("sales.amount_mean"))
+            .rollup()
+        )
+        with pytest.raises(AnalysisError):
             logical.execute()
     finally:
         _drop_remote_table(backend, table)
@@ -442,18 +455,43 @@ def test_trino_computed_measure_decimal_sum_is_exact(
     trino_session: mv.Session,
 ) -> None:
     # 15.75 * 3 + 4.25 * 1 = 51.50, exact through Trino DECIMAL arithmetic.
-    rows = trino_session.observe(ms.ref.metric("sales.net_total")).aggregate().execute().to_pandas()
-    value = rows["net_total"].iloc[0]
+    rows = (
+        trino_session.members(ms.ref.entity("sales.orders"))
+        .observe(ms.ref.metric("sales.net_total"))
+        .rollup()
+        .execute()
+        .to_pandas()
+    )
+    value = rows["value"].iloc[0]
     assert isinstance(value, Decimal)
     assert value == Decimal("51.50")
 
 
 def test_trino_decimal_mean_keeps_rejection(trino_session: mv.Session) -> None:
     """AVG stays at the input scale and rounds, so the mean cell stays closed."""
-    from marivo.analysis.compiler.errors import DatasetCompilationError
+    from marivo.analysis.errors import AnalysisError
 
-    logical = trino_session.observe(ms.ref.metric("sales.amount_mean")).aggregate()
-    with pytest.raises(
-        DatasetCompilationError, match="composed Decimal results require resolved precision"
-    ):
+    logical = (
+        trino_session.members(ms.ref.entity("sales.orders"))
+        .observe(ms.ref.metric("sales.amount_mean"))
+        .rollup()
+    )
+    with pytest.raises(AnalysisError):
         logical.execute()
+
+
+@pytest.mark.parametrize("metric", ("net_total", "minus_sum", "double_sum", "net_weighted"))
+def test_computed_measure_graph_rejects_before_business_reads_and_run(
+    computation_session: mv.Session, metric: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.errors import AnalysisError
+    from marivo.datasource.adapters import SourceSession
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("unqualified computed graph read business rows")
+
+    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    members = computation_session.members(ms.ref.entity("sales.orders"))
+    with pytest.raises(AnalysisError, match="Measure is not a frozen direct column"):
+        members.observe(ms.ref.metric(f"sales.{metric}"))
+    assert computation_session.runs().items == ()

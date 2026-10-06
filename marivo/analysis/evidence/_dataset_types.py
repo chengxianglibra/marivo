@@ -19,9 +19,7 @@ from marivo.render import Card, RenderableResult
 
 Scalar: TypeAlias = str | int | float | bool | Decimal | date | datetime | None
 Number: TypeAlias = int | float | Decimal
-FindingType: TypeAlias = Literal[
-    "association", "delta", "contribution", "forecast_point", "funnel_delta"
-]
+FindingType: TypeAlias = Literal["association", "contribution", "forecast_point", "funnel_delta"]
 IntegrityStatus: TypeAlias = Literal["valid", "invalid", "unverifiable"]
 StorageStatus: TypeAlias = Literal["readable", "unauthorized", "missing", "mutated", "unknown"]
 IntegrityAxis: TypeAlias = Literal["artifact_integrity", "storage_authority", "evidence_integrity"]
@@ -256,19 +254,6 @@ class ForecastFindingSubjectV2(_Value):
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class AssociationFindingSubjectV1(_Value):
-    metric_a: DatasetFieldIdentity
-    metric_b: DatasetFieldIdentity
-    kind: Literal["association"] = "association"
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class MetricFindingSubjectV1(_Value):
-    metric: DatasetFieldIdentity
-    kind: Literal["metric"] = "metric"
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class FunnelFindingSubjectV1(_Value):
     subject_entity_ref: RefPayloadV1
     pattern_fingerprint: str
@@ -281,28 +266,8 @@ class FunnelFindingSubjectV1(_Value):
 
 
 FindingSubjectV1: TypeAlias = (
-    AssociationFindingSubjectV2
-    | ForecastFindingSubjectV2
-    | AssociationFindingSubjectV1
-    | MetricFindingSubjectV1
-    | FunnelFindingSubjectV1
+    AssociationFindingSubjectV2 | ForecastFindingSubjectV2 | FunnelFindingSubjectV1
 )
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class FindingDerivationV1(_Value):
-    producer_id: str
-    extractor_contract_id: str
-    extractor_contract_version: str
-    source_artifact_refs: tuple[ArtifactRef, ...]
-    source_fields: tuple[DatasetFieldId, ...]
-
-    def __post_init__(self) -> None:
-        _Value.__post_init__(self)
-        if len(set(self.source_artifact_refs)) != len(self.source_artifact_refs) or len(
-            set(self.source_fields)
-        ) != len(self.source_fields):
-            raise invalid("duplicate Finding derivation source")
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -498,7 +463,7 @@ class Finding(_Value):
     coordinates: tuple[FindingCoordinateV1, ...]
     canonical_item_key: str
     value: FindingValueV1
-    derivation: FindingDerivationV1 | GraphFindingDerivationV1
+    derivation: GraphFindingDerivationV1
     committed_at: datetime
 
     def __post_init__(self) -> None:
@@ -511,21 +476,14 @@ class Finding(_Value):
         )
         if self.epistemic_kind != expected:
             raise invalid("Finding epistemic kind does not match its producer")
-        subject = "metric"
-        if self.finding_type == "association":
-            subject = "association"
-        elif self.finding_type in ("funnel_delta", "contribution"):
-            subject = "event_funnel"
-        if self.subject.kind not in (
-            subject,
-            *(
-                ("graph-association-v2",)
-                if self.finding_type == "association"
-                else ("graph-forecast-v2",)
-                if self.finding_type == "forecast_point"
-                else ()
-            ),
-        ):
+        subject = (
+            "graph-association-v2"
+            if self.finding_type == "association"
+            else "graph-forecast-v2"
+            if self.finding_type == "forecast_point"
+            else "event_funnel"
+        )
+        if self.subject.kind != subject:
             raise invalid("Finding subject does not match its value family")
         if len({item.field_id for item in self.coordinates}) != len(self.coordinates):
             raise invalid("duplicate Finding coordinate")

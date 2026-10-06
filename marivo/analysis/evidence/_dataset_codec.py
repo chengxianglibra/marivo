@@ -37,10 +37,7 @@ _VALUES = frozenset(
         t.DerivedGraphQuantityV1,
         t.RowStatisticGraphQuantityV1,
         t.RolledGraphQuantityV1,
-        t.AssociationFindingSubjectV1,
-        t.MetricFindingSubjectV1,
         t.FunnelFindingSubjectV1,
-        t.FindingDerivationV1,
         t.GraphFindingDerivationV1,
         t.NoAssociationLagV1,
         t.AssociationLagV1,
@@ -107,10 +104,6 @@ def _decode(value: object, annotation: object) -> object:
                     tag = {Decimal: "decimal", date: "date", datetime: "datetime"}[candidate]
                     if value.get("scalar_kind") == tag:
                         return _decode(value, candidate)
-                if candidate is t.FindingDerivationV1 and set(value) == {
-                    field.name for field in fields(t.FindingDerivationV1)
-                }:
-                    return _decode(value, candidate)
                 if isinstance(candidate, type) and candidate in _VALUES:
                     kind = get_args(get_type_hints(candidate).get("kind"))
                     if kind and value.get("kind") in kind:
@@ -216,16 +209,7 @@ def decode_finding_body(
 
 
 def finding_identity(finding: t.Finding) -> str:
-    if isinstance(finding.derivation, t.GraphFindingDerivationV1):
-        return digest([finding.session_id, finding.artifact_ref.ref, encode_finding_body(finding)])
-    return digest(
-        [
-            finding.artifact_ref.ref,
-            finding.finding_type,
-            finding.canonical_item_key,
-            finding.derivation.extractor_contract_version,
-        ]
-    )
+    return digest([finding.session_id, finding.artifact_ref.ref, encode_finding_body(finding)])
 
 
 def finding_set_member(finding: t.Finding, ordinal: int) -> dict[str, object]:

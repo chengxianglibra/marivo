@@ -102,22 +102,30 @@ def test_workflow_mean_rollup_merges_retained_components(
 
 
 @pytest.mark.runtime
-def test_deferred_semantic_monthly_observation_rejects_before_run(
-    authoring_evidence_project: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("example", ("monthly", "regional", "collection"))
+def test_semantic_monthly_observation_example_executes(
+    authoring_evidence_project: Path, monkeypatch: pytest.MonkeyPatch, example: str
 ) -> None:
     monkeypatch.chdir(authoring_evidence_project)
     model = authoring_evidence_project / "models/semantic/sales/models.py"
     model.write_text(
-        model.read_text().replace(
-            "name='log_date', entity=orders", "name='order_date', entity=orders"
-        )
+        model.read_text()
+        .replace("name='log_date', entity=orders", "name='order_date', entity=orders")
+        .replace("Asia/Shanghai", "UTC")
+        .replace("parse=ms.strptime('%Y%m%d')", "parse=None")
     )
     with duckdb.connect(str(authoring_evidence_project / "warehouse.duckdb")) as connection:
+        connection.execute("ALTER TABLE orders ALTER COLUMN query_id TYPE BIGINT")
         identifiers = connection.execute("SELECT query_id FROM orders ORDER BY query_id").fetchall()
         assert len(identifiers) == 4
+        dates = (
+            ("20260101", "20260201", "20260301", "20260401")
+            if example == "monthly"
+            else ("20261001", "20261101", "20261201", "20270101")
+        )
         for identifier, day, amount in zip(
             identifiers,
-            ("20260101", "20260201", "20260301", "20260401"),
+            dates,
             (10, 20, 30, 40),
             strict=True,
         ):
@@ -125,6 +133,10 @@ def test_deferred_semantic_monthly_observation_rejects_before_run(
                 "UPDATE orders SET log_date=?, amount=? WHERE query_id=?",
                 [day, amount, identifier[0]],
             )
+    with duckdb.connect(str(authoring_evidence_project / "warehouse.duckdb")) as connection:
+        connection.execute(
+            "ALTER TABLE orders ALTER COLUMN log_date TYPE DATE USING strptime(log_date, '%Y%m%d')::DATE"
+        )
     session = mv.session.get_or_create("semantic-example", report_timezone="UTC")
     namespace: dict[str, object] = {
         "mv": mv,
@@ -135,18 +147,34 @@ def test_deferred_semantic_monthly_observation_rejects_before_run(
     code = next(
         block
         for block in _blocks("en", "semantic-layer")
-        if block.startswith('revenue_entry = catalog.metrics.get("sales.revenue")')
+        if (
+            block.startswith('revenue_entry = catalog.metrics.get("sales.revenue")')
+            if example == "monthly"
+            else 'question="Why did Q4 revenue drop?"' in block
+            if example == "regional"
+            else 'entry = collection.get("metric:sales.revenue")' in block
+        )
     )
     exec(compile(code, "semantic-observation-example", "exec"), namespace)
-    logical = namespace["dataset"]
-    assert isinstance(logical, mv.LogicalMetricDataset)
+    logical = namespace["dataset" if example == "monthly" else "current"]
+    assert isinstance(logical, mv.LogicalRolledNumericRelation)
     assert session.runs().items == ()
     assert not session._runtime.statistics.statements
-    from marivo.analysis.errors import AnalysisError
-
-    with pytest.raises(AnalysisError, match="R6–R9"):
-        logical.execute()
-    assert session.runs().items == ()
+    rows = logical.execute().to_pandas()
+    if example == "regional":
+        assert not rows.duplicated(["group", "coord_0"]).any()
+        assert len(rows) == 3
+        positive = rows.loc[rows["value"] > 0]
+        assert set(
+            zip(positive["group"].str[:7], positive["coord_0"], positive["value"], strict=True)
+        ) == {
+            ("2026-10", "moon-base", 10),
+            ("2026-11", "orbital", 20),
+            ("2026-12", "moon-base", 30),
+        }
+    else:
+        assert rows["value"].tolist() == [10, 20, 30]
+        assert len(rows) == 3
 
 
 @pytest.mark.runtime
@@ -265,3 +293,62 @@ def test_attribution_workflow_example_executes(
     assert isinstance(table, mv.MaterializedTable)
     assert allocation.contribution.to_pandas().equals(restored.contribution.to_pandas())
     assert table.to_pandas()["contribution"].sum() == 0
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("scoped", (False, True))
+def test_scalar_channel_workflow_examples_execute(
+    analysis_dsl_case_factory: DslCaseFactory, scoped: bool
+) -> None:
+    from dataclasses import replace
+
+    from tests.shared_fixtures import DSL_NAMES
+
+    case = analysis_dsl_case_factory("j1", names=replace(DSL_NAMES, order="orders"))
+    blocks = tuple(
+        block
+        for block in _blocks("en", "analysis-workflow")
+        if block.startswith('revenue = ms.ref.metric("sales.revenue")')
+    )
+    assert len(blocks) == 2
+    code = next(block for block in blocks if ("during=" in block) == scoped)
+    namespace: dict[str, object] = {"session": case.session, "mv": mv, "ms": ms}
+    exec(compile(code, "channel-ranking-example", "exec"), namespace)
+    by_channel = namespace["by_channel"]
+    assert isinstance(by_channel, mv.LogicalRolledNumericRelation)
+    rows = by_channel.execute().to_pandas()
+    expected = {"web": 77} if scoped else {"web": 450 + 400 + 77, "mobile": 150 + 99}
+    assert rows.set_index("group")["value"].to_dict() == expected
+
+
+@pytest.mark.runtime
+def test_hourly_and_daily_source_workflow_examples_execute(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    from dataclasses import replace
+
+    from tests.shared_fixtures import DSL_NAMES
+
+    case = analysis_dsl_case_factory("j2", names=replace(DSL_NAMES, order="orders"))
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute("UPDATE orders SET ordered_at=TIMESTAMPTZ '2026-07-01 00:00:00+00:00'")
+    code = next(
+        block for block in _blocks("en", "analysis-workflow") if "orders_by_hour =" in block
+    )
+    namespace: dict[str, object] = {"session": case.session, "mv": mv, "ms": ms}
+    exec(compile(code, "hourly-daily-source-example", "exec"), namespace)
+    hourly = namespace["orders_by_hour"]
+    assert isinstance(hourly, mv.MaterializedGroupedNumericRelation)
+    hourly_rows = hourly.to_pandas()
+    daily_run = case.session.runs().items[0]
+    assert isinstance(daily_run, mv.SucceededRun)
+    daily = case.session.artifact(daily_run.output_artifact_ref)
+    assert isinstance(daily, mv.MaterializedGroupedNumericRelation)
+    daily_rows = daily.to_pandas()
+    assert len(hourly_rows) == 48 and len(daily_rows) == 2
+    expected = 100 + 100 + 50 + 0 + 60 + 120 + 0 + 0 + 30 + 200 + 0
+    assert hourly_rows.loc[hourly_rows["value"] > 0, "value"].tolist() == [expected]
+    assert daily_rows.loc[daily_rows["value"] > 0, "value"].tolist() == [expected]
+    assert (
+        hourly_rows.iloc[0]["group"] == daily_rows.iloc[0]["group"] == "2026-07-01T00:00:00+00:00"
+    )

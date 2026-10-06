@@ -1,1 +1,1 @@
-"""Private lazy Population and Metric definitions; public activation is deferred."""
+"""Semantic authority and source bindings for the current typed graph."""

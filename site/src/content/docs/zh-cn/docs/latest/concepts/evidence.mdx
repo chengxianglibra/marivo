@@ -18,8 +18,8 @@ run.show()
 `contract()` 校验精确 Artifact 并披露当前续算操作。必要部件缺失或损坏时明确拒绝；
 Logical relation 在执行前没有保留行。
 
-旧 Dataset Findings 与 ArtifactDigest 不是 Store 7 relation 的检查协议；
-更完整的方法家族等待 R6–R9 迁移。
+通过 `artifact.findings()` 或 `artifact.finding(finding_id)` 选择 Finding。
+通过 `session.artifact(ref)` 恢复结果并查看当前 contract。
 
 ## 冷恢复
 

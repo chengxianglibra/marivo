@@ -265,11 +265,7 @@ def graph(
             if kind == "run":
                 runs[identity] = run_in_snapshot(store, conn, session_ref, identity)
             else:
-                record = (
-                    graph_store.artifact(store, conn, identity)
-                    if store.layout.generation == 7
-                    else store._artifact(conn, identity)
-                )
+                record = graph_store.artifact(store, conn, identity)
                 if record is None:
                     raise invalid("selected graph Artifact is missing")
                 artifacts[identity] = summary_in_snapshot(store, conn, record)

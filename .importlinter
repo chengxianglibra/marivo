@@ -64,13 +64,10 @@ forbidden_modules =
     ibis
     pyarrow
     duckdb
-# These exact existing error and semantic-descriptor edges reach legacy backend
-# dependencies. All other direct and indirect Core backend paths remain forbidden.
+# The shared typed error edge reaches semantic descriptor backend dependencies. All other direct and indirect Core backend paths remain forbidden.
 # The separate foundational contract keeps its full transitive enforcement.
 ignore_imports =
     marivo.analysis.datasets.errors -> marivo.analysis.errors
-    marivo.analysis.datasets.fields -> marivo.semantic.catalog
-    marivo.analysis.datasets.fields -> marivo.semantic.runtime_metric
 
 [importlinter:contract:observation-definition-isolation]
 name = Observation definitions must not depend on executing analysis

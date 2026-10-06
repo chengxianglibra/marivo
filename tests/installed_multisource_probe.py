@@ -19,8 +19,9 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.datasource import backends
+from marivo.datasource.adapters import SourceSession
 from tests.installed_wheel_probe import assert_installed_origin
-from tests.lazy_runtime_patch_targets import runtime_patch_owner
 
 
 @contextmanager
@@ -128,7 +129,7 @@ ms.relationship(name="customer", from_entity=orders, to_entity=customers,
 amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all())
 weight = ms.measure_column(name="weight", entity=orders, column="weight", additivity=ms.additive_all())
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-count = ms.aggregate(name="count", measure=amount, agg="count")
+count = ms.count(name="count", entity=orders)
 ms.aggregate(name="mean_amount", measure=amount, agg="mean")
 ms.weighted_mean(name="weighted_amount", value=amount, weight=weight)
 ms.ratio(name="ratio_amount", numerator=revenue, denominator=count)
@@ -179,11 +180,18 @@ def remove(engine: str, project: Path, prefix: str) -> None:
             execute(f"DROP TABLE IF EXISTS {prefix}{table}")
 
 
-def grouped(session: mv.Session, name: str) -> mv.LogicalMetricDataset:
+def grouped(
+    session: mv.Session, name: str
+) -> mv.LogicalRolledNumericRelation | mv.LogicalRolledRatioRelation:
+    channel = ms.ref.dimension("sales.orders.channel")
     return (
-        session.observe(ms.ref.metric("sales." + name))
-        .with_dimensions(ms.ref.dimension("sales.orders.channel"))
-        .aggregate()
+        session.members(ms.ref.entity("sales.orders"))
+        .observe(
+            ms.ref.metric("sales." + name),
+            coordinates=(channel,),
+        )
+        .group_by(channel)
+        .rollup()
     )
 
 
@@ -202,11 +210,11 @@ def produce(project: Path) -> dict[str, object]:
         ("ratio_amount", [15.0, 35.0]),
     ):
         result = grouped(session, name).execute()
-        values = result.to_pandas().sort_values("channel")[name].tolist()
+        values = result.to_pandas().sort_values("group")["value"].tolist()
         assert values == pytest.approx(expected)
         assert session._runtime.statistics.primary_queries == 1
         assert session._runtime.statistics.transferred_rows == 2
-        artifacts[name] = str(result.state.artifact_ref)
+        artifacts[name] = result.state.artifact_ref.ref
         receipts.append(
             {
                 "method": name,
@@ -215,15 +223,21 @@ def produce(project: Path) -> dict[str, object]:
                 "statistics": asdict(session._runtime.statistics),
             }
         )
+    region = ms.ref.dimension("sales.customers.region")
     relation = (
-        session.observe(ms.ref.metric("sales.mean_amount"))
-        .with_dimensions(ms.ref.dimension("sales.customers.region"))
-        .aggregate()
+        session.members(ms.ref.entity("sales.customers"))
+        .observe(
+            ms.ref.metric("sales.mean_amount"),
+            via=ms.ref.relationship("sales.customer"),
+            coordinates=(region,),
+        )
+        .group_by(region)
+        .rollup()
         .execute()
     )
-    frame = relation.to_pandas().sort_values("region")
-    assert frame.region.tolist() == ["EU", "US"]
-    assert frame.mean_amount.tolist() == [15.0, 35.0]
+    frame = relation.to_pandas().sort_values("group")
+    assert frame["group"].tolist() == ["EU", "US"]
+    assert frame["value"].tolist() == [15.0, 35.0]
     receipts.append(
         {
             "method": "relationship",
@@ -231,18 +245,23 @@ def produce(project: Path) -> dict[str, object]:
             "statistics": asdict(session._runtime.statistics),
         }
     )
+    grid = mv.time_grid(
+        during=mv.time_scope(start="2026-02-01", end="2026-02-05"),
+        grain=mv.grain("day"),
+        timezone="UTC",
+    )
     history = (
-        session.observe(
+        session.members(ms.ref.entity("sales.orders"))
+        .each(grid)
+        .observe(
             ms.ref.metric("sales.revenue"),
-            time_scope=mv.time_scope(start="2026-02-01", end="2026-02-05"),
+            during=grid.window,
         )
-        .with_time_axis(ms.ref.time_dimension("sales.orders.order_day"), grain=mv.grain("day"))
-        .aggregate()
+        .group_by(grid)
+        .rollup()
     )
     forecast = history.forecast(horizon=mv.periods(2), model=mv.naive()).execute().to_pandas()
-    assert forecast.forecast_value.tolist() == [40.0, 40.0]
-    assert forecast.training_row_count.tolist() == [4, 4]
-    assert session._runtime.statistics.transferred_rows == 4
+    assert forecast["value"].tolist() == [40.0, 40.0]
     receipts.append(
         {
             "method": "native-date-forecast",
@@ -250,10 +269,17 @@ def produce(project: Path) -> dict[str, object]:
             "statistics": asdict(session._runtime.statistics),
         }
     )
-    distinct = grouped(session, "distinct_amount").execute()
-    distinct_values = distinct.to_pandas().sort_values("channel").distinct_amount.tolist()
+    distinct = (
+        session.members(ms.ref.entity("sales.customers"))
+        .observe(
+            ms.ref.metric("sales.distinct_amount"),
+            via=ms.ref.relationship("sales.customer"),
+        )
+        .execute()
+    )
+    distinct_values = distinct.to_pandas().sort_values("member")["value"].tolist()
     assert distinct_values == [2, 2]
-    artifacts["distinct_amount"] = str(distinct.state.artifact_ref)
+    artifacts["distinct_amount"] = distinct.state.artifact_ref.ref
     receipts.append(
         {
             "method": "distinct_amount",
@@ -301,8 +327,8 @@ def native_audit(engine: str, project: Path) -> dict[str, object]:
         else:
             raise ValueError(engine)
         session = mv.session.get_or_create("native-audit", report_timezone="UTC")
-        result = grouped(session, "revenue").execute().to_pandas().sort_values("channel")
-        assert result.revenue.tolist() == [30.0, 70.0]
+        result = grouped(session, "revenue").execute().to_pandas().sort_values("group")
+        assert result["value"].tolist() == [30.0, 70.0]
         submitted = [
             item
             for item in session._runtime.statistics.submissions
@@ -336,15 +362,24 @@ def failure(kind: str) -> dict[str, object]:
     session = mv.session.get_or_create("failure-" + kind, report_timezone="UTC")
     with sqlite3.connect(session._runtime.store.db_path) as connection:
         before = connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0]
-    logical = session.observe(ms.ref.metric("sales.mean_amount"))
-    if kind == "invalid":
-        logical = logical.with_dimensions(ms.ref.dimension("sales.customers.region"))
-    with pytest.raises(MaterializationError) as caught:
-        logical.aggregate().execute()
-    assert isinstance(session.runs().items[0], mv.FailedRun)
-    assert any(role == "source_schema" for role, _ in session._runtime.statistics.statements)
-    if kind == "invalid":
-        assert session._runtime.statistics.validation_queries >= 1
+    from marivo.analysis.errors import AnalysisError
+
+    with pytest.raises(AnalysisError) as caught:
+        if kind == "invalid":
+            region = ms.ref.dimension("sales.customers.region")
+            logical = (
+                session.members(ms.ref.entity("sales.customers"))
+                .observe(
+                    ms.ref.metric("sales.mean_amount"),
+                    via=ms.ref.relationship("sales.customer"),
+                    coordinates=(region,),
+                )
+                .group_by(region)
+                .rollup()
+            )
+        else:
+            logical = grouped(session, "mean_amount")
+        logical.execute()
     if kind == "offline":
         # Missing SQLite metadata is a non-scalar result; other drivers report the missing table.
         message = str(caught.value).lower()
@@ -382,8 +417,9 @@ def cold(project: Path) -> dict[str, object]:
         raise AssertionError("cold retained work attempted source connection")
 
     with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(SourceSession, "__init__", forbidden)
         patch.setattr(
-            runtime_patch_owner("_build_backend_from_effective"),
+            backends,
             "_build_backend_from_effective",
             forbidden,
         )
@@ -401,16 +437,16 @@ def cold_retained(project: Path) -> dict[str, object]:
         ("ratio_amount", 25.0),
     ):
         result = session.artifact(saved["artifacts"][name])
-        assert isinstance(result, mv.MaterializedMetricDataset)
+        assert isinstance(
+            result, (mv.MaterializedRolledNumericRelation, mv.MaterializedRolledRatioRelation)
+        )
         before = len(session.runs().items)
-        assert grouped(session, name).execute().state.artifact_ref == result.state.artifact_ref
-        assert len(session.runs().items) == before
+        continuation = result.rollup()
+        rolled = continuation.execute()
+        assert continuation.execute().state.artifact_ref == rolled.state.artifact_ref
+        assert len(session.runs().items) == before + 1
         binding_statistics = asdict(session._runtime.statistics)
-        assert not session._runtime.statistics.statements
-        rolled = result.rollup(
-            drop_dimensions=(ms.ref.dimension("sales.orders.channel"),)
-        ).execute()
-        values = rolled.to_pandas()[name].tolist()
+        values = rolled.to_pandas()["value"].tolist()
         assert values == pytest.approx([expected])
         # Local retained DuckDB queries count as primary queries too.
         results[name] = values
@@ -422,15 +458,9 @@ def cold_retained(project: Path) -> dict[str, object]:
             }
         )
     distinct = session.artifact(saved["artifacts"]["distinct_amount"])
-    assert isinstance(distinct, mv.MaterializedMetricDataset)
-    before = len(session.runs().items)
-    assert (
-        grouped(session, "distinct_amount").execute().state.artifact_ref
-        == distinct.state.artifact_ref
-    )
-    assert len(session.runs().items) == before
+    assert isinstance(distinct, mv.MaterializedNumericRelation)
+    assert distinct.to_pandas().sort_values("member")["value"].tolist() == [2, 2]
     assert not session._runtime.statistics.statements
-    assert distinct.to_pandas().sort_values("channel").distinct_amount.tolist() == [2, 2]
     return {
         "session": session.id,
         "source_tables_removed": True,

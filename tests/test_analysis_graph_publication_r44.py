@@ -123,7 +123,7 @@ def test_optional_singleton_exchange_rejects_multiple_rows() -> None:
 
 @pytest.fixture
 def case(tmp_path):
-    store = SessionStore._graph_store(tmp_path)
+    store = SessionStore(tmp_path)
     session = store.create_session("graph")
     runtime = DatasetRuntime(store, session.session_ref)
     leaf, root = _root(session.session_ref)
@@ -277,7 +277,7 @@ from marivo.analysis.materialization.graph_protocol import thaw_graph
 from marivo.analysis.materialization.graph_storage import read_result
 from marivo.analysis.materialization.store import SessionStore
 
-store = SessionStore._graph_store(sys.argv[1], existing_only=True)
+store = SessionStore(sys.argv[1], existing_only=True)
 runtime = DatasetRuntime(store, sys.argv[2])
 prior = thaw_graph(sys.argv[3])
 root = method_node(
@@ -582,7 +582,7 @@ from marivo.analysis.materialization import graph_store
 from marivo.analysis.materialization.graph_storage import read_result
 from marivo.analysis.materialization.store import SessionStore
 
-store = SessionStore._graph_store(sys.argv[1], existing_only=True)
+store = SessionStore(sys.argv[1], existing_only=True)
 with store._read() as conn:
     saved = graph_store.artifact(store, conn, sys.argv[2])
 assert saved is not None
@@ -910,15 +910,20 @@ def test_strict_descriptor_rejects_altered_fields(case, mutate):
 
 
 def test_old_project_untouched_and_legacy_writer_cannot_write_v7(tmp_path):
-    old = SessionStore(tmp_path)
-    before = old.db_path.read_bytes()
-    with pytest.raises(IntegrityError):
-        SessionStore._graph_store(tmp_path)
-    assert old.db_path.read_bytes() == before
-    assert not (old.layout.generation_dir.parent / "v7").exists()
-    new = SessionStore._graph_store(tmp_path / "fresh")
-    with pytest.raises(IntegrityError):
-        new.run("missing")
+    old_path = tmp_path / ".marivo/analysis/generations/v6/store.sqlite3"
+    old_path.parent.mkdir(parents=True)
+    with sqlite3.connect(old_path) as connection:
+        connection.execute("PRAGMA user_version=6")
+    before = old_path.read_bytes()
+    files = tuple(sorted(path.relative_to(tmp_path) for path in tmp_path.rglob("*")))
+    for open_store in (SessionStore, SessionStore.open_existing):
+        with pytest.raises(IntegrityError):
+            open_store(tmp_path)
+        assert old_path.read_bytes() == before
+        assert tuple(sorted(path.relative_to(tmp_path) for path in tmp_path.rglob("*"))) == files
+    new = SessionStore(tmp_path / "fresh")
+    for name in ("run", "admit", "publish", "_graph_store"):
+        assert not hasattr(new, name)
 
 
 @pytest.mark.parametrize("method,expected", [("sum", 20), ("mean", 20 / 3), ("count_defined", 3)])
@@ -1182,14 +1187,11 @@ def test_run_input_canonical_golden_vector():
     assert decode(expected, RUN_INPUT) == value
 
 
-def test_v7_never_calls_old_descriptor_or_scenario_codecs(case, monkeypatch):
+def test_v7_never_calls_old_descriptor_or_scenario_codecs(case):
     from marivo.analysis.materialization import contracts
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError("legacy codec forbidden")
-
-    monkeypatch.setattr(contracts, "encode_descriptor", forbidden)
-    monkeypatch.setattr(contracts, "decode_descriptor", forbidden)
+    assert not hasattr(contracts, "encode_descriptor")
+    assert not hasattr(contracts, "decode_descriptor")
     record = _capture(case)
     root = _fixed(record)
     result = case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))

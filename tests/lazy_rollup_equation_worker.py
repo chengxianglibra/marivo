@@ -1,9 +1,8 @@
-"""Three-process decimal and int64 retained rollup equality journey.
+"""Cold-process decimal and int64 original-state rollup equality journey.
 
 The producer authors a session, aggregates a decimal pair and an int64 pair
 under a runtime Linear each, persists the checkpoint, and removes the source.
-The cold process recovers the checkpoint by name, rolls it up to the month
-grain from retained state only, and returns the exact values with their
+The cold process recovers the checkpoint by name, rolls it up over the original complete membership from retained state only, and returns the exact values with their
 original dtypes. The renamed source file makes any primary query fail loudly,
 so a successful cold run is itself the zero-source-query proof.
 """
@@ -56,7 +55,7 @@ def _author(project: Path, *, with_mean: bool = False, mean_measure: str = "quan
         "'cost': 'cost', "
         "'quantity': 'quantity'}), primary_key=['id'])\n"
         "day = ms.time_dimension_column(name='day', entity=orders, column='order_day', "
-        "granularity='day')\n"
+        "granularity='day', parse=None, is_default=True)\n"
         "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
         "additivity=ms.additive_all())\n"
         "cost = ms.measure_column(name='cost', entity=orders, column='cost', "
@@ -66,7 +65,7 @@ def _author(project: Path, *, with_mean: bool = False, mean_measure: str = "quan
         "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
         "cost_total = ms.aggregate(name='cost_total', measure=cost, agg='sum')\n"
         "qty_total = ms.aggregate(name='qty_total', measure=quantity, agg='sum')\n"
-        "qty_count = ms.aggregate(name='qty_count', measure=quantity, agg='count')\n"
+        "qty_count = ms.count(name='qty_count', entity=orders)\n"
         + (
             "amount_mean = ms.aggregate(name='amount_mean', measure="
             + mean_measure
@@ -113,42 +112,43 @@ def run(mode: str, project: Path, artifact: str = "") -> dict[str, object]:
                 "cost DECIMAL(12,2), quantity BIGINT)"
             )
             connection.executemany("INSERT INTO orders VALUES (?, ?, ?, ?, ?)", DAY_ROWS)
-        from marivo.analysis import grain
         from marivo.analysis import runtime_metric as rm
 
         gmv = ms.ref.metric("sales.gmv")
         cost_total = ms.ref.metric("sales.cost_total")
         qty_total = ms.ref.metric("sales.qty_total")
         qty_count = ms.ref.metric("sales.qty_count")
-        net_amount = rm.linear(add=[gmv, cost_total], subtract=[gmv], label="net_amount")
-        net_qty = rm.linear(add=[qty_total, qty_count], subtract=[qty_total], label="net_qty")
-        session = mv.session.get_or_create("equation", report_timezone="UTC")
-        daily = (
-            session.observe([gmv, net_amount, net_qty, ms.ref.metric("sales.amount_mean")])
-            .with_time_axis(ms.ref.time_dimension("sales.orders.day"), grain=grain("day"))
-            .aggregate()
+        metrics = (
+            gmv,
+            rm.linear(add=[gmv, cost_total], subtract=[gmv], label="net_amount"),
+            rm.linear(add=[qty_total, qty_count], subtract=[qty_total], label="net_qty"),
+            ms.ref.metric("sales.amount_mean"),
         )
-        warm_monthly = daily.rollup(grain=grain("month")).execute().to_pandas()
-        checkpoint = daily.execute()
+        session = mv.session.get_or_create("equation", report_timezone="UTC")
+        members = session.members(ms.ref.entity("sales.orders"))
+        values, artifacts = {}, {}
+        for name, metric in zip(METRIC_NAMES, metrics, strict=True):
+            observed = members.observe(metric)
+            warm = observed.rollup().execute().to_pandas()
+            values[name] = str(warm["value"].iloc[0])
+            artifacts[name] = observed.execute().state.artifact_ref.ref
         (project / "warehouse.duckdb").rename(project / "warehouse.offline")
         return {
             "pid": os.getpid(),
             "session": session.id,
-            "artifact": checkpoint.state.artifact_ref.ref,
-            "warm_monthly": {name: str(warm_monthly[name].iloc[0]) for name in METRIC_NAMES},
+            "artifact": json.dumps(artifacts, sort_keys=True),
+            "warm_monthly": values,
         }
     session = mv.session.resume("equation")
-    checkpoint = session.artifact(artifact)
-    from marivo.analysis import grain
-
-    cold = checkpoint.rollup(grain=grain("month")).execute()
-    frame = cold.to_pandas()
-    return {
-        "pid": os.getpid(),
-        "values": {name: str(frame[name].iloc[0]) for name in METRIC_NAMES},
-        "dtypes": {name: str(frame[name].dtype) for name in METRIC_NAMES},
-        "day_label": str(frame["day"].iloc[0]),
-    }
+    artifacts = json.loads(artifact)
+    values, dtypes = {}, {}
+    for name in METRIC_NAMES:
+        checkpoint = session.artifact(artifacts[name])
+        cold = checkpoint.rollup().execute()
+        frame = cold.to_pandas()
+        values[name] = str(frame["value"].iloc[0])
+        dtypes[name] = str(frame["value"].dtype)
+    return {"pid": os.getpid(), "values": values, "dtypes": dtypes}
 
 
 if __name__ == "__main__":

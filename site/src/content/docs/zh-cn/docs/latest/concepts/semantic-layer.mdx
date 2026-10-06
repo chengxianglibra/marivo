@@ -141,7 +141,10 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum", time=order_dat
 ```python
 revenue_entry = catalog.metrics.get("sales.revenue")
 revenue_entry.details().show()
-dataset = session.observe(revenue_entry, time_scope=mv.time_scope(start='2026-01-01', end='2026-04-01')).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('month')).aggregate()
+grid = mv.time_grid(during=mv.time_scope(start='2026-01-01', end='2026-04-01'), grain=mv.grain('month'))
+dataset = (session.members(ms.ref.entity("sales.orders")).each(grid)
+    .observe(revenue_entry.ref, during=grid.window)
+    .group_by(grid).rollup())
 ```
 如果指标刚刚新建或修改，先完成下文所述的限定范围的编写收尾，再进入这条日常分析流程。
 
@@ -307,12 +310,9 @@ Decimal 数据源。Parquet、CSV 和 JSON descriptor 仍只属于 DuckDB。
 会将其报告为结构化的不支持-操作错误。此时应改用受支持的聚合与原生时间
 列。
 
-数据源建模支持与 Dataset 执行是两个边界。当前 R1 过渡期只有基础的单表、无时间
-范围 Population 与 sum/count Metric 来源路线经 `SourceSession` 准入，并继续受后端和
-物理形态约束。重构前的 Group A、关系与日期方法资格不自动转入新路线；其他来源
-方法的 R6–R9 迁移要求由 Analysis contract 披露。
-参见[分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)。声明数据源不会启用其他
-Dataset 方法或后端。
+数据源建模与类型化分析执行分别拥有契约。当前图、方法 registry 和 Runtime
+校验精确后端、物理输入与方法组合，不支持的组合会明确拒绝；声明本身不授予执行资格。
+参见[分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)。
 
 :::note[凭据是引用，绝不是明文]
 敏感字段以 `*_env` 引用的形式声明，指向环境变量 —— `user_env="TRINO_USER"`、
@@ -473,7 +473,7 @@ region = ms.dimension_column(
 #### 时间维度
 
 时间维度是携带粒度和解析元数据的特殊维度。**只有时间维度才能作为
-`session.observe` 的时间轴。**
+`members.each(grid).observe` 的时间轴。**
 使用 `marivo.help("semantic.objects.time_dimension")` 确定业务时间角色、粒度、物理编码、
 默认时间轴和采样节奏。使用 `marivo.help("semantic.builders.temporal_parsing")` 选择嵌套
 解析值，再打开精确 callable leaf 查询当前签名。
@@ -504,8 +504,8 @@ preview 若观察到时区-naive timestamp，会返回 `time_parse_risk` warning
 `sample_interval` 标记一个被
 周期采样的时间轴，供半可加折叠使用。
 
-带时间轴的 Metric Dataset 使用行契约中声明的时间字段，值为报告时区下
-不带时区标记的桶标签。例如，上海业务日的首个小时显示为当地的零点。
+绑定的 TimeGrid 保留完整 UTC 单元边界及报告时区。通过类型化关系读取时间坐标，
+当前字段与展示由该关系的 contract 和有界 `show()` 输出负责。
 
 ```python
 # Day partition stored as the string "20260131"
@@ -664,8 +664,8 @@ aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 `zero_denominator` 可显式选择 `ms.zero_denominator.undefined()` 或
 `ms.zero_denominator.error()`，由支持该政策的消费方法执行。
 执行时，`ms.ratio` 的分母或 `ms.weighted_mean` 的成对权重和存在但为零时，
-结果为 null。通过 Materialized Metric Dataset 读取已提交值；行契约和 Findings
-负责提供当前可用状态与证据。
+结果的底层值为 null。通过物化类型化关系读取已提交值及 Cell 状态；其 contract
+和 Evidence 负责当前续算边界与执行证据。
 
 #### 累计指标 —— `ms.cumulative`
 
@@ -725,7 +725,10 @@ fiscal_mtd = ms.cumulative(
 )
 
 fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
-dataset = session.observe(fiscal_mtd, time_scope=mv.time_scope(start='2026-01-01', end='2026-03-01')).with_time_axis(event_time, grain=fiscal_week).aggregate()
+grid = mv.time_grid(during=mv.time_scope(start='2026-01-01', end='2026-03-01'), grain=fiscal_week)
+dataset = (session.members(ms.ref.entity("sales.events")).each(grid)
+    .observe(fiscal_mtd, at=grid.end)
+    .group_by(grid).rollup())
 ```
 日历快照负责 fiscal membership 及其边界时区；改变会话报告时区只会改变
 展示，不会改变周期归属。
@@ -770,13 +773,17 @@ import marivo.semantic as ms
 session = mv.session.get_or_create(
     name="revenue-investigation",
     question="Why did Q4 revenue drop?",
+    report_timezone="UTC",
 )
 catalog = session.catalog
 revenue_entry = catalog.metrics.get("sales.revenue")
 region_entry = catalog.dimensions.get("sales.orders.region")
 
 revenue_entry.details().show()
-current = session.observe(revenue_entry).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('month')).with_dimensions(*[region_entry]).aggregate()
+grid = mv.time_grid(during=mv.time_scope(start='2026-10-01', end='2027-01-01'), grain=mv.grain('month'))
+current = (session.members(ms.ref.entity("sales.orders")).each(grid)
+    .observe(revenue_entry.ref, during=grid.window, coordinates=(region_entry.ref,))
+    .group_by(grid, region_entry.ref).rollup())
 ~~~
 `details().show()` 展示人类编写的定义、约束、组合、有效实体、候选
 普通/时间维度与度量血缘。
@@ -786,7 +793,7 @@ current = session.observe(revenue_entry).with_time_axis(ms.ref.time_dimension("s
 没有命名 base measure 的 Ibis 函数体指标会如实停在 `expression_body` 叶子。
 这棵树只属于展示文本，不会给 details 对象增加 `expression_tree` 属性。
 候选轴来自指标的有效实体；跨实体关系
-与扩散仍由 `session.observe(...)` 验证。`.show()` 打印的内容与 `.render()` 返回的
+与扩散仍由 `members.observe(...)` 验证。`.show()` 打印的内容与 `.render()` 返回的
 有界卡片相同；机械续接读取当前 live help、结构化错误和 typed repair。
 如果对象缺失或定义存在争议，先回到语义编写；否则先构造逻辑 Dataset，
 再调用 `.execute()` 发布会话调查中的第一个 Artifact。新建或修改的对象把限定范围的就绪检查作为
@@ -811,7 +818,10 @@ entry = collection.get("metric:sales.revenue")  # full path or displayed typed k
 entry.show()
 entry.details().show()
 marivo.help(entry)                             # current details and analysis handoff
-current = session.observe(entry).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('month')).aggregate()
+grid = mv.time_grid(during=mv.time_scope(start='2026-10-01', end='2027-01-01'), grain=mv.grain('month'))
+current = (session.members(ms.ref.entity("sales.orders")).each(grid)
+    .observe(entry.ref, during=grid.window)
+    .group_by(grid).rollup())
 ```
 使用 `marivo.help("semantic.CatalogCollection")` 查看查找语法，使用
 `marivo.help("semantic.CatalogEntry")` 查看详情和 continuation，使用
@@ -993,15 +1003,15 @@ Marivo 会先加载中央项目的 `models/`，再按配置顺序加载外部 `m
 
 ```python
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-dataset = session.observe(
+dataset = session.members(ms.ref.entity("sales.orders")).observe(
     revenue,
-    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+    during=mv.time_scope(start="2026-01-01", end="2026-04-01"),
 )
 
 revenue_entry = catalog.require(ms.ref.metric("sales.revenue"))
-dataset = session.observe(
-    revenue_entry,
-    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+dataset = session.members(ms.ref.entity("sales.orders")).observe(
+    revenue_entry.ref,
+    during=mv.time_scope(start="2026-01-01", end="2026-04-01"),
 )
 ```
 `catalog.require(ref)` 是精确的全局查找；目录集合负责浏览，并支持本地名称、
@@ -1261,7 +1271,9 @@ with session.source_bindings({
         "end": "now",
     },
 }):
-    dataset = session.observe(ms.ref.metric("monitoring.pending_containers"))
+    dataset = session.members(ms.ref.entity("monitoring.api_events")).observe(
+        ms.ref.metric("monitoring.pending_containers")
+    )
 ```
 绑定可以嵌套，并通过执行上下文隔离；它还会绑定到所属会话运行时，
 同一任务里的另一个会话无法消费这些值。缺少或多余参数会在读取来源前失败；

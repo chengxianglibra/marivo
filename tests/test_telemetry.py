@@ -215,7 +215,7 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
     from marivo.analysis.materialization.store import SessionStore
     from marivo.telemetry import tracked_capability
 
-    SessionStore._graph_store(telemetry_project).create_session(
+    SessionStore(telemetry_project).create_session(
         "demo",
         session_ref="session_existing",
         question="persisted question",
@@ -466,7 +466,7 @@ def test_failed_session_resume_does_not_disclose_identity(
 ) -> None:
     from marivo.analysis.materialization.store import SessionStore
 
-    SessionStore._graph_store(telemetry_project)
+    SessionStore(telemetry_project)
     identity = "private-session-name"
 
     with pytest.raises(mv.errors.SessionNotFoundError):
@@ -690,8 +690,8 @@ def test_dataset_contract_render_does_not_instrument_shared_semantic_show(
     telemetry_project: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    from marivo.analysis import AnalysisAction, AnalysisContract
     from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
-    from tests.lazy_observation_fixtures import make_sources
 
     report = ReadinessReport(
         analysis_ready_inputs=(),
@@ -702,10 +702,18 @@ def test_dataset_contract_render_does_not_instrument_shared_semantic_show(
         checked_at="2026-07-17T00:00:00+00:00",
     )
     report.show()
-    from marivo.refs import SemanticKind, _create_ref
-
-    dataset = make_sources().observe(_create_ref(SemanticKind.METRIC, "sales.revenue"))
-    dataset.contract().show()
+    contract = AnalysisContract(
+        kind="numeric",
+        phase="logical",
+        actions=(
+            AnalysisAction("relation.execute()", "analysis.dsl.LogicalNumericRelation.execute"),
+        ),
+        domain="customers",
+        quantity="revenue",
+        required_parts=(),
+        retained_parts=(),
+    )
+    contract.show()
     capsys.readouterr()
     assert not list((telemetry_project / ".marivo" / "telemetry").glob("events-*.jsonl"))
 
@@ -1048,8 +1056,8 @@ def test_registry_callables_are_telemetry_covered() -> None:
     assert set(ms.__marivo_telemetry_capabilities__) == _expected_instrumented(
         SEMANTIC_REGISTRY._descriptors
     )
-    assert "analysis_purpose" not in inspect.signature(mv.Session.observe).parameters
-    assert not hasattr(mv.Session.observe, "__wrapped__")
+    assert "analysis_purpose" not in inspect.signature(mv.Session.members).parameters
+    assert not hasattr(mv.Session.members, "__wrapped__")
 
 
 def test_datasource_authoring_error_preserves_code_and_stage() -> None:

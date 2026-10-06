@@ -267,18 +267,41 @@ def test_request_body_path_cannot_hide_a_credential_alias() -> None:
 
 
 def test_registry_scope_assembly_does_not_normalize_unrelated_identity_types() -> None:
-    from tests.lazy_observation_fixtures import make_semantic_registry
-
-    registry, _ = make_semantic_registry()
-    unrelated = replace(
-        registry.entities["sales.orders"],
-        semantic_id="sales.untyped",
-        name="untyped",
-        source=TableSourceIR(table="untyped"),
+    source = EntityIR(
+        semantic_id="sales.api",
+        domain="sales",
+        name="api",
+        datasource="warehouse",
+        source=JsonSourceIR(
+            path="https://fixture.invalid/api",
+            columns=(("id", "id"),),
+            query_params=(("tenant", SourceParamIR("tenant")),),
+        ),
+        primary_key=("id",),
+        ai_context=AiContextIR(),
+        python_symbol="api",
+        location=SourceLocation("fixture.py", 1),
     )
-    extended = replace(registry, entities={**registry.entities, unrelated.semantic_id: unrelated})
-    scopes = SourceBindingScopes.from_registry(extended)
-    selected = normalize_target_entity(extended, "sales.api")
+    unrelated = replace(
+        source, semantic_id="sales.untyped", name="untyped", source=TableSourceIR(table="untyped")
+    )
+    registry = Registry(
+        entities={source.semantic_id: source, unrelated.semantic_id: unrelated},
+        datasources={
+            "warehouse": DatasourceIR(
+                semantic_id="warehouse",
+                name="warehouse",
+                backend_type="duckdb",
+                fields={},
+                env_refs={},
+                ai_context=AiContextIR(),
+                python_symbol="warehouse",
+                location=DatasourceSourceLocation("fixture.py", 1),
+            )
+        },
+    )
+    scopes = SourceBindingScopes.from_registry(registry)
+    selected = normalize_target_entity(registry, "sales.api")
     with scopes.scope({ref.entity("sales.api"): {"tenant": "customer"}}):
         assert scopes.capture((selected,))[0].private_canonical_typed_values == ("customer",)
 

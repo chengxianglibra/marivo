@@ -11,6 +11,6 @@ def compilation_error(expected: str, received: str) -> DatasetCompilationError:
     return DatasetCompilationError(
         expected=expected,
         received=received,
-        repair="Use the registered logical Population/Metric source recipe and exact declared source tables.",
+        repair="Use the registered typed graph source recipe and exact declared source tables.",
         location="dataset.compiler",
     )

@@ -10,7 +10,6 @@ import pytest
 from ibis.backends.duckdb import Backend
 
 from marivo._temporal import builtin_grain
-from marivo.analysis.compiler.temporal import bucket as bucket_start_expr
 from marivo.analysis.materialization.temporal_sql import (
     _initialize_sqlite_functions,
     lower_temporal,
@@ -22,6 +21,12 @@ from marivo.datasource.adapters import PhysicalRequirement, SourceSession, provi
 from marivo.datasource.errors import DatasourceConnectionError
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation, TableSourceIR
 from marivo.datasource.timezone import probe_engine_timezone
+
+
+def bucket_start_expr(value: ir.Value, grain) -> ir.Value:
+    seconds = grain.count * {"hour": 3600, "minute": 60}[grain.unit]
+    offset = ((value.hour() * 3600 + value.minute() * 60 + value.second()) // seconds) * seconds
+    return value.truncate("D") + offset.as_interval("s")
 
 
 @pytest.mark.parametrize(

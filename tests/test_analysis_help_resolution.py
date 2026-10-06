@@ -25,7 +25,7 @@ def test_invalid_objects_have_bounded_resolvable_repairs(target: object) -> None
 @pytest.mark.parametrize(
     "target,expected",
     (
-        ("analysis.metric_dataset.metrc", "analysis.metric_dataset.metric"),
+        ("analysis.session.memebrs", "analysis.session.members"),
         ("analysis.session.resum", "analysis.session.resume"),
     ),
 )

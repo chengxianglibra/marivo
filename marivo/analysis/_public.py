@@ -33,31 +33,7 @@ from marivo.analysis.anchors import calendar_days as calendar_days
 from marivo.analysis.anchors import duration as duration
 from marivo.analysis.anchors import elapsed as elapsed
 from marivo.analysis.anchors import every_anchor as every_anchor
-from marivo.analysis.datasets.base import Dataset as Dataset
-from marivo.analysis.datasets.base import LogicalDataset as LogicalDataset
-from marivo.analysis.datasets.base import MaterializedDataset as MaterializedDataset
-from marivo.analysis.datasets.contract import DatasetContract as DatasetContract
 from marivo.analysis.datasets.descriptors import DatasetByteCount as DatasetByteCount
-from marivo.analysis.datasets.descriptors import DatasetCardinality as DatasetCardinality
-from marivo.analysis.datasets.descriptors import (
-    DatasetFamilyRowSemantics as DatasetFamilyRowSemantics,
-)
-from marivo.analysis.datasets.descriptors import DatasetField as DatasetField
-from marivo.analysis.datasets.descriptors import DatasetFieldId as DatasetFieldId
-from marivo.analysis.datasets.descriptors import DatasetFieldIdentity as DatasetFieldIdentity
-from marivo.analysis.datasets.descriptors import DatasetOrdering as DatasetOrdering
-from marivo.analysis.datasets.descriptors import DatasetOrderTerm as DatasetOrderTerm
-from marivo.analysis.datasets.descriptors import (
-    DatasetPhysicalTypeState as DatasetPhysicalTypeState,
-)
-from marivo.analysis.datasets.descriptors import DatasetRowBound as DatasetRowBound
-from marivo.analysis.datasets.descriptors import DatasetRowContract as DatasetRowContract
-from marivo.analysis.datasets.descriptors import DatasetRowSetContract as DatasetRowSetContract
-from marivo.analysis.datasets.descriptors import DatasetSchema as DatasetSchema
-from marivo.analysis.datasets.descriptors import DatasetShapeId as DatasetShapeId
-from marivo.analysis.datasets.fields import DatasetFieldRef as DatasetFieldRef
-from marivo.analysis.datasets.fields import DatasetFields as DatasetFields
-from marivo.analysis.datasets.state import LogicalDatasetState as LogicalDatasetState
 from marivo.analysis.datasets.state import MaterializedDatasetState as MaterializedDatasetState
 from marivo.analysis.domains.completeness import (
     BoundedCompletenessDeclarationV1 as BoundedCompletenessDeclarationV1,
@@ -93,26 +69,6 @@ from marivo.analysis.lifecycle import in_state as in_state
 from marivo.analysis.materialization.graph_fields import all_of as all_of
 from marivo.analysis.materialization.graph_fields import any_of as any_of
 from marivo.analysis.materialization.graph_fields import not_ as not_
-from marivo.analysis.observation.metric import LogicalMetricDataset as LogicalMetricDataset
-from marivo.analysis.observation.metric import (
-    MaterializedMetricDataset as MaterializedMetricDataset,
-)
-from marivo.analysis.observation.population import (
-    LogicalPopulationDataset as LogicalPopulationDataset,
-)
-from marivo.analysis.observation.population import (
-    MaterializedPopulationDataset as MaterializedPopulationDataset,
-)
-from marivo.analysis.observation.predicates import AnalysisPredicate as AnalysisPredicate
-from marivo.analysis.observation.predicates import eq as eq
-from marivo.analysis.observation.predicates import gt as gt
-from marivo.analysis.observation.predicates import gte as gte
-from marivo.analysis.observation.predicates import is_in as is_in
-from marivo.analysis.observation.predicates import is_not_null as is_not_null
-from marivo.analysis.observation.predicates import is_null as is_null
-from marivo.analysis.observation.predicates import lt as lt
-from marivo.analysis.observation.predicates import lte as lte
-from marivo.analysis.observation.predicates import not_eq as not_eq
 from marivo.analysis.public_dsl import AnalysisAction as AnalysisAction
 from marivo.analysis.public_dsl import AnalysisContract as AnalysisContract
 from marivo.analysis.public_dsl import CountMethod as CountMethod
@@ -328,32 +284,8 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "any_instance",
     "at_least",
     "all_instances",
-    "Dataset",
-    "LogicalDataset",
-    "MaterializedDataset",
-    "DatasetShapeId",
-    "DatasetFieldId",
-    "DatasetFieldIdentity",
-    "DatasetPhysicalTypeState",
-    "DatasetField",
-    "DatasetRowBound",
-    "DatasetCardinality",
-    "DatasetOrderTerm",
-    "DatasetOrdering",
     "DatasetByteCount",
-    "DatasetFamilyRowSemantics",
-    "DatasetRowContract",
-    "DatasetRowSetContract",
-    "DatasetSchema",
-    "LogicalDatasetState",
     "MaterializedDatasetState",
-    "DatasetContract",
-    "DatasetFields",
-    "DatasetFieldRef",
-    "LogicalPopulationDataset",
-    "MaterializedPopulationDataset",
-    "LogicalMetricDataset",
-    "MaterializedMetricDataset",
     "LogicalHistoryResult",
     "LogicalStateDistributionResult",
     "MaterializedStateDistributionResult",
@@ -366,7 +298,6 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "LogicalStateIntervalResult",
     "MaterializedStateIntervalResult",
     "MaterializedHistoryResult",
-    "AnalysisPredicate",
     "ForecastHorizon",
     "ForecastModel",
     "WindowBucketAlignment",
@@ -481,15 +412,6 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "min",
     "max",
     "count_defined",
-    "eq",
-    "not_eq",
-    "lt",
-    "lte",
-    "gt",
-    "gte",
-    "is_in",
-    "is_null",
-    "is_not_null",
     "all_of",
     "any_of",
     "not_",

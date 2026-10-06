@@ -109,7 +109,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
     if form == "parquet":
         export_dsl_parquet_models(case, fresh)
     catalog = ms.load(workspace_dir=fresh)
-    store = SessionStore._graph_store(fresh)
+    store = SessionStore(fresh)
     session = store.create_session("v7-members")
     runtime = DatasetRuntime(store, session.session_ref)
     entity = ms.ref.entity(f"{case.names.domain}.{case.names.customer}")
@@ -372,7 +372,7 @@ def forbidden(*args, **kwargs):
 ibis.duckdb.connect = forbidden
 ms.load = forbidden
 DatasourceConnectionService.use_backend = forbidden
-store = SessionStore._graph_store(sys.argv[1], existing_only=True)
+store = SessionStore(sys.argv[1], existing_only=True)
 with store._read() as conn:
     saved = graph_store.artifact(store, conn, sys.argv[2])
 assert saved is not None
@@ -633,7 +633,7 @@ def test_string_group_is_a_qualified_source_graph_method(
 def test_v7_member_subject_part_survives_publication_and_exact_read(
     tmp_path: Path, form: Literal["table", "parquet"]
 ) -> None:
-    store = SessionStore._graph_store(tmp_path)
+    store = SessionStore(tmp_path)
     session = store.create_session("member-part")
     runtime = DatasetRuntime(store, session.session_ref)
     entity = ms.ref.entity("inventory.product")
@@ -769,7 +769,7 @@ from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization import graph_store
 from marivo.analysis.materialization.graph_storage import read_result
 
-store = SessionStore._graph_store(sys.argv[1], existing_only=True)
+store = SessionStore(sys.argv[1], existing_only=True)
 with store._read() as conn:
     record = graph_store.artifact(store, conn, sys.argv[2])
 assert record is not None
@@ -835,7 +835,7 @@ def test_window_composition_matches_independent_oracle_and_reads_shared_sources_
     shutil.copytree(case.root / "models", fresh / "models")
     shutil.copyfile(case.root / "marivo.toml", fresh / "marivo.toml")
     catalog = ms.load(workspace_dir=fresh)
-    store = SessionStore._graph_store(fresh)
+    store = SessionStore(fresh)
     session = store.create_session("composed-window")
     runtime = DatasetRuntime(store, session.session_ref)
     members = construct_members(
@@ -1034,7 +1034,7 @@ def test_two_hop_original_sum_zero_preserves_component_state(
     shutil.copytree(case.root / "models", fresh / "models")
     shutil.copyfile(case.root / "marivo.toml", fresh / "marivo.toml")
     catalog = ms.load(workspace_dir=fresh)
-    store = SessionStore._graph_store(fresh)
+    store = SessionStore(fresh)
     session = store.create_session("original-components")
     runtime = DatasetRuntime(store, session.session_ref)
     members = construct_members(
@@ -1119,7 +1119,7 @@ def test_original_ratio_preserves_independent_root_components(
     if form == "parquet":
         export_dsl_parquet_models(case, fresh)
     catalog = ms.load(workspace_dir=fresh)
-    store = SessionStore._graph_store(fresh)
+    store = SessionStore(fresh)
     session = store.create_session("original-ratio")
     runtime = DatasetRuntime(store, session.session_ref)
     members = construct_members(
@@ -1286,7 +1286,7 @@ def forbidden(*args, **kwargs):
 ibis.duckdb.connect = forbidden
 ms.load = forbidden
 DatasourceConnectionService.use_backend = forbidden
-store = SessionStore._graph_store(sys.argv[1], existing_only=True)
+store = SessionStore(sys.argv[1], existing_only=True)
 with store._read() as connection:
     record = graph_store.artifact(store, connection, sys.argv[2])
 assert record is not None

@@ -198,7 +198,6 @@ def _execute(
     source_schemas: tuple[pa.Schema, ...] = (),
 ) -> graph_store.GraphArtifact:
     store, session, event = runtime.store, runtime.session_ref, runtime._event
-    store._require_generation(7)
     # Admit the complete bounded definition closure before source I/O or cache lookup.
     freeze_graph(root)
     prepared = prepare_graph(root, session_ref=session, routes=routes)

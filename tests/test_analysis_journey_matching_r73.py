@@ -352,7 +352,7 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
         )
     registry.freeze()
     refresh_files()
-    store = SessionStore._graph_store(tmp_path / "graph")
+    store = SessionStore(tmp_path / "graph")
     from marivo.datasource.authoring import DuckDBSpec
     from marivo.datasource.store import save_one
 
@@ -725,7 +725,7 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
             matching=FirstPerSubject(),
         )
     fixed_members = selected_source.execute()
-    foreign_store = SessionStore._graph_store(tmp_path / "foreign")
+    foreign_store = SessionStore(tmp_path / "foreign")
     foreign_record = foreign_store.create_session("foreign")
     foreign_runtime = DatasetRuntime(foreign_store, foreign_record.session_ref)
     foreign_session = Session._from_runtime(foreign_runtime)

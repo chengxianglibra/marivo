@@ -19,11 +19,9 @@ the question, metric, comparison, and initial investigation focus:
 > compare by month, and inspect region first.
 > Finish with the conclusion, key evidence, and limitations.
 
-During the R1 transition, this comparison journey remains a target workflow:
-time-scoped and comparison source methods are blocked at `source_admission`
-until their R6–R9 migration and qualification. Start with the admitted basic
-Population or sum/count route and inspect its Dataset contract for the exact
-source and method boundary.
+The agent uses the current typed graph for time-scoped observation and comparison.
+It checks the returned contract for the exact source, method and continuation
+boundary; unsupported combinations produce a structured repair.
 
 ## What Marivo handles
 
@@ -35,17 +33,16 @@ provisional answer, but it remains separate from canonical Marivo evidence; the
 agent hands the smallest reusable gap to `marivo-semantic` automatically and
 resumes the affected analysis branch after readiness.
 
-Catalog navigation returns current typed entries that qualifying semantic and
-analysis runtime calls accept directly; exact refs remain valid for
-configuration and recovery. Marivo normalizes either form to the ref before
-planning, evidence, persistence, or replay.
+Catalog navigation returns typed entries. Analysis consumes each entry's exact
+`.ref`; configuration and recovery also retain exact references. Semantic
+callers follow their own focused Help contracts.
 
 The agent selects a project interpreter and verifies the live environment once with
 `<selected-python> -m marivo doctor`. A conventional project-local installation uses
 `.venv/bin/python` on macOS, Linux, and WSL or `.venv/Scripts/python.exe` on Windows.
 After entry, it works from the public object already
-in hand: a Materialized Dataset's `.show()` reports committed state, and a
-Dataset's `.contract()` guides unfamiliar
+in hand: a materialized analysis result's `.show()` reports committed state, and a
+relation's `.contract()` guides unfamiliar
 composition, and focused `marivo.help(...)` after `import marivo` is needed only
 when that contract is insufficient or before first use of an unfamiliar
 capability. After a failure, the agent follows the structured repair. Focused
@@ -63,7 +60,7 @@ member keys in its bounded preview.
 result has no `.contract()` or typed re-entry. Typed regression is not a Marivo
 capability yet and remains explicit terminal custom analysis.
 
-Those mechanics are owned by live Help, Dataset contracts, and structured errors — they do
+Those mechanics are owned by live Help, relation contracts, and structured errors — they do
 not need to appear in your prompt.
 
 ## What to review
@@ -84,7 +81,7 @@ Before accepting the conclusion or asking for a deeper investigation, confirm th
 - [Readiness](/docs/latest/concepts/readiness/) explains how semantic changes receive explicit technical certification.
 - [Evidence](/docs/latest/concepts/evidence/) explains what supports the final recap.
 
-Public J1–J4 execution and recovery use Store 7. Construction may perform schema-only preflight; business reads follow admission. R6–R9 Dataset execution is not yet qualified for Store 7, and old-generation projects are neither migrated nor read through a fallback.
+Public execution and recovery use the typed graph, method registry, Runtime and Store 7. Construction may perform schema-only preflight; business reads follow admission. Unsupported exact input/method combinations reject explicitly. Old-generation projects are rejected without modification.
 
 
 ## Observe a runtime metric on the graph

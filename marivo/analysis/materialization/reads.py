@@ -8,15 +8,12 @@ from collections.abc import Generator, Iterator
 from pathlib import Path
 from typing import Literal
 
-import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
 from marivo.analysis.materialization import storage
 from marivo.analysis.materialization.contracts import (
-    RetainedPart,
     StorageReceipt,
-    schema_fingerprint,
 )
 from marivo.analysis.materialization.errors import MaterializationError, StorageAccessError
 from marivo.analysis.materialization.storage import ReadPolicy, _integrity
@@ -42,7 +39,7 @@ class _ReceiptBatchStream:
             header = next(self._reader)
             if (
                 header.num_rows
-                or schema_fingerprint(storage._realized_schema(row, header.schema))
+                or hashlib.sha256(header.schema.serialize().to_pybytes()).hexdigest()
                 != (receipt.schema_fingerprint)
                 or any(
                     expected.nullable != actual.nullable
@@ -50,6 +47,7 @@ class _ReceiptBatchStream:
                 )
             ):
                 _integrity("the exact receipt-bound exchange schema", "selected schema differs")
+            storage._realized_schema(row, header.schema)
             self._header = header
         except BaseException:
             self._reader.close()
@@ -149,31 +147,6 @@ def payload_batches(
     rows: DatasetRowSetContract | None = None,
     audit: bool = False,
 ) -> Generator[pa.RecordBatch, None, None]:
-    """Reject private membership before allocating any generic reader or iterator."""
-    from marivo.analysis.materialization.retained import guard_receipt_transfer
-
-    guard_receipt_transfer(receipt)
-    return _guarded_payload_batches(
-        project_root,
-        receipt,
-        policy=policy,
-        preview=preview,
-        row=row,
-        rows=rows,
-        audit=audit,
-    )
-
-
-def _guarded_payload_batches(
-    project_root: Path,
-    receipt: StorageReceipt,
-    *,
-    policy: ReadPolicy,
-    preview: bool = False,
-    row: DatasetRowContract | None = None,
-    rows: DatasetRowSetContract | None = None,
-    audit: bool = False,
-) -> Generator[pa.RecordBatch, None, None]:
     """Keep native reader diagnostics and raw locators outside error chains."""
     failure: Literal["missing", "unauthorized", "mutated", "unknown"] = "unknown"
     try:
@@ -198,122 +171,3 @@ def _guarded_payload_batches(
     except Exception:
         pass
     raise StorageAccessError(failure)
-
-
-def part_schema(
-    project_root: Path,
-    part: RetainedPart,
-    *,
-    policy: ReadPolicy = _DEFAULT_READ_POLICY,
-) -> pa.Schema:
-    """Read selected storage schema and bind it to its immutable receipt.
-
-    Family consumers independently check the returned fields against their
-    registered key/state contracts. Reading a header is not content validation;
-    a consuming action must exhaust the subsequent guarded part read.
-    """
-    from marivo.analysis.materialization.retained import guard_part_transfer
-
-    guard_part_transfer(part)
-    stream = payload_batches(project_root, part.storage_receipt, policy=policy)
-    try:
-        batch = next(stream, None)
-        if batch is None or batch.num_rows:
-            _integrity("a bounded selected part schema header", "missing part schema header")
-        schema = batch.schema
-        if hashlib.sha256(schema.serialize().to_pybytes()).hexdigest() != (
-            part.storage_receipt.schema_fingerprint
-        ):
-            _integrity("the receipt-bound exact part schema", "part schema fingerprint differs")
-        return schema
-    finally:
-        stream.close()
-
-
-def read_table(
-    *,
-    project_root: Path,
-    receipt: StorageReceipt,
-    row_contract: DatasetRowContract,
-    row_set_contract: DatasetRowSetContract,
-    policy: ReadPolicy,
-    preview: bool = False,
-) -> pa.Table:
-    return storage._read(
-        project_root=project_root,
-        receipt=receipt,
-        row_contract=row_contract,
-        row_set_contract=row_set_contract,
-        policy=policy,
-        preview=preview,
-    )
-
-
-def read_preview(
-    *,
-    project_root: Path,
-    receipt: StorageReceipt,
-    row_contract: DatasetRowContract,
-    row_set_contract: DatasetRowSetContract,
-    policy: ReadPolicy,
-) -> pa.Table:
-    return read_table(
-        project_root=project_root,
-        receipt=receipt,
-        row_contract=row_contract,
-        row_set_contract=row_set_contract,
-        policy=policy,
-        preview=True,
-    )
-
-
-def read_primary(
-    *,
-    project_root: Path,
-    receipt: StorageReceipt,
-    row_contract: DatasetRowContract,
-    row_set_contract: DatasetRowSetContract,
-    policy: ReadPolicy,
-) -> pd.DataFrame:
-    return storage.read_primary(
-        project_root=project_root,
-        receipt=receipt,
-        row_contract=row_contract,
-        row_set_contract=row_set_contract,
-        policy=policy,
-    )
-
-
-def read_part_batches(
-    project_root: Path,
-    part: RetainedPart,
-    *,
-    expected_schema: pa.Schema,
-    policy: ReadPolicy = _DEFAULT_READ_POLICY,
-) -> Generator[pa.RecordBatch, None, None]:
-    from marivo.analysis.materialization.retained import guard_part_transfer
-
-    guard_part_transfer(part)
-    return _read_part_batches(project_root, part, expected_schema=expected_schema, policy=policy)
-
-
-def _read_part_batches(
-    project_root: Path,
-    part: RetainedPart,
-    *,
-    expected_schema: pa.Schema,
-    policy: ReadPolicy,
-) -> Generator[pa.RecordBatch, None, None]:
-    receipt = part.storage_receipt
-    if (
-        receipt.schema_fingerprint
-        != hashlib.sha256(expected_schema.serialize().to_pybytes()).hexdigest()
-    ):
-        _integrity("the exact registered part schema fingerprint", "required part schema differs")
-    for batch in payload_batches(project_root, receipt, policy=policy):
-        if not batch.schema.equals(expected_schema, check_metadata=False):
-            _integrity("the exact registered part schema", "required part schema differs")
-        for field in expected_schema:
-            if not field.nullable and batch.column(field.name).null_count:
-                _integrity("non-null required part fields", "null retained field")
-        yield batch

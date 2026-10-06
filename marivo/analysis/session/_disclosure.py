@@ -6,6 +6,7 @@ from inspect import signature
 
 from marivo.analysis import session as session_namespace
 from marivo.analysis._capabilities.dataset_model import (
+    CONSTRUCTION_FAILURES,
     Descriptor,
     DisclosureProvider,
     ExampleInput,
@@ -17,7 +18,6 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
-from marivo.analysis.datasets.registry import DatasetFamilyRegistry
 from marivo.analysis.errors import EvidenceIntegrityError
 from marivo.analysis.evidence import _dataset_types as e
 from marivo.analysis.refs import ArtifactRef
@@ -40,13 +40,37 @@ READ_TYPES: tuple[type[object], ...] = (
 )
 
 
-def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
+def provider() -> DisclosureProvider:
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
+    descriptors.append(
+        operation(
+            "Session.source_bindings",
+            "session.source_bindings",
+            Session.source_bindings,
+            summary="Capture declared non-secret source parameters during construction.",
+            parameters=(
+                P("bindings", "Map exact Entity refs to their declared source parameters."),
+            ),
+            output="AbstractContextManager[None]",
+            constraints=("Captured bindings replace the ambient scope and restore it on exit.",),
+            effects="Pure semantic capture; execution does not reread ambient parameters.",
+            failures=CONSTRUCTION_FAILURES,
+            discovery_group="inputs",
+            related=("session.members",),
+            example=ExampleInput(
+                "with session.source_bindings({}):\n    result = session.members(entity)",
+                ("session", "entity"),
+                "result",
+                "LogicalAnalysisDomain",
+            ),
+        )
+    )
+
     acquisitions = {
         "ArtifactDigest": (
             "Read materialized.evidence_digest.",
-            ("datasets.materialized",),
+            ("actions.show",),
             ("runtime.values.render", "runtime.values.show"),
         ),
         "ArtifactRef": (
@@ -326,57 +350,6 @@ def provider(registry: DatasetFamilyRegistry) -> DisclosureProvider:
                     else ("session", "buyer", "members", "window")
                     if name == "anchors"
                     else ("session",),
-                    "result",
-                    output,
-                    True,
-                ),
-            )
-        )
-    for name, parameters, code, output in (
-        (
-            "findings",
-            (
-                P("limit", "Choose a bounded page size."),
-                P("cursor", "Use this Artifact's exact previous next_cursor."),
-            ),
-            "result = materialized.findings(limit=5)",
-            "FindingPage",
-        ),
-        (
-            "finding",
-            (P("finding_id", "Select the exact id from materialized.findings()."),),
-            "result = materialized.finding(finding_id)",
-            "Finding",
-        ),
-    ):
-        bindings = tuple(
-            bind(getattr(f.materialized_type, name), f.materialized_type)
-            for f in registry.registrations
-        )
-        descriptors.append(
-            operation(
-                "artifact." + name,
-                "dataset." + name,
-                bindings[0].implementation,
-                bindings=bindings,
-                summary="Read selected committed Finding evidence.",
-                discovery_group="evidence",
-                related=(
-                    "datasets.materialized",
-                    "FindingPage" if name == "findings" else "Finding",
-                ),
-                parameters=parameters,
-                output=output,
-                constraints=(
-                    "Selection does not decode unrelated Findings or read the original source.",
-                ),
-                effects="Bounded retained Evidence read; no new Run.",
-                failures=(
-                    "EvidenceIntegrityError: inspect the exact selected corrupt Evidence; do not replay the source.",
-                ),
-                example=ExampleInput(
-                    code,
-                    ("materialized",) if name == "findings" else ("materialized", "finding_id"),
                     "result",
                     output,
                     True,

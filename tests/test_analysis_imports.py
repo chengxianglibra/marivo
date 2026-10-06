@@ -12,17 +12,17 @@ import marivo.analysis as mv
 import sys
 assert 'scipy.stats' not in sys.modules
 from marivo.analysis._capabilities.registry import REGISTRY
-names = ('Dataset', 'LogicalDataset', 'MaterializedDataset', 'DatasetFieldRef', 'DatasetContract')
+names = ('LogicalAnalysisDomain', 'LogicalNumericRelation', 'MaterializedNumericRelation', 'MaterializedDatasetState', 'DatasetByteCount')
 bindings = tuple(getattr(mv, name) for name in names)
 exports = tuple(mv.__all__)
 help_targets = REGISTRY.canonical_ids()
-for module in ('base', 'descriptors', 'fields', 'state', 'contract', 'registry', 'handles', 'actions', 'errors'):
+for module in ('descriptors', 'state', 'handles', 'errors'):
     importlib.import_module('marivo.analysis.datasets.' + module)
 assert bindings == tuple(getattr(mv, name) for name in names)
 assert all(name in mv.__all__ for name in names)
 assert tuple(mv.__all__) == exports
 assert REGISTRY.canonical_ids() == help_targets
-assert {'datasets', 'datasets.dataset', 'datasets.logical', 'datasets.materialized', 'datasets.contract', 'actions.execute'} <= set(help_targets)
+assert {'datasets', 'datasets.materialized_state', 'actions.execute'} <= set(help_targets)
 """
     result = subprocess.run(
         [sys.executable, "-c", script],
@@ -44,17 +44,17 @@ from marivo.analysis.session.core import Session
 
 exports = tuple(mv.__all__)
 help_targets = REGISTRY.canonical_ids()
-observe = Session.observe
+members = Session.members
 bindings = Session.source_bindings
-for module in ('population', 'metric', 'source_bindings', 'predicates',
-               'coordinates', 'aggregation', 'contracts', 'errors'):
+for module in ('source_bindings', 'coordinates', 'contracts', 'errors'):
     importlib.import_module('marivo.analysis.observation.' + module)
 importlib.import_module('marivo.analysis.session._lazy_sources')
 for name in ('LogicalPopulationDataset', 'MaterializedPopulationDataset',
              'LogicalMetricDataset', 'MaterializedMetricDataset', 'AnalysisPredicate'):
-    assert name in mv.__all__ and hasattr(mv, name), name
-assert callable(Session.population)
-assert Session.observe is observe
+    assert name not in mv.__all__ and not hasattr(mv, name), name
+assert not hasattr(Session, "population")
+assert Session.members is members
+assert not hasattr(Session, "observe")
 assert Session.source_bindings is bindings
 assert tuple(mv.__all__) == exports
 assert REGISTRY.canonical_ids() == help_targets
@@ -101,7 +101,7 @@ graph = grimp.build_graph(
 baseline = contract.check(deepcopy(graph), verbose=False)
 assert baseline.kept and not baseline.warnings, baseline.metadata
 
-source = 'marivo.analysis.datasets.base'
+source = 'marivo.analysis.datasets.descriptors'
 helper = 'marivo.dataset_import_probe'
 for backend in ('pandas', 'ibis', 'pyarrow', 'duckdb'):
     for indirect in (False, True):
@@ -160,13 +160,13 @@ def test_session_class_exposes_sources_and_dataset_owned_operators():
     import marivo.analysis as mv
 
     assert callable(mv.LogicalNumericRelation.compare)
-    assert not hasattr(mv.LogicalMetricDataset, "compare")
-    assert callable(mv.Session.observe)
-    assert callable(mv.Session.population)
+    assert not hasattr(mv, "LogicalMetricDataset")
+    assert callable(mv.Session.members)
+    assert not hasattr(mv.Session, "population")
     assert isinstance(mv.Session.events, property)
     assert isinstance(mv.Session.lifecycle, property)
     for name in ("correlate", "forecast"):
-        assert not hasattr(mv.LogicalMetricDataset, name)
+        assert not hasattr(mv.Session, name)
         assert callable(getattr(mv.LogicalNumericRelation, name))
 
 
@@ -174,9 +174,9 @@ def test_analysis_exports_public_surface_by_layer() -> None:
     import marivo.analysis as mv
 
     for name in (
-        "Dataset",
-        "LogicalMetricDataset",
-        "MaterializedMetricDataset",
+        "LogicalAnalysisDomain",
+        "LogicalNumericRelation",
+        "MaterializedNumericRelation",
         "ArtifactRef",
         "TimeScope",
         "SessionGraph",
@@ -208,13 +208,14 @@ import marivo.analysis as mv
 from marivo.analysis.materialization import storage, reads, inspection
 assert 'marivo.analysis._public' not in sys.modules
 assert 'marivo.analysis.session' not in sys.modules
-from marivo.analysis.materialization import local_execution
+from marivo.analysis.materialization import graph_storage
 assert 'marivo.analysis._capabilities.registry' not in sys.modules
 # A normal session facade access must still install wrappers before invocation.
 assert callable(mv.session.get_or_create)
 from marivo.analysis.session.core import Session
 assert mv.Session is Session
-assert callable(Session.observe)
+assert callable(Session.members)
+assert not hasattr(Session, "observe")
 assert sorted(mv.__all__) == dir(mv)
 assert mv.grain('day').unit == 'day'
 """

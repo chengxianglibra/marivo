@@ -191,7 +191,7 @@ def test_busy_contender_preserves_real_producer(
 def test_canonical_creation_releases_candidate_before_winner_guard(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    SessionStore._graph_store(tmp_path)
+    SessionStore(tmp_path)
     barrier = threading.Barrier(2)
     original_create = SessionStore.create_session
     held = threading.local()
@@ -240,10 +240,7 @@ def test_canonical_creation_releases_candidate_before_winner_guard(
     monkeypatch.setattr(admission, "session_writer_guard", tracked_guard)
     monkeypatch.setattr(SessionStore, "create_session", create)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [
-            pool.submit(DatasetRuntime.create, tmp_path, "canonical", _generation=7)
-            for _ in range(2)
-        ]
+        futures = [pool.submit(DatasetRuntime.create, tmp_path, "canonical") for _ in range(2)]
         runtimes = [future.result(timeout=20) for future in futures]
     assert runtimes[0].session_ref == runtimes[1].session_ref
     assert snapshot(runtimes[0])["sessions"] == 1
@@ -255,8 +252,8 @@ def test_canonical_creation_releases_candidate_before_winner_guard(
 def test_losing_candidate_cannot_activate_busy_canonical_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    winner = DatasetRuntime.create(tmp_path, "canonical", _generation=7)
-    current = DatasetRuntime.create(tmp_path, "current", _generation=7)
+    winner = DatasetRuntime.create(tmp_path, "canonical")
+    current = DatasetRuntime.create(tmp_path, "current")
     original = SessionStore.session_by_name
     first = True
 
@@ -272,14 +269,14 @@ def test_losing_candidate_cannot_activate_busy_canonical_session(
         session_writer_guard(winner.store.layout.lock_path(winner.session_ref)),
         pytest.raises(SessionBusyError) as rejected,
     ):
-        DatasetRuntime.create(tmp_path, "canonical", _generation=7)
+        DatasetRuntime.create(tmp_path, "canonical")
     assert rejected.value.session_ref == winner.session_ref
     assert winner.store.current() == winner.store.session(current.session_ref)
     assert snapshot(winner)["sessions"] == 2
 
 
 def test_fresh_process_name_race_has_one_canonical_identity(tmp_path: Path) -> None:
-    store = SessionStore._graph_store(tmp_path)
+    store = SessionStore(tmp_path)
     processes = [
         subprocess.Popen(
             [
@@ -335,15 +332,12 @@ def test_activation_is_guarded_and_existing_handle_owner_is_stable(
         first.store.layout.lock_path(first.session_ref), session_ref=first.session_ref
     ):
         with pytest.raises(SessionBusyError) as rejected:
-            DatasetRuntime.create(tmp_path, "first", _generation=7)
+            DatasetRuntime.create(tmp_path, "first")
         assert rejected.value.session_ref == first.session_ref
         assert first.store.current() == first.store.session(second.session_ref)
-        opened = DatasetRuntime.open(tmp_path, first.session_ref, _generation=7)
+        opened = DatasetRuntime.open(tmp_path, first.session_ref)
         assert opened.session_ref == first.session_ref and opened.statistics.events == {}
-        assert (
-            DatasetRuntime.create(tmp_path, "second", _generation=7).session_ref
-            == second.session_ref
-        )
+        assert DatasetRuntime.create(tmp_path, "second").session_ref == second.session_ref
     original = SessionStore.activate
     barrier = threading.Barrier(2)
 
@@ -356,8 +350,7 @@ def test_activation_is_guarded_and_existing_handle_owner_is_stable(
     monkeypatch.setattr(SessionStore, "activate", activate)
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [
-            pool.submit(DatasetRuntime.create, tmp_path, name, _generation=7)
-            for name in ("first", "second")
+            pool.submit(DatasetRuntime.create, tmp_path, name) for name in ("first", "second")
         ]
         assert {value.result(timeout=20).session_ref for value in futures} == {
             first.session_ref,

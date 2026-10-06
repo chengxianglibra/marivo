@@ -637,9 +637,10 @@ R1 schema-only preflight may open a qualified source before Run allocation to
 resolve unknown Entity keys and exact value types. It submits no business rows.
 Business source opening and reads follow physical qualification and Run admission;
 the Runtime verifies the preflight schema again. Unsupported backends, physical
-types, mixed source/fixed graphs and R5–R9 Dataset families reject before business
-reads and Run allocation. Existing signatures remain; those families have no
-Store 7 execution qualification yet.
+types and mixed source/fixed graphs reject before business reads and Run
+allocation. R10.1 removes the remaining Population/Metric Dataset families and
+their construction, registration, compiler and Store 6 consumers; they have no
+current public signatures or compatibility aliases.
 
 The qualified J1–J4 routes include DuckDB native tables and local Parquet sources,
 string/int64 Entity identity, direct string member reads/grouping, UTC microsecond
@@ -669,8 +670,9 @@ verified state; fixed continuations use the checked Parquet/Arrow/pandas route
 without current Semantic loading or a source/DuckDB connection. Corrupt, missing
 or rebound metadata/parts cannot provide dynamic continuation K or an exact hit.
 No legacy source definition-only cache remains on an executable source path.
-The private generic v6 Dataset harness remains isolated for later-family tests;
-it is not selected or recovered by any public Session entry.
+R10.1 removes the generic v6 Dataset harness and its exclusive consumers.
+SessionStore creation and read-only opening select Store 7 only. Old projects
+are structurally rejected before any write; their files remain unchanged.
 
 ## S4 P1 public admission
 
@@ -682,7 +684,8 @@ closed two-root `routes(route(...), route(...))` value, and optional declared
 contribution coordinates. Domain and relation methods return concrete logical
 variants. `execute()` exists only on logical values; `show()` and
 `to_pandas()` exist only on materialized values. Both expose `contract()`.
-`session.artifact(reference)` returns an exact materialized variant, with its existing public return annotation retained; unqualified families are not recovered through v6.
+`session.artifact(reference)` returns the concrete PublicMaterialized union;
+retired MaterializedDataset is absent from its annotation and all recovery codecs.
 Date-only and naive fixed TimeScope bounds follow the Session's persisted report
 timezone before lowering to the admitted UTC event axis. Aware bounds retain
 their absolute instant; normalized bounds join the logical definition identity.
@@ -703,8 +706,8 @@ continuation uses exact retained receipts and pandas. Mixed fixed/live inputs
 reject before a Run or either input is read.
 
 The canonical entry for a migrated first-round shape is the domain/relation
-chain. Existing Session population/observation and Dataset family methods
-retain their signatures but reject execution until their Store 7 qualification. The public cutover must keep live Help, API docstrings, export
+chain. R10.1 retires Session.population/observe and the Population/Metric Dataset
+families without forwarding aliases. Current capabilities use the domain/relation graph. The public cutover must keep live Help, API docstrings, export
 snapshots, user examples and the packaged analysis workflow synchronized.
 Previous private J1 Artifacts have no public continuation snapshot and are
 not upgraded. A newly public Artifact must retain its admitted node shape,
@@ -738,9 +741,9 @@ primary/part receipts. Missing, malformed or mismatched snapshots reject.
 
 | Existing public entry | P1 decision |
 | --- | --- |
-| `session.population(...)` and its Dataset family methods | Retained for Population, Event and other shapes outside the admitted Entity-domain chain; it is not a J1–J4 synonym. |
-| `session.observe(...)` and its Dataset family methods | Retained for existing Metric, time-series and non-J1–J4 analysis; new member-domain J1–J4 guidance starts at `session.members(...)`. |
-| `session.artifact(reference)` | Extended to recover a concrete public J1–J4 Materialized variant when its validated snapshot exists; other family Artifacts retain their prior return shape. |
+| Retired `Session.population` | Removed in R10.1; current membership is `session.members(entity)`. |
+| Retired `Session.observe` | Removed in R10.1; observe one governed quantity on an explicit member domain. |
+| `session.artifact(reference)` | Recover only current concrete graph variants from their validated Store 7 snapshot. |
 | Private `DatasetRuntime.execute_j1(...)` and old private J1 Artifacts | No public entry or migration; private Artifacts without a public snapshot reject through the public recovery call. |
 
 ### S4 P2 public disclosure
@@ -1105,16 +1108,16 @@ unsupported on remote backends.
 import marivo.analysis as mv
 import marivo.semantic as ms
 
-orders_by_hour = (
-    session.observe(
-        ms.ref.metric("sales.revenue"),
-        time_scope=mv.time_scope(start="2026-07-01", end="2026-07-03"),
-    )
-    .with_time_axis(ms.ref.time_dimension("sales.orders.order_time"), grain=mv.grain("hour"))
-    .aggregate()
-    .execute()
-)
-orders_by_hour.rollup(grain=mv.grain("day")).execute().show()
+window = mv.time_scope(start="2026-07-01", end="2026-07-03")
+orders = session.members(ms.ref.entity("sales.orders"))
+hours = mv.time_grid(during=window, grain=mv.grain("hour"))
+orders_by_hour = (orders.each(hours)
+    .observe(ms.ref.metric("sales.revenue"), during=hours.window)
+    .group_by(hours).rollup().execute())
+# A new daily observation uses the same business window.
+days = mv.time_grid(during=window, grain=mv.grain("day"))
+orders.each(days).observe(ms.ref.metric("sales.revenue"), during=days.window).group_by(days).rollup().execute().show()
+
 ```
 
 Actual adapter submissions own SQL diagnostics, with source/local domain, role
@@ -1251,20 +1254,22 @@ import marivo.semantic as ms
 
 session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
 revenue = ms.ref.metric("sales.revenue")
-current = session.observe(
-    revenue, time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01")
-).aggregate()
-baseline = session.observe(
-    revenue, time_scope=mv.time_scope(start="2026-06-01", end="2026-07-01")
-).aggregate()
+members = session.members(ms.ref.entity("sales.orders"))
+current = members.observe(
+    revenue, during=mv.time_scope(start="2026-07-01", end="2026-08-01")
+).rollup()
+baseline = members.observe(
+    revenue, during=mv.time_scope(start="2026-06-01", end="2026-07-01")
+).rollup()
 change = current.compare(baseline).execute()
 change.show()
 ```
 
 This example requires an authored, typed `sales.revenue` Metric with an admitted
 reference time axis. The scopes are literal half-open intervals. An observation
-normally retains Entity identity; `aggregate()` explicitly removes that axis.
-A time series additionally declares `.with_time_axis(axis, grain=mv.grain("day"))`.
+normally retains Entity identity; `rollup()` removes that axis while preserving
+original components. A time series uses `members.each(grid).observe(...)` and
+`group_by(grid).rollup()` to retain its complete grid.
 
 Construction may load the in-memory semantic catalog and certified project
 snapshots. It does not resolve credentials, open source connections, query rows,

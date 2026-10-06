@@ -166,7 +166,10 @@ analysis reads the metric and observes it:
 ```python
 revenue_entry = catalog.metrics.get("sales.revenue")
 revenue_entry.details().show()
-dataset = session.observe(revenue_entry, time_scope=mv.time_scope(start='2026-01-01', end='2026-04-01')).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('month')).aggregate()
+grid = mv.time_grid(during=mv.time_scope(start='2026-01-01', end='2026-04-01'), grain=mv.grain('month'))
+dataset = (session.members(ms.ref.entity("sales.orders")).each(grid)
+    .observe(revenue_entry.ref, during=grid.window)
+    .group_by(grid).rollup())
 ```
 If the metric was just authored or changed, finish the scoped authoring closeout
 described below before this routine analysis sequence.
@@ -349,14 +352,11 @@ support median or percentile metrics, or string `strptime` expressions in the cu
 backend; Marivo reports these as structured unsupported-operation errors. Use a
 supported aggregation and a native temporal column instead.
 
-Datasource authoring support is separate from Dataset execution. During the
-current R1 transition, only the basic one-table, unscoped Population and
-sum/count Metric source route is admitted by `SourceSession`, subject to its
-backend and physical-shape checks. Earlier Group A, relational and date-method
-qualifications do not carry into the new route; the analysis contract reports
-the R6–R9 migration needed for other source methods.
+Datasource authoring and typed analysis execution have separate contracts.
+The current graph, method registry and Runtime validate the exact backend,
+physical input and method combination. Unsupported combinations reject explicitly;
+a declaration does not grant execution qualification.
 See the [analysis boundaries](/docs/latest/concepts/analysis-workflow/#backend-implementation-boundaries).
-Declaring a datasource does not enable other Dataset methods or backends.
 
 :::caution[Credentials are references, never literals]
 Sensitive fields are authored as `*_env` references that name an environment
@@ -533,7 +533,7 @@ region = ms.dimension_column(
 #### Time dimension
 
 A time dimension is a special dimension that carries grain and parsing metadata.
-**Only time dimensions can serve as the time axis for `session.observe`.**
+**Only time dimensions can serve as the time axis for `members.each(grid).observe`.**
 Use `marivo.help("semantic.objects.time_dimension")` to settle the business-time
 role, granularity, physical encoding, default-axis choice, and sampled cadence.
 Use `marivo.help("semantic.builders.temporal_parsing")` to choose the nested
@@ -568,11 +568,9 @@ and timezone-aware timestamps do not receive a speculative timezone repair.
 `sample_interval` like `(5, "minute")` marks a
 periodically-sampled axis used by semi-additive folds.
 
-For a Metric Dataset with a time axis, the time field named by its row
-contract contains a report-timezone bucket label emitted as a timezone-naive
-timestamp or date. For example, with
-`report_timezone="Asia/Shanghai"`, the first hourly bucket for a Shanghai
-business day is shown as `2026-06-20 00:00:00`, not the equivalent UTC instant.
+A bound TimeGrid retains complete UTC cell boundaries and its report timezone.
+Read time coordinates through the typed relation; its contract and bounded
+`show()` output own the current fields and presentation.
 
 ```python
 # Day partition stored as the string "20260131"
@@ -751,8 +749,8 @@ aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 `ms.zero_denominator.error()` for consumers that admit the policy.
 At execution, a present but zero denominator for `ms.ratio`, or paired weight
 sum for `ms.weighted_mean`, yields a null value. Read committed values through
-the Materialized Metric Dataset; its row contract and Findings own available
-state and evidence.
+the materialized typed relation, including its Cell states; its contract and
+Evidence own available continuations and execution evidence.
 
 #### Cumulative metrics — `ms.cumulative`
 
@@ -815,7 +813,10 @@ fiscal_mtd = ms.cumulative(
 )
 
 fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
-dataset = session.observe(fiscal_mtd, time_scope=mv.time_scope(start='2026-01-01', end='2026-03-01')).with_time_axis(event_time, grain=fiscal_week).aggregate()
+grid = mv.time_grid(during=mv.time_scope(start='2026-01-01', end='2026-03-01'), grain=fiscal_week)
+dataset = (session.members(ms.ref.entity("sales.events")).each(grid)
+    .observe(fiscal_mtd, at=grid.end)
+    .group_by(grid).rollup())
 ```
 The calendar snapshot owns fiscal membership and its boundary timezone; changing the
 session report timezone changes presentation only.
@@ -864,13 +865,17 @@ import marivo.semantic as ms
 session = mv.session.get_or_create(
     name="revenue-investigation",
     question="Why did Q4 revenue drop?",
+    report_timezone="UTC",
 )
 catalog = session.catalog
 revenue_entry = catalog.metrics.get("sales.revenue")
 region_entry = catalog.dimensions.get("sales.orders.region")
 
 revenue_entry.details().show()
-current = session.observe(revenue_entry).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('month')).with_dimensions(*[region_entry]).aggregate()
+grid = mv.time_grid(during=mv.time_scope(start='2026-10-01', end='2027-01-01'), grain=mv.grain('month'))
+current = (session.members(ms.ref.entity("sales.orders")).each(grid)
+    .observe(revenue_entry.ref, during=grid.window, coordinates=(region_entry.ref,))
+    .group_by(grid, region_entry.ref).rollup())
 ~~~
 `details().show()` exposes the human-authored definition, guardrails, composition,
 effective entities, candidate dimensions/time dimensions, and measure lineage.
@@ -881,7 +886,7 @@ and folds, and weighted-mean inputs stay visible in that one output. An Ibis
 function-body metric is shown as an `expression_body` leaf when no named base
 measure exists. The tree is display-only; it does not add an `expression_tree`
 attribute to the details object.
-Candidate axes come from the metric's effective entities; `session.observe(...)`
+Candidate axes come from the metric's effective entities; `members.observe(...)`
 still validates cross-entity relationships and fanout. `.show()` prints the same
 bounded card that `.render()` returns. Use current live help, structured errors,
 and typed repairs for mechanical continuation. If the object is missing or disputed,
@@ -909,7 +914,10 @@ entry = collection.get("metric:sales.revenue")  # full path or displayed typed k
 entry.show()
 entry.details().show()
 marivo.help(entry)                             # current details and analysis handoff
-current = session.observe(entry).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('month')).aggregate()
+grid = mv.time_grid(during=mv.time_scope(start='2026-10-01', end='2027-01-01'), grain=mv.grain('month'))
+current = (session.members(ms.ref.entity("sales.orders")).each(grid)
+    .observe(entry.ref, during=grid.window)
+    .group_by(grid).rollup())
 ```
 Use `marivo.help("semantic.CatalogCollection")` for lookup grammar,
 `marivo.help("semantic.CatalogEntry")` for detail and continuation behavior,
@@ -1112,24 +1120,24 @@ teaching error.
 
 An authoring ref can be passed directly to analysis. When starting from a
 literal identity, require catalog membership once and then pass the current
-entry directly:
+entry.ref:
 
 ```python
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-dataset = session.observe(
+dataset = session.members(ms.ref.entity("sales.orders")).observe(
     revenue,
-    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+    during=mv.time_scope(start="2026-01-01", end="2026-04-01"),
 )
 
 revenue_entry = catalog.require(ms.ref.metric("sales.revenue"))
-dataset = session.observe(
-    revenue_entry,
-    time_scope=mv.time_scope(start="2026-01-01", end="2026-04-01"),
+dataset = session.members(ms.ref.entity("sales.orders")).observe(
+    revenue_entry.ref,
+    during=mv.time_scope(start="2026-01-01", end="2026-04-01"),
 )
 ```
 `catalog.require(ref)` is the exact global lookup. Catalog collections provide
 browsing plus local-name, full-path, and displayed typed-key lookup. Frozen
-analysis consumers accept a current catalog entry or its exact ref; authoring
+analysis consumers accept the exact ref from a current catalog entry; authoring
 and persisted/configuration boundaries remain ref-based. Persisted payloads encode refs as the versioned
 `{schema, kind, path}` record; raw identity strings are not a public interchange
 format.
@@ -1430,7 +1438,9 @@ with session.source_bindings({
         "end": "now",
     },
 }):
-    dataset = session.observe(ms.ref.metric("monitoring.pending_containers"))
+    dataset = session.members(ms.ref.entity("monitoring.api_events")).observe(
+        ms.ref.metric("monitoring.pending_containers")
+    )
 ```
 The binding is nested, execution-local, and keyed by the owning Session runtime;
 another Session in the same task cannot consume it. Missing or extra parameters

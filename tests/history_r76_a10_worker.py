@@ -144,9 +144,7 @@ def offline(root, phase):
         stack.enter_context(
             patch("marivo.analysis.materialization.history_execution.execute", forbidden)
         )
-        session = Session._from_runtime(
-            DatasetRuntime(SessionStore._graph_store(root), manifest["session"])
-        )
+        session = Session._from_runtime(DatasetRuntime(SessionStore(root), manifest["session"]))
         expected_views = views(manifest["rows"], "c", "c")
         for name, reference in manifest["views"].items():
             assert_view(session.artifact(reference), name, expected_views)

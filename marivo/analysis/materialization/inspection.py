@@ -1,270 +1,141 @@
-"""Explicit read-only Artifact inspection with independent integrity axes."""
+"""Read-only Store 7 Artifact inspection with explicit integrity axes."""
 
 from __future__ import annotations
 
-import hashlib
 import sqlite3
-from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
-from typing import TYPE_CHECKING
 
 from marivo._compat import UTC
-from marivo.analysis.materialization import contracts as codec
-from marivo.analysis.materialization import storage
-from marivo.analysis.materialization.contracts import (
-    ArtifactDescriptor,
-    ArtifactRecord,
-    RetainedPart,
+from marivo.analysis.evidence._dataset_types import (
+    ArtifactRevalidation,
+    ArtifactRevalidationIssue,
+    IntegrityStatus,
+    StorageStatus,
 )
-from marivo.analysis.materialization.errors import (
-    IntegrityError,
-    MaterializationError,
-    StorageAccessError,
+from marivo.analysis.materialization import graph_store
+from marivo.analysis.materialization.contracts import invalid
+from marivo.analysis.materialization.errors import MaterializationError, StorageAccessError
+from marivo.analysis.materialization.graph_findings import collection
+from marivo.analysis.materialization.graph_protocol import (
+    DESCRIPTOR,
+    Descriptor,
+    PartReceipt,
+    PrimaryReceipt,
+    decode,
+    validate_descriptor,
 )
+from marivo.analysis.materialization.graph_storage import read_result, read_table
 from marivo.analysis.materialization.ownership import validate_receipt_owner
-from marivo.analysis.materialization.reads import payload_batches
-from marivo.analysis.materialization.retained import (
-    checked_component_batches,
-    reject_source_private_transfer,
-    source_private_part,
-)
-from marivo.analysis.materialization.storage import ReadPolicy
+from marivo.analysis.materialization.store import SessionStore, _one, _text
 from marivo.analysis.refs import ArtifactRef
 
-if TYPE_CHECKING:
-    from marivo.analysis.evidence._dataset_types import (
-        ArtifactRevalidation,
-        IntegrityStatus,
-        StorageStatus,
-    )
-    from marivo.analysis.materialization.store import SessionStore
 
-_POLICY = ReadPolicy()
-_STORAGE_FAILURE_PRIORITY: tuple[StorageStatus, ...] = (
-    "mutated",
-    "missing",
-    "unauthorized",
-    "unknown",
-)
-
-
-@dataclass(frozen=True, slots=True)
-class _StorageCheck:
-    role: str
-    status: StorageStatus
-
-
-def _payload_check(
-    root: Path,
-    descriptor: ArtifactDescriptor,
-    part: RetainedPart | None,
-    policy: ReadPolicy,
-) -> None:
-    receipt = descriptor.storage_receipt if part is None else part.storage_receipt
-    if part is not None and source_private_part(part):
-        reject_source_private_transfer()
-    row, rows = descriptor.row_contract, descriptor.row_set_contract
-    validator = (
-        storage._RowValidator(row, rows, source_key_validation=True) if part is None else None
-    )
-    stream = payload_batches(
-        root,
-        receipt,
-        policy=policy,
-        row=row if part is None else None,
-        rows=rows if part is None else None,
-        audit=True,
-    )
-    seen = False
-    try:
-        for batch in stream:
-            seen = True
-            if validator is not None:
-                realized = storage._realized_schema(row, batch.schema)
-                if codec.schema_fingerprint(realized) != receipt.schema_fingerprint:
-                    raise StorageAccessError("mutated")
-                validator.accept(batch)
-            else:
-                if part is not None and part.contract_id in (
-                    "event_funnel.additive_components",
-                    "metric.sufficient_components",
-                    "delta.sufficient_components",
-                ):
-                    if (
-                        hashlib.sha256(batch.schema.serialize().to_pybytes()).hexdigest()
-                        != receipt.schema_fingerprint
-                    ):
-                        raise StorageAccessError("mutated")
-                    for _ in checked_component_batches((batch,), row, part.role):
-                        pass
-                else:
-                    raise StorageAccessError("unknown")
-        if not seen:
-            raise StorageAccessError("mutated")
-        if validator is not None:
-            validator.finish()
-    finally:
-        stream.close()
-
-
-def _storage_checks(
-    project_root: Path,
-    descriptor: ArtifactDescriptor,
-    *,
-    policy: ReadPolicy = _POLICY,
-) -> tuple[_StorageCheck, ...]:
-    checks: list[_StorageCheck] = []
-    for part in (None, *descriptor.retained_parts):
-        role = "primary" if part is None else part.role
-        status: StorageStatus = "readable"
-        try:
-            _payload_check(project_root, descriptor, part, policy)
-        except StorageAccessError as error:
-            status = error.storage_status
-        except MaterializationError:
-            status = "mutated"
-        except Exception:
-            status = "unknown"
-        checks.append(_StorageCheck(role, status))
-    return tuple(checks)
-
-
-def revalidate(
-    store: SessionStore,
-    reference: str | ArtifactRef,
-    *,
-    policy: ReadPolicy = _POLICY,
-) -> ArtifactRevalidation:
-    """Inspect one immutable authority without loading its origin or repairing state."""
-    from marivo.analysis.evidence._dataset_reads import audit_findings
-    from marivo.analysis.evidence._dataset_types import (
-        ArtifactRevalidation,
-        ArtifactRevalidationIssue,
-    )
-    from marivo.analysis.materialization.store import _one, _text
-    from marivo.analysis.session._lazy_runtime_reads import missing_artifact
-
+def revalidate(store: SessionStore, reference: str | ArtifactRef) -> ArtifactRevalidation:
+    """Check retained metadata, values and Evidence without source access or repair."""
     ref = reference if isinstance(reference, ArtifactRef) else ArtifactRef(ref=reference)
-    checked_at = datetime.now(UTC)
-
     artifact: IntegrityStatus = "unverifiable"
     evidence: IntegrityStatus = "unverifiable"
+    storage: StorageStatus = "unknown"
+    descriptor: Descriptor | None = None
     issues: list[ArtifactRevalidationIssue] = []
-    descriptor: ArtifactDescriptor | None = None
-    storage_descriptor: ArtifactDescriptor | None = None
-    try:
-        with store._read() as conn:
-            raw = _one(conn, "SELECT * FROM dataset_artifacts WHERE artifact_ref=?", (ref.ref,))
-            if raw is None:
-                raise missing_artifact(ref.ref)
-            try:
-                descriptor = codec.decode_descriptor(_text(raw, "descriptor_payload"))
-                # Owner admission is independent of producer/Evidence validity and
-                # must precede any external access even when another check fails.
-                prefix = (
-                    store.layout.artifact_dir(_text(raw, "session_ref"), ref.ref)
-                    .relative_to(store.project_root)
-                    .as_posix()
-                )
-                for receipt in (
-                    descriptor.storage_receipt,
-                    *(part.storage_receipt for part in descriptor.retained_parts),
-                ):
-                    validate_receipt_owner(receipt, prefix)
-                storage_descriptor = descriptor
-                metadata = store._artifact_metadata(conn, ref.ref)
-                if metadata is None:
-                    raise codec.invalid("selected Artifact disappeared within its snapshot")
-                artifact = "valid"
-            except (IntegrityError, ValueError):
-                artifact = "invalid"
-                issues.append(
-                    ArtifactRevalidationIssue(
-                        axis="artifact_integrity",
-                        kind="metadata_invalid",
-                        safe_message="Selected Artifact metadata or its producer contract is inconsistent.",
-                    )
-                )
-            if descriptor is not None:
-                # Evidence remains independently checkable when a producer edge is corrupt.
-                try:
-                    metadata = codec.ArtifactMetadata(
-                        ref.ref,
-                        _text(raw, "session_ref"),
-                        _text(raw, "execution_key_digest"),
-                        descriptor,
-                        _text(raw, "committed_at"),
-                        "unavailable",
-                    )
-                    envelope = store._artifact_evidence(conn, metadata)
-                    record = ArtifactRecord(
-                        metadata.artifact_ref,
-                        metadata.session_ref,
-                        metadata.execution_key_digest,
-                        descriptor,
-                        metadata.committed_at,
-                        metadata.producing_run_ref,
-                        envelope,
-                    )
-                    audit_findings(conn, record)
-                    evidence = "valid"
-                except MaterializationError:
-                    evidence = "invalid"
-                    issues.append(
-                        ArtifactRevalidationIssue(
-                            axis="evidence_integrity",
-                            kind="evidence_invalid",
-                            safe_message="The selected Evidence envelope or complete Finding set is inconsistent.",
-                        )
-                    )
-    except sqlite3.Error:
-        if artifact == "unverifiable":
+    with store._read() as connection:
+        raw = _one(connection, "SELECT * FROM dataset_artifacts WHERE artifact_ref=?", (ref.ref,))
+        if raw is None:
+            from marivo.analysis.session._lazy_runtime_reads import missing_artifact
+
+            raise missing_artifact(ref.ref)
+        try:
+            selected = decode(_text(raw, "descriptor_payload"), DESCRIPTOR)
+            validate_descriptor(selected)
+            prefix = store.layout.artifact_dir(_text(raw, "session_ref"), ref.ref)
+            local_prefix = prefix.relative_to(store.project_root).as_posix()
+            selected_receipts: tuple[PrimaryReceipt | PartReceipt, ...] = (
+                selected.primary_receipt,
+                *selected.parts,
+            )
+            for receipt in selected_receipts:
+                validate_receipt_owner(receipt.local, local_prefix)
+            descriptor = selected
+            if graph_store.artifact_metadata(store, connection, ref.ref) is None:
+                raise invalid("selected Artifact disappeared")
+            artifact = "valid"
+        except (MaterializationError, ValueError):
+            artifact = "invalid"
             issues.append(
                 ArtifactRevalidationIssue(
                     axis="artifact_integrity",
-                    kind="metadata_unavailable",
-                    safe_message="The selected Store snapshot is unavailable; integrity could not be established.",
+                    kind="metadata_invalid",
+                    safe_message="The selected graph Artifact or producer metadata is inconsistent.",
                 )
             )
-    checks: tuple[_StorageCheck, ...] = ()
-    if storage_descriptor is not None:
-        checks = _storage_checks(store.project_root, storage_descriptor, policy=policy)
-    storage_status: StorageStatus = "unknown" if not checks else "readable"
-    for status in _STORAGE_FAILURE_PRIORITY:
-        if any(check.status == status for check in checks):
-            storage_status = status
-            break
-    for check in checks:
-        if check.status != "readable":
-            issues.append(
-                ArtifactRevalidationIssue(
-                    axis="storage_authority",
-                    kind=f"storage_{check.status}",
-                    safe_message=f"Payload {check.role} is {check.status}.",
-                )
+        if descriptor is not None:
+            checks: list[StorageStatus] = []
+            receipts: tuple[PrimaryReceipt | PartReceipt, ...] = (
+                descriptor.primary_receipt,
+                *descriptor.parts,
             )
-    if storage_descriptor is None:
+            for receipt in receipts:
+                status: StorageStatus = "readable"
+                try:
+                    read_table(store.project_root, receipt.local)
+                except StorageAccessError as error:
+                    status = error.storage_status
+                except MaterializationError:
+                    status = "mutated"
+                except (OSError, ValueError):
+                    status = "unknown"
+                checks.append(status)
+                if status != "readable":
+                    role = "primary" if receipt.kind == "primary" else receipt.role
+                    issues.append(
+                        ArtifactRevalidationIssue(
+                            axis="storage_authority",
+                            kind="storage_" + status,
+                            safe_message=f"Payload {role} is {status}.",
+                        )
+                    )
+            storage = next(
+                (
+                    status
+                    for status in ("mutated", "missing", "unauthorized", "unknown")
+                    if status in checks
+                ),
+                "readable",
+            )
+            if storage == "readable":
+                try:
+                    read_result(store.project_root, descriptor)
+                except MaterializationError:
+                    storage = "mutated"
+            if storage == "readable":
+                try:
+                    collection(store, connection, descriptor, ref.ref)
+                    evidence = "valid"
+                except MaterializationError:
+                    evidence = "invalid"
+                except sqlite3.Error:
+                    evidence = "unverifiable"
+    if storage != "readable" and not any(issue.axis == "storage_authority" for issue in issues):
         issues.append(
             ArtifactRevalidationIssue(
                 axis="storage_authority",
-                kind="storage_unverifiable",
-                safe_message="Storage checks require a readable declared receipt contract.",
+                kind="storage_" + storage,
+                safe_message="The selected primary or required retained parts are " + storage + ".",
             )
         )
-    if evidence == "unverifiable":
+    if evidence != "valid":
         issues.append(
             ArtifactRevalidationIssue(
                 axis="evidence_integrity",
-                kind="evidence_unverifiable",
-                safe_message="Evidence checks require readable metadata and a complete selected Store snapshot.",
+                kind="evidence_" + evidence,
+                safe_message="Complete retained Evidence is " + evidence + ".",
             )
         )
     return ArtifactRevalidation(
         artifact_ref=ref,
-        checked_at=checked_at,
+        checked_at=datetime.now(UTC),
         artifact_integrity=artifact,
-        storage_authority=storage_status,
+        storage_authority=storage,
         evidence_integrity=evidence,
         issues=tuple(issues),
     )

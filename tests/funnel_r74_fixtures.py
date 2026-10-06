@@ -122,7 +122,7 @@ def build_funnel_public(tmp_path, *, form="table", history=None):
             },
         )
     registry.freeze()
-    store = SessionStore._graph_store(tmp_path / "graph")
+    store = SessionStore(tmp_path / "graph")
     store.project_root.mkdir(exist_ok=True)
     (store.project_root / "marivo.toml").write_text('[project]\nname="r74"\n')
     save_one(DuckDBSpec(name="warehouse", path=str(database)), store.project_root)

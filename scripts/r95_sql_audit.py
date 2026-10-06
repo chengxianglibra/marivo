@@ -84,22 +84,14 @@ def _manifest() -> Manifest:
             "SessionStore._write",
             "SessionStore.create_session",
             "SessionStore.activate",
-            "SessionStore.admit",
             "SessionStore.reserve",
             "SessionStore._delete_resources",
             "SessionStore.fail",
-            "SessionStore.publish",
         ),
         ("conn.execute",),
         store,
     )
     add("analysis/materialization/store", ("SessionStore._initialize",), ("read.execute",), store)
-    add(
-        "analysis/materialization/store",
-        ("SessionStore.admit", "SessionStore.publish"),
-        ("conn.executemany",),
-        store,
-    )
     add(
         "analysis/materialization/graph_store",
         ("admit", "publish"),
@@ -107,12 +99,6 @@ def _manifest() -> Manifest:
         store,
     )
     add("analysis/materialization/graph_findings", ("collection",), ("conn.execute",), store)
-    add(
-        "analysis/evidence/_dataset_reads",
-        ("findings", "finding", "audit_findings"),
-        ("conn.execute",),
-        store,
-    )
     add(
         "doctor",
         ("_state_section",),
@@ -152,12 +138,6 @@ def _manifest() -> Manifest:
     )
     add("datasource/adapters", ("SourceSession.collect_bounded",), ("self.compile",), compile_owner)
     add(
-        "analysis/materialization/basic_source",
-        ("_read_batches",),
-        ("session.compile",),
-        compile_owner,
-    )
-    add(
         "analysis/materialization/graph_source_execution",
         ("_issue",),
         ("source.compile",),
@@ -168,15 +148,6 @@ def _manifest() -> Manifest:
         ("aggregate_repair.supported",),
         ("ibis.to_sql",),
         compile_owner,
-    )
-    add(
-        "analysis/compiler/lowering",
-        ("compile_dataset",),
-        ("_Compiler().compile",),
-        Owner(
-            "ibis_expression_lowering",
-            "The private compiler returns typed Ibis expressions, not SQL text.",
-        ),
     )
 
     provider = Owner(

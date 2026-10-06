@@ -149,9 +149,7 @@ def offline(root, cold):
             guards.enter_context(
                 patch("marivo.analysis.materialization.retention_execution.execute", forbidden)
             )
-        session = Session._from_runtime(
-            DatasetRuntime(SessionStore._graph_store(root), data["session"])
-        )
+        session = Session._from_runtime(DatasetRuntime(SessionStore(root), data["session"]))
         for profile, ref in data["source"].items():
             value = session.artifact(ref)
             assert snapshot(value) == data["expected"][profile]
