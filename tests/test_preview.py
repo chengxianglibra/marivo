@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 
+import ibis
+import ibis.expr.types as ir
 import pandas as pd
 import pytest
 
@@ -14,8 +16,31 @@ from marivo.preview import (
     display_column_names,
     normalize_preview_cell,
     preview_from_pandas,
+    preview_ibis_table,
     validate_preview_limit,
 )
+
+
+def test_ibis_preview_uses_owned_reader_without_an_execution_backend() -> None:
+    table = ibis.table({"id": "int64"}, name="preview_input")
+    reads: list[int] = []
+
+    def read(expression: ir.Table, bound: int) -> pd.DataFrame:
+        assert tuple(expression.columns) == ("id",)
+        reads.append(bound)
+        return pd.DataFrame({"id": [1, 2, 3]})
+
+    result = preview_ibis_table(
+        table,
+        kind="semantic_dataset",
+        ref="orders",
+        limit=2,
+        sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=2),
+        read_table=read,
+    )
+    assert reads == [3]
+    assert result.rows == ({"id": 1}, {"id": 2})
+    assert result.is_truncated
 
 
 def test_validate_preview_limit_accepts_bounds() -> None:

@@ -108,9 +108,7 @@ def test_exact_binding_hit_skips_dispatch_credentials_and_source_open(
         "_build_backend_from_effective",
     ):
         monkeypatch.setattr(runtime_patch_owner(name), name, forbidden)
-    monkeypatch.setattr(
-        "marivo.analysis.materialization.duckdb_execution.open_native_backend", forbidden
-    )
+    monkeypatch.setattr("marivo.datasource.adapters.SourceSession.__init__", forbidden)
 
     recovered = logical.execute()
     assert recovered.state.artifact_ref == retained.state.artifact_ref

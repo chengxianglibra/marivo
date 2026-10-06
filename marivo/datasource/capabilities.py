@@ -219,7 +219,7 @@ def execute_provider_statement(
     from marivo.datasource.errors import _backend_failure_summary
 
     statement = provider_statement(profile.name, statement_id)
-    if statement.allowed_purposes and purpose not in statement.allowed_purposes:
+    if purpose not in statement.allowed_purposes:
         raise DatasourceSourceCapabilityError(
             message="The provider statement cannot execute for this purpose.",
             expected=str(sorted(statement.allowed_purposes)),

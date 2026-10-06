@@ -2,14 +2,11 @@
 
 from dataclasses import replace
 
-import pyarrow as pa
 import pytest
 
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.datasets.errors import DatasetConstructionError, DatasetRegistrationError
 from marivo.analysis.datasets.registry import DatasetFamilyRegistry
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.scalar_sql_execution import _cell
 from tests.lazy_dataset_fixtures import (
     TEST_IDS,
     make_logical_dataset,
@@ -65,15 +62,6 @@ def test_boolean_tuple_arity_refines_only_to_the_same_registered_physical_type()
     for invalid in ("bool_tuple:0", "bool_tuple:-1", "bool_tuple:02", "bool_tuple:two"):
         with pytest.raises(DatasetConstructionError):
             d._deferred_type(invalid, ids=ids)
-
-
-def test_source_boolean_array_accepts_only_exact_driver_bits() -> None:
-    dtype = pa.list_(pa.bool_())
-    assert _cell([1, 0, True], dtype) == [True, False, True]
-    with pytest.raises(MaterializationError, match="invalid Boolean representation"):
-        _cell([2], dtype)
-    with pytest.raises(MaterializationError, match="invalid array representation"):
-        _cell("10", dtype)
 
 
 def test_internal_operands_admit_only_the_shape_registered_for_their_role() -> None:

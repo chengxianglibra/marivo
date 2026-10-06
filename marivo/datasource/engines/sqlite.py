@@ -39,6 +39,7 @@ register_provider_statements(
             ),
             literal_slots=frozenset({"table"}),
             identifier_slots=frozenset({"schema"}),
+            allowed_purposes=frozenset({"datasource.metadata.sqlite"}),
         ),
         "pragma.table_info": ProviderStatement(
             statement_id="sqlite.pragma.table_info",
@@ -49,6 +50,7 @@ register_provider_statements(
             ),
             literal_slots=frozenset({"table"}),
             identifier_slots=frozenset({"schema"}),
+            allowed_purposes=frozenset({"datasource.metadata.sqlite"}),
         ),
         "pragma.index_list": ProviderStatement(
             statement_id="sqlite.pragma.index_list",
@@ -59,12 +61,14 @@ register_provider_statements(
             ),
             literal_slots=frozenset({"table"}),
             identifier_slots=frozenset({"schema"}),
+            allowed_purposes=frozenset({"datasource.metadata.sqlite"}),
         ),
         "pragma.index_info": ProviderStatement(
             statement_id="sqlite.pragma.index_info",
             template=("SELECT name FROM {schema}.pragma_index_info({index}) ORDER BY seqno"),
             literal_slots=frozenset({"index"}),
             identifier_slots=frozenset({"schema"}),
+            allowed_purposes=frozenset({"datasource.metadata.sqlite"}),
         ),
     },
 )

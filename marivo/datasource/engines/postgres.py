@@ -60,6 +60,7 @@ register_provider_statements(
                 "SELECT obj_description(pg_catalog.to_regclass({qualified}), 'pg_class') AS comment"
             ),
             literal_slots=frozenset({"qualified"}),
+            allowed_purposes=frozenset({"datasource.metadata.postgres"}),
         ),
         "columns": ProviderStatement(
             statement_id="postgres.columns",
@@ -71,6 +72,7 @@ register_provider_statements(
                 "ORDER BY ordinal_position"
             ),
             literal_slots=frozenset({"schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.postgres"}),
         ),
         "comment.columns": ProviderStatement(
             statement_id="postgres.comment.columns",
@@ -83,6 +85,7 @@ register_provider_statements(
                 "ORDER BY a.attnum"
             ),
             literal_slots=frozenset({"qualified"}),
+            allowed_purposes=frozenset({"datasource.metadata.postgres"}),
         ),
         "constraints": ProviderStatement(
             statement_id="postgres.constraints",
@@ -97,6 +100,7 @@ register_provider_statements(
                 "ORDER BY c.oid, array_position(c.conkey, a.attnum)"
             ),
             literal_slots=frozenset({"qualified"}),
+            allowed_purposes=frozenset({"datasource.metadata.postgres"}),
         ),
         "tables.kind": ProviderStatement(
             statement_id="postgres.tables.kind",
@@ -109,6 +113,7 @@ register_provider_statements(
                 "LIMIT 1"
             ),
             literal_slots=frozenset({"schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.postgres"}),
         ),
         "partition.key": ProviderStatement(
             statement_id="postgres.partition.key",
@@ -121,6 +126,7 @@ register_provider_statements(
                 "LIMIT 1"
             ),
             literal_slots=frozenset({"schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.postgres"}),
         ),
         "profile.physical": ProviderStatement(
             statement_id="postgres.profile.physical",
@@ -133,6 +139,7 @@ register_provider_statements(
                 "LIMIT 1"
             ),
             literal_slots=frozenset({"schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.postgres"}),
         ),
     },
 )

@@ -2,45 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Iterator
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import date, datetime
-from decimal import Decimal
 from typing import Protocol
 
-import ibis
-import ibis.expr.types as ir
 import pyarrow as pa
 
-from marivo.analysis.compiler.source_dependencies import EntitySourceDependency
-from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
 from marivo.analysis.materialization.contracts import ExchangeBinding
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.submissions import ExecutionDomain, Submission
-from marivo.datasource.timezone import DatasourceEngineTimezone
-
-Parameter = str | int | float | bool | bytes | Decimal | date | datetime | None
-
-
-@dataclass(frozen=True, slots=True, eq=False)
-class ExecutionContext:
-    """Identity token for one owned execution lifetime."""
-
-
-@dataclass(frozen=True, slots=True)
-class Statement:
-    sql: str
-    parameters: tuple[Parameter, ...]
-    schema: pa.Schema
-    role: str
-    context: ExecutionContext
-    preparations: tuple[ir.Expr, ...] = ()
-
-
-class ScalarRows(Protocol):
-    def fetchone(self) -> tuple[object, ...] | None: ...
 
 
 class BatchStream(Protocol):
@@ -197,111 +168,3 @@ class ValidatedExchangeStream:
                 failed = True
         if failed or self._close_failed:
             raise _exchange_error("producer close failed")
-
-
-class ExecutionAdapter(Protocol):
-    engine: str
-
-    def observe(self, observer: Callable[[Submission], None], domain: ExecutionDomain) -> None: ...
-    def prepare(self, expression: ir.Expr, *, role: str = "query") -> Statement: ...
-    def compile(self, expression: ir.Expr) -> str: ...
-    def submit(self, statement: Statement) -> ScalarRows: ...
-    def read_table(
-        self,
-        value: Statement | ir.Expr,
-        *,
-        params: Mapping[ir.Scalar, Parameter] | None = None,
-        role: str = "query",
-    ) -> pa.Table: ...
-    def read_scalar(
-        self,
-        value: Statement | ir.Expr,
-        *,
-        params: Mapping[ir.Scalar, Parameter] | None = None,
-        role: str = "query",
-    ) -> object: ...
-    def batches(
-        self,
-        value: Statement | ir.Expr,
-        *,
-        chunk_size: int,
-        params: Mapping[ir.Scalar, Parameter] | None = None,
-        role: str = "query",
-    ) -> BatchStream: ...
-    def timezone(self) -> DatasourceEngineTimezone: ...
-    def prepare_dataset(self, dataset: LogicalDataset) -> None: ...
-    def interrupt(self) -> None: ...
-    def initialize(self) -> None: ...
-    def disconnect(self) -> None: ...
-    def finish(self) -> None: ...
-    def get_schema(
-        self,
-        name: str,
-        *,
-        database: str | None,
-        catalog: str | None,
-        dependency: EntitySourceDependency | None = None,
-    ) -> ibis.Schema: ...
-    def table(self, name: str) -> ir.Table: ...
-    def read_parquet(self, path: str, *, table_name: str) -> ir.Table: ...
-    def read_csv(
-        self,
-        path: str,
-        *,
-        table_name: str,
-        header: bool,
-        delimiter: str,
-    ) -> ir.Table: ...
-    def freeze_reader(self, name: str, reader: pa.RecordBatchReader) -> ir.Table: ...
-    def table_statement(self, name: str, expression: ir.Table) -> Statement: ...
-    def read_json(
-        self,
-        path: str,
-        *,
-        table_name: str,
-        format: str,
-    ) -> ir.Table: ...
-
-
-class AdapterFactory(Protocol):
-    def __call__(
-        self, candidate: object, *, reserve: Callable[[str], None], run_ref: str
-    ) -> ExecutionAdapter: ...
-
-
-@dataclass(frozen=True, slots=True)
-class ExecutionBackend:
-    """Runtime factories implementing a backend declared in the method registry."""
-
-    bind: AdapterFactory
-    open_retained: Callable[[], object] | None
-    admit: Callable[[LogicalDataset], None]
-
-
-def resolve_execution(backend: str) -> ExecutionBackend | None:
-    """Resolve only the R4-owned local retained-input adapter."""
-    from marivo.analysis.operators.registry import backend_execution
-
-    registration = backend_execution(backend)
-    if registration is None or registration.backend != "duckdb":
-        return None
-    try:
-        from marivo.analysis.materialization.duckdb_execution import (
-            admit_dataset,
-            bind_duckdb,
-            open_native_backend,
-        )
-
-        return ExecutionBackend(bind_duckdb, open_native_backend, admit_dataset)
-    except (ImportError, OSError) as exc:
-        from marivo.analysis.materialization.errors import MaterializationError
-
-        raise MaterializationError(
-            expected=f"loadable {registration.backend} analysis execution dependencies",
-            received=f"{type(exc).__name__}: {exc}",
-            repair=(
-                f"Install the selected backend dependencies with marivo[{registration.backend}] "
-                "and any required native client libraries, then retry."
-            ),
-            stage="implementation_registration",
-        ) from exc

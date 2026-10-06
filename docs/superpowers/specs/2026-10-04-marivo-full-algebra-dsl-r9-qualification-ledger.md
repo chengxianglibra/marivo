@@ -261,3 +261,18 @@ Current original R9.3 requirement set: **194 passed / 19 blocked / 9 unverified*
 ## Authorized Duration Unknown semantics (2026-10-06)
 
 Current R9.3: **199 passed / 19 blocked / 4 unverified**. [Duration Unknown quotient](2026-10-04-marivo-r93-evidence/duration-ratio-unknown-01/README.md) supplies a real public scalar Unknown producer, two deviation consumers and three strict association refusals. Two native nodes and six integrity checks pass. Broad daily stages retain 6550 passed/5 skipped plus one targeted stale-freeze repair; API/site stages pass (321 pages). No business rerun for the metadata repair. Remaining four require a full time grid with actual Unknown dependency. No all-profile or R9.7 grant.
+
+## R9.5 scoped SQL implementation exit (2026-10-06)
+
+The [current SQL ledger](2026-10-06-marivo-r95-sql-ledger.md) retains all 55 frozen
+DS01–DS22 / AN01–AN33 IDs. Approved owned ClickHouse cancellation is appended as
+DS23 without rewriting the original 394-requirement denominator. The
+[scoped binding](2026-10-06-marivo-r95-evidence/README.md) verifies whole-product
+static ownership, physical legacy retirement, exact provider purposes and actual
+native SQL arguments from six public backend witnesses plus HTTP/control cases.
+Observed unknown submissions are zero. Original candidates, failures, timing and
+optional-field omissions remain preserved; existing R9.2–R9.4 business/resource
+evidence is reused only within its recorded authority. No method/profile matrix
+is replayed or relabeled. This is `scoped_implementation_closed`, with full R9 and
+all-profile final-candidate qualification explicitly false. R9.6 and R9.7 retain
+their own acceptance work.

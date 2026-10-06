@@ -1,8 +1,5 @@
 """Exact backend selection without enabling another production backend."""
 
-import subprocess
-import sys
-from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
@@ -14,7 +11,6 @@ from marivo.analysis.compiler.placement import (
 )
 from marivo.analysis.datasets.base import LogicalDataset
 from marivo.analysis.datasets.errors import DatasetRegistrationError
-from marivo.analysis.materialization.execution import ExecutionAdapter
 from marivo.analysis.operators import registry
 from marivo.analysis.operators.registry import (
     BackendName,
@@ -22,12 +18,6 @@ from marivo.analysis.operators.registry import (
     ImplementationRegistration,
 )
 from marivo.analysis.session._lazy_sources import LazySources, make_lazy_sources
-from marivo.datasource.backends import (
-    BuiltDatasourceBackend,
-    EffectiveDatasourceKwargs,
-    _build_backend_from_effective,
-)
-from marivo.datasource.ir import DatasourceIR
 from marivo.semantic.ir import AggKind
 from tests.lazy_execution_fixtures import make_execution_registry
 from tests.lazy_local_fixtures import REVENUE, setup_local
@@ -56,36 +46,6 @@ def _sources(backend: BackendName, *, aggregation: AggKind = "sum") -> LazySourc
         store_id="dispatch",
         action_port=NoIoActionPort(),
     )
-
-
-def test_selected_execution_import_isolated_from_other_backend_dependencies() -> None:
-    script = """
-import builtins
-import sys
-
-original = builtins.__import__
-def without_postgres(name, *args, **kwargs):
-    if name == "psycopg" or name.startswith("psycopg."):
-        raise ImportError("simulated missing psycopg")
-    return original(name, *args, **kwargs)
-builtins.__import__ = without_postgres
-
-from marivo.analysis.materialization.execution import resolve_execution
-from marivo.analysis.materialization.errors import MaterializationError
-assert resolve_execution("unknown") is None
-assert resolve_execution("trino") is None
-assert "marivo.analysis.materialization.postgres_execution" not in sys.modules
-assert resolve_execution("postgres") is None
-assert "marivo.analysis.materialization.postgres_execution" not in sys.modules
-"""
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=Path(__file__).resolve().parents[1],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
 
 
 def test_duplicate_backend_registration_is_rejected() -> None:
@@ -181,56 +141,6 @@ def test_retained_import_reads_the_execution_declaration(monkeypatch: pytest.Mon
     assert not registry.supports_retained_import("duckdb")
     monkeypatch.setattr(registry, "backend_execution", lambda _: execution)
     assert registry.supports_retained_import("postgres")
-
-
-@pytest.mark.runtime
-def test_selected_execution_owner_admits_before_connect_and_binds(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-
-    runtime, sources, _ = setup_local(tmp_path)
-    logical = sources.observe(REVENUE).aggregate()
-    from marivo.analysis.materialization import execution as execution_module
-
-    original = execution_module.resolve_execution
-    execution = original("duckdb")
-    assert execution is not None
-    calls: list[str] = []
-
-    def admit(value: LogicalDataset) -> None:
-        assert value is logical and runtime.last_run_ref is None
-        calls.append("admit")
-        execution.admit(value)
-
-    def bind(
-        candidate: object, *, reserve: Callable[[str], None], run_ref: str
-    ) -> ExecutionAdapter:
-        assert calls == ["admit", "connect"]
-        calls.append("bind")
-        return execution.bind(candidate, reserve=reserve, run_ref=run_ref)
-
-    selected = replace(execution, admit=admit, bind=bind)
-    monkeypatch.setattr(
-        execution_module,
-        "resolve_execution",
-        lambda name: selected if name == "duckdb" else original(name),
-    )
-    connect = _build_backend_from_effective
-
-    def opened(
-        datasource: DatasourceIR, kwargs: EffectiveDatasourceKwargs, *, read_only: bool
-    ) -> BuiltDatasourceBackend:
-        assert calls == ["admit"]
-        calls.append("connect")
-        return connect(datasource, kwargs, read_only=read_only)
-
-    monkeypatch.setattr(
-        runtime_patch_owner("_build_backend_from_effective"),
-        "_build_backend_from_effective",
-        opened,
-    )
-    assert logical.execute().to_pandas().revenue.tolist() == [147.0]
-    assert calls == ["admit", "connect", "bind"]
 
 
 @pytest.mark.runtime

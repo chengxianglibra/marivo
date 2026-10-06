@@ -1,59 +1,9 @@
 """Independent boundary checks for C2 scalar representations."""
 
-from datetime import datetime
-from decimal import Decimal
-
-import pyarrow as pa
 import pytest
 
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.scalar_sql_execution import _cell
 from marivo.datasource.engines.sqlite import declared_scalar_type
 from marivo.datasource.inspection import _canonical_catalog_type
-
-
-@pytest.mark.parametrize("value", [0, 2**53 + 1, 2**63, 2**64 - 1])
-def test_unsigned_transport_never_uses_float(value: int) -> None:
-    for source in (value, Decimal(value)):
-        assert _cell(source, pa.uint64()) == value
-        assert type(_cell(source, pa.uint64())) is int
-
-
-@pytest.mark.parametrize("value", [-1, 2**64, 1.0, True, Decimal("0.5")])
-def test_unsigned_invalid_cells_fail_before_arrow(value: object) -> None:
-    with pytest.raises(MaterializationError):
-        _cell(value, pa.uint64())
-
-
-@pytest.mark.parametrize("value", [2, -1, "true", "1", 1.0])
-def test_boolean_invalid_storage_is_not_truthiness(value: object) -> None:
-    with pytest.raises(MaterializationError):
-        _cell(value, pa.bool_())
-
-
-def test_boolean_and_timestamp_exact_cells() -> None:
-    assert _cell(1, pa.bool_()) is True
-    assert _cell(0, pa.bool_()) is False
-    assert _cell(None, pa.bool_()) is None
-    assert _cell("0001-01-01 00:00:00.000001", pa.timestamp("us")) == datetime(
-        1, 1, 1, microsecond=1
-    )
-    with pytest.raises(MaterializationError, match="precision"):
-        _cell(datetime(2024, 2, 29, microsecond=1), pa.timestamp("ms"))
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        "2024-02-29 00:00:00",
-        "2024-02-30 00:00:00.000000",
-        "2024-01-01T00:00:00.000000",
-        "2024-01-01 00:00:00.000000Z",
-    ],
-)
-def test_timestamp_text_rejects_noncanonical_values(value: str) -> None:
-    with pytest.raises(MaterializationError):
-        _cell(value, pa.timestamp("us"))
 
 
 @pytest.mark.parametrize(

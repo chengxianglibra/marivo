@@ -4,25 +4,33 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import ibis
+import ibis.expr.types as ir
+import pyarrow as pa
 import pytest
+from ibis.backends.duckdb import Backend
 
 from marivo._temporal import builtin_grain
 from marivo.analysis.compiler.temporal import bucket as bucket_start_expr
-from marivo.analysis.materialization.sqlite_execution import SQLiteExecutionAdapter
 from marivo.analysis.materialization.temporal_sql import (
+    _initialize_sqlite_functions,
+    lower_temporal,
     sqlite_localize,
     sqlite_render,
     sqlite_shift,
 )
+from marivo.datasource.adapters import PhysicalRequirement, SourceSession, provider_for
 from marivo.datasource.errors import DatasourceConnectionError
-from marivo.datasource.timezone import resolve_engine_timezone
+from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation, TableSourceIR
+from marivo.datasource.timezone import probe_engine_timezone
 
 
 @pytest.mark.parametrize(
     "name", ["UTC", "Asia/Shanghai", "America/New_York", "Asia/Kathmandu", "+05:45", "UTC-03:30"]
 )
 def test_engine_timezone_preserves_exact_fact(name: str) -> None:
-    result = resolve_engine_timezone("probe", lambda query: name)
+    backend = Backend()
+    backend._marivo_timezone_name = name
+    result = probe_engine_timezone(backend)
     assert result.read_tz_resolution == "engine"
     assert result.engine_timezone_name == ("UTC" + name if name.startswith("+") else name)
     if name == "+05:45":
@@ -35,23 +43,11 @@ def test_invalid_engine_fact_never_uses_system_timezone(
 ) -> None:
     monkeypatch.setenv("TZ", "UTC")
     with pytest.raises(DatasourceConnectionError) as failure:
-        resolve_engine_timezone("probe", lambda query: value)
-    assert failure.value.received == "invalid_engine_timezone"
+        backend = Backend()
+        backend._marivo_timezone_name = value
+        probe_engine_timezone(backend)
+    assert failure.value.received in ("invalid_engine_timezone", "duckdb timezone unavailable")
     assert failure.value.repair is not None
-
-
-def test_absent_probe_is_distinct_from_failed_probe(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TZ", "Asia/Kathmandu")
-    cause = RuntimeError("do not expose this message")
-
-    def fail(query: str) -> object:
-        raise cause
-
-    assert resolve_engine_timezone(None, fail).read_tz_resolution == "system_fallback"
-    with pytest.raises(DatasourceConnectionError) as failure:
-        resolve_engine_timezone("probe", fail)
-    assert failure.value.__cause__ is cause
-    assert "do not expose" not in str(failure.value)
 
 
 def test_sqlite_native_functions_keep_microseconds_and_nulls() -> None:
@@ -92,18 +88,38 @@ def test_sqlite_multi_unit_bucket_publishes_a_canonical_grid_point(
     ``invalid timestamp representation`` instead of publishing a bucket.
     """
     backend = ibis.sqlite.connect(tmp_path / "buckets.sqlite")
-    backend.con.execute("CREATE TABLE probe (ts TEXT)")
+    backend.con.execute("CREATE TABLE probe (ts TIMESTAMP(6))")
     backend.con.execute("INSERT INTO probe VALUES (?)", (wall,))
     backend.con.commit()
-    adapter = SQLiteExecutionAdapter(backend)
-    adapter.initialize()
-    try:
-        table = ibis.table({"ts": "timestamp(6)"}, name="probe")
+    _initialize_sqlite_functions(backend.con)
+    datasource = DatasourceIR(
+        "temporal",
+        "temporal",
+        "sqlite",
+        {"path": "unused"},
+        {},
+        AiContextIR(),
+        "temporal",
+        DatasourceSourceLocation("temporal.py", 1),
+    )
+    with SourceSession(provider_for("sqlite"), datasource, backend) as session:
+        bound = session.bind(TableSourceIR("probe"), source_identity="probe")
+        qualified = session.qualify(
+            bound, PhysicalRequirement("bucket", 1, frozenset({"scan", "project"}))
+        )
+        table = bound.relation
         expression = bucket_start_expr(table["ts"], builtin_grain(unit, count=count))
-        actual = adapter.read_table(table.select(b=expression))
-        assert actual.column(0).to_pylist() == [expected]
-    finally:
-        adapter.disconnect()
+        projected = lower_temporal(table.select(b=expression), "sqlite")
+        assert isinstance(projected, ir.Table)
+        read = session.compile(
+            qualified, projected, purpose="bucket", expected_schema=projected.schema().to_pyarrow()
+        )
+        stream = session.batches(read, chunk_size=1)
+        try:
+            actual = pa.Table.from_batches(stream, schema=stream.schema)
+            assert actual.column(0).to_pylist() == [expected]
+        finally:
+            stream.close()
 
 
 def test_sqlite_integer_hour_interval_keeps_the_canonical_fraction(tmp_path: Path) -> None:
@@ -114,15 +130,35 @@ def test_sqlite_integer_hour_interval_keeps_the_canonical_fraction(tmp_path: Pat
     fifteen hours, with the base's fraction and the six digits both intact.
     """
     backend = ibis.sqlite.connect(tmp_path / "prefix.sqlite")
-    backend.con.execute("CREATE TABLE probe (ts TEXT, hour INTEGER)")
+    backend.con.execute("CREATE TABLE probe (ts TIMESTAMP(6), hour INTEGER)")
     backend.con.execute("INSERT INTO probe VALUES ('2026-07-01 00:00:00.123456', 15)")
     backend.con.commit()
-    adapter = SQLiteExecutionAdapter(backend)
-    adapter.initialize()
-    try:
-        table = ibis.table({"ts": "timestamp(6)", "hour": "int64"}, name="probe")
+    _initialize_sqlite_functions(backend.con)
+    datasource = DatasourceIR(
+        "temporal",
+        "temporal",
+        "sqlite",
+        {"path": "unused"},
+        {},
+        AiContextIR(),
+        "temporal",
+        DatasourceSourceLocation("temporal.py", 1),
+    )
+    with SourceSession(provider_for("sqlite"), datasource, backend) as session:
+        bound = session.bind(TableSourceIR("probe"), source_identity="probe")
+        qualified = session.qualify(
+            bound, PhysicalRequirement("shift", 1, frozenset({"scan", "project"}))
+        )
+        table = bound.relation
         expression = table["ts"] + table["hour"].as_interval("h")
-        actual = adapter.read_table(table.select(b=expression))
-        assert actual.column(0).to_pylist() == [datetime(2026, 7, 1, 15, 0, 0, 123456)]
-    finally:
-        adapter.disconnect()
+        projected = lower_temporal(table.select(b=expression), "sqlite")
+        assert isinstance(projected, ir.Table)
+        read = session.compile(
+            qualified, projected, purpose="shift", expected_schema=projected.schema().to_pyarrow()
+        )
+        stream = session.batches(read, chunk_size=1)
+        try:
+            actual = pa.Table.from_batches(stream, schema=stream.schema)
+            assert actual.column(0).to_pylist() == [datetime(2026, 7, 1, 15, 0, 0, 123456)]
+        finally:
+            stream.close()

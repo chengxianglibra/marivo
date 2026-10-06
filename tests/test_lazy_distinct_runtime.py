@@ -55,7 +55,7 @@ def test_membership_checkpoint_has_independent_count_and_native_cold_inspection(
     )
     from marivo.analysis.materialization.retained import guard_part_transfer
 
-    with pytest.raises(MaterializationError, match="source-native use"):
+    with pytest.raises(MaterializationError, match="retired Dataset"):
         guard_part_transfer(member)
     assert isinstance(member.storage_receipt, LocalReceipt)
     assert (

@@ -53,6 +53,12 @@ class _FailingBackend:
         raise RuntimeError("connectivity lost")
 
 
+@pytest.fixture(scope="module", autouse=True)
+def loaded_providers() -> None:
+    for backend in ENGINE_PROFILES:
+        assert ENGINE_PROFILES[backend].name == backend
+
+
 def test_registered_statements_are_pinned_by_snapshot() -> None:
     """The channel SQL text is frozen; edits must update this snapshot deliberately."""
     import hashlib
@@ -300,6 +306,43 @@ def test_provider_statement_rejects_unregistered_ids() -> None:
         provider_statement("duckdb", "duckdb.never_registered")
 
 
+def test_every_production_statement_has_exact_authorized_purposes() -> None:
+    for backend in ENGINE_PROFILES:
+        for statement in provider_statement_catalog()[backend].values():
+            if statement.statement_id == "mysql.analysis.cancel_owned_query":
+                expected = {"analysis.cancel_owned_query", "datasource.authoring.deadline"}
+            elif statement.statement_id == "clickhouse.analysis.cancel_owned_query":
+                expected = {"analysis.cancel_owned_query"}
+            elif statement.statement_id.startswith("mysql.authoring."):
+                expected = {"semantic.certified_preview.deadline"}
+            elif statement.statement_id.startswith("duckdb.http_secret_"):
+                expected = {"datasource.http_credentials"}
+            else:
+                expected = {f"datasource.metadata.{backend}"}
+            assert statement.allowed_purposes == frozenset(expected)
+            recorder = _RecordingBackend()
+            with pytest.raises(DatasourceSourceCapabilityError, match="purpose"):
+                execute_provider_statement(
+                    recorder,
+                    ENGINE_PROFILES[backend],
+                    statement.statement_id,
+                    purpose="analysis.business_read",
+                )
+            assert recorder.queries == []
+            assert provider_statement_log(recorder) == ()
+
+
+def test_empty_purpose_registration_grants_no_submission_authority() -> None:
+    statement = ProviderStatement(statement_id="probe.no_purpose", template="SELECT 1")
+    register_provider_statements("probe", {"no_purpose": statement})
+    recorder = _RecordingBackend()
+    with pytest.raises(DatasourceSourceCapabilityError, match="purpose"):
+        execute_provider_statement(
+            recorder, _probe_profile(), statement.statement_id, purpose="test.channel"
+        )
+    assert recorder.queries == []
+
+
 def test_render_quotes_literals_and_identifiers_strictly() -> None:
     profile = adapters.provider_for("duckdb")
     statement = ProviderStatement(
@@ -373,6 +416,7 @@ def test_execute_records_submission_and_closes_cursor() -> None:
         statement_id="probe.execute_check",
         template="SELECT {value}",
         literal_slots=frozenset({"value"}),
+        allowed_purposes=frozenset({"test.channel"}),
     )
     register_provider_statements("probe", {"execute_check": statement})
     backend = _RecordingBackend(rows=[(1,)])
@@ -395,6 +439,7 @@ def test_execute_failure_marks_submission_failed_and_reraises() -> None:
         statement_id="probe.fail_check",
         template="SELECT {value}",
         literal_slots=frozenset({"value"}),
+        allowed_purposes=frozenset({"test.channel"}),
     )
     register_provider_statements("probe", {"fail_check": statement})
     backend = _FailingBackend()

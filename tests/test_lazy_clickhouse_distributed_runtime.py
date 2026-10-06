@@ -335,54 +335,6 @@ def test_receipt_audit_free_of_dedup_clauses(tmp_path: Path, probe_suffix: str) 
         patch.undo()
 
 
-def test_replacing_merge_tree_unconverged_sum() -> None:
-    """Unconverged ReplacingMergeTree reads stay plain SQL: both rows sum.
-
-    The governed Dataset journey rejects duplicate identity by contract (the
-    cross-shard duplicate test above); this probe pins the engine-facing
-    contract instead — Marivo's execution adapter reads the ReplacingMergeTree
-    relation without FINAL, OPTIMIZE, or dedup rewriting, so the unconverged
-    sum of both physical versions (10.25 + 30.75 = 41.0) is accepted as the
-    correct-by-contract unstable read.
-    """
-    from decimal import Decimal
-
-    import ibis
-
-    from marivo.analysis.materialization.clickhouse_execution import ClickHouseExecutionAdapter
-
-    table = "orders_replacing_" + uuid4().hex
-    try:
-        with clickhouse.connection(admin=True, port=INITIATOR_PORT) as con:
-            con.command(
-                f"CREATE TABLE {DATABASE}.{table}"
-                " (id Int64, amount Decimal(9, 2), ver UInt64)"
-                " ENGINE = ReplacingMergeTree(ver) ORDER BY id"
-            )
-            con.command(f"GRANT SELECT ON {DATABASE}.{table} TO analysis_reader")
-            con.command(f"INSERT INTO {DATABASE}.{table} VALUES (1, '10.25', 1)")
-            con.command(f"INSERT INTO {DATABASE}.{table} VALUES (1, '30.75', 2)")
-        with clickhouse.connection(port=INITIATOR_PORT) as con:
-            adapter = ClickHouseExecutionAdapter(ibis.clickhouse.from_connection(con))
-            try:
-                submitted: list[str] = []
-                adapter.observe(lambda submission: submitted.append(submission.sql), "source")
-                source = ibis.clickhouse.from_connection(con).table(table, database=DATABASE)
-                result = adapter.read_table(source.aggregate(revenue=source.amount.sum()))
-                assert result.to_pylist() == [{"revenue": Decimal("41.00")}]
-                assert submitted
-                for banned in ("FINAL", "final = 1", "OPTIMIZE", " DEDUPLICATE", " any("):
-                    assert not any(banned in sql for sql in submitted), banned
-                lowered = " ".join(sql.lower() for sql in submitted)
-                for banned in ("final", "optimize", "deduplicate", "any("):
-                    assert banned not in lowered, banned
-            finally:
-                adapter.disconnect()
-    finally:
-        with clickhouse.connection(admin=True, port=INITIATOR_PORT) as con:
-            con.command(f"DROP TABLE IF EXISTS {DATABASE}.{table}")
-
-
 def test_cross_shard_relation_hit_and_miss(tmp_path: Path) -> None:
     suffix = uuid4().hex
     try:

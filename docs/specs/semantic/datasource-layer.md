@@ -620,7 +620,11 @@ projectable columns — through the provider statement channel: a closed
 registry of provider-owned fixed statements (`datasource.capabilities`, the
 2026-09-28 user-approved internal-SQL exception recorded in the R0 SQL ledger
 R1.6 overlay; statement text is pinned by a snapshot test and every submission
-is audited on the backend). Each fact query that fails yields that fact's
+is audited on the backend). Every registered metadata statement has exactly the
+owning `datasource.metadata.<backend>` purpose; scoped HTTP credential statements
+have only `datasource.http_credentials`. Empty purpose sets grant no submission
+authority. Cross-provider and cross-purpose requests reject before native SQL.
+Each fact query that fails yields that fact's
 unavailable warning while inspection still succeeds; a total failure yields
 schema-only. Unknown view kind is `None`, not `False`. DuckDB catalog facts
 are qualified by database, schema, and table. Composite unique constraints

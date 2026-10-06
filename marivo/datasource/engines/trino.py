@@ -193,11 +193,13 @@ register_provider_statements(
                 "ORDER BY ordinal_position"
             ),
             literal_slots=frozenset({"catalog", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.trino"}),
         ),
         "show_columns": ProviderStatement(
             statement_id="trino.show_columns",
             template="SHOW COLUMNS FROM {table_ref}",
             identifier_slots=frozenset({"table_ref"}),
+            allowed_purposes=frozenset({"datasource.metadata.trino"}),
         ),
         "tables.type": ProviderStatement(
             statement_id="trino.tables.type",
@@ -209,6 +211,7 @@ register_provider_statements(
                 "LIMIT 1"
             ),
             literal_slots=frozenset({"catalog", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.trino"}),
         ),
         "views.definition": ProviderStatement(
             statement_id="trino.views.definition",
@@ -220,16 +223,19 @@ register_provider_statements(
                 "LIMIT 1"
             ),
             literal_slots=frozenset({"catalog", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.trino"}),
         ),
         "show_create": ProviderStatement(
             statement_id="trino.show_create",
             template="SHOW CREATE TABLE {table_ref}",
             identifier_slots=frozenset({"table_ref"}),
+            allowed_purposes=frozenset({"datasource.metadata.trino"}),
         ),
         "show_stats": ProviderStatement(
             statement_id="trino.show_stats",
             template="SHOW STATS FOR {table_ref}",
             identifier_slots=frozenset({"table_ref"}),
+            allowed_purposes=frozenset({"datasource.metadata.trino"}),
         ),
         "constraints": ProviderStatement(
             statement_id="trino.constraints",
@@ -246,6 +252,7 @@ register_provider_statements(
                 "ORDER BY tc.constraint_name, kcu.ordinal_position"
             ),
             literal_slots=frozenset({"schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.trino"}),
         ),
     },
 )

@@ -150,38 +150,6 @@ def test_local_failure_atomicity_and_committed_readback(tmp_path: Path, point: s
         assert counts["action_resource_journal"] == 0
 
 
-@pytest.mark.parametrize("method", ["compile", "batches"])
-def test_selected_source_failure_never_runs_replacement_pandas(
-    tmp_path: Path, method: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from ibis.backends.duckdb import Backend
-
-    runtime, sources, _ = setup_local(tmp_path)
-    source = sources.observe(REVENUE)
-    target = source.rank(source.fields.metric(REVENUE)).limit(2)
-    original = registry.implementation
-
-    def registrations(dataset: LogicalDataset) -> ImplementationRegistration:
-        current = original(dataset)
-        return replace(current, backends=()) if current.operator_id == "metric.rank" else current
-
-    def broken(*args: object, **kwargs: object) -> None:
-        raise RuntimeError("private source failure canary")
-
-    monkeypatch.setattr(registry, "implementation", registrations)
-    from marivo.analysis.materialization.duckdb_execution import DuckDBExecutionAdapter
-
-    monkeypatch.setattr(Backend if method == "compile" else DuckDBExecutionAdapter, method, broken)
-    with pytest.raises(RuntimeError) as error:
-        target.execute()
-    assert "canary" in str(error.value)
-    assert runtime.statistics.local_handoffs == ()
-    assert runtime.last_run_ref is not None
-    run = runtime.store.run(runtime.last_run_ref)
-    assert run is not None and run.lifecycle == "failed"
-    assert runtime.store.resources(runtime.session_ref) == ()
-
-
 def test_unknown_current_placement_does_not_override_an_exact_binding_hit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

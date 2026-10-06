@@ -105,11 +105,11 @@ from pathlib import Path
 import pyarrow.parquet as pq
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import LocalReceipt
-import marivo.analysis.materialization.execution as execution
+import marivo.datasource.adapters as adapters
 
 def denied(*args, **kwargs):
     raise AssertionError('cold read accessed source')
-execution.resolve_execution = denied
+adapters.SourceSession.__init__ = denied
 runtime = DatasetRuntime.open(Path(sys.argv[1]), sys.argv[2])
 result = runtime.artifact(sys.argv[3])
 result.to_pandas()

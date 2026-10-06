@@ -130,6 +130,7 @@ register_provider_statements(
                 "WHERE table_name = {table}"
             ),
             literal_slots=frozenset({"table"}),
+            allowed_purposes=frozenset({"datasource.metadata.mysql"}),
         ),
         "tables.comment_schema": ProviderStatement(
             statement_id="mysql.tables.comment_schema",
@@ -139,11 +140,13 @@ register_provider_statements(
                 "WHERE table_name = {table} AND table_schema = {schema}"
             ),
             literal_slots=frozenset({"table", "schema"}),
+            allowed_purposes=frozenset({"datasource.metadata.mysql"}),
         ),
         "columns.show": ProviderStatement(
             statement_id="mysql.columns.show",
             template="SHOW FULL COLUMNS FROM {table_ref}",
             identifier_slots=frozenset({"table_ref"}),
+            allowed_purposes=frozenset({"datasource.metadata.mysql"}),
         ),
         "partitions": ProviderStatement(
             statement_id="mysql.partitions",
@@ -153,6 +156,7 @@ register_provider_statements(
                 "AND PARTITION_NAME IS NOT NULL"
             ),
             literal_slots=frozenset({"table"}),
+            allowed_purposes=frozenset({"datasource.metadata.mysql"}),
         ),
         "partitions_schema": ProviderStatement(
             statement_id="mysql.partitions_schema",
@@ -162,6 +166,7 @@ register_provider_statements(
                 "AND PARTITION_NAME IS NOT NULL AND TABLE_SCHEMA = {schema}"
             ),
             literal_slots=frozenset({"table", "schema"}),
+            allowed_purposes=frozenset({"datasource.metadata.mysql"}),
         ),
         "tables.type": ProviderStatement(
             statement_id="mysql.tables.type",
@@ -169,6 +174,7 @@ register_provider_statements(
                 "SELECT TABLE_TYPE FROM information_schema.tables WHERE table_name = {table}"
             ),
             literal_slots=frozenset({"table"}),
+            allowed_purposes=frozenset({"datasource.metadata.mysql"}),
         ),
         "tables.type_schema": ProviderStatement(
             statement_id="mysql.tables.type_schema",
@@ -177,6 +183,7 @@ register_provider_statements(
                 "WHERE table_name = {table} AND table_schema = {schema}"
             ),
             literal_slots=frozenset({"table", "schema"}),
+            allowed_purposes=frozenset({"datasource.metadata.mysql"}),
         ),
         "views.definition": ProviderStatement(
             statement_id="mysql.views.definition",
@@ -184,6 +191,7 @@ register_provider_statements(
                 "SELECT VIEW_DEFINITION FROM information_schema.views WHERE table_name = {table}"
             ),
             literal_slots=frozenset({"table"}),
+            allowed_purposes=frozenset({"datasource.metadata.mysql"}),
         ),
         "views.definition_schema": ProviderStatement(
             statement_id="mysql.views.definition_schema",
@@ -192,11 +200,13 @@ register_provider_statements(
                 "WHERE table_name = {table} AND table_schema = {schema}"
             ),
             literal_slots=frozenset({"table", "schema"}),
+            allowed_purposes=frozenset({"datasource.metadata.mysql"}),
         ),
         "indexes.primary": ProviderStatement(
             statement_id="mysql.indexes.primary",
             template="SHOW INDEX FROM {table_ref} WHERE Key_name = 'PRIMARY'",
             identifier_slots=frozenset({"table_ref"}),
+            allowed_purposes=frozenset({"datasource.metadata.mysql"}),
         ),
     },
 )

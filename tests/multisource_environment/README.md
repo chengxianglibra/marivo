@@ -1,5 +1,17 @@
 # Isolated local multi-datasource qualification environment
 
+## Current R9.5 SQL audit
+
+The historical Dataset adapter commands below are superseded by the current
+SourceSession/typed-graph ownership audit. Start services explicitly with
+`manage.sh`; Trino and ClickHouse remain mutually exclusive. The focused current
+entry is `tests/test_r95_sql_runtime.py`, with each remote backend enabled by its
+existing `MARIVO_*_ANALYSIS_TEST=1` flag. It covers native SQL ownership for public
+probe, inspection, members, terminal, scoped HTTP and owned-query control; it
+does not replay or qualify business method families. Existing R9.2–R9.4 evidence
+keeps its original candidate, physical-profile and cancellation scope. See the
+[SQL ledger](../../docs/superpowers/specs/2026-10-06-marivo-r95-sql-ledger.md).
+
 ## R9.2 governed source qualification
 
 `tests/test_r92_source_profiles.py` uses these services through the current

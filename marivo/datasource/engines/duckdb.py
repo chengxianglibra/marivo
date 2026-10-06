@@ -39,6 +39,7 @@ register_provider_statements(
                 "CREATE OR REPLACE SECRET marivo_http_auth (TYPE HTTP, BEARER_TOKEN ?, SCOPE ?)"
             ),
             parameterized=True,
+            allowed_purposes=frozenset({"datasource.http_credentials"}),
         ),
         "http_secret_headers": ProviderStatement(
             statement_id="duckdb.http_secret_headers",
@@ -47,6 +48,7 @@ register_provider_statements(
                 "(TYPE HTTP, EXTRA_HTTP_HEADERS ?, SCOPE ?)"
             ),
             parameterized=True,
+            allowed_purposes=frozenset({"datasource.http_credentials"}),
         ),
         "tables.comment_size": ProviderStatement(
             statement_id="duckdb.tables.comment_size",
@@ -55,6 +57,7 @@ register_provider_statements(
                 "WHERE database_name = {database} AND schema_name = {schema} AND table_name = {table} LIMIT 1"
             ),
             literal_slots=frozenset({"database", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
         ),
         "tables.comment": ProviderStatement(
             statement_id="duckdb.tables.comment",
@@ -62,6 +65,7 @@ register_provider_statements(
                 "SELECT comment FROM duckdb_tables() WHERE database_name = {database} AND schema_name = {schema} AND table_name = {table} LIMIT 1"
             ),
             literal_slots=frozenset({"database", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
         ),
         "tables.columns": ProviderStatement(
             statement_id="duckdb.tables.columns",
@@ -72,10 +76,12 @@ register_provider_statements(
                 "ORDER BY column_index"
             ),
             literal_slots=frozenset({"database", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
         ),
         "namespace.current": ProviderStatement(
             statement_id="duckdb.namespace.current",
             template="SELECT current_database() AS database_name, current_schema() AS schema_name",
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
         ),
         "views.schema_qualified": ProviderStatement(
             statement_id="duckdb.views.schema_qualified",
@@ -85,6 +91,7 @@ register_provider_statements(
                 "LIMIT 1"
             ),
             literal_slots=frozenset({"table", "schema"}),
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
         ),
         "views.database_qualified": ProviderStatement(
             statement_id="duckdb.views.database_qualified",
@@ -95,6 +102,7 @@ register_provider_statements(
                 "LIMIT 1"
             ),
             literal_slots=frozenset({"table", "database", "schema"}),
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
         ),
         "constraints": ProviderStatement(
             statement_id="duckdb.constraints",
@@ -104,6 +112,7 @@ register_provider_statements(
                 "WHERE database_name = {database} AND schema_name = {schema} AND table_name = {table}"
             ),
             literal_slots=frozenset({"database", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
         ),
     },
 )
