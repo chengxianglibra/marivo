@@ -179,15 +179,20 @@ LoweredPlan carries dependency-ordered relations or local stages, the original
 physical requirements, and mandatory checks. IntegrityCheck describes invalid
 identity, Cell or predicate rows; SemanticCheck retains the exact original
 CheckRequirement, including input scope and consume/publish deadline. Check
-resolution follows graph edges to the originating realization rather than
+resolution follows graph edges to the originating logical input binding rather than
 matching equal definition fingerprints. Each originating check retains its ordered
 input tuple. Shared paths deduplicate that tuple, while independent realizations
 with equal symbolic obligations remain separate checks; a repeated input within
 one pairing still occupies both ordered positions. A checker returning no rows is the
 success condition, not an already-established fact in the lowered graph.
-Every input integrity check must succeed before its dependent stage is consumed;
-publication also requires all inherited publication checks. R4 owns evaluating
-checks, rendering concrete failures, and recording their evidence in one Run.
+Every required check must succeed at its registered consume/publish deadline.
+A source check proves only the query that performed that check; later native
+calculation may read a different source version and is not certified by the earlier
+read. Local and fixed consumers still validate their actual captured or receipt-bound
+inputs before consumption. Publication requires all inherited publication checks
+and the final Artifact's internal key, Cell, required-part and arithmetic validation.
+R4 owns evaluating checks, rendering concrete failures, and recording each query's
+evidence in one Run.
 
 Each LoweredRelation, IntegrityCheck and SemanticCheck carries explicit ordered
 SourceLeaf `source_ids`, recorded while lowering its actual operands. Repeated
@@ -348,8 +353,24 @@ R1 schema bindings for `parts_transport` (string Entity identity, NoTime or UTC/
 and `metric.sum_zero` (string Entity identity, UTC/us, ordinary int64 measure).
 The lowering verifies the exact source descriptor kind and uses its existing
 Ibis relation. Local schema inference is permitted metadata, not business-result
-proof. HTTP/parameterized JSON and other methods/carriers require their own exact
-qualifications; admission never fetches remote JSON merely to infer a schema.
+proof. HTTP/parameterized JSON remains refused before source open; admission
+never fetches remote JSON merely to infer a schema.
+
+R9.6 connects the existing `state_rollup.sum_zero@v1` local consumer for
+DuckDB native-table int64 Entity/group observations with UTC microsecond time. A
+local producer such as `values.deviation(method="zscore").observed` can reduce
+its original sum state with `rollup()`.
+
+The R9.6 file-cost closure additionally connects original int64 sum-zero
+Entity rollup for local CSV/JSON on `ibis`, and local CSV/JSON/Parquet on
+`ibis_python`, with UTC microsecond observation time. Local CSV/JSON zscore
+fits an int64 Entity NoTime input; its existing field reader consumes the
+float64 fit carrier while the observed view preserves the original int64
+state. These exact file keys cannot specialize to
+other scalar types, MAD, mean, group domains, local difference or attribution.
+Existing Parquet statistical qualifications retain their separate scope. No
+new arithmetic, file reader, source snapshot, public symbol or HTTP admission
+is introduced; source preparation remains complete before local consumption.
 
 The verified private source prefix is DuckDB native table or Parquet, `NoTime`,
 complete int64 identity, and exact registered `bind_project`,
@@ -1842,15 +1863,21 @@ R9.3 adds bounded ordinary-table routes on all six backends for int64/float64 ob
 classifications, explicit empty targets, count/count_defined/sum/mean row statistics and original
 sum/mean-state rollup with UTC microsecond source time. The added classification,
 completion, row-statistic and member-image keys remain exact; they do not
-specialize to Decimal inputs. DuckDB/SQLite own temporary relations; remote shared
-stages capture complete exchanges and use Ibis-compiled typed literal relations,
-without creating remote tables or rewriting SQL. Capture views have distinct
-ownership even for identical values. Released captures cannot be submitted again.
+specialize to Decimal inputs. The initial R9.3 shared-stage implementation used
+DuckDB/SQLite temporary relations and complete remote exchanges represented as
+Ibis-compiled typed literal relations. Under the R9.6 weak-consistency amendment,
+pure-native graph dependencies remain Ibis expressions: checks, required parts and
+the terminal primary are queried directly, without an intermediate Arrow-to-source
+round trip. This creates no remote tables and does not rewrite compiled SQL.
+Preparation for registered local consumers still owns complete captured exchanges;
+capture views have distinct ownership even for identical values, and released
+captures cannot be submitted again.
 Empty schemas, multiplicity, full-width keys and UTC microseconds are retained.
-Shared exchanges use unique row indices and typed conditional projection; the
-cardinality barrier equals the complete captured row count and is not an admission
-quota. ClickHouse uses one typed struct-array expansion to avoid a many-branch
-query plan. Original mean retains its sum/count components: 100 amount-1 facts
+Captured exchanges for hybrid/local plans use unique row indices and typed
+conditional projection; the cardinality barrier equals the complete captured row
+count and is not an admission quota. For these captured exchanges, ClickHouse uses
+one typed struct-array expansion to avoid a many-branch query plan. Original mean
+retains its sum/count components: 100 amount-1 facts
 and one amount-100 fact produce grouped values 1 and 100, current mean 50.5 and
 original mean 200/101. Use `grouped.group_by().summarize(mv.mean())` to remove
 the grouped axes for the current-row reduction. Fixed reuse reads retained parts
@@ -2890,6 +2917,29 @@ continuations consume the retained inputs without rereading the source.
 Business completeness declarations and actual read coverage keep their separate
 meaning; an exhaustive read does not prove business completeness. Exact key,
 multiplicity, deadline, cancellation and cleanup checks remain mandatory.
+
+### R9.6 source-check consistency amendment (2026-10-06)
+
+The user additionally permits source checks and subsequent native calculations to
+read different source versions. Check evidence records its own actual query and
+does not certify facts acquired by a later query. One logical node/Run/result
+identity is not a promise of one physical scan or one source revision; native
+subexpressions may be evaluated by independent statements. Failed checks still
+refuse the dependent operation, and no failure changes the selected route.
+
+Qualified pure-native plans query their closed Ibis expressions directly rather
+than capturing an intermediate Arrow table solely to stage it back into a source.
+Terminal primary and required-part data are retained as Artifact payloads in
+Store 7. Independent checks may still produce temporary Arrow validation results
+and retain their own query evidence; this strategy removes intermediate stage
+capture/restaging, not check-result reads. The final primary/parts' actual schema,
+complete keys, Cells, bindings and internal arithmetic remain validated before
+atomic publication and on recovery. A mismatch remains a
+failure even when source changes are permitted. Registered preparation/local
+consumers still capture all source dependencies before local selection; fixed
+continuations remain source-free. Read-only permissions, unchanged Ibis SQL
+submission, the shared 600-second deadline, cancellation and resource ownership
+are unchanged. This amendment grants no new backend/method key or qualification.
 
 
 ### Explicit business completeness on original observations

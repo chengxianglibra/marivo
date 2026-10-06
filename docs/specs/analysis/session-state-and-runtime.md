@@ -58,7 +58,10 @@ The definition fingerprint identifies the same normalized question and explicit
 input bindings, so repeating a source-only call does not change it. Explicit
 logical node identity controls sharing only within one evaluation: the same
 node has one realization, while separately constructed lookalikes do not merge.
-No independent source queries are promised one transaction snapshot. A
+That logical Run/result identity does not guarantee one physical scan. Native
+expressions, checks and calculations may read independently; a successful source
+check proves its own query only, not a later acquisition. No independent source
+queries are promised one transaction snapshot. A
 different producing Run alone does not make two retained endpoints incompatible;
 compare still owns domain, shared-member implementation binding and exact-key
 admission.
@@ -1525,12 +1528,54 @@ unsupported shape and missing fixed parts reject before those effects. Data
 uniqueness/coverage/finite checks execute at registered consume/publish stages.
 
 Source-dependent top-level execute obtains a new realization; repeated edges to
-one explicit node share its preparation/kernel in the same DAG/Run. Distinct
-node identities do not merge merely because definitions match. Multiple owned
-fields reference one fitted/statistical producer and do not recalculate it.
+one explicit node share its logical preparation/kernel owner in the same DAG/Run.
+This does not require one physical source scan: pure-native Ibis subexpressions
+may be queried independently, with each read/check recording its own evidence.
+Registered local consumers share their actual captured preparation and kernel.
+Distinct node identities do not merge merely because definitions match. Multiple
+owned fields reference one fitted/statistical producer and do not recalculate it.
 Fixed exact hits bind all ordered Artifact inputs, implementation/numeric/time
 versions, parameters, current receipts, full RequiredParts/check results and
 output scope, without another source read or Run.
+
+### R9.6 direct native expression execution (2026-10-06)
+
+The user permits a source check and a later native calculation to observe different
+source versions. A successful precheck is evidence for that query, not a
+same-input certificate for later facts. Required checks still execute at their
+registered consume/publish deadlines; a failing check refuses execution. The
+Runtime records actual submissions separately and neither retries nor changes
+route merely because acquisitions differ.
+
+A qualified pure-native plan keeps dependencies as closed Ibis expressions and
+queries checks, required parts and the terminal primary directly. It does not
+capture intermediate Arrow tables just to submit them again as literal or temporary
+source relations. Independent check queries may still produce temporary Arrow
+validation results; only the intermediate stage capture/restaging is removed.
+Terminal primary and required-part data remain retained Artifact payloads.
+The terminal Arrow exchange still validates actual complete
+keys and Cells; primary/RequiredParts schemas, bindings and internal arithmetic
+remain validated before Store 7 atomic publication and on recovery. Permitted
+source changes do not excuse an internally inconsistent Artifact.
+
+This is an internal execution strategy, not a new public route or callable.
+Read-only credentials, unchanged Ibis submissions, one 600-second monotonic budget,
+cancellation and resource release remain required. Hybrid/local plans still
+prepare all downstream source inputs before local consumption or selection.
+Fixed execution and cold recovery remain source-free and do not refit a retained
+producer. This amendment does not grant new physical keys or all-backend qualification.
+
+The shared exchange validates complete keys and Cell payloads from bounded Arrow
+column slices, retaining a deadline checkpoint for every row and exact cross-batch
+duplicate detection. Only a fully exhausted and successfully closed stream may
+reuse its own primary key index during that collection. Independent RequiredParts
+and method-state tables retain separate schema, key and arithmetic validation;
+neither another source read nor a later invocation inherits that index.
+Prepared observation expands selected rows once and reuses validated complete-key
+and Subject restrictions for output. Its default window, grid index and anchor
+position are initialized once at the original bounds-check point. Every selected
+row, original-envelope check, grid membership and overlapping contribution use
+remains checked; numeric state algorithms and precision policies are unchanged.
 
 F11's mandatory chain is change->deviation->where->observed.members->observe->
 summarize in one Logical DAG. Before any local score/Subject selection, collect

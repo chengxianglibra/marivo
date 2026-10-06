@@ -2,9 +2,13 @@
 
 Date: 2026-10-04
 
-Implementation is delivered with a blocked exit: **42 passed / 1 blocked** of
-43 R9.2 requirements. The unchanged R9 denominator is 394; 351 later goals remain
-unverified. [results-index.json](results-index.json) owns statuses and proof
+The original delivery recorded **42 passed / 1 blocked** of 43 R9.2
+requirements. On 2026-10-06 the user authorized the SQLite native Decimal
+expectation amendment below. Its two narrow Runtime paths passed, closing the
+amended owning scope as **42 exact-source successes / 1 exact refusal**. See
+[amendment closure](../evidence/r92/sqlite-decimal-refusal-07/closure.json).
+The R9 denominator remains 394. [results-index.json](results-index.json) retains
+the original delivery statuses and proof
 attachments; [summary.json](summary.json) owns aggregate accounting. The original
 R9.1 bundle is retained alongside the current `freeze/` candidate/owner snapshot.
 
@@ -30,6 +34,36 @@ SQLite NUMERIC affinity returns float for the required Decimal(18,6) fixture.
 The typed decoder rejects it without implicit conversion. The original success
 goal remains **blocked**, with an exact-carrier/retest release condition. A passed
 rejection test is not an exact-Decimal success pass.
+
+## Authorized SQLite Decimal Amendment
+
+On 2026-10-06 the user explicitly accepted SQLite native Decimal as unsupported,
+with an exact refusal expectation. The original requirement ID
+`R9:source-types:sqlite:ordinary-table:ibis:decimal-precision-scale` remains in the
+43-item source denominator and the 394-item R9 denominator. It now requires a
+real SQLite NUMERIC read to reject the native float carrier with the existing
+structured capability error, preserving submission failure and local resource
+cleanup. Other backends still require exact Decimal precision/scale success.
+
+This is an authorized expectation amendment, not a successful Decimal read,
+an exact TEXT-carrier implementation, or a relabeling of the original blocked
+execution. The original index and evidence remain unchanged. The amended case
+has its own narrow Runtime and source-impact evidence: the original
+`test_source_type_risk[decimal-precision-scale-sqlite]` and supplementary native
+NUMERIC plus Decimal `type_map` path passed together, two tests in 0.20 seconds.
+Both observed a native float from the actual cursor, refused the exact Decimal
+schema, yielded no Arrow batch, and retained failed submission, closed cursor
+and disconnected connection facts. No diagnostic business query was added and
+no other backend or successful cost group was rerun.
+
+The generated requirement set keeps all 394 original IDs and all other rows
+unchanged; only this row's expectation changes from success to rejection. Three
+focused static disclosure/expectation tests passed. Touched fixture and
+disclosure/generator modules passed narrow typing and lint. Real command UTC
+times were recovered from the original execution event, not filesystem times.
+The closure retains the original 42 candidates and all three required proof
+names; local cleanup is not remote termination. Final current-candidate impact
+and all-profile acceptance remain with R9.7.
 
 ## Reproduction and evidence ownership
 

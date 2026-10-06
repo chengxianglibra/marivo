@@ -185,7 +185,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "sqlite",
             "marivo.datasource.authoring.sqlite",
-            "Build a SQLite table/view datasource; median, percentile, and string strptime are unsupported.",
+            "Build a SQLite table/view datasource; native NUMERIC cannot supply exact Decimal. Median, percentile, and string strptime are unsupported.",
             output="DatasourceSpec",
             inputs=_inputs(("mapping_key", "DatasourceName")),
             constraints=constraints["declare"],

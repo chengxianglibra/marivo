@@ -797,6 +797,9 @@ def sqlite(
         Parquet, CSV, and JSON file descriptors require DuckDB. SQLite does not
         support median or percentile aggregation, or string strptime expressions;
         use a supported aggregation and a native temporal column instead.
+        Native NUMERIC is not an exact Decimal carrier; type_map cannot restore
+        float precision. Exact Decimal reads refuse without coercion; use a
+        qualified exact-Decimal datasource instead.
     """
     spec = SQLiteSpec(
         name=name,

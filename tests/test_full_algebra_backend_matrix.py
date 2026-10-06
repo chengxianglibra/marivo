@@ -96,12 +96,40 @@ def test_sql_and_risk_obligations_are_retained(frozen: dict[str, freeze.Json]) -
     )
     assert all(mappings[origin] for origin in sql_rows)
     rows = [freeze.obj(row) for row in freeze.arr(frozen["requirements"])]
-    assert len([row for row in rows if row["expectation"] == "rejection"]) == 5
+    assert len([row for row in rows if row["expectation"] == "rejection"]) == 6
     assert any(row["scenario"] == "cross-batch-long-run" for row in rows)
     assert any(row["scenario"] == "original-fit-domain" for row in rows)
     assert any(row["scenario"] == "complete-training" for row in rows)
     assert all(row["backend"] == "none" for row in rows if row["route"] == "artifact_python")
     assert len([row for row in rows if row["family"] == "cost-baseline"]) == 13
+
+
+def test_sqlite_decimal_amendment_changes_only_its_expectation(
+    frozen: dict[str, freeze.Json],
+) -> None:
+    current = {
+        str(freeze.obj(row)["id"]): freeze.obj(row) for row in freeze.arr(frozen["requirements"])
+    }
+    original = {
+        str(freeze.obj(row)["id"]): freeze.obj(row)
+        for row in freeze.arr(freeze.load(freeze.OUTPUT)["requirements"])
+    }
+    identity = "R9:source-types:sqlite:ordinary-table:ibis:decimal-precision-scale"
+    assert len(current) == len(original) == 394
+    assert current.keys() == original.keys()
+    changed = [key for key in current if current[key] != original[key]]
+    assert changed == [identity]
+    amended = dict(original[identity])
+    assert amended["expectation"] == "success"
+    amended["expectation"] = "rejection"
+    assert current[identity] == amended
+    assert all(
+        row["expectation"] == "success"
+        for row in current.values()
+        if row["family"] == "source-types"
+        and row["scenario"] == "decimal-precision-scale"
+        and row["backend"] != "sqlite"
+    )
 
 
 @pytest.mark.parametrize(

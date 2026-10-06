@@ -341,7 +341,10 @@ grants this permission or escalates credentials.
 SQLite datasources use `md.table(...)` for tables and views. `read_only=True`
 uses a driver authorizer to reject writes, and `type_map={...}` can map
 declared SQLite type names to Ibis type strings when affinity inference is not
-enough. Parquet, CSV, and JSON descriptors remain DuckDB-only. SQLite does not
+enough. Native SQLite NUMERIC is not an exact Decimal carrier: `type_map` cannot
+recover precision lost to a float, and exact Decimal reads refuse with
+`DatasourceSourceCapabilityError` instead of coercing it. Use a qualified
+exact-Decimal datasource for that value. Parquet, CSV, and JSON descriptors remain DuckDB-only. SQLite does not
 support median or percentile metrics, or string `strptime` expressions in the current Ibis
 backend; Marivo reports these as structured unsupported-operation errors. Use a
 supported aggregation and a native temporal column instead.

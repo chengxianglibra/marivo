@@ -74,6 +74,7 @@ class SourceData:
     values: str
     clickhouse_columns: str
     rows: list[dict[str, object]]
+    sqlite_type_map: dict[str, str] | None = None
 
 
 @contextmanager
@@ -149,7 +150,10 @@ def source_case(
                 admin.con.commit()
         finally:
             admin.disconnect()
-        ds = datasource(backend, {"path": str(path), "read_only": True})
+        fields: dict[str, object] = {"path": str(path), "read_only": True}
+        if backend == "sqlite" and data is not None and data.sqlite_type_map is not None:
+            fields["type_map"] = data.sqlite_type_map
+        ds = datasource(backend, fields)
         with provider_for(backend).open(ds) as session:
             environment: dict[str, object] = {"backend": backend, "read_only": True}
             if profile.startswith("http-json"):

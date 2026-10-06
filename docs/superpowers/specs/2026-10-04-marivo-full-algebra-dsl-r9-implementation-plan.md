@@ -5,15 +5,22 @@ Date: 2026-10-04
 Status: R9.1 static handoff implemented; validation is recorded in the
 [R9 evidence index](2026-10-04-marivo-r9-evidence-index.md). R9.2 implementation
 and bounded source evidence are recorded in the
-[R9.2 record](2026-10-04-marivo-r92-evidence/README.md): 42 required scenarios
-passed and SQLite exact Decimal remains blocked. R9.2's full exit is open;
-R9.3 has bounded six-backend association/deviation and complete-grid statistic
-consumers. Current scenario results and candidate bindings are owned by the
-[R9.3 record](2026-10-04-marivo-r93-evidence/README.md); complete R9.3 qualification
-remains open. R9.4's scoped graph/recovery/resource evidence is recorded in its
+[R9.2 record](2026-10-04-marivo-r92-evidence/README.md): 42 original success
+scenarios passed. On 2026-10-06 the user authorized SQLite native Decimal to be
+unsupported, with exact refusal under its unchanged requirement ID. Two actual
+refusal paths passed; the amended owning exit is 42 successes plus one exact
+refusal, with original evidence retained. Final current-candidate impact belongs
+to the R9.7 audit;
+R9.3's original 222 representative implementation requirements are closed by
+the [full-grid Unknown closure](2026-10-04-marivo-r93-evidence/full-grid-unknown-01/README.md);
+this is bounded implementation acceptance, not final all-profile qualification.
+R9.4's scoped graph/recovery/resource evidence is recorded in its
 [current record](2026-10-06-marivo-r94-evidence/README.md). R9.5 SQL ownership and
 physical retirement are recorded in the
-[current SQL ledger](2026-10-06-marivo-r95-sql-ledger.md); R9.6/R9.7 remain separate.
+[current SQL ledger](2026-10-06-marivo-r95-sql-ledger.md). R9.6 implementation and
+cost boundaries are recorded in the
+[current cost record](2026-10-06-marivo-r96-cost-record.md); the
+[R9.7 completion audit](2026-10-06-marivo-r97-completion-audit.md) remains separate.
 Frozen targets grant no execution qualification.
 
 ## 1. 目标、前置交接与文档权威
@@ -143,6 +150,11 @@ R9.1 冻结的是可执行场景目录及其覆盖责任；R9.2–R9.6 绑定实
 | `ibis` | 纯计划选择、Ibis 表达式、session 签发、未经改写的实际 driver 提交、完整输出/检查 | 仅 compile 不证明执行、数值或资源；source 失败不重选 |
 | `ibis_python` | 执行前选择；完整身份/范围/Cell/parts 的 Ibis 准备，所有必要源依赖准备后本地核消费 | 本地核通过不证明该后端捕获；不能先选择本地再补源依赖或只取首批 |
 | `artifact_python` | receipt/part 校验、受控 Arrow/Parquet→pandas/数值核、固定继续与 exact hit | 禁止当前 Semantic、来源连接、DuckDB 扫描、远端上传或重新拟合已有结果 |
+
+R9.6 已批准弱一致性：source check 与后续原生计算可读取不同源版本，check 证据只证明
+自身查询，不证明后来读取的事实。一个逻辑节点/Run/result 身份不承诺一次物理扫描；
+纯原生图直接查询封闭 Ibis 表达式，不为复用预检事实而强制 Arrow 中间结果回源。
+最终主表、RequiredParts、完整键、Cell 和内部算术仍须校验；失败不换路线。
 
 R0 指定的必需 P/F 格分别取得证据；新增 native Ibis 成功不能删除原 P 格。
 基础成员/属性、观察、完整域、多根组件及比较必须按六后端共同目标验证；不是只跑连接
@@ -357,6 +369,10 @@ R9.1 冻结成本 profile IDs；R9.6 执行，不先声称性能改善。六后�
 资源、执行顺序和后台负载；每次来源执行新 realization，不能测历史 definition hit。
 原始样本、失败和波动保留；无法完成某压力输入时记录原问题失败/超时及精确格。
 
+The authorized efficiency schedule below supersedes the two-size repetition
+matrix for the remaining shared and extra-physical costs only. The six-backend
+ordinary baseline retains both sizes and its already completed observations.
+
 ### 7.2 必需观测字段与判定
 
 | 字段 | 观测规则 |
@@ -535,8 +551,10 @@ latest 中英例子。测试 registry snapshot 不当作 runtime 事实，render
    实测；没有 Artifact→DuckDB、显式 mixed、跨源上传、来源失败后重选或旧 Runtime。
 4. DS/AN 台账、全库静态反查和实际 driver 审计闭合，未批准 SQL/未知提交为零；
    R1.6、公共终端与 Store 事务分别有严格范围和证据，无新增未经批准例外。
-5. 1,000/100,000 与方法压力集合、三类路线成本、转换/共存/物化及扩展改动记录完整；
-   结果/状态/身份保持，未增加容量准入，性能结论与观测范围一致。
+5. 按 §7 最新授权范围完成成本记录：六后端普通基线保留 1,000/100,000；已完成的
+   Distributed 100,000 实测保留，后续方法压力与物理形态改用 1,000 正式成本。三类路线、共享覆盖、
+   规模豁免及转换/共存/物化和扩展改动可重建；结果/状态/身份保持，未增加容量准入，
+   性能结论与实际观测范围一致。
 6. 受影响类型/错误/Help/contract/CLI/site 对齐，`make check-agent`、定向真实 Runtime
    与必要 site 构建通过，修复影响已重跑并绑定同一交付候选。
 7. R10 收到精确 candidate/依赖/矩阵/环境、可执行公共旅程与 oracle、冷恢复/fault、SQL
@@ -571,3 +589,128 @@ acceptance prerequisites; exact connected consumers, keys, multiplicity,
 coverage, cancellation and resource release still require evidence. The earlier
 PostgreSQL transaction-control approval is superseded and its two registrations
 are withdrawn. This change neither grants physical keys nor marks scenarios passed.
+
+### R9.6 weak source-check consistency amendment (2026-10-06)
+
+The user accepts independent source versions for checks and subsequent native
+calculations, without a new snapshot requirement. Check evidence proves its own
+query only; it is not a same-acquisition certificate for a later calculation.
+Logical node sharing and one Run/result identity do not guarantee one physical
+scan. Qualified pure-native graphs keep dependencies as Ibis expressions and
+query checks, required parts and the terminal primary directly, without staging
+an intermediate Arrow capture back into literal or temporary source relations.
+Independent checks may still produce temporary Arrow validation results; the
+eliminated work is intermediate stage capture/restaging, not check-result reads.
+
+Final Arrow schema/key/Cell and primary/RequiredParts/internal-arithmetic checks,
+atomic Store 7 publication, read-only permissions, unchanged compiled submissions,
+the shared 600-second deadline, cancellation and resource release remain required.
+Hybrid/local graphs still prepare every source dependency before local selection;
+fixed continuation remains source-free. No fallback or new SQL exception is
+authorized. The owning contracts are the [analysis design](../../specs/analysis/python-analysis-design.md#r96-source-check-consistency-amendment-2026-10-06)
+and [Runtime](../../specs/analysis/session-state-and-runtime.md#r96-direct-native-expression-execution-2026-10-06).
+Earlier cost samples retain their original execution candidates and scoped or
+historical authority; this refactor does not grant current six-backend or full R9.6
+qualification, a new reuse proof, or a before/after performance conclusion.
+
+### R9.6 shared local preparation optimization (2026-10-06)
+
+The user approved bounded bulk Arrow complete-key/Cell decoding and reuse of the
+same stream's completed primary key index within collection, plus elimination of
+repeated selected-row, key/Subject and window/grid expansion in prepared
+observation. These are shared internal paths, not backend-specific SQL changes.
+Every complete-key row retains its deadline checkpoint, cross-batch uniqueness
+and nullable policy. Exhaustion and successful close are required before index
+reuse. Independent RequiredParts and method-state validation, exact numeric
+state algorithms, original envelopes, grid membership and overlapping
+contribution uses remain unchanged. No result cache spans invocations or source
+reads. Empty selection and invalid-input error precedence remain unchanged.
+
+The pre-optimization cost checkpoint, including failures, retains its original
+candidate. New performance evidence binds the changed candidate and the actual
+deployment separately; no existing reuse proof implicitly grants the optimized
+implementation. Validate the affected private contracts and one bounded Runtime
+integration batch, then one compact broad gate and representative 100k local/fixed
+measurements. Do not repeat unaffected successful backend groups merely to
+rebuild evidence. Remaining ordinary, physical and shared cost obligations stay
+open until their own evidence is complete.
+
+### R9.6 efficiency-first cost amendment (2026-10-06)
+
+The user explicitly selected the 42-group efficiency schedule. This amendment
+changes remaining cost repetitions and evidence reuse, not method qualification,
+public algorithms, original requirement IDs or source/fixed route boundaries.
+The six ordinary backends retain their 72 completed baseline groups at both
+1,000 and 100,000 facts, including separately witnessed cold continuation.
+
+The remaining formal schedule uses 100,000 original facts, one warmup and three
+independent measured realizations per applicable group:
+
+| Remaining scope | Source | Fixed kernel | Exact-hit | Total |
+| --- | ---: | ---: | ---: | ---: |
+| CSV, Parquet, local JSON, Trino non-Iceberg and ClickHouse Distributed | 10 | shared baseline evidence | shared baseline evidence | 10 |
+| Twelve representative and pressure recipes | 12 | 10 | 10 | 32 |
+
+The many-occurrences event recipe covers the basic event recipe's complete
+Journey, Lifecycle, Anchor and elapsed outputs. The full-training numeric-extreme
+forecast recipe covers all three ordinary forecast models and their complete
+training window with its own oracle. Each original scenario ID remains present
+with an explicit covering recipe; old weaker extreme samples are not upgraded.
+Dense ties/Null ranking, ordinal high-cardinality ranking, explicit empty groups,
+multi-root ratio, exact distinct/quantile, comparison/selection, joint/Top-K,
+zscore/MAD, cross-batch long runs/Unknown, all association algorithms and all
+forecast models remain actual consumers with complete output checks.
+
+At 1,000 facts each new applicable shape receives one functional realization:
+32 shared source/kernel/hit records and ten physical source records. These
+42 records are functional probes, not warmup/three-repeat cost cohorts, and do
+not support per-scenario or per-profile 1k-to-100k performance growth claims.
+The 100k exact-hit representatives retain full input/output and RequiredParts
+validation; exact-hit is not treated as constant-time metadata lookup.
+
+Physical FixedShape costs may reference an already measured equivalent ordinary
+baseline only after that actual producer's schema, carrier, receipt, required
+parts and source-offline binding are verified. Reuse does not claim that the
+physical profile itself obtained the referenced timing. No additional cold
+costs are required here; independently owned recovery proofs remain mandatory.
+Both HTTP profiles retain their original positions and exact refusal witnesses.
+
+All original IDs, historical failures and execution candidates remain intact.
+Every omitted two-size repetition has an explicit shared-evidence or authorized
+scale-waiver mapping; it is not relabeled as an unexecuted measured pass. The
+600-second deadline, complete facts/keys/Cells/parts, independent oracles,
+read-only submission governance, cancellation and atomic publication remain
+unchanged. This amendment authorizes no input quotas, approximation, source
+fallback, reduced training/grid/occurrence inputs or full R9 completion grant.
+
+### R9.6 remaining 1k acceptance amendment (2026-10-06)
+
+The user's later instruction supersedes the still-open executions of the
+42-group schedule above: use 1,000 original facts for the forty remaining
+groups, with one warmup and three independent measured realizations per group.
+The two completed ClickHouse Distributed 100k formal groups, their two actual
+1k functional probes and their actual 100k producer binding retain their
+original execution candidate and observations. They are not recollected.
+
+The remaining schedule is `r96-remaining-1k-v1`: eight source groups for CSV,
+Parquet, local JSON and Trino non-Iceberg, plus the same 32 shared
+source/kernel/exact-hit groups. There are no additional separate functional
+probes or cold repetitions. Each formal 1k record executes the unchanged full
+independent oracle. The four remaining physical producer bindings execute at
+1k and cannot grant an unexecuted 100k physical producer.
+
+The remaining 100k executions and new 1k-to-100k growth claims are explicitly
+waived, not measured passes. Original IDs and the earlier coverage map remain
+traceable to this authorized bounded scope. Ordinary baseline timings keep
+their original scales; Distributed and remaining medians are never pooled
+across scales. Shared aliases and exact fixed reuse still require their actual
+complete outputs and equivalent producer/parts/source-offline proofs.
+
+All recipes, complete training/occurrences, keys, Cells, RequiredParts,
+independent original-key oracles, the 600-second deadline, read-only/resource/
+cancel and atomic-publication rules remain unchanged. In particular, the
+cross-batch long-runs recipe keeps its complete 1,536-period grid and actual
+multi-batch witness; reducing original facts does not shorten that grid.
+Historical failures keep their actual precision, candidate and deployment.
+This is a cost acceptance-scale amendment, not a new product qualification,
+capacity limit, approximation, or full R9 completion grant.

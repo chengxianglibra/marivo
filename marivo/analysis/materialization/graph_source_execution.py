@@ -458,6 +458,10 @@ def execute_source_graph(
     )
     if primary is None and not local:
         raise _invalid("missing lowered primary relation")
+    # Native checks and terminal output are independent live reads.
+    direct_native = not local and all(
+        isinstance(stage, LoweredRelation) for stage in lowered.stages
+    )
     completed: list[CompletedCheck] = []
     replacements: dict[ops.Node, ops.Node] = {}
     tables: dict[str, pa.Table] = {}
@@ -713,18 +717,29 @@ def execute_source_graph(
                     proof = _check(source, lowered, check, replacements)
                     if proof is not None:
                         completed.append(proof)
-            issued = _issue(
-                source,
-                lowered,
-                stage.expression,
-                purpose="analysis.graph.stage",
-                replacements=replacements,
-            )
-            issued_reads[stage.output] = issued
-            staged, table = source.stage_derived(issued)
-            owned.append(staged)
-            tables[stage.output] = table
-            replacements[stage.expression.op()] = staged.op()
+            if direct_native:
+                if stage.output == lowered.primary_output:
+                    tables[stage.output] = _read(
+                        source,
+                        lowered,
+                        stage.expression,
+                        purpose="analysis.graph.stage",
+                        replacements={},
+                        cell_reasons=stage.cell_reasons,
+                    )
+            else:
+                issued = _issue(
+                    source,
+                    lowered,
+                    stage.expression,
+                    purpose="analysis.graph.stage",
+                    replacements=replacements,
+                )
+                issued_reads[stage.output] = issued
+                staged, table = source.stage_derived(issued)
+                owned.append(staged)
+                tables[stage.output] = table
+                replacements[stage.expression.op()] = staged.op()
             for check in lowered.checks:
                 if (
                     isinstance(check, (IntegrityCheck, TemporalCheck))

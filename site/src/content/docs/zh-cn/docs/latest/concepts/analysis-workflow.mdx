@@ -240,7 +240,11 @@ DuckDB/PostgreSQL；显式近似分位数也适用于 Trino/ClickHouse。不支�
 已有 Dataset 时，读取 `dataset.contract().show()`，沿当前允许动作提供的准确 Help target 继续。类型与成员仍可按需精确查询；也可以把已取得的公共方法传给 `marivo.help(...)`。
 聚焦叶子列出这次调用所需的前提和返回值路径。读取这些信息足以执行下一步时，就保存并运行最小分析脚本。
 
-一次执行中的主结果和必要附属结果可能观察到不同的源数据状态。Marivo 保留必要的 Artifact 校验、单次求值和原子发布，但不会仅因查询之间源数据发生变化而拒绝或重试。
+一次执行中的来源检查与计算可以观察到不同的源数据状态。检查成功只证明自身那次查询，
+不证明后来读取的事实。一个逻辑 Run/result 身份不承诺一次物理扫描或共享快照。
+已获资格的纯原生图直接查询 Ibis 表达式，不把 Arrow 中间捕获重新暂存回源。
+最终主表和必要部件仍须具有合法的完整键绑定、Cell 和一致的内部算术，再原子发布；
+源数据变化不能为内部不一致的 Artifact 开脱，也不会触发失败后换路线。
 
 Entity 域 J1–J4 的逻辑来源执行每次都会重新读取来源；固定续算可命中同一个精确 Artifact，
 并可通过 `session.artifact(ref)` 显式恢复。其他 Dataset 路径在完成 R6–R9 迁移前于执行前拒绝。
@@ -656,6 +660,16 @@ fixed_targets = selected_regions.group_by(groups=targets).execute()
 `grouped.rollup()` 合并保存的 sum/count 组件。来源与固定续算路径均区分 `50.5` 和 `200/101`。
 Null 观察仍计入 count，count_defined 只计入 Defined Cell，sum/mean 拒绝非 Defined 当前 Cell。
 这些限定证据不构成完整 C05 数值类型、域、数据检查和取消矩阵验收。
+
+DuckDB table 的 UTC 微秒 int64 Entity/group 观察也可以在本地生产者之后归约原 sum 状态：
+
+```python
+local_total = values.deviation(method="zscore").observed.rollup().execute()
+```
+
+该调用先完成完整 deviation 拟合，再归约原状态。R9.6 也接通本地 CSV/JSON 的
+这条 int64 Entity 路线，既有 Parquet 本地生产者可以归约同一原 sum 状态。
+新增文件键不授予 group 域、MAD、其他标量类型或本地 difference/attribution 资格。
 
 六种普通表后端的限定 UTC 微秒 int64 参照份额、排名与字符串身份 cohort 路径均保留完整复合成员键。
 固定 cohort 可将静态目标与完整 Entity/time 机会 Artifact 组合，读取已保留的网格，
@@ -1178,7 +1192,9 @@ for future in (naive, drift, seasonal):
 同 wheel、远程后端或真实 Agent 资格。旧 `.discover`、Candidate 和旧 Association/Forecast Dataset 链已退役。
 
 PostgreSQL、MySQL、Trino 和 ClickHouse 的远端准备允许多次读取期间源数据变化。
-保留输入记录实际读取的事实，不承诺来自同一个数据库快照；固定结果的后续操作使用这些保留输入。
+保留输入记录实际读取的事实，不承诺来自同一个数据库快照，也不把先前查询的检查证明
+扩展到后续读取。全部来源依赖仍须先于本地选人；固定结果的后续操作校验并使用这些
+保留输入，不重新连接来源。
 
 MySQL sample 和 raw_sql 的超时控制仅取消独立读取连接的当前自有查询，并关闭读取和控制连接；认证专用的 SET/读取语句仍保持独立用途。
 
@@ -1218,8 +1234,11 @@ Duration 商会将该 Unknown 原因保留为 float64。此类观测不能通过
 路径。当前已限定的 observation 是 int64 Measure 的 sum 配合
 `empty=ms.empty.zero()`，成员身份的首字段为字符串，事件时间轴为 UTC 微秒精度。
 完整复合键保持不变。构造可以推断本地 schema 事实，但不提交业务读取或分配 Run。
-HTTP/请求参数 JSON、其他数值载体和 observation 方法仍需各自的精确资格；没有改变
-请求语义的回退。固定续算继续使用精确保留的 Artifact 和既有本地执行路线。
+原 observation 也可通过 `rollup()` 执行原生原状态上卷；完整 int64 Entity zscore
+的 `observed` 视图可以在本地归约原 sum 状态，本地 Parquet observation 也接通这个
+精确上卷键。这些新增键不授予文件 mean、MAD、group 域或其他标量类型资格。
+HTTP/请求参数 JSON 继续在打开来源之前拒绝；没有改变请求语义的回退。
+固定续算继续使用精确保留的 Artifact 和既有本地执行路线。
 
 已声明 DuckDB `warehouse` datasource 和 `sales` domain 后，可以对已有的
 `data/facts.csv` 执行以下声明与分析。文件需包含

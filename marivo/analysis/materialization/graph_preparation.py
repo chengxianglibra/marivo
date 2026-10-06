@@ -181,6 +181,9 @@ def _observation(
     }
     original_keys = tuple(f"key_{i}" for i in range(len(subject.subject_key)))
     envelope = {tuple(row[name] for name in original_keys) for row in original.to_pylist()}
+    default_window: tuple[datetime, datetime] | None = None
+    anchor_position: int | None = None
+    grid_windows: dict[str | int, tuple[datetime, datetime]] = {}
     selections = []
     for row in selected.primary.to_pylist():
         check()
@@ -197,31 +200,36 @@ def _observation(
                 "actual Subject image escapes its original member envelope",
                 stage="consume",
             )
-        window_start, window_end = (
-            datetime.fromisoformat(observation.start),
-            datetime.fromisoformat(observation.end),
-        )
-        if observation.grid_window:
-            grid = selected.contract.signature.domain.time_grid
-            if grid is None:
-                fail(
-                    "preparation_bounds",
-                    "prepared selection is missing its captured grid",
-                    stage="consume",
-                )
-            position = next(
-                i
-                for i, coordinate in enumerate(selected.contract.signature.domain.instance_key)
-                if coordinate.role == "anchor"
+        if default_window is None:
+            default_window = (
+                datetime.fromisoformat(observation.start),
+                datetime.fromisoformat(observation.end),
             )
-            cell = next((cell for cell in grid.cells if cell.identity == identity[position]), None)
-            if cell is None:
+            if observation.grid_window:
+                grid = selected.contract.signature.domain.time_grid
+                if grid is None:
+                    fail(
+                        "preparation_bounds",
+                        "prepared selection is missing its captured grid",
+                        stage="consume",
+                    )
+                anchor_position = next(
+                    i
+                    for i, coordinate in enumerate(selected.contract.signature.domain.instance_key)
+                    if coordinate.role == "anchor"
+                )
+                grid_windows = {cell.identity: (cell.start, cell.end) for cell in grid.cells}
+        window_start, window_end = default_window
+        if observation.grid_window:
+            assert anchor_position is not None
+            window = grid_windows.get(identity[anchor_position])
+            if window is None:
                 fail(
                     "input_binding",
                     "selected time key is outside its captured grid",
                     stage="consume",
                 )
-            window_start, window_end = cell.start, cell.end
+            window_start, window_end = window
         selections.append(
             Restriction(
                 tuple(identity),
@@ -234,14 +242,13 @@ def _observation(
     original_state = next(
         part for part in stage.stage.node.signature.parts if isinstance(part, OriginalStatePart)
     )
-    columns: dict[str, list[object]] = {name: selected.primary[name].to_pylist() for name in keys}
+    columns: dict[str, list[object]] = {
+        name: [selection.key[i] for selection in selections] for i, name in enumerate(keys)
+    }
     columns.update({"value": [], "cell_tag": [], "cell_reason": [], "coverage__complete": []})
     columns.update(
         {
-            f"subject__key_{i}": [
-                subject_rows[tuple(row[name] for name in keys)][i]
-                for row in selected.primary.to_pylist()
-            ]
+            f"subject__key_{i}": [selection.subject[i] for selection in selections]
             for i in range(len(subject.subject_key))
         }
     )
