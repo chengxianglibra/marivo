@@ -2,12 +2,70 @@
 
 Date: 2026-10-06
 
-Status: in progress. This document is an audit entry point, not an R9 completion
-grant. The original 394 requirements, their IDs and required proofs remain in
+Status: requested evidence audit and R10 handoff delivered under the user's
+explicit forty-group cost skip; full qualification remains incomplete.
+The amended R9.7 requested scope and full R9 qualification are separate. This
+document is an audit entry point, not an R9 completion grant. The original 394
+requirements, their IDs and required proofs remain in
 `2026-10-04-marivo-r9-evidence/`; the separately authorized DS23 is additional.
 The 9,109 physical seeds do not create an additional Cartesian Runtime matrix.
 The owning plan's finite producer, shared-risk and physical-difference rules
 still determine execution scope.
+
+## Current Requested Scope (2026-10-06)
+
+The user instructed R9.7 to skip the forty remaining 1k cost groups. This removes
+their 160 future invocations from this delivery's execution schedule, preserving
+all original IDs and proof obligations. Fourteen shared-cost IDs and V17 retain
+`authorized_skipped` disposition, with no measured pass. The four associated
+physical producer bindings remain explicitly unverified within V17. Existing
+ordinary and Distributed observations are preserved under their execution
+candidates; the thirteen ordinary baseline requirements still receive an
+independent offline raw-sample audit.
+
+`scripts/r97_completion_audit.py` supplies the executable per-ID audit and
+`scripts/r97_cost_baselines.py` binds the existing ordinary baseline evidence.
+Neither tool executes business queries or collects new costs. Source execution,
+current-owner adoption, evidence integrity and engineering checks have separate
+authority. The [R10 handoff](2026-10-06-marivo-r10-handoff.md) carries the final
+candidate, exact evidence inputs and remaining qualification boundaries.
+
+The routing and collection sections below retain their historical state. Their
+future forty-group instructions are superseded by this explicit skip; none of
+their old candidates, failures, omissions or measured samples are rewritten.
+
+## Final Audit Result
+
+`evidence/r97/final-01/audit.json` preserves all **394 original IDs**:
+**379 finite owner-proof bindings** and **15 authorized skipped cost exits**.
+There are no unresolved binding defects. These are adoption dispositions,
+not 379 new current-candidate Runtime executions. The four physical producer
+bindings remain unverified and explicitly not waived. `requested_audit_scope_complete`
+is true for the evidence audit and handoff; `qualification_complete` and
+`full_r9_complete` remain false.
+
+The delivery content candidate is
+`2eb5fb4c3d2dde8770d3dead3928102637492040b68a889bc6b0f77770f97030`,
+with HEAD `de86166d276ccfff75216173313933bab32447c0`. All 394 product owners and
+the six named candidate dependencies match the retained C8 owner authority.
+Other environment/driver versions retain their recorded invocation authority.
+The baseline binder independently validates 13 IDs, 72 original ordinary
+cohorts and 16 historical failure references. It creates no new measurement.
+
+`engineering-repair-01/run.json` records an actual successful `make check-agent`:
+6,273 passed, five skipped, lint/import checks, 403-source default typing and
+API documentation passed in 138.782795 seconds with an unchanged candidate.
+The current JUnit binds all 257 disclosure nodes, six boundary nodes and the
+30 new auditor tests. `typecheck-repair-01/run.json` separately records four
+touched Python modules passing. The first interrupted broad run and failed
+test-annotation typing invocation remain preserved under `engineering/` and
+`typecheck/`; they are not promoted into the successful command.
+
+The final API/site owner facts are unchanged, so the original hashed site stages
+remain authoritative. No business Runtime, cost collection, backend service,
+installed-wheel, real Agent or release action was performed in this delivery.
+The machine handoff is `evidence/r97/final-01/handoff.json`; keep the ignored
+local evidence archive with its hashed index when transferring the delivery.
 
 ## Original Requirement Routing
 

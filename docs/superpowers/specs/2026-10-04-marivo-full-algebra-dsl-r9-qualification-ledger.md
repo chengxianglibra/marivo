@@ -1,3 +1,31 @@
+# R9.7 current delivery scope (2026-10-06)
+
+The user explicitly instructed R9.7 to skip the forty remaining 1k cost groups.
+All 394 original IDs and their proof sets remain preserved. The fourteen shared
+cost requirements and V17 are recorded as `authorized_skipped`, without a pass
+or synthetic measurement. V17's four outstanding physical producer bindings
+remain unverified. Historical collection instructions and results below are
+retained under their original authority.
+
+The executable audit is `scripts/r97_completion_audit.py`; the separate ordinary
+baseline binder is `scripts/r97_cost_baselines.py`. The final local index is
+`evidence/r97/final-01/audit.json`. It distinguishes original owning closures,
+current unchanged-owner adoption, ordinary raw-sample proofs, current engineering
+and the explicit skipped cost exits. This amended requested-scope delivery is
+separate from a complete 394-ID Runtime or cost grant.
+
+See the [completion audit](2026-10-06-marivo-r97-completion-audit.md) and
+[R10 handoff](2026-10-06-marivo-r10-handoff.md) for exact commands, original
+evidence inputs, dependency/environment owners and installed/real-Agent/release
+work remaining. No successful business invocation is repeated for final index
+serialization or candidate metadata.
+
+The final audit records **379 finite owner-proof adoptions / 15 authorized cost
+skips**, zero binding defects and four unverified physical producer bindings.
+The actual final `make check-agent` passes with **6,273 passed / five skipped**
+and unchanged candidate. These dispositions do not grant complete Runtime/cost
+qualification; `qualification_complete` and `full_r9_complete` remain false.
+
 ## Current R9.3 implementation acceptance (2026-10-06)
 
 **222 passed / 0 blocked / 0 unverified**, preserving all original requirement IDs. [Full-grid Unknown closure](2026-10-04-marivo-r93-evidence/full-grid-unknown-01/README.md) supplies the last four obligations with an actual public native producer, three strict forecast refusals and independently checked unavailable run splits. Original read coverage and partial contributions remain retained; Parquet cold recovery forbids source reads. This completes the original bounded R9.3 implementation acceptance, not all-profile or R9.7 qualification. Earlier counts below are historical.

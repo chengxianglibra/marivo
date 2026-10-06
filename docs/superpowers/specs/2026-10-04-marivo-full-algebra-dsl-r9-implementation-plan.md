@@ -20,8 +20,28 @@ physical retirement are recorded in the
 [current SQL ledger](2026-10-06-marivo-r95-sql-ledger.md). R9.6 implementation and
 cost boundaries are recorded in the
 [current cost record](2026-10-06-marivo-r96-cost-record.md); the
-[R9.7 completion audit](2026-10-06-marivo-r97-completion-audit.md) remains separate.
+[R9.7 completion audit](2026-10-06-marivo-r97-completion-audit.md) now delivers
+the requested evidence audit and R10 handoff with the explicit forty-group cost
+skip. Full qualification remains incomplete.
 Frozen targets grant no execution qualification.
+
+### R9.7 remaining-cost instruction (2026-10-06)
+
+The user explicitly instructed R9.7 to skip the forty remaining 1k cost groups:
+the thirty-two shared-scenario groups and eight CSV/Parquet/local-JSON/non-Iceberg
+source groups. Do not collect their 160 scheduled invocations. Preserve the
+original 394 IDs and every required proof; record the fourteen shared cost IDs
+and V17's incomplete cost exit as `authorized_skipped`, never measured or passed.
+The four associated physical producer bindings remain unverified within V17;
+the instruction does not supply their missing offline proof.
+
+The seventy-two ordinary cohorts and the two completed Distributed cohorts keep
+their original candidates, deployment identities, timings and outcomes. Bind the
+thirteen ordinary baseline IDs independently using their existing raw samples.
+R9.7 still audits the original IDs, applicable current product owners, disclosure,
+engineering and evidence references and supplies an exact R10 handoff. Completing
+this amended requested scope is distinct from full R9 cost qualification. No
+installed-wheel, installed multisource, real Agent or release grant follows.
 
 ## 1. 目标、前置交接与文档权威
 
