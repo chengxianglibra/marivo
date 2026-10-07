@@ -19,6 +19,7 @@ from marivo.analysis.evidence._dataset_codec import (
     decode_finding_body,
     finding_identity,
 )
+from marivo.analysis.materialization.contracts import parse_timestamp
 from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
@@ -421,7 +422,7 @@ def collection(
     ).fetchone()
     if artifact is None or evidence is None:
         raise invalid("Artifact lacks atomic Evidence")
-    committed_at = datetime.fromisoformat(artifact[0])
+    committed_at = parse_timestamp(artifact[0])
     rows = conn.execute(
         "SELECT * FROM findings WHERE artifact_ref=? ORDER BY finding_ordinal", (artifact_ref,)
     ).fetchall()

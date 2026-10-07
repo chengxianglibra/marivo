@@ -48,6 +48,9 @@ source .venv/bin/activate
 | Trino | `uv pip install "marivo[trino]"` |
 | 所有已打包的后端 | `uv pip install "marivo[all]"` |
 
+基础包包含语义声明和本地 Artifact 读取所需的 Arrow，数据库驱动仍为可选依赖。
+PostgreSQL 需要原生 `libpq` 库；MySQL 需要原生客户端库及其构建前置依赖。
+
 发现数据源 provider 时不会导入未选择的驱动。所选驱动缺失时，
 `DatasourceConnectionError` 会指出当前环境需要安装的后端扩展；安装后重试连接。
 

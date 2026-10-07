@@ -14,7 +14,9 @@ import pyarrow as pa
 
 from marivo.analysis.core.graph import (
     Edge,
+    FixedLeaf,
     MethodNode,
+    Node,
     method_node,
     retained_inclusion,
     topology,
@@ -108,6 +110,31 @@ def bind(inputs: tuple[Relation, ...], params: DisplayRank | DisplayTable) -> Re
                 or retained_inclusion(first.definition, item.definition)
             ),
         )
+    endpoints: tuple[MethodNode, ...] = ()
+    if isinstance(first.binding, FrozenBinding):
+        closures: dict[tuple[str, ...], dict[str, tuple[Node, Node]]] = {}
+        retained: list[MethodNode] = []
+        execution: list[Node] = []
+        for item in inputs:
+            receipts = tuple(
+                sorted(
+                    {
+                        node.artifact.ref
+                        for node in topology(item.root)
+                        if isinstance(node, FixedLeaf)
+                    }
+                )
+            )
+            is_view = item.root is item.definition
+            endpoint = _retained_definition(
+                item.definition,
+                preserve_fixed=is_view,
+                shared=closures.setdefault(receipts, {}),
+            )
+            retained.append(endpoint)
+            execution.append(endpoint if is_view else item.root)
+        endpoints = tuple(retained)
+        roots = tuple(execution)
     node = method_node(
         tuple(
             Edge("subject" if root.signature.quantity is None else "quantity", root)
@@ -115,9 +142,7 @@ def bind(inputs: tuple[Relation, ...], params: DisplayRank | DisplayTable) -> Re
         ),
         params,
         value_type=first.root.value_type,
-        retained_endpoints=tuple(_retained_definition(item.definition) for item in inputs)
-        if isinstance(first.binding, FrozenBinding)
-        else (),
+        retained_endpoints=endpoints,
     )
     result = first._with(node)
     for item in inputs[1:]:

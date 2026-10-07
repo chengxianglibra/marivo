@@ -82,14 +82,10 @@ def lower_axes(
                 else:
                     fields[f"axis_{point_index}_{axis_index}"] = raw[axis.dimension.source_column]
                 current = joined.select(**fields)
-                table = table.join(current, [table[key] == current[key] for key in keys]).select(
-                    **{name: table[name] for name in table.columns},
-                    **{
-                        f"axis_{point_index}_{axis_index}": current[
-                            f"axis_{point_index}_{axis_index}"
-                        ]
-                    },
-                )
+            table = table.join(current, [table[key] == current[key] for key in keys]).select(
+                **{name: table[name] for name in table.columns},
+                **{f"axis_{point_index}_{axis_index}": current[f"axis_{point_index}_{axis_index}"]},
+            )
     extras = tuple(
         f"axis_{point}_{axis}"
         for point in range(len(params.request.at))

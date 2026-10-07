@@ -7,7 +7,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from tests.shared_fixtures import DslCaseFactory, DslScenario
+from tests.shared_fixtures import DslCaseFactory, DslScenario, analysis_dsl_rows
 from tests.support.documentation import _blocks
 from tests.support.paths import PROJECT_ROOT
 
@@ -283,6 +283,13 @@ def test_attribution_workflow_example_executes(
     assert isinstance(table, mv.MaterializedTable)
     assert allocation.contribution.to_pandas().equals(restored.contribution.to_pandas())
     assert table.to_pandas()["contribution"].sum() == 0
+    facts = analysis_dsl_rows("j2")
+    rows = table.to_pandas()
+    for side, month in (("current", "2026-08"), ("baseline", "2026-07")):
+        assert rows[side].sum() == sum(str(order[4]).startswith(month) for order in facts.orders)
+    recovered_table = case.session.artifact(table.artifact_ref)
+    assert isinstance(recovered_table, mv.MaterializedTable)
+    assert recovered_table.to_pandas().equals(rows)
 
 
 @pytest.mark.runtime

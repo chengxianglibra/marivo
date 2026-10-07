@@ -149,7 +149,12 @@ def _shared_root(first: Node, second: Node, known: dict[str, Node] | None = None
     return known[second.identity]
 
 
-def _retained_definition(root: MethodNode, *, preserve_fixed: bool = False) -> MethodNode:
+def _retained_definition(
+    root: MethodNode,
+    *,
+    preserve_fixed: bool = False,
+    shared: dict[str, tuple[Node, Node]] | None = None,
+) -> MethodNode:
     """Isolate an Artifact's metadata closure without altering any definition hash.
 
     Source shape qualification may differ across snapshots of the same capture.
@@ -167,6 +172,12 @@ def _retained_definition(root: MethodNode, *, preserve_fixed: bool = False) -> M
         return root
     known: dict[str, Node] = {}
     for original in retained_nodes(root):
+        if shared is not None and original.identity in shared:
+            prior, isolated = shared[original.identity]
+            if not same_node_definition(prior, original):
+                raise _reject("shared Artifact definition has conflicting frozen nodes")
+            known[original.identity] = isolated
+            continue
         node = original
         if isinstance(node, MethodNode):
             node = replace(
@@ -190,6 +201,8 @@ def _retained_definition(root: MethodNode, *, preserve_fixed: bool = False) -> M
             node = replace(node, identity=uuid4().hex)
         # The original capture key is used only while rebuilding this isolated closure.
         known[original.identity] = node
+        if shared is not None:
+            shared[original.identity] = (original, node)
     result = known[root.identity]
     assert isinstance(result, MethodNode) and result.fingerprint == root.fingerprint
     return result

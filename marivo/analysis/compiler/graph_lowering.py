@@ -1631,12 +1631,17 @@ def _count(stage: SourceMethodStage, source: LoweredRelation) -> tuple[ir.Table,
         cell = source.layout.cell
         if cell is None:
             _fail("Cell values for registered current-row arithmetic", "missing Cell")
+        operand_bound = _operand_bound(source, table)
         aggregate = grouped.aggregate(
             state_sum=table[cell.value].sum().fill_null(0),
             state_count=table.count(),
             **(
                 {
-                    "error_bound": _operand_bound(source, table).sum().fill_null(0)
+                    "error_bound": (
+                        operand_bound.sum().fill_null(0)
+                        if isinstance(operand_bound, ir.Column)
+                        else operand_bound * table.count()
+                    )
                     + 1e-12 * (1.0 + table[cell.value].abs().sum().fill_null(0))
                 }
                 if params.retain_error
