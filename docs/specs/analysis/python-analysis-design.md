@@ -2590,6 +2590,22 @@ a separately reconstructed continuation does not promise the prior artifact ID.
 Other axis counts/orderings, longer paths, other version/time profiles and complete C12
 qualification are not added by this bounded declaration.
 
+O2b additionally admits any nonempty unique ordered tuple of direct string/int64
+Dimensions on an unversioned SQLite Subject under the same native main-table,
+int64 occurrence identity and UTC-us placement. There is no extra axis-count or
+type-order limit; existing graph and snapshot budgets still apply. Entry-axis
+preparation and local reduction preserve complete actual tuples, including real
+Null categories, without inventing Cartesian groups. Source-free comparison and
+joint/hierarchy allocation consume the retained tuple order and components.
+Nullable int64 axis coordinates use Arrow-backed pandas types on public reads,
+preserving values above 2**53 when Null or inactive hierarchy prefixes are present.
+Historical axes retain the single-string-axis, single-hop DATE snapshot/validity
+profile above; combinations with historical axes and longer paths remain
+unqualified. Empty-axis source reduction, other axis types, mixed source/fixed
+inputs and heterogeneous physical shapes do not gain qualification. This parameter
+extension preserves implementation keys, identities, versions and Store encoding;
+its execution evidence is recorded separately from R9.3 and full C12 acceptance.
+
 ## R7.6 local History API amendment
 
 R9.3 additionally connects SQLite native main-table int64/UTC-us replay and

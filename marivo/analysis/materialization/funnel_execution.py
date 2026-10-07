@@ -84,7 +84,10 @@ def _result(
         None
         if state_kind == "none"
         else pa.Table.from_arrays(
-            [*(primary[key] for key in keys), pa.array(["accepted"] * primary.num_rows)],
+            [
+                *(primary[key] for key in keys),
+                pa.array(["accepted"] * primary.num_rows, type=pa.string()),
+            ],
             names=[*keys, "status"],
         )
     )

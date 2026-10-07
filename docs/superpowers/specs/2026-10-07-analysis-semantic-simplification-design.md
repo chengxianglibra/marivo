@@ -2,7 +2,7 @@
 
 Date: 2026-10-07
 
-Status: O1 and O2a implemented and validated within the stated scope. O2b and O3–O5 remain proposed.
+Status: O1, O2a and O2b's first direct-axis batch are implemented and validated within the stated scope. O2b's remaining candidates and O3–O5 remain proposed.
 
 Baseline: `panda@ccbed62962e21beef5778c738037e62d912ec8fb`.
 
@@ -11,7 +11,8 @@ Baseline: `panda@ccbed62962e21beef5778c738037e62d912ec8fb`.
 前三项先按等价内部整理实施；改变支持范围、恢复协议或作者语法的部分分别交付。
 
 O1、O2a 已按本文的等价内部整理边界实施，并更新对应私有构造、编译交接与消费者规范。
-其他工作包仍是优化提案；本次不授予新的后端、类型或方法组合资格，也不表示
+O2b 首批仅扩大 SQLite Funnel 的直接 string/int64 Subject 轴组合；其余 O2b 候选与
+O3–O5 仍是优化提案。此次没有新增后端或轴类型资格，也不表示
 R10、安装包、真实 Agent 或发布验收已经完成。`AGENTS.md` 与 packaged skills 保持原样。
 
 ## 1. 范围与设计原则
@@ -247,6 +248,72 @@ O2b 的新增资格单独记录，不反向改写历史验收结论，也不机�
   不承诺统一执行加速比例，不扩大后端/类型/方法组合资格。
 - 外部 provider Runtime、完整 Runtime、安装包、真实 Agent 与发布验收未运行。
   `AGENTS.md`、packaged skills、公共导出和 Help 未修改；O2b、O3–O5 未实施。
+
+### O2b 首批实施记录（2026-10-07）
+
+- 实施基线为 `panda@1d9fedea3d`。仅扩大 SQLite native main-table、int64 occurrence
+  identity、UTC-us 路线上的直接轴组合；任何非空、去重、有序的直接 string/int64
+  Subject 轴元组均可进入原准备与本地归约消费者。Subject 必须未版本化；沿用既有
+  图与快照预算，没有新增轴数、排列或输入行数限额。
+- 直接轴按每个轴的物理类型与路径事实准入，删除固定类型序列白名单。
+  `funnel.entry_axes` 与 `funnel.reduce` 使用同一消费者规则。历史轴继续只支持既有
+  单字符串轴、单跳 UTC DATE snapshot/validity profile；历史轴组合、多跳、版本化
+  Subject、其他轴类型、空轴来源归约、mixed source/fixed 与异构 shape 不随本批放开。
+- 复用逐轴入口捕获、完整实际元组归约及 retained comparison/allocation；Null 类别与
+  字面量 Other 保持不同含义，不生成笛卡尔积组。新增反向类型排列、同类型轴对、三轴
+  及 17 轴准入回归；实际 SQLite 用例覆盖四种新增短轴组合和 17 轴长序列、空结果与
+  七项计数。
+- 空结果验收发现原 Funnel exchange 的零行 accepted 状态列被 Arrow 推断为 null。
+  该消费者现在显式声明 string 状态列；非空输出、持久化协议与版本保持原样。
+- nullable int64 与 hierarchy 非活动前缀的读取反例确认默认 pandas 转换会将整数轴
+  转为 float64，损失超过 2**53 的精度。带 nullable int64 的 Funnel 结果现在使用
+  Arrow-backed pandas 类型；直接轴、joint/hierarchy 与冷恢复均检查精确整数坐标。
+  仅改变公开读取表示，原主表、retained state、Store schema 与摘要规则保持原样。
+- 84 个方法、11,470 条基础声明及其 exact key、实现 ID/version、checks、parts、
+  精度、资源和 qualification metadata 没有改变。O2a 冻结声明与 specialization oracle
+  保持原样；新增参数资格由本节和独立运行测试记录，不改写 R9.3 或完整 C12 结论。
+- 原 `.funnel()` docstring 由 native Help 展示新增约束；结构化错误、owning specs 和
+  latest 英中三轴示例同步。无公共导出、新 Help target、registry 或路线回退。
+  `AGENTS.md` 与 packaged skills 保持原样。
+
+首轮验收结果：
+
+- 受影响消费者/Funnel 默认回归为 160 passed；补齐英中示例、Help 与导出回归后为
+  175 passed（10.94 s）。O2a 冻结声明和 specialization oracle 继续通过。
+- 最终 `make check-agent` 通过：766 个文件的格式/lint、import contracts、335 个源码
+  文件的 typing、默认测试 4,746 passed / 1 skipped（58.15 s），以及 API 文档构建。
+  初次 broad run 因新增双语代码块使旧数量断言 27 与实际 28 不符而失败；该断言已
+  同步，并通过上述完整重跑。
+- 8 个受影响生产/测试模块的定向 typing 通过；该定向调用使用
+  `--follow-imports=silent` 隔离未修改测试 helper 的既有类型问题，被选模块本身完整检查。
+- 最终定向 Runtime 为 10 passed（295.64 s）：四种新增直接轴组合的 SQLite 实际执行、
+  空结果、七项计数与聚合守恒，非法输入/空轴来源路线的提前拒绝及取消清理，三轴的
+  独立进程 fixed/cold 续算，以及既有 SQLite int64/string、snapshot/validity 回归。
+  英中三轴示例实际执行；移除源文件与模型后读取、比较、joint/hierarchy 分配、
+  reconciliation 与 Findings 保持一致，冷进程重建图命中不新建 Run 或重跑 kernel，
+  新 top_k continuation 只新增一个 Run。超过 2**53 的 nullable 整数坐标保持精确。
+- 外部 provider Runtime、完整 Runtime、安装包、真实 Agent 与发布验收未运行。
+  首轮 17 轴仅有静态准入证据，其实际执行由下述审查修复回归补齐。
+
+审查修复：
+
+- 17 个唯一直接轴、4 个 Subject、约 10 KiB 图快照的反例通过准入后，在 SQLite
+  执行阶段触发 `at most 64 tables in a join`。原因是逐轴 lowering 重复展开 occurrence
+  和 Subject JOIN；替换回基线准入函数时，同例在 Run 分配前拒绝。
+- 同一未版本化 Subject、相同实体与来源绑定的直接轴现在共享入口映射 JOIN，并按
+  原轴顺序投影所有列。完整路径、exact entry mapping 及每个非空 Dimension 的检查
+  保留；历史路径继续逐轴处理。不增加轴数限额，不改变实现身份、Store 编码或路线。
+- 新增 17 轴 SQLite Runtime 回归复用短轴组合的独立预期，覆盖真实 Null、字面量
+  Other、大 int64、完整元组、七项计数、初始 Undefined、空结果和资源释放。
+  将该测试进程中的 lowering 换回 `1d9fedea3d` 实现后，测试在 1.32 s 内复现 JOIN
+  上限失败；当前实现同一用例为 1 passed（4.96 s），确认回归直接覆盖审查问题。
+- 修复后的受影响默认测试为 160 passed（9.05 s）；两个修改模块的定向 typing、lint
+  和 import contracts 通过。定向 Runtime 为 13 passed（309.40 s），包括新增直接轴
+  组合与 17 轴、取消清理、三轴断源恢复，既有 SQLite 直接轴与 snapshot/validity，
+  以及 DuckDB table/parquet 分组归因回归。其余 provider、完整 Runtime、安装包、
+  真实 Agent 和发布验收仍未运行。
+- 修复后 `make check-agent` 全部通过：766 个文件的格式/lint、import contracts、335
+  个源码文件的 typing、默认测试 4,746 passed / 1 skipped（51.95 s），以及 API 文档构建。
 
 ## 6. O3 复用已编译的语义契约
 
