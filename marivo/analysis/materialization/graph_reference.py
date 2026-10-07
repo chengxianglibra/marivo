@@ -560,7 +560,7 @@ def disclosure(checked: ExchangeResult) -> tuple[tuple[str, str], ...]:
         )
         facts.extend(
             (
-                ("reference_denominator", str(denominator)[:128]),
+                ("reference_denominator", str(denominator)),
                 ("current_partition", "complete" if current == complete else "partial"),
                 ("nonnegative_range", "proved [0,1]" if nonnegative else "unproved; signed share"),
             )
@@ -572,7 +572,7 @@ def disclosure(checked: ExchangeResult) -> tuple[tuple[str, str], ...]:
         )
         facts.extend(
             (
-                ("represented_weight_sum_deviation", str(total - 1)[:160]),
+                ("represented_weight_sum_deviation", str(total - 1)),
                 ("retained_strata", str(reference.num_rows)),
             )
         )

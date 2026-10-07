@@ -93,6 +93,37 @@ a Logical Dataset is not a terminal table and a Materialized Dataset is not a
 mutable dataframe. Do not add a generic three-method adapter that erases this
 state distinction.
 
+## Business data display
+
+Analysis materialized values and terminal tables, `PreviewResult`, and
+`RawSqlResult` use `show(*, n: int | None = None, max_output_bytes: int | None = 8192)`.
+Existing preview/raw-SQL `render()` methods accept the same controls and return
+text without a newline; analysis does not acquire a public `render()` method.
+The UTF-8 budget includes the newline printed by `show()`.
+
+There is no default row cap. `n` is a nonnegative integer (not bool), or `None`;
+zero displays metadata and columns only. `max_output_bytes` is a positive integer
+(not bool), or `None` for unlimited output, still subject to `n`. These controls
+never change execution, stored rows, or source query limits.
+
+Cards order identity and row counts, interpretation facts, data, interpretation
+boundaries and omissions, then state-dependent read hints. Required metadata is
+reserved before fitting whole rows. Display counts distinguish retained/returned
+rows from full-source cardinality, query truncation and business coverage. Omitted
+rows have exact counts, row/byte reasons and an applicable recovery call. Wide
+rows are omitted whole; cells and columns are never silently shortened. If even
+mandatory metadata and omission detail cannot fit, a `ValueError` reports the
+minimum budget. Data containing line breaks or separators is escaped losslessly.
+
+Cell state counts cover the complete current result, not the displayed prefix.
+Defined values retain precision; analysis Duration cells use exact integer ticks
+with their unit. Non-Defined Cells retain distinct tags and reasons. Entity
+identities remain redacted even with unlimited output. Interpretation facts come
+from captured definitions and retained data, without reading current business
+sources. Available saved Findings have a count and the receiver's actual read
+entry; full operation directories remain in `contract()` and focused Help.
+Non-data cards and bounded page protocols retain their existing purposes.
+
 ## Keep each guidance fact with its owner
 
 | Owner | Facts |

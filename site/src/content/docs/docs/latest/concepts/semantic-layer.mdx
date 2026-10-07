@@ -1724,3 +1724,23 @@ not displayed means or ratios; a saved result is read unchanged.
 average_price = ms.weighted_mean(name="average_price", value=price, weight=units)
 # price can be Decimal and units can be integer.
 ```
+
+
+## Reading preview and SQL result rows
+
+`PreviewResult` and `RawSqlResult` share the business data display controls:
+
+```python
+preview.show(n=20)
+preview.show(n=0)
+preview.show(max_output_bytes=None)
+text = preview.render(n=20)
+```
+
+These examples use an already returned preview. The default has no row cap and
+fits complete rows within 8 KiB, including the printed newline. `n=0` shows
+metadata and columns. `None` removes the byte budget but preserves an explicit
+row limit. Display omissions have exact counts and recovery hints. Query limits,
+query truncation, preview coverage and sampling warnings remain independent;
+showing every returned row does not establish full-source coverage. Display
+never reruns the query. Batch previews retain their summary card.

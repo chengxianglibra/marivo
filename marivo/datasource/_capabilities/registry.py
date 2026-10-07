@@ -17,6 +17,7 @@ from marivo._authoring.model import (
     MutationEffect,
     RepairKind,
 )
+from marivo._data_render import _display_help
 from marivo.datasource._capabilities.model import (
     DatasourceCapabilityRegistry,
     DatasourceRootGroup,
@@ -666,12 +667,14 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         properties: tuple[str, ...] = (),
         methods: tuple[str, ...] = (),
         consumers: tuple[str, ...] = (),
+        guidance: tuple[str, ...] = (),
     ) -> None:
         contracts[cls] = DatasourceTypeContract(
             name=name,
             producers=tuple(_target(value) for value in producers),
             public_properties=properties,
             public_methods=methods,
+            guidance=guidance,
             consumers=tuple(_target(value) for value in consumers),
         )
 
@@ -757,6 +760,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "warnings",
         ),
         methods=show_render,
+        guidance=_display_help(),
     )
     source_types: tuple[type, ...] = (TableSourceIR, ParquetSourceIR, CsvSourceIR, JsonSourceIR)
     for source_type in source_types:

@@ -258,21 +258,13 @@ def test_committed_runtime_projections_satisfy_terminal_protocol(analysis_dsl_ca
 def test_preview_result_renders_shared_card_shape() -> None:
     result = _preview_result()
 
-    assert result.render() == "\n".join(
-        [
-            "PreviewResult kind=semantic_dataset ref=sales.orders rows=1/50",
-            (
-                "status: status=passed truncated=False "
-                "scope_coverage=exhaustive/scope_exact "
-                "sample_policy=bounded_limit(limit=20)"
-            ),
-            "columns: id | country",
-            "preview:",
-            "1 | US",
-            "available:",
-            "- .show()",
-        ]
-    )
+    text = result.render()
+    assert "Rows: 1 total; 1 shown; 0 omitted; scope=returned preview rows" in text
+    assert "columns: id | country\ndata:\n1 | US" in text
+    assert "query_limit: 50" in text
+    assert "query_truncated: false" in text
+    assert "scope_coverage: exhaustive/scope_exact" in text
+    assert "available:" not in text
 
     assert _preview_batch_result().render() == "\n".join(
         [
@@ -495,6 +487,9 @@ def _footer_entries(obj: object) -> tuple[str, ...]:
 @pytest.mark.parametrize("builder", [*TERMINAL_BUILDERS, *CONTRACT_BUILDERS])
 def test_available_footer_follows_two_exit_rule(builder: Callable[[], object]) -> None:
     obj = builder()
+    if isinstance(obj, (PreviewResult, RawSqlResult)):
+        assert "available:" not in obj.render()
+        return
     entries = _footer_entries(obj)
     assert ".show()" in entries, (type(obj).__name__, entries)
     assert not any(entry.startswith(".render") for entry in entries), (

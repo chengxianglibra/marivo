@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import builtins
-from contextlib import redirect_stdout
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from inspect import signature
-from io import StringIO
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, overload
 
 import pandas as pd
 
+from marivo._data_render import _validate_display
 from marivo._temporal import BeforeEndBoundary, Grain, TimeScope
 from marivo.analysis._cohort import (
     AllInstances,
@@ -144,6 +143,7 @@ from marivo.refs import (
     SemanticKind,
     TimeDimensionKind,
 )
+from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
 from marivo.semantic.event import ParticipantRoleHandle
 from marivo.semantic.ir import TargetRelationshipContract
 from marivo.semantic.metric_graph import TargetMetricContract
@@ -153,6 +153,7 @@ from marivo.semantic.validator import normalize_target_relationship
 if TYPE_CHECKING:
     from marivo.analysis.datasets.state import MaterializedDatasetState
     from marivo.analysis.materialization.admission import DatasetRuntime
+    from marivo.analysis.materialization.graph_exchange import ExchangeResult
 
 RootRoute: TypeAlias = RootRouteValue
 RootRoutes: TypeAlias = RootRoutesValue
@@ -962,7 +963,9 @@ class _Value:
             facts,
         )
 
-    def _contract_facts(self) -> tuple[tuple[str, str], ...]:
+    def _contract_facts(
+        self, *, checked: ExchangeResult | None = None, display: bool = False
+    ) -> tuple[tuple[str, str], ...]:
         signature = self._node.root.signature
         quantity = signature.quantity
         facts: list[tuple[str, str]] = []
@@ -994,7 +997,9 @@ class _Value:
             if self._dataset is not None:
                 from marivo.analysis.materialization.runs_execution import _decode as decode_runs
 
-                _, run_state = decode_runs(self._dataset.verified().parts)
+                _, run_state = decode_runs(
+                    (checked if checked is not None else self._dataset.verified()).parts
+                )
                 for label in ("true", "false", "unavailable"):
                     facts.append(("original_" + label, str(run_state.classifications.count(label))))
         association_state = next(
@@ -1018,7 +1023,9 @@ class _Value:
             if self._dataset is not None:
                 from marivo.analysis.materialization.statistical_execution import decode_pairs
 
-                _, original_association = decode_pairs(self._dataset.verified().parts)
+                _, original_association = decode_pairs(
+                    (checked if checked is not None else self._dataset.verified()).parts
+                )
                 facts.extend(
                     (
                         ("original_candidates", str(len(original_association.candidates))),
@@ -1053,7 +1060,9 @@ class _Value:
             if self._dataset is not None:
                 from marivo.analysis.materialization.statistical_execution import decode_forecast
 
-                _, original_f = decode_forecast(self._dataset.verified().parts)
+                _, original_f = decode_forecast(
+                    (checked if checked is not None else self._dataset.verified()).parts
+                )
                 facts.extend(
                     (
                         ("series_count", str(len(original_f.series))),
@@ -1085,7 +1094,9 @@ class _Value:
             if self._dataset is not None:
                 from marivo.analysis.materialization.deviation_execution import _decode
 
-                _, fit_state = _decode(self._dataset.verified().parts)
+                _, fit_state = _decode(
+                    (checked if checked is not None else self._dataset.verified()).parts
+                )
                 facts[-1] = ("partition_count", str(len(fit_state.partitions)))
                 for label in ("defined", "null", "undefined", "unknown"):
                     facts.append(
@@ -1125,7 +1136,7 @@ class _Value:
                     def bounded_fact(value: str) -> str:
                         return (
                             value
-                            if len(value) <= 96
+                            if display or len(value) <= 96
                             else value[:96] + f"... (excerpt; {len(value)} characters retained)"
                         )
 
@@ -1175,7 +1186,12 @@ class _Value:
                 facts.append(
                     (
                         "captured_precision",
-                        (self._dataset.verified().primary.schema.metadata or {})
+                        (
+                            (
+                                checked if checked is not None else self._dataset.verified()
+                            ).primary.schema.metadata
+                            or {}
+                        )
                         .get(b"r7.precision", b"unavailable")
                         .decode()[:2048],
                     )
@@ -1239,7 +1255,9 @@ class _Value:
                 )
             )
             if self._dataset is not None:
-                metadata = self._dataset.verified().primary.schema.metadata or {}
+                metadata = (
+                    checked if checked is not None else self._dataset.verified()
+                ).primary.schema.metadata or {}
                 facts.append(
                     (
                         "captured_precision",
@@ -1317,7 +1335,7 @@ class _Value:
             if self._dataset is not None:
                 from marivo.analysis.materialization.retention_execution import read, summary
 
-                exchange = self._dataset.verified()
+                exchange = checked if checked is not None else self._dataset.verified()
                 facts.extend(
                     summary(
                         read(next(p for p in exchange.parts if p.role == "retention")), retention
@@ -1456,7 +1474,7 @@ class _Value:
                 and quantity.method_version == "row.mean@v1"
             ):
                 facts.append(("weighting", "equal current rows"))
-        if self._dataset is not None:
+        if self._dataset is not None and not display:
             state = self._dataset.state
             facts.extend(
                 (
@@ -1469,9 +1487,32 @@ class _Value:
             )
             if cells:
                 facts.append(("cell_state_fields", ",".join(cells)))
-        else:
+        elif self._dataset is None:
             facts.append(("source", "logical definition; no business rows read"))
-        return tuple(facts)
+        if display:
+            # The callable owner separates reading meaning from continuation/storage facts.
+            internal = {
+                "run_scope",
+                "run_transform",
+                "fit_scope",
+                "fit_transform",
+                "numeric_policy",
+                "continuation_boundary",
+                "source_route",
+                "comparison_unavailable",
+                "correlation_unavailable",
+                "reference",
+                "component_scope",
+                "reconciliation_scope",
+                "partial_state",
+                "value_type",
+                "cell_state_fields",
+                "source",
+                "rows",
+                "captured_precision",
+            }
+            facts = [(name, value) for name, value in facts if name not in internal]
+        return tuple(dict.fromkeys(facts)) if display else tuple(facts)
 
     def __repr__(self) -> str:
         identity = (
@@ -2332,26 +2373,50 @@ class _CountRelation(_Value):
 
 
 class _MaterializedRead(_Value):
-    def show(self, *, max_output_bytes: int | None = None) -> None:
-        """Show bounded contract facts and a preview of the exact committed result.
+    def show(
+        self, *, n: int | None = None, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES
+    ) -> None:
+        """Show committed rows, their meaning, and explicit display omissions.
 
         Args:
-            max_output_bytes: Optional bound for the displayed preview.
-        Returns: None; prints a bounded result preview.
-        Example: ``result = relation.show(max_output_bytes=max_output_bytes)``.
-        Constraints: Reads only the exact committed result, redacts member keys,
-            and bounds the combined output.
+            n: Maximum displayed rows; None means all and zero means metadata only.
+            max_output_bytes: UTF-8 budget including the newline; None removes the budget.
+        Returns: None; prints retained values and interpretation boundaries.
+        Example: ``relation.show(n=20)``.
+        Constraints: Reads verified committed state only, redacts member identities,
+            and preserves Cell states. Row limits do not change the result.
         """
+        _validate_display(n, max_output_bytes)
         assert self._dataset is not None
-        buffer = StringIO()
-        with redirect_stdout(buffer):
-            self.contract().show()
-            self._dataset.show(max_output_bytes=max_output_bytes)
-        limit = 8192 if max_output_bytes is None else builtins.min(8192, max_output_bytes)
-        print(
-            buffer.getvalue()
-            .encode("utf-8")[: builtins.max(0, limit - 1)]
-            .decode("utf-8", errors="ignore")
+        checked = self._dataset.verified()
+        disclosure = self._contract_facts(checked=checked, display=True)
+        meaning = {
+            "unit",
+            "method",
+            "metric",
+            "statistical_unit",
+            "field",
+            "field_kind",
+            "window",
+            "start_selection",
+            "within",
+            "history_view",
+            "entry_axes",
+            "association_method",
+            "forecast_model",
+            "horizon",
+            "interval_level",
+        }
+        self._dataset.show(
+            n=n,
+            max_output_bytes=max_output_bytes,
+            checked=checked,
+            facts=(
+                ("kind", _kind(self._node)),
+                *(item for item in disclosure if item[0] in meaning),
+            ),
+            boundaries=tuple(item for item in disclosure if item[0] not in meaning),
+            findings=True,
         )
 
     def evidence_digest(self) -> ArtifactDigest:
@@ -5740,16 +5805,20 @@ class MaterializedTable(_Table):
         assert self._dataset is not None
         return ArtifactRef(ref=self._dataset.artifact.artifact_ref)
 
-    def show(self, *, max_output_bytes: int | None = None) -> None:
-        """Print a deterministic bounded preview preserving exact Cell labels and reasons.
+    def show(
+        self, *, n: int | None = None, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES
+    ) -> None:
+        """Show saved table rows with exact Cell labels and display omission counts.
 
-        Args: max_output_bytes: Optional smaller preview byte bound.
-        Returns: None; prints the saved table preview.
-        Example: ``table.show()``.
-        Constraints: Reads verified saved Cells only and redacts member identities.
+        Args:
+            n: Maximum displayed rows; None means all and zero means metadata only.
+            max_output_bytes: UTF-8 budget including the newline; None removes the budget.
+        Returns: None; prints saved values in authored column order.
+        Example: ``materialized_table.show(n=20)``.
+        Constraints: Saved Cells only; member identities hidden; no analysis continuations.
         """
         assert self._dataset is not None
-        self._dataset.show(max_output_bytes=max_output_bytes)
+        self._dataset.show(n=n, max_output_bytes=max_output_bytes, facts=(("kind", "table"),))
 
     def to_pandas(self) -> pd.DataFrame:
         """Export an isolated table containing keys and authored value columns only.

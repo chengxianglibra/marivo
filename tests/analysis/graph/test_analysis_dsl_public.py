@@ -100,14 +100,15 @@ def test_public_contract_actions_and_result_card(
     )
     saved.show()
     card = capsys.readouterr().out
-    assert "unit=CNY" in card
-    assert "method=sum" in card
-    assert "cell_state_fields=" in card
+    assert "unit: CNY" in card
+    assert "method: sum" in card
+    assert "cell_state_fields" not in card
     assert "<identity>" in card
     assert subject_key not in card
     assert len(card.encode("utf-8")) <= 8192
-    saved.show(max_output_bytes=128)
-    assert len(capsys.readouterr().out.encode("utf-8")) <= 128
+    with pytest.raises(ValueError, match="minimum is"):
+        saved.show(max_output_bytes=128)
+    assert capsys.readouterr().out == ""
 
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
@@ -115,7 +116,7 @@ def test_public_contract_actions_and_result_card(
         restored = case.session.artifact(saved.state.artifact_ref)
         assert restored.contract() == saved.contract()
         restored.show()
-        assert "exact retained Artifact" in capsys.readouterr().out
+        assert capsys.readouterr().out == card
     finally:
         offline.rename(case.database_path)
 
@@ -131,7 +132,7 @@ def test_public_empty_and_undefined_cards(
     ).execute()
     empty_members.show()
     empty_card = capsys.readouterr().out
-    assert "rows=0" in empty_card
+    assert "Rows: 0 total; 0 shown" in empty_card
     assert "<identity>" not in empty_card
     assert tuple(action.call for action in empty_members.contract().actions) == (
         "relation.cohort(predicate, rule=rule)",
@@ -163,7 +164,7 @@ def test_public_empty_and_undefined_cards(
     card = capsys.readouterr().out
     assert "undefined" in card.casefold()
     assert "zero_denominator" in card
-    assert "weighting=original numerator and denominator components" in card
+    assert "weighting: original numerator and denominator components" in card
 
 
 @pytest.mark.runtime

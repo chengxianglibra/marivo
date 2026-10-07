@@ -44,6 +44,20 @@ change = current.compare(baseline).execute()
 change.show()
 ```
 
+`show()` 默认没有行数上限，在 8 KiB 预算内展示完整数据行，并明确报告总行数、
+已展示和遗漏行数，保留解释边界。需要完整操作目录时再读取 `contract()`。
+
+```python
+change.show(n=20)
+change.show(n=0)
+change.show(max_output_bytes=None)
+```
+
+`n=0` 只展示元数据与列信息。`max_output_bytes=None` 取消 UTF-8 字节预算
+（包含打印末尾换行），仍遵守显式 `n`。这些调用只读取已保存结果，不重新查询业务源。
+非 Defined Cell 保留状态与原因；Duration 展示精确 ticks 和单位。
+
+
 `compare` 接受同类型 int64/float64、同标度 Decimal 绝对差和同单位 Duration。
 默认 `TimeChange` 要求递归量定义一致，并共享同一次目标捕获；`CohortContrast`
 在共同 Group 或 Singleton 坐标上比较同一观察时间的不同人群。

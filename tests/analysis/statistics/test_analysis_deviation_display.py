@@ -20,6 +20,19 @@ from tests.support.paths import PROJECT_ROOT
 
 
 @pytest.mark.runtime
+def test_local_display_pairing_rejects_different_current_keys(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    members = case.session.members(ms.ref.entity("sales.order"))
+    raw = members.read(ms.ref.measure("sales.order.amount"))
+    score = raw.deviation(method="zscore").score
+    selected = score.rank(order="descending", ties="ordinal").limit(3).values
+    with pytest.raises(AnalysisError, match="display input complete keys differ"):
+        mv.table(score=selected, original=raw).execute()
+
+
+@pytest.mark.runtime
 @pytest.mark.parametrize("method", ("zscore", "mad"))
 @pytest.mark.parametrize("mode", ("category", "original", "other_fit", "ranks"))
 @pytest.mark.parametrize("reverse", (False, True))
@@ -28,6 +41,7 @@ def test_mixed_table_preserves_each_current_value_and_original_fit(
     method: DeviationMethod,
     mode: Literal["category", "original", "other_fit", "ranks"],
     reverse: bool,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     members = case.session.members(ms.ref.entity("sales.order"))
@@ -48,6 +62,10 @@ def test_mixed_table_preserves_each_current_value_and_original_fit(
         score, other = ranking.values, ranking.ranks
     columns = {"other": other, "score": score} if reverse else {"score": score, "other": other}
     result = mv.table(**columns).execute()
+    result.show(n=0)
+    shown = capsys.readouterr().out
+    assert f"score.fit: deviation.{method}; original fit retained" in shown
+    assert "selection does not refit" in shown
     facts = analysis_dsl_rows("j2").orders
     oracle = expected(tuple(row[-1] for row in facts), method)[3]
     wanted = dict(zip((row[0] for row in facts), oracle, strict=True))

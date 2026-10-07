@@ -212,6 +212,7 @@ def _render_type(type_name: str, original: object | None) -> str:
         lines.append("  Public fields: " + ", ".join(contract.public_properties))
     if contract.public_methods:
         lines.append("  Public consumption: " + ", ".join(contract.public_methods))
+    lines.extend("  " + line for line in contract.guidance)
     if contract.consumers:
         lines.append(
             "  Consumers: " + ", ".join(_target_text(target) for target in contract.consumers)

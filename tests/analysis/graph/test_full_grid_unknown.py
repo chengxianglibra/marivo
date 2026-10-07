@@ -81,6 +81,7 @@ def test_public_full_grid_unknown(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
     form: str,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     prepare_profiles(case, "KS", form, "us", "UTC", False, followup=True)
@@ -106,6 +107,11 @@ def test_public_full_grid_unknown(
         "insufficient_business_coverage"
     }
     assert frame.loc[frame.cell_tag == "unknown", "value"].isna().all()
+    fixed.show(n=0)
+    text = capsys.readouterr().out
+    assert "9 total; 0 shown; 9 omitted" in text
+    assert "unknown(insufficient_business_coverage)=3" in text
+    assert "observation_window: each retained grid cell" in text
     assert fixed._dataset is not None
     checked = fixed._dataset.verified()
     assert not any("rollup(" in action.call for action in fixed.contract().actions)

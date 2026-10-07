@@ -15,6 +15,16 @@ Materialized value. Its owned fields and methods describe valid continuations.
 Use ``show()`` for bounded current state and ``contract()`` for mechanical input
 requirements. ``to_pandas()`` is the terminal boundary for custom analysis.
 
+Business data display uses ``show(*, n=None, max_output_bytes=8192)`` on
+materialized values and tables. The default fits complete rows within 8 KiB;
+there is no fixed five-row cap. ``n=20`` requests at most twenty rows, ``n=0``
+shows metadata only, and ``max_output_bytes=None`` removes the byte cap while
+preserving an explicit ``n``. Counts and recovery hints disclose display
+omissions. Budgets include the printed newline. Values preserve precision;
+Duration cells show integer ticks with their unit. Cell state counts cover the
+whole result. The card shows interpretation facts and conditional evidence
+reads; use ``contract()`` for the full operation directory.
+
 Execution retains results as project-local Parquet. There is no analysis result
 storage setting or database result storage. Session recovery reads Store 7;
 older generation files are not migrated or rewritten.

@@ -287,3 +287,14 @@ Submodules
      - Typed semantic errors and warnings raised across the semantic layer.
    * - ``marivo.semantic.typing``
      - Shared type aliases for the semantic surface.
+
+Preview data display
+--------------------
+
+``PreviewResult.show(n=None, max_output_bytes=8192)`` fits complete returned
+rows within a UTF-8 budget including the printed newline. ``render()`` accepts
+the same controls and returns text without a newline. ``n=0`` shows metadata
+and columns; ``max_output_bytes=None`` removes the byte limit, still respecting
+``n``. Neither option reruns the preview or expands its source limit. Query
+truncation, scope coverage, sampling and warnings remain visible independently
+of display omissions. ``PreviewBatchResult`` remains a batch summary.
