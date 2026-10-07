@@ -18,6 +18,7 @@ from marivo.analysis._capabilities.dataset_model import (
 )
 from marivo.analysis._subject import SubjectBinding
 from marivo.analysis.materialization import graph_fields as fields
+from marivo.introspection.live.reflect import required_arguments
 
 _METHOD_GROUPS = {
     ("_MaterializedRead", "show"): "artifacts.reads",
@@ -1005,14 +1006,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     "findings": "artifact.findings",
                     "finding": "artifact.finding",
                 }.get(name, target)
-            arguments = tuple(
-                f"*{key}"
-                if parameter.kind is Parameter.VAR_POSITIONAL
-                else f"{key}={key}"
-                if parameter.kind is Parameter.KEYWORD_ONLY
-                else key
-                for key, parameter in signature(value).parameters.items()
-                if key != "self" and parameter.default is Parameter.empty
+            installed = signature(value)
+            arguments = required_arguments(
+                parameter for key, parameter in installed.parameters.items() if key != "self"
             )
             params = tuple(
                 ParameterInput(
@@ -1045,7 +1041,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     if key == "method" and name == "summarize"
                     else (),
                 )
-                for key in signature(value).parameters
+                for key in installed.parameters
                 if key != "self"
             )
             descriptors.append(
@@ -1057,7 +1053,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     summary=(getdoc(value) or f"{owner.__name__}.{name}.").splitlines()[0],
                     discovery_group=_METHOD_GROUPS.get((owner.__name__, name)),
                     parameters=params,
-                    output=str(signature(value).return_annotation),
+                    output=str(installed.return_annotation),
                     constraints=(
                         _doc_section(value, "Constraints")
                         or "The exact receiver and current contract gate this operation.",
@@ -1074,7 +1070,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                             "relation",
                             *(
                                 parameter.name
-                                for parameter in signature(value).parameters.values()
+                                for parameter in installed.parameters.values()
                                 if parameter.name != "self" and parameter.default is Parameter.empty
                             ),
                         ),

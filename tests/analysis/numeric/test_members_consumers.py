@@ -126,7 +126,9 @@ def test_complete_versioned_members(
         with monkeypatch.context() as construction:
             for name in ("bind", "compile", "batches"):
                 construction.setattr(SourceSession, name, no_construction_read)
-            construction.setattr(session._runtime.store, "admit", no_construction_read)
+            from marivo.analysis.materialization import graph_store
+
+            construction.setattr(graph_store, "admit", no_construction_read)
             with pytest.raises(AnalysisError) as missing_version:
                 session.members(entity)
         assert construction_calls == [] and len(session.runs().items) == before_runs

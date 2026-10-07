@@ -7,8 +7,10 @@ import re
 from typing import TYPE_CHECKING
 
 from marivo._authoring.model import AuthoringCapability
-from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
+from marivo._authoring.render import effect_lines
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.reflect import import_registered_callable as import_callable
+from marivo.introspection.live.render import bounded_help as _bounded
 from marivo.introspection.live.render import enforce_budget, render_fingerprint
 from marivo.introspection.live.resolve import ResolvedLiveTarget
 from marivo.semantic._capabilities.model import (
@@ -32,21 +34,6 @@ _DATASOURCE_IMPORT = "import marivo.datasource as md"
 _SEMANTIC_IMPORT = "import marivo.semantic as ms"
 _ANALYSIS_IMPORT = "import marivo.analysis as mv"
 _MARIVO_IMPORT = "import marivo"
-
-
-def _bounded(text: str, *, root: bool = False) -> str:
-    """Apply the one shared registered render budget."""
-    return enforce_budget(
-        text,
-        max_lines=(
-            SURFACE_LIMITS.root_help_max_lines if root else SURFACE_LIMITS.focused_help_max_lines
-        ),
-        max_codepoints=(
-            SURFACE_LIMITS.root_help_max_codepoints
-            if root
-            else SURFACE_LIMITS.focused_help_max_codepoints
-        ),
-    )
 
 
 _HELP_CALL_RE = re.compile(
@@ -463,15 +450,7 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
         lines.append(f"  Preconditions: {', '.join(descriptor.preconditions)}")
     effects = descriptor.effects
     assert effects is not None
-    lines.extend(
-        (
-            "  Effects:",
-            f"    data access: {effects.data_access}",
-            f"    connection: {effects.connection}",
-            f"    mutations: {', '.join(effects.mutations) or 'none'}",
-            f"    flags: {', '.join(effects.flags) or 'none'}",
-        )
-    )
+    lines.extend(effect_lines(effects))
     source_contract = REGISTRY.source_contract(descriptor.canonical_id)
     if source_contract is not None:
         lines.extend(

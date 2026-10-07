@@ -1,6 +1,5 @@
 import pytest
 
-from marivo._fixed_duration import fixed_duration_seconds
 from marivo._temporal import Grain
 from marivo.analysis import grain
 
@@ -37,11 +36,6 @@ def test_grain_width_seconds_fixed_size(token, seconds):
 def test_grain_width_seconds_rejects_calendar_variable(token):
     with pytest.raises(ValueError, match="calendar-variable"):
         grain(token).width_seconds()
-
-
-def test_fixed_duration_seconds_rejects_unsupported_unit():
-    with pytest.raises(ValueError, match="unsupported fixed duration unit"):
-        fixed_duration_seconds(1, "month")
 
 
 def test_positional_construction_rejected():

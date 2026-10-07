@@ -7,7 +7,7 @@ from contextlib import redirect_stdout
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from inspect import Parameter, signature
+from inspect import signature
 from io import StringIO
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, overload
 
@@ -133,6 +133,7 @@ from marivo.analysis.materialization.graph_relation import FrozenBinding, LiveBi
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.subject import DroppedBefore
+from marivo.introspection.live.reflect import required_arguments
 from marivo.refs import (
     DimensionKind,
     EntityKind,
@@ -1595,6 +1596,13 @@ class _Value:
             )
         return subject_binding(self._node.root.signature.domain, part)
 
+    def _members_domain(
+        self, through: SubjectBinding | None
+    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+        node = self._subject_members(through)
+        receiver = LogicalFixedAnalysisDomain if self._has_fixed() else LogicalAnalysisDomain
+        return receiver(_TOKEN, node, self._runtime, inputs=(self,))
+
     def _subject_members(self, through: SubjectBinding | None) -> Relation:
         retention = next(
             (
@@ -1786,15 +1794,7 @@ class _Value:
                 continue
             bound = getattr(self, name)
             descriptor = REGISTRY.by_callable(bound)
-            arguments = tuple(
-                f"*{parameter.name}"
-                if parameter.kind is Parameter.VAR_POSITIONAL
-                else f"{parameter.name}={parameter.name}"
-                if parameter.kind is Parameter.KEYWORD_ONLY
-                else parameter.name
-                for parameter in signature(bound).parameters.values()
-                if parameter.default is Parameter.empty
-            )
+            arguments = required_arguments(signature(bound).parameters.values())
             actions.append(
                 AnalysisAction(
                     f"relation.{name}({', '.join(arguments)})",
@@ -2921,10 +2921,7 @@ class LogicalCategoryRelation(_CountRelation):
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._subject_members(through)
-        if self._has_fixed():
-            return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
-        return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
+        return self._members_domain(through)
 
     @property
     def value(self) -> CategoryField:
@@ -3042,10 +3039,7 @@ class LogicalSelectedCategoryRelation(_CountRelation):
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._subject_members(through)
-        if self._has_fixed():
-            return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
-        return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
+        return self._members_domain(through)
 
     def execute(self) -> MaterializedSelectedCategoryRelation:
         """Evaluate and publish this category selection.
@@ -3267,10 +3261,7 @@ class LogicalNumericRelation(_NumericComparison):
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._subject_members(through)
-        if self._has_fixed():
-            return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
-        return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
+        return self._members_domain(through)
 
     @property
     def value(self) -> NumericField:
@@ -3975,10 +3966,7 @@ class LogicalSelectedDifferenceRelation(_NumericComparison):
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._subject_members(through)
-        if self._has_fixed():
-            return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
-        return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
+        return self._members_domain(through)
 
     def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
         """Calculate a statistic over selected current rows.
@@ -5097,10 +5085,7 @@ class LogicalBooleanRelation(_CountRelation):
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._subject_members(through)
-        if self._has_fixed():
-            return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
-        return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
+        return self._members_domain(through)
 
     @property
     def value(self) -> BooleanField:
@@ -5218,10 +5203,7 @@ class LogicalSelectedBooleanRelation(_CountRelation):
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._subject_members(through)
-        if self._has_fixed():
-            return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
-        return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
+        return self._members_domain(through)
 
     def execute(self) -> MaterializedSelectedBooleanRelation:
         """Evaluate and publish this boolean selection.
@@ -5291,10 +5273,7 @@ class LogicalTemporalRelation(_CountRelation):
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._subject_members(through)
-        if self._has_fixed():
-            return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
-        return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
+        return self._members_domain(through)
 
     @property
     def value(self) -> TemporalField:
@@ -5377,6 +5356,18 @@ class MaterializedTemporalRelation(_MaterializedValue, _CountRelation):
 class LogicalSelectedTemporalRelation(_CountRelation):
     """Unexecuted temporal selection over one exact read relation."""
 
+    def members(
+        self, *, through: SubjectBinding | None = None
+    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+        """Project complete Subject identities from this relation.
+
+        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
+        Returns: A source member domain or a fixed-only member continuation.
+        Example: ``selected_members = relation.members()``.
+        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
+        """
+        return self._members_domain(through)
+
     @property
     def value(self) -> TemporalField:
         """Return this relation's bound temporal field.
@@ -5401,21 +5392,6 @@ class LogicalSelectedTemporalRelation(_CountRelation):
         return LogicalSelectedTemporalRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
         )
-
-    def members(
-        self, *, through: SubjectBinding | None = None
-    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
-        """Project complete Subject identities from this relation.
-
-        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A source member domain or a fixed-only member continuation.
-        Example: ``selected_members = relation.members()``.
-        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
-        """
-        node = self._subject_members(through)
-        if self._has_fixed():
-            return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
-        return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
 
     def execute(self) -> MaterializedSelectedTemporalRelation:
         """Evaluate and publish this temporal selection.
@@ -5509,10 +5485,7 @@ class LogicalSelectedNumericRelation(_OriginalContinuation):
         Example: ``selected_members = relation.members()``.
         Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
         """
-        node = self._subject_members(through)
-        if self._has_fixed():
-            return LogicalFixedAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
-        return LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
+        return self._members_domain(through)
 
     def execute(self) -> MaterializedSelectedNumericRelation:
         """Evaluate and publish this numeric selection.

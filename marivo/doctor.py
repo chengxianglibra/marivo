@@ -202,6 +202,15 @@ def _json_safe_detail(value: object) -> object:
     return str(value)
 
 
+def _issue_count(value: object, severity: str) -> int:
+    """Count structured issue severity without promoting malformed diagnostics."""
+    if not isinstance(value, list):
+        return 0
+    return sum(
+        1 for issue in value if isinstance(issue, dict) and issue.get("severity") == severity
+    )
+
+
 def _count_summary(count: int, singular: str) -> str:
     suffix = "" if count == 1 else "s"
     return f"{count} {singular}{suffix}"
@@ -1003,24 +1012,8 @@ def _semantic_section(root: Path) -> DoctorSection:
                     else []
                 )
                 blocker_count = len(domain_blockers) if isinstance(domain_blockers, list) else 0
-                warning_count = (
-                    sum(
-                        1
-                        for issue in domain_warnings
-                        if isinstance(issue, dict) and issue.get("severity") == "warning"
-                    )
-                    if isinstance(domain_warnings, list)
-                    else 0
-                )
-                advisory_count = (
-                    sum(
-                        1
-                        for issue in domain_warnings
-                        if isinstance(issue, dict) and issue.get("severity") == "advisory"
-                    )
-                    if isinstance(domain_warnings, list)
-                    else 0
-                )
+                warning_count = _issue_count(domain_warnings, "warning")
+                advisory_count = _issue_count(domain_warnings, "advisory")
 
                 if domain_status == "blocked":
                     doctor_status: DoctorStatus = "fail"
@@ -1100,24 +1093,8 @@ def _semantic_section(root: Path) -> DoctorSection:
         error_count = len(error_details) if isinstance(error_details, list) else 0
         warning_count = len(warning_details) if isinstance(warning_details, list) else 0
         blocker_count = len(readiness_blockers) if isinstance(readiness_blockers, list) else 0
-        readiness_warning_count = (
-            sum(
-                1
-                for issue in readiness_warnings
-                if isinstance(issue, dict) and issue.get("severity") == "warning"
-            )
-            if isinstance(readiness_warnings, list)
-            else 0
-        )
-        readiness_advisory_count = (
-            sum(
-                1
-                for issue in readiness_warnings
-                if isinstance(issue, dict) and issue.get("severity") == "advisory"
-            )
-            if isinstance(readiness_warnings, list)
-            else 0
-        )
+        readiness_warning_count = _issue_count(readiness_warnings, "warning")
+        readiness_advisory_count = _issue_count(readiness_warnings, "advisory")
         if error_count or blocker_count or status in {"blocked", "errored"}:
             doctor_status = "fail"
         elif warning_count or readiness_warning_count or status == "ready_with_warnings":

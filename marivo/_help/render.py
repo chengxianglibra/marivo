@@ -104,9 +104,9 @@ def help(target: PublicHelpTarget = None) -> None:
     """
     attributes = {"marivo.help.target_kind": _target_kind(target)}
     with track_operation(
-        "marivo.help",
-        family="read",
-        intent="help",
+        surface="help",
+        capability_kind="read",
+        capability_id="help",
         attributes=attributes,
     ) as operation:
         try:
