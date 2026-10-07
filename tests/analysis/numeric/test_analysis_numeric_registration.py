@@ -20,13 +20,13 @@ from marivo.analysis.methods.semantics import MethodKey, MethodName
 @pytest.mark.parametrize(
     "method,inputs,accepted,precision",
     [
-        ("metric.ratio", (DecimalType(38, 6), DecimalType(38, 2)), True, "exact"),
-        ("metric.ratio", (ScalarType("float64"),) * 2, True, "finite_float64"),
+        ("metric.ratio", (DecimalType(38, 6), DecimalType(38, 2)), True, "native_numeric"),
+        ("metric.ratio", (ScalarType("float64"),) * 2, True, "native_numeric"),
         ("metric.ratio", (DurationType("ns"),) * 2, True, "finite_float64"),
         ("metric.ratio", (DurationType("ns"), DurationType("us")), False, None),
-        ("metric.ratio", (DecimalType(38, 6), ScalarType("int64")), False, None),
-        ("metric.ratio", (ScalarType("float64"), ScalarType("int64")), False, None),
-        ("state_rollup.mean", (DecimalType(38, 6),), True, "exact"),
+        ("metric.ratio", (DecimalType(38, 6), ScalarType("int64")), True, "native_numeric"),
+        ("metric.ratio", (ScalarType("float64"), ScalarType("int64")), True, "native_numeric"),
+        ("state_rollup.mean", (DecimalType(38, 6),), True, "native_numeric"),
         ("state_rollup.weighted_mean", (DurationType("ms"),), True, "checked_int64"),
         ("row.count", (DecimalType(38, 6),), True, "checked_int64"),
         ("row.count", (DurationType("s"),), True, "checked_int64"),

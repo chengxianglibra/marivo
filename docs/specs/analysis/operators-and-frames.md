@@ -503,11 +503,11 @@ there is no saturation, wrapping, silent float coercion or route retry.
 | Method | int64 | float64 | Decimal | Duration / date / timestamp |
 | --- | --- | --- | --- | --- |
 | count/count_defined/count_distinct | checked int64 result/count state; count_distinct retains full declared identity | Same count result; nonfinite distinct input rejected | Exact decimal equality for distinct, checked count | Duration distinct preserves unit and exact ticks; date/instant distinct preserves typed identity; count methods may count these relations without numeric coercion |
-| sum / linear | checked int64 output/state | finite float64 output/state | Decimal(38,s), exact sum; equal scales required within an occurrence | Duration sum/linear preserve tick unit with checked int64 ticks; date/timestamp numeric sum rejected |
+| sum / linear | checked int64 output/state | finite float64 output/state | native Decimal sum; linear components use Ibis promotion and minimal scale adaptation | Duration sum/linear preserve tick unit with checked int64 ticks; date/timestamp numeric sum rejected |
 | min/max/first/last | preserve input type | preserve finite input type | preserve (p,s) | Duration preserves unit; time-valued read/selection preserves physical type, no timestamp-to-float numerical aggregation |
-| mean | exact integer sum/count state; finish to float64 once | float64 sum, checked count, finite float64 finish | sum Decimal(38,s), count int64; finish Decimal(38,max(s,6)) | Duration mean uses exact tick sum/count, rounds once to nearest tick, ties to even; date/timestamp mean rejected |
-| Metric weighted mean | checked int64 product/sum/weight state, float64 finish | float64 products and sums, finite finish | matched Decimal value/weight types; numerator scale s_value+s_weight <= 38, denominator scale s_weight; Decimal(38,max(s_value,6)) finish | Duration values with int64 nonnegative weights: exact checked tick products, nearest-even tick finish; timestamp weights/values rejected |
-| ratio | checked component states, float64 finish | float64 components/result | Decimal components; output Decimal(38,max(s_num,s_den,6)) | Same-unit Duration ratio uses exact tick components and float64 finish; mixed calendar/elapsed units or timestamp division rejected |
+| mean | native Ibis mean, float64; retain sum/count | native Ibis mean, finite float64 | Ibis Decimal result type with an explicit transport cast; retain widened sum/count independently | Duration keeps checked tick state and nearest-even tick finish |
+| Metric weighted mean | native product/sums, float64 finish | independent numeric value/weight types; finite float64 | Decimal/int, Decimal/float and different Decimal scales admitted through Ibis and minimal adaptation; numerator and weight sum retain separate types | Duration values still require nonnegative int64 weights and nearest-even tick finish |
+| Metric ratio | independent checked component states, Ibis division | finite native result | independent Decimal/int/float components; float64 result, no custom Decimal quotient algorithm | Same-unit Duration inputs retain their unit checks |
 | source-native median/percentile | native continuous quantile; float64 output may lose large-integer precision | native continuous quantile, finite float64 output | native continuous quantile with source-owned output precision/scale; precision loss is disclosed | Duration/date/timestamp quantile rejected in this R5 direct-observation slice; no implicit float route |
 | semi-additive / cumulative | Base method's matrix plus exact time keys | Base method's matrix plus exact time keys | Base method's matrix plus exact time keys | Temporal keys retain physical precision; cumulative Duration sum follows sum, calendar months cannot become fixed seconds |
 
@@ -516,33 +516,41 @@ graph, execution key and receipt. Local Parquet sources preserve Arrow Duration
 metadata and int64 ticks; DuckDB native INTERVAL is admitted as microseconds only
 after a source-native check rejects year/month/day components. Native INTERVAL
 does not invent nanosecond precision. No fixed-duration operation casts ticks to
-float or turns calendar intervals into elapsed time. Decimal state
-uses exact intermediate arithmetic; each stored sum/product is checked against
-its declared precision and scale. The admitted input scale is retained, not
-rounded on ingest. Decimal finish rounds once using ROUND_HALF_EVEN at the stated
-result scale and rejects integer-part overflow. Excess product scale, unsupported
-cross-family pairs, and differing Duration tick units reject explicitly; the
-first slice does not add automatic rescaling. Integer accumulation is exact
-before the checked final state, so batch order cannot cause wrapping. A declared
-integer state that cannot represent the mathematical sum rejects even when a
-later ratio could be finite. Count overflow also rejects.
+float or turns calendar intervals into elapsed time. Ordinary numeric Metric
+sum/mean/weighted mean/ratio/linear use standard Ibis arithmetic. Their result and
+retained-state schemas are bound before execution and checked by the existing
+provider batch transport. Decimal/int/float operands keep independent types;
+different Decimal scales use a common Ibis Decimal only when necessary. Narrow
+signed integer and float measures widen once at the graph carrier boundary.
+Identity and join keys are never widened through float.
 
-For int64/rational-to-float finish, use nearest representable float64 once;
-large input integers must not first become floats. Decimal and Duration compare
-exactly after their stated single rounding. Selection/extrema/counts are exact.
-Float64 sum/mean/weighted/ratio/linear and interpolated quantiles use finite
-outputs. Let r be the independent exact result and R(r)=1e-12*(1+abs(r)).
-The absolute-error bound for a sum is E=sum(abs(contributions))*1e-12+1e-12;
-for a mean it is E/count+R(r). For ratio with component bounds E_N/E_D it is
-(E_N+abs(r)*E_D)/(abs(D)-E_D)+R(r); a denominator interval spanning zero rejects
-that physical qualification. Weighted mean uses the same ratio rule over exact
-paired products and weights. Linear propagates component bounds plus R(r).
-Interpolation uses 1e-12+1e-12*max(abs(adjacent ordered values)). Integer/Decimal
-components have zero input error before their stated finish. Tests vary row order,
-batching and reduction tree against Fraction/Decimal raw-fact oracles, not another
-product path. An implementation unable to meet its bound remains unqualified;
-approximate quantile uses its actual algorithm guarantee rather than this
-exact-interpolation bound.
+Signed linear finishing promotes components before negation and addition.
+Integer and Duration tick intermediates use Decimal(38,0), with the final int64
+carrier checked after cancellation. A mixed floating result uses its floating
+carrier before arithmetic; integer terms in a Decimal result widen at its scale
+before negation, preserving fractional Decimal terms on native engines. These
+casts protect intermediate arithmetic without widening saved
+component types or converting raw source columns.
+Decimal Cell difference operands widen to the comparison method's declared
+Decimal(38,s) carrier when native mean produces a narrower Decimal. Source and
+fixed difference artifacts therefore retain the same physical schema.
+
+Native rounding, truncation, cancellation and backend-dependent numerical
+results are accepted. Ordinary Metric methods do not promise a universal relative
+error bound, exact rational finishing, or HALF_EVEN. Mean's native primary may
+differ from a sum/count continuation. Ratio and weighted mean still apply their
+actual zero-denominator policy; small finite nonzero denominators are not rejected
+because an old error interval spans zero. Nonfinite values, transport overflow,
+invalid Cells and missing required state remain errors. There is no retry with a
+different numerical algorithm.
+
+The bounds of downstream comparison/reference/statistical methods apply to their
+represented input Cells. They do not certify native aggregation error against raw
+facts. Independently stricter attribution, Duration, temporal-fold and current-row
+statistic methods retain their own admission and numerical contracts. Exact and
+approximate quantile identities remain distinct: native rounding never authorizes
+switching to a sketch. Retained sum/count and paired numerator/weight components
+continue to own rollup; averaging projected means or ratios remains invalid.
 
 ### Physical qualification obligations
 
@@ -673,40 +681,31 @@ predicates carry their relation binding to merge independently rooted source
 schemas into the existing graph executor.
 
 
-### R5.6 numeric execution and state
+### Native numeric execution and state
 
-DuckDB table/local-Parquet original sum, extrema, mean, Metric weighted mean,
-ratio, linear and typed temporal folds use the matrix above. Source arithmetic is
-compiled by Ibis: Decimal finishing uses native integer quotient/remainder with
-one HALF_EVEN rounding; int64 ratios use native integer mantissa rounding before
-binary64 conversion. Duration mean/weighted mean round once to nearest-even ticks.
-These are selected SQL routes, not contribution collection or failure fallback.
-Only verified retained states use Python arithmetic during source-free continuation.
+Ordinary Metric mean, weighted mean, ratio and linear implementations and their
+rollups use contract version 5 and `native_numeric` precision. Source mean uses
+Ibis `mean`; ratio uses `/`; weighted mean uses the same non-null pair mask for
+both sums. Sum, min/max and direct quantiles already use standard Ibis operations.
+A scalar numerator cast works around SQL dialect rewriting of a shared division
+operand; it does not rewrite stored components. Explicit output casts reconcile
+Ibis's inferred types with the provider's strict native cursor transport. The
+provider does not adopt `.execute()` or `.to_pyarrow()` conversion implicitly.
 
-Coordinate components preserve their exact numeric carriers and complete keys.
-Float64 sums retain the sum of absolute contributions; ratio retains the
-denominator absolute sum and weighted mean retains the paired absolute weight
-sum. These additive state fields survive coordinate reduction and source-free
-rollup. A nonzero denominator whose error interval includes zero rejects before
-publication; the existing empty and zero-denominator Cell policies remain.
-Missing or nonfinite absolute state rejects continuation. Decimal temporal sample
-sums decode as Decimal(38,s), and Decimal range checks never round their operands.
-Typed temporal samples preserve integer/Decimal digits. Original sum, fold, mean,
-weighted mean, ratio, linear and changed extrema consumers use implementation
-contract version 3 in Store 7. Earlier implementation versions cannot continue and are
-not migrated or reconstructed. Public result state exposes `decimal:p:s` and
-`duration:unit` physical identifiers. This qualification does not extend the R5.5
-SQLite matrix or remote R9 backend coverage.
+Coordinate state records component types independently. Fixed consumers merge
+those actual saved types locally, then project to the captured result type. Cold
+reads preserve the saved primary without recomputation. New continuations may
+round differently from source execution. Store 8's committed-state trust boundary
+is unchanged; there is no compatibility migration or new content audit on reads.
+Duration and temporal-fold helpers with independent callers remain available.
 
-## R6.1 method rules and qualification target
+ClickHouse native weighted products and retained sums widen exact intermediates
+where its ordinary carriers can wrap. Product/state carrier checks remain
+mandatory; backend overflow is a structured execution failure, not accepted
+rounding. Other routes retain native operations and their necessary output casts.
+Downstream error bounds for native Metric Cells start at their represented values;
+they do not certify the error of the original raw-fact aggregation.
 
-Status: frozen C07–C09 target, not execution evidence. Public shapes are owned by
-[Analysis](python-analysis-design.md#r61-frozen-relation-composition-target);
-state encoding and version transitions by [Runtime](session-state-and-runtime.md#r61-composition-state-and-recovery).
-The following are required semantic methods, not a parallel registry. Existing
-method names are extended under analysis.methods; new names below are their
-frozen target identities. New methods start at semantic version 1. Changed
-existing definitions use the version transition described by Runtime.
 
 ### Method, parts and continuation matrix
 
@@ -889,6 +888,12 @@ nonzero N_i rejects as contradictory, preserving the accepted typed-operators
 rule rather than broadening it from algebraic cancellation. Negative basis is
 permitted only where the original component policy admits it. Endpoint/partition
 proof is independent of this numerical check.
+
+Numerator and denominator error bounds follow their independent component
+carriers. An integer or Decimal component has zero floating roundoff bound;
+a floating component requires its own retained finite nonnegative magnitude.
+A floating numerator does not require a floating denominator, and an exact
+numerator does not suppress a floating denominator's error interval.
 
 top_k is None or integer 1..1000 excluding bool. Before arithmetic, select once
 on the union of both sides' full basis using descending abs(C_i)+abs(B_i) for

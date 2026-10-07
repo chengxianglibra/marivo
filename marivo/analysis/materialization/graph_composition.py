@@ -47,8 +47,9 @@ from marivo.analysis.materialization.graph_members import MemberGraph
 from marivo.analysis.materialization.graph_protocol import digest
 from marivo.analysis.materialization.graph_snapshot import same_node_definition
 from marivo.analysis.methods.comparison import output_type
+from marivo.analysis.methods.native_numeric import linear_type
 from marivo.analysis.methods.numeric_state import merge_original
-from marivo.analysis.methods.physical import DecimalType, ScalarType, arrow_scalar_type
+from marivo.analysis.methods.physical import ScalarType, arrow_scalar_type
 from marivo.semantic.ir import TargetRelationshipContract
 
 
@@ -120,7 +121,7 @@ def combine_linear_occurrences(
             "source.exact_pairing@v1",
             "source.finite_numeric@v1",
         ),
-        value_type=first.value_type,
+        value_type=linear_type(tuple(item.value_type for item in methods)),
     )
     schemas = {
         leaf.identity: schema for occurrence in occurrences for schema, leaf in occurrence.sources
@@ -526,10 +527,7 @@ def combine_observations(
         root = method_node(
             (Edge("quantity", first), Edge("quantity", second)),
             OriginalRatio(ratio, quantity.metric_ref, second.signature.quantity.metric_ref),
-            value_type=DecimalType(38, max(first.value_type.scale, second.value_type.scale, 6))
-            if isinstance(first.value_type, DecimalType)
-            and isinstance(second.value_type, DecimalType)
-            else ScalarType("float64"),
+            value_type=ScalarType("float64"),
         )
     elif method in ("difference", "relative_change", "relation_ratio"):
         from marivo.semantic.unit_algebra import ratio_unit

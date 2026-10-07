@@ -55,6 +55,9 @@ input arity, conflicting keys, missing semantic checks/parts, unknown types,
 and types incompatible with the method. Integer counts require checked-int64
 precision; other connected numeric methods require exact Decimal, finite
 float64, or checked-int64 precision according to their inputs and result.
+Ordinary Metric mean/weighted mean/ratio/linear and their rollups additionally
+use `native_numeric`: precision follows the Ibis/backend computation rather than
+a uniform exact-arithmetic guarantee.
 Selection compares the whole key and additionally requires all bound checks and
 retained/output parts.
 It returns one declaration and the unchanged pending semantic derivation;
@@ -1702,25 +1705,16 @@ or complete C04 qualification.
 The exact native-table UTC-us, two-root Entity float64 ratio key is also
 connected on all six backends. Dyadic component facts preserve original sums
 3.75 and 4.75 for fixed rollup (15/19), rather than averaging target ratios.
-DuckDB, PostgreSQL, MySQL and ClickHouse additionally retain Decimal(38,6) component sums from Decimal(18,6)
-facts and finishes the merged 10/3 ratio once as Decimal(38,6), 3.333333, using
-HALF_EVEN. PostgreSQL uses native numeric div/mod and unbounded numeric scaling
-in Ibis, avoiding per-digit nested expressions and preserving coefficients
-beyond 38 digits before finishing. Independent positive/negative ties and extreme
-coefficient vectors verify Decimal output. MySQL uses native Decimal quotient
-arithmetic after subtracting the exact remainder, with scaling bounded by its
-65-digit capacity. Final coefficient overflow becomes an invalid defined/null
-Cell and is refused by the existing pre-publication Cell check, rather than
-publishing a clamped Decimal cast. Original sum overflow is independently refused
-by exact Arrow decoding on MySQL. ClickHouse uses native Decimal256 division at
-scale zero and exact scaled coefficients before the single HALF_EVEN finish.
-Its Decimal sum/mean observations aggregate in Decimal256 and check the declared
-component bounds before publication, preventing Decimal128 sum wraparound.
-Original-component and final-ratio overflow both refuse without publication.
-SQLite and Trino
-Decimal ratio keys remain unqualified and reject
-without publication; refusal controls do not prove required Decimal execution.
-The float keys cannot specialize into Decimal keys.
+The native numeric update supersedes the old exact Decimal ratio finish. Ordinary
+Metric ratio and weighted mean return float64 through standard Ibis division;
+Decimal component states remain independent. Ordinary Decimal mean keeps Ibis's
+inferred input Decimal type with a required transport cast, alongside widened
+sum/count state. Contract version 5 identifies these numerical semantics. Native
+table UTC-us Entity weighted mean has bounded Decimal/int execution evidence on
+PostgreSQL, MySQL, Trino Iceberg and ClickHouse, and float/int evidence on SQLite.
+These witnesses do not imply a full backend/type/shape Cartesian qualification.
+SQLite Decimal source admission remains unavailable. See the numeric execution
+section in `operators-and-frames.md` for the current precision boundary.
 
 For the bounded int64 ratio vector, fixed rollup merges the original 30/9
 components to 10/3, rather than averaging target ratios 6 and 0 to 3. All six

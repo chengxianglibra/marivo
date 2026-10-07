@@ -415,7 +415,7 @@ def _observe_component(
     amount_type = (
         contribution_schema.field_type(distinct_columns[0])
         if entity_distinct
-        else contribution_schema.field_type(body.source_column)
+        else contribution_schema.numeric_type(body.source_column)
         if aggregate_kind != "count" and body is not None and body.source_column is not None
         else ScalarType("int64")
     )
@@ -706,15 +706,23 @@ def _observe_component(
             or weight_body.source_column is None
             or not (
                 amount_type in (ScalarType("int64"), ScalarType("float64"))
-                or isinstance(amount_type, DurationType)
-                or (isinstance(amount_type, DecimalType) and amount_type.scale * 2 <= 38)
+                or isinstance(amount_type, (DecimalType, DurationType))
             )
-            or contribution_schema.field_type(weight_body.source_column)
-            != (ScalarType("int64") if isinstance(amount_type, DurationType) else amount_type)
+            or not (
+                contribution_schema.numeric_type(weight_body.source_column)
+                in (ScalarType("int64"), ScalarType("float64"))
+                or isinstance(
+                    contribution_schema.numeric_type(weight_body.source_column), DecimalType
+                )
+            )
+            or (
+                isinstance(amount_type, DurationType)
+                and contribution_schema.numeric_type(weight_body.source_column)
+                != ScalarType("int64")
+            )
         ):
             raise _reject(
-                "weighted mean requires matching int64/float64 or Decimal value/weight columns "
-                "with product scale <= 38, or Duration values with int64 weights"
+                "weighted mean requires numeric value/weight columns, or Duration values with int64 weights"
             )
         parameters = ObserveWeightedMean(
             definition,
@@ -728,6 +736,7 @@ def _observe_component(
             body.source_column,
             amount_type.name,
             weight_body.source_column,
+            contribution_schema.numeric_type(weight_body.source_column).name,
             coordinate_fields,
             filters,
         )
@@ -881,8 +890,8 @@ def _observe_component(
         and isinstance(amount_type, DecimalType)
         else (ScalarType("float64") if parameters.fold == "mean" else amount_type)
         if isinstance(parameters, ObserveMetric) and parameters.fold is not None
-        else DecimalType(38, max(amount_type.scale, 6))
-        if isinstance(amount_type, DecimalType) and aggregate_kind in ("mean", "weighted_mean")
+        else amount_type
+        if isinstance(amount_type, DecimalType) and aggregate_kind == "mean"
         else DecimalType(38, amount_type.scale)
         if isinstance(amount_type, DecimalType) and aggregate_kind == "sum"
         else amount_type

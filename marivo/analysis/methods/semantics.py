@@ -787,32 +787,32 @@ class MethodSemantics:
                 )
             return
         if (
-            name in ("metric.mean", "metric.weighted_mean")
-            and isinstance(params, (rules.ObserveMetric, rules.ObserveWeightedMean))
+            name == "metric.mean"
+            and isinstance(params, rules.ObserveMetric)
             and params.amount_type.startswith("decimal(")
         ):
-            scale = int(params.amount_type.removesuffix(")").split(",")[1])
-            if output != DecimalType(38, max(scale, 6)):
+            if output.name != params.amount_type:
                 reject(
-                    "Decimal mean finish scale",
-                    repr(output),
-                    "Preserve the declared single-round finish type.",
+                    "Ibis mean result type", repr(output), "Preserve the bound input Decimal type."
                 )
             return
-        if name in (
-            "metric.ratio",
-            "state_rollup.ratio",
-            "state_rollup.mean",
-            "state_rollup.weighted_mean",
-        ) and all(isinstance(value, DecimalType) for value in inputs):
-            if output != DecimalType(
-                38, max(6, *(value.scale for value in inputs if isinstance(value, DecimalType)))
-            ):
+        if name == "state_rollup.mean" and len(inputs) == 1 and isinstance(inputs[0], DecimalType):
+            if output != inputs[0]:
                 reject(
-                    "Decimal ratio finish scale",
-                    repr(output),
-                    "Preserve the exact component scales.",
+                    "retained mean result type", repr(output), "Preserve the captured mean type."
                 )
+            return
+        if name == "metric.linear":
+            from marivo.analysis.methods.native_numeric import linear_type
+
+            if output != linear_type(inputs):
+                reject(
+                    "Ibis linear result type",
+                    repr(output),
+                    "Preserve the inferred component result type.",
+                )
+            return
+        if name == "state_rollup.linear" and inputs == (output,):
             return
         if name == "metric.fold" and isinstance(params, rules.ObserveMetric):
             if isinstance(output, DurationType) and params.amount_type == output.name:

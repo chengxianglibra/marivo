@@ -109,20 +109,24 @@ def component_errors(state: Mapping[str, object], method: str) -> tuple[float, f
     if method in ("weighted_mean@v1", "ratio@v1"):
         weighted = method == "weighted_mean@v1"
         numerator = "weighted_numerator" if weighted else "numerator_sum"
-        if type(state[numerator]) is not float:
-            return 0.0, 0.0
-        absolute = magnitude(
-            "absolute_weighted_numerator" if weighted else "numerator_absolute_sum"
+        denominator = "weight_sum" if weighted else "denominator_sum"
+        error = 0.0
+        if type(state[numerator]) is float:
+            absolute = magnitude(
+                "absolute_weighted_numerator" if weighted else "numerator_absolute_sum"
+            )
+            error = roundoff(absolute)
+            if weighted:
+                count = state["non_null_pair_count"]
+                if type(count) is not int or count < 0:
+                    raise ValueError("nonnegative original pair count required")
+                error += 1e-12 * (absolute + count)
+        denominator_error = (
+            roundoff(magnitude("absolute_weight_sum" if weighted else "denominator_absolute_sum"))
+            if type(state[denominator]) is float
+            else 0.0
         )
-        error = roundoff(absolute)
-        if weighted:
-            count = state["non_null_pair_count"]
-            if type(count) is not int or count < 0:
-                raise ValueError("nonnegative original pair count required")
-            error += 1e-12 * (absolute + count)
-        return error, roundoff(
-            magnitude("absolute_weight_sum" if weighted else "denominator_absolute_sum")
-        )
+        return error, denominator_error
     return 0.0, 0.0
 
 

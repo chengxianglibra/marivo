@@ -2788,7 +2788,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "weighted_mean",
             "marivo.semantic._authoring_declarations.weighted_mean",
-            "Declare an exact weighted mean that multiplies and aggregates two same-row measures.",
+            "Declare a weighted mean of same-row numeric measures; types may differ and native rounding applies.",
             output="Ref[metric]",
             inputs=_inputs(
                 ("mapping_key", "MetricName"),

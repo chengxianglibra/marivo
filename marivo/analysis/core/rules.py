@@ -259,6 +259,7 @@ class ObserveWeightedMean:
     amount_column: str
     amount_type: str
     weight_column: str
+    weight_type: str
     coordinates: tuple[TargetDimensionContract, ...] = ()
     filters: tuple[OccurrenceFilter, ...] = ()
     grid_window: bool = False
@@ -1402,7 +1403,10 @@ def _observe_metric(
     )
     if (
         isinstance(params, (ObserveMetric, ObserveWeightedMean))
-        and params.amount_type == "float64"
+        and (
+            params.amount_type == "float64"
+            or (isinstance(params, ObserveWeightedMean) and params.weight_type == "float64")
+        )
         and state_method != "fold"
     ):
         extra = (
@@ -1413,6 +1417,8 @@ def _observe_metric(
             else ()
         )
         original = replace(original, components=(*original.components, *extra))
+    from marivo.analysis.methods.native_numeric import weighted_state_types
+
     coordinate_parts: tuple[Part, ...] = ()
     coordinate_type = (
         params.amount_type if isinstance(params, (ObserveMetric, ObserveWeightedMean)) else "int64"
@@ -1450,6 +1456,9 @@ def _observe_metric(
                         Coordinate(semantic_ref.entity(c.entity_ref.path), c.ref.path, "group")
                         for c in params.coordinates[1:]
                     ),
+                    component_types=weighted_state_types(params.amount_type, params.weight_type)
+                    if isinstance(params, ObserveWeightedMean)
+                    else (),
                 ),
             )
     coverage = CoveragePart(binding, quantity.definition_id, binding.scope_id, "v1")
@@ -2203,7 +2212,6 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
             or second_coordinate is None
             or first_coordinate.dimension != second_coordinate.dimension
             or first_coordinate.coordinates != second_coordinate.coordinates
-            or first_coordinate.value_type != second_coordinate.value_type
         ):
             reject(
                 "matching exact coordinate states for both original roots",
@@ -2213,7 +2221,19 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
             )
         coordinate_parts = (
             replace(
-                first_coordinate, quantity_id=quantity.definition_id, components=state.components
+                first_coordinate,
+                quantity_id=quantity.definition_id,
+                components=state.components,
+                component_types=tuple(
+                    (
+                        name,
+                        first_coordinate.value_type
+                        if name.startswith("numerator")
+                        else second_coordinate.value_type,
+                    )
+                    for name in state.components
+                    if "count" not in name
+                ),
             ),
         )
         domain = replace(
@@ -2352,11 +2372,7 @@ def _occurrence_combine(inputs: tuple[Signature, ...], params: OccurrenceCombine
     if coordinate is not None:
         for source in inputs[1:]:
             other = next((p for p in source.parts if isinstance(p, CoordinateStatePart)), None)
-            if (
-                other is None
-                or other.coordinates != coordinate.coordinates
-                or other.value_type != coordinate.value_type
-            ):
+            if other is None or other.coordinates != coordinate.coordinates:
                 reject(
                     "the same complete typed coordinate tuple on every occurrence",
                     repr(other),
@@ -2364,7 +2380,20 @@ def _occurrence_combine(inputs: tuple[Signature, ...], params: OccurrenceCombine
                     "core.occurrence_combine.coordinates",
                 )
         coordinate_parts = (
-            replace(coordinate, quantity_id=quantity.definition_id, components=components),
+            replace(
+                coordinate,
+                quantity_id=quantity.definition_id,
+                components=components,
+                component_types=tuple(
+                    (name, "int64" if part.value_type.startswith("interval(") else part.value_type)
+                    for index, source in enumerate(inputs)
+                    for part in source.parts
+                    if isinstance(part, CoordinateStatePart)
+                    for name in components
+                    if name.startswith((f"plus_{index}_", f"minus_{index}_"))
+                    and "count" not in name
+                ),
+            ),
         )
     domain = replace(params.output_domain, definition_id=quantity.definition_id)
     if coordinate is not None:
@@ -2510,6 +2539,9 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
             and state.components
             not in (
                 method_semantics.state_components,
+                (*method_semantics.state_components, "numerator_absolute_sum")
+                if params.method == "ratio"
+                else (),
                 (
                     *method_semantics.state_components,
                     "numerator_absolute_sum",

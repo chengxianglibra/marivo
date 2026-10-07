@@ -214,12 +214,12 @@ def test_decimal_weighted_mean_cumulative_succeeds(
     # numerator/weight accumulate as DECIMAL, then divide; baseline June weight
     # is 4 + 6 = 10 and June numerator is 100*4 + 100*6 = 1000.
     assert by_day["2026-07-01"] == Decimal("100.500000")
-    assert by_day["2026-07-02"] == (Decimal(3739) / Decimal(37)).quantize(Decimal("0.000001"))
+    assert by_day["2026-07-02"] == pytest.approx(3739 / 37)
     assert (
         next(
             column.logical_type_id
             for column in frame.state.realized_schema.columns
             if column.name == "value"
         )
-        == "decimal:38:6"
+        == "float64"
     )

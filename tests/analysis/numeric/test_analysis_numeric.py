@@ -360,7 +360,7 @@ def test_numeric_composition_matrix(
         context.prec = 100
         oracle = (
             float(expected)
-            if floating
+            if floating or kind in ("weighted", "ratio")
             else (Decimal(expected.numerator) / Decimal(expected.denominator)).quantize(
                 Decimal("0.000001"), rounding=ROUND_HALF_EVEN
             )
@@ -376,9 +376,16 @@ def test_numeric_composition_matrix(
         )
     for result in results:
         actual = result.to_pandas()["value"].tolist()
-        assert actual == pytest.approx([oracle]) if floating else actual == [oracle]
+        assert (
+            actual == pytest.approx([oracle])
+            if floating or kind in ("weighted", "ratio")
+            else actual == [oracle]
+        )
     if not floating and kind == "mean":
-        assert Decimal("1.000000") in fixed.to_pandas()["value"].tolist()
+        assert (
+            Decimal("1.000000" if coordinates else "1.000001")
+            in fixed.to_pandas()["value"].tolist()
+        )
 
 
 @pytest.mark.runtime
@@ -796,8 +803,8 @@ print(json.dumps(output, default=str, sort_keys=True))
             "min": "0.000000",
             "max": "4.000000",
             "mean": "1.750000",
-            "weighted": "2.166667",
-            "ratio": "1.000000",
+            "weighted": "2.1666666666666665",
+            "ratio": "1.0",
             "linear": "14.000000",
             "fold": "3.500000",
         }
@@ -883,7 +890,6 @@ print(json.dumps(output, default=str, sort_keys=True))
 def test_numeric_boundary_facts(
     analysis_dsl_case_factory: DslCaseFactory, case_kind: str, reverse: bool
 ) -> None:
-    from fractions import Fraction
 
     import duckdb
 
@@ -928,11 +934,7 @@ def test_numeric_boundary_facts(
         with pytest.raises(AnalysisError):
             logical.execute()
     else:
-        expected = (
-            float(Fraction(sum(numbers), len(numbers)))
-            if case_kind == "large_mean"
-            else sum(numbers)
-        )
+        expected = float(sum(numbers)) / len(numbers) if case_kind == "large_mean" else sum(numbers)
         fixed = logical.execute()
         assert fixed.to_pandas().loc[0, "value"] == expected
         assert logical.rollup().execute().to_pandas().loc[0, "value"] == expected
