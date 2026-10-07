@@ -3,7 +3,14 @@
 from dataclasses import replace
 from typing import Literal
 
-from marivo.analysis.core.rules import AnchorObserve, ObserveMetric, RuleParameters
+from marivo.analysis.core.rules import (
+    AnchorObserve,
+    ObserveCount,
+    ObserveMetric,
+    OccurrenceCombine,
+    OriginalRatio,
+    RuleParameters,
+)
 from marivo.analysis.methods.domain_preparation import implementations as preparation
 from marivo.analysis.methods.domain_preparation import (
     remote_implementations,
@@ -171,20 +178,32 @@ def admit_observation(implementation: Implementation, params: RuleParameters) ->
         and implementation.qualification.consumer_id == "analysis.materialization.anchor_execution"
         and isinstance(params, AnchorObserve)
         and (
-            params.composition is not None
-            or len(params.observations) != 1
-            or not isinstance(params.observations[0], ObserveMetric)
-            or params.observations[0].amount_type != "int64"
-            or params.observations[0].method != "sum"
-            or params.observations[0].metric.empty_rule != "zero"
-            or params.observations[0].fold is not None
-            or params.observations[0].distinct_columns
-            or params.observations[0].coordinates
-            or params.observations[0].filters
+            not params.observations
+            or (params.composition is None and len(params.observations) != 1)
+            or (isinstance(params.composition, OriginalRatio) and len(params.observations) != 2)
+            or (
+                isinstance(params.composition, OccurrenceCombine)
+                and len(params.observations) != len(params.composition.terms)
+            )
+            or any(
+                observation.coordinates
+                or (
+                    isinstance(observation, ObserveMetric)
+                    and (
+                        observation.amount_type not in ("int64", "float64")
+                        or observation.method != "sum"
+                        or observation.metric.empty_rule not in ("zero", "null")
+                        or observation.fold is not None
+                        or observation.distinct_columns
+                    )
+                )
+                or not isinstance(observation, (ObserveCount, ObserveMetric))
+                for observation in params.observations
+            )
         )
     ):
         reject(
-            "one int64 sum-zero Anchor observation",
+            "count or additive int64/float64 Anchor sums with zero/null empty policy and closed ratio/linear composition",
             repr(params),
-            "Use one direct int64 sum-zero Metric without coordinates or filters; other variants require separate physical qualification.",
+            "Use Count or additive int64/float64 sum Metrics, optionally filtered or composed as ratio/linear. Omit fold, distinct and contribution coordinates; other numeric carriers require separate qualification.",
         )

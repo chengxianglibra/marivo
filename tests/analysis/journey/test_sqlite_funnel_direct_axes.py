@@ -33,6 +33,7 @@ from marivo.refs import DimensionKind, Ref
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.shared_fixtures import run_ids
+from tests.support.documentation import _blocks
 from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 
@@ -73,6 +74,7 @@ def _build(
     factory: Callable[[dict[str, str]], SemanticProject],
     *,
     axis_columns: tuple[str, ...] = (),
+    history: bool = False,
 ) -> tuple[Session, Callable[[datetime], mv.LogicalJourneyResult], Path]:
     database = root / "source.sqlite"
     with closing(sqlite3.connect(database)) as connection, connection:
@@ -98,6 +100,61 @@ def _build(
                         )
                     )
         connection.executemany("INSERT INTO events VALUES (?, ?, ?, ?)", events)
+    history_model = ""
+    if history:
+        with closing(sqlite3.connect(database)) as connection, connection:
+            connection.execute(
+                "CREATE TABLE snapshots (id BIGINT, code BIGINT, region VARCHAR, day DATE)"
+            )
+            connection.execute(
+                "CREATE TABLE validity (id BIGINT, leaf_id BIGINT, zone VARCHAR, day DATE, finish DATE)"
+            )
+            connection.execute("CREATE TABLE leaf (id BIGINT, channel VARCHAR)")
+            for identity, region, channel, code in SUBJECTS:
+                connection.execute("INSERT INTO leaf VALUES (?, ?)", (identity, channel))
+                for beginning in (BASELINE, START):
+                    connection.execute(
+                        "INSERT INTO snapshots VALUES (?, ?, ?, ?)",
+                        (
+                            identity,
+                            code,
+                            region if beginning == START else "old",
+                            beginning.date().isoformat(),
+                        ),
+                    )
+                connection.execute(
+                    "INSERT INTO validity VALUES (?, ?, ?, ?, ?)",
+                    (
+                        identity,
+                        identity,
+                        "old",
+                        BASELINE.date().isoformat(),
+                        START.date().isoformat(),
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO validity VALUES (?, ?, ?, ?, NULL)",
+                    (identity, identity, "new", START.date().isoformat()),
+                )
+        history_model = """
+snapshots=ms.entity(name='snapshots',datasource=ms.ref.datasource('warehouse'),source=md.table('snapshots'),primary_key=['id'],versioning=ms.snapshot(partition_field=ms.ref.time_dimension('sales.snapshots.day'),grain='day',timezone='UTC'))
+snapshot_id=ms.dimension_column(name='id',entity=snapshots,column='id')
+snapshot_code=ms.dimension_column(name='code',entity=snapshots,column='code')
+snapshot_region=ms.dimension_column(name='region',entity=snapshots,column='region')
+snapshot_day=ms.time_dimension_column(name='day',entity=snapshots,column='day',granularity='day')
+validity=ms.entity(name='validity',datasource=ms.ref.datasource('warehouse'),source=md.table('validity'),primary_key=['id'],versioning=ms.validity(valid_from=ms.ref.time_dimension('sales.validity.day'),valid_to=ms.ref.time_dimension('sales.validity.finish'),interval='closed_open',open_end=(None,)))
+validity_id=ms.dimension_column(name='id',entity=validity,column='id')
+validity_leaf=ms.dimension_column(name='leaf_id',entity=validity,column='leaf_id')
+validity_zone=ms.dimension_column(name='zone',entity=validity,column='zone')
+validity_day=ms.time_dimension_column(name='day',entity=validity,column='day',granularity='day',parse=ms.datetime(timezone='UTC'))
+validity_finish=ms.time_dimension_column(name='finish',entity=validity,column='finish',granularity='day',parse=ms.datetime(timezone='UTC'))
+leaf=ms.entity(name='leaf',datasource=ms.ref.datasource('warehouse'),source=md.table('leaf'),primary_key=['id'])
+leaf_id=ms.dimension_column(name='id',entity=leaf,column='id')
+leaf_channel=ms.dimension_column(name='channel',entity=leaf,column='channel')
+subject_snapshot=ms.relationship(name='subject_snapshot',from_entity=subjects,to_entity=snapshots,keys=[ms.join_on(subject_id,snapshot_id)])
+snapshot_validity=ms.relationship(name='snapshot_validity',from_entity=snapshots,to_entity=validity,keys=[ms.join_on(snapshot_id,validity_id)])
+validity_leaf_link=ms.relationship(name='validity_leaf_link',from_entity=validity,to_entity=leaf,keys=[ms.join_on(validity_leaf,leaf_id)])
+"""
     factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
@@ -125,6 +182,7 @@ def start(rows):
 def end(rows):
     return ms.bind(kind,rows)=='end'
 """
+            + history_model
             + "".join(
                 f"axis_{i}=ms.dimension_column(name='axis_{i}',entity=subjects,column={column!r})\n"
                 for i, column in enumerate(axis_columns)
@@ -299,13 +357,15 @@ def test_sqlite_direct_axis_rejection_and_capture_cleanup(
 
 
 @pytest.mark.runtime
+@pytest.mark.parametrize("history", [False, True])
 def test_sqlite_three_axis_independent_recovery(
+    history: bool,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session, journeys, database = _build(tmp_path, semantic_project_factory)
+    session, journeys, database = _build(tmp_path, semantic_project_factory, history=history)
     examples: list[str] = []
     for locale in ("docs", "zh-cn/docs"):
         page = (
@@ -319,23 +379,48 @@ def test_sqlite_three_axis_independent_recovery(
         assert text.count(marker) == 1
         examples.append("direct_axes = (\n" + text.split(marker, 1)[1].split("```", 1)[0])
     assert examples[0] == examples[1]
-    namespace: dict[str, object] = {
-        "ms": ms,
-        "journeys": journeys(START),
-        "baseline_journeys": journeys(BASELINE),
-    }
-    exec(compile(examples[0], "latest-sqlite-direct-axes-example", "exec"), namespace)
-    current, baseline, change = (
-        namespace["current"],
-        namespace["baseline"],
-        namespace["three_axis_change"],
-    )
+    if history:
+        axes = tuple(
+            ms.ref.dimension(name)
+            for name in ("sales.subjects.region", "sales.snapshots.code", "sales.leaf.channel")
+        )
+        namespace: dict[str, object] = {
+            "mv": mv,
+            "ms": ms,
+            "journeys": journeys(START),
+            "baseline_journeys": journeys(BASELINE),
+        }
+        code = next(
+            block
+            for block in _blocks("en", "analysis-workflow")
+            if block.startswith("history_axes =")
+        )
+        exec(compile(code, "latest-history-axes-example", "exec"), namespace)
+        current, baseline, change = (
+            namespace["history_current"],
+            namespace["history_baseline"],
+            namespace["history_change"],
+        )
+    else:
+        namespace = {
+            "ms": ms,
+            "journeys": journeys(START),
+            "baseline_journeys": journeys(BASELINE),
+        }
+        exec(compile(examples[0], "latest-sqlite-direct-axes-example", "exec"), namespace)
+        current, baseline, change = (
+            namespace["current"],
+            namespace["baseline"],
+            namespace["three_axis_change"],
+        )
+        axes = _axes(("region", "code", "channel"))
     assert isinstance(current, mv.MaterializedFunnelResult)
     assert isinstance(baseline, mv.MaterializedFunnelResult)
     assert isinstance(change, mv.MaterializedFunnelComparisonResult)
     assert change.evidence_digest().finding_count > 0
     manifest: dict[str, Json] = {
         "session": session.id,
+        "axes": [axis.path for axis in axes],
         "inputs": {
             "current": snapshot(current),
             "baseline": snapshot(baseline),
@@ -370,3 +455,103 @@ def test_sqlite_three_axis_independent_recovery(
     assert reports[0]["outputs"] == reports[1]["outputs"]
     assert reports[1]["new_hit_runs"] == 0
     assert reports[1]["new_allocation_runs"] == 1
+
+
+@pytest.mark.runtime
+def test_sqlite_history_routes_assemble_exact_tuples(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    session, journeys, _ = _build(tmp_path, semantic_project_factory, history=True)
+    axes = tuple(
+        ms.ref.dimension(name)
+        for name in (
+            "sales.snapshots.region",
+            "sales.snapshots.code",
+            "sales.validity.zone",
+            "sales.leaf.channel",
+            "sales.subjects.id",
+        )
+    )
+    for beginning, completed in ((START, (1, 4)), (BASELINE, (2,))):
+        rows = journeys(beginning).funnel(axes=axes).execute().to_pandas()
+        expected: dict[tuple[object, ...], bool] = {
+            (
+                region if beginning == START else "old",
+                code,
+                "new" if beginning == START else "old",
+                channel,
+                identity,
+            ): identity in completed
+            for identity, region, channel, code in SUBJECTS
+        }
+        assert len(rows) == 8
+        for row in rows.to_dict("records"):
+            key = tuple(None if pd.isna(row[axis.path]) else row[axis.path] for axis in axes)
+            reached = 1 if row["step"] == 0 else int(expected[key])
+            assert tuple(row[name] for name in COUNTS) == (1, 1, 1, 1, reached, 1 - reached, 0)
+        assert (
+            rows.loc[rows.step == 0, "loss_rate_from_previous__cell_reason"].tolist()
+            == ["initial_step"] * 4
+        )
+    assert session._runtime.store.resources(session.id) == ()
+
+
+@pytest.mark.parametrize("fault", ["missing", "duplicate", "foreign"])
+def test_entry_mappings_require_complete_occurrence_identity(fault: str) -> None:
+    from marivo.analysis.core.domain_captures import DomainPreparationError
+    from marivo.analysis.materialization.funnel_execution import assemble_axes
+
+    base = pa.table({"key_0": ["start", "start"], "key_1": [1, 2], "key_2": [7, 7]})
+    mapping = pa.table(
+        {
+            "key_0": ["start", "start"],
+            "key_1": [2, 1],
+            "key_2": [7, 7],
+            "axis_0": pa.array([None, LARGE], type=pa.int64()),
+        }
+    )
+    actual = assemble_axes(base, (mapping,))
+    assert actual["axis_0"].to_pylist() == [LARGE, None]
+    invalid = (
+        mapping.slice(0, 1)
+        if fault == "missing"
+        else pa.concat_tables([mapping, mapping.slice(0, 1)])
+        if fault == "duplicate"
+        else mapping.set_column(1, "key_1", pa.array([2, 3]))
+    )
+    with pytest.raises(DomainPreparationError, match="path mapping"):
+        assemble_axes(base, (invalid,))
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("fault", ["missing", "duplicate", "overlap"])
+def test_sqlite_history_capture_failure_is_atomic(
+    fault: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    session, journeys, database = _build(tmp_path, semantic_project_factory, history=True)
+    with closing(sqlite3.connect(database)) as connection, connection:
+        if fault == "missing":
+            connection.execute("DELETE FROM snapshots WHERE id=4 AND day='2026-08-01'")
+        elif fault == "duplicate":
+            connection.execute(
+                "INSERT INTO snapshots SELECT * FROM snapshots WHERE id=4 AND day='2026-08-01'"
+            )
+        else:
+            connection.execute(
+                "INSERT INTO validity SELECT id,leaf_id,zone,'2026-07-31',NULL FROM validity WHERE id=4 AND finish IS NULL"
+            )
+    before = set(tmp_path.rglob("*.parquet"))
+    axes = tuple(ms.ref.dimension(name) for name in ("sales.snapshots.code", "sales.leaf.channel"))
+    with pytest.raises(AnalysisError):
+        journeys(START).funnel(axes=axes).execute()
+    assert set(tmp_path.rglob("*.parquet")) == before
+    assert session._runtime.store.resources(session.id) == ()
+    with session._runtime.store._connection() as connection:
+        assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 0

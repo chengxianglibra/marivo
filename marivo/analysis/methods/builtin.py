@@ -484,6 +484,7 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
             "bind_project",
             "metric.observe",
             "metric.sum_zero",
+            "metric.count",
             "time.product",
             "state_rollup",
             "state_rollup.sum_zero",
@@ -507,9 +508,13 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
                 numeric_specialization="consumer",
                 qualification=Qualified(
-                    f"r93.{backend}.{method}.{item.key}",
+                    f"o2b.{backend}.metric.count.ordinary.{item.key.input_types[0].name}@v1"
+                    if method.name == "metric.count"
+                    else f"r93.{backend}.{method}.{item.key}",
                     "analysis.compiler.graph_lowering",
-                    "tests/test_r93_method_consumers.py",
+                    "tests/analysis/graph/test_observation_paths.py"
+                    if method.name == "metric.count"
+                    else "tests/test_r93_method_consumers.py",
                 ),
             )
             for item in (native_inputs if upstream == "sqlite" else remote[upstream])
@@ -2303,20 +2308,26 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
                 "Use the qualified value/weight types.",
             )
     elif isinstance(params, ObserveCount):
-        if len(params.path) not in (0, 1, 2):
-            reject(
-                "one qualified count route", repr(params.path), "Use a direct member relationship."
-            )
+        pass
     elif isinstance(params, ObserveMetric):
-        if len(params.path) not in (0, 1, 2) or (
+        if (
             params.amount_type not in ("int64", "float64")
             and not (
                 params.method
-                in ("sum", "mean", "min", "max", "median", "percentile", "count_distinct")
+                in (
+                    "sum",
+                    "mean",
+                    "min",
+                    "max",
+                    "median",
+                    "percentile",
+                    "count_distinct",
+                    "approx_count_distinct",
+                )
                 and params.amount_type.startswith(("decimal(", "interval("))
             )
             and not (
-                params.method == "count_distinct"
+                params.method in ("count_distinct", "approx_count_distinct")
                 and params.amount_type in ("string", "boolean", "date", "timestamp")
             )
             and not (
@@ -2327,7 +2338,7 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             reject(
                 "one qualified to-one observation route",
                 repr(params.path),
-                "Use the qualified direct contribution-to-member route.",
+                "Use a supported Measure type and an explicit complete to-one contribution-to-member route.",
             )
     elif isinstance(params, BindProject):
         if (
@@ -2453,14 +2464,25 @@ def _admit_distribution(implementation: Implementation, params: RuleParameters) 
         native_distribution(implementation)
         and isinstance(params, ObserveMetric)
         and (
-            params.amount_type != "int64"
+            (
+                params.amount_type
+                not in (
+                    ("int64", "float64", "string", "boolean", "date", "timestamp")
+                    if params.method in ("count_distinct", "approx_count_distinct")
+                    else ("int64", "float64")
+                )
+                and not (
+                    params.method in ("count_distinct", "approx_count_distinct")
+                    and params.amount_type.startswith("decimal(")
+                )
+            )
             or params.distinct_columns
             or params.start is None
             or params.end is None
         )
     ):
         reject(
-            "a bounded int64 direct-column distribution",
+            "a bounded single-column native distribution with a comparable scalar distinct input or int64/float64 quantile input",
             repr(params),
-            "Use an int64 Measure with an explicit bounded time scope; other input variants require separate physical qualification.",
+            "Use a bounded scope and one comparable scalar or Decimal Measure for distinct, or int64/float64 for quantiles. Native Decimal quantile output cannot preserve the declared Decimal carrier; native Duration lowering requires the DuckDB epoch_us operation. Use the existing exact DuckDB route for those carriers.",
         )

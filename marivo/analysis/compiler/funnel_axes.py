@@ -15,7 +15,9 @@ from marivo.analysis.compiler.graph_lowering import (
     SourceBinding,
 )
 from marivo.analysis.compiler.graph_plan import SourceMethodStage
+from marivo.analysis.core.domain_captures import EntryAxisCapture
 from marivo.analysis.core.rules import FunnelAxesPrepare
+from marivo.analysis.methods.physical import SourceShape
 
 
 def lower_axes(
@@ -23,6 +25,8 @@ def lower_axes(
     occurrences: LoweredRelation,
     bindings: tuple[SourceBinding, ...],
     checks: list[LoweredCheck],
+    part_expressions: list[tuple[str, ir.Table]],
+    part_source_ids: list[tuple[str, tuple[str, ...]]],
 ) -> tuple[ir.Table, RelationLayout, tuple[str, ...]]:
     params = stage.node.parameters
     assert isinstance(params, FunnelAxesPrepare)
@@ -38,22 +42,31 @@ def lower_axes(
     source_ids = tuple(
         dict.fromkeys((*occurrences.source_ids, *(n.identity for n in stage.node.sources)))
     )
-    # Direct Dimensions on the same Subject share one entry mapping. Rejoining the
-    # occurrence tree for each column exceeds SQLite's join limit for longer tuples.
-    groups = (
-        (tuple(enumerate(params.axes)),)
-        if params.axes
-        and all(
-            not axis.path
-            and axis.subject.version is None
-            and axis.entities[0].version is None
-            and axis.subject == params.axes[0].subject
-            and axis.entities == params.axes[0].entities
-            and axis.source_ids == params.axes[0].source_ids
-            for axis in params.axes
+    # Identical complete routes share a mapping, including different leaf Dimensions.
+    groups: list[list[tuple[int, EntryAxisCapture]]] = []
+    for axis_index, axis in enumerate(params.axes):
+        group = next(
+            (
+                group
+                for group in groups
+                if (
+                    group[0][1].subject == axis.subject
+                    and group[0][1].path == axis.path
+                    and group[0][1].entities == axis.entities
+                    and group[0][1].source_ids == axis.source_ids
+                )
+            ),
+            None,
         )
-        else tuple(((index, axis),) for index, axis in enumerate(params.axes))
+        if group is None:
+            groups.append([(axis_index, axis)])
+        else:
+            group.append((axis_index, axis))
+    independent = (
+        isinstance(stage.implementation.key.shape, SourceShape)
+        and stage.implementation.key.shape.backend == "sqlite"
     )
+    captured: list[int] = []
     for group in groups:
         axis_index, axis = group[0]
         route = []
@@ -122,18 +135,31 @@ def lower_axes(
                 current_ids,
             )
         )
-        table = table.join(current, [table[key] == current[key] for key in keys]).select(
-            **{
-                name: table[name]
-                for name in (
-                    *keys,
-                    "occurrences__occurred_at",
-                    *(f"axis_{i}" for i in range(axis_index)),
-                )
-            },
-            **{f"axis_{index}": current[f"axis_{index}"] for index, _ in group},
-        )
+        if independent:
+            part_expressions.append(
+                (f"axis_{axis_index}", current.select(*keys, *(f"axis_{i}" for i, _ in group)))
+            )
+            part_source_ids.append((f"axis_{axis_index}", current_ids))
+        else:
+            table = table.join(current, [table[key] == current[key] for key in keys]).select(
+                **{
+                    name: table[name]
+                    for name in (
+                        *keys,
+                        "occurrences__occurred_at",
+                        *(f"axis_{i}" for i in captured),
+                    )
+                },
+                **{f"axis_{i}": current[f"axis_{i}"] for i, _ in group},
+            )
+        captured.extend(i for i, _ in group)
     layout = RelationLayout(
         occurrences.layout.keys, None, (), tuple(f"axis_{i}" for i in range(len(params.axes)))
     )
+    if independent:
+        return (
+            base.select(*keys),
+            RelationLayout(occurrences.layout.keys, None, (), ()),
+            occurrences.source_ids,
+        )
     return table.select(*keys, *(f"axis_{i}" for i in range(len(params.axes)))), layout, source_ids

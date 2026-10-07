@@ -2,7 +2,7 @@
 
 Date: 2026-10-07
 
-Status: O1, O2a and O2b's first direct-axis batch are implemented and validated within the stated scope. O2b's remaining candidates and O3–O5 remain proposed.
+Status: O1, O2a and the selected O2b consumer batches are implemented within the recorded support and validation scope. Other O2b candidates and O3–O5 remain proposed.
 
 Baseline: `panda@ccbed62962e21beef5778c738037e62d912ec8fb`.
 
@@ -11,8 +11,10 @@ Baseline: `panda@ccbed62962e21beef5778c738037e62d912ec8fb`.
 前三项先按等价内部整理实施；改变支持范围、恢复协议或作者语法的部分分别交付。
 
 O1、O2a 已按本文的等价内部整理边界实施，并更新对应私有构造、编译交接与消费者规范。
-O2b 首批仅扩大 SQLite Funnel 的直接 string/int64 Subject 轴组合；其余 O2b 候选与
-O3–O5 仍是优化提案。此次没有新增后端或轴类型资格，也不表示
+O2b 首批扩大 SQLite Funnel 的直接 string/int64 Subject 轴组合；后续四批扩大
+observation 长路径、SQLite 历史轴、SQLite Anchor 组件和 native distribution 输入。
+新增 remote ordinary Count 声明及原有冻结集合的边界分别记录。其他 O2b 候选与
+O3–O5 仍是优化提案；本轮不表示
 R10、安装包、真实 Agent 或发布验收已经完成。`AGENTS.md` 与 packaged skills 保持原样。
 
 ## 1. 范围与设计原则
@@ -314,6 +316,128 @@ O2b 的新增资格单独记录，不反向改写历史验收结论，也不机�
   真实 Agent 和发布验收仍未运行。
 - 修复后 `make check-agent` 全部通过：766 个文件的格式/lint、import contracts、335
   个源码文件的 typing、默认测试 4,746 passed / 1 skipped（51.95 s），以及 API 文档构建。
+
+### O2b 其余消费者实施记录（2026-10-07）
+
+实施基线为 `panda@a7b0d9b7af`。以下四批沿用现有 API、唯一 MethodRegistry、
+执行路线、Store 7 和既有实现身份。用户补充要求实现四个远端 provider 的普通
+`members.observe(ms.count(...))`，因此仅新增 8 条 `metric.count` 声明：
+PostgreSQL/MySQL/Trino/ClickHouse × int64/string member carrier。它们使用明确的
+`o2b.<backend>.metric.count.ordinary.<carrier>@v1` 身份和原 graph lowering 消费者。
+原 11,470 条声明的顺序、exact key、身份、checks、parts、资源与完整 specialization
+oracle 保持冻结；测试独立排除并核对这 8 条增量，不改写原冻结数据。
+
+#### 普通 Metric/Count observation 长路径
+
+- 构造和准入删除普通两跳、relative 三跳的固定限制。路径仍须完整端点、连续连接、
+  显式完整 join keys 和有向 to-one；普通 Entity 保持未版本化，relative 保持原版本捕获。
+  不新增跳数限额，图/快照预算及真实 provider 能力继续适用，不丢弃路径或切换路线。
+- 六个后端的四跳 sum/count 使用共享语义建模 fixture 和独立结果预期：完整 member key、
+  `2**53 + 3` 精确求和、贡献数 `[2, 1, 0]`、过滤后 `[2, 0, 0]`、窗口外行排除与
+  空 member 的 Defined zero。四个远端分别覆盖 int64 和 string member，并通过真实
+  registry selection 核对新增 Count 身份和按完整 key 保存的 original count state。
+  Count 每个合法贡献计 1，不通过 DISTINCT 掩盖重复身份或 fanout。
+- PostgreSQL 的复合 member key 另以 `(1, "a")`、`(1, "b")` 和 `(2, "c")` 核对四跳
+  sum/count、完整 original state、第二坐标过滤和 fixed/cold 恢复，防止按首坐标折叠。
+- DuckDB/SQLite 另覆盖三跳、九跳及 relative sum/count。四跳结果在 source fixture
+  关闭并删除源对象、模型后进入独立 fixed/cold 进程，验证 retained 读取、合法 rollup、
+  Findings/contract 快照和重复命中；禁止源、语义执行和冷命中的本地 kernel，资源为零。
+  Runtime owner：`tests/analysis/graph/test_observation_paths.py`。
+
+#### SQLite 历史 Funnel 轴
+
+- 逐轴准入允许 string/int64 直接/历史组合、多条路径和多跳 to-one；Subject 未版本化。
+  路径中的每个版本化 Entity 只接受 UTC 原生 DATE snapshot，或 closed-open validity、
+  NULL open end。timestamp、其他时区/closure/open end 和其他轴类型继续结构化拒绝。
+- 同一完整路径共享映射；不同路径分别捕获并按完整 occurrence identity 精确装配。
+  入口装配在 Journey matching 前完成，不按轴数展开重复 JOIN。逐跳缺失、重复、
+  非空与版本重叠检查保留；缺失、重复或 foreign occurrence key 拒绝装配。
+- 实际五轴组合覆盖共享 snapshot 路径、历史 int64、中间 validity Entity、三跳 leaf
+  和直接 Subject 轴，验证精确 snapshot、validity 边界、真实 Null、字面量 Other、
+  大 int64、authored order、七项计数与初始 Undefined，不生成笛卡尔积坐标。
+  三轴 period comparison 在独立 fixed/cold 进程继续 joint/hierarchy 分配、reconciliation、
+  Findings、新 top_k 和重复命中。缺失/重复 snapshot 与 validity 重叠在发布前失败，
+  无 Artifact 或连接/临时快照遗留。Runtime owner：
+  `tests/analysis/journey/test_sqlite_funnel_direct_axes.py`；既有 snapshot/validity owner
+  `tests/analysis/journey/test_journey_consumers.py` 保留相邻回归。
+
+#### SQLite Anchor observation
+
+- 准入允许 count、int64/float64 additive sum 的 zero/null、Metric slice、ratio 和 signed
+  linear，沿用原类型、单位和 relative-observation 规则。mean、fold、cumulative、distinct、
+  contribution coordinates、Decimal/Duration 等新 carrier 继续由真实契约拒绝。
+- 非 DuckDB preparation 每个组件捕获独立 flat candidates，并记录该表达式实际来源。
+  全部源读取完成后才按序打包为 typed `uses_i` 列表交给既有本地消费者；不做候选行
+  Cartesian join 或统一数值转换，共享原快照 authority 和 deadline。
+- 实际六种 observation 覆盖大整数、float null、过滤、同根 ratio、异根 signed linear、
+  空分母 Undefined、同刻 business order、own-anchor 排除、窗口重叠和组件候选计数。
+  独立 fixed/cold 进程在模型/源删除并禁止源与语义执行后读取、续算并命中。
+  第二组件捕获取消、所有源捕获后的 deadline 和 int64 溢出均不产生部分发布，资源为零。
+  Runtime owner：`tests/analysis/journey/test_anchor_consumers.py`；既有 Event/Journey
+  origin、elapsed/calendar、DST 回归由该 owner 与 `test_journey_anchors.py` 覆盖。
+
+#### Native distribution 输入
+
+- distinct 按方法接受现有 int64/float64/string/boolean/date/timestamp；exact 与 authored
+  approximate 仍走各自原声明。quantile 接受 int64/float64；仍是 bounded 单列输入，
+  不扩大复合 distinct、窗口或后端/方法组合。
+- PostgreSQL/MySQL/Trino 的 exact Decimal distinct 保留相差 `0.000001`、超过 `2**53`
+  的原系数；explicit approximate Decimal distinct 使用原 native 操作，包含 ClickHouse。
+  DuckDB 沿用其 Decimal carrier。Null 忽略、空 distinct 为 Defined zero、空 quantile
+  为 Null；finite Decimal 检查只返回违规标记，避免 NaN 在检查响应中先触发 Arrow 转换。
+  Decimal 上下界通过精确文本 literal cast 构造，避免 SQL compiler 对负大 Decimal
+  literal 的舍入。没有转换实际输入数值。
+- MySQL BOOLEAN 的实际 carrier 是 int8，继续在读取/Run 前拒绝；SQLite float-backed
+  NUMERIC 不获得 Decimal 资格。native Decimal quantile 结果无法保留 declared Decimal
+  carrier，Duration lowering 需要 DuckDB `epoch_us`，这两类继续结构化拒绝。
+  SQLite/MySQL quantile、Trino exact quantile 和 ClickHouse exact distinct 继续提前拒绝，
+  不用 fallback 或隐式转换授予资格。
+- 每个新增 native method/type/backend 资格有真实 fixture 结果与提交 SQL 证据；
+  VARCHAR 宽度及 timestamp 精度保留在来源表达式。固定 retained 读取和 where 续算禁止源
+  读取；代表性新增 carrier/quantile 另在源对象、模型删除后的独立 fixed/cold 进程中核对
+  parts、Findings、合法新归约和重复命中。原分布量不获得 original rollup/attribution 权限。
+  Runtime owner：`tests/analysis/graph/test_distribution_consumers.py`；原 DuckDB
+  float/Decimal 三进程恢复继续由 `test_distribution_carriers.py` 覆盖。
+
+默认门禁与后端证据：
+
+- 受影响默认测试首轮 207 passed；补充逐方法 carrier 边界、完整 occurrence 装配与双语
+  示例后，定向默认测试 179 passed（16.87 s）。既有 O2a oracle、非法 shape/source/fixed
+  边界和 Help/动态 continuation 有界测试保留。受影响源码 typing 通过；9 个新增或修改
+  测试/helper/worker 的 typing 通过，后者用 `--follow-imports=silent` 隔离未修改测试
+  helper 的既有导入类型问题，被选模块完整检查。
+- 首轮 `make check-agent` 全部通过：769 个文件格式/lint、import contracts、335 个源码
+  文件 typing、默认测试 4,749 passed / 1 skipped（70.71 s）及 API 文档构建。
+  后续 carrier 和失败反例的最终门禁结果在本节末记录。
+- 后端见证来自既有 `marivo-multisource`：PostgreSQL 17、MySQL 8.4、Trino 483 Iceberg
+  与 ClickHouse 26.3.33.24 MergeTree；Trino/ClickHouse 串行切换。端口探针及 skip 不计通过。
+  长路径 sum/count 的六个后端都实际执行；native scalar/float 扩展首轮为 43 passed
+  （含 2 个 MySQL BOOLEAN 明确拒绝）和 ClickHouse 12 passed（包含既有边界/相邻回归），
+  并运行 exact Decimal 与其拒绝边界。各次定向运行有重叠，不相加为独立用例总数。
+- latest 英中新增四个相同可执行示例分别在长路径 Count、历史 Funnel comparison、
+  过滤 Anchor 和 scalar distinct Runtime 中执行；原 API docstring/native Help、结构化
+  expected/repair、owning specs 和动态 continuation 同步，不新增公共入口或 renderer 清单。
+- mixed source/fixed、异构 shape、其他 O2b 候选及 O3–O5 未扩展。完整物理/存储矩阵、
+  完整 Runtime、安装包、真实 Agent、发布验收未运行；本轮证据不授予这些资格。
+  `AGENTS.md` 与 packaged skills 未修改，不自动提交或推送。
+
+最终复核结果（各行仅表示其选定范围；运行间有重叠）：
+
+| 范围 | 实际结果 |
+| --- | --- |
+| 长路径及 native Count | 六后端四跳、DuckDB/SQLite 三/九跳、四远端 string key 均有执行见证；最终 Trino int64/string 2 passed（67.10 s），PG/MySQL string 2 passed（62.56 s），ClickHouse int64/string 2 passed（74.45 s），PG 复合 key 1 passed（28.08 s），均包括相应断源 fixed/cold |
+| 历史 Funnel | 新历史组合、装配和缺失/重复/重叠失败首轮 5 passed（234.49 s）；最新英中历史三轴示例及独立恢复 1 passed（287.11 s）；既有 SQLite direct/snapshot/validity 5 passed（379.68 s）；最终直接轴短组合/17 轴、取消清理和 direct fixed/cold 7 passed（222.51 s） |
+| Anchor | 六种新增 observation、组件取消/deadline/溢出和独立恢复最终 1 passed（84.90 s）；现有 SQLite Event/Journey Anchor 与 DuckDB float/Decimal distribution 相邻三进程回归 9 passed（702.40 s） |
+| Native distribution 恢复 | SQLite timestamp/string、PG/MySQL Decimal、PG float quantile 等选定集合 7 passed（124.64 s）；ClickHouse boolean distinct/float approximate quantile 2 passed（54.95 s）；Trino float approximate quantile 的 fixed/cold 在其后 4 passed / 1 failed 的运行中通过，唯一失败为 DuckDB Decimal 检查 literal，已修复复核 |
+| Decimal 后续补测 | PG/MySQL/Trino approximate Decimal 和 Trino float quantile 首轮 4 passed / 1 failed；DuckDB 负大 Decimal literal 反例修复后 1 passed（5.45 s），ClickHouse approximate Decimal 1 passed（12.85 s）；最终 PG/MySQL Decimal exact/approximate、NaN 和 quantile 拒绝 6 passed（49.03 s），Trino Decimal exact/approximate 2 passed（18.74 s） |
+| 默认门禁 | 定向 consumers/双语示例/Help 222 passed（13.97 s）；最终 `make check-agent` 全部通过，769 文件格式/lint、import contracts、335 源码 typing、4,769 passed / 1 skipped（54.31 s）及 API docs；复合 key 后其测试 typing/lint 单独通过，精度说明澄清后 Help/双语示例 49 passed（7.43 s），完整 to-one route 的结构化修复说明更新后 consumers/normalization/Help 239 passed（9.41 s） |
+
+PostgreSQL NaN 初次反例在检查响应的 Decimal-to-Arrow 转换中先失败；改为只返回
+违规标记后，按有限值契约报错并验证无部分 Artifact、资源为零。DuckDB 负 Decimal
+边界的初次反例来自 compiler literal 舍入，修改上下界 literal 的表达式后同例通过。
+以上失败已被对应修复和重跑覆盖，不计为通过的独立用例，也不隐藏在累计 green 数量中。
+最终环境恢复起始状态：Trino 与其 PostgreSQL catalog、独立 PostgreSQL/MySQL analysis
+服务 healthy，ClickHouse 与两 shard 停止；未替换或删除其 volumes。
 
 ## 6. O3 复用已编译的语义契约
 

@@ -20,7 +20,26 @@ from marivo.analysis.methods.physical import (
     SourceShape,
 )
 from marivo.analysis.methods.semantics import MethodKey
-from marivo.semantic.ir import TargetSnapshotVersion, TargetValidityVersion
+from marivo.semantic.ir import TargetEntityContract, TargetSnapshotVersion, TargetValidityVersion
+
+
+def _date_version(entity: TargetEntityContract) -> bool:
+    version = entity.version
+    if version is None:
+        return True
+    columns = dict(entity.columns)
+    if isinstance(version, TargetSnapshotVersion):
+        return columns.get(version.source_column) == "date32[day]" and version.timezone == "UTC"
+    return (
+        isinstance(version, TargetValidityVersion)
+        and version.interval == "closed_open"
+        and version.open_end == (None,)
+        and version.timezone == "UTC"
+        and all(
+            columns.get(column) == "date32[day]"
+            for column in (version.valid_from_column, version.valid_to_column)
+        )
+    )
 
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
@@ -116,44 +135,13 @@ def admit_axes(implementation: Implementation, params: RuleParameters) -> None:
             or any(
                 axis.subject.version is not None
                 or axis.dimension.logical_type not in ("int64", "string")
-                or (
-                    axis.path
-                    and not (
-                        len(params.axes) == 1
-                        and axis.dimension.logical_type == "string"
-                        and len(axis.path) == 1
-                        and len(axis.entities) == 2
-                        and (
-                            (
-                                isinstance(axis.entities[1].version, TargetSnapshotVersion)
-                                and dict(axis.entities[1].columns).get(
-                                    axis.entities[1].version.source_column
-                                )
-                                == "date32[day]"
-                                and axis.entities[1].version.timezone == "UTC"
-                            )
-                            or (
-                                isinstance(axis.entities[1].version, TargetValidityVersion)
-                                and axis.entities[1].version.interval == "closed_open"
-                                and axis.entities[1].version.open_end == (None,)
-                                and axis.entities[1].version.timezone == "UTC"
-                                and all(
-                                    dict(axis.entities[1].columns).get(column) == "date32[day]"
-                                    for column in (
-                                        axis.entities[1].version.valid_from_column,
-                                        axis.entities[1].version.valid_to_column,
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
+                or any(not _date_version(entity) for entity in axis.entities)
                 for axis in params.axes
             )
         )
     ):
         reject(
-            "nonempty direct unversioned Subject axes of string/int64 types or one string axis through a UTC DATE snapshot or closed-open validity interval",
+            "nonempty string/int64 axes from an unversioned Subject through to-one UTC DATE history paths",
             repr(params),
-            "Use unique ordered direct string/int64 Subject axes in any count or order, or one to-one string axis through a UTC DATE snapshot or closed-open validity interval with NULL open end; qualify other types, paths and versions separately.",
+            "Use unique ordered direct or historical string/int64 axes. Keep every versioned path Entity on UTC DATE snapshots or closed-open validity with NULL open end, and the Subject unversioned.",
         )

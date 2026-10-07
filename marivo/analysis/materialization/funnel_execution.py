@@ -109,6 +109,41 @@ def _result(
     )
 
 
+def assemble_axes(base: pa.Table, mappings: tuple[pa.Table, ...]) -> pa.Table:
+    """Attach independent exact mappings by the complete captured occurrence key."""
+    keys = tuple(base.column_names)
+    positions: dict[tuple[object, ...], int] = {}
+    for index, row in enumerate(base.to_pylist()):
+        check()
+        key = tuple(row[name] for name in keys)
+        if None in key or key in positions:
+            fail("entry_axes", "nonunique or null occurrence identity", stage="prepare")
+        positions[key] = index
+    columns: dict[str, pa.Array] = {}
+    for mapping in mappings:
+        check()
+        indices: list[int | None] = [None] * base.num_rows
+        for index, row in enumerate(mapping.select(keys).to_pylist()):
+            check()
+            key = tuple(row[name] for name in keys)
+            if key not in positions or indices[positions[key]] is not None:
+                fail("entry_axes", "duplicate or foreign path mapping", stage="prepare")
+            indices[positions[key]] = index
+        if any(index is None for index in indices):
+            fail("entry_axes", "missing path mapping", stage="prepare")
+        for name in mapping.column_names:
+            if name not in keys:
+                if name in columns:
+                    fail("entry_axes", "duplicate captured axis", stage="prepare")
+                columns[name] = (
+                    mapping[name].take(pa.array(indices, type=pa.int64())).combine_chunks()
+                )
+    table = base
+    for name in sorted(columns, key=lambda name: int(name.removeprefix("axis_"))):
+        table = table.append_column(name, columns[name])
+    return table
+
+
 def axes_result(node: MethodNode, table: pa.Table, binding: str) -> ExchangeResult:
     params = node.parameters
     assert isinstance(params, FunnelAxesPrepare)

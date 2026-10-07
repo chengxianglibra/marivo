@@ -214,8 +214,12 @@ rollup。其他 Decimal group/time/source 当前行归约键需要各自的资�
 普通表的受限 UTC 微秒、int64 子集支持 DuckDB、SQLite、PostgreSQL、MySQL 和 Trino
 的原生精确 distinct，以及 ClickHouse 上显式许可的近似 distinct。精确分位数适用于
 DuckDB/PostgreSQL；显式近似分位数也适用于 Trino/ClickHouse。不支持的定义在读取前
-拒绝，不自动替换。原分布量不能归约或用于变化归因，固定恢复不读取来源。其他输入
-类型、无界窗口及完整 C10 仍须独立验收。
+拒绝，不自动替换。原分布量不能归约或用于变化归因，固定恢复不读取来源。distinct 另接受
+float64、string、boolean、date 与 timestamp。PostgreSQL/MySQL/Trino 的精确 Decimal distinct
+保留原系数；显式近似 Decimal distinct 也使用这些后端的原生操作及 ClickHouse 既有的近似操作。
+DuckDB 保留其原生 Decimal carrier。quantile 另接受 float64。MySQL BOOLEAN 被读取为 int8，继续拒绝。
+DuckDB 之外的 Decimal quantile 原生结果不能保留 Decimal carrier；原生 Duration lowering 需要 DuckDB epoch_us。
+这些输入、无界窗口及完整 C10 仍须独立验收。
 
 当指标、人群、比较方式或重要假设需要改变时，确认新的业务含义。可复用的语义缺口归属语义建模。在 Metric 定义中通过 `agg=("approx_percentile", q)` 明确允许近似；观察与恢复保持该定义。原生 SQL 的数值精度限制由结果契约披露。
 
@@ -978,9 +982,10 @@ SQLite main 原生表的 int64 身份、UTC 微秒 Event 起点 retention 支持
 恢复保持其界与 any/every Subject 分组。该 Event 起点 retention 路线也接受 string Subject
 键。int64 与 string occurrence 键在固定执行和冷恢复中保留完整的 Subject/Event/occurrence
 身份；occurrence 键的类型不决定 Subject 键的类型。其他源形状仍需独立取得资格。
-独立的 elapsed/calendar Anchor 观察支持一个直接 int64
-sum-zero Metric，不带坐标或过滤。准备过程保留重叠窗口的贡献重数、业务顺序与 fixed/冷恢复证据。
-组合与其他输入形状仍未取得资格。
+SQLite elapsed/calendar Anchor 观察支持 count、int64/float64 additive sum 的 zero/null
+空策略、Metric 切片及 ratio/signed linear 组合。每个组件独立读取，再打包为 typed 列表后本地消费。
+保留重叠窗口贡献重数、业务顺序与断源恢复。mean、fold、cumulative、distinct、贡献坐标及
+其他数值 carrier 继续拒绝。
 同一 SQLite 形状支持从 Journey 绑定 Anchor，保留原始分配与起点时间。
 从恢复后的 fixed Journey 绑定时，不访问来源，也不重新执行匹配。
 这些 Journey 起点支持同一直接 Metric 观察及 elapsed/calendar retention，保留原始分配
@@ -1040,13 +1045,13 @@ canonical assignment。snapshot/validity 版本和完整轴元组保留真实 Nu
 compare/归因的发射上限为 1000，保留 eligible/emitted/truncated 权威。
 SQLite main 原生表的 int64 身份与 UTC 微秒时间支持任意非空、去重、有序的直接
 string/int64 Subject 轴组合；Subject 必须未版本化，除既有图与快照预算外不增加轴数或
-排列限制。独立的历史轴 profile 仍支持一个经过单条 to-one UTC 每日 DATE snapshot 路径，
-或以 NULL 表示开放结束的 UTC DATE 左闭右开 validity 路径的字符串轴。
+排列限制。历史轴支持多条、多跳 to-one UTC 每日 DATE snapshot 路径，
+或以 NULL 表示开放结束的 UTC DATE 左闭右开 validity 路径的 string/int64 轴。
 nullable int64 坐标在 pandas 读取中保留精确 Arrow 类型，包含 hierarchy 非活动前缀；
 超过 `2**53` 的值不会经过 float64 转换。
 兼容的固定比较及 loss/denominator-mix 归因保留完整轴元组，可断源续算与冷恢复。
 snapshot 轴要求精确入口期；缺失时拒绝，不选择最新或较早的行。validity 包含起点、排除终点；
-缺失或重叠区间在发布前拒绝。此路线不能组合历史轴与其他轴；其他类型、路径/版本条件、
+缺失或重叠区间在发布前拒绝。此路线可组合直接与历史轴并保留同一 DATE profile；其他类型、路径/版本条件、
 空轴来源归约及形状仍需独立取得资格。
 
 若 SQLite Subject 声明了字符串 `region`/`channel` 和 int64 `code`，应在任一端点物化前
@@ -1164,6 +1169,69 @@ report.execute().show()
 模型工厂为 naive()、drift()、seasonal_naive(periods=s)，最短历史分别为 2、3、s+1。
 上下界是未来观察值的名义预测区间。结果筛选保留原训练或搜索域及 Findings；
 固定恢复只验证捕获事实，不读取来源或重新拟合。
+
+
+## 扩展 observation 与入口路径
+
+普通 Metric/Count 与 relative observation 不再限制固定跳数。路径仍须连续、明确 join keys、
+有向 to-one；普通实体保持未版本化，relative 保留当前版本捕获规则。PostgreSQL、MySQL、
+Trino、ClickHouse 支持原生普通 Count，保留完整身份检查、bounded 过滤及原 count 状态。
+每条合法贡献计为一，空成员为零。
+
+SQLite Funnel 支持未版本化 Subject 的直接/历史混合、多条历史路径与多跳 string/int64 轴。
+路径内每个版本实体保持 UTC 原生 DATE snapshot 或 NULL open end 的左闭右开 validity。
+完整相同路径共享映射；不同路径独立捕获，按完整 occurrence key 装配后才 matching。
+真实 Null 与字面量 Other 保持不同。沿用图/快照预算及 source/fixed 边界。
+
+以下片段假定已声明对应语义对象与逻辑接收者。sales.hop0 到 hop3 将 sales.facts 连接至
+sales.subjects；sales.snapshots 与 sales.leaf 已具有上述历史路径。
+
+```python
+long_routes = mv.routes(mv.route(
+    ms.ref.entity("sales.facts"),
+    through=tuple(ms.ref.relationship(f"sales.hop{i}") for i in range(4)),
+))
+long_count = population.observe(
+    ms.ref.metric("sales.number"),
+    during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+    via=long_routes,
+).execute()
+```
+
+```python
+history_axes = (
+    ms.ref.dimension("sales.subjects.region"),
+    ms.ref.dimension("sales.snapshots.code"),
+    ms.ref.dimension("sales.leaf.channel"),
+)
+history_current = journeys.funnel(axes=history_axes).execute()
+history_baseline = baseline_journeys.funnel(axes=history_axes).execute()
+history_change = history_current.compare(history_baseline).execute()
+```
+
+```python
+filtered_revenue = mv.runtime_metric.slice(
+    ms.ref.metric("commerce.revenue"),
+    by={ms.ref.dimension("commerce.facts.kind"): "finished"},
+    label="finished_only",
+)
+filtered_anchor = anchors.observe(
+    filtered_revenue,
+    within=mv.elapsed(mv.duration(seconds=10)),
+    via=ms.ref.relationship("commerce.participant"),
+).execute()
+```
+
+```python
+scalar_distinct = mv.runtime_metric.aggregate(
+    ms.ref.measure("sales.facts.amount"), agg="count_distinct", label="distinct_values",
+)
+distribution = session.members(ms.ref.entity("sales.subjects")).observe(
+    scalar_distinct,
+    during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+    via=ms.ref.relationship("sales.facts_subject"),
+).execute()
+```
 
 
 ## 九种统计方法及保留视图

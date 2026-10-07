@@ -2,6 +2,9 @@
 
 import json
 import os
+import shutil
+import subprocess
+import sys
 from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import replace
@@ -20,26 +23,52 @@ from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.graph.distribution_fixtures import distribution_data
+from tests.analysis.graph.distribution_fixtures import Carrier, distribution_data
+from tests.analysis.materialization.domain_recovery_worker import snapshot
+from tests.analysis.numeric.attribution_carrier_worker import parts
 from tests.datasource.source_cases import Case, datasource, source_case
+from tests.shared_fixtures import run_ids
+from tests.support.documentation import _blocks
 from tests.support.json import key_json
+from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
 
 
 @pytest.mark.runtime
 @pytest.mark.parametrize(
-    "backend,kind",
+    "backend,kind,carrier",
     [
-        (backend, kind)
+        (backend, kind, "int64")
         for backend in ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
         for kind in ("distinct", "identity", "quantile", "approx_distinct", "approx_quantile")
     ]
-    + [("sqlite", "float_distinct"), ("sqlite", "unbounded")],
+    + [("sqlite", "unbounded", "int64")]
+    + [(backend, "distinct", "decimal") for backend in ("postgres", "mysql", "trino")]
+    + [
+        (backend, "approx_distinct", "decimal")
+        for backend in ("duckdb", "postgres", "mysql", "trino", "clickhouse")
+    ]
+    + [("postgres", "quantile", "decimal")]
+    + [("postgres", "distinct_nonfinite", "decimal")]
+    + [
+        (backend, kind, carrier)
+        for backend in ("sqlite", "postgres", "mysql", "trino", "clickhouse")
+        for kind in ("distinct", "approx_distinct")
+        for carrier in ("float64", "string", "boolean", "date", "timestamp")
+        if not (backend == "clickhouse" and kind == "distinct")
+    ]
+    + [
+        (backend, kind, "float64")
+        for backend in ("postgres", "trino", "clickhouse")
+        for kind in ("quantile", "approx_quantile")
+        if not (backend in ("trino", "clickhouse") and kind == "quantile")
+    ],
 )
 def test_native_distribution(
     backend: str,
     kind: Literal[
         "distinct",
+        "distinct_nonfinite",
         "identity",
         "quantile",
         "approx_distinct",
@@ -47,6 +76,7 @@ def test_native_distribution(
         "float_distinct",
         "unbounded",
     ],
+    carrier: Carrier,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -58,7 +88,7 @@ def test_native_distribution(
         "iceberg" if backend == "trino" else "mergetree" if backend == "clickhouse" else "table"
     )
     datasets = [
-        distribution_data(backend, [(1, "a", 0), (2, "b", 0), (3, "c", 0)]),
+        distribution_data(backend, [(1, "a", 0), (2, "b", 0), (3, "c", 0)], carrier),
         distribution_data(
             backend,
             [
@@ -68,13 +98,13 @@ def test_native_distribution(
                 (9007199254740995, "a", None),
                 (9007199254740993, "b", 6),
             ],
+            carrier,
         ),
     ]
-    if kind == "float_distinct":
-        datasets = [
-            replace(data, columns=data.columns.replace("amount BIGINT", "amount DOUBLE"))
-            for data in datasets
-        ]
+    if kind == "distinct_nonfinite":
+        datasets[1] = replace(
+            datasets[1], values=datasets[1].values.replace("9007199254740993.000001", "'NaN'")
+        )
     with ExitStack() as stack:
         if backend == "duckdb":
             path = tmp_path / "source.duckdb"
@@ -139,7 +169,7 @@ def test_native_distribution(
             if kind == "identity"
             else ms.ref.measure("sales.facts.amount"),
             agg="count_distinct"
-            if kind in ("distinct", "identity", "float_distinct", "unbounded")
+            if kind in ("distinct", "distinct_nonfinite", "identity", "float_distinct", "unbounded")
             else "approx_count_distinct"
             if kind == "approx_distinct"
             else ("percentile", 0.25)
@@ -160,6 +190,21 @@ def test_native_distribution(
 
         monkeypatch.setattr(SourceSession, "batches", traced_batches)
         native_before = len(source_trace.native_sql)
+        before_runs = run_ids(session)
+        if backend == "mysql" and carrier == "boolean":
+            # MySQL BOOLEAN is reflected as int8, outside the existing scalar carriers.
+            with pytest.raises(
+                DatasetConstructionError, match="exact supported physical field type"
+            ):
+                session.members(ms.ref.entity("sales.subjects")).observe(
+                    metric,
+                    during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+                    via=ms.ref.relationship("sales.facts_subject"),
+                )
+            assert not submissions
+            assert len(source_trace.native_sql) == native_before
+            assert run_ids(session) == before_runs
+            return
         refuses = (
             (kind in ("distinct", "identity") and backend == "clickhouse")
             or (kind == "quantile" and backend not in ("duckdb", "postgres"))
@@ -176,11 +221,12 @@ def test_native_distribution(
             assert not submissions
             assert len(source_trace.native_sql) == native_before
             assert set((tmp_path / ".marivo").rglob("*.parquet")) == before
+            assert run_ids(session) == before_runs
             return
-        if kind in ("float_distinct", "unbounded"):
+        if kind == "unbounded" or (kind == "quantile" and carrier == "decimal"):
             before = set((tmp_path / ".marivo").rglob("*.parquet"))
             with pytest.raises(
-                MethodRegistrationError, match="bounded int64 direct-column distribution"
+                MethodRegistrationError, match="bounded single-column native distribution"
             ):
                 session.members(ms.ref.entity("sales.subjects")).observe(
                     metric,
@@ -192,20 +238,45 @@ def test_native_distribution(
             assert not submissions
             assert len(source_trace.native_sql) == native_before
             assert set((tmp_path / ".marivo").rglob("*.parquet")) == before
+            assert run_ids(session) == before_runs
             return
         observed = session.members(ms.ref.entity("sales.subjects")).observe(
             metric,
             during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
             via=ms.ref.relationship("sales.facts_subject"),
         )
+        if kind == "distinct_nonfinite":
+            before = set((tmp_path / ".marivo").rglob("*.parquet"))
+            with pytest.raises(AnalysisError, match="finite Decimal distribution input"):
+                observed.execute()
+            assert submissions
+            assert set((tmp_path / ".marivo").rglob("*.parquet")) == before
+            assert session._runtime.store.resources(session.id) == ()
+            return
         fixed = observed.execute()
         source_trace.record(fixed)
+        if backend == "sqlite" and kind == "distinct" and carrier == "float64":
+            namespace = {"mv": mv, "ms": ms, "session": session}
+            code = next(
+                block
+                for block in _blocks("en", "analysis-workflow")
+                if block.startswith("scalar_distinct =")
+            )
+            exec(compile(code, "latest-scalar-distribution-example", "exec"), namespace)
+            documented = namespace["distribution"]
+            assert isinstance(documented, mv.MaterializedNumericRelation)
+            assert documented.to_pandas().set_index("member").value.to_dict() == {
+                "a": 2,
+                "b": 1,
+                "c": 0,
+            }
+            source_trace.record(documented)
         frame = fixed.to_pandas().set_index("member")
         expected = (
             {"a": 4, "b": 1, "c": 0}
             if kind == "identity"
             else {"a": 2, "b": 1, "c": 0}
-            if kind in ("distinct", "approx_distinct")
+            if kind in ("distinct", "approx_distinct", "float_distinct")
             else {"a": 4, "b": 6}
         )
         for owner, value in expected.items():
@@ -251,7 +322,7 @@ def test_native_distribution(
                 "values": [4, 1, 0]
                 if kind == "identity"
                 else [2, 1, 0]
-                if kind in ("distinct", "approx_distinct")
+                if kind in ("distinct", "approx_distinct", "float_distinct")
                 else [4, 6, None]
                 if kind == "quantile"
                 else ["bounded_2_through_6", 6, None],
@@ -291,8 +362,51 @@ def test_native_distribution(
                                 fixed._dataset.artifact.descriptor, fixed._node.definition
                             ).physical_requirements
                         ],
-                        "boundary": "Bounded native int64 distributions; no complete C10 qualification",
+                        "boundary": "Bounded native scalar distributions; no complete C10 qualification",
                     },
                     sort_keys=True,
                 )
             )
+
+    # Cover distinct carriers and both quantile algorithms at the source-free
+    # process boundary without repeating the complete provider/type matrix.
+    if (backend, kind, carrier) in {
+        ("sqlite", "distinct", "timestamp"),
+        ("sqlite", "approx_distinct", "string"),
+        ("postgres", "distinct", "decimal"),
+        ("postgres", "quantile", "float64"),
+        ("mysql", "distinct", "decimal"),
+        ("trino", "approx_quantile", "float64"),
+        ("clickhouse", "approx_distinct", "boolean"),
+        ("clickhouse", "approx_quantile", "float64"),
+    }:
+        (tmp_path / "observations.json").write_text(
+            json.dumps(
+                {
+                    "session": session.id,
+                    "distribution": True,
+                    "inputs": {kind: snapshot(fixed)},
+                    "parts": {kind: parts(fixed)},
+                    "expected": {kind: 2 if "quantile" in kind else 3},
+                }
+            )
+        )
+        shutil.rmtree(tmp_path / "models")
+        for database in (*tmp_path.glob("*.sqlite"), *tmp_path.glob("*.duckdb")):
+            database.unlink()
+        for phase in ("fixed", "cold"):
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "tests.analysis.graph.observation_recovery_worker",
+                    str(tmp_path),
+                    phase,
+                ],
+                cwd=PROJECT_ROOT,
+                env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert completed.returncode == 0, completed.stdout + completed.stderr

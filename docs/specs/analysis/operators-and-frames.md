@@ -1199,7 +1199,10 @@ must be unversioned. Each axis is captured before matching, and complete tuple
 components survive fixed comparison, joint/hierarchy allocation and cold recovery.
 Public pandas reads retain nullable int64 coordinates as Arrow-backed integers,
 including inactive hierarchy prefixes, without conversion through float64.
-Historical axes retain their separately qualified single-hop single-axis profiles;
+Historical string/int64 axes may combine direct and historical multi-hop to-one paths;
+all versioned path Entities keep UTC native DATE snapshot or closed-open validity
+with NULL open end. The Subject stays unversioned. Independent paths are captured
+separately and assembled by full occurrence identity before matching;
 empty-axis source reduction, other types and mixed/heterogeneous inputs remain
 outside this extension.
 
