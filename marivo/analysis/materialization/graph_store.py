@@ -1,4 +1,4 @@
-"""v7 operations of SessionStore, sharing its transactions and resource journal."""
+"""v8 operations of SessionStore, sharing its transactions and resource journal."""
 
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ from marivo.analysis.materialization.graph_protocol import (
     PartReceipt,
     PrimaryReceipt,
     RunInput,
-    SourceRunInput,
     ValidatedDescriptor,
     decode,
     digest,
@@ -137,13 +136,8 @@ def artifact_metadata(
         or producer.execution_key_digest != key
         or descriptor.execution_key_digest != key
         or descriptor.signature.domain.binding.session_id != session
-        or producer.dataset_input.definition_fingerprint != descriptor.definition_fingerprint
-        or producer.dataset_input.plan_digest != digest(descriptor.production_plan)
     ):
         raise invalid("Artifact, producer or key differs")
-    expected_key = frozen_execution_key(checked, producer.dataset_input, producer.run_ref)
-    if key != expected_key:
-        raise invalid("Run and descriptor key differ from exact frozen execution inputs")
     prefix = store.layout.relative_path(store.layout.artifact_dir(session, ref))
     receipts: tuple[PrimaryReceipt | PartReceipt, ...] = (
         descriptor.primary_receipt,
@@ -161,7 +155,6 @@ def artifact(store: SessionStore, conn: sqlite3.Connection, ref: str) -> GraphAr
     if value is None:
         return None
     descriptor = value.descriptor
-    from marivo.analysis.core.model import FindingPolicyPart
     from marivo.analysis.materialization.graph_findings import collection
 
     collection(
@@ -170,7 +163,6 @@ def artifact(store: SessionStore, conn: sqlite3.Connection, ref: str) -> GraphAr
         descriptor,
         ref,
         _validated=value.validated,
-        verify_receipts=any(isinstance(p, FindingPolicyPart) for p in descriptor.signature.parts),
     )
     return value
 
@@ -297,91 +289,9 @@ def publish(
         from marivo.analysis.materialization.execute_deadline import check
 
         check()
-        read_result(store.project_root, descriptor, _validated=checked)
-        check()
     from marivo.analysis.materialization.execute_deadline import COMMITTED, CURRENT
 
     if CURRENT.get() is not None:
         COMMITTED.set(True)
     event("after_commit")
     return result
-
-
-def frozen_execution_key(checked: ValidatedDescriptor, selected: RunInput, run_ref: str) -> str:
-    """Verify publication identity from frozen materials, without route selection."""
-    from marivo.analysis.datasets.descriptors import _canonical_digest
-    from marivo.analysis.materialization.execution_key import _CanonicalValue, _wire
-    from marivo.analysis.materialization.graph_snapshot import (
-        FixedRecord,
-        MethodRecord,
-        SourceRecord,
-    )
-
-    descriptor = checked.descriptor
-    plan = checked.production_plan
-    if isinstance(selected, SourceRunInput):
-        leaves = tuple(n for n in checked.nodes if isinstance(n, SourceRecord))
-        if len(leaves) != len(selected.ordered_source_bindings) or any(
-            n.definition.fingerprint != b[0]
-            for n, b in zip(leaves, selected.ordered_source_bindings, strict=True)
-        ):
-            raise invalid("frozen source occurrences differ from Run input")
-        inputs: _CanonicalValue = tuple(
-            (
-                n.definition.fingerprint,
-                _wire(n.definition.datasource),
-                _wire(n.definition.shape),
-                b[1],
-                b[2],
-            )
-            for n, b in zip(leaves, selected.ordered_source_bindings, strict=True)
-        )
-        return _canonical_digest(
-            (
-                "marivo.analysis.execution_key/v2",
-                "source",
-                descriptor.definition_fingerprint,
-                plan,
-                inputs,
-                run_ref,
-            )
-        )
-    records = {record.identity: record for record in checked.nodes}
-    pending = [checked.root.identity]
-    expanded: set[str] = set()
-    refs: list[str] = []
-    while pending:
-        record = records[pending.pop()]
-        if isinstance(record, FixedRecord):
-            refs.append(record.artifact.ref)
-        elif isinstance(record, MethodRecord) and record.identity not in expanded:
-            expanded.add(record.identity)
-            pending.extend(edge.node for edge in reversed(record.inputs))
-    if tuple(refs) != tuple(b.artifact_ref for b in selected.ordered_artifact_inputs):
-        raise invalid("frozen fixed occurrences differ from Run input")
-    inputs = tuple(
-        (
-            b.session_ref,
-            b.artifact_ref,
-            b.producing_run_ref,
-            b.primary_receipt_digest,
-            tuple(
-                (p.role, p.contract_id, p.contract_version, p.receipt_digest)
-                for p in b.ordered_parts
-            ),
-            b.input_binding,
-            b.method_state_contract_id,
-            b.method_state_version,
-            b.snapshot_digest,
-        )
-        for b in selected.ordered_artifact_inputs
-    )
-    return _canonical_digest(
-        (
-            "marivo.analysis.execution_key/v2",
-            "fixed",
-            descriptor.definition_fingerprint,
-            plan,
-            inputs,
-        )
-    )

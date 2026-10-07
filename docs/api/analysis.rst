@@ -204,13 +204,7 @@ constructors are documented inline to support case-insensitive filesystems.
 .. autoclass:: ArtifactRef
    :members:
 
-.. autoclass:: ArtifactRevalidation
-   :members:
-
 .. autoclass:: ArtifactSummary
-   :members:
-
-.. autoclass:: EvidenceIntegrityError
    :members:
 
 .. autoclass:: FailedRun

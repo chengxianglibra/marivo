@@ -13,7 +13,7 @@ from tests.shared_fixtures import DslCaseFactory
 
 @pytest.mark.runtime
 @pytest.mark.parametrize("kind", ("association", "forecast"))
-def test_receipts_and_findings_reject_recovery_read_and_hit(
+def test_unreadable_receipts_reject_value_reads_and_recovery(
     analysis_dsl_case_factory: DslCaseFactory, kind: Literal["association", "forecast"]
 ) -> None:
     from tests.analysis.statistics.deviation_fixture import prepare_profiles
@@ -47,9 +47,6 @@ def test_receipts_and_findings_reject_recovery_read_and_hit(
                 for action in (
                     lambda: session.artifact(ref),
                     fixed.to_pandas,
-                    fixed.evidence_digest,
-                    lambda: fixed.findings(limit=1),
-                    lambda: fixed.finding(item.finding_id),
                     logical.execute,
                 ):
                     with pytest.raises(AnalysisError):
@@ -57,56 +54,8 @@ def test_receipts_and_findings_reject_recovery_read_and_hit(
                     assert session.runs().items == before
             finally:
                 path.write_bytes(payload)
-    store = session._runtime.store
-    for column in ("finding_body_payload", "finding_identity_digest"):
-        with store._read() as conn:
-            original = conn.execute(
-                f"SELECT {column} FROM findings WHERE finding_ref=?", (item.finding_id,)
-            ).fetchone()[0]
-        with store._write() as conn:
-            conn.execute(
-                f"UPDATE findings SET {column}='damaged' WHERE finding_ref=?", (item.finding_id,)
-            )
-        try:
-            for action in (
-                lambda: session.artifact(ref),
-                fixed.evidence_digest,
-                lambda: fixed.findings(limit=1),
-                lambda: fixed.finding(item.finding_id),
-                logical.execute,
-            ):
-                with pytest.raises(AnalysisError):
-                    action()
-                assert session.runs().items == before
-        finally:
-            with store._write() as conn:
-                conn.execute(
-                    f"UPDATE findings SET {column}=? WHERE finding_ref=?",
-                    (original, item.finding_id),
-                )
-    with store._read() as conn:
-        evidence = conn.execute(
-            "SELECT finding_set_digest FROM dataset_evidence WHERE artifact_ref=?", (ref.ref,)
-        ).fetchone()[0]
-    with store._write() as conn:
-        conn.execute(
-            "UPDATE dataset_evidence SET finding_set_digest=? WHERE artifact_ref=?",
-            ("0" * 64, ref.ref),
-        )
-    try:
-        with pytest.raises(AnalysisError):
-            fixed.evidence_digest()
-        with pytest.raises(AnalysisError):
-            logical.execute()
-        assert session.runs().items == before
-    finally:
-        with store._write() as conn:
-            conn.execute(
-                "UPDATE dataset_evidence SET finding_set_digest=? WHERE artifact_ref=?",
-                (evidence, ref.ref),
-            )
     assert fixed.finding(item.finding_id) == item
-    assert store.resources(session.id) == ()
+    assert session._runtime.store.resources(session.id) == ()
 
 
 @pytest.mark.runtime

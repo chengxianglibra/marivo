@@ -1,4 +1,4 @@
-"""Private graph Run coordination and atomic v7 publication under DatasetRuntime."""
+"""Private graph Run coordination and atomic v8 publication under DatasetRuntime."""
 
 from __future__ import annotations
 
@@ -38,7 +38,6 @@ from marivo.analysis.materialization.execution_key import (
     FixedPartKey,
     SourceKeyBinding,
     _fixed_input_occurrences,
-    _ordered_plan,
     graph_fixed_execution_key,
     graph_source_execution_key,
 )
@@ -211,7 +210,7 @@ def _execute(
     # Qualify the persistent envelope before any I/O or Run allocation.
     state_kind = REGISTRY.lookup(root.method).semantics.persistent_state_kind
     if state_kind is None:
-        raise invalid("method has no qualified v7 state codec")
+        raise invalid("method has no qualified v8 state codec")
     source_only = plan.classification.kind == "source"
     if source_only:
         if source_factory is None:
@@ -517,7 +516,7 @@ def _execute(
                 if isinstance(item.implementation.qualification, Qualified)
             )
             snapshot = Continuation(
-                "marivo.analysis.continuation/v3",
+                "marivo.analysis.continuation/v4",
                 frozen_graph,
                 tuple(
                     dict.fromkeys(
@@ -530,13 +529,10 @@ def _execute(
                 semantic_versions(root, _nodes=captured.nodes),
                 tuple(n.method for n in nodes if isinstance(n, MethodNode)),
                 state.input_binding,
-                receipt_digest(primary),
-                tuple(receipt_digest(p) for p in parts),
-                digest(encode(state, STATE)),
             )
             frozen = encode(snapshot, SNAPSHOT)
             descriptor = Descriptor(
-                "marivo.analysis.artifact_descriptor/v2",
+                "marivo.analysis.artifact_descriptor/v3",
                 root.fingerprint,
                 run_ref,
                 key,
@@ -576,7 +572,6 @@ def _execute(
                 state,
                 frozen,
                 digest(frozen),
-                canonical_json(_ordered_plan(plan)),
                 plan.physical_requirements[-1].key.shape.time
                 if root.signature.domain.time_grid is not None
                 else NoTime(),

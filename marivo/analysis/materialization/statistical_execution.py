@@ -594,11 +594,7 @@ def _decode_pairs(parts: tuple[ExchangePart, ...]) -> tuple[PairCapture, Associa
         if p.role == "association_state"
     )
     captured, state = PAIRS.validate_json(a, strict=True), ASSOCIATION.validate_json(b, strict=True)
-    if (
-        PAIRS.dump_json(captured).decode() != a
-        or ASSOCIATION.dump_json(state).decode() != b
-        or state.input_digest != digest(a)
-    ):
+    if PAIRS.dump_json(captured).decode() != a or ASSOCIATION.dump_json(state).decode() != b:
         raise invalid("association canonical encoding or capture binding differs")
     return captured, state
 
@@ -620,7 +616,6 @@ def _decode_forecast(parts: tuple[ExchangePart, ...]) -> tuple[TrainingCapture, 
         TRAINING.dump_json(captured).decode() != a
         or FORECAST.dump_json(state).decode() != b
         or FUTURE.dump_json(captured.future).decode() != future
-        or state.input_digest != digest(a)
     ):
         raise invalid("forecast canonical encoding, future or capture binding differs")
     return captured, state
@@ -686,7 +681,12 @@ def _primary(table: pa.Table, field: str) -> pa.Table:
 
 
 def _result(
-    node: MethodNode, primary: pa.Table, parts: tuple[ExchangePart, ...], binding: str
+    node: MethodNode,
+    primary: pa.Table,
+    parts: tuple[ExchangePart, ...],
+    binding: str,
+    *,
+    validate: bool = True,
 ) -> ExchangeResult:
     keys = tuple(k for k in primary.column_names if k.startswith("key_"))
     kind = REGISTRY.lookup(node.method).semantics.persistent_state_kind
@@ -712,6 +712,7 @@ def _result(
             status.schema if status is not None else None,
         ),
         parts=parts,
+        validate=validate,
         method_state=status,
     )
 
@@ -726,7 +727,9 @@ def execute(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) 
         selected = all_views.take(
             pa.array([mapping[k] for k in index(source.primary, keys)], pa.int64())
         )
-        return _result(node, _primary(selected, params.field), source.parts, binding)
+        return _result(
+            node, _primary(selected, params.field), source.parts, binding, validate=False
+        )
     parts: tuple[ExchangePart, ...]
     if isinstance(params, AssociationFit):
         declaration = next(p for p in node.signature.parts if isinstance(p, PairInputsPart))

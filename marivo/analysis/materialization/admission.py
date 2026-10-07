@@ -12,9 +12,6 @@ import pyarrow as pa
 
 from marivo._temporal import PeriodCalendarSnapshotV1
 from marivo.analysis.core.time_authority import ReportTimeAuthority
-from marivo.analysis.evidence._dataset_types import (
-    ArtifactRevalidation,
-)
 from marivo.analysis.materialization.errors import (
     _execution_error as _error,
 )
@@ -260,11 +257,6 @@ class DatasetRuntime:
         """Render the bounded Session recap from one read-only snapshot."""
         _lazy_runtime_reads.recap(self.store, self.session_ref).show()
 
-    def revalidate(self, reference: str | ArtifactRef) -> ArtifactRevalidation:
-        from marivo.analysis.materialization.inspection import revalidate
-
-        return revalidate(self.store, reference)
-
     def _execute_graph(
         self,
         root: Node,
@@ -274,7 +266,7 @@ class DatasetRuntime:
         source_factory: SourceFactory | None = None,
         source_schemas: tuple[pa.Schema, ...] = (),
     ) -> GraphArtifact:
-        """Execute the private v7 graph through this existing Runtime owner."""
+        """Execute the private v8 graph through this existing Runtime owner."""
         from marivo.analysis.materialization.graph_publication import execute
 
         return execute(

@@ -1,4 +1,4 @@
-"""Closed, canonical v7 metadata; no legacy Artifact or journey codecs."""
+"""Closed, canonical v8 metadata; no legacy Artifact or journey codecs."""
 
 from __future__ import annotations
 
@@ -13,37 +13,16 @@ from pydantic import BeforeValidator, PlainSerializer, TypeAdapter, ValidationEr
 
 from marivo.analysis.compiler.graph_plan import CheckRequirement, GraphPlan, RouteChoice
 from marivo.analysis.compiler.graph_plan import plan as make_plan
-from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, _digest, topology
+from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import (
-    AttributionPart,
-    CorrespondencePart,
     Evidence,
     Fact,
     OccurrencePart,
     PartRole,
     Signature,
-    part_role,
 )
 from marivo.analysis.core.rules import (
-    AnchorBind,
-    CellDerive,
-    CompleteGroups,
-    DeviationFit,
-    DeviationRead,
-    DisplayRank,
-    DisplayTable,
-    FunnelAxesPrepare,
-    HistoryAxesPrepare,
-    HistoryReplay,
-    HistoryView,
-    JourneyCompleted,
-    JourneyDuration,
-    JourneyMatch,
-    MapCorrespond,
-    OccurrencePrepare,
-    PartsTransport,
     PreparedObservation,
-    TimeProduct,
 )
 from marivo.analysis.materialization.contracts import (
     LocalReceipt,
@@ -54,21 +33,17 @@ from marivo.analysis.materialization.contracts import (
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.execution_key import (
     FixedPartKey,
-    _CanonicalValue,
     _ordered_plan,
-    _wire,
 )
 from marivo.analysis.materialization.graph_snapshot import (
     GRAPH as GRAPH,
 )
 from marivo.analysis.materialization.graph_snapshot import (
-    FixedRecord,
     GraphDocument,
     MethodRecord,
     Record,
     SourceRecord,
     _order,
-    _signature,
     read_graph_document,
 )
 from marivo.analysis.materialization.graph_snapshot import (
@@ -92,9 +67,9 @@ PhysicalReceipt = Annotated[
 
 def invalid(received: str) -> IntegrityError:
     return IntegrityError(
-        expected="one complete canonical v7 graph Artifact with exact bindings",
+        expected="one complete canonical v8 graph Artifact with exact bindings",
         received=received,
-        repair="Preserve existing state; use a fresh project for v7 or restore the exact committed files and metadata.",
+        repair="Preserve existing state; use a fresh project for v8 or restore the exact committed files and metadata.",
         stage="graph_protocol",
         help_target="session.artifact",
     )
@@ -314,16 +289,13 @@ CHECK = TypeAdapter(CheckRequirement)
 
 @dataclass(frozen=True, slots=True)
 class Continuation:
-    schema: Literal["marivo.analysis.continuation/v3"]
+    schema: Literal["marivo.analysis.continuation/v4"]
     root: str
     entity_facts: tuple[str, ...]
     dimension_facts: tuple[str, ...]
     semantic_versions: tuple[tuple[str, str], ...]
     method_versions: tuple[MethodKey, ...]
     input_binding: str
-    primary_receipt_digest: str
-    part_receipt_digests: tuple[str, ...]
-    method_state_digest: str
 
 
 SNAPSHOT = TypeAdapter(Continuation)
@@ -364,7 +336,7 @@ class MethodBinding:
 
 @dataclass(frozen=True, slots=True)
 class Descriptor:
-    schema: Literal["marivo.analysis.artifact_descriptor/v2"]
+    schema: Literal["marivo.analysis.artifact_descriptor/v3"]
     definition_fingerprint: str
     producing_run_ref: str
     execution_key_digest: str
@@ -380,7 +352,6 @@ class Descriptor:
     method_state: MethodState
     continuation_snapshot: str
     continuation_snapshot_digest: str
-    production_plan: str
     time_shape: NoTime | TimeShape
 
 
@@ -500,7 +471,6 @@ class ValidatedDescriptor:
     document: GraphDocument
     root: MethodRecord
     nodes: tuple[Record, ...]
-    production_plan: tuple[_CanonicalValue, ...] = ()
 
 
 def validate_metadata(value: Descriptor) -> ValidatedDescriptor:
@@ -508,222 +478,13 @@ def validate_metadata(value: Descriptor) -> ValidatedDescriptor:
         raise invalid("frozen continuation exceeds the 256 KiB metadata budget")
     snapshot = decode(value.continuation_snapshot, SNAPSHOT)
     document = read_graph_document(snapshot.root)
-    all_nodes = _order(document)
+    _order(document)
     nodes = execution_records(document)
     root = next(record for record in nodes if record.identity == document.root)
     if not isinstance(root, MethodRecord):
         raise invalid("Artifact has no frozen method result")
-    fingerprints: dict[str, str] = {}
-    for record in all_nodes:
-        if isinstance(record, MethodRecord):
-            fingerprints[record.identity] = _digest(
-                (
-                    record.method,
-                    record.parameters,
-                    tuple((edge.role, fingerprints[edge.node]) for edge in record.inputs),
-                    record.derivation,
-                    record.value_type,
-                    tuple(fingerprints[item] for item in record.sources),
-                    tuple(fingerprints[item] for item in record.retained_endpoints),
-                )
-            )
-        elif isinstance(record, SourceRecord):
-            fingerprints[record.identity] = _digest(
-                (record.definition, record.signature, record.value_type)
-            )
-        else:
-            fingerprints[record.identity] = _digest(
-                (
-                    record.artifact.ref,
-                    record.definition_fingerprint,
-                    record.signature,
-                    record.value_type,
-                    record.shape,
-                )
-            )
-    owners = {
-        (_signature(n).domain.binding.session_id, _signature(n).domain.binding.owner_id)
-        for n in all_nodes
-    }
-    if len(owners) != 1:
-        raise invalid("definition closure has multiple Session or owner bindings")
-    records = {n.identity: n for n in all_nodes}
-    for record in all_nodes:
-        if isinstance(record, MethodRecord) and record.retained_endpoints:
-            for edge, endpoint in zip(record.inputs, record.retained_endpoints, strict=True):
-                input_record = records[edge.node]
-                expected = (
-                    input_record.definition_fingerprint
-                    if isinstance(input_record, FixedRecord)
-                    else fingerprints[input_record.identity]
-                )
-                if fingerprints[endpoint] != expected:
-                    raise invalid("retained endpoint definition differs from fixed input")
-    signature = root.derivation.output
-    if isinstance(root, MethodRecord):
-        params = root.parameters
-        expects_value = (
-            False
-            if isinstance(
-                params,
-                (
-                    TimeProduct,
-                    AnchorBind,
-                    DisplayTable,
-                    OccurrencePrepare,
-                    FunnelAxesPrepare,
-                    HistoryReplay,
-                    HistoryAxesPrepare,
-                    JourneyMatch,
-                    JourneyDuration,
-                    JourneyCompleted,
-                ),
-            )
-            or (isinstance(params, HistoryView) and signature.quantity is None)
-            else params.keep_quantity
-            if isinstance(params, PartsTransport)
-            else signature.quantity is not None
-            if isinstance(params, CompleteGroups)
-            else params.mode == "group"
-            if isinstance(params, MapCorrespond)
-            else True
-        )
-        fields = set(schema_from(value.realized_schema).names)
-        if expects_value != ({"value", "cell_tag", "cell_reason"} <= fields):
-            raise invalid("result Cell fields differ from the frozen method contract")
-    state = value.method_state
-    schema = schema_from(value.realized_schema)
-    keys = tuple((name, str(schema.field(name).type)) for name in value.row_contract.key_fields)
-    if (
-        not isinstance(root, MethodRecord)
-        or value.definition_fingerprint != fingerprints[root.identity]
-        or value.signature != signature
-        or not value.method_bindings
-        or value.method_bindings[-1].method != root.method
-        or state.method_name != root.method.name
-        or value.continuation_snapshot_digest != digest(value.continuation_snapshot)
-        or snapshot.input_binding != state.input_binding
-        or snapshot.primary_receipt_digest != receipt_digest(value.primary_receipt)
-        or snapshot.part_receipt_digests != tuple(receipt_digest(p) for p in value.parts)
-        or snapshot.method_state_digest != digest(encode(state, STATE))
-        or value.primary_receipt.input_binding != state.input_binding
-        or value.primary_receipt.key_fields != keys
-        or tuple(p.role for p in value.parts) != state.ordered_part_roles
-        or state.ordered_part_roles != tuple(part_role(p) for p in value.signature.parts)
-        or any(
-            state.contract_version != (2 if part.version == "v2" else 1)
-            for part in value.signature.parts
-            if isinstance(part, CorrespondencePart)
-        )
-        or value.primary_receipt.local.schema_fingerprint
-        != hashlib.sha256(schema.serialize().to_pybytes()).hexdigest()
-        or value.row_set_contract.kind
-        != (
-            "keyed"
-            if keys
-            else "optional_singleton"
-            if isinstance(
-                root.parameters,
-                (CellDerive, DisplayRank, DisplayTable, DeviationFit, DeviationRead),
-            )
-            or (
-                isinstance(root.parameters, PartsTransport)
-                and (
-                    root.parameters.mode in ("where", "limit")
-                    or root.parameters.display_view is not None
-                )
-            )
-            else "singleton"
-        )
-        or any(
-            p.input_binding != state.input_binding
-            or (
-                p.key_fields != keys
-                and p.role
-                not in (
-                    "fixed_reference",
-                    "reference_proof",
-                    "strata",
-                    "stratum_values",
-                    "ranking_domain",
-                    "partitions",
-                    "ordering",
-                    "retention",
-                    "history_view",
-                    "entry_axes",
-                    "funnel_state",
-                    "finding_policy",
-                    "condition_cells",
-                    "run_cells",
-                    "pair_inputs",
-                    "association_state",
-                    "training_inputs",
-                    "forecast_state",
-                    "future_cells",
-                    "fit_inputs",
-                    "fit_state",
-                    "table_fits",
-                    "grid_cells",
-                    "subject_map",
-                )
-                and not any(
-                    isinstance(part, AttributionPart) and part.role == p.role
-                    for part in value.signature.parts
-                )
-            )
-            or p.contract_id != f"marivo.analysis.part.{state.kind}.{p.role}"
-            or p.contract_version != state.contract_version
-            or p.method_state_version != state.contract_version
-            for p in value.parts
-        )
-        or any(
-            c.producing_run_ref != value.producing_run_ref or len(c.result_digest) != 64
-            for c in value.completed_checks
-        )
-    ):
-        raise invalid("descriptor, snapshot, state or receipt authority differs")
-    if (
-        snapshot.entity_facts
-        != tuple(
-            dict.fromkeys(
-                c.entity_ref.path for n in nodes for c in _signature(n).domain.instance_key
-            )
-        )
-        or snapshot.dimension_facts
-        != tuple(dict.fromkeys(c.field for n in nodes for c in _signature(n).domain.instance_key))
-        or value.semantic_dependency_digest != digest(canonical_json(snapshot.semantic_versions))
-        or snapshot.semantic_versions != record_semantic_versions(nodes)
-        or snapshot.method_versions != tuple(n.method for n in nodes if isinstance(n, MethodRecord))
-    ):
-        raise invalid("frozen facts or semantic dependency digest differ")
-    if tuple(n.method for n in nodes if isinstance(n, MethodRecord)) != tuple(
-        b.method for b in value.method_bindings
-    ):
-        raise invalid("frozen method inventory differs")
-    requirements: list[CheckRequirement] = []
-    fixed = not any(isinstance(n, SourceRecord) for n in nodes)
-    for record in nodes:
-        if isinstance(record, MethodRecord):
-            for obligation in record.derivation.obligations:
-                if not fixed or not any(prior.obligation == obligation for prior in requirements):
-                    requirements.append(CheckRequirement(record.identity, "frozen", obligation))
-    if len(requirements) != len(value.completed_checks) or any(
-        evidence_identity(requirement, value.producing_run_ref, actual.result_digest) != actual
-        for requirement, actual in zip(requirements, value.completed_checks, strict=True)
-    ):
-        raise invalid("missing or mismatched durable check evidence")
-    for actual in value.completed_checks:
-        if (
-            actual.scope != actual.fact.binding.scope_id
-            or actual.ordered_input_occurrences
-            != tuple(
-                digest(encode(Signature(item.domain, item.quantity), SIGNATURE))
-                for item in actual.fact.inputs
-            )
-        ):
-            raise invalid("completed evidence fact binding differs")
     checked = ValidatedDescriptor(value, snapshot, document, root, nodes)
-    return replace(checked, production_plan=frozen_plan(checked))
+    return checked
 
 
 def validate_descriptor(value: Descriptor) -> Node:
@@ -799,53 +560,3 @@ def descriptor_plan(value: Descriptor, root: Node) -> GraphPlan:
     if expected != value.completed_checks:
         raise invalid("completed check origin, scope or ordered inputs differ")
     return admitted
-
-
-def frozen_plan(checked: ValidatedDescriptor) -> tuple[_CanonicalValue, ...]:
-    """Decode identity material; this does not select or admit an implementation."""
-
-    def canonical(value: object) -> _CanonicalValue:
-        if value is None or isinstance(value, (bool, int, float, str)):
-            return value
-        if isinstance(value, list):
-            return tuple(canonical(item) for item in value)
-        raise invalid("invalid frozen production plan material")
-
-    def field_value(value: _CanonicalValue, name: str) -> _CanonicalValue:
-        if isinstance(value, tuple) and len(value) == 2 and isinstance(value[1], tuple):
-            for entry in value[1]:
-                if isinstance(entry, tuple) and len(entry) == 2 and entry[0] == name:
-                    return entry[1]
-        raise invalid("missing frozen physical key field")
-
-    descriptor = checked.descriptor
-    if len(descriptor.production_plan.encode()) > 4 * 1024 * 1024:
-        raise invalid("frozen production identity exceeds its 4 MiB budget")
-    try:
-        plan = canonical(json.loads(descriptor.production_plan))
-    except ValueError as error:
-        raise invalid("invalid frozen production plan JSON") from error
-    if canonical_json(plan) != descriptor.production_plan or not isinstance(plan, tuple):
-        raise invalid("noncanonical frozen production plan")
-    methods = tuple(n for n in checked.nodes if isinstance(n, MethodRecord))
-    if len(plan) != len(methods):
-        raise invalid("frozen production plan inventory differs")
-    for item, node, binding in zip(plan, methods, descriptor.method_bindings, strict=True):
-        if (
-            not isinstance(item, tuple)
-            or len(item) != 7
-            or item[:2] != (node.method.name, node.method.version)
-            or item[4:6] != (binding.implementation_id, binding.implementation_version)
-            or item[6] != _wire(node.derivation.output)
-        ):
-            raise invalid("frozen production plan binding differs")
-    last = plan[-1]
-    assert isinstance(last, tuple)
-    expected_time = (
-        field_value(field_value(last[3], "shape"), "time")
-        if descriptor.signature.domain.time_grid is not None
-        else _wire(NoTime())
-    )
-    if expected_time != _wire(descriptor.time_shape):
-        raise invalid("frozen continuation time shape differs from production key")
-    return plan

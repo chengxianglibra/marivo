@@ -250,7 +250,7 @@ DuckDB 之外的 Decimal quantile 原生结果不能保留 Decimal carrier；原
 
 Entity 域 J1–J4 的逻辑来源执行每次都会重新读取来源；固定续算可命中同一个精确 Artifact，
 并可通过 `session.artifact(ref)` 显式恢复。其他路径遵循各自当前方法与物理输入的精确资格。
-恢复后的完整性检查分别检查 Artifact、存储权限和 Evidence，不证明当前语义有效或源数据新鲜。
+本地恢复信任已提交的 Artifact 和 Evidence，不重复进行防篡改验证，也不证明当前语义有效或源数据新鲜。Store 8 不兼容旧 Store；旧数据保持不变，需要使用新的项目根目录。
 
 ## 本地执行与资源责任
 

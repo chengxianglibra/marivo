@@ -278,10 +278,6 @@ class SessionTimezoneConflict(SessionStateError):  # noqa: N818
 class FindingNotFoundError(AnalysisError): ...
 
 
-class EvidenceIntegrityError(AnalysisError):
-    """Committed evidence cannot be resolved to one intact canonical graph."""
-
-
 class InvalidEventPatternError(AnalysisError):
     @property
     def kind(self) -> str:

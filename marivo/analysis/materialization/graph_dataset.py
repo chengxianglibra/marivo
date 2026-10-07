@@ -1,4 +1,4 @@
-"""Public result projections owned by an exact checked Store 7 Artifact."""
+"""Public result projections owned by an exact checked Store 8 Artifact."""
 
 from __future__ import annotations
 
@@ -220,8 +220,8 @@ class GraphDataset:
             current = graph_store.artifact(
                 self.runtime.store, connection, self.artifact.artifact_ref
             )
-            if current != self.artifact:
-                raise invalid("selected Artifact changed or disappeared")
+            if current is None:
+                raise invalid("selected Artifact disappeared")
             from marivo.analysis.materialization.graph_findings import collection
 
             return collection(
@@ -239,8 +239,8 @@ class GraphDataset:
             current = graph_store.artifact(
                 self.runtime.store, connection, self.artifact.artifact_ref
             )
-            if current != self.artifact:
-                raise invalid("selected Artifact changed or disappeared")
+            if current is None:
+                raise invalid("selected Artifact disappeared")
             findings, _ = collection(
                 self.runtime.store,
                 connection,
@@ -257,8 +257,8 @@ class GraphDataset:
             current = graph_store.artifact(
                 self.runtime.store, connection, self.artifact.artifact_ref
             )
-            if current != self.artifact:
-                raise invalid("selected Artifact changed or disappeared")
+            if current is None:
+                raise invalid("selected Artifact disappeared")
             findings, _ = collection(
                 self.runtime.store,
                 connection,
@@ -289,8 +289,8 @@ class GraphDataset:
             raise invalid("Artifact belongs to another Session")
         with store._read() as connection:
             current = graph_store.artifact(store, connection, self.artifact.artifact_ref)
-        if current != self.artifact:
-            raise invalid("selected Artifact changed or disappeared")
+        if current is None:
+            raise invalid("selected Artifact disappeared")
         result = read_result(store.project_root, current.descriptor, _validated=current.validated)
         if self.projection is not None:
             from marivo.analysis.materialization.graph_display import project

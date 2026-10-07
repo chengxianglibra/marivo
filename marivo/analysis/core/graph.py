@@ -38,7 +38,7 @@ from marivo.analysis.core.rules import (
     TimeRuns,
 )
 from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType, SourceShape, ValueType
-from marivo.analysis.methods.registry import REGISTRY, MethodRegistration, MethodRegistry
+from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 from marivo.analysis.methods.semantics import MethodKey, key_for_parameters
 from marivo.analysis.refs import ArtifactRef
 from marivo.refs import DatasourceKind, EntityKind, MetricKind, Ref, SemanticKind
@@ -661,22 +661,6 @@ class _CapturedGraph:
     retained: tuple[Node, ...]
     index: Mapping[str, Node]
     fingerprints: Mapping[str, str]
-    node_states: tuple[str, ...]
-    registration_states: tuple[tuple[MethodRegistration, str], ...]
-    registrations: tuple[MethodRegistration, ...]
-
-    def unchanged(self, root: Node, registry: MethodRegistry) -> bool:
-        return (
-            self.root is root
-            and self.registry is registry
-            and self.registrations is registry.registrations
-            and self.node_states == tuple(_node_digest(node) for node in self.retained)
-            and all(
-                state == _static_digest(registration)
-                and registry.lookup(registration.semantics.key) is registration
-                for registration, state in self.registration_states
-            )
-        )
 
     def dependencies(self, root: Node) -> tuple[Node, ...]:
         """Read a validated subgraph without repeating semantic checks."""
@@ -723,7 +707,6 @@ def _validated_closure(
 def capture_graph(root: Node, *, registry: MethodRegistry = REGISTRY) -> _CapturedGraph:
     """Validate data and retained definitions once for this compiler invocation."""
     retained, fingerprints = _validated_closure(root, registry, summaries=True)
-    methods = dict.fromkeys(node.method for node in retained if isinstance(node, MethodNode))
     nodes = _ordered_nodes(root, retained=False)
     index = {node.identity: node for node in retained}
     index.update((node.identity, node) for node in nodes)
@@ -734,9 +717,6 @@ def capture_graph(root: Node, *, registry: MethodRegistry = REGISTRY) -> _Captur
         retained,
         MappingProxyType(index),
         MappingProxyType(fingerprints),
-        tuple(_node_digest(node) for node in retained),
-        tuple((registry.lookup(key), _static_digest(registry.lookup(key))) for key in methods),
-        registry.registrations,
     )
 
 

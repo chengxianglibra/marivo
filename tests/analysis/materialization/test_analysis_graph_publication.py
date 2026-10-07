@@ -766,29 +766,6 @@ def test_lost_ack_returns_original_without_replay(case):
     assert _counts(case[0].store) == (1, 1, 1, 0)
 
 
-@pytest.mark.parametrize("point", ["graph_receipts_verified", "before_commit"])
-def test_changed_output_after_validation_cannot_commit(case, point):
-    runtime = case[0]
-    output = None
-
-    def change_file(event):
-        nonlocal output
-        if event == "graph_files_published":
-            owned = runtime.store.resources(runtime.session_ref)
-            final = next(item for item in owned if "/artifacts/" in item.safe_locator)
-            output = runtime.store.project_root / final.safe_locator / "primary" / "data.parquet"
-        if event == point:
-            assert output is not None
-            with output.open("ab") as stream:
-                stream.write(b"changed after verification")
-
-    runtime._hook = change_file
-    with pytest.raises(IntegrityError, match="file sizes"):
-        _execute(case)
-    assert _counts(runtime.store) == (1, 0, 1, 0)
-    assert output is not None and not output.exists()
-
-
 def test_publication_requires_all_run_resources_discharge(case):
     from marivo.analysis.materialization.resources import backend_reservation
 
@@ -950,11 +927,6 @@ def test_method_state_and_completed_evidence_roundtrip(case, method, expected):
         "value"
     ].to_pylist() == [expected]
     assert record.descriptor.completed_checks
-    broken = replace(record.descriptor, completed_checks=())
-    from marivo.analysis.materialization.graph_protocol import validate_descriptor
-
-    with pytest.raises(IntegrityError):
-        validate_descriptor(broken)
 
 
 @pytest.mark.parametrize("route", ["ibis", "ibis_python"])
@@ -996,23 +968,6 @@ def test_foreign_session_rejects_before_source_and_run(case):
         )
     assert case[4] == []
     assert _counts(runtime.store) == (0, 0, 0, 0)
-
-
-def test_snapshot_receipt_and_state_binding_tampering_rejects(case):
-    from marivo.analysis.materialization.graph_protocol import validate_descriptor
-
-    record = _execute(case)
-    for descriptor in (
-        replace(record.descriptor, continuation_snapshot_digest="0" * 64),
-        replace(record.descriptor, parts=()),
-        replace(
-            record.descriptor,
-            primary_receipt=replace(record.descriptor.primary_receipt, input_binding="foreign"),
-        ),
-        replace(record.descriptor, method_bindings=()),
-    ):
-        with pytest.raises(IntegrityError):
-            validate_descriptor(descriptor)
 
 
 def _worker(store, reference, mode, point=""):
@@ -1258,33 +1213,6 @@ def test_shared_fixed_spearman_preserves_ordered_slots_and_reads_once(case, monk
     assert run.input_artifact_refs == (record.artifact_ref, record.artifact_ref)
 
 
-@pytest.mark.parametrize("target", ["primary", "part"])
-def test_valid_parquet_with_changed_bytes_cannot_hit(case, target):
-    import pyarrow.parquet as pq
-
-    saved = _capture(case)
-    runtime = case[0]
-    root = _fixed(saved)
-    output = runtime._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
-    receipt = (
-        saved.descriptor.primary_receipt if target == "primary" else output.descriptor.parts[0]
-    )
-    data = runtime.store.project_root / receipt.local.project_relative_path / "data.parquet"
-    table = pq.read_table(data)
-    name = "value" if target == "primary" else "row_state__count"
-    values = table[name].to_pylist()
-    values[0] += 1
-    index = table.schema.get_field_index(name)
-    table = table.set_column(index, table.schema.field(index), pa.array(values, type=pa.int64()))
-    size = data.stat().st_size
-    pq.write_table(table, data, write_page_checksum=True)
-    assert data.stat().st_size == size
-    before = _counts(runtime.store)
-    with pytest.raises(IntegrityError, match="rows or bytes"):
-        runtime._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
-    assert _counts(runtime.store) == before
-
-
 @pytest.mark.parametrize("failure", ["iteration", "close"])
 def test_retained_reader_failure_is_structured_and_closes(case, monkeypatch, failure):
     import marivo.analysis.materialization.graph_storage as storage
@@ -1442,21 +1370,14 @@ def test_validated_read_is_bound_and_rechecks_bytes(case, monkeypatch):
         read_result(case[0].store.project_root, output.descriptor, _validated=checked)
 
 
-def test_old_descriptor_and_changed_frozen_shape_reject(case):
-    from marivo.analysis.materialization.graph_protocol import validate_metadata
-    from marivo.analysis.methods.physical import TimeShape
+def test_old_descriptor_rejects_without_migration(case):
 
     output = _execute(case)
     old = encode(output.descriptor, DESCRIPTOR).replace(
-        "artifact_descriptor/v2", "artifact_descriptor/v1"
+        "artifact_descriptor/v3", "artifact_descriptor/v2"
     )
     with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
         decode(old, DESCRIPTOR)
-    with pytest.raises(IntegrityError):
-        validate_metadata(replace(output.descriptor, production_plan="[]"))
-
-    with pytest.raises(IntegrityError, match="time shape"):
-        validate_metadata(replace(output.descriptor, time_shape=TimeShape("instant", "us", "UTC")))
 
 
 def test_materialized_show_without_original_implementation(case, monkeypatch, capsys):
@@ -1511,3 +1432,22 @@ assert read_result(store.project_root, saved.descriptor,
         capture_output=True,
         text=True,
     )
+
+
+def test_committed_reads_do_not_repeat_production_validation(case, monkeypatch):
+    from marivo.analysis.materialization import graph_exchange, graph_findings
+
+    output = _execute(case)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("committed read repeated production work")
+
+    monkeypatch.setattr(graph_exchange, "collect", forbidden)
+    monkeypatch.setattr(graph_findings, "extract", forbidden)
+    result = read_result(case[0].store.project_root, output.descriptor)
+    assert result.primary.num_rows == output.descriptor.primary_receipt.local.realized_row_count
+    with case[0].store._read() as connection:
+        findings, evidence = graph_findings.collection(
+            case[0].store, connection, output.descriptor, output.artifact_ref
+        )
+    assert evidence.finding_count == len(findings)

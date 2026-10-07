@@ -220,11 +220,13 @@ def _condition_scope(
     ):
         raise invalid("runs original grid coverage is absent or false")
     semantic_inputs = tuple(
-        save(
-            table.take(
-                pa.array([index[key] for key in sorted(keys, key=repr)], type=pa.int64())
-            ).combine_chunks()
-        ).digest
+        hashlib.sha256(
+            save(
+                table.take(
+                    pa.array([index[key] for key in sorted(keys, key=repr)], type=pa.int64())
+                ).combine_chunks()
+            ).data.encode()
+        ).hexdigest()
         for table, index in zip(tables, indices, strict=True)
     )
     rows = tuple(t.to_pylist() for t in tables)
@@ -339,13 +341,16 @@ def _decode(parts: tuple[ExchangePart, ...]) -> tuple[Capture, Runs]:
         state = RUNS.validate_json(by_role["run_cells"].table["run_cells__retained"][0].as_py())
     except (KeyError, IndexError, ValidationError) as error:
         raise invalid("runs lacks valid v1 condition_cells/run_cells payloads") from error
-    if state.input_digest != hashlib.sha256(CAPTURE.dump_json(capture)).hexdigest():
-        raise invalid("run condition capture digest differs")
     return capture, state
 
 
 def _result(
-    node: MethodNode, primary: pa.Table, parts: tuple[ExchangePart, ...], binding: str
+    node: MethodNode,
+    primary: pa.Table,
+    parts: tuple[ExchangePart, ...],
+    binding: str,
+    *,
+    validate: bool = True,
 ) -> ExchangeResult:
     return from_arrow(
         primary,
@@ -367,6 +372,7 @@ def _result(
             ),
         ),
         parts=parts,
+        validate=validate,
     )
 
 
@@ -379,7 +385,9 @@ def execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) 
         selected = views.take(
             pa.array([index[k] for k in _index(values[0].primary, ("key_0",))], type=pa.int64())
         )
-        return _result(node, _primary(selected, params.field), values[0].parts, binding)
+        return _result(
+            node, _primary(selected, params.field), values[0].parts, binding, validate=False
+        )
     assert isinstance(params, TimeRuns)
     source = values[0]
     coverage = next((p.table for p in source.parts if p.role == "coverage"), None)

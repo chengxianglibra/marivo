@@ -313,7 +313,6 @@ def test_receiver_members_and_grouped_leaves_remain_exactly_resolvable() -> None
         "analysis.artifact.findings",
         "analysis.session.artifact",
         "analysis.session.get_run",
-        "analysis.session.revalidate",
         "analysis.actions.to_pandas",
         "analysis.dsl.LogicalAnalysisDomain.observe",
     ):

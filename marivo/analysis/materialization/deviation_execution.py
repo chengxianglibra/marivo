@@ -50,7 +50,6 @@ from marivo.analysis.methods.semantics import MethodKey
 @dataclass(frozen=True, slots=True)
 class SavedTable:
     data: str
-    digest: str
     rows: int
 
 
@@ -131,16 +130,12 @@ def save(table: pa.Table) -> SavedTable:
     with pa.ipc.new_stream(sink, table.schema) as writer:
         writer.write_table(table)
     raw = sink.getvalue().to_pybytes()
-    return SavedTable(
-        base64.b64encode(raw).decode(), hashlib.sha256(raw).hexdigest(), table.num_rows
-    )
+    return SavedTable(base64.b64encode(raw).decode(), table.num_rows)
 
 
 def load(value: SavedTable) -> pa.Table:
     check()
     raw = base64.b64decode(value.data, validate=True)
-    if hashlib.sha256(raw).hexdigest() != value.digest:
-        raise invalid("retained deviation table digest differs")
     with pa.ipc.open_stream(raw) as reader:
         table = reader.read_all()
     if table.num_rows != value.rows:
@@ -275,7 +270,6 @@ def _decode(parts: tuple[ExchangePart, ...]) -> tuple[Inputs, State]:
         INPUTS.dump_json(inputs).decode() != first
         or STATE.dump_json(state).decode() != second
         or inputs.fit_id != state.fit_id
-        or state.input_digest != hashlib.sha256(first.encode()).hexdigest()
     ):
         raise invalid("deviation canonical encoding, input digest or fit identity differs")
     return inputs, state
@@ -563,6 +557,8 @@ def _result(
     parts: tuple[ExchangePart, ...],
     keys: tuple[str, ...],
     binding: str,
+    *,
+    validate: bool = True,
 ) -> ExchangeResult:
     reasons: dict[str, set[str]] = {}
     for row in primary.to_pylist():
@@ -585,7 +581,7 @@ def _result(
         tuple((tag, tuple(sorted(values))) for tag, values in sorted(reasons.items())),
         allow_empty_singleton=not keys and primary.num_rows == 0,
     )
-    return from_arrow(primary, contract, parts=parts)
+    return from_arrow(primary, contract, parts=parts, validate=validate)
 
 
 def project(
@@ -617,6 +613,7 @@ def project(
         tuple(by_role[part_role(p)] for p in node.signature.parts),
         inputs.keys,
         binding,
+        validate=False,
     )
 
 

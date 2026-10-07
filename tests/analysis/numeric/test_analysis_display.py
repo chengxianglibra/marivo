@@ -324,7 +324,6 @@ def test_cold_display_continuations_and_corruption(
 
     from marivo.analysis.errors import AnalysisError
     from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
-    from marivo.analysis.materialization.graph_protocol import validate_descriptor
 
     case = analysis_dsl_case_factory("j4_ties")
     if parquet:
@@ -343,13 +342,6 @@ def test_cold_display_continuations_and_corruption(
         descriptor = result._dataset.artifact.descriptor
         assert descriptor.method_state.kind in ("ranking", "table")
         assert descriptor.method_state.contract_version == 1
-        with pytest.raises(AnalysisError):
-            validate_descriptor(
-                replace(
-                    descriptor,
-                    parts=tuple(replace(part, contract_version=2) for part in descriptor.parts),
-                )
-            )
         with pytest.raises(AnalysisError):
             replace(descriptor.method_state, contract_version=2)
         for part in checked.parts:

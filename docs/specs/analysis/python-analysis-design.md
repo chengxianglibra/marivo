@@ -1,5 +1,15 @@
 # Python Analysis Design
 
+## Local trust update (2026-10-07)
+
+Committed analysis results and private compiler objects are trusted locally.
+Compiler handoff reuses the captured graph without deep mutation snapshots.
+Construction and compilation still validate public input semantics and method
+admission. Store 8 recovery does not replay producer validation or content
+integrity checks; new execution still validates its inputs and outputs.
+See the Store 8 local trust contract in `session-state-and-runtime.md`.
+
+
 ## R0.3 accepted full-algebra target (inactive)
 
 This section owns the target Analysis contracts for R0.3. It does not describe

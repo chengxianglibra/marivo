@@ -561,7 +561,6 @@ def test_reference_cold_continuations_and_corruption(
     from marivo.analysis.errors import AnalysisError
     from marivo.analysis.materialization.errors import IntegrityError, MaterializationError
     from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
-    from marivo.analysis.materialization.graph_protocol import validate_descriptor
 
     case = analysis_dsl_case_factory("j2")
     if parquet:
@@ -604,13 +603,6 @@ def test_reference_cold_continuations_and_corruption(
                 parts=checked.parts,
                 method_state=corrupted_state,
                 completed_checks=checked.completed_checks,
-            )
-        with pytest.raises(IntegrityError):
-            validate_descriptor(
-                replace(
-                    descriptor,
-                    parts=tuple(replace(part, contract_version=2) for part in descriptor.parts),
-                )
             )
         for part in checked.parts:
             with pytest.raises(MaterializationError):

@@ -698,6 +698,8 @@ def project(
             state_kind="none",
             state_schema=None,
             pending_checks=(),
+            _frozen=None,
         ),
         parts=parts,
+        validate=False,
     )

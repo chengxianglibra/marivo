@@ -22,7 +22,6 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "runs",
         "get_run",
         "artifact",
-        "revalidate",
         "graph",
         "catalog",
     ):

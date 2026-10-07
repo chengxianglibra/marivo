@@ -20,7 +20,7 @@ independently of the owning goal directory.
 | Journey matching, Duration, Funnel Findings, anchors and retention | `tests/analysis/journey/` | Daily independent oracles; Runtime public and process boundaries |
 | History replay, completeness, views and captured observations | `tests/analysis/lifecycle/` | Daily independent oracles; Runtime source-free continuation |
 | Deviation, maximal runs, association and forecast | `tests/analysis/statistics/` | Daily numerical/state oracles; Runtime composed execution |
-| Artifact integrity, atomic publication, crash recovery and cold ownership | `tests/analysis/materialization/` | Daily Store/schema checks; Runtime process/resource boundaries |
+| Trusted local Artifact reads, atomic publication, crash recovery and cold ownership | `tests/analysis/materialization/` | Daily Store/schema checks; Runtime process/resource boundaries |
 | Analysis session ownership and persistence | `tests/analysis/session/` | Daily; marked real source integration uses Runtime |
 | Exact public exports, Help reachability/budgets, result/error guidance and documentation examples | `tests/surface/` | Daily; executable examples use Runtime |
 | Config, refs, CLI, doctor, preview, telemetry and Make routing | `tests/project/` | Daily |
@@ -78,3 +78,12 @@ resource hashes against the current checkout before installation.
 Unavailable services are reported as skipped or unverified. Collection, pure/static
 checks, local Runtime and installed-package checks provide distinct evidence; none
 implies that an unrun external backend or full Runtime gate passed.
+
+## Store 8 trust boundary
+
+Local result tamper detection is no longer a supported contract. Remove dedicated
+byte/hash mutation and private-object mutation rejection tests. Keep producer
+contract tests, independent numerical oracles, malformed/unreadable input errors,
+missing payloads, same-Session ownership, atomicity and cold recovery. Mixed tests
+retain those independent assertions. Stored Findings reads do not depend on
+opening result payloads; value reads and execution still report missing files.

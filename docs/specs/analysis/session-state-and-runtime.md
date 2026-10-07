@@ -1,5 +1,24 @@
 # Session State and Runtime
 
+## Store 8 local trust contract (2026-10-07)
+
+Store 8 trusts locally committed analysis results and private in-process compiler
+objects. Readers decode retained types and required data without content hashes,
+anti-tamper snapshot chains, repeated method proofs, or re-extracting Findings.
+Production still enforces method input and output contracts. Session ownership,
+execution identity, atomic publication, resource reconciliation, and actionable
+I/O errors remain mandatory. Definition and execution-key digests identify work;
+they are not content-integrity proofs.
+
+Store 7 and earlier are rejected without migration or mutation. Preserve their
+bytes and use a fresh project root. The current descriptor is v3 and continuation
+is v4. Local receipts retain paths, file sizes, row counts and format version,
+without file, manifest or schema hashes. Continuations no longer carry receipt
+and method-state proof digests. `session.revalidate` and its result types are
+removed. Historical phase sections below describe their original acceptance;
+this section supersedes their integrity requirements.
+
+
 Execution follows the [unified operator and backend ownership contract](python-analysis-design.md#unified-operator-and-execution-ownership). Backend-specific preparation does not change operator semantics.
 
 
@@ -314,10 +333,8 @@ continuations use complete retained rows/private state. Their Runtime guards
 apply even when the final output is small. Source-offline cold recovery preserves
 stored report/read/calendar authority rather than resolving the new host's zone.
 
-`session.revalidate(reference)` exposes separate Artifact, storage-authority and
-Evidence integrity assessments. It is not a source-freshness verdict, permission
-to reuse stale values, or a business recommendation. Runtime cards and pages stay
-bounded and do not expose raw secrets or private implementation inventories.
+Local recovery trusts committed results and does not establish source freshness
+or business validity. Runtime cards and pages remain bounded.
 
 ## Read-only execution cleanup
 

@@ -622,5 +622,6 @@ def project(source: ExchangeResult, name: Literal["values", "ranks"]) -> Exchang
         state_kind="none",
         state_schema=None,
         pending_checks=(),
+        _frozen=None,
     )
-    return from_arrow(primary, contract, parts=parts)
+    return from_arrow(primary, contract, parts=parts, validate=False)

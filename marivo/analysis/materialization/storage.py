@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -36,7 +35,6 @@ from marivo.analysis.datasets.descriptors import (
 from marivo.analysis.materialization.contracts import (
     FileEntry,
     LocalReceipt,
-    manifest_digest,
 )
 from marivo.analysis.materialization.errors import (
     IntegrityError,
@@ -424,7 +422,6 @@ def _manifest_bytes(entries: tuple[FileEntry, ...]) -> bytes:
             {
                 "relative_path": entry.relative_path,
                 "size_bytes": entry.size_bytes,
-                "sha256": entry.sha256,
             }
             for entry in entries
         ],
@@ -432,14 +429,6 @@ def _manifest_bytes(entries: tuple[FileEntry, ...]) -> bytes:
         separators=(",", ":"),
         ensure_ascii=True,
     ).encode("utf-8")
-
-
-def _hash_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        while chunk := source.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _open_payload(
@@ -452,27 +441,14 @@ def _open_payload(
     root = _checked_path(project_root, path)
     if receipt.parquet_contract_version != 1 or len(receipt.file_manifest) != 1:
         _integrity("the supported Parquet v1 single-file receipt", "unsupported receipt")
-    if manifest_digest(receipt.file_manifest) != receipt.manifest_hash:
-        _integrity("the exact manifest digest", "manifest mismatch")
     entry = receipt.file_manifest[0]
     if entry.relative_path != "data.parquet":
         _integrity("the exact registered data filename", "invalid manifest entry")
-    manifest = _checked_path(project_root, root / "manifest.json")
     data = _checked_path(project_root, root / entry.relative_path)
     parquet: pq.ParquetFile | None = None
     failure: Literal["missing", "unauthorized", "mutated", "unknown"] = "unknown"
     try:
-        expected = _manifest_bytes(receipt.file_manifest)
-        if manifest.stat().st_size != len(expected) or data.stat().st_size != entry.size_bytes:
-            _integrity("exact committed file sizes", "backing size changed")
-        if (
-            manifest.read_bytes() != expected
-            or receipt.realized_byte_count != entry.size_bytes + len(expected)
-        ):
-            _integrity("the exact committed manifest", "manifest bytes changed")
-        parquet = pq.ParquetFile(data, page_checksum_verification=True)
-        if parquet.metadata.num_rows != receipt.realized_row_count:
-            _integrity("the exact committed row count", "Parquet row count differs")
+        parquet = pq.ParquetFile(data)
         return parquet, data
     except IntegrityError:
         if parquet is not None:

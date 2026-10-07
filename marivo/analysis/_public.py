@@ -41,7 +41,6 @@ from marivo.analysis.domains.completeness import (
 from marivo.analysis.domains.completeness import (
     SourceOriginCompletenessDeclarationV1 as SourceOriginCompletenessDeclarationV1,
 )
-from marivo.analysis.errors import EvidenceIntegrityError as EvidenceIntegrityError
 from marivo.analysis.event import EventPattern as EventPattern
 from marivo.analysis.event import EveryStart as EveryStart
 from marivo.analysis.event import FirstPerSubject as FirstPerSubject
@@ -51,7 +50,6 @@ from marivo.analysis.event import first_per_subject as first_per_subject
 from marivo.analysis.event import sequence as sequence
 from marivo.analysis.event import step as step
 from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDigest
-from marivo.analysis.evidence._dataset_types import ArtifactRevalidation as ArtifactRevalidation
 from marivo.analysis.evidence._dataset_types import Finding as Finding
 from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
 from marivo.analysis.forecast_models import ForecastHorizon as ForecastHorizon
@@ -322,9 +320,7 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "MaterializedTimeAnalysisDomain",
     "ArtifactDigest",
     "ArtifactRef",
-    "ArtifactRevalidation",
     "ArtifactSummary",
-    "EvidenceIntegrityError",
     "FailedRun",
     "Finding",
     "FindingPage",

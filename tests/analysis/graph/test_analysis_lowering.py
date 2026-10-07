@@ -2,7 +2,6 @@
 
 from dataclasses import replace
 from pathlib import Path
-from types import MappingProxyType
 from unittest.mock import patch
 
 import ibis
@@ -455,7 +454,7 @@ def test_correspondence_uses_full_tuples_not_cartesian_axes(source_case, mode):
         assert _read(source_case[0], lowered, bindings, check.violations) == []
 
 
-def test_layout_identity_type_and_plan_tampering_refuse_before_submission(source_case):
+def test_layout_and_source_identity_refuse_before_submission(source_case):
     leaf = _leaf(source_case[1])
     binding = _bind(source_case, leaf)
     graph = _plan(_count(leaf))
@@ -466,8 +465,6 @@ def test_layout_identity_type_and_plan_tampering_refuse_before_submission(source
     ):
         with pytest.raises(CoreRuleError):
             lower(graph, bindings=candidate)
-    with pytest.raises(CoreRuleError, match="unchanged admitted plan"):
-        lower(replace(graph, checks=(), primary_output="forged"), bindings=(binding,))
     with pytest.raises(CoreRuleError, match="exact leaf identity"):
         lower(
             graph,
@@ -1336,83 +1333,10 @@ def test_lowering_reuses_static_admission(source_case, route: str) -> None:
     assert source_case[0].submissions == []
 
 
-@pytest.mark.parametrize(
-    "change",
-    [
-        "stages",
-        "checks",
-        "physical",
-        "output",
-        "node",
-        "literal_type",
-        "registry",
-        "capture",
-        "specialization",
-    ],
-)
-def test_in_place_handoff_tampering_rejects_before_submission(source_case, change: str) -> None:
-    leaf = _leaf(source_case[1])
-    selected = _selection(leaf, unknown="reject")
-    admitted = _plan(_count(selected, "count_defined"))
-    assert admitted.checks
-    binding = _bind(source_case, leaf)
-    if change == "stages":
-        target, field, altered = admitted, "stages", admitted.stages[:-1]
-    elif change == "checks":
-        target, field, altered = admitted, "checks", ()
-    elif change == "physical":
-        target, field, altered = admitted, "physical_requirements", ()
-    elif change == "output":
-        target, field, altered = admitted, "primary_output", "forged"
-    elif change == "node":
-        target, field, altered = leaf.signature.domain, "definition_id", "forged"
-    elif change == "literal_type":
-        predicate = selected.parameters.predicates[0]
-        target, field, altered = predicate, "value", float(predicate.value)
-        assert altered == predicate.value
-    elif change == "registry":
-        registration = REGISTRY.lookup(admitted.physical_requirements[0].key.method)
-        target, field, altered = registration, "implementations", ()
-    elif change == "specialization":
-        target = admitted.physical_requirements[0].implementation
-        field, altered = "numeric_specialization", "exact"
-    else:
-        assert admitted._handoff is not None
-        target, field, altered = admitted._handoff.captured, "index", MappingProxyType({})
-    original = getattr(target, field)
-    object.__setattr__(target, field, altered)
-    try:
-        with pytest.raises(CoreRuleError, match="unchanged admitted plan"):
-            lower(admitted, bindings=(binding,))
-    finally:
-        object.__setattr__(target, field, original)
-    assert source_case[0].submissions == []
-
-
 def test_handoff_is_bound_to_registry_instance(source_case) -> None:
     leaf = _leaf(source_case[1])
     admitted = _plan(_count(leaf))
     other = MethodRegistry(REGISTRY.registrations)
     with pytest.raises(CoreRuleError, match="unchanged admitted plan"):
         lower(admitted, bindings=(_bind(source_case, leaf),), registry=other)
-    assert source_case[0].submissions == []
-
-
-def test_shadowed_registration_rejects_handoff(source_case) -> None:
-    leaf = _leaf(source_case[1])
-    root = _count(leaf)
-    selected = REGISTRY.lookup(root.method)
-    shadow = replace(
-        next(item for item in REGISTRY.registrations if item.semantics.key != root.method)
-    )
-    registry = MethodRegistry((shadow, selected))
-    admitted = plan(root, routes=(RouteChoice(root.identity, "ibis"),), registry=registry)
-    binding = _bind(source_case, leaf)
-    assert lower(admitted, bindings=(binding,), registry=registry).admitted is admitted
-
-    object.__setattr__(shadow, "semantics", selected.semantics)
-    object.__setattr__(shadow, "implementations", ())
-    assert registry.lookup(root.method) is shadow
-    with pytest.raises(CoreRuleError, match="unchanged admitted plan"):
-        lower(admitted, bindings=(binding,), registry=registry)
     assert source_case[0].submissions == []

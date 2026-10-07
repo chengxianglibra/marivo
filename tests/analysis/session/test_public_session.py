@@ -12,7 +12,7 @@ from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
 
 
-def test_new_public_session_starts_with_empty_v7_store(
+def test_new_public_session_starts_with_empty_v8_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -26,7 +26,7 @@ def test_new_public_session_starts_with_empty_v7_store(
     assert session.runs().items == ()
 
 
-@pytest.mark.parametrize("version", [0, 2, 3])
+@pytest.mark.parametrize("version", [0, 2, 3, 7])
 @pytest.mark.parametrize("entry", ["get_or_create", "resume", "current"])
 def test_public_session_rejects_existing_store_without_modifying_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: int, entry: str
@@ -96,6 +96,6 @@ def test_dataset_help_does_not_advertise_private_harness_execution() -> None:
     from marivo._help.render import render_help_text
 
     text = render_help_text("analysis.actions.execute")[0]
-    assert "Store 7" in text
+    assert "Store 8" in text
     assert "session.members" in text
     assert "Population" not in text

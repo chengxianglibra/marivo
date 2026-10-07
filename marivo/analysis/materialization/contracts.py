@@ -121,32 +121,22 @@ def _relative(value: str) -> None:
 class FileEntry:
     relative_path: str
     size_bytes: int
-    sha256: str
 
     def __post_init__(self) -> None:
         _relative(self.relative_path)
         _int(self.size_bytes)
-        _hash(self.sha256)
 
 
 def manifest_payload(entries: tuple[FileEntry, ...]) -> list[dict[str, object]]:
     return [
-        {"relative_path": item.relative_path, "size_bytes": item.size_bytes, "sha256": item.sha256}
-        for item in entries
+        {"relative_path": item.relative_path, "size_bytes": item.size_bytes} for item in entries
     ]
-
-
-def manifest_digest(entries: tuple[FileEntry, ...]) -> str:
-    return digest(manifest_payload(entries))
 
 
 @dataclass(frozen=True, slots=True)
 class LocalReceipt:
     project_relative_path: str
     file_manifest: tuple[FileEntry, ...]
-    manifest_hash: str
-    bytes_hash: str
-    schema_fingerprint: str
     realized_row_count: int
     realized_byte_count: int
     parquet_contract_version: int = 1
@@ -158,10 +148,6 @@ class LocalReceipt:
         paths = tuple(item.relative_path for item in self.file_manifest)
         if paths != tuple(sorted(set(paths))):
             raise invalid("non-canonical file manifest order")
-        if self.manifest_hash != manifest_digest(self.file_manifest):
-            raise invalid("manifest digest mismatch")
-        for value in (self.manifest_hash, self.bytes_hash, self.schema_fingerprint):
-            _hash(value)
         _int(self.realized_row_count)
         _int(self.realized_byte_count)
         if self.realized_byte_count < sum(item.size_bytes for item in self.file_manifest):
@@ -192,9 +178,6 @@ def receipt_payload(value: StorageReceipt) -> dict[str, object]:
         "format": "parquet",
         "parquet_contract_version": value.parquet_contract_version,
         "file_manifest": manifest_payload(value.file_manifest),
-        "manifest_hash": value.manifest_hash,
-        "bytes_hash": value.bytes_hash,
-        "schema_fingerprint": value.schema_fingerprint,
         "realized_row_count": value.realized_row_count,
         "realized_byte_count": {"kind": "exact", "byte_count": value.realized_byte_count},
     }
@@ -203,27 +186,20 @@ def receipt_payload(value: StorageReceipt) -> dict[str, object]:
 def decode_receipt(value: object) -> StorageReceipt:
     obj = _obj(
         value,
-        "kind project_relative_path format parquet_contract_version file_manifest manifest_hash bytes_hash schema_fingerprint realized_row_count realized_byte_count",
+        "kind project_relative_path format parquet_contract_version file_manifest realized_row_count realized_byte_count",
     )
     if obj["kind"] != "local" or obj["format"] != "parquet":
         raise invalid("unsupported storage receipt")
     entries = []
     for item in _array(obj["file_manifest"]):
-        entry = _obj(item, "relative_path size_bytes sha256")
-        entries.append(
-            FileEntry(
-                _text(entry["relative_path"]), _int(entry["size_bytes"]), _text(entry["sha256"])
-            )
-        )
+        entry = _obj(item, "relative_path size_bytes")
+        entries.append(FileEntry(_text(entry["relative_path"]), _int(entry["size_bytes"])))
     byte_count = _obj(obj["realized_byte_count"], "kind byte_count")
     if byte_count["kind"] != "exact":
         raise invalid("local receipt requires exact bytes")
     return LocalReceipt(
         _text(obj["project_relative_path"]),
         tuple(entries),
-        _text(obj["manifest_hash"]),
-        _text(obj["bytes_hash"]),
-        _text(obj["schema_fingerprint"]),
         _int(obj["realized_row_count"]),
         _int(byte_count["byte_count"]),
         _int(obj["parquet_contract_version"], minimum=1),

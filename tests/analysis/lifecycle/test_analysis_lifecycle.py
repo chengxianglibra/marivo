@@ -440,50 +440,6 @@ def test_receipt_recovery_rejects_before_new_run(tmp_path, role, fault):
 
 
 @pytest.mark.runtime
-@pytest.mark.parametrize("fault", ["swap", "binding", "state_version", "model", "missing_part"])
-def test_descriptor_tampering_rejects_in_independent_cold_process(tmp_path, fault):
-    from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, encode
-
-    session, members, window, claims, values = build_lifecycle_public(tmp_path)
-    logical = replay(session, members, window, claims)
-    left, right = logical.execute(), logical.execute()
-    left_ref, right_ref = left.state.artifact_ref.ref, right.state.artifact_ref.ref
-    payload = json.loads(encode(left._dataset.artifact.descriptor, DESCRIPTOR))
-    if fault == "swap":
-        other = json.loads(encode(right._dataset.artifact.descriptor, DESCRIPTOR))
-        payload["parts"][0] = other["parts"][0]
-    elif fault == "binding":
-        payload["parts"][0]["input_binding"] = "foreign input binding"
-    elif fault == "state_version":
-        payload["method_state"]["contract_version"] = 2
-    elif fault == "model":
-        payload["signature"]["parts"][0]["preparation"]["model"]["definition"]["states"][0][
-            "name"
-        ] = "foreign state"
-    else:
-        payload["parts"] = []
-    store = session._runtime.store
-    with store._write() as connection:
-        connection.execute(
-            "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-            (json.dumps(payload, sort_keys=True, separators=(",", ":")), left_ref),
-        )
-    (tmp_path / "lifecycle-recovery.json").write_text(
-        json.dumps({"session": session.id, "artifact": left_ref, "reject": True})
-    )
-    (tmp_path / "source.duckdb").unlink()
-    completed = subprocess.run(
-        [sys.executable, "-m", "tests.analysis.lifecycle.lifecycle_worker", str(tmp_path)],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert json.loads(completed.stdout)["rejected"]
-    assert records(session.artifact(right_ref)) == expected_histories(values)
-
-
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "point",
     [

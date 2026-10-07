@@ -1,8 +1,7 @@
-"""Receipt-checked v7 Arrow/Parquet storage, without source or DuckDB reads."""
+"""Receipt-checked v8 Arrow/Parquet storage, without source or DuckDB reads."""
 
 from __future__ import annotations
 
-import hashlib
 import os
 import sys
 from pathlib import Path
@@ -10,14 +9,13 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt, manifest_digest
+from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
     ExchangePart,
     ExchangeResult,
     PartContract,
-    from_arrow,
 )
 from marivo.analysis.materialization.graph_protocol import (
     Descriptor,
@@ -29,7 +27,6 @@ from marivo.analysis.materialization.graph_protocol import (
 from marivo.analysis.materialization.storage import (
     _checked_path,
     _fsync_directory,
-    _hash_file,
     _manifest_bytes,
     _open_payload,
 )
@@ -43,10 +40,10 @@ def write_table(root: Path, staging: Path, final: Path, table: pa.Table) -> Loca
         staging.mkdir(parents=True, exist_ok=False)
         data = staging / "data.parquet"
         # Preserve nested Arrow field names covered by the exact schema receipt.
-        pq.write_table(table, data, write_page_checksum=True, use_compliant_nested_type=False)
+        pq.write_table(table, data, write_page_checksum=False, use_compliant_nested_type=False)
         with data.open("rb") as stream:
             os.fsync(stream.fileno())
-        entry = FileEntry("data.parquet", data.stat().st_size, _hash_file(data))
+        entry = FileEntry("data.parquet", data.stat().st_size)
         manifest = _manifest_bytes((entry,))
         with (staging / "manifest.json").open("xb") as stream:
             stream.write(manifest)
@@ -56,9 +53,6 @@ def write_table(root: Path, staging: Path, final: Path, table: pa.Table) -> Loca
         return LocalReceipt(
             final.relative_to(root).as_posix(),
             (entry,),
-            manifest_digest((entry,)),
-            entry.sha256,
-            hashlib.sha256(table.schema.serialize().to_pybytes()).hexdigest(),
             table.num_rows,
             entry.size_bytes + len(manifest),
         )
@@ -75,25 +69,14 @@ def read_table(root: Path, receipt: LocalReceipt) -> pa.Table:
     from marivo.analysis.materialization.execute_deadline import check
 
     check()
-    parquet, path = _open_payload(root, receipt)
+    parquet, _path = _open_payload(root, receipt)
     try:
         schema = parquet.schema_arrow
-        if (
-            hashlib.sha256(schema.serialize().to_pybytes()).hexdigest()
-            != receipt.schema_fingerprint
-        ):
-            raise invalid("Parquet schema differs from its receipt")
         batches = []
         for batch in parquet.iter_batches(batch_size=1024):
             check()
             batches.append(batch)
         table = pa.Table.from_batches(batches, schema=schema)
-        if (
-            table.num_rows != receipt.realized_row_count
-            or _hash_file(path) != receipt.bytes_hash
-            or receipt.file_manifest[0].sha256 != receipt.bytes_hash
-        ):
-            raise invalid("Parquet rows or bytes differ from receipt")
         check()
         return table
     except (OSError, pa.ArrowException):
@@ -177,4 +160,4 @@ def read_result(
         descriptor.row_contract.column_reasons,
         _frozen=checked,
     )
-    return from_arrow(primary, contract, parts=parts, method_state=statuses)
+    return ExchangeResult(contract, primary, parts, (), statuses)
