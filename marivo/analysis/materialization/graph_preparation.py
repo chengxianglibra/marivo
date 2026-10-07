@@ -943,4 +943,5 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
         parts=result.parts,
         method_state=result.method_state,
         completed_checks=_ordered_checks(completed, prepared.admitted.checks),
+        validate=False,
     )

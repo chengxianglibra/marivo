@@ -92,5 +92,6 @@ def finish_spearman(
         contract,
         parts=(ExchangePart("pair_counts", part),),
         completed_checks=completed,
+        validate=False,
         method_state=pa.table({"status": pa.array([scored.status], type=pa.string())}),
     )

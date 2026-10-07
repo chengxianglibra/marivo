@@ -159,9 +159,10 @@ def test_members_use_complete_declared_key_and_exact_version_without_io(
     assert root.parts[0].injective is True
     assert root.evidence[0].basis == "declaration"
     assert root.evidence[0].fact.kind == "declared_key"
-    assert root.obligations[0].check_id == "source.unique_key@v1"
-    assert root.obligations[0].fact.kind == "unique_key"
-    assert root.obligations[0].fact not in available_facts(root)
+    assert root.obligations == ()
+    assert root.evidence[1].basis == "declaration"
+    assert root.evidence[1].fact.kind == "unique_key"
+    assert root.evidence[1].fact in available_facts(root)
     with pytest.raises(CoreRuleError, match="complete normalized identity"):
         entity_members(
             replace(contract, identity_signature=(("customer_id", "string"),)),
@@ -187,7 +188,7 @@ def test_bind_project_checks_exact_ref_owner_path_and_bound_quantity(
     assert result.output.quantity is None
     assert result.pre[0] in available_facts(result.output)
     assert result.output.evidence[0].basis == "builder"
-    assert result.post[0] not in available_facts(result.output)
+    assert result.post[0] in available_facts(result.output)
     with pytest.raises(CoreRuleError, match="normalized owning definition"):
         derive(
             (source,),
@@ -221,7 +222,7 @@ def test_bind_project_checks_exact_ref_owner_path_and_bound_quantity(
         (order_source,),
         replace(direct, path=(buyer,), path_contracts=(buyer_contract,)),
     )
-    assert via_buyer.obligations[0].fact.kind == "single_value"
+    assert via_buyer.obligations[0].fact.kind == "mapping_total"
     with pytest.raises(CoreRuleError, match="directed single-valued"):
         derive(
             (source,),
@@ -510,7 +511,7 @@ def test_parts_transport_drops_dependent_continuations_and_never_promotes_post()
     )
     assert selected.part_transform.removed == ("original_state", "coverage")
     assert selected.output.quantity is None
-    assert selected.post[0] not in available_facts(selected.output)
+    assert selected.post[0] in available_facts(selected.output)
     with pytest.raises(CoreRuleError, match="retained original_state"):
         require_part(selected.output, "original_state")
     with pytest.raises(CoreRuleError, match="quantity-bound parts"):
@@ -585,9 +586,9 @@ def test_evidence_scope_is_not_a_queued_check_or_parent_post() -> None:
         replace(source, evidence=(numeric_check,), obligations=(pending,))
     )
     with pytest.raises(CoreRuleError, match="declared definition fact"):
-        Evidence(Fact("unique_key", binding, "customers", "v1"), "declaration", "entity-key")
+        Evidence(Fact("mapping_total", binding, "customers", "v1"), "declaration", "entity-key")
     with pytest.raises(CoreRuleError, match="builder-owned definition fact"):
-        Evidence(derived_fact, "builder", "mapping-declaration")
+        Evidence(Fact("single_value", binding, "customers", "v1"), "builder", "mapping-declaration")
     with pytest.raises(CoreRuleError, match="deduction with bound premises"):
         Evidence(derived_fact, "deduction", "map_correspond@v1")
 

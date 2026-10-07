@@ -108,7 +108,7 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
             if isinstance(node, MethodNode)
             for obligation in node.derivation.obligations
         }
-        assert mandatory
+        assert not mandatory
         purposes: list[str] = []
         proofs: list[tuple[CompletedCheck, ...]] = []
         batches = SourceSession.batches
@@ -141,7 +141,7 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
             _scalar_parts(result, 529, 61)
             submitted = purposes[before:]
             assert submitted.count("analysis.graph.stage") == 1
-            assert "analysis.graph.check" in submitted
+            assert "analysis.graph.check" not in submitted
             assert "analysis.domain.prepare" not in submitted
             results.append(result)
         first, second = results
@@ -211,16 +211,20 @@ def test_native_sum_preserves_known_zero_for_null_and_empty_inputs(
 
 
 @pytest.mark.runtime
-@pytest.mark.parametrize(
-    "defect", ("cell", "original_state", "checks", "duplicate_key", "null_key")
-)
+@pytest.mark.parametrize("defect", ("schema", "checks"))
 def test_native_late_invalid_exchange_or_missing_check_proof_never_publishes(
-    defect: Literal["cell", "original_state", "checks", "duplicate_key", "null_key"],
+    defect: Literal["schema", "checks"],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        logical = _values(work) if defect in ("duplicate_key", "null_key") else _sum(work)
+        logical = (
+            work.session.members(ms.ref.entity("cost.facts")).read(
+                ms.ref.dimension("cost.subjects.sid"), via=ms.ref.relationship("cost.facts_subject")
+            )
+            if defect == "checks"
+            else _sum(work)
+        )
         before = _publications(work.session)
         original = native._read
         corrupted: list[str] = []
@@ -247,27 +251,8 @@ def test_native_late_invalid_exchange_or_missing_check_proof_never_publishes(
                 cell_reasons=cell_reasons,
             )
             if purpose == "analysis.graph.stage" and defect != "checks":
-                if defect in ("duplicate_key", "null_key"):
-                    column = "key_1"
-                    actual = table[column].to_pylist()
-                    values = (
-                        [actual[0]] * len(actual)
-                        if defect == "duplicate_key"
-                        else [None, *actual[1:]]
-                    )
-                    corrupted.append(defect)
-                    return table.set_column(
-                        table.schema.get_field_index(column),
-                        column,
-                        pa.array(values, type=pa.int64()),
-                    )
-                column = "value" if defect == "cell" else "original_state__sum"
-                corrupted.append(column)
-                return table.set_column(
-                    table.schema.get_field_index(column),
-                    column,
-                    pa.array([None if defect == "cell" else 530], type=pa.int64()),
-                )
+                corrupted.append("schema")
+                return table.drop("value")
             return table
 
         def missing_proofs(
@@ -295,7 +280,9 @@ def test_native_checks_and_computation_may_observe_different_live_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with workload("sqlite", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        logical = _sum(work)
+        logical = work.session.members(ms.ref.entity("cost.facts")).read(
+            ms.ref.dimension("cost.subjects.sid"), via=ms.ref.relationship("cost.facts_subject")
+        )
         original = SourceSession.batches
         purposes: list[str] = []
         changed: list[bool] = []
@@ -307,8 +294,7 @@ def test_native_checks_and_computation_may_observe_different_live_values(
                 assert "analysis.graph.check" in purposes
                 with sqlite3.connect(tmp_path / "r96.sqlite") as connection:
                     connection.execute(
-                        "UPDATE r96_facts SET amount=amount+100 WHERE id=? AND tenant=? AND revision=?",
-                        (9007199254740993, "a", 1),
+                        "DELETE FROM r96_subjects WHERE sid=1",
                     )
                 changed.append(True)
             purposes.append(issued.purpose)
@@ -318,7 +304,8 @@ def test_native_checks_and_computation_may_observe_different_live_values(
         _forbid_staging(monkeypatch)
         result = logical.execute()
         assert changed == [True]
-        _scalar_parts(result, 629, 61)
+        assert result._dataset is not None
+        assert None in result._dataset.verified().primary["value"].to_pylist()
         assert purposes.count("analysis.graph.stage") == 1
         assert work.session.get_run(result.state.producing_run_ref).lifecycle == "succeeded"
         assert work.session._runtime.store.resources(work.session.id) == ()

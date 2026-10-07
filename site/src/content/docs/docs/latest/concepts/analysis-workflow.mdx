@@ -1730,3 +1730,43 @@ Fixed results retain their schema, semantic contract, evidence and exact input b
 Reading a result does not require selecting its original production implementation.
 New continuations still validate required state and their current method capability.
 Obsolete persisted formats require re-executing the source analysis; existing files are preserved.
+
+
+## Verification premises
+
+Analysis trusts Entity identity/version grain, declared field owners, complete
+relationship keys and structural cardinality. Constructors preserve or create
+unique keys and valid Cells. Cardinality does not prove that every selected row
+has a matching owner. Source declaration audits remain a separate `source_health`
+operation; an incorrect declaration is not guaranteed to be detected by analysis.
+
+```python
+orders = session.members(ms.ref.entity("commerce.order"))
+amounts = orders.read(ms.ref.measure("commerce.order.amount"))
+regions = orders.read(
+    ms.ref.dimension("commerce.customer.region"),
+    via=ms.ref.relationship("commerce.order_customer"),
+    match_verification="assume",
+)
+quotient = current.ratio(reference, pairing=mv.ExactKeys(verification="assume"))
+change = current.compare(
+    reference, design=mv.TimeChange(pairing=mv.ExactKeys(verification="check"))
+)
+quotient.contract().show()
+```
+
+Use `assume` only when accepting that exact call's premise. The default `check`
+checks only unknown matching or key-set equality. A common captured key domain
+needs no equality query; equal symbolic domains after different filters do not
+suffice. `assume` preserves ExactKeys semantics and does not select an intersection
+or add a missing/Null policy. Necessary lookup/index conflicts and missing operands
+still fail when encountered. Zero denominators and Null/Unknown retain their method
+policies. Cross-Session inputs and invalid parameters remain errors.
+
+Policies are saved in fingerprints, execution keys and graph DAG v2. Materialized
+contract cards identify assumptions as **not checked**, including after source-offline
+cold recovery. The old frozen graph requires source re-execution; its bytes are
+preserved. Store 8, descriptor v3 and continuation v4 keep their current versions.
+Private transport trusts producer business guarantees while retaining physical
+schema/decoding, required parts, read completion, deadlines, cancellation, resource
+cleanup and atomic publication. Separate source reads do not obtain snapshot isolation.

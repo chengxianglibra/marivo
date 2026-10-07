@@ -611,9 +611,9 @@ def result(
         "attribution_component_mix" if mix else "attribution_additive",
         state.schema,
     )
-    # The same validator runs on publication and cold receipt recovery.
+    # Producer arithmetic owns reconciliation; transport checks the physical result.
     return (
-        from_arrow(primary, contract, parts=parts, method_state=state)
+        from_arrow(primary, contract, parts=parts, method_state=state, validate=False)
         if verify
         else ExchangeResult(contract, primary, parts, (), state)
     )

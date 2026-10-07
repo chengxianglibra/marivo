@@ -123,7 +123,7 @@ def axes_result(node: MethodNode, primary: pa.Table, binding: str) -> ExchangeRe
         "history_view",
         statuses.schema,
     )
-    return from_arrow(primary, contract, parts=(retained,), method_state=statuses)
+    return from_arrow(primary, contract, parts=(retained,), method_state=statuses, validate=False)
 
 
 STATE: TypeAdapter[ViewState] = TypeAdapter(ViewState)
@@ -557,6 +557,7 @@ def execute(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) 
         ),
         parts=parts,
         method_state=statuses,
+        validate=False,
     )
 
 

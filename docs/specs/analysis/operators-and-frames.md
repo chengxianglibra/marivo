@@ -743,8 +743,15 @@ distinct and quantile do not receive attribution merely because endpoints exist.
 Additive original linear components may qualify only with complete additive
 partition and endpoint reproduction; no general FormulaBasis is introduced.
 
-ExactKeys requires injective full typed keys and equal images; double empty is
-valid. UnionKeys also checks injectivity. Keep preserves MissingCoordinate
+`ExactKeys(verification="check")` requires unique full typed keys and equal images;
+double empty is valid. Entity identity and constructor guarantees are trusted.
+A shared captured key domain supplies equality only through nodes that preserve
+that domain; equal DomainSignatures, row counts or Entity refs do not suffice.
+An unknown equality defaults to an actual check. `ExactKeys(verification="assume")`
+records a call-specific assumption and omits that equality check on both source
+and fixed routes. It preserves ExactKeys semantics; it does not select an
+intersection or introduce missing-value synthesis. A required operand missing
+during local consumption still fails. UnionKeys retains its own missing policy. Keep preserves MissingCoordinate
 separately from Present(Null/Undefined/Unknown) and does no arithmetic on a
 missing row. metric_empty requires complete original observation/coverage and
 the concrete Metric's empty finish; filtered/ranked/limited or missing-version
@@ -1741,3 +1748,21 @@ infer local schema facts but does not compile a business read or allocate a Run.
 HTTP/request-parameter JSON, other numeric carriers and other observation methods
 remain unqualified; no fallback changes the requested semantics. Fixed continuations
 use the exact retained Artifact and existing local consumers.
+
+
+### A1 field-owner matching and evidence
+
+`LogicalAnalysisDomain.read(field, *, at=None, via=None,
+match_verification="check")` and its time/selected-domain variants trust the
+field's declared owner, complete relationship keys and to-one structure.
+Cardinality supplies single-valuedness, not existence. Reading the same owner
+at the same captured version needs no matching query. An unknown path/version
+match creates an exact `mapping_total` obligation. `match_verification="assume"`
+records that call's owner-match assumption and removes only this query; it does
+not authorize a new missing-match or Null policy.
+
+Both named policies accept only `"check"` and `"assume"`. They enter definition
+fingerprints, execution keys and frozen calls. The materialized `.contract()`
+card reports retained premise assumptions as **not checked**. Actual completed
+checks remain separate records; assumptions never become historical source checks.
+No public exports or packaged skill entrypoints change.

@@ -966,6 +966,20 @@ class _Value:
         signature = self._node.root.signature
         quantity = signature.quantity
         facts: list[tuple[str, str]] = []
+        assumptions = tuple(
+            dict.fromkeys(item.fact for item in signature.evidence if item.basis == "assumption")
+        )
+        if assumptions:
+            facts.append(
+                (
+                    "premise_assumptions",
+                    ", ".join(
+                        f"{kind}:{len([fact for fact in assumptions if fact.kind == kind])}"
+                        for kind in sorted({fact.kind for fact in assumptions})
+                    )
+                    + "; not checked",
+                )
+            )
         from marivo.analysis.core.model import RunCellsPart
 
         run = next((p for p in signature.parts if isinstance(p, RunCellsPart)), None)
@@ -2080,6 +2094,9 @@ class _NumericComparison(_Value):
                 pairing=design.pairing.missing
                 if isinstance(design.pairing, UnionKeys)
                 else "exact",
+                verification=design.pairing.verification
+                if isinstance(design.pairing, ExactKeys)
+                else "check",
             ),
             self._runtime,
             inputs=(self, baseline),
@@ -2125,9 +2142,14 @@ class _NumericComparison(_Value):
                 "relation_ratio",
                 design="period" if pairing._time is not None else "time",
                 relationship=pairing._relationship,
+                verification=pairing._time.pairing.verification
+                if pairing._time is not None and isinstance(pairing._time.pairing, ExactKeys)
+                else "check",
             )
         else:
-            node = self._node.combine(other._node, "relation_ratio")
+            node = self._node.combine(
+                other._node, "relation_ratio", verification=pairing.verification
+            )
         return LogicalNumericRelation(_TOKEN, node, self._runtime, inputs=(self, other))
 
 
@@ -2509,6 +2531,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         *,
         at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
         via: Ref[RelationshipKind] | RootRoutes | None = None,
+        match_verification: Literal["check", "assume"] = "check",
     ) -> LogicalNumericRelation: ...
 
     @overload
@@ -2518,6 +2541,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         *,
         at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
         via: Ref[RelationshipKind] | RootRoutes | None = None,
+        match_verification: Literal["check", "assume"] = "check",
     ) -> LogicalCategoryRelation | LogicalBooleanRelation: ...
 
     @overload
@@ -2527,6 +2551,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         *,
         at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
         via: Ref[RelationshipKind] | RootRoutes | None = None,
+        match_verification: Literal["check", "assume"] = "check",
     ) -> LogicalTemporalRelation: ...
 
     def read(
@@ -2535,6 +2560,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         *,
         at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
         via: Ref[RelationshipKind] | RootRoutes | None = None,
+        match_verification: Literal["check", "assume"] = "check",
     ) -> (
         LogicalNumericRelation
         | LogicalCategoryRelation
@@ -2547,9 +2573,10 @@ class LogicalAnalysisDomain(_CohortDomain):
             field: Declared Measure, direct Dimension/TimeDimension, or bound Boolean Dimension expression Ref.
             at: Independent aware attribute instant or this product grid endpoint; None for unversioned fields.
             via: Exact single-valued member-to-owner relationship or route.
+            match_verification: Check unknown owner matching, or assume it for this call.
         Returns: Numeric, Category, Boolean or Temporal relation according to field kind.
         Example: ``values = members.read(field, at=scope.before_end)``.
-        Constraints: Missing coverage, multivalued mappings and foreign grid endpoints reject. before_end is a symbolic left limit.
+        Constraints: Unknown matching is checked by default; assume records a call premise. Declared to-one cardinality is trusted. Foreign grid endpoints reject; before_end is a symbolic left limit.
         """
         point: datetime | BeforeEndBoundary | GridPoint | None = (
             at if not isinstance(at, GridEndpoint) else None
@@ -2563,7 +2590,7 @@ class LogicalAnalysisDomain(_CohortDomain):
                     "Use the same grid as each(grid).",
                 )
             point = GridPoint(bound, at._side)
-        node = self._node.read(field, at=point, via=via)
+        node = self._node.read(field, at=point, via=via, match_verification=match_verification)
         if field.kind is SemanticKind.MEASURE:
             return LogicalNumericRelation(_TOKEN, node, self._runtime, inputs=(self,))
         if field.kind is SemanticKind.TIME_DIMENSION:

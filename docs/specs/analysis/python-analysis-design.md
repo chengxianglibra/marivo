@@ -3006,8 +3006,9 @@ actual acquired inputs and definitions; it does not claim that their database
 versions coincide. All source inputs still precede local evaluation, and fixed
 continuations consume the retained inputs without rereading the source.
 Business completeness declarations and actual read coverage keep their separate
-meaning; an exhaustive read does not prove business completeness. Exact key,
-multiplicity, deadline, cancellation and cleanup checks remain mandatory.
+meaning; an exhaustive read does not prove business completeness. A1 trusts exact
+key and structural multiplicity declarations; unknown relational premises, deadline,
+cancellation and cleanup obligations remain mandatory.
 
 ### R9.6 source-check consistency amendment (2026-10-06)
 
@@ -3021,12 +3022,13 @@ refuse the dependent operation, and no failure changes the selected route.
 Qualified pure-native plans query their closed Ibis expressions directly rather
 than capturing an intermediate Arrow table solely to stage it back into a source.
 Terminal primary and required-part data are retained as Artifact payloads in
-Store 7. Independent checks may still produce temporary Arrow validation results
+Store 8. Independent checks may still produce temporary Arrow validation results
 and retain their own query evidence; this strategy removes intermediate stage
-capture/restaging, not check-result reads. The final primary/parts' actual schema,
-complete keys, Cells, bindings and internal arithmetic remain validated before
-atomic publication and on recovery. A mismatch remains a
-failure even when source changes are permitted. Registered preparation/local
+capture/restaging, not check-result reads. A1 checks the final primary/parts' actual schema, physical decoding, required
+parts, bindings, read completion and resources before atomic publication and on
+recovery. It trusts producer-owned key/Cell/state guarantees rather than repeating
+business scans. Necessary index insertion and operand lookup fail on conflicts
+and missing required values during consumption. Registered preparation/local
 consumers still capture all source dependencies before local selection; fixed
 continuations remain source-free. Read-only permissions, unchanged Ibis SQL
 submission, the shared 600-second deadline, cancellation and resource ownership
@@ -3098,8 +3100,9 @@ are unversioned and relative observations keep their bounded version capture.
 The explicitly requested remote Count adds eight native table/UTC-us/ibis keys:
 PostgreSQL, MySQL, Trino and ClickHouse each retain int64 and string member carriers.
 Every lawful contribution contributes one, including rows with Null Measure values;
-Count is not COUNT(DISTINCT identity). Complete identity uniqueness and to-one
-checks reject duplicate/fanout bindings. Empty members are Defined(0); original
+Count is not COUNT(DISTINCT identity). A1 takes complete identity uniqueness
+and to-one cardinality from declarations; it does not audit those declarations.
+Unknown path matching remains a separate typed consumption prerequisite. Empty members are Defined(0); original
 count state remains int64 and fixed rollup/recovery consumes retained components.
 The original O2a declaration and specialization oracle remains unchanged for all
 preexisting declarations. These eight additions have separate acceptance evidence.
@@ -3133,3 +3136,30 @@ validate stored metadata. The handle never certifies unchanged disk contents.
 The complete historical DAG, implementation identities and lineage remain
 retained. Typed continuation and mechanical continuation disclosure may restore
 historical semantics, but neither selects the original production route.
+
+
+### A1 premise-driven verification (2026-10-07)
+
+The current evidence model distinguishes semantic declarations, conditional
+constructor evidence, exact call assumptions and actual completed checks.
+Entity full identity and version grain are declarations. Uniqueness survives
+selection; grouping creates unique output keys. Field owners and structural
+cardinality supply single-valuedness. Relationship cardinality cannot supply
+total matching. Composite FactInput values bind precise ordered nodes as well
+as domain, quantity, window, version and path; a shared symbolic domain alone
+never proves equal realized key sets.
+
+Native lowering no longer adds key/Cell checks for every stage or reaudits
+Entity versions, declared source-time parsing, to-one fanout or constructed
+partition/target coverage. Unknown pairing, field-owner matching and captured
+contribution/historical path matching use typed obligations and qualified
+physical fulfillment. Methods still enforce their input Cell/finite-value
+policies, missing operands, zero denominators and Null/Unknown semantics.
+Business completeness, target grids, retained-state coverage and successful
+read completion keep separate owners and scopes.
+
+The public policies and examples are owned by
+[Operators and Frames](operators-and-frames.md#a1-field-owner-matching-and-evidence).
+Frozen authority and obsolete-format repair are owned by
+[Session State and Runtime](session-state-and-runtime.md#a1-frozen-premise-authority).
+A2 selection fusion and A3 state-kernel convergence are separate work.

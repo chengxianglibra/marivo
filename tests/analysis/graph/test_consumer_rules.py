@@ -1,4 +1,4 @@
-"""Frozen declarations and specialization probes from panda@440dabc14f."""
+"""Frozen declarations and specialization probes, with A1 typed coverage check support."""
 
 from __future__ import annotations
 

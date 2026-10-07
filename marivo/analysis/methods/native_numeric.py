@@ -51,6 +51,12 @@ def transport_cast(value: ir.Value, dtype: str) -> ir.Value:
     return ops.Cast(value, to=dt.dtype(dtype)).to_expr()
 
 
+def bounded_transport_cast(value: ir.Value, dtype: str, valid: ir.BooleanValue) -> ir.Value:
+    """Fail during the consumed native cast when a widened carrier is out of range."""
+    rendered = valid.ifelse(value.cast("string"), "numeric carrier overflow")
+    return transport_cast(rendered, dtype)
+
+
 def adapt_measure(value: ir.Value, declared: str) -> ir.Value:
     """Widen narrow numeric measures at the existing graph carrier boundary."""
     dtype = value.type()

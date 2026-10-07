@@ -299,7 +299,7 @@ def _assemble(
         "anchor_retention" if isinstance(part, InstanceRetentionPart) else "subject_retention",
         state.schema,
     )
-    return from_arrow(primary, contract, parts=parts, method_state=state)
+    return from_arrow(primary, contract, parts=parts, method_state=state, validate=False)
 
 
 def execute(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) -> ExchangeResult:

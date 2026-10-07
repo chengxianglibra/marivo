@@ -6,7 +6,7 @@ does not execute, open data, or retry an alternative route.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from marivo.analysis.core.model import (
     CoveragePart,
@@ -275,8 +275,22 @@ class MethodRegistry:
             f"Use a connected method from this registry: {available or '(none)'}.",
         )
 
-    def derive(self, inputs: tuple[Signature, ...], params: RuleParameters) -> RuleDerivation:
-        return self.lookup(key_for_parameters(params)).semantics.derive(inputs, params)
+    def derive(
+        self, inputs: tuple[Signature, ...], params: RuleParameters, *, output_node_id: str = ""
+    ) -> RuleDerivation:
+        derivation = self.lookup(key_for_parameters(params)).semantics.derive(inputs, params)
+        from marivo.analysis.core.rules import captured_mapping_derivation, consumption_derivation
+
+        derivation = captured_mapping_derivation(inputs, params, derivation)
+        derivation = consumption_derivation(inputs, params, derivation)
+        return replace(
+            derivation,
+            output=replace(
+                derivation.output,
+                node_id=output_node_id,
+                key_domain_id=derivation.output.key_domain_id or output_node_id,
+            ),
+        )
 
     def select(
         self,
@@ -287,7 +301,7 @@ class MethodRegistry:
         """Select exactly the requested route; static evidence never discharges Pre."""
         if type(key) is not QualificationKey:
             reject("an exact qualification key", repr(key), "Bind the complete physical shape.")
-        derivation = self.lookup(key.method).semantics.derive(inputs, params)
+        derivation = self.derive(inputs, params)
         return self._select_derived(key, inputs, params, derivation)
 
     def _select_derived(

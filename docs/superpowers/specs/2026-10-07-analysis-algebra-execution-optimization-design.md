@@ -2,7 +2,7 @@
 
 Date: 2026-10-07
 
-Status: design proposal. Trusting explicit semantic declarations and handling numerical overflow at execution are the user-selected directions. The optimizations below are not implemented by this document.
+Status: A1 implementation and bounded acceptance are recorded in [A1 acceptance](2026-10-07-analysis-a1-acceptance.md). A2 and A3 remain proposals. Trusting explicit semantic declarations and handling numerical overflow at execution are the user-selected directions.
 
 Research baseline: `panda@6801154111811bd94cd17343d52056e72306103a` plus the working tree inspected on 2026-10-07. Concurrent numeric and documentation changes exist; the SHA does not describe all inspected files.
 
@@ -27,8 +27,7 @@ Research baseline: `panda@6801154111811bd94cd17343d52056e72306103a` plus the wor
 6. source 路线继续使用 Ibis 和已选择的后端；fixed 路线复用本地内核。领域算法继续
    使用其专用方法，不建立覆盖所有算子的通用解释器或代数搜索引擎。
 
-本文不改变现行可执行 API。第 5 节的参数是拟议增量；实施时需与 owning specs、Help、
-错误修复、保存格式及中英文使用文档共同交付。
+A1 的第 5 节参数已进入可执行 API、owning specs、Help、错误修复、保存格式及中英文使用文档；A2、A3 继续留在后续任务。
 
 ## 2. 当前实现与收益来源
 
@@ -205,7 +204,7 @@ source 检查与计算目前允许独立读取不同版本。保留该边界：�
 只给当前真实存在的未知前提增加参数，不提供全局 `validate=False`，不暴露内部
 CheckId、Fact 列表或通用 assumption 对象。
 
-首批拟议增量如下，均尚未实现：
+A1 的首批增量如下：
 
 | 公共位置 | 参数 | 精确含义与缺省 |
 | --- | --- | --- |

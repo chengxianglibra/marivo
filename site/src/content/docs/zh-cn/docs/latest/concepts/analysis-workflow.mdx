@@ -1367,3 +1367,37 @@ result.show()
 
 固定结果保留 schema、语义契约、证据和精确输入绑定。读取结果不再要求重新选择原生产实现。
 新的续算仍验证所需状态及当前方法能力。旧持久化格式需要重新执行来源分析；已有文件会保留。
+
+
+## 检查前提
+
+Analysis 信任 Entity 身份与版本粒度、字段 owner、完整关系键和结构基数。构造负责运输
+或生成唯一键和合法 Cell；关系基数不能证明每个所选成员都存在匹配 owner。来源声明的
+审计仍由独立 `source_health` 操作承担；声明错误不承诺在分析执行中被发现。
+
+```python
+orders = session.members(ms.ref.entity("commerce.order"))
+amounts = orders.read(ms.ref.measure("commerce.order.amount"))
+regions = orders.read(
+    ms.ref.dimension("commerce.customer.region"),
+    via=ms.ref.relationship("commerce.order_customer"),
+    match_verification="assume",
+)
+quotient = current.ratio(reference, pairing=mv.ExactKeys(verification="assume"))
+change = current.compare(
+    reference, design=mv.TimeChange(pairing=mv.ExactKeys(verification="check"))
+)
+quotient.contract().show()
+```
+
+只有接受这次精确调用的前提时才使用 `assume`。默认 `check` 只检查尚未满足的匹配或
+键集合相等前提。共同捕获且确实保域的输入免查；不同筛选之后符号域相等仍不足以免查。
+`assume` 保留 ExactKeys 的语义，不选择交集，也不新增缺失或 Null 政策。必要索引插入
+遇到冲突、必需取值遇到缺失仍失败；零分母、Null 和 Unknown 沿用方法政策。跨 Session
+和无效参数仍拒绝。
+
+政策进入 fingerprint、执行键及 graph DAG v2。来源离线、fresh-process 恢复后，物化
+契约卡仍将假设披露为 **not checked**。旧冻结图需要重新执行来源分析，旧字节保留。
+Store 8、descriptor v3、continuation v4 的版本不变。私有运输信任生产者的业务保证，
+继续承担 schema、解码、必需 parts、读取完成、截止时间、取消、资源清理和原子发布。
+分开的 source 读取不获得快照隔离。

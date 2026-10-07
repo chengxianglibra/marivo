@@ -12,9 +12,9 @@ from marivo.analysis.compiler.graph_lowering import (
     LoweredCheck,
     LoweredRelation,
     RelationLayout,
-    _key_violations,
     _pair_violations,
     canonical_layout,
+    consumption_check,
 )
 from marivo.analysis.compiler.graph_plan import SourceMethodStage
 from marivo.analysis.core.model import DisplayPart
@@ -46,30 +46,14 @@ def prepare(
         )
     for index, other in enumerate(inputs[1:], 1):
         right = other.expression.view()
-        if not isinstance(params, DisplayRank) or index not in params.inclusion_inputs:
-            checks.append(
-                IntegrityCheck(
-                    stage.output,
-                    "equal complete display keys",
-                    _pair_violations(first, other),
-                    tuple(dict.fromkeys((*first.source_ids, *other.source_ids))),
-                )
-            )
-        else:
-            checks.append(
-                IntegrityCheck(
-                    stage.output,
-                    "complete partition inclusion",
-                    first.expression.anti_join(right, list(keys)),
-                    tuple(dict.fromkeys((*first.source_ids, *other.source_ids))),
-                )
-            )
-        checks.append(
-            IntegrityCheck(
-                stage.output,
-                "unique display input keys",
-                _key_violations(right, other.layout, allow_empty=not keys),
-                other.source_ids,
+        checks.extend(
+            consumption_check(
+                stage,
+                f"display:{index}",
+                first.expression.anti_join(right, list(keys))
+                if isinstance(params, DisplayRank) and index in params.inclusion_inputs
+                else _pair_violations(first, other),
+                tuple(dict.fromkeys((*first.source_ids, *other.source_ids))),
             )
         )
         joined = (

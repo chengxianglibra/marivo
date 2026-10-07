@@ -11,13 +11,12 @@ import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 
 from marivo.analysis.compiler.graph_lowering import (
-    IntegrityCheck,
     LoweredCheck,
     LoweredRelation,
     RelationLayout,
     SourceBinding,
-    TemporalCheck,
     canonical_layout,
+    captured_match_check,
 )
 from marivo.analysis.compiler.graph_plan import SourceMethodStage
 from marivo.analysis.compiler.source_time import source_time
@@ -82,88 +81,6 @@ def _version(table: ir.Table, binding: SourceBinding, instant: ir.Value) -> ir.B
     return ibis.literal(True)
 
 
-def version_checks(
-    table: ir.Table,
-    binding: SourceBinding,
-    keys: tuple[str, ...],
-    output: str,
-    source_ids: tuple[str, ...],
-    checks: list[LoweredCheck],
-) -> None:
-    """Verify version intervals, including overlaps with no occurrence at the overlap."""
-    source_ids = (binding.leaf.identity,)
-    version = binding.leaf.definition.version
-    if isinstance(version, TargetSnapshotVersion):
-        counts = table.group_by(*keys, version.source_column).aggregate(__count=table.count())
-        bad = counts.filter((counts.__count > 1) | counts[version.source_column].isnull())
-        checks.append(
-            IntegrityCheck(output, "r7.input_binding: unique snapshot version", bad, source_ids)
-        )
-    elif isinstance(version, TargetValidityVersion):
-
-        def open_end(end: ir.Value) -> ir.BooleanValue:
-            return reduce(
-                or_,
-                (
-                    end.isnull() if value is None else end == ibis.literal(value).cast(end.type())
-                    for value in version.open_end
-                ),
-                ibis.literal(False),
-            )
-
-        start, end = table[version.valid_from_column], table[version.valid_to_column]
-        invalid = start.isnull() | (
-            ~open_end(end) & (end < start if version.interval == "closed_closed" else end <= start)
-        )
-        checks.append(
-            IntegrityCheck(
-                output,
-                "r7.input_binding: well-formed validity interval",
-                table.filter(invalid),
-                source_ids,
-            )
-        )
-        left = table.select(
-            **{f"left_key_{i}": table[key] for i, key in enumerate(keys)},
-            left_start=start,
-            left_end=end,
-        ).view()
-        right = table.select(
-            **{f"right_key_{i}": table[key] for i, key in enumerate(keys)},
-            right_start=start,
-            right_end=end,
-        ).view()
-        before_right_end = open_end(right.right_end) | (
-            left.left_start <= right.right_end
-            if version.interval == "closed_closed"
-            else left.left_start < right.right_end
-        )
-        before_left_end = open_end(left.left_end) | (
-            right.right_start <= left.left_end
-            if version.interval == "closed_closed"
-            else right.right_start < left.left_end
-        )
-        joined = left.join(
-            right,
-            [
-                *(left[f"left_key_{i}"] == right[f"right_key_{i}"] for i in range(len(keys))),
-                before_right_end,
-                before_left_end,
-            ],
-        )
-        groups = joined.group_by(
-            *(left[f"left_key_{i}"] for i in range(len(keys))), left.left_start
-        ).aggregate(__count=joined.count())
-        checks.append(
-            IntegrityCheck(
-                output,
-                "r7.input_binding: non-overlapping validity versions",
-                groups.filter(groups.__count > 1),
-                source_ids,
-            )
-        )
-
-
 def lower_occurrences(
     stage: SourceMethodStage,
     members: LoweredRelation,
@@ -186,13 +103,6 @@ def lower_occurrences(
 
     current_ids: tuple[str, ...] = ()
 
-    def check(expected: str, bad: ir.Table) -> None:
-        checks.append(
-            IntegrityCheck(
-                stage.output, expected, bad.select(violation=ibis.literal(1)), current_ids
-            )
-        )
-
     for event in params.events:
         bound = sources.get(event.source_id)
         if (
@@ -205,14 +115,6 @@ def lower_occurrences(
         if bound.leaf.definition.fingerprint != event.source.dependency_fingerprint:
             fail("input_binding", "Event source definition fingerprint differs", stage="lowering")
         table = bound.source.relation.view()
-        version_checks(
-            table,
-            bound,
-            tuple(field.source_column for field in event.identity),
-            stage.output,
-            current_ids,
-            checks,
-        )
         if any(
             not (
                 (field.logical_type == "string" and table[field.source_column].type().is_string())
@@ -255,12 +157,6 @@ def lower_occurrences(
         )
         instant = instant.cast(dt.Timestamp(timezone="UTC", scale=6))
         table = table.mutate(__instant=instant, __raw_time=raw_time)
-        invalid = table.__instant.isnull() | reduce(
-            or_,
-            (table[field.source_column].isnull() for field in event.identity),
-            ibis.literal(False),
-        )
-        check("r7.occurrence_identity: non-null keys and governed instant", table.filter(invalid))
         if params.start is not None:
             table = table.filter(
                 table.__instant
@@ -269,10 +165,6 @@ def lower_occurrences(
         table = table.filter(
             table.__instant
             < ibis.literal(datetime.fromisoformat(params.end), type=table.__instant.type())
-        )
-        check(
-            "r7.input_binding: source version at occurrence",
-            table.filter(~_version(table, bound, table.__instant).fill_null(False)),
         )
         original = {field.source_column: table[field.source_column] for field in event.identity}
         sequence_int: ir.Value = ibis.null().cast("int64")
@@ -319,14 +211,6 @@ def lower_occurrences(
                 )
             current_ids = tuple(dict.fromkeys((*current_ids, destination_binding.leaf.identity)))
             destination = destination_binding.source.relation.view()
-            version_checks(
-                destination,
-                destination_binding,
-                tuple(key for _, key in hop.keys),
-                stage.output,
-                current_ids,
-                checks,
-            )
             if destination_binding.leaf.definition.ref.path == event.subject.ref.path and (
                 destination_binding.leaf.definition.fingerprint
                 != event.subject.dependency_fingerprint
@@ -347,9 +231,13 @@ def lower_occurrences(
                     _version(destination, destination_binding, table.__instant),
                 ],
             )
-            check(
-                "r7.input_binding: complete participant mapping",
-                joined.filter(destination[hop.keys[0][1]].isnull()),
+            checks.append(
+                captured_match_check(
+                    stage,
+                    f"event:{event.ref.path}:hop:{index}",
+                    joined.filter(destination[hop.keys[0][1]].isnull()),
+                    current_ids,
+                )
             )
             fields = {name: table[name] for name in table.columns if not name.startswith("__join_")}
             fields.update(
@@ -364,28 +252,12 @@ def lower_occurrences(
                 }
             )
             table = joined.select(**fields)
-        occurrence_columns = [table[f"__occ_{i}"] for i in range(len(event.identity))]
-        counts = table.group_by(occurrence_columns).aggregate(__count=table.count())
-        check(
-            "r7.occurrence_identity: unique occurrence and participant version",
-            counts.filter(counts.__count != 1),
-        )
         selected = table.join(
             members.expression,
             [
                 table[f"__subject_{i}"] == members.expression[key.column]
                 for i, key in enumerate(members.layout.keys)
             ],
-        )
-        checks.append(
-            TemporalCheck(
-                stage.output,
-                selected.select(
-                    raw_time=selected.__raw_time, normalized_time=selected.__instant
-                ).distinct(),
-                tuple(dict.fromkeys((*current_ids, *members.source_ids))),
-                event.occurred_at,
-            )
         )
         fields = {
             "key_0": ibis.literal(event.ref.path),
@@ -430,20 +302,6 @@ def lower_candidates(
         captured_columns=captured_columns,
     )
     rows = rows.mutate(event_time=rows.event_time.cast(dt.Timestamp(timezone="UTC", scale=6)))
-    current_ids = ids
-    invalid = rows.event_time.isnull() | reduce(
-        or_,
-        (rows[name].isnull() for name in rows.columns if name.startswith("candidate__key_")),
-        ibis.literal(False),
-    )
-    checks.append(
-        IntegrityCheck(
-            stage.output,
-            "r7.input_binding: complete candidate key and time",
-            rows.filter(invalid),
-            current_ids,
-        )
-    )
     assert observation.start is not None and observation.end is not None
     start, end = (datetime.fromisoformat(value) for value in (observation.start, observation.end))
     if start.utcoffset() is None or end.utcoffset() is None:
@@ -472,30 +330,7 @@ def lower_candidates(
         [rows[f"member_{i}"] == mapping[key.column] for i, key in enumerate(members.layout.keys)],
     )
     ids = tuple(dict.fromkeys((*ids, *members.source_ids)))
-    checks.append(
-        TemporalCheck(
-            stage.output,
-            selected.select(
-                raw_time=selected.__raw_event_time,
-                normalized_time=selected.event_time.cast("date")
-                if isinstance(selected.__raw_event_time, ir.DateValue)
-                else selected.event_time,
-            ).distinct(),
-            ids,
-            observation.event,
-        )
-    )
     selected = selected.drop("__raw_event_time")
-    names = tuple(name for name in rows.columns if name.startswith("candidate__key_"))
-    counts = selected.group_by(*names).aggregate(__count=selected.count())
-    checks.append(
-        IntegrityCheck(
-            stage.output,
-            "r7.input_binding: single historical contribution mapping",
-            counts.filter(counts.__count != 1),
-            ids,
-        )
-    )
     keys = tuple(
         CoordinateColumn(Coordinate(observation.contribution, name, "identity"), name)
         for name in rows.columns

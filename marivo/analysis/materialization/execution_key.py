@@ -17,7 +17,13 @@ from marivo._temporal import (
     PeriodRecord,
 )
 from marivo.analysis.anchors import AnyAnchor, CalendarWindow, Duration, ElapsedWindow, EveryAnchor
-from marivo.analysis.compiler.graph_plan import GraphPlan, LocalMethodStage, SourceMethodStage
+from marivo.analysis.compiler.graph_plan import (
+    ArtifactReadStage,
+    GraphPlan,
+    LocalMethodStage,
+    SourceInputStage,
+    SourceMethodStage,
+)
 from marivo.analysis.core import history_types
 from marivo.analysis.core import model as core_model
 from marivo.analysis.core.domain_captures import (
@@ -186,7 +192,7 @@ def _key_error(expected: str, received: str) -> IntegrityError:
     )
 
 
-def _wire(value: object) -> _CanonicalValue:
+def _wire(value: object, identities: dict[str, str] | None = None) -> _CanonicalValue:
     """Encode only closed contract values, using stable tags instead of class names."""
     if value is None:
         return None
@@ -205,13 +211,24 @@ def _wire(value: object) -> _CanonicalValue:
     if isinstance(value, (bool, int, float, str)):
         return value
     if type(value) is tuple:
-        return tuple(_wire(item) for item in value)
+        return tuple(_wire(item, identities) for item in value)
     if isinstance(value, (EntryAxisCapture, EventCapture, OrderCapture, StateModelCapture)):
         return ("r7_capture", type(value).__name__, _CAPTURE_WIRE.dump_json(value).decode())
     tag = _WIRE_TAGS.get(type(value))
     if tag is None or not is_dataclass(value):
         raise _key_error("a closed canonical graph contract value", type(value).__name__)
-    return (tag, tuple((item.name, _wire(getattr(value, item.name))) for item in fields(value)))
+    return (
+        tag,
+        tuple(
+            (
+                item.name,
+                identities.get(getattr(value, item.name), getattr(value, item.name))
+                if identities is not None and item.name in ("node_id", "key_domain_id")
+                else _wire(getattr(value, item.name), identities),
+            )
+            for item in fields(value)
+        ),
+    )
 
 
 def _ordered_plan(admitted: GraphPlan) -> _CanonicalValue:
@@ -219,6 +236,15 @@ def _ordered_plan(admitted: GraphPlan) -> _CanonicalValue:
         stage.node.identity: stage.node
         for stage in admitted.stages
         if isinstance(stage, (SourceMethodStage, LocalMethodStage))
+    }
+    identities = {
+        (
+            stage.leaf if isinstance(stage, (ArtifactReadStage, SourceInputStage)) else stage.node
+        ).identity: f"node:{index}"
+        for index, stage in enumerate(admitted.stages)
+        if isinstance(
+            stage, (ArtifactReadStage, SourceInputStage, SourceMethodStage, LocalMethodStage)
+        )
     }
     ordered: list[_CanonicalValue] = []
     for requirement in admitted.physical_requirements:
@@ -234,7 +260,7 @@ def _ordered_plan(admitted: GraphPlan) -> _CanonicalValue:
                 _wire(requirement.key),
                 qualified.implementation_id,
                 requirement.implementation.contract_version,
-                _wire(node.signature),
+                _wire(node.signature, identities),
             )
         )
     return tuple(ordered)

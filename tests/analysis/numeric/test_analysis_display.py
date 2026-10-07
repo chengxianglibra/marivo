@@ -623,12 +623,12 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
             amount.rank(order="descending", ties="dense", partition_by=(shorter,)).execute()
     with pytest.raises(AnalysisError):
         mv.table(coord_0=numeric)
-    # Duplicate complete keys are never repaired by display joins or sorting.
+    # Declared identity is trusted; necessary rank index insertion rejects conflicts.
     if not parquet:
         with duckdb.connect(str(case.database_path)) as db:
             db.execute("INSERT INTO r65 SELECT * FROM r65 WHERE tenant=1 AND id='A'")
-        with pytest.raises(AnalysisError):
-            mv.table(a=numeric, b=category).execute()
+        with pytest.raises(AnalysisError, match="duplicate"):
+            numeric.rank(order="ascending", ties="ordinal").execute()
 
 
 @pytest.mark.parametrize("ties", ["ordinal", "dense", "min", "max"])

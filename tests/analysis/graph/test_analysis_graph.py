@@ -33,6 +33,7 @@ from marivo.analysis.core.model import (
     Evidence,
     ObservedQuantity,
     Signature,
+    available_facts,
 )
 from marivo.analysis.core.rules import (
     BindProject,
@@ -244,7 +245,7 @@ def test_explicit_routes_produce_exact_stages_and_pending_checks(route):
     assert result.checks[0].obligation.before == "consume"
     assert result.checks[0].stage_output == result.stages[1].output
     assert result.physical_requirements[0].implementation.resources.max_rows == 1000
-    assert root.signature.evidence == ()
+    assert not set(root.derivation.pre) <= available_facts(root.signature)
     assert (
         plan(root, routes=(RouteChoice(root.identity, route),), registry=_registry(shape, route))
         == result
@@ -307,8 +308,8 @@ def test_child_obligations_survive_and_post_is_not_evidence():
     parent = _difference(child, child)
     assert set(child.derivation.obligations) <= set(parent.derivation.obligations)
     assert child.derivation.post
-    assert child.signature.evidence == ()
-    assert parent.signature.evidence == ()
+    assert not set(child.derivation.pre) <= available_facts(child.signature)
+    assert not set(parent.derivation.pre) <= available_facts(parent.signature)
     object.__setattr__(parent, "derivation", replace(parent.derivation, obligations=()))
     with pytest.raises(CoreRuleError, match="registered semantic derivation"):
         topology(parent)
@@ -612,26 +613,26 @@ def test_retained_source_definitions_do_not_classify_as_execution_inputs() -> No
     [
         (
             "source",
-            "0a5f559f0510fd7b25c4ba420c6c3fa16ea5a29f7853476653e1c8e0f918d3bc",
-            "739d6f94599ea7112fefc74281e352095793d4417b7638a4c422c7436c03b8d7",
-            "7492ec89eb154a1196ec199ced04a45bd4e342b50e390576af7d9d282ba175eb",
+            "0a1e646715c236c47868c100789678b876bce40c8b6018eb31462ba56266a8c3",
+            "68d1d6b5b8190d853a306077ba1f09802cf9ac3fe5cc3063cfa68b54c7078880",
+            "f7764d3ad04ebb8d87f5057dce3ee0b63519252fba5c58d238dc139fef1b4cb2",
         ),
         (
             "fixed",
-            "db3415c7708de89235959ac90e78216e7de6c8996c109cff3092f98f40284e52",
-            "f3cd0cadffa64d98edb193dbdc1530f8bf1fc91bd59d9a0a77c8b846abcfb796",
-            "2f7489c63784123ff0afe1ddbff3ff03be791d710aeb41fbb827f89205749678",
+            "a066402e9a43f7286a25b22db241d28aba0fb7037013ba63bf5afb750d341ed7",
+            "bf7c4925e75955ca428974a0cb21dbd7345eb14d9b71623a1696341e95a7d80d",
+            "1f48b83cc37984d37095fc0d7912909053ed415afb0ab502fa9c53aeff70f2ec",
         ),
     ],
 )
-def test_persisted_identity_matches_pre_optimization_baseline(
+def test_persisted_identity_pins_v2_premise_contract(
     kind: str, fingerprint: str, plan_hash: str, snapshot_hash: str
 ) -> None:
     from marivo.analysis.materialization.graph_protocol import freeze_graph, plan_digest
 
-    # Frozen from panda@d7b0526a75 using deterministic capture identities.
+    # Pin the v2 premise contract with deterministic capture identities.
     root = _source() if kind == "source" else _fixed()
-    object.__setattr__(root, "identity", "leaf")
+    root = replace(root, identity="leaf")
     routes = []
     for index in range(2):
         root = method_node(
@@ -639,7 +640,7 @@ def test_persisted_identity_matches_pre_optimization_baseline(
             PartsTransport("view", root.signature.domain, (), True),
             value_type=root.value_type,
         )
-        object.__setattr__(root, "identity", f"view-{index}")
+        root = replace(root, identity=f"view-{index}")
         routes.append(RouteChoice(root.identity, "ibis" if kind == "source" else "artifact_python"))
     admitted = plan(root, routes=tuple(routes))
     assert root.fingerprint == fingerprint

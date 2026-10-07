@@ -807,13 +807,12 @@ assert tuple(part.role for part in result.parts) == ('subject',)
 
 @pytest.mark.runtime
 @pytest.mark.parametrize("scenario", ("j2", "j4", "j4_ties"))
-def test_window_composition_matches_independent_oracle_and_reads_shared_sources_once(
+def test_window_composition_matches_independent_oracle_with_one_terminal_read(
     analysis_dsl_case_factory: DslCaseFactory,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     scenario: str,
 ) -> None:
-    from collections import Counter
     from datetime import datetime
     from statistics import correlation
 
@@ -863,10 +862,12 @@ def test_window_composition_matches_independent_oracle_and_reads_shared_sources_
     nodes = topology(composed.root)
     assert len([node for node in nodes if isinstance(node, SourceLeaf)]) == 2
     physical_reads = []
+    purposes = []
     staged = []
     original_compile, original_stage = SourceSession.compile, SourceSession.stage_derived
 
     def compile_read(self, qualified, expression, **kwargs):
+        purposes.append(kwargs["purpose"])
         physical_reads.extend(
             table.name
             for table in expression.op().find(ops.DatabaseTable)
@@ -882,8 +883,9 @@ def test_window_composition_matches_independent_oracle_and_reads_shared_sources_
         patch.setattr(SourceSession, "compile", compile_read)
         patch.setattr(SourceSession, "stage_derived", stage_read)
         saved = composed.execute()
-    assert Counter(physical_reads) == Counter({case.names.customer: 1, case.names.order: 1})
-    assert len(staged) == len(nodes)
+    assert set(physical_reads) == {case.names.customer, case.names.order}
+    assert purposes.count("analysis.graph.stage") == 1
+    assert staged == []
     with store._read() as conn:
         assert conn.execute("SELECT COUNT(*) FROM analysis_action_runs").fetchone()[0] == 1
     result = read_result(fresh, saved.descriptor)

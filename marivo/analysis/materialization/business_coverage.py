@@ -186,4 +186,4 @@ def produce(method: LoweredLocal, source: ExchangeResult, input_binding: str) ->
         state_kind="none",
         state_schema=None,
     )
-    return from_arrow(primary, contract, parts=parts)
+    return from_arrow(primary, contract, parts=parts, validate=False)

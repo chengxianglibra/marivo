@@ -93,6 +93,11 @@ class SourceLeaf:
         if type(self.definition) is not SourceDefinition or type(self.signature) is not Signature:
             _fail("a typed source definition and signature", self.identity)
         self.definition.__post_init__()
+        object.__setattr__(
+            self,
+            "signature",
+            replace(self.signature, node_id=self.identity, key_domain_id=self.identity),
+        )
         if any(item.basis not in ("declaration", "builder") for item in self.signature.evidence):
             _fail(
                 "a live source signature with only static declaration or builder evidence",
@@ -140,6 +145,11 @@ class FixedLeaf:
         ):
             _fail("a fixed Artifact ref, signature and time shape", self.identity)
         _value_type(self.value_type)
+        object.__setattr__(
+            self,
+            "signature",
+            replace(self.signature, node_id=self.identity, key_domain_id=self.artifact.ref),
+        )
 
     @property
     def fingerprint(self) -> str:
@@ -348,7 +358,11 @@ def _validate_method(
         object.__setattr__(
             node,
             "derivation",
-            registry.derive(tuple(edge.node.signature for edge in node.inputs), node.parameters),
+            registry.derive(
+                tuple(edge.node.signature for edge in node.inputs),
+                node.parameters,
+                output_node_id=node.identity,
+            ),
         )
     if isinstance(node.parameters, (PartsTransport, TimeRuns)):
         from marivo.analysis.core.predicates import leaves
@@ -533,7 +547,9 @@ def _validate_method(
     registry.lookup(node.method).semantics.validate_output_type(
         tuple(edge.node.value_type for edge in node.inputs), node.value_type, node.parameters
     )
-    if not constructing and node.derivation != registry.derive(signatures, node.parameters):
+    if not constructing and node.derivation != registry.derive(
+        signatures, node.parameters, output_node_id=node.identity
+    ):
         _fail("the registered semantic derivation without promoted Post", node.identity)
     if node.retained_endpoints and not constructing:
         _validate_endpoints(

@@ -233,7 +233,12 @@ def _execute(
                 descriptor = record.descriptor
                 if (
                     record.session_ref != session
-                    or fixed_signature(descriptor, _validated=record.validated) != leaf.signature
+                    or replace(
+                        fixed_signature(descriptor, _validated=record.validated),
+                        node_id=leaf.identity,
+                        key_domain_id=leaf.artifact.ref,
+                    )
+                    != leaf.signature
                     or descriptor.definition_fingerprint != leaf.definition_fingerprint
                     or not isinstance(leaf.value_type, (ScalarType, DecimalType, DurationType))
                 ):
@@ -434,6 +439,7 @@ def _execute(
                 parts=result.parts,
                 completed_checks=result.completed_checks,
                 method_state=result.method_state,
+                validate=False,
             )
             if control_resource is not None:
                 if source_owner is None or not source_owner._cancel_control_released:

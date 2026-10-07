@@ -110,6 +110,8 @@ _INPUT_GUIDANCE = {
     "baseline": "Use recursively compatible numeric endpoints under the selected design.",
     "design": "Use mv.TimeChange(), mv.CohortContrast(), or mv.PeriodChange(alignment=mv.window_bucket()).",
     "pairing": "Use mv.ExactKeys() or an exact-node-bound mv.one_to_one(...) for ratio; comparison designs also accept mv.UnionKeys(missing=...).",
+    "verification": "Choose check for unknown exact-key equality, or assume for this invocation. Applicable declarations and derivations are trusted; assume does not permit intersection pairing.",
+    "match_verification": "Choose check for unknown matching to the exact field owner and version, or assume for this invocation. Cardinality alone does not prove matching; assume does not define a missing-value policy.",
     "value": "Choose difference or relative_change; zero baselines remain Undefined.",
     "other": "Use another numeric quantity on the same complete observation domain.",
     "others": "Pass 1..15 distinct corresponding NumericRelations; request order defines signed lag direction.",

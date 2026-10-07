@@ -45,7 +45,11 @@ if TYPE_CHECKING:
     assert_type(product, mv.LogicalTimeAnalysisDomain)
     assert_type(product.execute(), mv.MaterializedTimeAnalysisDomain)
     assert_type(
-        product.read(ms.ref.measure("sales.customer.balance"), at=grid.before_end),
+        product.read(
+            ms.ref.measure("sales.customer.balance"),
+            at=grid.before_end,
+            match_verification="assume",
+        ),
         mv.LogicalNumericRelation,
     )
     assert_type(
@@ -147,7 +151,10 @@ if TYPE_CHECKING:
     )
     assert_type(fixed.compare(fixed, design=mv.CohortContrast()), mv.LogicalDifferenceRelation)
     assert_type(difference.compare(difference), mv.LogicalDifferenceRelation)
-    assert_type(observed.ratio(observed, pairing=mv.ExactKeys()), mv.LogicalNumericRelation)
+    assert_type(
+        observed.ratio(observed, pairing=mv.ExactKeys(verification="assume")),
+        mv.LogicalNumericRelation,
+    )
     assert_type(fixed.ratio(fixed), mv.LogicalNumericRelation)
     pairing = mv.one_to_one(
         left=observed, right=observed, via=ms.ref.relationship("sales.identity")

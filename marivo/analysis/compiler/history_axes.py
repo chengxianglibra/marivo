@@ -7,13 +7,13 @@ from datetime import datetime
 import ibis
 import ibis.expr.types as ir
 
-from marivo.analysis.compiler.domain_preparation import _version, version_checks
+from marivo.analysis.compiler.domain_preparation import _version
 from marivo.analysis.compiler.graph_lowering import (
-    IntegrityCheck,
     LoweredCheck,
     LoweredRelation,
     RelationLayout,
     SourceBinding,
+    captured_match_check,
 )
 from marivo.analysis.compiler.graph_plan import SourceMethodStage
 from marivo.analysis.core.rules import HistoryAxesPrepare
@@ -59,7 +59,6 @@ def lower_axes(
                 current_ids = tuple(
                     dict.fromkeys((*occurrences.source_ids, *axis.source_ids[: index + 1]))
                 )
-                version_checks(raw, bound, join_keys, stage.output, current_ids, checks)
                 joined = current.left_join(
                     raw,
                     [
@@ -68,9 +67,9 @@ def lower_axes(
                     ],
                 )
                 checks.append(
-                    IntegrityCheck(
-                        stage.output,
-                        "r7.history_axes: complete historical path",
+                    captured_match_check(
+                        stage,
+                        f"point:{point_index}:axis:{axis_index}:hop:{index}",
                         joined.filter(raw[join_keys[0]].isnull()),
                         current_ids,
                     )
@@ -82,29 +81,15 @@ def lower_axes(
                     )
                 else:
                     fields[f"axis_{point_index}_{axis_index}"] = raw[axis.dimension.source_column]
-                    if not axis.dimension.nullable:
-                        checks.append(
-                            IntegrityCheck(
-                                stage.output,
-                                "r7.history_axes: declared non-null Dimension",
-                                joined.filter(raw[axis.dimension.source_column].isnull()),
-                                current_ids,
-                            )
-                        )
                 current = joined.select(**fields)
-            counts = current.group_by(*keys).aggregate(__count=current.count())
-            checks.append(
-                IntegrityCheck(
-                    stage.output,
-                    "r7.history_axes: exact checkpoint mapping",
-                    counts.filter(counts.__count != 1),
-                    current_ids,
+                table = table.join(current, [table[key] == current[key] for key in keys]).select(
+                    **{name: table[name] for name in table.columns},
+                    **{
+                        f"axis_{point_index}_{axis_index}": current[
+                            f"axis_{point_index}_{axis_index}"
+                        ]
+                    },
                 )
-            )
-            table = table.join(current, [table[key] == current[key] for key in keys]).select(
-                **{name: table[name] for name in table.columns},
-                **{f"axis_{point_index}_{axis_index}": current[f"axis_{point_index}_{axis_index}"]},
-            )
     extras = tuple(
         f"axis_{point}_{axis}"
         for point in range(len(params.request.at))

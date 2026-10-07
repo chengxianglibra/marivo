@@ -160,7 +160,11 @@ def execute(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) 
         state_schema=state.schema,
     )
     return from_arrow(
-        primary, contract, parts=(ExchangePart("history", retained),), method_state=state
+        primary,
+        contract,
+        parts=(ExchangePart("history", retained),),
+        method_state=state,
+        validate=False,
     )
 
 

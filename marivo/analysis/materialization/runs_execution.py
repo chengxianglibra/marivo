@@ -350,7 +350,7 @@ def _result(
     parts: tuple[ExchangePart, ...],
     binding: str,
     *,
-    validate: bool = True,
+    validate: bool = False,
 ) -> ExchangeResult:
     return from_arrow(
         primary,

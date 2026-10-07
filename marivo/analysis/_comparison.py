@@ -12,14 +12,25 @@ from marivo.analysis.core.model import reject
 class ExactKeys:
     """Pair unique complete typed keys with equal images, including double-empty inputs.
 
-    Args: None.
+    Args: verification: Check an unknown key equality, or assume it for this call.
     Returns: An immutable exact-key correspondence policy.
     Example: ``current.ratio(reference, pairing=mv.ExactKeys())``.
     Constraints: Equal row counts alone never prove correspondence.
     """
 
+    verification: Literal["check", "assume"] = "check"
+
+    def __post_init__(self) -> None:
+        if self.verification not in ("check", "assume"):
+            reject(
+                "check or assume",
+                str(self.verification),
+                "Use mv.ExactKeys(verification='check' or 'assume').",
+                "analysis.comparison",
+            )
+
     def __repr__(self) -> str:
-        return "<ExactKeys; use .show()>"
+        return f"<ExactKeys verification={self.verification!r}; use .show()>"
 
     def show(self) -> None:
         """Print the exact-key policy.
@@ -29,7 +40,10 @@ class ExactKeys:
         Example: ``mv.ExactKeys().show()``.
         Constraints: Does not inspect rows or execute a Run.
         """
-        print("ExactKeys: unique complete typed keys with equal images; double-empty is valid.")
+        print(
+            "ExactKeys: unique complete typed keys with equal images; double-empty is valid. "
+            f"Unknown equality: {self.verification}; applicable declarations and derivations are trusted."
+        )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
