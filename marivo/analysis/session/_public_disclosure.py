@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from inspect import Parameter, getdoc, isfunction, signature
+from dataclasses import replace
+from inspect import getdoc, isfunction, signature
 
 import marivo.analysis._cohort as cohort
 from marivo.analysis import anchors as windows
@@ -12,13 +13,21 @@ from marivo.analysis._capabilities.dataset_model import (
     ExampleInput,
     ExportInput,
     ParameterInput,
+    TypeInput,
     bind,
+    invalid,
     operation,
     value_type,
 )
 from marivo.analysis._subject import SubjectBinding
 from marivo.analysis.materialization import graph_fields as fields
-from marivo.introspection.live.reflect import required_arguments
+from marivo.analysis.session._method_disclosure import (
+    method_example,
+    parameter_guidance,
+)
+from marivo.analysis.session._method_disclosure import (
+    section as _doc_section,
+)
 
 _METHOD_GROUPS = {
     ("_MaterializedRead", "show"): "artifacts.reads",
@@ -81,62 +90,15 @@ _METHOD_GROUPS = {
     ("MaterializedCoefficientRelation", "where"): "methods.association",
 }
 
-_INPUT_GUIDANCE = {
-    "order": "Choose ascending or descending; ranking compares exact represented values.",
-    "ties": "Choose ordinal, dense, min or max. Ordinal breaks ties by complete typed instance key.",
-    "partition_by": "Bind an ordered tuple of complete CategoryRelations; () selects one global partition.",
-    "count": "For ranking.limit, use an integer 1..100000 excluding bool; the prefix is global.",
-    "reference": "Use an exact compatible reference in this Session and source/fixed mode; standardize consumes mv.reference_weights(...).",
-    "values": "Use complete grouped dimensionless stratum values in this Session.",
-    "strata": "Use the ordered CategoryRelation tuple bound through the existing grouping or inclusion mapping.",
-    "unit": "Use the statistical Entity proved by the frozen Metric components, distinct from measurement units.",
-    "field": "Use an exact Measure, Dimension or TimeDimension Ref from the current catalog.",
-    "at": "Select the attribute version independently with datetime or TimeScope.before_end.",
-    "metric": "Use one exact Metric Ref from the current Semantic catalog.",
-    "keys": "Retain complete axes or explicit classifications; unkeyed categories group their values, other receivers use Singleton.",
-    "dimensions": "Retain complete Entity/Dimension axes or explicit corresponding categories.",
-    "groups": "Use an explicit matching typed target domain to retain empty groups.",
-    "dimension": "Use a declared categorical Dimension Ref on this receiver's domain.",
-    "during": "Use mv.time_scope(start=..., end=...) with absolute bounds.",
-    "duration": "Use a positive mv.duration(...) with exactly one named integer unit.",
-    "days": "Choose positive whole local days, excluding bool.",
-    "timezone": "Pass ZoneInfo with an explicit IANA key; no fixed-offset replacement.",
-    "within": "Use mv.elapsed(mv.duration(...)) or mv.calendar_days(days, ZoneInfo(...)); actual deadlines must be exact and unambiguous.",
-    "via": "Use the exact relationship Ref or mv.routes(...) required by this Metric.",
-    "axes": "Use unique ordered retained contribution Dimension Refs.",
-    "mode": "Choose joint or hierarchy; hierarchy requires at least two axes.",
-    "top_k": "Common basis limit 1..1000 excluding bool, or None.",
-    "coordinates": "Distinct qualified contribution Dimension Refs; complete tuples remain bound together.",
-    "baseline": "Use recursively compatible numeric endpoints under the selected design.",
-    "design": "Use mv.TimeChange(), mv.CohortContrast(), or mv.PeriodChange(alignment=mv.window_bucket()).",
-    "pairing": "Use mv.ExactKeys() or an exact-node-bound mv.one_to_one(...) for ratio; comparison designs also accept mv.UnionKeys(missing=...).",
-    "verification": "Choose check for unknown exact-key equality, or assume for this invocation. Applicable declarations and derivations are trusted; assume does not permit intersection pairing.",
-    "match_verification": "Choose check for unknown matching to the exact field owner and version, or assume for this invocation. Cardinality alone does not prove matching; assume does not define a missing-value policy.",
-    "value": "Choose difference or relative_change; zero baselines remain Undefined.",
-    "other": "Use another numeric quantity on the same complete observation domain.",
-    "others": "Pass 1..15 distinct corresponding NumericRelations; request order defines signed lag direction.",
-    "lag_range": "Use None for zero lag, or a nonempty range on the original complete time grid; +k pairs left(t) with right(t+k).",
-    "horizon": "Use mv.periods(1..1000) with an approved future continuation.",
-    "model": "Use mv.naive(), mv.drift() or mv.seasonal_naive(periods=s).",
-    "interval_level": "Use a finite float strictly between zero and one for nominal prediction intervals.",
-    "method": "Use one closed mv.sum/count/count_defined/min/max/mean() value or the stated method literal.",
-    "predicate": "Build a predicate from this receiver or an exactly corresponding numeric relation.",
-    "max_output_bytes": "Keep the default bound or request a smaller positive byte limit.",
+
+_DISCOVERY_FAMILIES = {
+    ("_OriginalContinuation", "summarize"): "dsl.LogicalNumericRelation.summarize",
+    ("LogicalNumericRelation", "summarize"): "dsl.LogicalNumericRelation.summarize",
+    ("MaterializedNumericRelation", "summarize"): "dsl.LogicalNumericRelation.summarize",
+    ("LogicalRatioRelation", "summarize"): "dsl.LogicalNumericRelation.summarize",
+    ("LogicalRatioRelation", "rollup"): "dsl.LogicalRatioRelation.rollup",
+    ("MaterializedRatioRelation", "rollup"): "dsl.LogicalRatioRelation.rollup",
 }
-
-
-def _doc_section(value: object, heading: str) -> str:
-    lines = (getdoc(value) or "").splitlines()
-    for index, line in enumerate(lines):
-        if not line.startswith(heading + ":"):
-            continue
-        result = [line.partition(":")[2].strip()]
-        for following in lines[index + 1 :]:
-            if not following.strip() or following.endswith(":"):
-                break
-            result.append(following.strip())
-        return " ".join(part for part in result if part)
-    return ""
 
 
 def _effects(name: str) -> str:
@@ -148,7 +110,7 @@ def _effects(name: str) -> str:
         return "Bind a typed graph; live inputs may use schema-only R1 preflight, without business rows or Run."
     if name == "contract":
         return "Read bound definition and retained metadata without source I/O."
-    return "Construct a typed continuation without business-source I/O."
+    return "Construct only; no business reads."
 
 
 def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
@@ -370,7 +332,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             if type_value is dsl.RootRoute
             else "Call mv.routes(first_route, second_route)."
             if type_value is dsl.RootRoutes
-            else "Construct through session.members() or the returned typed relation."
+            else "Use the linked producer or its owned result field; current continuations belong to the receiver contract."
         )
         producers = (
             ("lifecycle.replay",)
@@ -433,7 +395,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             if type_value is dsl.RootRoute
             else ("dsl.routes",)
             if type_value is dsl.RootRoutes
-            else ("session.members",)
+            else ()
         )
         if type_value is windows.Duration:
             producers = ("dsl.duration",)
@@ -471,7 +433,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 name,
                 type_value,
                 summary=f"Governed Analysis {name} value type.",
-                acquisition=acquisition,
+                acquisition="Execute the paired Logical result or recover an exact Artifact through session.artifact()."
+                if name.startswith("Materialized")
+                else acquisition,
                 producers=("session.artifact",) if name.startswith("Materialized") else producers,
                 consumers=(
                     "dsl.LogicalAssociationResult.where",
@@ -601,7 +565,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     if type_value is cohort.empty_opportunity
                     else "dsl." + name + ".show",
                     "dsl.NumericComparison.compare",
-                    "dsl.NumericComparison.ratio",
+                    *(("dsl.NumericComparison.ratio",) if type_value is dsl.ExactKeys else ()),
                     *(
                         ("dsl.empty_opportunity.true", "dsl.empty_opportunity.undefined")
                         if type_value is cohort.empty_opportunity
@@ -700,7 +664,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 key,
                 f"Use integer {key}; omit the other named units."
                 if name == "duration"
-                else _INPUT_GUIDANCE.get(key, "Use the exact governed input."),
+                else parameter_guidance(function)[key],
             )
             for key in signature(function).parameters
         )
@@ -795,7 +759,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             parameters=tuple(
                 ParameterInput(
                     name,
-                    _INPUT_GUIDANCE.get(name, "Use exact ordered numeric endpoint bindings."),
+                    parameter_guidance(dsl.one_to_one)[name],
                     (),
                 )
                 for name in ("left", "right", "via", "time")
@@ -825,7 +789,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             summary="Freeze complete stratum weights and their statistical Entity.",
             discovery_group="methods.metric.reference",
             parameters=tuple(
-                ParameterInput(name, _INPUT_GUIDANCE[name]) for name in ("values", "strata", "unit")
+                ParameterInput(name, parameter_guidance(dsl.reference_weights)[name])
+                for name in ("values", "strata", "unit")
             ),
             output="ReferenceWeights",
             constraints=(
@@ -928,14 +893,26 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         fields.StatePredicate,
         fields.CompositePredicate,
     )
+    field_producers = {
+        fields.NumericField: ("LogicalNumericRelation", "Read relation.value."),
+        fields.CategoryField: ("LogicalCategoryRelation", "Read relation.value."),
+        fields.BooleanField: ("LogicalBooleanRelation", "Read relation.value."),
+        fields.TemporalField: ("LogicalTemporalRelation", "Read relation.value."),
+        fields.NumericPredicate: ("dsl.NumericField.gt", "Call values.value.gt(0)."),
+        fields.CategoryPredicate: ("dsl.CategoryField.eq", 'Call categories.value.eq("A").'),
+        fields.ScalarPredicate: ("dsl.BooleanField.eq", "Call flags.value.eq(True)."),
+        fields.StatePredicate: ("dsl.NumericField.is_defined", "Call values.value.is_defined()."),
+        fields.CompositePredicate: ("all_of", "Call mv.all_of(first_predicate, second_predicate)."),
+    }
     for field_type in (*field_types, *predicate_types):
+        producer, acquisition = field_producers[field_type]
         descriptors.append(
             value_type(
                 "dsl." + field_type.__name__,
                 field_type,
                 summary="An exact bound predicate input.",
-                acquisition="Read relation.value or construct a typed predicate.",
-                producers=("dsl.LogicalNumericRelation.where",),
+                acquisition=acquisition,
+                producers=(producer,),
                 consumers=(
                     "dsl.LogicalNumericRelation.where",
                     "dsl.CohortDomain.cohort",
@@ -1009,15 +986,15 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     "finding": "artifact.finding",
                 }.get(name, target)
             installed = signature(value)
-            arguments = required_arguments(
-                parameter for key, parameter in installed.parameters.items() if key != "self"
-            )
+            guidance = parameter_guidance(value)
             params = tuple(
                 ParameterInput(
                     key,
-                    _INPUT_GUIDANCE.get(key, "Use the exact bound relation or governed input."),
-                    ("TimeChange", "CohortContrast", "PeriodChange")
+                    guidance[key],
+                    ("TimeChange", "CohortContrast", "PeriodChange", "ExactKeys", "UnionKeys")
                     if key == "design"
+                    else ("ExactKeys", "OneToOneCorrespondence")
+                    if key == "pairing" and name == "ratio"
                     else ("ExactKeys", "UnionKeys", "OneToOneCorrespondence")
                     if key == "pairing"
                     else ("dsl.CompositePredicate",)
@@ -1032,14 +1009,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     if key == "via"
                     else ("dsl.elapsed", "dsl.calendar_days")
                     if key == "within" and owner is dsl._AnchorDomain
-                    else (
-                        "dsl.sum",
-                        "dsl.count",
-                        "dsl.count_defined",
-                        "dsl.min",
-                        "dsl.max",
-                        "dsl.mean",
-                    )
+                    else ("RowMethod",)
                     if key == "method" and name == "summarize"
                     else (),
                 )
@@ -1054,32 +1024,96 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     bindings=(bind(value, owner),),
                     summary=(getdoc(value) or f"{owner.__name__}.{name}.").splitlines()[0],
                     discovery_group=_METHOD_GROUPS.get((owner.__name__, name)),
+                    discovery_family=_DISCOVERY_FAMILIES.get((owner.__name__, name)),
                     parameters=params,
                     output=str(installed.return_annotation),
-                    constraints=(
-                        _doc_section(value, "Constraints")
-                        or "The exact receiver and current contract gate this operation.",
-                    ),
+                    constraints=(_doc_section(value, "Constraints"),),
                     effects=_effects(name),
-                    failures=(
-                        "AnalysisError: inspect the structured repair for the current shape.",
-                    ),
-                    example=ExampleInput(
-                        f"result = relation.{name}()"
-                        if not params
-                        else f"result = relation.{name}({', '.join(arguments)})",
-                        (
-                            "relation",
-                            *(
-                                parameter.name
-                                for parameter in installed.parameters.values()
-                                if parameter.name != "self" and parameter.default is Parameter.empty
-                            ),
-                        ),
-                        "result",
-                        "The receiver-bound result.",
-                        True,
-                    ),
+                    failures=(),
+                    example=method_example(value),
                 )
             )
-    return tuple(descriptors), tuple(exports)
+    return _with_producers(tuple(descriptors)), tuple(exports)
+
+
+_RELATION_PRODUCERS: dict[str, tuple[str, ...]] = {
+    "OneToOneCorrespondence": ("dsl.one_to_one",),
+    "empty_opportunity": ("empty_opportunity",),
+    "PeriodChange": ("PeriodChange",),
+    "UnionKeys": ("UnionKeys",),
+    "ExactKeys": ("ExactKeys",),
+    "TimeChange": ("TimeChange",),
+    "CohortContrast": ("CohortContrast",),
+    "LogicalAnalysisDomain": ("session.members", "dsl.LogicalSelectedNumericRelation.members"),
+    "LogicalFixedAnalysisDomain": ("dsl.MaterializedNumericRelation.members",),
+    "LogicalNumericRelation": (
+        "dsl.LogicalAnalysisDomain.read",
+        "dsl.LogicalAnalysisDomain.observe",
+        "dsl.NumericComparison.ratio",
+    ),
+    "LogicalCategoryRelation": ("dsl.LogicalAnalysisDomain.read",),
+    "LogicalBooleanRelation": ("dsl.LogicalAnalysisDomain.read", "LogicalAssociationResult"),
+    "LogicalTemporalRelation": ("dsl.LogicalAnalysisDomain.read", "LogicalTimeRunResult"),
+    "LogicalSelectedNumericRelation": (
+        "dsl.LogicalNumericRelation.where",
+        "dsl.MaterializedNumericRelation.where",
+    ),
+    "LogicalSelectedCategoryRelation": ("dsl.LogicalCategoryRelation.where",),
+    "LogicalSelectedBooleanRelation": (
+        "dsl.LogicalBooleanRelation.where",
+        "dsl.Retention.known_true",
+    ),
+    "LogicalSelectedTemporalRelation": ("dsl.LogicalTemporalRelation.where",),
+    "LogicalRatioRelation": ("dsl.LogicalAnalysisDomain.observe",),
+    "LogicalRolledNumericRelation": (
+        "dsl.LogicalNumericRelation.rollup",
+        "dsl.MaterializedNumericRelation.rollup",
+    ),
+    "LogicalRolledRatioRelation": (
+        "dsl.LogicalRatioRelation.rollup",
+        "dsl.MaterializedRatioRelation.rollup",
+    ),
+    "LogicalDifferenceRelation": ("dsl.NumericComparison.compare",),
+    "LogicalSelectedDifferenceRelation": (
+        "dsl.LogicalDifferenceRelation.where",
+        "dsl.MaterializedDifferenceRelation.where",
+    ),
+    "LogicalStatisticRelation": (
+        "dsl.LogicalNumericRelation.summarize",
+        "dsl.MaterializedNumericRelation.summarize",
+        "dsl.CountRelation.summarize",
+    ),
+    "LogicalCoefficientRelation": ("LogicalAssociationResult",),
+    "LogicalCoefficientSelectionRelation": (
+        "dsl.LogicalCoefficientRelation.where",
+        "dsl.MaterializedCoefficientRelation.where",
+    ),
+    "GroupedAnalysisDomain": ("dsl.LogicalAnalysisDomain.group_by",),
+    "GroupedNumericRelation": (
+        "dsl.LogicalNumericRelation.group_by",
+        "dsl.MaterializedNumericRelation.group_by",
+    ),
+    "GroupedRatioRelation": ("dsl.LogicalRatioRelation.group_by",),
+    "GroupedStatisticRelation": ("dsl.StatisticContinuation.group_by",),
+}
+
+
+def _with_producers(descriptors: tuple[Descriptor, ...]) -> tuple[Descriptor, ...]:
+    """Declare bounded real entry paths, not a complete receiver-method inventory."""
+    result: list[Descriptor] = []
+    for descriptor in descriptors:
+        if isinstance(descriptor, TypeInput) and descriptor.canonical_id in _RELATION_PRODUCERS:
+            descriptor = replace(
+                descriptor,
+                producers=_RELATION_PRODUCERS[descriptor.canonical_id],
+            )
+        result.append(descriptor)
+        if isinstance(descriptor, TypeInput) and (
+            not descriptor.producers
+            or (
+                "session.members" in descriptor.producers
+                and descriptor.canonical_id != "LogicalAnalysisDomain"
+            )
+        ):
+            raise invalid("a declared real type producer", descriptor.canonical_id)
+    return tuple(result)

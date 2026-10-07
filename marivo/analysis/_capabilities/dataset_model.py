@@ -73,6 +73,7 @@ class CallableInput:
     telemetry: bool = False
     semantic_kinds: tuple[SemanticKind, ...] = ()
     related: tuple[str, ...] = ()
+    discovery_family: str | None = None
     kind: Literal["callable"] = field(default="callable", init=False)
 
     @property
@@ -99,6 +100,7 @@ def operation(
     telemetry: bool = False,
     semantic_kinds: tuple[SemanticKind, ...] = (),
     related: tuple[str, ...] = (),
+    discovery_family: str | None = None,
 ) -> CallableInput:
     return CallableInput(
         target,
@@ -117,6 +119,7 @@ def operation(
         telemetry,
         semantic_kinds,
         related,
+        discovery_family,
     )
 
 

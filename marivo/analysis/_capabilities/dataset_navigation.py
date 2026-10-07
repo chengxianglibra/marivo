@@ -27,7 +27,11 @@ _GROUPS = (
     ("filters", "inputs", "Construct typed predicates over governed inputs or owned fields."),
     ("forecast_models", "inputs.forecast", "Choose naive, drift or seasonal baseline forecasts."),
     ("event_matching", "inputs.events", "Choose first or repeated starts per subject."),
-    ("methods.metric", "methods", "Add axes, aggregate, roll up or select a Metric."),
+    (
+        "methods.metric",
+        "methods",
+        "Observe Metrics and merge original state; keep current-row statistics separate.",
+    ),
     (
         "methods.metric.reduce",
         "methods.metric",
@@ -35,18 +39,18 @@ _GROUPS = (
     ),
     (
         "methods.metric.summary",
-        "methods.metric",
-        "Summarize current finished rows without changing original Metric state.",
+        "methods",
+        "Compute current-row statistics as a new quantity.",
     ),
     (
         "methods.metric.reference",
         "methods.metric",
         "Bind fixed shares, penetration or complete standardization weights.",
     ),
-    ("methods.compare", "methods", "Compare scopes and attribute Metric or funnel changes."),
+    ("methods.compare", "methods", "Compare scopes, divide quantities or attribute changes."),
     ("methods.rows", "methods", "Filter result rows, rank them or retain an ordered prefix."),
-    ("methods.association", "methods", "Measure descriptive association, including time lags."),
-    ("methods.forecast", "methods", "Project a governed time series under explicit assumptions."),
+    ("methods.association", "methods", "Measure descriptive association and time lags."),
+    ("methods.forecast", "methods", "Forecast a governed time series under explicit assumptions."),
     ("methods.events", "methods", "Inspect funnels and time to event, or select subjects."),
     (
         "methods.lifecycle",
@@ -62,41 +66,41 @@ _GROUPS = (
 _HUBS = (
     NavigationInput(
         "entry",
-        "Start from governed inputs or resume an exact committed analysis branch.",
+        "Start or resume governed analysis.",
         (),
         "decision_hub",
         guidance=(
-            "Entity-member questions (member totals, attributes, groups, comparisons, ratios, or associations): start with session.members(Entity Ref), then follow the relation's contract() and exact Help targets.",
-            "Use session.members(...) for typed analysis graphs and numeric statistical methods. Read each result contract for its current continuations and retained scope.",
-            "Known handoff: use its exact refs and scope; do not browse the whole catalog again.",
-            "Existing work: resume the Session and follow runtime reads; do not replay successful sources.",
+            "Entity-member questions: start with session.members(Entity Ref). Event and Lifecycle entries are below.",
+            "Known inputs: reuse exact refs and scope. Existing object: contract().show() -> its exact Help target.",
+            "Existing work: resume the Session; recovery does not replay sources.",
         ),
         related=("session.get_or_create", "session.resume", "catalog", "runtime"),
     ),
     NavigationInput(
         "methods",
-        "Choose the analytical intent; the current analysis object's contract narrows legal continuations.",
+        "Choose an analytical intent.",
         (),
         "decision_hub",
         guidance=(
-            "For Entity-member relations, follow the receiver's contract() actions and their exact Help targets.",
+            "Existing object: follow the receiver's contract() actions and exact Help targets directly.",
+            "Current-row statistics create a new quantity; Metric rollup merges retained original state.",
         ),
     ),
     NavigationInput(
         "inputs",
-        "Acquire only the missing governed input, policy or explicit scope.",
+        "Find missing governed inputs or scope.",
         (),
         "decision_hub",
     ),
     NavigationInput(
         "artifacts",
-        "Understand typed analysis results, states, owned fields and retained reads.",
+        "Read result types and retained state.",
         (),
         "decision_hub",
     ),
     NavigationInput(
         "evidence",
-        "Inspect the evidence needed for a conclusion and preserve its limitations.",
+        "Read Evidence and its limitations.",
         (),
         "decision_hub",
         guidance=(
@@ -107,7 +111,7 @@ _HUBS = (
     ),
     NavigationInput(
         "runtime",
-        "Recover committed work and audit exact Session, Run and Artifact identities.",
+        "Recover and audit committed work.",
         (),
         "decision_hub",
         guidance=(
@@ -163,15 +167,15 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
     result.append(
         NavigationInput(
             "",
-            "Governed lazy analysis: construct, explicitly execute, inspect committed results.",
+            "Governed lazy analysis: construct -> execute -> inspect.",
             tuple(hub.canonical_id for hub in _HUBS),
             "root",
             guidance=(
                 "Imports: import marivo; import marivo.analysis as mv; import marivo.semantic as ms",
-                "The agent owns the question, method choice and interpretation; Marivo owns typed computation and Evidence.",
-                "Construct a logical typed analysis graph without reading source rows; execute() publishes its materialized result.",
-                "Use the analysis object's contract().show() for current legal calls; result.show() reads bounded committed state.",
-                "Follow one relevant route and its input links, then write and run the smallest useful analysis.",
+                "Construct without business reads; execute() publishes; show() reads results.",
+                "Unknown capability: choose a route. Existing object: contract().show() -> exact Help.",
+                "Agent: method choice and conclusions. Marivo: typed computation and Evidence.",
+                "Errors own expected/received facts and the exact repair.",
             ),
         )
     )

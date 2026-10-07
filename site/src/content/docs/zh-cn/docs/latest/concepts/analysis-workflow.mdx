@@ -242,6 +242,18 @@ DuckDB 之外的 Decimal quantile 原生结果不能保留 Decimal carrier；原
 已有 Dataset 时，读取 `dataset.contract().show()`，沿当前允许动作提供的准确 Help target 继续。类型与成员仍可按需精确查询；也可以把已取得的公共方法传给 `marivo.help(...)`。
 聚焦叶子列出这次调用所需的前提和返回值路径。读取这些信息足以执行下一步时，就保存并运行最小分析脚本。
 
+当前行统计可从 `analysis.methods` 直接到达
+`analysis.methods.metric.summary`。这类统计创建新 quantity；原始 Metric rollup
+合并保留状态。同义 receiver 变体共享导航摘要，并保留各自准确的 Help target。
+已有对象时，从 contract 直接查询所选绑定方法，例如
+`marivo.help(dataset.summarize)`，无需重新阅读方法目录。
+聚焦示例直接构造受支持的策略与谓词；仅在需要时将 receiver、治理 Ref
+和比较端点保留为外部输入。
+
+披露回归在八个固定公共场景上累计字符数和阅读页数，包括重复 Help、contract、
+预览与修复阅读。这些是上下文代理指标，不是模型 token 数。压缩输出时仍须保留
+约束、完整续接与结构化修复。
+
 一次执行中的来源检查与计算可以观察到不同的源数据状态。检查成功只证明自身那次查询，
 不证明后来读取的事实。一个逻辑 Run/result 身份不承诺一次物理扫描或共享快照。
 已获资格的纯原生图直接查询 Ibis 表达式，不把 Arrow 中间捕获重新暂存回源。

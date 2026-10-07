@@ -32,6 +32,31 @@ Catalog examples reuse the question's existing Session. Callable output types an
 input prerequisites link to their native owning contracts; a returned value's
 methods can be passed directly to the public Help coordinator.
 
+For cold discovery, choose one task route. Once an analysis object exists, go
+from its contract directly to the selected exact Help target or pass its bound
+method to `marivo.help`; do not repeat the static method directory. Current-row
+statistics are available directly under `analysis.methods.metric.summary` from
+`analysis.methods`. They create a new quantity; original Metric rollup merges
+retained original state.
+
+Callable parameter semantics and minimal examples belong to the operation's
+own documentation. Reflection checks the binding and signature. Native
+`discovery_family` declarations group equivalent receiver variants under one
+summary while retaining every exact route; different meanings remain separate.
+Type producers name bounded real acquisition paths, not a generic entry point
+or an exhaustive method inventory. Signature parameters and the return contract
+are displayed once, followed by one example and its prerequisite/result links.
+
+Context acceptance measures complete fixed public journeys, including repeated
+Help reads, contracts, retained previews and errors. Character counts and page
+counts are reproducible proxies, not token counts or measured Agent efficiency.
+The eight-journey regression retains a pre-change SHA and output-size baseline;
+its cumulative normalized characters must fall at least 15%, no journey may
+grow more than 10%, and page counts must not increase. Only environment paths
+and explicitly known generated identities are normalized. Single-page budgets
+remain independent hard limits; complete contracts and repairs are not truncated
+for this optimization.
+
 Dataset contracts join admitted consumer identities to their native callable
 descriptors and disclose the public call plus canonical Help target. Shape and
 retained-state admission remain Dataset-owned; Help does not create another
@@ -48,14 +73,15 @@ and `contract()` do not read source rows. Explicit execution returns the paired
 Materialized Dataset, whose repr points to `show()` for bounded retained inspection.
 
 ```python
-logical = session.observe(revenue, time_scope=mv.time_scope(
+members = session.members(entity_ref)
+logical = members.observe(revenue, during=mv.time_scope(
     start="2026-06-01", end="2026-06-08"
-)).aggregate()
+), via=relationship_ref).rollup()
 result = logical.execute()
 result.show()
 ```
 
-This example requires a Session and a governed Metric. It creates no implicit
+This example requires a Session, an Entity Ref, a governed Metric, and its relationship to the member Entity. It creates no implicit
 intermediate execution while constructing the definition. A Materialized Dataset
 provides guarded `show()` and complete `to_pandas()` reads, with separate row/byte
 limits. A preview limit is not a complete-input execution budget.
