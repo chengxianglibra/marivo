@@ -1389,3 +1389,125 @@ def test_live_cycle_keeps_snapshot_error_before_source_or_run(case) -> None:
         _execute(case)
     assert case[4] == []
     assert _counts(case[0].store) == (0, 0, 0, 0)
+
+
+def test_fixed_reads_without_producer_registry(case, monkeypatch, capsys):
+    from marivo.analysis.materialization import graph_protocol, graph_store
+    from marivo.analysis.materialization.graph_dataset import GraphDataset
+    from marivo.analysis.materialization.graph_relation import Relation
+    from marivo.analysis.methods.registry import MethodRegistry
+    from marivo.analysis.public_dsl import wrap_materialized
+
+    output = _execute(case)
+    opens = list(case[4])
+
+    def unavailable(*args, **kwargs):
+        raise AssertionError("fixed reading accessed producer registry or planner")
+
+    monkeypatch.setattr(MethodRegistry, "lookup", unavailable)
+    monkeypatch.setattr(MethodRegistry, "select", unavailable)
+    monkeypatch.setattr(graph_protocol, "make_plan", unavailable)
+    descriptor = decode(encode(output.descriptor, DESCRIPTOR), DESCRIPTOR)
+    assert read_result(case[0].store.project_root, descriptor).primary["value"].to_pylist() == [3]
+    with case[0].store._read() as connection:
+        recovered = graph_store.artifact(case[0].store, connection, output.artifact_ref)
+    assert recovered is not None
+    dataset = GraphDataset(case[0], recovered)
+    result = wrap_materialized(Relation.restore(dataset), case[0], dataset)
+    assert result.to_pandas()["value"].tolist() == [3]
+    assert result.evidence_digest().finding_count == 0
+    assert fixed_signature(descriptor).obligations == ()
+    dataset.show()
+    assert capsys.readouterr().out
+    assert case[4] == opens
+
+
+def test_validated_read_is_bound_and_rechecks_bytes(case, monkeypatch):
+    from marivo.analysis.materialization import graph_protocol
+
+    output = _execute(case)
+    checked = graph_protocol.validate_metadata(output.descriptor)
+
+    def unavailable(*args, **kwargs):
+        raise AssertionError("metadata decoded again")
+
+    monkeypatch.setattr(graph_protocol, "validate_metadata", unavailable)
+    read_result(case[0].store.project_root, output.descriptor, _validated=checked)
+    with pytest.raises(IntegrityError, match="different descriptor"):
+        read_result(case[0].store.project_root, replace(output.descriptor), _validated=checked)
+    receipt = output.descriptor.primary_receipt.local
+    path = case[0].store.project_root / receipt.project_relative_path / "data.parquet"
+    path.write_bytes(b"replacement")
+    with pytest.raises(IntegrityError):
+        read_result(case[0].store.project_root, output.descriptor, _validated=checked)
+
+
+def test_old_descriptor_and_changed_frozen_shape_reject(case):
+    from marivo.analysis.materialization.graph_protocol import validate_metadata
+    from marivo.analysis.methods.physical import TimeShape
+
+    output = _execute(case)
+    old = encode(output.descriptor, DESCRIPTOR).replace(
+        "artifact_descriptor/v2", "artifact_descriptor/v1"
+    )
+    with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
+        decode(old, DESCRIPTOR)
+    with pytest.raises(IntegrityError):
+        validate_metadata(replace(output.descriptor, production_plan="[]"))
+
+    with pytest.raises(IntegrityError, match="time shape"):
+        validate_metadata(replace(output.descriptor, time_shape=TimeShape("instant", "us", "UTC")))
+
+
+def test_materialized_show_without_original_implementation(case, monkeypatch, capsys):
+    from marivo.analysis.materialization.graph_dataset import GraphDataset
+    from marivo.analysis.materialization.graph_relation import Relation
+    from marivo.analysis.methods.registry import MethodRegistry
+    from marivo.analysis.public_dsl import wrap_materialized
+
+    output = _execute(case)
+    lookup = MethodRegistry.lookup
+
+    def without_implementations(self, key):
+        registration = lookup(self, key)
+        return replace(registration, implementations=())
+
+    monkeypatch.setattr(MethodRegistry, "lookup", without_implementations)
+    dataset = GraphDataset(case[0], output)
+    result = wrap_materialized(Relation.restore(dataset), case[0], dataset)
+    result.show()
+    assert capsys.readouterr().out
+    assert result.to_pandas()["value"].tolist() == [3]
+    from marivo.analysis.errors import AnalysisError
+
+    successor = _fixed(output)
+    with pytest.raises(AnalysisError):
+        case[0]._execute_graph(successor, (RouteChoice(successor.identity, "artifact_python"),))
+
+
+def test_cold_fixed_read_without_registry(case):
+    output = _execute(case)
+    code = """
+import sys
+from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.materialization import graph_store
+from marivo.analysis.materialization.graph_storage import read_result
+from marivo.analysis.methods.registry import MethodRegistry
+
+def unavailable(*args, **kwargs):
+    raise AssertionError("cold read reached the registry")
+MethodRegistry.lookup = unavailable
+MethodRegistry.select = unavailable
+store = SessionStore(sys.argv[1])
+with store._read() as connection:
+    saved = graph_store.artifact(store, connection, sys.argv[2])
+assert saved is not None
+assert read_result(store.project_root, saved.descriptor,
+                   _validated=saved.validated).primary["value"].to_pylist() == [3]
+"""
+    subprocess.run(
+        [sys.executable, "-c", code, str(case[0].store.project_root), output.artifact_ref],
+        check=True,
+        capture_output=True,
+        text=True,
+    )

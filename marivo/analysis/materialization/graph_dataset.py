@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Literal
 import pandas as pd
 import pyarrow as pa
 
-from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import (
     AttributionPart,
     DerivedQuantity,
@@ -226,7 +225,11 @@ class GraphDataset:
             from marivo.analysis.materialization.graph_findings import collection
 
             return collection(
-                self.runtime.store, connection, current.descriptor, current.artifact_ref
+                self.runtime.store,
+                connection,
+                current.descriptor,
+                current.artifact_ref,
+                _validated=current.validated,
             )[1]
 
     def findings(self, limit: int = 20, cursor: str | None = None) -> t.FindingPage:
@@ -239,7 +242,11 @@ class GraphDataset:
             if current != self.artifact:
                 raise invalid("selected Artifact changed or disappeared")
             findings, _ = collection(
-                self.runtime.store, connection, current.descriptor, current.artifact_ref
+                self.runtime.store,
+                connection,
+                current.descriptor,
+                current.artifact_ref,
+                _validated=current.validated,
             )
             return page(findings, current.artifact_ref, limit, cursor)
 
@@ -253,7 +260,11 @@ class GraphDataset:
             if current != self.artifact:
                 raise invalid("selected Artifact changed or disappeared")
             findings, _ = collection(
-                self.runtime.store, connection, current.descriptor, current.artifact_ref
+                self.runtime.store,
+                connection,
+                current.descriptor,
+                current.artifact_ref,
+                _validated=current.validated,
             )
             for finding in findings:
                 if finding.finding_id == finding_id:
@@ -280,7 +291,7 @@ class GraphDataset:
             current = graph_store.artifact(store, connection, self.artifact.artifact_ref)
         if current != self.artifact:
             raise invalid("selected Artifact changed or disappeared")
-        result = read_result(store.project_root, current.descriptor)
+        result = read_result(store.project_root, current.descriptor, _validated=current.validated)
         if self.projection is not None:
             from marivo.analysis.materialization.graph_display import project
 
@@ -368,10 +379,8 @@ class GraphDataset:
     def to_pandas(self) -> pd.DataFrame:
         checked = self.verified()
         table = _public_table(checked)
-        from marivo.analysis.materialization.graph_protocol import validate_descriptor
-
-        definition = validate_descriptor(self.artifact.descriptor)
-        params = definition.parameters if isinstance(definition, MethodNode) else None
+        definition = self.artifact.validated.root
+        params = definition.parameters
         if isinstance(params, DisplayTable):
             table = table.rename_columns(
                 [*table.column_names[: len(checked.contract.key_fields)], *params.labels]
@@ -409,10 +418,8 @@ class GraphDataset:
         public = _public_table(checked)
         table = public.to_pandas(types_mapper=pd.ArrowDtype)
         frame = table.head(5).copy()
-        from marivo.analysis.materialization.graph_protocol import validate_descriptor
-
-        definition = validate_descriptor(self.artifact.descriptor)
-        params = definition.parameters if isinstance(definition, MethodNode) else None
+        definition = self.artifact.validated.root
+        params = definition.parameters
         if isinstance(params, DisplayTable):
             frame = frame.rename(
                 columns=dict(

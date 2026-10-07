@@ -80,7 +80,7 @@ def test_measure_snapshot(analysis_dsl_case_factory: DslCaseFactory) -> None:
         endpoints = 0
         occurrences = unique
         snapshot = protocol.Continuation(
-            "marivo.analysis.continuation/v2",
+            "marivo.analysis.continuation/v3",
             frozen,
             (),
             (),

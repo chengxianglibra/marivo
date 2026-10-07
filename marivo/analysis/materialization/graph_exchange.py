@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
 import pyarrow as pa
@@ -81,6 +81,10 @@ class PartContract:
             raise _invalid("invalid part role, schema or complete key")
 
 
+if TYPE_CHECKING:
+    from marivo.analysis.materialization.graph_protocol import ValidatedDescriptor
+
+
 @dataclass(frozen=True, slots=True)
 class ExchangeContract:
     signature: Signature
@@ -96,7 +100,25 @@ class ExchangeContract:
     allow_empty_singleton: bool = False
     column_reasons: tuple[tuple[tuple[str, tuple[str, ...]], ...], ...] = ()
 
+    _frozen: ValidatedDescriptor | None = None
+
     def __post_init__(self) -> None:
+        expected_state: str | None
+        if self._frozen is not None:
+            from marivo.analysis.materialization.graph_protocol import fixed_signature
+
+            value = self._frozen.descriptor
+            if (
+                self.signature
+                not in (value.signature, fixed_signature(value, _validated=self._frozen))
+                or value.method_state.input_binding != self.input_binding
+                or value.method_state.method_name != self.method.name
+                or value.method_state.method_version != self.method.version
+            ):
+                raise _invalid("frozen exchange differs from validated descriptor")
+            expected_state = value.method_state.kind
+        else:
+            expected_state = REGISTRY.lookup(self.method).semantics.persistent_state_kind
         if (
             not isinstance(self.signature, Signature)
             or not isinstance(self.method, MethodKey)
@@ -189,7 +211,7 @@ class ExchangeContract:
                 "spearman",
             )
             or (self.state_kind == "none") != (self.state_schema is None)
-            or self.state_kind != REGISTRY.lookup(self.method).semantics.persistent_state_kind
+            or self.state_kind != expected_state
             or any(not isinstance(item, CheckRequirement) for item in self.pending_checks)
             or type(self.allow_empty_singleton) is not bool
             or (

@@ -87,6 +87,10 @@ class MethodRecord:
     sources: tuple[str, ...]
     retained_endpoints: tuple[str, ...]
 
+    @property
+    def signature(self) -> Signature:
+        return self.derivation.output
+
 
 Record = Annotated[SourceRecord | FixedRecord | MethodRecord, Field(discriminator="kind")]
 
@@ -359,7 +363,7 @@ def _encode_document(document: GraphDocument) -> str:
     return text
 
 
-def thaw_graph(text: str) -> Node:
+def read_graph_document(text: str) -> GraphDocument:
     """Validate a bounded canonical DAG before admitting its exact definitions."""
     from marivo.analysis.errors import AnalysisError
     from marivo.analysis.materialization.graph_protocol import decode, invalid
@@ -388,7 +392,7 @@ def thaw_graph(text: str) -> Node:
         if PREFIX + base64.b64encode(zlib.compress(body, level=9)).decode("ascii") != text:
             raise invalid("noncanonical compressed definition")
         document = decode(body.decode("utf-8"), GRAPH)
-        return _restore(document)
+        return document
     except IntegrityError:
         raise
     except (
@@ -399,4 +403,17 @@ def thaw_graph(text: str) -> Node:
         RecursionError,
         AnalysisError,
     ) as error:
+        raise invalid(f"invalid frozen DAG definition: {type(error).__name__}") from error
+
+
+def thaw_graph(text: str) -> Node:
+    """Restore historical semantics only when entering a typed continuation."""
+    from marivo.analysis.errors import AnalysisError
+    from marivo.analysis.materialization.graph_protocol import invalid
+
+    try:
+        return _restore(read_graph_document(text))
+    except IntegrityError:
+        raise
+    except (ValueError, TypeError, RecursionError, AnalysisError) as error:
         raise invalid(f"invalid frozen DAG definition: {type(error).__name__}") from error

@@ -1363,3 +1363,7 @@ result = session.members(ms.ref.entity("sales.facts")).observe(
 ).execute()
 result.show()
 ```
+
+
+固定结果保留 schema、语义契约、证据和精确输入绑定。读取结果不再要求重新选择原生产实现。
+新的续算仍验证所需状态及当前方法能力。旧持久化格式需要重新执行来源分析；已有文件会保留。

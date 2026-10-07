@@ -374,17 +374,17 @@ def _kind(node: Relation) -> str:
     )
     if fit is not None and fit.view == "result":
         return "deviation"
-    if isinstance(node.definition.parameters, DeviationRead):
+    if isinstance(node.captured_definition.parameters, DeviationRead):
         return "deviation_read"
-    if isinstance(node.definition.parameters, AnchorRetention):
+    if isinstance(node.captured_definition.parameters, AnchorRetention):
         return "retention"
-    if isinstance(node.definition.parameters, RetentionBySubject):
+    if isinstance(node.captured_definition.parameters, RetentionBySubject):
         return "subject_retention"
-    if isinstance(node.definition.parameters, AnchorBind):
+    if isinstance(node.captured_definition.parameters, AnchorBind):
         return "anchor"
-    if isinstance(node.definition.parameters, AnchorObserve):
+    if isinstance(node.captured_definition.parameters, AnchorObserve):
         return "observe"
-    definition = node.definition
+    definition = node.captured_definition
     if isinstance(definition.parameters, FunnelReduce):
         return "funnel"
     if isinstance(definition.parameters, FunnelCompare):
@@ -4986,7 +4986,7 @@ def wrap_materialized(
     if kind == "completed_journeys":
         return MaterializedCompletedJourneys(_TOKEN, node, runtime, dataset=dataset)
     if kind == "journey_read":
-        params = node.definition.parameters
+        params = node.captured_definition.parameters
         assert isinstance(params, JourneyRead)
         if params.field == "dropout":
             return MaterializedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
@@ -5008,7 +5008,7 @@ def wrap_materialized(
     if kind in ("members", "group"):
         return MaterializedAnalysisDomain(_TOKEN, node, runtime, dataset=dataset)
     if kind == "read":
-        params = node.definition.parameters
+        params = node.captured_definition.parameters
         assert isinstance(params, BindProject)
         if params.ref.kind is SemanticKind.MEASURE:
             return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
@@ -5019,7 +5019,7 @@ def wrap_materialized(
         return MaterializedCategoryRelation(_TOKEN, node, runtime, dataset=dataset)
     if kind == "where":
         if node.root.value_type == ScalarType("boolean"):
-            params = node.definition.parameters
+            params = node.captured_definition.parameters
             if isinstance(params, PartsTransport) and params.mode == "view":
                 return MaterializedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
             return MaterializedSelectedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
@@ -5033,7 +5033,7 @@ def wrap_materialized(
                 return MaterializedSelectedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
             if scalar in (ScalarType("date"), ScalarType("timestamp")):
                 return MaterializedSelectedTemporalRelation(_TOKEN, node, runtime, dataset=dataset)
-            params = node.definition.parameters
+            params = node.captured_definition.parameters
             if isinstance(params, PartsTransport) and params.field_kind == "measure":
                 return MaterializedSelectedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
             return MaterializedSelectedCategoryRelation(_TOKEN, node, runtime, dataset=dataset)

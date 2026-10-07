@@ -22,7 +22,7 @@ from marivo.analysis.materialization.graph_protocol import (
     PartReceipt,
     PrimaryReceipt,
     decode,
-    validate_descriptor,
+    validate_metadata,
 )
 from marivo.analysis.materialization.graph_storage import read_result, read_table
 from marivo.analysis.materialization.ownership import validate_receipt_owner
@@ -46,7 +46,7 @@ def revalidate(store: SessionStore, reference: str | ArtifactRef) -> ArtifactRev
             raise missing_artifact(ref.ref)
         try:
             selected = decode(_text(raw, "descriptor_payload"), DESCRIPTOR)
-            validate_descriptor(selected)
+            validate_metadata(selected)
             prefix = store.layout.artifact_dir(_text(raw, "session_ref"), ref.ref)
             local_prefix = prefix.relative_to(store.project_root).as_posix()
             selected_receipts: tuple[PrimaryReceipt | PartReceipt, ...] = (

@@ -29,10 +29,13 @@ from marivo.analysis.materialization.graph_exchange import (
 from marivo.analysis.materialization.graph_protocol import (
     DESCRIPTOR,
     Descriptor,
+    ValidatedDescriptor,
+    checked_metadata,
     digest,
     encode,
     invalid,
 )
+from marivo.analysis.materialization.graph_snapshot import FixedRecord, MethodRecord
 from marivo.analysis.materialization.graph_storage import read_result
 from marivo.analysis.methods import funnel as f
 from marivo.analysis.refs import ArtifactRef
@@ -230,7 +233,12 @@ def _share(
 
 
 def extract(
-    descriptor: Descriptor, result: ExchangeResult, artifact_ref: str, committed_at: datetime
+    descriptor: Descriptor,
+    result: ExchangeResult,
+    artifact_ref: str,
+    committed_at: datetime,
+    *,
+    _validated: ValidatedDescriptor | None = None,
 ) -> tuple[t.Finding, ...]:
     if not any(p.role == "finding_policy" for p in result.parts):
         return ()
@@ -250,16 +258,31 @@ def extract(
 
         return extract_statistics(descriptor, result, artifact_ref, committed_at, policy)
     if any(value.startswith("artifacts:") for value in policy.ordered_input_bindings):
-        from marivo.analysis.materialization.graph_protocol import validate_descriptor
+        checked = checked_metadata(descriptor, _validated)
+        records = {record.identity: record for record in checked.nodes}
 
-        node = validate_descriptor(descriptor)
-        assert isinstance(node, MethodNode)
+        def fixed_refs(identity: str) -> tuple[str, ...]:
+            seen: set[str] = set()
+            refs: list[str] = []
+
+            def visit(current: str) -> None:
+                if current in seen:
+                    return
+                seen.add(current)
+                record = records[current]
+                if isinstance(record, FixedRecord):
+                    refs.append(record.artifact.ref)
+                elif isinstance(record, MethodRecord):
+                    for edge in record.inputs:
+                        visit(edge.node)
+                    for source in record.sources:
+                        visit(source)
+
+            visit(identity)
+            return tuple(refs)
+
         expected_bindings = tuple(
-            "artifacts:"
-            + encode_versions(
-                tuple(n.artifact.ref for n in topology(edge.node) if isinstance(n, FixedLeaf))
-            )
-            for edge in node.inputs
+            "artifacts:" + encode_versions(fixed_refs(edge.node)) for edge in checked.root.inputs
         )
         if expected_bindings != policy.ordered_input_bindings:
             raise invalid("Finding ordered Artifact bindings differ from frozen inputs")
@@ -391,6 +414,7 @@ def collection(
     artifact_ref: str,
     *,
     verify_receipts: bool = True,
+    _validated: ValidatedDescriptor | None = None,
 ) -> tuple[tuple[t.Finding, ...], t.ArtifactDigest]:
     artifact = conn.execute(
         "SELECT committed_at FROM dataset_artifacts WHERE artifact_ref=?", (artifact_ref,)
@@ -402,8 +426,8 @@ def collection(
         raise invalid("Artifact lacks atomic Evidence")
     committed_at = datetime.fromisoformat(artifact[0])
     if verify_receipts:
-        result = read_result(store.project_root, descriptor)
-        expected = extract(descriptor, result, artifact_ref, committed_at)
+        result = read_result(store.project_root, descriptor, _validated=_validated)
+        expected = extract(descriptor, result, artifact_ref, committed_at, _validated=_validated)
     else:
         if any(isinstance(p, FindingPolicyPart) for p in descriptor.signature.parts):
             raise invalid("Finding producer requires receipt verification")

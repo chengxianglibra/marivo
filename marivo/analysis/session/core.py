@@ -291,7 +291,7 @@ class Session:
         Args: reference: Exact ArtifactRef or reference string.
         Returns: The materialized relation variant selected by its checked Store 7 definition.
         Example: ``saved = session.artifact(ref)``.
-        Constraints: Recovery verifies the exact snapshot, receipts, method state and required parts without loading current Semantic or sources; older Store generations reject.
+        Constraints: Recovery verifies descriptor v2, continuation v3, receipts and required state without selecting the original production implementation or opening sources. Obsolete formats require source re-execution; existing files are preserved.
         """
         from marivo.analysis.materialization import graph_store
         from marivo.analysis.materialization.graph_dataset import GraphDataset

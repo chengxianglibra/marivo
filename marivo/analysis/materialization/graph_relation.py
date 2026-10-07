@@ -74,11 +74,12 @@ from marivo.analysis.materialization.graph_observation import (
     observe_ratio_members,
 )
 from marivo.analysis.materialization.graph_protocol import (
+    ValidatedDescriptor,
     digest,
     fixed_signature,
-    validate_descriptor,
+    thaw_graph,
 )
-from marivo.analysis.materialization.graph_snapshot import same_node_definition
+from marivo.analysis.materialization.graph_snapshot import MethodRecord, same_node_definition
 from marivo.analysis.methods.comparison import output_type
 from marivo.analysis.methods.physical import (
     DecimalType,
@@ -203,7 +204,7 @@ class LiveBinding:
 
 @dataclass(frozen=True, slots=True)
 class FrozenBinding:
-    definition: MethodNode
+    definition: MethodNode | ValidatedDescriptor
 
 
 Binding: TypeAlias = LiveBinding | FrozenBinding
@@ -233,33 +234,40 @@ class Relation:
     def restore(cls, dataset: GraphDataset) -> Relation:
         dataset.verified()
         descriptor = dataset.artifact.descriptor
-        definition = validate_descriptor(descriptor)
-        if not isinstance(definition, MethodNode):
-            raise _reject("Artifact has no typed method result")
-        from marivo.analysis.materialization.graph_protocol import descriptor_plan
-
-        captured_plan = descriptor_plan(descriptor, definition)
-        captured_time = (
-            captured_plan.physical_requirements[-1].key.shape.time
-            if definition.signature.domain.time_grid is not None
-            else NoTime()
-        )
+        checked = dataset.artifact.validated
+        definition = checked.root
+        captured_time = descriptor.time_shape
         root = FixedLeaf(
             ArtifactRef(ref=dataset.artifact.artifact_ref),
             descriptor.definition_fingerprint,
-            fixed_signature(descriptor),
+            fixed_signature(descriptor, _validated=checked),
             definition.value_type,
             FixedShape(captured_time),
         )
-        return cls(dataset.runtime, root, FrozenBinding(definition))
+        return cls(dataset.runtime, root, FrozenBinding(checked))
 
     @property
     def definition(self) -> MethodNode:
         if isinstance(self.root, MethodNode):
             return self.root
         if isinstance(self.binding, FrozenBinding):
-            return self.binding.definition
+            definition = self.binding.definition
+            if isinstance(definition, MethodNode):
+                return definition
+            restored = thaw_graph(definition.snapshot.root)
+            if not isinstance(restored, MethodNode):
+                raise _reject("Artifact has no typed method result")
+            return restored
         raise _reject("relation has no typed definition")
+
+    @property
+    def captured_definition(self) -> MethodNode | MethodRecord:
+        """Read frozen result metadata without restoring historical semantics."""
+        if isinstance(self.binding, FrozenBinding) and isinstance(
+            self.binding.definition, ValidatedDescriptor
+        ):
+            return self.binding.definition.root
+        return self.definition
 
     def _with(self, root: MethodNode) -> Relation:
         if (
