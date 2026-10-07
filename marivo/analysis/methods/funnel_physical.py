@@ -112,10 +112,10 @@ def admit_axes(implementation: Implementation, params: RuleParameters) -> None:
         and implementation.qualification.consumer_id == "analysis.materialization.funnel_execution"
         and isinstance(params, (FunnelAxesPrepare, FunnelReduce))
         and (
-            tuple(axis.dimension.logical_type for axis in params.axes)
-            not in (("int64",), ("string",), ("int64", "string"))
+            not params.axes
             or any(
                 axis.subject.version is not None
+                or axis.dimension.logical_type not in ("int64", "string")
                 or (
                     axis.path
                     and not (
@@ -153,7 +153,7 @@ def admit_axes(implementation: Implementation, params: RuleParameters) -> None:
         )
     ):
         reject(
-            "direct unversioned Subject axes or one string axis through a UTC DATE snapshot or closed-open validity interval",
+            "nonempty direct unversioned Subject axes of string/int64 types or one string axis through a UTC DATE snapshot or closed-open validity interval",
             repr(params),
-            "Use one direct string/int64 axis, an ordered int64/string pair, or one to-one string axis through a UTC DATE snapshot or closed-open validity interval with NULL open end; qualify other paths, versions and axis orders separately.",
+            "Use unique ordered direct string/int64 Subject axes in any count or order, or one to-one string axis through a UTC DATE snapshot or closed-open validity interval with NULL open end; qualify other types, paths and versions separately.",
         )

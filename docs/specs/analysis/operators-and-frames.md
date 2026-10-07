@@ -1192,6 +1192,17 @@ Axes bind historical Dimension values at the first assigned occurrence;
 complete actual tuples including real null are retained, without Cartesian
 invented groups. Group components must reproduce the ungrouped target exactly.
 
+O2b extends SQLite native main-table int64/UTC-us entry-axis preparation and
+two-input local reduction to nonempty unique ordered direct string/int64 Subject
+axes in any count or order, within existing graph/snapshot budgets. The Subject
+must be unversioned. Each axis is captured before matching, and complete tuple
+components survive fixed comparison, joint/hierarchy allocation and cold recovery.
+Public pandas reads retain nullable int64 coordinates as Arrow-backed integers,
+including inactive hierarchy prefixes, without conversion through float64.
+Historical axes retain their separately qualified single-hop single-axis profiles;
+empty-axis source reduction, other types and mixed/heterogeneous inputs remain
+outside this extension.
+
 R9.4 connects native PostgreSQL/MySQL/Trino/ClickHouse int64 occurrence identities
 with UTC microsecond timestamps to the existing Ibis entry-axis preparation and
 two-input local Funnel reduction. The bounded producer witness uses one ordinary

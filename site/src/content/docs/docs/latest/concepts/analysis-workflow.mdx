@@ -1348,13 +1348,38 @@ consumption, or source-free `artifact_python` for fixed continuation. No native
 SQL funnel consumer, same-wheel or full R7 qualification is claimed here.
 
 SQLite native main tables with int64 identities and UTC microsecond timestamps
-support preparation of one direct, unversioned string/int64 Subject entry axis or an ordered int64/string pair, plus one string axis through a to-one UTC daily DATE snapshot path or a UTC DATE closed-open validity path with NULL open end before
-local matching and reduction. Compatible fixed comparisons and loss/denominator-mix
+support any nonempty unique ordered tuple of direct string/int64 Dimensions on an
+unversioned Subject, with no extra count or ordering limit beyond the existing
+graph and snapshot budgets. The separate historical profile supports one string
+axis through a to-one UTC daily DATE snapshot path or a UTC DATE closed-open
+validity path with NULL open end before local matching and reduction.
+Nullable int64 coordinates retain exact Arrow-backed pandas types, including
+inactive hierarchy prefixes; values above `2**53` do not pass through float64.
+Compatible fixed comparisons and loss/denominator-mix
 allocation retain their axes for source-free continuation and cold recovery.
 Snapshot axes require the exact entry period; missing periods reject without selecting
 a latest or earlier row. Validity intervals include their start and exclude their end;
-missing or overlapping coverage rejects before publication. Other axis counts/orderings, paths/version profiles and shapes remain unqualified
-by this bounded route.
+missing or overlapping coverage rejects before publication. Historical axes cannot
+be combined with other axes under this route. Other types, paths/version profiles,
+empty-axis source reduction and shapes remain separately unqualified.
+
+For a SQLite Subject declaring string `region`/`channel` and int64 `code`, prepare
+the full tuple before materializing either endpoint. The following continues
+logical `journeys` and `baseline_journeys` on that Subject:
+
+```python
+direct_axes = (
+    ms.ref.dimension("sales.subjects.region"),
+    ms.ref.dimension("sales.subjects.code"),
+    ms.ref.dimension("sales.subjects.channel"),
+)
+current = journeys.funnel(axes=direct_axes).execute()
+baseline = baseline_journeys.funnel(axes=direct_axes).execute()
+three_axis_change = current.compare(baseline).execute()
+```
+
+O2b qualifies these direct-axis combinations independently of the earlier bounded
+R9.3 examples; it does not grant full C12 or installed-package acceptance.
 
 R9.4 connects PostgreSQL, MySQL, Trino and ClickHouse native tables with int64
 occurrence identities and UTC microsecond timestamps to the same Ibis entry-axis

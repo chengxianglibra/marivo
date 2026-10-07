@@ -5900,6 +5900,9 @@ class _Journey(_Value):
         Returns: A LogicalFunnelResult over dense steps and actual complete axis tuples.
         Example: ``funnel = journeys.funnel(axes=(channel,))``.
         Constraints: Requires first_per_subject; fixed inputs cannot supply missing axes.
+            SQLite admits nonempty unique ordered direct string/int64 axes on an unversioned
+            Subject, with no additional count or ordering limit. Historical axes retain
+            their separately qualified version and path constraints.
         """
         from marivo.analysis.materialization.graph_funnel import reduce
 

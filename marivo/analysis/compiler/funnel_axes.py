@@ -38,7 +38,24 @@ def lower_axes(
     source_ids = tuple(
         dict.fromkeys((*occurrences.source_ids, *(n.identity for n in stage.node.sources)))
     )
-    for axis_index, axis in enumerate(params.axes):
+    # Direct Dimensions on the same Subject share one entry mapping. Rejoining the
+    # occurrence tree for each column exceeds SQLite's join limit for longer tuples.
+    groups = (
+        (tuple(enumerate(params.axes)),)
+        if params.axes
+        and all(
+            not axis.path
+            and axis.subject.version is None
+            and axis.entities[0].version is None
+            and axis.subject == params.axes[0].subject
+            and axis.entities == params.axes[0].entities
+            and axis.source_ids == params.axes[0].source_ids
+            for axis in params.axes
+        )
+        else tuple(((index, axis),) for index, axis in enumerate(params.axes))
+    )
+    for group in groups:
+        axis_index, axis = group[0]
         route = []
         for index, hop in enumerate(axis.path):
             forward = hop.from_entity_ref == axis.entities[index].ref
@@ -83,16 +100,18 @@ def lower_axes(
                     {f"__join_{i}": raw[left] for i, (left, _) in enumerate(route[index])}
                 )
             else:
-                fields[f"axis_{axis_index}"] = raw[axis.dimension.source_column]
-                if not axis.dimension.nullable:
-                    checks.append(
-                        IntegrityCheck(
-                            stage.output,
-                            "r7.funnel_axes: declared non-null Dimension",
-                            joined.filter(raw[axis.dimension.source_column].isnull()),
-                            current_ids,
+                for captured_index, captured_axis in group:
+                    column = raw[captured_axis.dimension.source_column]
+                    fields[f"axis_{captured_index}"] = column
+                    if not captured_axis.dimension.nullable:
+                        checks.append(
+                            IntegrityCheck(
+                                stage.output,
+                                "r7.funnel_axes: declared non-null Dimension",
+                                joined.filter(column.isnull()),
+                                current_ids,
+                            )
                         )
-                    )
             current = joined.select(**fields)
         counts = current.group_by(*keys).aggregate(__count=current.count())
         checks.append(
@@ -112,7 +131,7 @@ def lower_axes(
                     *(f"axis_{i}" for i in range(axis_index)),
                 )
             },
-            **{f"axis_{axis_index}": current[f"axis_{axis_index}"]},
+            **{f"axis_{index}": current[f"axis_{index}"] for index, _ in group},
         )
     layout = RelationLayout(
         occurrences.layout.keys, None, (), tuple(f"axis_{i}" for i in range(len(params.axes)))

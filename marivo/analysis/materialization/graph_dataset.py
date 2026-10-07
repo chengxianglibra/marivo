@@ -377,13 +377,27 @@ class GraphDataset:
                 [*table.column_names[: len(checked.contract.key_fields)], *params.labels]
             )
             frame: pd.DataFrame = table.to_pandas(types_mapper=pd.ArrowDtype)
-        elif any(
-            isinstance(p, (DisplayPart, AttributionPart)) for p in checked.contract.signature.parts
-        ) or (
-            any(isinstance(p, FitInputsPart) for p in checked.contract.signature.parts)
-            and "value" in table.column_names
-            and table.schema.field("value").type == pa.int64()
-            and table["value"].null_count > 0
+        elif (
+            any(
+                isinstance(p, (DisplayPart, AttributionPart))
+                for p in checked.contract.signature.parts
+            )
+            or (
+                any(isinstance(p, FitInputsPart) for p in checked.contract.signature.parts)
+                and "value" in table.column_names
+                and table.schema.field("value").type == pa.int64()
+                and table["value"].null_count > 0
+            )
+            or (
+                any(
+                    isinstance(p, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart))
+                    for p in checked.contract.signature.parts
+                )
+                and any(
+                    field.type == pa.int64() and table[field.name].null_count > 0
+                    for field in table.schema
+                )
+            )
         ):
             frame = table.to_pandas(types_mapper=pd.ArrowDtype)
         else:

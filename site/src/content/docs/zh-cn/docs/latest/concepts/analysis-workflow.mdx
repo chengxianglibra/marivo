@@ -1038,9 +1038,32 @@ canonical assignment。snapshot/validity 版本和完整轴元组保留真实 Nu
 
 物化结果提供 Evidence、分页 Findings 和单条读取；每次读取都验证整个冻结集合。
 compare/归因的发射上限为 1000，保留 eligible/emitted/truncated 权威。
-SQLite main 原生表的 int64 身份与 UTC 微秒时间支持在本地匹配、归约前准备一个
-直接、未版本化的 string/int64 Subject 入口轴，或按顺序排列的 int64/string 轴对，也支持经过单条 to-one UTC 每日 DATE snapshot 路径或以 NULL 表示开放结束的 UTC DATE 左闭右开 validity 路径的字符串轴。兼容的固定比较及 loss/denominator-mix 归因
-保留轴，可断源续算与冷恢复。snapshot 轴要求精确入口期；缺失时拒绝，不选择最新或较早的行。validity 包含起点、排除终点；缺失或重叠区间在发布前拒绝。其他轴数与顺序、路径/版本条件及形状尚未由此路线取得资格。
+SQLite main 原生表的 int64 身份与 UTC 微秒时间支持任意非空、去重、有序的直接
+string/int64 Subject 轴组合；Subject 必须未版本化，除既有图与快照预算外不增加轴数或
+排列限制。独立的历史轴 profile 仍支持一个经过单条 to-one UTC 每日 DATE snapshot 路径，
+或以 NULL 表示开放结束的 UTC DATE 左闭右开 validity 路径的字符串轴。
+nullable int64 坐标在 pandas 读取中保留精确 Arrow 类型，包含 hierarchy 非活动前缀；
+超过 `2**53` 的值不会经过 float64 转换。
+兼容的固定比较及 loss/denominator-mix 归因保留完整轴元组，可断源续算与冷恢复。
+snapshot 轴要求精确入口期；缺失时拒绝，不选择最新或较早的行。validity 包含起点、排除终点；
+缺失或重叠区间在发布前拒绝。此路线不能组合历史轴与其他轴；其他类型、路径/版本条件、
+空轴来源归约及形状仍需独立取得资格。
+
+若 SQLite Subject 声明了字符串 `region`/`channel` 和 int64 `code`，应在任一端点物化前
+准备完整轴元组。下面继续该 Subject 上逻辑状态的 `journeys` 与 `baseline_journeys`：
+
+```python
+direct_axes = (
+    ms.ref.dimension("sales.subjects.region"),
+    ms.ref.dimension("sales.subjects.code"),
+    ms.ref.dimension("sales.subjects.channel"),
+)
+current = journeys.funnel(axes=direct_axes).execute()
+baseline = baseline_journeys.funnel(axes=direct_axes).execute()
+three_axis_change = current.compare(baseline).execute()
+```
+
+O2b 的直接轴组合资格独立于此前 R9.3 的有界样例，不代表完整 C12 或安装包验收。
 
 来源路线为显式 Ibis 准备后本地消费，固定续算为 `artifact_python`。
 此处未增加原生 SQL 漏斗消费者，也不授予 same-wheel 或完整 R7 资格。

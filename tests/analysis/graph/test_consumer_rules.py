@@ -12,7 +12,7 @@ from typing import Literal, TypedDict
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.domain_captures import EntryAxisCapture
+from marivo.analysis.core.domain_captures import DomainPreparationError, EntryAxisCapture
 from marivo.analysis.core.model import (
     Binding,
     Coordinate,
@@ -374,8 +374,14 @@ def _axis(logical_type: Literal["string", "int64"], history: str = "direct") -> 
         ("string", True),
         ("int64", True),
         ("pair", True),
-        ("reverse", False),
+        ("reverse", True),
+        ("strings", True),
+        ("integers", True),
+        ("triple", True),
+        ("long_direct", True),
         ("empty", False),
+        ("mixed_history", False),
+        ("two_history", False),
         ("snapshot", True),
         ("validity", True),
         ("int_history", False),
@@ -431,11 +437,33 @@ def test_sqlite_funnel_parameter_boundaries(kind: str, case: str, accepted: bool
         if case == "pair"
         else (axis, _axis("int64"))
         if case == "reverse"
+        else (axis, _axis("string"))
+        if case == "strings"
+        else (_axis("int64"), _axis("int64"))
+        if case == "integers"
+        else (axis, _axis("int64"), _axis("string"))
+        if case == "triple"
+        else tuple(_axis("string" if i % 2 else "int64") for i in range(17))
+        if case == "long_direct"
+        else (axis, _axis("string", "snapshot"))
+        if case == "mixed_history"
+        else (_axis("string", "snapshot"), _axis("string", "validity"))
+        if case == "two_history"
         else ()
         if case == "empty"
         else (_axis("int64"),)
         if case == "int64"
         else (axis,)
+    )
+    axes = tuple(
+        replace(
+            a,
+            dimension=replace(
+                a.dimension,
+                ref=RefPayloadV1.from_ref(ref.dimension(f"{a.dimension.entity_ref.path}.axis_{i}")),
+            ),
+        )
+        for i, a in enumerate(axes)
     )
     name: MethodName = "funnel.entry_axes" if kind == "prepare" else "funnel.reduce"
     item = next(
@@ -460,6 +488,13 @@ def test_sqlite_funnel_parameter_boundaries(kind: str, case: str, accepted: bool
     else:
         with pytest.raises(MethodRegistrationError, match="direct unversioned Subject axes"):
             admit_axes(renamed, params)
+
+
+@pytest.mark.parametrize("logical_type", ("float64", "boolean", "date32[day]"))
+def test_funnel_axis_types_reject_at_capture_owner(logical_type: str) -> None:
+    axis = _axis("string")
+    with pytest.raises(DomainPreparationError, match="string/int64 entry-axis path"):
+        replace(axis, dimension=replace(axis.dimension, logical_type=logical_type))
 
 
 def _observation() -> ObserveMetric:
