@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import inspect
 import re
 from collections import Counter
@@ -253,7 +254,6 @@ class DatasetDisclosureRegistry:
                         descriptor.output,
                         descriptor.constraints,
                         descriptor.effects,
-                        descriptor.failures,
                         descriptor.example.code,
                         descriptor.example.outcome,
                     )
@@ -261,9 +261,13 @@ class DatasetDisclosureRegistry:
                     raise invalid(
                         "complete callable inputs and executable example", descriptor.canonical_id
                     )
+                if any(
+                    not fact.strip() for fact in (*descriptor.constraints, *descriptor.failures)
+                ):
+                    raise invalid("nonempty owned constraints and repairs", descriptor.canonical_id)
                 names = tuple(p.name for p in descriptor.parameters)
                 if len(set(names)) != len(names) or any(
-                    not p.acquisition for p in descriptor.parameters
+                    not p.acquisition.strip() for p in descriptor.parameters
                 ):
                     raise invalid("unique parameter acquisition contracts", descriptor.canonical_id)
                 for binding in descriptor.bindings:
@@ -290,6 +294,50 @@ class DatasetDisclosureRegistry:
                             descriptor.canonical_id + ": " + repr(expected),
                         )
                 targets = self.callable_routes(descriptor)
+                if descriptor.discovery_family is not None:
+                    if descriptor.discovery_family not in ids:
+                        raise invalid(
+                            "a registered canonical callable family", descriptor.discovery_family
+                        )
+                    family = self.by_canonical_id(descriptor.discovery_family)
+                    if (
+                        not isinstance(family, CallableInput)
+                        or family.discovery_group is None
+                        or family.discovery_group != descriptor.discovery_group
+                        or family.discovery_family != family.canonical_id
+                    ):
+                        raise invalid(
+                            "one canonical callable family in the same discovery group",
+                            descriptor.canonical_id,
+                        )
+                try:
+                    tree = ast.parse(descriptor.example.code)
+                except SyntaxError as error:
+                    raise invalid(
+                        "an executable Python example", descriptor.canonical_id
+                    ) from error
+                defined = {
+                    n.id
+                    for n in ast.walk(tree)
+                    if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)
+                }
+                defined.update(
+                    alias.asname or alias.name.split(".")[0]
+                    for n in ast.walk(tree)
+                    if isinstance(n, (ast.Import, ast.ImportFrom))
+                    for alias in n.names
+                )
+                external = (
+                    {
+                        n.id
+                        for n in ast.walk(tree)
+                        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+                    }
+                    - defined
+                    - {"mv", "ms"}
+                )
+                if external != set(descriptor.example.requires):
+                    raise invalid("exact external example inputs", descriptor.canonical_id)
             elif isinstance(descriptor, TypeInput):
                 for type_binding in descriptor.bindings:
                     if type_binding.fields != public_fields(

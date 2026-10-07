@@ -1877,7 +1877,7 @@ class _NumericComparison(_Value):
 
         Args: others: One to fifteen distinct corresponding quantities. method: pearson, spearman, or kendall. lag_range: Signed offsets on the original complete time grid, or None for zero lag.
         Returns: A LogicalAssociationResult with coefficient and selected owned views.
-        Example: ``result = revenue.correlate(orders, margin, method="spearman")``.
+        Example: ``result = revenue.correlate(orders, method="spearman")``.
         Constraints: One Session and source/fixed closure; pairwise ordinary Null deletion only. Positive lag pairs the left t with right t+k. No causal or significance claim.
         """
         if any(not isinstance(v, _NumericComparison) for v in others):
@@ -2659,7 +2659,7 @@ class LogicalAnalysisDomain(_CohortDomain):
             complete_during: Explicit business-complete scopes with aware datetime bounds.
                 Omit for the existing observation policy; an empty tuple declares no complete buckets.
         Returns: A LogicalNumericRelation | LogicalRatioRelation bound to this exact relation.
-        Example: ``result = relation.observe(metric, during=during, via=via, coordinates=coordinates)``.
+        Example: ``result = relation.observe(metric, during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=buyer)``.
         Constraints: Ordinary Metric/Count routes have no fixed hop limit; each hop must be contiguous, explicitly keyed and directed to-one between unversioned Entities. The Metric, window, path and member binding must be admitted. Completeness requires one original sum on during=grid.window, no coordinates or at, and a complete non-partial grid. Uncovered buckets are Unknown with retained partial state. Business-covered observations cannot roll up; production uses DuckDB table/Parquet.
         """
         point: datetime | GridPoint | None = at if not isinstance(at, GridEndpoint) else None
@@ -3367,7 +3367,7 @@ class LogicalNumericRelation(_NumericComparison):
         """Construct a new current-row sum, count or equal-row mean.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
@@ -3486,7 +3486,7 @@ class MaterializedNumericRelation(_MaterializedValue, _NumericComparison):
         """Build fixed-only current-row statistic.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
@@ -3509,7 +3509,7 @@ class MaterializedGroupedNumericRelation(MaterializedNumericRelation):
         """Build a current-row statistic over this exact group.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Preserves every retained group axis and counts current materialized rows, not their original contributions.
@@ -3537,7 +3537,7 @@ class LogicalRolledNumericRelation(_OriginalContinuation):
         """Calculate a statistic over the current Singleton row.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
@@ -3576,7 +3576,7 @@ class MaterializedRolledNumericRelation(_MaterializedValue, _OriginalContinuatio
         """Build a fixed-only statistic over this Singleton row.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
@@ -3648,7 +3648,7 @@ class LogicalRatioRelation(_NumericComparison):
         """Calculate a statistic over current ratio rows.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
@@ -3731,7 +3731,7 @@ class MaterializedRatioRelation(_MaterializedValue, _NumericComparison):
         """Build a fixed-only current-row statistic.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
@@ -3754,7 +3754,7 @@ class LogicalRolledRatioRelation(_OriginalContinuation):
         """Calculate a statistic over current rolled ratio rows.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
@@ -3790,7 +3790,7 @@ class MaterializedRolledRatioRelation(_MaterializedValue, _OriginalContinuation)
         """Build a fixed-only statistic over current rolled ratio rows.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
@@ -3858,7 +3858,7 @@ class LogicalDifferenceRelation(_NumericComparison):
         """Calculate a statistic over current Difference rows.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
@@ -3939,7 +3939,7 @@ class MaterializedDifferenceRelation(_MaterializedValue, _NumericComparison):
         """Build a fixed-only current-row statistic.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
@@ -3999,7 +3999,7 @@ class LogicalSelectedDifferenceRelation(_NumericComparison):
         """Calculate a statistic over selected current rows.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
@@ -4072,7 +4072,7 @@ class MaterializedSelectedDifferenceRelation(_MaterializedValue, _NumericCompari
         """Build a fixed-only statistic over selected rows.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
@@ -4277,7 +4277,7 @@ class MaterializedCoefficientRelation(_MaterializedValue):
         """Calculate a statistic over current coefficient rows.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
@@ -4316,7 +4316,7 @@ class LogicalCoefficientSelectionRelation(_Value):
         """Calculate a statistic over the selected coefficient.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
@@ -4368,7 +4368,7 @@ class MaterializedCoefficientSelectionRelation(_MaterializedValue):
         """Build a fixed-only statistic over the selected coefficient.
 
         Args:
-            method: Closed row statistic method or admitted correlation method.
+            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.

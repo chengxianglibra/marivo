@@ -63,10 +63,8 @@ def test_first_round_help_has_receiver_specific_constraints() -> None:
     entry = render(REGISTRY, "entry")
     assert "Entity-member questions" in entry
     assert "start with session.members(Entity Ref)" in entry
-    assert (
-        "Use session.members(...) for typed analysis graphs and numeric statistical methods."
-        in entry
-    )
+    assert "Event and Lifecycle entries" in entry
+    assert "contract().show() -> its exact Help target" in entry
     assert "analysis.session.members" in entry
     assert "analysis.observe" not in entry
     assert "receiver's contract() actions" in render(REGISTRY, "methods")
@@ -97,7 +95,7 @@ def test_first_round_help_has_receiver_specific_constraints() -> None:
 
     observed = render(REGISTRY, "dsl.LogicalAnalysisDomain.observe")
     assert "governed Metric" in observed
-    assert "absolute bounds" in observed
+    assert "Fixed TimeScope, the exact grid.window" in observed
     assert "dsl.route" in observed and "dsl.routes" in observed
     assert "coordinates=coordinates" not in observed
 

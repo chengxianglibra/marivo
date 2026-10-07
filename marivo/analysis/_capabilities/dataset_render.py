@@ -69,10 +69,24 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
         render_class = descriptor.render_class
         routes = descriptor.members + descriptor.related
         lines.extend(descriptor.guidance)
+        rendered_families: set[str] = set()
         for t in routes:
-            lines.append(
-                "  marivo.help('analysis." + t + "') — " + registry.by_canonical_id(t).summary
-            )
+            member = registry.by_canonical_id(t)
+            if isinstance(member, CallableInput) and member.discovery_family is not None:
+                family = member.discovery_family
+                if family in rendered_families:
+                    continue
+                rendered_families.add(family)
+                lines.append("  " + registry.by_canonical_id(family).summary)
+                variants = tuple(
+                    route
+                    for route in routes
+                    if isinstance((entry := registry.by_canonical_id(route)), CallableInput)
+                    and entry.discovery_family == family
+                )
+                lines.extend("    marivo.help('analysis." + variant + "')" for variant in variants)
+            else:
+                lines.append("  marivo.help('analysis." + t + "') — " + member.summary)
     elif isinstance(descriptor, ReadCapability):
         render_class = "exact_callable"
         lines.append("Call: " + descriptor.public_entrypoint)
@@ -97,16 +111,34 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
         examples = 1
     elif isinstance(descriptor, CallableInput):
         render_class = "exact_callable"
-        signatures = tuple(dict.fromkeys(str(b.signature) for b in descriptor.bindings))
-        lines.append("Call: " + descriptor.public_entrypoint)
-        lines.extend("Signature: " + s for s in signatures)
+        signatures = tuple(
+            dict.fromkeys(
+                str(
+                    b.signature.replace(
+                        parameters=tuple(
+                            p
+                            for name, p in b.signature.parameters.items()
+                            if name not in ("self", "cls")
+                        ),
+                        return_annotation=inspect.Signature.empty,
+                    )
+                )
+                for b in descriptor.bindings
+            )
+        )
+        lines.extend("Signature: " + descriptor.public_entrypoint + s for s in signatures)
         lines.append("Returns: " + descriptor.output)
-        lines.append("Effects: " + descriptor.effects)
-        lines.extend("Constraint: " + text for text in descriptor.constraints)
-        lines.extend("Failure/repair: " + text for text in descriptor.failures)
         lines.extend("Input " + p.name + ": " + p.acquisition for p in descriptor.parameters)
-        routes = registry.callable_routes(descriptor)
-        lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)
+        disclosed = {descriptor.summary}
+        for label, facts in (
+            ("Constraint", descriptor.constraints),
+            ("Effects", (descriptor.effects,)),
+            ("Failure/repair", descriptor.failures),
+        ):
+            for fact in facts:
+                if fact not in disclosed:
+                    lines.append(label + ": " + fact)
+                    disclosed.add(fact)
         exports = {e.name: e for p in registry.providers for e in p.exports if e.name != "session"}
         bindings = tuple(name for name in descriptor.example.requires if name in exports)
         required = tuple(name for name in descriptor.example.requires if name not in exports)
@@ -122,9 +154,12 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
             (
                 "Example:",
                 prelude + descriptor.example.code,
-                "Expected: " + descriptor.example.outcome,
             )
         )
+        if descriptor.example.outcome not in (descriptor.output, "The receiver-bound result."):
+            lines.append("Expected: " + descriptor.example.outcome)
+        routes = registry.callable_routes(descriptor)
+        lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)
         examples = 1
     else:
         render_class = "public_type"

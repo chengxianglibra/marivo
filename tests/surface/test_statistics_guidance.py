@@ -167,8 +167,16 @@ def test_bilingual_nine_method_example_executes_with_current_continuations(
         "daily": daily,
     }
     english, chinese = (
-        _blocks("en", "analysis-workflow")[-1],
-        _blocks("zh", "analysis-workflow")[-1],
+        next(
+            block
+            for block in _blocks("en", "analysis-workflow")
+            if block.startswith('zscore = revenue.deviation(method="zscore")')
+        ),
+        next(
+            block
+            for block in _blocks("zh", "analysis-workflow")
+            if block.startswith('zscore = revenue.deviation(method="zscore")')
+        ),
     )
     assert english == chinese and english.startswith('zscore = revenue.deviation(method="zscore")')
     exec(compile(english, "bilingual-nine-method-example", "exec"), namespace)

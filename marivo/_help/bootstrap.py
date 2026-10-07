@@ -52,5 +52,6 @@ def render_bootstrap_help() -> str:
             '  marivo.help("authoring")',
             '  marivo.help("analysis")',
             "  marivo.help(entry)",
+            "  Existing analysis object: contract().show(), then marivo.help(value.method).",
         )
     )
