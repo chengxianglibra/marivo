@@ -54,6 +54,24 @@ Physical type/time/shape facts and resource limits must be verified and enforced
 by the subsequent compiler/execution consumers; this private registry does not
 observe them itself.
 
+O2a (2026-10-07) keeps the single registry and exact selection contract. Each
+private `Implementation` declares `numeric_specialization="consumer"` or
+`"exact"`; the default delegates to the existing consumer's typed specialization.
+Exact numeric policy does not suppress the separately admitted homogeneous
+linear input-arity expansion. Declaration copies explicitly set the policy for
+their resulting consumer rather than inheriting historical qualification limits.
+Implementation IDs and evidence remain provenance, never capability predicates.
+The shared consumer rules own prepared-numeric check placement, total Subject
+image recognition, and native direct-column distribution shapes. Funnel and
+Anchor physical consumers own their SQLite parameter restrictions. Admission
+still requires a genuine registered declaration before applying these rules.
+Method semantics continues to own checks, parts, precision and result contracts.
+The internal policy participates in the exact O1 compiler-handoff snapshot, but
+does not enter persisted qualification keys, implementation versions, plan
+digests or Store encoding. Existing support boundaries, mixed-input rejection
+and explicit route failures are unchanged; this refactor grants no new physical
+qualification or public capability.
+
 R3.2 introduced registration without qualified physical implementations. R3.4
 now connects the narrowly qualified consumers listed below; all other exact keys
 retain an explicit blocked reason and recovery condition for the owning R4-R8

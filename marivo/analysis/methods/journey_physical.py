@@ -43,6 +43,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 else "ibis_python",
             ),
             parts=("subject", "occurrences", "journey"),
+            numeric_specialization="consumer",
             qualification=Qualified(
                 f"r73.{method.name}.{item.key.shape}@v1",
                 "analysis.materialization.journey_execution"
@@ -66,6 +67,7 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
                 key=replace(item.key, method=method, input_types=(value,)),
                 parts=("row_state",),
                 precision="checked_int64",
+                numeric_specialization="consumer",
                 qualification=Qualified(
                     f"r94.{method.name}.{value}.{item.key.shape}@v1",
                     "analysis.materialization.graph_local_execution",
@@ -118,6 +120,7 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
             parts=("row_state",)
             if method.name == "row.mean"
             else ("subject", "journey", "cohort_decision"),
+            numeric_specialization="consumer",
             qualification=Qualified(
                 f"r73.{method.name}.{item.key.shape}@v1",
                 "analysis.materialization.graph_local_execution",

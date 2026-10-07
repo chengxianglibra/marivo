@@ -77,6 +77,9 @@ def sqlite_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         replace(
             item,
             key=replace(item.key, shape=replace(item.key.shape, backend="sqlite")),
+            numeric_specialization="consumer"
+            if item.key.input_types == (ScalarType("string"),)
+            else "exact",
             qualification=Qualified(
                 "r94.c18.sqlite.occurrence_prepare_string_subject_us_utc@v1"
                 if item.key.input_types == (ScalarType("string"),)
@@ -107,6 +110,7 @@ def remote_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         replace(
             item,
             key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+            numeric_specialization="consumer",
             qualification=Qualified(
                 f"r93.{backend}.occurrence_prepare_int64_us_utc@v1",
                 "analysis.materialization.domain_preparation",
@@ -141,6 +145,7 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
                     else "ibis_python",
                 ),
                 parts=("subject",),
+                numeric_specialization="consumer",
                 qualification=Qualified(
                     f"r72.subject_image.{item.key.shape}@v1",
                     "analysis.materialization.graph_local_execution",
@@ -215,6 +220,7 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
                 parts=("subject", "original_state", "coverage", "coordinate_state"),
                 precision="finite_float64" if method.name == "metric.mean" else "checked_int64",
                 contract_version=4 if method.name == "metric.mean" else 3,
+                numeric_specialization="consumer",
                 qualification=Qualified(
                     f"r72.prepared_observation.{method}.{item.key.shape}@v1",
                     "analysis.materialization.graph_preparation",

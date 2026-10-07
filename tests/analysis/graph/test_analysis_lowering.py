@@ -1338,7 +1338,17 @@ def test_lowering_reuses_static_admission(source_case, route: str) -> None:
 
 @pytest.mark.parametrize(
     "change",
-    ["stages", "checks", "physical", "output", "node", "literal_type", "registry", "capture"],
+    [
+        "stages",
+        "checks",
+        "physical",
+        "output",
+        "node",
+        "literal_type",
+        "registry",
+        "capture",
+        "specialization",
+    ],
 )
 def test_in_place_handoff_tampering_rejects_before_submission(source_case, change: str) -> None:
     leaf = _leaf(source_case[1])
@@ -1363,6 +1373,9 @@ def test_in_place_handoff_tampering_rejects_before_submission(source_case, chang
     elif change == "registry":
         registration = REGISTRY.lookup(admitted.physical_requirements[0].key.method)
         target, field, altered = registration, "implementations", ()
+    elif change == "specialization":
+        target = admitted.physical_requirements[0].implementation
+        field, altered = "numeric_specialization", "exact"
     else:
         assert admitted._handoff is not None
         target, field, altered = admitted._handoff.captured, "index", MappingProxyType({})

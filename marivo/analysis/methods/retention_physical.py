@@ -53,6 +53,9 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 route="artifact_python" if isinstance(base.key.shape, FixedShape) else route,
             ),
             parts=("subject", "anchor", "occurrences", "retention"),
+            numeric_specialization="exact"
+            if isinstance(base.key.shape, SourceShape) and base.key.shape.backend == "sqlite"
+            else "consumer",
             qualification=Qualified(
                 f"r93.c18.sqlite.event_retention_int64_us_utc.{route}@v1"
                 if isinstance(base.key.shape, SourceShape) and base.key.shape.backend == "sqlite"
@@ -83,6 +86,7 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
             base,
             key=replace(base.key, method=method, input_domains=(domain,)),
             parts=("subject", "history_view", "retention"),
+            numeric_specialization="consumer",
             qualification=Qualified(
                 f"r79.subject_transport.{method}.{base.key.shape}@v1",
                 "analysis.materialization.graph_local_execution",

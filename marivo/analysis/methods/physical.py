@@ -229,6 +229,7 @@ class Implementation:
     resources: ResourceRequirements
     qualification: Qualified | Unavailable
     contract_version: int = 1
+    numeric_specialization: Literal["consumer", "exact"] = "consumer"
 
     def __post_init__(self) -> None:
         if (
@@ -245,6 +246,7 @@ class Implementation:
             or type(self.qualification) not in (Qualified, Unavailable)
             or type(self.contract_version) is not int
             or self.contract_version < 1
+            or self.numeric_specialization not in ("consumer", "exact")
         ):
             reject(
                 "complete immutable implementation obligations and qualification",
