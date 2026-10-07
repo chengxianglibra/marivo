@@ -39,39 +39,62 @@ def _registered(method: MethodKey, law: str, registry: MethodRegistry) -> None:
         _fail("a method-registered local law", law)
 
 
-def fuse_selection(node: MethodNode, *, registry: MethodRegistry = REGISTRY) -> MethodNode:
-    """L1 for closed total int64 comparisons, preserving the exact output contract."""
-    topology(node, registry=registry)
-    _registered(node.method, "L1", registry)
+def selection_fusion_issue(
+    node: MethodNode, *, registry: MethodRegistry = REGISTRY
+) -> tuple[str, str] | None:
+    """Inspect captured L1 conditions without deriving or constructing a new graph."""
+    if "L1" not in registry.lookup(node.method).semantics.local_laws:
+        return "a method-registered local law", "L1"
     if node.value_type != ScalarType("int64"):
-        _fail("the qualified int64 selection law", repr(node.value_type))
+        return "the qualified int64 selection law", repr(node.value_type)
     outer = node.parameters
-    inner = node.inputs[0].node
+    inner = node.inputs[0].node if len(node.inputs) == 1 else None
     if not isinstance(outer, PartsTransport) or not isinstance(inner, MethodNode):
-        _fail("two adjacent registered selections", node.identity)
-    assert isinstance(outer, PartsTransport) and isinstance(inner, MethodNode)
+        return "two adjacent registered selections", node.identity
     prior = inner.parameters
     if (
         not isinstance(prior, PartsTransport)
+        or inner.value_type != node.value_type
+        or len(inner.inputs) != 1
+        or node.inputs[0].role != inner.inputs[0].role
+        or "L1" not in registry.lookup(inner.method).semantics.local_laws
         or prior.mode != "where"
         or outer.mode != "where"
         or not prior.predicates
         or not outer.predicates
         or not prior.keep_quantity
+        or prior.external_predicate
+        or outer.external_predicate
         or replace(prior, predicates=()) != replace(outer, predicates=())
         or len({p.unknown for p in (*prior.predicates, *outer.predicates)}) != 1
+        or inner.signature.quantity != node.signature.quantity
+        or inner.signature.parts != node.signature.parts
+        or inner.derivation.part_transform != node.derivation.part_transform
     ):
-        _fail("same-domain selections with identical parts and unknown policy", node.identity)
-    assert isinstance(prior, PartsTransport)
+        return "same-domain selections with identical parts and unknown policy", node.identity
     if any(
         leaf.operator == "is_defined"
         for tree in (*prior.predicates, *outer.predicates)
         for leaf in leaves(tree)
     ):
-        _fail(
+        return (
             "ordinary predicates on a common fully Defined domain",
             "tag selection changes the consumption domain",
         )
+    return None
+
+
+def fuse_selection(node: MethodNode, *, registry: MethodRegistry = REGISTRY) -> MethodNode:
+    """L1 for closed total int64 comparisons, preserving the exact output contract."""
+    topology(node, registry=registry)
+    issue = selection_fusion_issue(node, registry=registry)
+    if issue is not None:
+        _fail(*issue)
+    outer = node.parameters
+    inner = node.inputs[0].node
+    assert isinstance(outer, PartsTransport) and isinstance(inner, MethodNode)
+    prior = inner.parameters
+    assert isinstance(prior, PartsTransport)
     combined = method_node(
         (Edge(inner.inputs[0].role, inner.inputs[0].node),),
         replace(outer, predicates=(*prior.predicates, *outer.predicates)),

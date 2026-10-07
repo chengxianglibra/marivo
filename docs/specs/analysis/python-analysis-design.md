@@ -3162,4 +3162,39 @@ The public policies and examples are owned by
 [Operators and Frames](operators-and-frames.md#a1-field-owner-matching-and-evidence).
 Frozen authority and obsolete-format repair are owned by
 [Session State and Runtime](session-state-and-runtime.md#a1-frozen-premise-authority).
-A2 selection fusion and A3 state-kernel convergence are separate work.
+A2 selection fusion has its own bounded execution contract below; A3
+state-kernel convergence remains separate work.
+
+### A2 sequential fixed selection groups
+
+After fixed schedule validation, the local executor may group adjacent selected
+`artifact_python` int64 `PartsTransport(mode="where")` stages. The existing L1
+owner checks the same quantity, domain, edge roles, retained parts and unknown
+policy without constructing another MethodNode. Each stage remains independently
+admitted and physically qualified; source execution and numeric type qualification
+are unchanged.
+
+Only receiver-bound ordinary predicates qualify. External dependencies, tag
+selection, cohort, limit, display or attribution views, business-coverage changes,
+and stages with pending check requirements retain their normal execution. A shared
+intermediate, requested output, explicit Artifact leaf or unfamiliar part transport
+ends a group. Ordinary Subject, original/coordinate/row state, coverage, statistical
+weight, endpoint and correspondence parts qualify only with the actual required
+schema and complete-key layout. Fixed references and domain-specific parts retain
+their specialized owners.
+
+A group converts its primary rows and builds its complete-key index once, preserving
+duplicate-insertion failures. Predicates execute in original stage order over only
+the surviving original positions; all leaves in each predicate tree are consumed
+before truth composition. Required part key positions are located once. Primary
+and restricted parts are constructed only at the group's consumption boundary,
+with original row/part ordering and the exact terminal Signature and continuation.
+Non-Defined predicate operands still fail with the original CoreRuleError; its
+location identifies the consuming logical node.
+
+Grouping is invocation-local and preserves the logical DAG, definition fingerprint,
+ordered implementation records, per-stage proof digests and `plan_digest`. There
+is no public optimization switch or persisted second graph. An unqualified group
+uses the already selected ordinary stages. Once grouped computation starts, failure
+never retries those stages or changes route. The shared deadline, cancellation,
+resource cleanup and atomic publication boundaries still apply.
