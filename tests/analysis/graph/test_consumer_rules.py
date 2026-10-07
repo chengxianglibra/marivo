@@ -168,6 +168,19 @@ def test_declarations_and_dynamic_specialization_match_baseline(
 ) -> None:
     expected = _BASELINE[str(registration.semantics.key)]
     items = registration.implementations
+    # The explicitly requested remote ordinary Count adds eight keys. Preserve
+    # the original ordered declarations and specialization oracle unchanged.
+    if registration.semantics.key == MethodKey("metric.count"):
+        additions = tuple(
+            item
+            for item in items
+            if isinstance(item.key.shape, SourceShape)
+            and item.key.shape.backend in ("postgres", "mysql", "trino", "clickhouse")
+            and item.key.route == "ibis"
+            and item.key.input_domains == ("entity",)
+        )
+        assert len(additions) == 8
+        items = tuple(item for item in items if item not in additions)
     assert len(items) == expected["count"]
     assert _declaration_digest(items) == expected["declarations"]
     assert _specialization_digest(items) == expected["specialization"]
@@ -380,17 +393,17 @@ def _axis(logical_type: Literal["string", "int64"], history: str = "direct") -> 
         ("triple", True),
         ("long_direct", True),
         ("empty", False),
-        ("mixed_history", False),
-        ("two_history", False),
+        ("mixed_history", True),
+        ("two_history", True),
         ("snapshot", True),
         ("validity", True),
-        ("int_history", False),
+        ("int_history", True),
         ("subject_version", False),
         ("timestamp", False),
         ("zone", False),
         ("closure", False),
         ("open_end", False),
-        ("long_path", False),
+        ("long_path", True),
     ],
 )
 def test_sqlite_funnel_parameter_boundaries(kind: str, case: str, accepted: bool) -> None:
@@ -479,14 +492,20 @@ def test_sqlite_funnel_parameter_boundaries(kind: str, case: str, accepted: bool
     if accepted:
         builtin.admit(item, params)
     else:
-        with pytest.raises(MethodRegistrationError, match="direct unversioned Subject axes"):
+        with pytest.raises(
+            MethodRegistrationError,
+            match="unversioned Subject through to-one UTC DATE history paths",
+        ):
             builtin.admit(item, params)
     assert isinstance(item.qualification, Qualified)
     renamed = replace(item, qualification=replace(item.qualification, implementation_id="x"))
     if accepted:
         admit_axes(renamed, params)
     else:
-        with pytest.raises(MethodRegistrationError, match="direct unversioned Subject axes"):
+        with pytest.raises(
+            MethodRegistrationError,
+            match="unversioned Subject through to-one UTC DATE history paths",
+        ):
             admit_axes(renamed, params)
 
 
@@ -602,17 +621,21 @@ def test_sqlite_anchor_observation_parameter_boundaries(case: str) -> None:
                 observation.quantity, ref.metric("sales.total"), ref.metric("sales.other")
             ),
         )
-    if case == "accepted":
+    if case in ("accepted", "type", "empty", "filters"):
         builtin.admit(item, params)
     else:
-        with pytest.raises(MethodRegistrationError, match="one int64 sum-zero Anchor observation"):
+        with pytest.raises(
+            MethodRegistrationError, match="count or additive int64/float64 Anchor sums"
+        ):
             builtin.admit(item, params)
     assert isinstance(item.qualification, Qualified)
     renamed = replace(item, qualification=replace(item.qualification, implementation_id="x"))
-    if case == "accepted":
+    if case in ("accepted", "type", "empty", "filters"):
         admit_observation(renamed, params)
     else:
-        with pytest.raises(MethodRegistrationError, match="one int64 sum-zero Anchor observation"):
+        with pytest.raises(
+            MethodRegistrationError, match="count or additive int64/float64 Anchor sums"
+        ):
             admit_observation(renamed, params)
 
 
@@ -630,11 +653,47 @@ def test_native_distribution_parameter_boundaries(case: str) -> None:
         params = replace(params, start=None)
     elif case == "end":
         params = replace(params, end=None)
-    if case == "accepted":
+    if case in ("accepted", "type"):
         builtin.admit(item, params)
     else:
         with pytest.raises(
-            MethodRegistrationError, match="bounded int64 direct-column distribution"
+            MethodRegistrationError, match="bounded single-column native distribution"
+        ):
+            builtin.admit(item, params)
+
+
+@pytest.mark.parametrize(
+    "method,amount_type,accepted",
+    [
+        (method, amount_type, True)
+        for method in ("count_distinct", "approx_count_distinct")
+        for amount_type in ("int64", "float64", "string", "boolean", "date", "timestamp")
+    ]
+    + [
+        ("count_distinct", "decimal(38, 6)", True),
+        ("approx_count_distinct", "decimal(38, 6)", True),
+        ("count_distinct", "interval('us')", False),
+        ("percentile", "float64", True),
+        ("approx_percentile", "float64", True),
+        ("percentile", "decimal(38, 6)", False),
+        ("percentile", "interval('us')", False),
+        ("approx_percentile", "string", False),
+    ],
+)
+def test_native_distribution_method_carriers(
+    method: Literal["count_distinct", "approx_count_distinct", "percentile", "approx_percentile"],
+    amount_type: str,
+    accepted: bool,
+) -> None:
+    item = next(
+        i for r in REGISTRY.registrations for i in r.implementations if native_distribution(i)
+    )
+    params = replace(_observation(), method=method, amount_type=amount_type)
+    if accepted:
+        builtin.admit(item, params)
+    else:
+        with pytest.raises(
+            MethodRegistrationError, match="bounded single-column native distribution"
         ):
             builtin.admit(item, params)
 

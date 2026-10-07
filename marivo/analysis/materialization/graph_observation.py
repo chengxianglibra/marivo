@@ -80,9 +80,9 @@ from marivo.semantic.validator import (
 
 def _reject(received: str) -> DatasetConstructionError:
     return DatasetConstructionError(
-        expected="a qualified numeric occurrence, member route and declared or driver-bound event axis",
+        expected="a qualified Metric/Count occurrence, contiguous to-one member route and declared or driver-bound event axis",
         received=received,
-        repair="Use direct numeric Measure columns, an explicit default event axis for runtime leaves, and the exact contribution-to-member relationship.",
+        repair="Use supported direct Measure/Count inputs, comparable scalar or Decimal columns for distinct, an explicit default event axis for runtime leaves, and a complete directed to-one route from each contribution to members.",
         location="analysis.graph_observation",
         help_target="dsl.LogicalAnalysisDomain.observe",
     )
@@ -248,8 +248,7 @@ def observe_members(
             help_target="dsl.LogicalAnalysisDomain.observe",
         )
     if (
-        len(path) not in ((0, 1, 2, 3) if relative else (0, 1, 2))
-        or (path and path[-1].to_entity_ref.path != members.entity_schema.contract.ref.path)
+        (path and path[-1].to_entity_ref.path != members.entity_schema.contract.ref.path)
         or any(
             relationship.cardinality not in ("many_to_one", "one_to_one")
             or not relationship.keys
@@ -413,10 +412,11 @@ def observe_members(
                 "median",
                 "percentile",
                 "count_distinct",
+                "approx_count_distinct",
             )
         )
         or (
-            aggregate_kind == "count_distinct"
+            aggregate_kind in ("count_distinct", "approx_count_distinct")
             and amount_type.name in ("string", "boolean", "date", "timestamp")
         )
         or (

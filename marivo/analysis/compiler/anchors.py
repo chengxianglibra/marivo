@@ -109,6 +109,8 @@ def observe(
     bindings: tuple[SourceBinding, ...],
     relations: tuple[LoweredRelation, ...],
     checks: list[LoweredCheck],
+    part_expressions: list[tuple[str, ir.Table]],
+    part_source_ids: list[tuple[str, tuple[str, ...]]],
 ) -> tuple[ir.Table, RelationLayout, tuple[str, ...]]:
     params = stage.node.parameters
     assert isinstance(params, AnchorObserve)
@@ -141,9 +143,13 @@ def observe(
             isinstance(stage.implementation.key.shape, SourceShape)
             and stage.implementation.key.shape.backend != "duckdb"
         ):
-            assert len(candidates) == 1
-            candidate = candidates[0]
-            return candidate, candidate_layouts[0], ids
+            part_expressions.extend(
+                (f"uses_{i}", candidate) for i, candidate in enumerate(candidates)
+            )
+            part_source_ids.extend(
+                (f"uses_{i}", source_ids) for i, source_ids in enumerate(component_ids)
+            )
+            return candidates[0], candidate_layouts[0], component_ids[0]
         # Separate typed lists avoid coercing Decimal/Duration and preserve the
         # complete candidate identity even when component roots differ.
         bundles = [

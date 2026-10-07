@@ -2632,7 +2632,7 @@ class LogicalAnalysisDomain(_CohortDomain):
                 Omit for the existing observation policy; an empty tuple declares no complete buckets.
         Returns: A LogicalNumericRelation | LogicalRatioRelation bound to this exact relation.
         Example: ``result = relation.observe(metric, during=during, via=via, coordinates=coordinates)``.
-        Constraints: The Metric, window, path and member binding must be admitted. Completeness requires one original sum on during=grid.window, no coordinates or at, and a complete non-partial grid. Uncovered buckets are Unknown with retained partial state. Business-covered observations cannot roll up; production uses DuckDB table/Parquet.
+        Constraints: Ordinary Metric/Count routes have no fixed hop limit; each hop must be contiguous, explicitly keyed and directed to-one between unversioned Entities. The Metric, window, path and member binding must be admitted. Completeness requires one original sum on during=grid.window, no coordinates or at, and a complete non-partial grid. Uncovered buckets are Unknown with retained partial state. Business-covered observations cannot roll up; production uses DuckDB table/Parquet.
         """
         point: datetime | GridPoint | None = at if not isinstance(at, GridEndpoint) else None
         if isinstance(at, GridEndpoint):
@@ -5901,8 +5901,9 @@ class _Journey(_Value):
         Example: ``funnel = journeys.funnel(axes=(channel,))``.
         Constraints: Requires first_per_subject; fixed inputs cannot supply missing axes.
             SQLite admits nonempty unique ordered direct string/int64 axes on an unversioned
-            Subject, with no additional count or ordering limit. Historical axes retain
-            their separately qualified version and path constraints.
+            Subject, with no additional count or ordering limit. Direct and historical axes may
+            mix through multiple to-one paths; every versioned path Entity must use a UTC
+            native DATE snapshot or closed-open validity with NULL open end.
         """
         from marivo.analysis.materialization.graph_funnel import reduce
 
@@ -7253,7 +7254,7 @@ class _AnchorDomain(_Value):
 
         Returns: A LogicalNumericRelation on the complete Anchor instance domain.
         Example: ``values = anchors.observe(revenue, within=mv.elapsed(mv.duration(hours=168)), via=route)``.
-        Constraints: Shared overlapping contributions retain use keys; fixed new source input rejects.
+        Constraints: Shared overlapping contributions retain use keys; fixed new source input rejects. SQLite admits count and additive int64/float64 sums with zero/null empty policy, filtered slices and ratio/linear compositions. Relative paths have no fixed hop limit and retain version capture. Fold, cumulative, mean, distinct and contribution coordinates remain unqualified.
         """
         from marivo.analysis.materialization.graph_anchors import observe
 

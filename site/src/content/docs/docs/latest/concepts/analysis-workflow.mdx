@@ -276,8 +276,14 @@ distinct on DuckDB, SQLite, PostgreSQL, MySQL and Trino, plus explicitly approxi
 distinct on ClickHouse. Exact quantile runs on DuckDB/PostgreSQL; explicitly
 approximate quantile also runs on Trino/ClickHouse. Unsupported definitions reject
 before reading, with no automatic substitution. Original distribution quantities
-cannot roll up or allocate changes, and fixed recovery stays offline. Other input
-types, unbounded windows and complete C10 remain independently qualified.
+cannot roll up or allocate changes, and fixed recovery stays offline. Distinct also
+accepts float64, string, boolean, date and timestamp. Exact Decimal distinct preserves
+coefficients on PostgreSQL/MySQL/Trino; explicit approximate Decimal distinct also
+uses their native operations and ClickHouse's existing approximate operation.
+DuckDB preserves its native Decimal carrier. Quantiles also accept float64. MySQL
+BOOLEAN is reflected as int8 and remains rejected. Outside DuckDB, Decimal quantile results cannot
+preserve the Decimal carrier; native Duration lowering requires DuckDB epoch_us.
+Those inputs, unbounded windows and complete C10 remain separately qualified.
 
 Attribution is algebraic, association is descriptive, deviation scores are leads,
 and forecasts retain model assumptions. The agent owns synthesis and conclusions.
@@ -1284,10 +1290,11 @@ This Event-origin retention path also accepts string Subject keys. Int64 and
 string occurrence keys retain the complete Subject/Event/occurrence identity
 through fixed execution and cold recovery; string occurrence support does not
 mean that the Subject key is int64. Other source shapes keep their own qualification.
-A separate elapsed/calendar Anchor observation supports one direct int64 sum-zero Metric
-without coordinates or filters. Preparation preserves contribution reuse across overlapping
-windows, business order, and fixed/cold evidence. Compositions and other input shapes
-remain unqualified.
+SQLite elapsed/calendar Anchor observation accepts count and additive int64/float64 sums
+with zero/null empty policies, Metric slices, ratio and signed linear compositions.
+Components are captured separately and packed as typed lists before local consumption.
+Preparation preserves overlapping uses, business order and offline recovery. Mean, fold,
+cumulative, distinct, contribution coordinates and other numeric carriers remain rejected.
 The same SQLite shape supports binding Anchors from Journeys, preserving original
 assignments and start instants. Binding recovered fixed Journeys requires no
 source access or repeated matching. These Journey origins support the same direct
@@ -1350,17 +1357,17 @@ SQL funnel consumer, same-wheel or full R7 qualification is claimed here.
 SQLite native main tables with int64 identities and UTC microsecond timestamps
 support any nonempty unique ordered tuple of direct string/int64 Dimensions on an
 unversioned Subject, with no extra count or ordering limit beyond the existing
-graph and snapshot budgets. The separate historical profile supports one string
-axis through a to-one UTC daily DATE snapshot path or a UTC DATE closed-open
-validity path with NULL open end before local matching and reduction.
+graph and snapshot budgets. Historical string/int64 axes may follow multiple,
+multi-hop to-one routes. Each versioned path Entity uses UTC daily native DATE
+snapshots or UTC DATE closed-open validity with NULL open end before local matching.
 Nullable int64 coordinates retain exact Arrow-backed pandas types, including
 inactive hierarchy prefixes; values above `2**53` do not pass through float64.
 Compatible fixed comparisons and loss/denominator-mix
 allocation retain their axes for source-free continuation and cold recovery.
 Snapshot axes require the exact entry period; missing periods reject without selecting
 a latest or earlier row. Validity intervals include their start and exclude their end;
-missing or overlapping coverage rejects before publication. Historical axes cannot
-be combined with other axes under this route. Other types, paths/version profiles,
+missing or overlapping coverage rejects before publication. Direct and historical
+axes may combine under this route. Other types and version profiles,
 empty-axis source reduction and shapes remain separately unqualified.
 
 For a SQLite Subject declaring string `region`/`channel` and int64 `code`, prepare
@@ -1506,6 +1513,74 @@ Forecast models are naive(), drift(), and seasonal_naive(periods=s), with minimu
 history lengths 2, 3, and s+1. Bounds are nominal prediction intervals for future
 observations. Output filters keep the original training/search scope and Findings;
 fixed recovery validates captured facts without source reads or refitting.
+
+
+## Extended observation and entry paths
+
+Ordinary Metric/Count and relative observation routes have no fixed hop count. Use
+explicit contiguous directed to-one routes; ordinary Entities stay unversioned and
+relative observations retain current version capture. Native ordinary Count now
+runs on PostgreSQL, MySQL, Trino and ClickHouse, with complete identity checks,
+bounded filters and retained count state. Each contribution counts once; empty
+members are zero.
+
+SQLite Funnel accepts direct/history mixtures, multiple historical paths and
+multi-hop string/int64 axes from an unversioned Subject. Every versioned path
+Entity uses UTC native DATE snapshots or closed-open validity with NULL open end.
+Complete equal paths share a mapping; differing paths are captured independently
+and assembled by the full occurrence key before matching. Null and literal Other
+remain distinct. Existing graph/snapshot budgets and source/fixed boundaries apply.
+
+The following snippets assume the named semantic objects and logical receivers
+have already been declared. `sales.hop0` through `hop3` connect `sales.facts` to
+`sales.subjects`; `sales.snapshots` and `sales.leaf` have the historical paths above.
+
+```python
+long_routes = mv.routes(mv.route(
+    ms.ref.entity("sales.facts"),
+    through=tuple(ms.ref.relationship(f"sales.hop{i}") for i in range(4)),
+))
+long_count = population.observe(
+    ms.ref.metric("sales.number"),
+    during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+    via=long_routes,
+).execute()
+```
+
+```python
+history_axes = (
+    ms.ref.dimension("sales.subjects.region"),
+    ms.ref.dimension("sales.snapshots.code"),
+    ms.ref.dimension("sales.leaf.channel"),
+)
+history_current = journeys.funnel(axes=history_axes).execute()
+history_baseline = baseline_journeys.funnel(axes=history_axes).execute()
+history_change = history_current.compare(history_baseline).execute()
+```
+
+```python
+filtered_revenue = mv.runtime_metric.slice(
+    ms.ref.metric("commerce.revenue"),
+    by={ms.ref.dimension("commerce.facts.kind"): "finished"},
+    label="finished_only",
+)
+filtered_anchor = anchors.observe(
+    filtered_revenue,
+    within=mv.elapsed(mv.duration(seconds=10)),
+    via=ms.ref.relationship("commerce.participant"),
+).execute()
+```
+
+```python
+scalar_distinct = mv.runtime_metric.aggregate(
+    ms.ref.measure("sales.facts.amount"), agg="count_distinct", label="distinct_values",
+)
+distribution = session.members(ms.ref.entity("sales.subjects")).observe(
+    scalar_distinct,
+    during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+    via=ms.ref.relationship("sales.facts_subject"),
+).execute()
+```
 
 
 ## Nine statistical methods and retained views

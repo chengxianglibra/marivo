@@ -364,7 +364,7 @@ An undeclared reason rejects the transient result instead of being inferred
 from encountered rows.
 The R4.5 qualifications cover string member reads and grouping,
 windowed direct sum (explicit Null or zero empty policy) and Entity count,
-one- or two-hop to-one contribution paths, ordered absolute Difference, and
+contiguous explicitly keyed directed to-one contribution paths without a fixed hop limit, ordered absolute Difference, and
 same-member Spearman. Original ratios merge independent sum-zero and count
 components before division. A zero denominator yields Undefined, including
 when both original components are zero. Whole-domain and retained-coordinate
@@ -681,7 +681,7 @@ current public signatures or compatibility aliases.
 
 The qualified J1–J4 routes include DuckDB native tables and local Parquet sources,
 string/int64 Entity identity, direct string member reads/grouping, UTC microsecond
-event windows, direct int64/float64 sums, Entity count, one- or two-hop to-one
+event windows, direct int64/float64 sums, Entity count, contiguous explicitly keyed directed to-one
 paths, ordered absolute comparison (homogeneous int64/float64, same-scale
 Decimal, or same-unit Duration), original int64 sum-zero/count ratios, and
 same-member Spearman. The widened comparison types are bounded R6.2 incremental
@@ -2281,7 +2281,17 @@ accuracy contract. Ibis may implement an explicitly approximate declaration with
 an exact native operation; the submitted operation and authored intent remain
 separate evidence. Original distribution quantities have no original rollup or
 attribution authority. Fixed recovery uses retained values only. These registrations
-do not qualify other input types, unbounded windows or complete C10.
+do not qualify unbounded windows or complete C10. O2b expands these existing
+placements to comparable scalar distinct inputs (int64, float64, string, boolean,
+date and timestamp) and int64/float64 quantile inputs. VARCHAR width and native
+timestamp precision remain on the source expressions without coercion. MySQL
+BOOLEAN is reflected as int8 and retains the exact carrier rejection. Exact Decimal
+distinct preserves native coefficients on PostgreSQL, MySQL and Trino;
+explicit approximate Decimal distinct also uses their native operations and ClickHouse's
+existing approximate operation. DuckDB retains its native Decimal carrier.
+Outside DuckDB, Decimal quantiles retain a refusal because the native result cannot preserve the
+declared Decimal output. Native Duration lowering calls DuckDB epoch_us, which
+is unavailable on these providers; their Duration distributions remain rejected.
 
 ### R6.6 connected allocation
 
@@ -2599,9 +2609,14 @@ Null categories, without inventing Cartesian groups. Source-free comparison and
 joint/hierarchy allocation consume the retained tuple order and components.
 Nullable int64 axis coordinates use Arrow-backed pandas types on public reads,
 preserving values above 2**53 when Null or inactive hierarchy prefixes are present.
-Historical axes retain the single-string-axis, single-hop DATE snapshot/validity
-profile above; combinations with historical axes and longer paths remain
-unqualified. Empty-axis source reduction, other axis types, mixed source/fixed
+O2b also admits direct/history mixtures, multiple complete historical routes and
+multi-hop directed to-one paths for string/int64 axes. Every versioned Entity in
+a path, including intermediates, must retain the UTC native DATE snapshot or
+closed-open validity profile with NULL open end. The Subject remains unversioned.
+Identical full paths share a mapping; distinct paths are captured separately and
+assembled by the complete occurrence identity before Journey matching. Missing,
+duplicate or overlapping mappings fail before publication. No JOIN is multiplied
+by the number of independent axes. Empty-axis source reduction, other axis types, mixed source/fixed
 inputs and heterogeneous physical shapes do not gain qualification. This parameter
 extension preserves implementation keys, identities, versions and Store encoding;
 its execution evidence is recorded separately from R9.3 and full C12 acceptance.
@@ -2688,9 +2703,12 @@ the preparation key describes the Subject carrier, not the occurrence carrier.
 This capture qualification does not add Journey/History consumers or new source
 forms and timestamp units. Starts-only fixed anchors still reject
 new return inputs. A separately registered SQLite Event-origin Anchor Metric
-observation supports one direct int64 sum-zero Metric without coordinates or
-filters, using elapsed or calendar windows. Its preparation reads flat candidates and packs
-them into typed Arrow lists before local consumption, preserving overlapping
+observation supports count and additive int64/float64 sums with zero/null empty
+policy, Metric slices, ratio and signed linear composition in elapsed/calendar
+windows. Each component reads an independent flat candidate relation with its
+recorded source dependencies, then packs into a typed uses_i list. All reads
+finish under the original capture authority and deadline before local consumption,
+preserving overlapping
 window contribution multiplicity and business order. Own anchors and exact
 deadlines are excluded; fixed and cold reads retain the contribution evidence.
 SQLite also connects Journey-origin Anchor binding for this same native
@@ -2701,8 +2719,10 @@ the same direct Metric observations and elapsed/calendar retention, preserving
 original assignments and opportunities. Source candidates are prepared before
 local binding or consumption. Calendar deadlines use wall-time arithmetic; a
 return exactly at the spring-DST 23-hour deadline is excluded, while an elapsed
-24-hour observation includes it. Compositions, other input shapes and complete
-C18 qualification remain separate obligations.
+24-hour observation includes it. Mean, fold, cumulative, distinct, contribution
+coordinates, other numeric carriers, other shapes and complete C18 remain separate
+obligations. Relative observation paths retain current version capture without a
+fixed hop count.
 
 `AnchorDomain.retention` now binds a returning ParticipantRoleHandle on the same
 Subject and captures its finite occurrence envelope before local consumption.
@@ -3055,3 +3075,18 @@ daily = members.each(grid).observe(
     sum_metric, during=grid.window, complete_during=(complete,),
 )
 ```
+
+
+### O2b ordinary Count amendment (2026-10-07)
+
+Ordinary Metric/Count observation has no fixed hop count. Paths remain contiguous,
+explicitly keyed and directed to-one with complete endpoints; ordinary Entities
+are unversioned and relative observations keep their bounded version capture.
+The explicitly requested remote Count adds eight native table/UTC-us/ibis keys:
+PostgreSQL, MySQL, Trino and ClickHouse each retain int64 and string member carriers.
+Every lawful contribution contributes one, including rows with Null Measure values;
+Count is not COUNT(DISTINCT identity). Complete identity uniqueness and to-one
+checks reject duplicate/fanout bindings. Empty members are Defined(0); original
+count state remains int64 and fixed rollup/recovery consumes retained components.
+The original O2a declaration and specialization oracle remains unchanged for all
+preexisting declarations. These eight additions have separate acceptance evidence.

@@ -56,9 +56,13 @@ def recover(root: Path, phase: str) -> dict[str, Json]:
         assert isinstance(baseline, mv.MaterializedFunnelResult)
         assert isinstance(change, mv.MaterializedFunnelComparisonResult)
         assert run_ids(session) == before
-        axes = tuple(
-            ms.ref.dimension("sales.subjects." + name) for name in ("region", "code", "channel")
-        )
+        paths = state["axes"]
+        assert isinstance(paths, list)
+        names: list[str] = []
+        for axis_path in paths:
+            assert isinstance(axis_path, str)
+            names.append(axis_path)
+        axes = tuple(ms.ref.dimension(name) for name in names)
         end = mv.step(
             participant=ms.participant_role(event=ms.ref.event("sales.end"), name="subject"),
             key="end",
@@ -116,7 +120,7 @@ def recover(root: Path, phase: str) -> dict[str, Json]:
                     assert abs(level.baseline.sum() - 0.75) < 1e-15
                 # Inactive hierarchy prefixes must not turn exact BIGINT coordinates into floats.
                 full = frame.loc[frame.resolution == 3]
-                codes = full["sales.subjects.code"].dropna().tolist()
+                codes = full[axes[1].path].dropna().tolist()
                 assert all(type(value) is int for value in codes)
                 assert 2**53 + 1 in codes
                 assert 2**53 + 2 in codes

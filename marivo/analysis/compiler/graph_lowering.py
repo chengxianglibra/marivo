@@ -2544,6 +2544,13 @@ def _contribution_rows(
             params.amount_type.startswith("interval(")
             and root[params.amount_column].type().is_int64()
         )
+        and not (params.amount_type == "string" and root[params.amount_column].type().is_string())
+        and not (
+            isinstance(params, ObserveMetric)
+            and params.method in ("count_distinct", "approx_count_distinct")
+            and params.amount_type == "timestamp"
+            and root[params.amount_column].type().is_timestamp()
+        )
     ):
         _fail("the exact contribution amount type", str(root[params.amount_column].type()))
     if prepared:
@@ -3034,6 +3041,26 @@ def _observe(
         )
     target = canonical_layout(stage.node.signature, has_value=True)
     if isinstance(params, ObserveMetric) and params.method in DIRECT_ONLY_AGGREGATES:
+        amount_dtype = values.amount.type()
+        if isinstance(amount_dtype, dt.Decimal):
+            assert amount_dtype.precision is not None and amount_dtype.scale is not None
+            digits = "9" * (amount_dtype.precision - amount_dtype.scale) or "0"
+            if amount_dtype.scale:
+                digits += "." + "9" * amount_dtype.scale
+            checks.append(
+                IntegrityCheck(
+                    stage.output,
+                    "finite Decimal distribution input",
+                    values.filter(
+                        values.amount.notnull()
+                        & ~values.amount.between(
+                            ibis.literal("-" + digits).cast(amount_dtype),
+                            ibis.literal(digits).cast(amount_dtype),
+                        ).fill_null(False)
+                    ).select(violation=ibis.literal(1, type="int64")),
+                    source_ids,
+                )
+            )
         if params.method == "count_distinct":
             statistic = values.amount.nunique()
         elif params.method == "approx_count_distinct":
@@ -3647,9 +3674,17 @@ def lower(
             elif isinstance(params, AnchorObserve):
                 from marivo.analysis.compiler.anchors import observe as lower_anchor_observe
 
+                captured_ids: list[tuple[str, tuple[str, ...]]] = []
                 table, layout, source_ids = lower_anchor_observe(
-                    stage, inputs, bindings, tuple(results.values()), checks
+                    stage,
+                    inputs,
+                    bindings,
+                    tuple(results.values()),
+                    checks,
+                    part_expressions,
+                    captured_ids,
                 )
+                part_source_ids = tuple(captured_ids)
                 cell_reasons = (
                     ("null", ("empty_contribution",)),
                     ("undefined", ("zero_denominator",)),
@@ -3662,7 +3697,11 @@ def lower(
             elif isinstance(params, FunnelAxesPrepare):
                 from marivo.analysis.compiler.funnel_axes import lower_axes
 
-                table, layout, source_ids = lower_axes(stage, inputs[0], bindings, checks)
+                captured_ids = []
+                table, layout, source_ids = lower_axes(
+                    stage, inputs[0], bindings, checks, part_expressions, captured_ids
+                )
+                part_source_ids = tuple(captured_ids)
                 cell_reasons = ()
             elif isinstance(params, OccurrencePrepare):
                 from marivo.analysis.compiler.domain_preparation import lower_occurrences

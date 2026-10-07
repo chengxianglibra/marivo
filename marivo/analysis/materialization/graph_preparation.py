@@ -85,7 +85,7 @@ from marivo.analysis.materialization.graph_exchange import CompletedCheck, Excha
 from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.methods.consumer_rules import prepared_numeric
 from marivo.analysis.methods.domain_coverage import FACTS, coverage
-from marivo.analysis.methods.physical import SourceShape, TimeShape, arrow_scalar_type
+from marivo.analysis.methods.physical import TimeShape, arrow_scalar_type
 from marivo.analysis.methods.prepared_observation import Restriction, restrict, state
 from marivo.datasource.adapters import SourceSession
 from marivo.refs import ref
@@ -520,6 +520,35 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             keys=tuple(key.column for key in stage.layout.keys),
             validate_cells=False,
         )
+        if isinstance(params, (FunnelAxesPrepare, AnchorObserve)) and stage.part_expressions:
+            pools: list[pa.Table] = []
+            for _, expression in stage.part_expressions:
+                check()
+                pools.append(
+                    table
+                    if expression is stage.expression
+                    else _read(
+                        source,
+                        lowered,
+                        expression,
+                        purpose="analysis.domain.prepare",
+                        replacements={},
+                        keys=(),
+                        validate_cells=False,
+                    )
+                )
+            if isinstance(params, FunnelAxesPrepare):
+                from marivo.analysis.materialization.funnel_execution import assemble_axes
+
+                table = assemble_axes(table, tuple(pools))
+            else:
+                table = pa.Table.from_arrays(
+                    [
+                        pa.array([pool.to_pylist()], type=pa.list_(pa.struct(pool.schema)))
+                        for pool in pools
+                    ],
+                    names=[role for role, _ in stage.part_expressions],
+                )
         if isinstance(params, HistoryAxesPrepare):
             assert isinstance(stage.node, MethodNode)
             from marivo.analysis.materialization.history_views import (
@@ -642,18 +671,6 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             from marivo.analysis.materialization.anchor_execution import observe as observe_anchor
 
             candidates = tables[item.stage.inputs[1]]
-            if (
-                isinstance(item.stage.implementation.key.shape, SourceShape)
-                and item.stage.implementation.key.shape.backend != "duckdb"
-            ):
-                candidates = pa.Table.from_arrays(
-                    [
-                        pa.array(
-                            [candidates.to_pylist()], type=pa.list_(pa.struct(candidates.schema))
-                        )
-                    ],
-                    names=["uses_0"],
-                )
             results[item.stage.output] = observe_anchor(
                 item.stage.node,
                 results[item.stage.inputs[0]],

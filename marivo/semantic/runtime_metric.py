@@ -663,6 +663,9 @@ def aggregate(
         ... )
 
     Constraints:
+        Native bounded single-column distinct accepts comparable scalar and Decimal carriers;
+        native quantiles accept int64/float64 on their existing method/backend routes.
+        Outside DuckDB, Decimal quantiles and Duration retain structured precision/capability refusals.
         Only governed measure and dimension refs are accepted. The constructor
         does not execute data, create catalog authority, or accept custom code.
         A supplied fold requires a semi-additive measure; it overrides that
