@@ -173,7 +173,9 @@ def _common_details_kwargs(*, python_symbol: str = "revenue") -> dict[str, objec
 # --- Kind-specific details ---
 
 
-def test_datasource_details_fields():
+def test_datasource_details_fields() -> None:
+    fields: dict[str, object] = {"path": ":memory:"}
+    env_refs = {"password": "WAREHOUSE_PASSWORD"}
     d = DatasourceDetails(
         ref=_make_ref("warehouse", SemanticKind.DATASOURCE),
         kind=SemanticKind.DATASOURCE,
@@ -186,13 +188,45 @@ def test_datasource_details_fields():
         dependents=(),
         **_common_details_kwargs(python_symbol="warehouse"),
         backend_type="duckdb",
-        fields={"path": ":memory:"},
-        env_refs={"password": "WAREHOUSE_PASSWORD"},
+        fields=fields,
+        env_refs=env_refs,
     )
     assert d.backend_type == "duckdb"
     assert d.domain is None
     assert d.fields == {"path": ":memory:"}
     assert d.env_refs == {"password": "WAREHOUSE_PASSWORD"}
+    fields["path"] = "changed.duckdb"
+    env_refs["password"] = "CHANGED_PASSWORD"
+    assert d.fields == {"path": ":memory:"}
+    assert d.env_refs == {"password": "WAREHOUSE_PASSWORD"}
+    # Deliberately cross the read-only typing boundary to verify runtime immutability.
+    with pytest.raises(TypeError):
+        d.fields["path"] = "changed.duckdb"  # type: ignore[index]
+    with pytest.raises(TypeError):
+        d.env_refs["password"] = "CHANGED_PASSWORD"  # type: ignore[index]
+    rendered = d.render()
+    labels = (
+        "business_definition",
+        "guardrails",
+        "source_location",
+        "python_symbol",
+        "parents",
+        "children",
+        "dependents",
+        "backend_type",
+        "fields",
+        "env_refs",
+    )
+    lines = rendered.splitlines()
+    positions = [
+        next(i for i, line in enumerate(lines) if line.startswith(f"{label}:")) for label in labels
+    ]
+    assert positions == sorted(positions)
+    assert all(sum(line.startswith(f"{label}:") for line in lines) == 1 for label in labels)
+    assert "parents: (none)" in rendered
+    assert "children: (none)" in rendered
+    assert "dependents: (none)" in rendered
+    assert d.render() == rendered
 
 
 def test_domain_details_fields():
@@ -215,7 +249,7 @@ def test_domain_details_fields():
     assert d.default is True
 
 
-def test_entity_details_fields():
+def test_entity_details_fields() -> None:
     from marivo.semantic.dtos import TableSource
 
     d = EntityDetails(
@@ -238,6 +272,32 @@ def test_entity_details_fields():
     assert d.datasource.name == "warehouse"
     assert d.primary_key == ("order_id",)
     assert d.versioning is None
+    rendered = d.render()
+    labels = (
+        "business_definition",
+        "guardrails",
+        "source_location",
+        "python_symbol",
+        "parents",
+        "children",
+        "dependents",
+        "datasource",
+        "source",
+        "primary_key",
+        "versioning",
+    )
+    lines = rendered.splitlines()
+    positions = [
+        next(i for i, line in enumerate(lines) if line.startswith(f"{label}:")) for label in labels
+    ]
+    assert positions == sorted(positions)
+    assert all(sum(line.startswith(f"{label}:") for line in lines) == 1 for label in labels)
+    assert "parents: datasource:warehouse" in rendered
+    assert "children: (none)" in rendered
+    assert "dependents: (none)" in rendered
+    assert "primary_key: order_id" in rendered
+    assert "versioning: (none)" in rendered
+    assert d.render() == rendered
 
 
 def test_snapshot_versioning_fields():

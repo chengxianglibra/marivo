@@ -612,7 +612,14 @@ class _DetailsBase(RenderableResult):
         return f"{self.__class__.__name__} ref={self.ref.key}"
 
     def _detail_sections(self) -> list[Section]:
-        raise NotImplementedError
+        return _common_detail_sections(
+            context=self.context,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
 
     def _card(self) -> Card:
         card = Card(identity=self._repr_identity(), available=(".show()",))
@@ -634,14 +641,7 @@ class DatasourceDetails(_DetailsBase):
         object.__setattr__(self, "env_refs", MappingProxyType(dict(self.env_refs)))
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="backend_type", value=self.backend_type),
@@ -660,14 +660,7 @@ class DomainDetails(_DetailsBase):
     default: bool
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="owner", value=self.owner),
@@ -687,14 +680,7 @@ class EntityDetails(_DetailsBase):
     versioning: EntityVersioning | None
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="datasource", value=self.datasource.key),
@@ -713,14 +699,7 @@ class DimensionDetails(_DetailsBase):
     entity: Ref[SemanticKindTag]
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.append(FieldSection(label="entity", value=self.entity.key))
         return sections
 
@@ -737,14 +716,7 @@ class MeasureDetails(_DetailsBase):
     status_time_fold: TimeFoldIR | None = None
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="entity", value=self.entity.key),
@@ -782,14 +754,7 @@ class TimeDimensionDetails(_DetailsBase):
     sample_interval: SampleIntervalIR | None
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         parse_kind_display = self.parse_kind or "(inferred)"
         sections.extend(
             (
@@ -891,14 +856,7 @@ class SimpleMetricDetails(_DetailsBase):
         return "simple"
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             _metric_common_sections(
                 entities=self.entities,
@@ -1003,14 +961,7 @@ class DerivedMetricDetails(_DetailsBase):
         return "derived"
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             _metric_common_sections(
                 entities=self.entities,
@@ -1083,14 +1034,7 @@ class RelationshipDetails(_DetailsBase):
     to_version_resolution_required: bool
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="from", value=self.from_entity.key),
@@ -1128,14 +1072,7 @@ class EventDetails(_DetailsBase):
     definition_fingerprint: str
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="source_entity", value=self.source_entity.key),
@@ -1182,14 +1119,7 @@ class StateModelDetails(_DetailsBase):
     definition_fingerprint: str
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="subject", value=self.subject.key),
@@ -1247,14 +1177,7 @@ class BusinessOrderDetails(_DetailsBase):
     definition_fingerprint: str
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="subject", value=self.subject.key),
@@ -1322,14 +1245,7 @@ class PeriodCalendarDetails(_DetailsBase):
         return self.date
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="calendar_ref", value=self.ref.key),
@@ -1389,14 +1305,7 @@ class TemporalSetDetails(_DetailsBase):
     snapshot_status: Literal["missing", "current", "stale", "invalid"]
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="boundary_timezone", value=self.boundary_timezone),
@@ -1429,14 +1338,7 @@ class WorkScheduleDetails(_DetailsBase):
     snapshot_status: Literal["missing", "current", "stale", "invalid"]
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="boundary_timezone", value=self.boundary_timezone),

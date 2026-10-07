@@ -7,6 +7,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.graph_relation import Relation
 from marivo.semantic.ir import AggKind
 from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
@@ -1161,7 +1162,7 @@ def test_native_duration_tick_rounding_ties_and_sign() -> None:
 @pytest.mark.runtime
 @pytest.mark.parametrize("family", ["int64", "float64", "decimal", "duration"])
 def test_current_row_counts_keep_numeric_null_policy(
-    analysis_dsl_case_factory: DslCaseFactory, family: str
+    analysis_dsl_case_factory: DslCaseFactory, family: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import duckdb
 
@@ -1181,7 +1182,24 @@ def test_current_row_counts_keep_numeric_null_policy(
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
     )
+    assert isinstance(logical, mv.LogicalNumericRelation)
     fixed = logical.execute()
     for relation in (logical, fixed):
         assert relation.summarize(mv.count()).execute().to_pandas().value.tolist() == [4]
         assert relation.summarize(mv.count_defined()).execute().to_pandas().value.tolist() == [3]
+
+    def unexpected_dispatch(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Invalid row methods must reject before graph construction.")
+
+    with monkeypatch.context() as context:
+        context.setattr(Relation, "summarize", unexpected_dispatch)
+        for relation in (logical, fixed):
+            with pytest.raises(AnalysisError) as caught:
+                # Deliberately cross the typed boundary to verify the concrete runtime repair.
+                relation.summarize(object())  # type: ignore[arg-type]
+            error = caught.value
+            assert error.expected == "mv.sum/count/count_defined/min/max/mean()"
+            assert error.received == "object"
+            assert error.location == "analysis.dsl"
+            assert error.repair is not None
+            assert error.repair.action == "Select a closed row method."
