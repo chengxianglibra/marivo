@@ -65,15 +65,12 @@ def finish_division(numerator: Number, denominator: Number, output: ValueType) -
     return value_float
 
 
-def merge_original(
+def merge_components(
     rows: Sequence[Mapping[str, object]],
     schema: pa.Schema,
     components: tuple[str, ...],
-    method: str,
-    output: ValueType,
-    empty_rules: tuple[Literal["null", "zero"], ...],
-) -> tuple[dict[str, Number], Number | None, str, str | None]:
-    """Merge complete state rows; do not reconstruct omitted or damaged components."""
+) -> dict[str, Number]:
+    """Merge complete components in their captured carriers, without finishing."""
     totals: dict[str, Number] = {}
     for name in components:
         values = [row[name] for row in rows]
@@ -95,6 +92,17 @@ def merge_original(
             )
             values = [(min(active) if name == "min" else max(active)) if active else zero]
         totals[name] = checked_sum(values, schema.field("original_state__" + name).type)
+    return totals
+
+
+def finish_original(
+    totals: Mapping[str, Number],
+    components: tuple[str, ...],
+    method: str,
+    output: ValueType,
+    empty_rules: tuple[Literal["null", "zero"], ...],
+) -> tuple[Number | None, str, str | None]:
+    """Project complete merged components using the owning method's empty policy."""
     value: Number | None
     tag, reason = "defined", None
     if method == "linear":
@@ -104,7 +112,7 @@ def merge_original(
                 components[1 : 2 * len(empty_rules) : 2], empty_rules, strict=True
             )
         ):
-            return totals, None, "null", "empty_contribution"
+            return None, "null", "empty_contribution"
         with localcontext() as context:
             context.prec = 120
             signed = [
@@ -140,10 +148,9 @@ def merge_original(
                 for prefix, rule in zip(("numerator", "denominator"), empty_rules, strict=True)
             )
         if not contributed:
-            return totals, None, "null", "empty_contribution"
+            return None, "null", "empty_contribution"
         if denominator == 0:
             return (
-                totals,
                 None,
                 "undefined" if method == "ratio" else "null",
                 "zero_denominator" if method == "ratio" else "zero_weight_sum",
@@ -155,4 +162,18 @@ def merge_original(
         value = totals[method if method in ("min", "max") else "sum"]
         if totals["non_null_count"] == 0 and method != "sum_zero":
             value, tag, reason = None, "null", "empty_contribution"
+    return value, tag, reason
+
+
+def merge_original(
+    rows: Sequence[Mapping[str, object]],
+    schema: pa.Schema,
+    components: tuple[str, ...],
+    method: str,
+    output: ValueType,
+    empty_rules: tuple[Literal["null", "zero"], ...],
+) -> tuple[dict[str, Number], Number | None, str, str | None]:
+    """Merge complete state rows, then finish once in the captured output carrier."""
+    totals = merge_components(rows, schema, components)
+    value, tag, reason = finish_original(totals, components, method, output, empty_rules)
     return totals, value, tag, reason

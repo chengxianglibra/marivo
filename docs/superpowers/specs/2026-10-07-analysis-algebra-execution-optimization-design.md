@@ -2,7 +2,7 @@
 
 Date: 2026-10-07
 
-Status: A1 implementation and bounded acceptance are recorded in [A1 acceptance](2026-10-07-analysis-a1-acceptance.md). A2 fixed selection implementation and bounded acceptance are recorded in [A2 acceptance](2026-10-07-analysis-a2-acceptance.md). A3 remains a proposal. Trusting explicit semantic declarations and handling numerical overflow at execution are the user-selected directions.
+Status: A1 implementation and bounded acceptance are recorded in [A1 acceptance](2026-10-07-analysis-a1-acceptance.md). A2 fixed selection implementation and bounded acceptance are recorded in [A2 acceptance](2026-10-07-analysis-a2-acceptance.md). A3 state-kernel convergence and bounded direct-key L8 implementation are recorded in [A3 acceptance](2026-10-07-analysis-a3-acceptance.md). Trusting explicit semantic declarations and handling numerical overflow at execution are the user-selected directions.
 
 Research baseline: `panda@6801154111811bd94cd17343d52056e72306103a` plus the working tree inspected on 2026-10-07. Concurrent numeric and documentation changes exist; the SHA does not describe all inspected files.
 
@@ -27,7 +27,7 @@ Research baseline: `panda@6801154111811bd94cd17343d52056e72306103a` plus the wor
 6. source 路线继续使用 Ibis 和已选择的后端；fixed 路线复用本地内核。领域算法继续
    使用其专用方法，不建立覆盖所有算子的通用解释器或代数搜索引擎。
 
-A1 的第 5 节参数已进入可执行 API、owning specs、Help、错误修复、保存格式及中英文使用文档。A2 已进入 fixed 执行器，保留原逻辑图；A3 继续留在后续任务。
+A1 的第 5 节参数已进入可执行 API、owning specs、Help、错误修复、保存格式及中英文使用文档。A2 与 A3 已进入 fixed 执行器，保留原逻辑图；各自验收记录拥有实际范围与证据。
 
 ## 2. 当前实现与收益来源
 
@@ -319,8 +319,12 @@ Merge_h(Merge_g(state)) = Merge_(h composed with g)(state)
 存在显式 materialized 中间结果时，它是固定输入边界，不能越过它从历史贡献重算。
 数值异常按第 4.3 节处理，不用额外 source 查询证明 L8 的结合律。
 
-当前公共图的可表达链与完整 parts 运输需先用真实构图确认。首批若没有合格调用，
-只交付现有状态内核收敛，不新增“分层归约 API”制造优化对象，不发布 L8 加速结论。
+公共路径 `fixed.group_by(customer).rollup().rollup()` 已确认可以表达相邻归约。
+首批实现仅融合 sum、sum_zero、count、mean、ratio、weighted mean 和 linear 的
+完整输入键投影，后续坐标只能减少；parts 限于 Subject、original_state 和 coverage。
+共享节点、请求边界、显式物化、待完成检查、时间映射、嵌套贡献坐标、allocation_state
+和其他部件均结束融合组。资格不足继续原路径，开始融合后的失败直接传播。
+不新增 DSL，不扩张现有类型或原生数值路线；独立行为与成本证据见 A3 验收记录。
 
 ### 7.3 L7 与 L9 的边界
 
@@ -413,11 +417,11 @@ source 声明故意违约的测试不要求普通查询必须发现违约；只�
 | A1b 检查调度与消费 | `graph_lowering.py`、source/local execution、exchange 及相关专用检查产生者 | 删除通用阶段查询与重复消费扫描；真正的检查义务履行；mandatory 边界验收通过 |
 | A1c 具名前提参数 | `_comparison.py`、`public_dsl.py`、构图/保存与公共披露 owner | 第 5 节两个拟议参数端到端一致；假设和完成检查区分；没有泛化的校验关闭口 |
 | A2 连续筛选 | fixed execution 及必要的封闭资格判断 | 现有 int64 L1 范围正确融合，工作次数减少，高选择性路径不提前全量求值 |
-| A3 状态内核 | `numeric_state.py` 与确实重复的原始状态消费者；再评估已有分层图 | 重复职责收敛；若有合格 L8 调用再单独交付融合与收益证据 |
+| A3 状态内核与直接键 L8 | `numeric_state.py`、实际原始状态消费者与受限 fixed 阶段组 | 删除重复合并/finish；合格公共链减少中间工作；终端契约与必要失败边界通过独立验收 |
 
 每包独立更新其 owning contracts 和验收，保留当前工作区无关修改。并行数值类型方案
 先拥有 dtype、精度和原生算术的决定，本方案在其最终实现上复用，不把类型改动计为
 代数优化，也不恢复已被用户放弃的精度要求。
 
-本文保留原设计与实施边界。A1、A2 的实现、实际验收及未验证范围由各自验收记录
-拥有；A3 尚未实施，不能由前两包的通过结果推导其资格或收益。
+本文保留原设计与实施边界。A1、A2、A3 的实现、实际验收及未验证范围由各自验收记录
+拥有；不能由前序工作包的通过结果推导后续工作的资格或收益。

@@ -1,0 +1,1041 @@
+{
+  "environment": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.12.13",
+    "pyarrow": "25.0.1"
+  },
+  "base": "329dcc4cc499c6106c71e44bb6b226dbb4ed5a5c",
+  "sha256": {
+    "marivo/analysis/methods/numeric_state.py": "bd88c192fb46d062c50df92134a77cf1cdd291a04b1c551a3c1216b02839ff79",
+    "marivo/analysis/core/local_laws.py": "b940ad25c03174ee0a48134fa03a65b7e523329712e9794cdd6790e86f961211",
+    "marivo/analysis/materialization/graph_local_execution.py": "f508ad52f8e09ee9930876b31a1f8074c71925676d963352c6cbd7bdd331eef8",
+    "marivo/analysis/materialization/graph_attribution.py": "3b3f5e6717a9a2052ac5ab7054234919f4b877f0cb3edd21f4fd663a6118091f",
+    "marivo/analysis/materialization/graph_preparation.py": "6e6797e43066100f02e568af17d97a0d6a2e82b9cea10aece59739220dbe3d51",
+    "tests/analysis/graph/reduction_fixtures.py": "0beb363f0abc9b17ba72a6ce5df64198cc766cc2fd32ee07c4e4ef6457e35dba",
+    "devtools/fixed_reduction_cost.py": "5d263c079388bec0b968719ef3a1202d596b1a035d43cc96ebfcf0b7b6ba7fd2"
+  },
+  "warmups": 1,
+  "repetitions": 7,
+  "measurements": [
+    {
+      "method": "sum",
+      "carrier": "int64",
+      "rows": 20000,
+      "chain_length": 2,
+      "shared": false,
+      "definition_fingerprint": "2112714a6c00e130862504ce04b1d870afb05fbb8615617118c001780f0db94d",
+      "plan_digest": "4899dd5add1bd20067eecaddf9e49fab66d23911c6a529f68b1352e88915ed65",
+      "implementations": [
+        "r45.rollup.FixedShape(time=NoTime()).int64.entity@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1"
+      ],
+      "independent_value": 200010000,
+      "ordinary": {
+        "samples_ms": [
+          100.40266707073897,
+          99.80283409822732,
+          98.9665410015732,
+          99.6621249942109,
+          99.47720798663795,
+          98.63945899996907,
+          100.44279193971306
+        ],
+        "median_ms": 99.6621249942109,
+        "python_peak_bytes": 24979073,
+        "arrow_peak_bytes": 1344,
+        "state_merges": 4,
+        "finishes": 4,
+        "input_consumptions": 2,
+        "key_indexes": 6,
+        "exchange_constructions": 3,
+        "merged_rows": [
+          6667,
+          6667,
+          6666,
+          3
+        ],
+        "primary": [
+          {
+            "value": 200010000,
+            "cell_tag": "defined",
+            "cell_reason": null
+          }
+        ],
+        "parts": [
+          [
+            "original_state",
+            [
+              {
+                "original_state__sum": 200010000,
+                "original_state__non_null_count": 39999
+              }
+            ]
+          ],
+          [
+            "coverage",
+            [
+              {
+                "coverage__complete": true
+              }
+            ]
+          ]
+        ]
+      },
+      "grouped": {
+        "samples_ms": [
+          69.23379201907665,
+          69.63704200461507,
+          69.20954200904816,
+          68.76054196618497,
+          68.61220905557275,
+          70.07666700519621,
+          68.78604192752391
+        ],
+        "median_ms": 69.20954200904816,
+        "python_peak_bytes": 24977138,
+        "arrow_peak_bytes": 704,
+        "state_merges": 1,
+        "finishes": 1,
+        "input_consumptions": 1,
+        "key_indexes": 3,
+        "exchange_constructions": 2,
+        "merged_rows": [
+          20000
+        ],
+        "primary": [
+          {
+            "value": 200010000,
+            "cell_tag": "defined",
+            "cell_reason": null
+          }
+        ],
+        "parts": [
+          [
+            "original_state",
+            [
+              {
+                "original_state__sum": 200010000,
+                "original_state__non_null_count": 39999
+              }
+            ]
+          ],
+          [
+            "coverage",
+            [
+              {
+                "coverage__complete": true
+              }
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "method": "sum",
+      "carrier": "int64",
+      "rows": 20000,
+      "chain_length": 8,
+      "shared": false,
+      "definition_fingerprint": "c3ea2f981650b6125c3525425584aa42bf29d6ff31e8c67a69f7b6c40c68b3f7",
+      "plan_digest": "036752c9cb1f66f951092e82b3d9639d08c2a3c79e180786ad0262bf5f930a9e",
+      "implementations": [
+        "r45.rollup.FixedShape(time=NoTime()).int64.entity@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1"
+      ],
+      "independent_value": 200010000,
+      "ordinary": {
+        "samples_ms": [
+          96.41500003635883,
+          97.02179196756333,
+          96.56341699883342,
+          96.29941603634506,
+          97.31016599107534,
+          95.89825000148267,
+          97.45708294212818
+        ],
+        "median_ms": 96.56341699883342,
+        "python_peak_bytes": 24979073,
+        "arrow_peak_bytes": 5184,
+        "state_merges": 22,
+        "finishes": 22,
+        "input_consumptions": 8,
+        "key_indexes": 24,
+        "exchange_constructions": 9,
+        "merged_rows": [
+          6667,
+          6667,
+          6666,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          3
+        ],
+        "primary": [
+          {
+            "value": 200010000,
+            "cell_tag": "defined",
+            "cell_reason": null
+          }
+        ],
+        "parts": [
+          [
+            "original_state",
+            [
+              {
+                "original_state__sum": 200010000,
+                "original_state__non_null_count": 39999
+              }
+            ]
+          ],
+          [
+            "coverage",
+            [
+              {
+                "coverage__complete": true
+              }
+            ]
+          ]
+        ]
+      },
+      "grouped": {
+        "samples_ms": [
+          70.33358293119818,
+          68.62279202323407,
+          70.96774992533028,
+          68.74516711104661,
+          69.95816598646343,
+          68.53162497282028,
+          68.84720909874886
+        ],
+        "median_ms": 68.84720909874886,
+        "python_peak_bytes": 24977186,
+        "arrow_peak_bytes": 704,
+        "state_merges": 1,
+        "finishes": 1,
+        "input_consumptions": 1,
+        "key_indexes": 3,
+        "exchange_constructions": 2,
+        "merged_rows": [
+          20000
+        ],
+        "primary": [
+          {
+            "value": 200010000,
+            "cell_tag": "defined",
+            "cell_reason": null
+          }
+        ],
+        "parts": [
+          [
+            "original_state",
+            [
+              {
+                "original_state__sum": 200010000,
+                "original_state__non_null_count": 39999
+              }
+            ]
+          ],
+          [
+            "coverage",
+            [
+              {
+                "coverage__complete": true
+              }
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "method": "mean",
+      "carrier": "float64",
+      "rows": 20000,
+      "chain_length": 2,
+      "shared": false,
+      "definition_fingerprint": "d01757a212d9c44e19410ae6cd09ac055781d6c7ddf3e279ea5bfbd096626b0e",
+      "plan_digest": "2f7cffcd0dc83b002f4fe07ee4be5ddfe6a2c4a8c8e18c4e20550b8f038587a8",
+      "implementations": [
+        "r45.state_rollup.mean@v1.FixedShape(time=NoTime()).entity@v1",
+        "r45.state_rollup.mean@v1.FixedShape(time=NoTime()).group@v1"
+      ],
+      "independent_value": 5000.375009375234,
+      "ordinary": {
+        "samples_ms": [
+          122.76924995239824,
+          125.10966707486659,
+          123.07499989401549,
+          125.45675004366785,
+          125.87995897047222,
+          125.71220798417926,
+          124.24866703804582
+        ],
+        "median_ms": 125.10966707486659,
+        "python_peak_bytes": 28685439,
+        "arrow_peak_bytes": 1792,
+        "state_merges": 4,
+        "finishes": 4,
+        "input_consumptions": 2,
+        "key_indexes": 6,
+        "exchange_constructions": 3,
+        "merged_rows": [
+          6667,
+          6667,
+          6666,
+          3
+        ],
+        "primary": [
+          {
+            "value": 5000.375009375234,
+            "cell_tag": "defined",
+            "cell_reason": null
+          }
+        ],
+        "parts": [
+          [
+            "original_state",
+            [
+              {
+                "original_state__sum": 200010000.0,
+                "original_state__non_null_count": 39999,
+                "original_state__row_count": 59999,
+                "original_state__absolute_sum": 200010000.0
+              }
+            ]
+          ],
+          [
+            "coverage",
+            [
+              {
+                "coverage__complete": true
+              }
+            ]
+          ]
+        ]
+      },
+      "grouped": {
+        "samples_ms": [
+          94.93325010407716,
+          94.7412500390783,
+          95.53908300586045,
+          94.5727500366047,
+          100.29595799278468,
+          95.37645906675607,
+          96.23166709206998
+        ],
+        "median_ms": 95.37645906675607,
+        "python_peak_bytes": 28683504,
+        "arrow_peak_bytes": 1024,
+        "state_merges": 1,
+        "finishes": 1,
+        "input_consumptions": 1,
+        "key_indexes": 3,
+        "exchange_constructions": 2,
+        "merged_rows": [
+          20000
+        ],
+        "primary": [
+          {
+            "value": 5000.375009375234,
+            "cell_tag": "defined",
+            "cell_reason": null
+          }
+        ],
+        "parts": [
+          [
+            "original_state",
+            [
+              {
+                "original_state__sum": 200010000.0,
+                "original_state__non_null_count": 39999,
+                "original_state__row_count": 59999,
+                "original_state__absolute_sum": 200010000.0
+              }
+            ]
+          ],
+          [
+            "coverage",
+            [
+              {
+                "coverage__complete": true
+              }
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "method": "mean",
+      "carrier": "float64",
+      "rows": 20000,
+      "chain_length": 8,
+      "shared": false,
+      "definition_fingerprint": "85a50dae1684b673be4aae9b67e25f03446eb14e302fa1299f9d1f8d383e9025",
+      "plan_digest": "f8f511cca5efea4a57eb3b34e72b959af0ff7e412f17d38543609d02a398592a",
+      "implementations": [
+        "r45.state_rollup.mean@v1.FixedShape(time=NoTime()).entity@v1",
+        "r45.state_rollup.mean@v1.FixedShape(time=NoTime()).group@v1",
+        "r45.state_rollup.mean@v1.FixedShape(time=NoTime()).group@v1",
+        "r45.state_rollup.mean@v1.FixedShape(time=NoTime()).group@v1",
+        "r45.state_rollup.mean@v1.FixedShape(time=NoTime()).group@v1",
+        "r45.state_rollup.mean@v1.FixedShape(time=NoTime()).group@v1",
+        "r45.state_rollup.mean@v1.FixedShape(time=NoTime()).group@v1",
+        "r45.state_rollup.mean@v1.FixedShape(time=NoTime()).group@v1"
+      ],
+      "independent_value": 5000.375009375234,
+      "ordinary": {
+        "samples_ms": [
+          123.43949999194592,
+          124.20770793687552,
+          123.46324999816716,
+          125.37233298644423,
+          123.02762502804399,
+          125.27704203967005,
+          128.33766697440296
+        ],
+        "median_ms": 124.20770793687552,
+        "python_peak_bytes": 28685439,
+        "arrow_peak_bytes": 6400,
+        "state_merges": 22,
+        "finishes": 22,
+        "input_consumptions": 8,
+        "key_indexes": 24,
+        "exchange_constructions": 9,
+        "merged_rows": [
+          6667,
+          6667,
+          6666,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          3
+        ],
+        "primary": [
+          {
+            "value": 5000.375009375234,
+            "cell_tag": "defined",
+            "cell_reason": null
+          }
+        ],
+        "parts": [
+          [
+            "original_state",
+            [
+              {
+                "original_state__sum": 200010000.0,
+                "original_state__non_null_count": 39999,
+                "original_state__row_count": 59999,
+                "original_state__absolute_sum": 200010000.0
+              }
+            ]
+          ],
+          [
+            "coverage",
+            [
+              {
+                "coverage__complete": true
+              }
+            ]
+          ]
+        ]
+      },
+      "grouped": {
+        "samples_ms": [
+          94.74820795003325,
+          96.23899997677654,
+          97.05129207577556,
+          94.45025003515184,
+          96.9709160272032,
+          95.41020798496902,
+          96.70529107097536
+        ],
+        "median_ms": 96.23899997677654,
+        "python_peak_bytes": 28683552,
+        "arrow_peak_bytes": 1024,
+        "state_merges": 1,
+        "finishes": 1,
+        "input_consumptions": 1,
+        "key_indexes": 3,
+        "exchange_constructions": 2,
+        "merged_rows": [
+          20000
+        ],
+        "primary": [
+          {
+            "value": 5000.375009375234,
+            "cell_tag": "defined",
+            "cell_reason": null
+          }
+        ],
+        "parts": [
+          [
+            "original_state",
+            [
+              {
+                "original_state__sum": 200010000.0,
+                "original_state__non_null_count": 39999,
+                "original_state__row_count": 59999,
+                "original_state__absolute_sum": 200010000.0
+              }
+            ]
+          ],
+          [
+            "coverage",
+            [
+              {
+                "coverage__complete": true
+              }
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "method": "weighted_mean",
+      "carrier": "int64",
+      "rows": 20000,
+      "chain_length": 2,
+      "shared": false,
+      "definition_fingerprint": "29ac2e38613de9d69aba1508ec12778b28b73ab50157e29b5f92dd059f59dc25",
+      "plan_digest": "ddcfbd786ecc03a260ce4b0463577c1102215bb04fafcf1fefd41a22a1883aa4",
+      "implementations": [
+        "r45.state_rollup.weighted_mean@v1.FixedShape(time=NoTime()).entity@v1",
+        "r45.state_rollup.weighted_mean@v1.FixedShape(time=NoTime()).group@v1"
+      ],
+      "independent_value": 10001.166666666666,
+      "ordinary": {
+        "samples_ms": [
+          111.6899170447141,
+          111.02416692301631,
+          112.23429103847593,
+          111.61404103040695,
+          113.93641703762114,
+          112.45474999304861,
+          113.41374996118248
+        ],
+        "median_ms": 112.23429103847593,
+        "python_peak_bytes": 28361524,
+        "arrow_peak_bytes": 1792,
+        "state_merges": 4,
+        "finishes": 4,
+        "input_consumptions": 2,
+        "key_indexes": 6,
+        "exchange_constructions": 3,
+        "merged_rows": [
+          6667,
+          6667,
+          6666,
+          3
+        ],
+        "primary": [
+          {
+            "value": 10001.166666666666,
+            "cell_tag": "defined",
+            "cell_reason": null
+          }
+        ],
+        "parts": [
+          [
+            "original_state",
+            [
+              {
+                "original_state__weighted_numerator": 600070000,
+                "original_state__weight_sum": 60000,
+                "original_state__non_null_pair_count": 39999,
+                "original_state__row_count": 59999
+              }
+            ]
+          ],
+          [
+            "coverage",
+            [
+              {
+                "coverage__complete": true
+              }
+            ]
+          ]
+        ]
+      },
+      "grouped": {
+        "samples_ms": [
+          84.69437505118549,
+          85.09420801419765,
+          84.81904095970094,
+          84.64116707909852,
+          84.05075001064688,
+          85.12583293486387,
+          85.52108297590166
+        ],
+        "median_ms": 84.81904095970094,
+        "python_peak_bytes": 28359589,
+        "arrow_peak_bytes": 1024,
+        "state_merges": 1,
+        "finishes": 1,
+        "input_consumptions": 1,
+        "key_indexes": 3,
+        "exchange_constructions": 2,
+        "merged_rows": [
+          20000
+        ],
+        "primary": [
+          {
+            "value": 10001.166666666666,
+            "cell_tag": "defined",
+            "cell_reason": null
+          }
+        ],
+        "parts": [
+          [
+            "original_state",
+            [
+              {
+                "original_state__weighted_numerator": 600070000,
+                "original_state__weight_sum": 60000,
+                "original_state__non_null_pair_count": 39999,
+                "original_state__row_count": 59999
+              }
+            ]
+          ],
+          [
+            "coverage",
+            [
+              {
+                "coverage__complete": true
+              }
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "method": "ratio",
+      "carrier": "decimal",
+      "rows": 20000,
+      "chain_length": 2,
+      "shared": false,
+      "definition_fingerprint": "3510db89fc839192b8bcaeb23c92bcbfc428b03f6a6774bc66cbec4a0e594aff",
+      "plan_digest": "326d7266a6d128bfdd73bd542f3281f1c3f7433aefc70ed25c2d111d5b4165ea",
+      "implementations": [
+        "r45.state_rollup.ratio@v1.FixedShape(time=NoTime()).entity@v1",
+        "r45.state_rollup.ratio@v1.FixedShape(time=NoTime()).group@v1"
+      ],
+      "independent_value": 3333.5,
+      "ordinary": {
+        "samples_ms": [
+          131.97337498422712,
+          129.81608405243605,
+          134.0360000031069,
+          132.12049996946007,
+          132.3763330001384,
+          134.15637495927513,
+          132.29062501341105
+        ],
+        "median_ms": 132.29062501341105,
+        "python_peak_bytes": 29805320,
+        "arrow_peak_bytes": 1792,
+        "state_merges": 4,
+        "finishes": 4,
+        "input_consumptions": 2,
+        "key_indexes": 6,
+        "exchange_constructions": 3,
+        "merged_rows": [
+          6667,
+          6667,
+          6666,
+          3
+        ],
+        "primary": [
+          {
+            "value": 3333.5,
+            "cell_tag": "defined",
+            "cell_reason": null
+          }
+        ],
+        "parts": [
+          [
+            "original_state",
+            [
+              {
+                "original_state__numerator_sum": "200010000.00",
+                "original_state__numerator_non_null_count": 39999,
+                "original_state__denominator_sum": 60000,
+                "original_state__denominator_non_null_count": 20000
+              }
+            ]
+          ],
+          [
+            "coverage",
+            [
+              {
+                "coverage__complete": true
+              }
+            ]
+          ]
+        ]
+      },
+      "grouped": {
+        "samples_ms": [
+          105.65841698553413,
+          102.83858294133097,
+          104.97166600544006,
+          102.41420799866319,
+          102.95433294959366,
+          102.98216692171991,
+          103.78383309580386
+        ],
+        "median_ms": 102.98216692171991,
+        "python_peak_bytes": 29803433,
+        "arrow_peak_bytes": 1024,
+        "state_merges": 1,
+        "finishes": 1,
+        "input_consumptions": 1,
+        "key_indexes": 3,
+        "exchange_constructions": 2,
+        "merged_rows": [
+          20000
+        ],
+        "primary": [
+          {
+            "value": 3333.5,
+            "cell_tag": "defined",
+            "cell_reason": null
+          }
+        ],
+        "parts": [
+          [
+            "original_state",
+            [
+              {
+                "original_state__numerator_sum": "200010000.00",
+                "original_state__numerator_non_null_count": 39999,
+                "original_state__denominator_sum": 60000,
+                "original_state__denominator_non_null_count": 20000
+              }
+            ]
+          ],
+          [
+            "coverage",
+            [
+              {
+                "coverage__complete": true
+              }
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "method": "sum",
+      "carrier": "int64",
+      "rows": 0,
+      "chain_length": 8,
+      "shared": false,
+      "definition_fingerprint": "996ce6e518c55c26e498754981cd39cced26e754ea511da0d80d4ebfae320960",
+      "plan_digest": "19fc9e3627e17ca0586e4c2b9bd5bdefa354850cfbe0195f3ef9741c116550b6",
+      "implementations": [
+        "r45.rollup.FixedShape(time=NoTime()).int64.entity@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1"
+      ],
+      "independent_value": null,
+      "ordinary": {
+        "samples_ms": [
+          1.394208986312151,
+          1.2997080339118838,
+          1.2791251065209508,
+          1.276249997317791,
+          1.4802910154685378,
+          1.8719580257311463,
+          1.4179169666022062
+        ],
+        "median_ms": 1.394208986312151,
+        "python_peak_bytes": 26277,
+        "arrow_peak_bytes": 1664,
+        "state_merges": 1,
+        "finishes": 1,
+        "input_consumptions": 8,
+        "key_indexes": 24,
+        "exchange_constructions": 9,
+        "merged_rows": [
+          0
+        ],
+        "primary": [
+          {
+            "value": null,
+            "cell_tag": "null",
+            "cell_reason": "empty_contribution"
+          }
+        ],
+        "parts": [
+          [
+            "original_state",
+            [
+              {
+                "original_state__sum": 0,
+                "original_state__non_null_count": 0
+              }
+            ]
+          ],
+          [
+            "coverage",
+            [
+              {
+                "coverage__complete": true
+              }
+            ]
+          ]
+        ]
+      },
+      "grouped": {
+        "samples_ms": [
+          0.48745807725936174,
+          0.4711250076070428,
+          0.45620801392942667,
+          0.45375002082437277,
+          0.454624998383224,
+          0.4505409160628915,
+          0.4539589863270521
+        ],
+        "median_ms": 0.454624998383224,
+        "python_peak_bytes": 11323,
+        "arrow_peak_bytes": 768,
+        "state_merges": 1,
+        "finishes": 1,
+        "input_consumptions": 1,
+        "key_indexes": 3,
+        "exchange_constructions": 2,
+        "merged_rows": [
+          0
+        ],
+        "primary": [
+          {
+            "value": null,
+            "cell_tag": "null",
+            "cell_reason": "empty_contribution"
+          }
+        ],
+        "parts": [
+          [
+            "original_state",
+            [
+              {
+                "original_state__sum": 0,
+                "original_state__non_null_count": 0
+              }
+            ]
+          ],
+          [
+            "coverage",
+            [
+              {
+                "coverage__complete": true
+              }
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "method": "sum",
+      "carrier": "int64",
+      "rows": 20000,
+      "chain_length": 2,
+      "shared": true,
+      "definition_fingerprint": "e1d2b5e76854ce5d894517cdcb86fb46e6ef02a0a24a660ca736ee630b729907",
+      "plan_digest": "716f450ecd5ab99917d4eb7e1f819c85c3c6da029eca45be334b6d42bb5aa360",
+      "implementations": [
+        "r45.rollup.FixedShape(time=NoTime()).int64.entity@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1",
+        "r45.rollup.FixedShape(time=NoTime()).int64.group@v1",
+        "r62.artifact_python.cell.difference.FixedShape(time=NoTime())@v1"
+      ],
+      "independent_value": 0,
+      "ordinary": {
+        "samples_ms": [
+          97.03129099216312,
+          96.15300002042204,
+          97.94179198797792,
+          96.19575005490333,
+          97.16783394105732,
+          96.85916604939848,
+          97.27100003510714
+        ],
+        "median_ms": 97.03129099216312,
+        "python_peak_bytes": 24979201,
+        "arrow_peak_bytes": 3968,
+        "state_merges": 5,
+        "finishes": 5,
+        "input_consumptions": 3,
+        "key_indexes": 9,
+        "exchange_constructions": 5,
+        "merged_rows": [
+          6667,
+          6667,
+          6666,
+          3,
+          3
+        ],
+        "primary": [
+          {
+            "value": 0,
+            "cell_tag": "defined",
+            "cell_reason": null
+          }
+        ],
+        "parts": [
+          [
+            "current_endpoint",
+            [
+              {
+                "current_endpoint__value": 200010000,
+                "current_endpoint__cell_tag": "defined",
+                "current_endpoint__cell_reason": null,
+                "current_endpoint__state__sum": 200010000,
+                "current_endpoint__state__non_null_count": 39999,
+                "current_endpoint__complete": true
+              }
+            ]
+          ],
+          [
+            "baseline_endpoint",
+            [
+              {
+                "baseline_endpoint__value": 200010000,
+                "baseline_endpoint__cell_tag": "defined",
+                "baseline_endpoint__cell_reason": null,
+                "baseline_endpoint__state__sum": 200010000,
+                "baseline_endpoint__state__non_null_count": 39999,
+                "baseline_endpoint__complete": true
+              }
+            ]
+          ],
+          [
+            "correspondence",
+            [
+              {
+                "correspondence__current_present": true,
+                "correspondence__baseline_present": true,
+                "correspondence__current_error_bound": 0.0,
+                "correspondence__baseline_error_bound": 0.0,
+                "correspondence__result_error_bound": 0.0
+              }
+            ]
+          ]
+        ]
+      },
+      "grouped": {
+        "samples_ms": [
+          96.7657909495756,
+          96.48170904256403,
+          95.8099999697879,
+          98.0453749652952,
+          102.25179197732359,
+          97.307457937859,
+          105.56845797691494
+        ],
+        "median_ms": 97.307457937859,
+        "python_peak_bytes": 24978217,
+        "arrow_peak_bytes": 3968,
+        "state_merges": 5,
+        "finishes": 5,
+        "input_consumptions": 3,
+        "key_indexes": 9,
+        "exchange_constructions": 5,
+        "merged_rows": [
+          6667,
+          6667,
+          6666,
+          3,
+          3
+        ],
+        "primary": [
+          {
+            "value": 0,
+            "cell_tag": "defined",
+            "cell_reason": null
+          }
+        ],
+        "parts": [
+          [
+            "current_endpoint",
+            [
+              {
+                "current_endpoint__value": 200010000,
+                "current_endpoint__cell_tag": "defined",
+                "current_endpoint__cell_reason": null,
+                "current_endpoint__state__sum": 200010000,
+                "current_endpoint__state__non_null_count": 39999,
+                "current_endpoint__complete": true
+              }
+            ]
+          ],
+          [
+            "baseline_endpoint",
+            [
+              {
+                "baseline_endpoint__value": 200010000,
+                "baseline_endpoint__cell_tag": "defined",
+                "baseline_endpoint__cell_reason": null,
+                "baseline_endpoint__state__sum": 200010000,
+                "baseline_endpoint__state__non_null_count": 39999,
+                "baseline_endpoint__complete": true
+              }
+            ]
+          ],
+          [
+            "correspondence",
+            [
+              {
+                "correspondence__current_present": true,
+                "correspondence__baseline_present": true,
+                "correspondence__current_error_bound": 0.0,
+                "correspondence__baseline_error_bound": 0.0,
+                "correspondence__result_error_bound": 0.0
+              }
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}
