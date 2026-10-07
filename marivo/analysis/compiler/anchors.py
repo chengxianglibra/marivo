@@ -289,7 +289,11 @@ def observe(
     if state.method_version == "ratio@v1":
         return _ratio_finish(result, layout, stage.node.signature), layout, ids
     if state.method_version == "linear@v1":
-        return _linear_finish(result, layout, stage.node.signature), layout, ids
+        return (
+            _linear_finish(result, layout, stage.node.signature, stage.node.value_type.name),
+            layout,
+            ids,
+        )
     magnitude, support = component_names(state, 0, 1)
     defined = (result["original_state__" + support] > 0) | ibis.literal(
         isinstance(params.observations[0], ObserveCount) or state.method_version == "sum_zero@v1"

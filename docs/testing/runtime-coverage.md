@@ -87,3 +87,20 @@ contract tests, independent numerical oracles, malformed/unreadable input errors
 missing payloads, same-Session ownership, atomicity and cold recovery. Mixed tests
 retain those independent assertions. Stored Findings reads do not depend on
 opening result payloads; value reads and execution still report missing files.
+`test_offline_cold_parts_and_selected_views` retains producer exchange validation,
+source-offline continuation and selected-view cold recovery. It no longer expects
+private committed descriptor mutations to trigger reader revalidation.
+
+
+Native numeric precision is covered by `tests/analysis/numeric/test_native_numeric.py`:
+independent weighted types, provider output casts, direct mean, coordinate and
+fixed rollup, narrow numeric adaptation, and source-free fresh-process recovery.
+It also owns mixed-carrier component attribution, signed integer intermediate
+overflow in Duration/Decimal/float linear finishing, and the represented-Cell
+comparison boundary for source and fixed native linear results. Daily
+`test_analysis_attribution.py` checks independent component error bounds and
+rejects malformed floating magnitudes.
+Remote opt-in cases exercise bounded native table UTC-us inputs, independently
+from the default suite. `test_analysis_decimal_e2e.py` owns mixed Metric ratio and
+linear composition. Existing Duration, quantile, overflow and statistical tests
+retain their independent numerical contracts.

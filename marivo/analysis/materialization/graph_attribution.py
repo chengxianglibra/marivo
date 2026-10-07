@@ -312,7 +312,12 @@ def validate_endpoint(declaration: EndpointPart, table: pa.Table, *, complete: b
             raise invalid("endpoint Cell, original sufficient state or coverage disagrees")
         coord = declaration.coordinate_state
         if coord is not None and not coordinate_state_matches(
-            coord.components, coord.value_type, row[prefix + "groups"], original, coord.columns
+            coord.components,
+            coord.value_type,
+            row[prefix + "groups"],
+            original,
+            coord.columns,
+            coord.component_types,
         ):
             raise invalid("endpoint coordinate partition does not reproduce its original state")
 

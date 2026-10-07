@@ -718,7 +718,8 @@ def weighted_mean(
     Constraints:
         Both refs must resolve to measures on the same entity and physical row
         grain, and ``weight`` must be additive. Null value/weight pairs are
-        excluded together and a zero paired weight sum produces null.
+        excluded together and a zero paired weight sum produces null. Numeric
+        types may differ; Ibis/backend rounding applies.
     """
 
     if type(value) is not Ref or value.kind is not SemanticKind.MEASURE:

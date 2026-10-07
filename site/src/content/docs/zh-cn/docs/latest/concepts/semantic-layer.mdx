@@ -1516,3 +1516,17 @@ def net_amount(rows):
     discount = rows["discount"].fill_null(0)
     return gross - discount
 ```
+
+
+## 数值精度
+
+数值 Metric 聚合采用 Ibis 运算。已支持的路径允许 weighted mean 的 value/weight
+分别使用整数、浮点或 Decimal；ratio 的 Decimal 输入也可以返回 float64，Decimal
+mean 沿用绑定的 Ibis 结果类型。允许原生舍入及精度损失，零分母、空值配对和单位规则
+保持不变。rollup 合并保留的分量，不对显示的均值或比例再次求平均；读取已保存结果
+不会重算主值。
+
+```python
+average_price = ms.weighted_mean(name="average_price", value=price, weight=units)
+# price can be Decimal and units can be integer.
+```

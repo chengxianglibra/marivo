@@ -130,7 +130,7 @@ def test_sqlite_float_does_not_grant_decimal(
     ]
     assert len(implementations) == 1
     implementation = implementations[0]
-    assert implementation.precision == "finite_float64"
+    assert implementation.precision == "native_numeric"
     decimal_key = replace(implementation.key, input_types=(DecimalType(38, 6),) * 2)
     assert builtin.specialize_numeric(implementation, decimal_key).key != decimal_key
 
@@ -148,7 +148,7 @@ def test_wide_ratio_decimal_does_not_grant_other_scales(backend: str) -> None:
     ]
     assert len(implementations) == 1
     implementation = implementations[0]
-    assert implementation.precision == "exact"
+    assert implementation.precision == "native_numeric"
     other_scale = replace(implementation.key, input_types=(DecimalType(38, 8),) * 2)
     assert builtin.specialize_numeric(implementation, other_scale).key != other_scale
 
@@ -541,7 +541,7 @@ def test_independent_roots_and_temporal_fold(
             return
         if numeric_type == "decimal" and (
             backend == "sqlite"
-            or (ratio and backend not in ("duckdb", "postgres", "mysql", "clickhouse"))
+            or (ratio and backend not in ("duckdb", "postgres", "mysql", "clickhouse", "trino"))
         ):
             before = set(root.rglob("*.parquet"))
             with pytest.raises(MethodRegistrationError) as refused:
@@ -742,7 +742,7 @@ def test_independent_roots_and_temporal_fold(
                 assert isinstance(numerator, Decimal)
                 assert isinstance(denominator, Decimal)
                 ratio_value: object = frame.loc["a", "value"]
-                assert isinstance(ratio_value, Decimal)
+                assert isinstance(ratio_value, float)
 
             def forbid_source(*args: object, **kwargs: object) -> NoReturn:
                 pytest.fail("Fixed ratio rollup must use retained original components")
@@ -757,8 +757,8 @@ def test_independent_roots_and_temporal_fold(
             rolled_value: object = rolled_frame.loc[0, "value"]
             assert isinstance(rolled_value, (int, float, Decimal))
             if mode == "ratio_decimal":
-                assert rolled_value == Decimal("3.333333")
-                assert isinstance(rolled_value, Decimal)
+                assert rolled_value == pytest.approx(10 / 3)
+                assert isinstance(rolled_value, float)
             else:
                 assert rolled_value == pytest.approx(float(ratio_total), rel=1e-14)
             assert float(rolled_value) != pytest.approx(float(expected[mode]) / 2)

@@ -53,6 +53,16 @@ class EntitySchema:
         """Scalar carrier for existing single-value method qualification."""
         return self.identity_types[0]
 
+    def numeric_type(self, column: str) -> ValueType:
+        """Adapt narrow numeric measures without changing the bound source schema."""
+        if column in self.schema.names:
+            physical = self.schema.field(column).type
+            if pa.types.is_signed_integer(physical) and physical.bit_width < 64:
+                return ScalarType("int64")
+            if pa.types.is_floating(physical) and physical.bit_width < 64:
+                return ScalarType("float64")
+        return self.field_type(column)
+
     def field_type(self, column: str) -> ValueType:
         """Return an exact supported physical scalar for a bound source field."""
         index = self.schema.get_field_index(column)

@@ -156,7 +156,16 @@ class MethodRegistration:
                     )
                 method = self.semantics.key.name
                 input_types = implementation.key.input_types
-                if method in ("row.count", "row.count_defined") or (
+                if method in (
+                    "metric.ratio",
+                    "metric.linear",
+                    "state_rollup.linear",
+                    "state_rollup.mean",
+                    "state_rollup.weighted_mean",
+                    "state_rollup.ratio",
+                ) and not any(isinstance(item, DurationType) for item in input_types):
+                    precision = "native_numeric"
+                elif method in ("row.count", "row.count_defined") or (
                     method == "row.mean"
                     and all(isinstance(item, DurationType) for item in input_types)
                 ):

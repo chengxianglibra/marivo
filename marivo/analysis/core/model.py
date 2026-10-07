@@ -467,6 +467,7 @@ class CoordinateStatePart:
 
     extra_coordinates: tuple[Coordinate, ...] = ()
     attribution_only: bool = False
+    component_types: tuple[tuple[str, str], ...] = ()
 
     @property
     def coordinates(self) -> tuple[Coordinate, ...]:

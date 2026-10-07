@@ -42,8 +42,9 @@ def checked_sum(values: Sequence[object], physical: pa.DataType) -> Number:
 
 
 def finish_division(numerator: Number, denominator: Number, output: ValueType) -> Number:
-    """Round a ratio of validated retained components once to the output type."""
-    exact = Fraction(numerator) / Fraction(denominator)
+    """Finish retained components in their captured output carrier."""
+    if isinstance(output, (DurationType, DecimalType)):
+        exact = Fraction(numerator) / Fraction(denominator)
     if isinstance(output, DurationType):
         ticks = round(exact)
         if not -(2**63) <= ticks < 2**63:
@@ -58,7 +59,7 @@ def finish_division(numerator: Number, denominator: Number, output: ValueType) -
             if abs(value) >= Decimal(10) ** (output.precision - output.scale):
                 raise OverflowError("Decimal finish precision overflow")
             return value
-    value_float = float(exact)
+    value_float = float(numerator) / float(denominator)
     if not math.isfinite(value_float):
         raise OverflowError("float64 finish overflow")
     return value_float
@@ -117,7 +118,14 @@ def merge_original(
                 if output == ScalarType("float64")
                 else pa.int64()
             )
-            value = checked_sum(signed, dtype)
+            converted: list[Number] = (
+                [float(v) for v in signed]
+                if pa.types.is_floating(dtype)
+                else [Decimal(v) for v in signed]
+                if pa.types.is_decimal(dtype)
+                else signed
+            )
+            value = checked_sum(converted, dtype)
     elif method in ("mean", "weighted_mean", "ratio"):
         if method == "mean":
             numerator, denominator = totals["sum"], totals["non_null_count"]

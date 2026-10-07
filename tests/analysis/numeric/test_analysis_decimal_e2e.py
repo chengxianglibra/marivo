@@ -8,7 +8,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.errors import AnalysisError
 
 pytestmark = pytest.mark.runtime
 
@@ -73,7 +72,7 @@ def test_decimal_measure_and_retained_schema_agree(decimal_session: mv.Session) 
     assert Decimal("100.00") - rows["value"].iloc[0] == Decimal("80.00")
 
 
-def test_runtime_ratio_requires_explicit_decimal_normalization(
+def test_runtime_ratio_accepts_independent_numeric_components(
     decimal_session: mv.Session,
 ) -> None:
     expression = mv.runtime_metric.ratio(
@@ -81,8 +80,10 @@ def test_runtime_ratio_requires_explicit_decimal_normalization(
     )
     members = decimal_session.members(ms.ref.entity("sales.orders"))
     scope = mv.time_scope(start="2026-07-01", end="2026-07-02")
-    with pytest.raises(AnalysisError):
-        members.observe(expression, during=scope).rollup().execute()
+    observed = members.observe(expression, during=scope)
+    mixed = observed.rollup().execute()
+    assert observed.execute().rollup().execute().to_pandas()["value"].tolist() == [0.25]
+    assert mixed.to_pandas()["value"].tolist() == [0.25]
     expression = mv.runtime_metric.ratio(
         ms.ref.metric("sales.normalized_fee"), ms.ref.metric("sales.gmv"), label="fee_rate"
     )
@@ -92,10 +93,22 @@ def test_runtime_ratio_requires_explicit_decimal_normalization(
         .rollup()
         .execute()
     )
-    assert result.to_pandas()["value"].tolist() == [Decimal("0.25")]
+    assert result.to_pandas()["value"].tolist() == [0.25]
     assert (
         next(
             column for column in result.state.realized_schema.columns if column.name == "value"
         ).logical_type_id
-        == "decimal:38:6"
+        == "float64"
     )
+
+
+@pytest.mark.parametrize("fixed", [False, True])
+def test_mixed_linear_retains_each_component(decimal_session: mv.Session, fixed: bool) -> None:
+    expression = mv.runtime_metric.linear(
+        add=[ms.ref.metric("sales.gmv")], subtract=[ms.ref.metric("sales.fee")], label="net"
+    )
+    observed = decimal_session.members(ms.ref.entity("sales.orders")).observe(
+        expression, during=mv.time_scope(start="2026-07-01", end="2026-07-02")
+    )
+    result = (observed.execute() if fixed else observed).rollup().execute()
+    assert result.to_pandas().value.tolist() == [15.0]

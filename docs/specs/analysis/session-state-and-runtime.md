@@ -1763,3 +1763,15 @@ public complete observation. Runtime publication and cold reads validate both
 layers; unavailable business Cells cannot be coarsened through original rollup.
 The declaration is frozen into the graph/quantity identity. Ordinary acquisitions
 and independent remote reads retain their existing consistency contract.
+
+
+### Native numeric continuation
+
+Ordinary Metric mean/weighted mean/ratio/linear consumers use implementation
+contract version 5. Captured primary values and independent component schemas
+are authoritative on read. Source-free continuation uses local arithmetic over
+saved components and projects to the captured output type; it does not reopen the
+source or insert artifacts into DuckDB. Native rounding can differ across source
+and continuation. This changes numerical computation, not Store 8's trusted-read
+boundary or Unknown/Undefined/null semantics. No legacy algorithm migration is
+introduced.

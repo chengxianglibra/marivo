@@ -8,11 +8,45 @@ import pytest
 from marivo.analysis.methods.attribution import (
     allocate,
     allocation_errors,
+    component_errors,
     mapping,
     numeric,
     reconciles,
 )
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
+
+
+@pytest.mark.parametrize("exact", [1, Decimal("1.00")])
+@pytest.mark.parametrize("floating_numerator", [False, True])
+@pytest.mark.parametrize("weighted", [False, True])
+def test_component_errors_follow_each_numeric_carrier(
+    exact: int | Decimal, floating_numerator: bool, weighted: bool
+) -> None:
+    numerator = "weighted_numerator" if weighted else "numerator_sum"
+    denominator = "weight_sum" if weighted else "denominator_sum"
+    absolute_n = "absolute_weighted_numerator" if weighted else "numerator_absolute_sum"
+    absolute_d = "absolute_weight_sum" if weighted else "denominator_absolute_sum"
+    state: dict[str, object] = {
+        numerator: 1.0 if floating_numerator else exact,
+        denominator: exact if floating_numerator else 1.0,
+        "non_null_pair_count": 1,
+    }
+    state[absolute_n if floating_numerator else absolute_d] = 1.0
+    if weighted:
+        # Weighted state retains both magnitudes even for exact components.
+        state[absolute_d if floating_numerator else absolute_n] = exact
+    n_error, d_error = component_errors(state, "weighted_mean@v1" if weighted else "ratio@v1")
+    assert (n_error > 0) is floating_numerator
+    assert (d_error > 0) is not floating_numerator
+
+
+@pytest.mark.parametrize("magnitude", [-1.0, float("inf"), 1])
+def test_float_component_still_requires_valid_error_magnitude(magnitude: object) -> None:
+    with pytest.raises(ValueError, match="finite nonnegative original error magnitude"):
+        component_errors(
+            {"numerator_sum": 1, "denominator_sum": 1.0, "denominator_absolute_sum": magnitude},
+            "ratio@v1",
+        )
 
 
 def test_common_asymmetric_top_k_and_typed_other() -> None:

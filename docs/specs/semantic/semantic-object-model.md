@@ -707,8 +707,13 @@ backend-dependent division or null-fill policy is chosen at execution time.
 physical aggregate over two measures from the same entity. Marivo computes
 `SUM(value * weight) / NULLIF(SUM(weight), 0)` over rows where both inputs are
 non-null. The weight measure must be additive; the result is non-additive and
-inherits the value measure's unit. Observe persists exact `numerator` and
-`weight` components for weighted-mix attribution.
+inherits the value measure's unit. Observe persists separately typed `numerator`
+and `weight` components. Numeric value and weight types need not match: Ibis
+supports mixed integer/float/Decimal calculations with minimal adaptation. Native
+rounding is accepted; eligibility for weighted-mix attribution is checked by that
+consumer independently. Ordinary mean uses Ibis mean; ratios use Ibis division
+and can return float64 for Decimal components. Source mean and later sum/count
+rollup may differ numerically while preserving the same business formula.
 
 ## Derived metrics and decomposition
 

@@ -31,31 +31,6 @@ def _absolute_sum_matches(total: object, absolute: object, support: object) -> b
     )
 
 
-def _denominator_qualified(total: float, absolute: float) -> bool:
-    """Keep the zero policy; nonzero denominators must exclude zero from their bound."""
-    return total == 0 or abs(total) > absolute * 1e-12 + 1e-12
-
-
-def denominator_interval_spans_zero(kind: str, part: Mapping[str, object]) -> bool:
-    """Identify an unstable nonzero floating denominator for actionable rejection."""
-    names = {
-        "original_ratio": ("denominator_sum", "denominator_absolute_sum"),
-        "original_weighted_mean": ("weight_sum", "absolute_weight_sum"),
-    }.get(kind)
-    if names is None:
-        return False
-    total = part.get("original_state__" + names[0])
-    absolute = part.get("original_state__" + names[1])
-    return (
-        type(total) is float
-        and type(absolute) is float
-        and math.isfinite(total)
-        and math.isfinite(absolute)
-        and absolute >= 0
-        and not _denominator_qualified(total, absolute)
-    )
-
-
 def _division_matches(
     value: object, numerator: int | float | Decimal, denominator: int | float | Decimal
 ) -> bool:
@@ -238,6 +213,8 @@ def state_matches(
             with localcontext() as context:
                 context.prec = 100
                 operand = magnitude if term.startswith("plus_") else -magnitude
+                if type(value) is float:
+                    operand = float(operand)
                 if isinstance(operand, Decimal) or isinstance(signed_total, Decimal):
                     if isinstance(operand, float) or isinstance(signed_total, float):
                         return False
@@ -308,13 +285,9 @@ def state_matches(
             return False
         if type(denominator) is float:
             absolute = part.get("original_state__denominator_absolute_sum")
-            if (
-                not _absolute_sum_matches(
-                    denominator, absolute, part.get("original_state__denominator_non_null_count")
-                )
-                or not isinstance(absolute, float)
-                or not _denominator_qualified(denominator, absolute)
-            ):
+            if not _absolute_sum_matches(
+                denominator, absolute, part.get("original_state__denominator_non_null_count")
+            ) or not isinstance(absolute, float):
                 return False
         if denominator == 0:
             return (
@@ -323,7 +296,7 @@ def state_matches(
                 and primary.get("cell_reason") == "zero_denominator"
             )
         return (
-            _division_matches(value, numerator, denominator)
+            _numeric(value)
             and primary.get("cell_tag") == "defined"
             and primary.get("cell_reason") is None
         )
@@ -336,7 +309,7 @@ def state_matches(
             not isinstance(weighted_total, (int, float, Decimal))
             or type(weighted_total) not in (int, float, Decimal)
             or not isinstance(weight_total, (int, float, Decimal))
-            or type(weight_total) is not type(weighted_total)
+            or type(weight_total) not in (int, float, Decimal)
             or type(pairs) is not int
             or type(rows) is not int
             or not math.isfinite(weighted_total)
@@ -357,10 +330,8 @@ def state_matches(
             return False
         if type(weight_total) is float:
             absolute = part.get("original_state__absolute_weight_sum")
-            if (
-                not _absolute_sum_matches(weight_total, absolute, pairs)
-                or not isinstance(absolute, float)
-                or not _denominator_qualified(weight_total, absolute)
+            if not _absolute_sum_matches(weight_total, absolute, pairs) or not isinstance(
+                absolute, float
             ):
                 return False
         if pairs == 0 or weight_total == 0:
@@ -371,7 +342,11 @@ def state_matches(
                 == ("empty_contribution" if pairs == 0 else "zero_weight_sum")
             )
         return (
-            _division_matches(value, weighted_total, weight_total)
+            (
+                _division_matches(value, weighted_total, weight_total)
+                if primary.get("__duration_unit") in ("s", "ms", "us", "ns")
+                else _numeric(value)
+            )
             and primary.get("cell_tag") == "defined"
             and primary.get("cell_reason") is None
         )
@@ -515,7 +490,11 @@ def state_matches(
                 and primary.get("cell_reason") == "empty_contribution"
             )
         return (
-            _division_matches(value, total, count)
+            (
+                _division_matches(value, total, count)
+                if primary.get("__duration_unit") in ("s", "ms", "us", "ns")
+                else _numeric(value)
+            )
             and primary.get("cell_tag") == "defined"
             and primary.get("cell_reason") is None
         )
@@ -575,7 +554,11 @@ def state_matches(
             or (
                 type(value) is Decimal
                 and type(total) is Decimal
-                and _division_matches(value, total, count)
+                and (
+                    _division_matches(value, total, count)
+                    if primary.get("__duration_unit") in ("s", "ms", "us", "ns")
+                    else _numeric(value)
+                )
             )
         )
     if kind == "spearman":
@@ -606,6 +589,7 @@ def coordinate_state_matches(
     groups: object,
     original: Mapping[str, object],
     coordinate_columns: tuple[str, ...] = ("coordinate",),
+    component_types: tuple[tuple[str, str], ...] = (),
 ) -> bool:
     """Verify a complete ordered coordinate partition against its original state."""
     if not isinstance(groups, list):
@@ -621,11 +605,12 @@ def coordinate_state_matches(
         labels.append(label)
         for name in components:
             value: object = item[name]
-            floating = value_type == "float64" and "count" not in name
+            physical = dict(component_types).get(name, value_type)
+            floating = physical == "float64" and "count" not in name
             if floating:
                 if type(value) is not float or not math.isfinite(value):
                     return False
-            elif value_type.startswith("decimal(") and "count" not in name:
+            elif physical.startswith("decimal(") and "count" not in name:
                 if type(value) is not Decimal or not value.is_finite():
                     return False
             elif type(value) is not int or not -(2**63) <= value < 2**63:
@@ -666,7 +651,8 @@ def coordinate_state_matches(
         return False
     for name, entries in values.items():
         expected = original.get(f"original_state__{name}")
-        floating = value_type == "float64" and "count" not in name
+        physical = dict(component_types).get(name, value_type)
+        floating = physical == "float64" and "count" not in name
         if floating:
             if type(expected) is not float or not math.isfinite(expected):
                 return False

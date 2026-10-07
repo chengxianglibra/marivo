@@ -805,7 +805,7 @@ def test_public_relative_negative_and_minimum_integer_baseline(
 
 
 @pytest.mark.runtime
-def test_float_denominator_interval_and_mean_operand_envelope(
+def test_float_sum_envelope_and_native_mean_cell_boundary(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     from marivo.analysis.errors import AnalysisError
@@ -852,9 +852,16 @@ def test_float_denominator_interval_and_mean_operand_envelope(
                 for part in result._dataset.verified().parts
                 if part.role == "correspondence"
             )
-            assert mapping["correspondence__baseline_error_bound"][0].as_py() > 1e-12
-            with pytest.raises(AnalysisError):
-                left.compare(right, value="relative_change").execute()
+            if metric == "revenue":
+                assert mapping["correspondence__baseline_error_bound"][0].as_py() > 1e-12
+                with pytest.raises(AnalysisError):
+                    left.compare(right, value="relative_change").execute()
+            else:
+                assert mapping["correspondence__baseline_error_bound"][0].as_py() == 0.0
+                relative = left.compare(right, value="relative_change").execute().to_pandas()
+                mean = (1.0 + (-1.0 + 1e-13)) / 2
+                assert relative.value.tolist() == pytest.approx([(2.0 - mean) / abs(mean)])
+                assert relative.cell_tag.tolist() == ["defined"]
 
 
 @pytest.mark.runtime
@@ -944,7 +951,9 @@ def test_comparison_of_float_original_expression_operands(
         mapping = next(
             part.table for part in result._dataset.verified().parts if part.role == "correspondence"
         )
-        assert mapping["correspondence__current_error_bound"][0].as_py() > 0
+        assert mapping["correspondence__current_error_bound"][0].as_py() == 0.0
+        assert mapping["correspondence__baseline_error_bound"][0].as_py() == 0.0
+        assert mapping["correspondence__result_error_bound"][0].as_py() > 0
 
 
 @pytest.mark.runtime

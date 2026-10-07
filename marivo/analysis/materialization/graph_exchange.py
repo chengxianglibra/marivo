@@ -37,7 +37,6 @@ from marivo.analysis.methods.registry import REGISTRY
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.analysis.methods.state_validation import (
     coordinate_state_matches,
-    denominator_interval_spans_zero,
     difference_matches,
     state_matches,
 )
@@ -623,6 +622,7 @@ def collect(
                 row.get(part_role(coordinate) + "__groups"),
                 original[key],
                 coordinate.columns,
+                coordinate.component_types,
             ):
                 raise _invalid("coordinate partition differs from its complete original state")
     by_role = {part.role: part.table for part in parts}
@@ -1144,10 +1144,6 @@ def _verify_single_state_part(
         original = next(
             (p for p in contract.signature.parts if isinstance(p, OriginalStatePart)), None
         )
-        if denominator_interval_spans_zero(contract.state_kind, keyed_parts[key]):
-            raise _invalid(
-                "float64 denominator error interval spans zero; use a stable denominator or precise input types"
-            )
         if not state_matches(
             contract.state_kind,
             row,

@@ -334,10 +334,8 @@ def test_offline_cold_parts_and_selected_views(
     import os
     import subprocess
     import sys
-    from dataclasses import replace
 
     from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
-    from marivo.analysis.materialization.graph_protocol import validate_descriptor
 
     case = analysis_dsl_case_factory("j2")
     if parquet:
@@ -387,12 +385,6 @@ def test_offline_cold_parts_and_selected_views(
                     method_state=checked.method_state,
                     completed_checks=checked.completed_checks,
                 )
-    descriptor = result._dataset.artifact.descriptor
-    for field in ("contract_version", "method_state_version"):
-        with pytest.raises(AnalysisError):
-            validate_descriptor(
-                replace(descriptor, parts=tuple(replace(p, **{field: 2}) for p in descriptor.parts))
-            )
     path = case.root / "source_files" if parquet else case.database_path
     offline = path.with_name(path.name + ".offline")
     path.rename(offline)

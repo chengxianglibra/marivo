@@ -1931,6 +1931,52 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 else ()
             )
         )
+    if method.name in (
+        "metric.mean",
+        "metric.linear",
+        "state_rollup.linear",
+        "metric.weighted_mean",
+        "metric.ratio",
+        "state_rollup.mean",
+        "state_rollup.weighted_mean",
+        "state_rollup.ratio",
+    ):
+        native = tuple(
+            replace(
+                item,
+                key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+                qualification=Qualified(
+                    f"native_numeric.{backend}.{method}.{item.key}@v1",
+                    "analysis.compiler.graph_lowering",
+                    "tests/analysis/numeric/test_native_numeric.py",
+                ),
+            )
+            for item in declarations
+            if item.key.shape
+            == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
+            and isinstance(item.key.shape, SourceShape)
+            and item.key.route == "ibis"
+            and item.key.input_domains == ("entity",) * len(item.key.input_domains)
+            and all(t in (ScalarType("int64"), ScalarType("float64")) for t in item.key.input_types)
+            for backend in ("postgres", "mysql", "trino", "clickhouse", "sqlite")
+        )
+        declarations = tuple({item.key: item for item in (*declarations, *native)}.values())
+    if method.name in (
+        "metric.mean",
+        "metric.linear",
+        "state_rollup.linear",
+        "metric.weighted_mean",
+        "metric.ratio",
+        "state_rollup.mean",
+        "state_rollup.weighted_mean",
+        "state_rollup.ratio",
+    ):
+        declarations = tuple(
+            replace(item, precision="native_numeric", contract_version=5)
+            if not any(isinstance(t, DurationType) for t in item.key.input_types)
+            else item
+            for item in declarations
+        )
     return declarations
 
 
@@ -2177,6 +2223,10 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
         all(isinstance(value, DurationType) for value in key.input_types)
         and len(set(key.input_types)) == 1
     )
+    mixed_numeric = key.method.name in ("metric.ratio", "metric.linear") and all(
+        isinstance(value, DecimalType) or value in (ScalarType("int64"), ScalarType("float64"))
+        for value in key.input_types
+    )
     float_inputs = key.method.name in (
         "cell.difference",
         "cell.relative_change",
@@ -2185,7 +2235,7 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
         "metric.linear",
         "state_rollup.linear",
     ) and key.input_types == (ScalarType("float64"),) * len(key.input_types)
-    if not (decimal_inputs or duration_inputs or float_inputs):
+    if not (decimal_inputs or duration_inputs or float_inputs or mixed_numeric):
         return implementation
     template = (
         ScalarType("float64")
@@ -2195,11 +2245,14 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
     )
     if implementation.key.input_types != (template,) * len(key.input_types):
         return implementation
-    precision: Literal["checked_int64", "finite_float64", "exact"] = (
-        "checked_int64"
+    precision: Literal["checked_int64", "finite_float64", "exact", "native_numeric"] = (
+        "native_numeric"
+        if implementation.precision == "native_numeric" and not duration_inputs
+        else "checked_int64"
         if key.method.name in ("row.count", "row.count_defined")
         else "finite_float64"
-        if key.input_types[0] == ScalarType("float64")
+        if mixed_numeric
+        or key.input_types[0] == ScalarType("float64")
         or (
             duration_inputs
             and key.method.name in ("cell.ratio", "cell.relative_change", "metric.ratio")
@@ -2303,7 +2356,7 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             ("decimal(", "interval(")
         ):
             reject(
-                "qualified homogeneous numeric pairs or Duration/int64 pairs",
+                "qualified numeric value/weight pairs or Duration/int64 pairs",
                 repr(params),
                 "Use the qualified value/weight types.",
             )

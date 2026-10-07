@@ -1694,3 +1694,18 @@ def net_amount(rows):
     discount = rows["discount"].fill_null(0)
     return gross - discount
 ```
+
+
+## Numeric precision
+
+Numeric Metric aggregates use Ibis operations. Weighted means accept independent
+integer, float and Decimal value/weight types on supported routes. Ratios may
+return float64 even with Decimal inputs; Decimal mean follows the bound Ibis
+result type. Native rounding and precision loss are accepted. Zero-denominator,
+null-pair and unit rules remain unchanged. Rollup merges retained components,
+not displayed means or ratios; a saved result is read unchanged.
+
+```python
+average_price = ms.weighted_mean(name="average_price", value=price, weight=units)
+# price can be Decimal and units can be integer.
+```

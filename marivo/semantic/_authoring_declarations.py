@@ -258,11 +258,12 @@ def weighted_mean(
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
 ) -> Ref[MetricKind]:
-    """Declare an exact tier-1 weighted mean over two row-level measures.
+    """Declare a tier-1 weighted mean over two row-level measures.
 
     Marivo computes ``sum(value * weight) / sum(weight)`` over rows where both
     inputs are non-null. A zero total weight produces null. The two measures
-    must resolve to the same entity and the weight must be additive.
+    must resolve to the same entity and the weight must be additive. Numeric
+    input types may differ; Ibis arithmetic determines native precision.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)

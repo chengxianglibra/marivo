@@ -907,6 +907,15 @@ def _fixed_operand_bound(
 ) -> float:
     if row is None or row["cell_tag"] != "defined" or type(row["value"]) is not float:
         return 0.0
+    quantity = source.contract.signature.quantity
+    if quantity is not None and quantity.method_version in (
+        "mean@v1",
+        "weighted_mean@v1",
+        "ratio@v1",
+        "linear@v1",
+    ):
+        # Certificates for subsequent methods start at the captured Cell value.
+        return 0.0
     for name in (
         "allocation_error_bound",
         "reference_error_bound",
@@ -948,6 +957,7 @@ def _fixed_operand_bound(
         "mean@v1",
         "weighted_mean@v1",
         "ratio@v1",
+        "linear@v1",
     ):
         component = {
             "mean@v1": "sum",
@@ -960,6 +970,7 @@ def _fixed_operand_bound(
             return roundoff(result)
     if quantity is not None and quantity.method_version in (
         "ratio@v1",
+        "linear@v1",
         "weighted_mean@v1",
         "linear@v1",
     ):
@@ -1004,6 +1015,7 @@ def _fixed_operand_bound(
         "mean@v1",
         "weighted_mean@v1",
         "ratio@v1",
+        "linear@v1",
         "linear@v1",
     ):
         raise _invalid("float aggregate lacks its retained rounding envelope")
@@ -1556,7 +1568,12 @@ def _original_ratio_rollup_stage(
         with localcontext() as context:
             context.prec = 100
             numerator = sum(
-                totals[name] * (1 if name.startswith("plus_") else -1)
+                (
+                    float(totals[name])
+                    if method.stage.node.value_type == ScalarType("float64")
+                    else totals[name]
+                )
+                * (1 if name.startswith("plus_") else -1)
                 for name in components[: 2 * len(original_contract.empty_rules) : 2]
             )
         denominator = 1
@@ -1612,7 +1629,9 @@ def _original_ratio_rollup_stage(
                     Decimal(1).scaleb(-output_type.scale), rounding=ROUND_HALF_EVEN
                 )
             else:
-                assert isinstance(numerator, (int, float)) and isinstance(denominator, (int, float))
+                assert isinstance(numerator, (int, float, Decimal)) and isinstance(
+                    denominator, (int, float, Decimal)
+                )
                 from marivo.analysis.methods.numeric_state import finish_division
 
                 result = (
@@ -2463,7 +2482,6 @@ def _grouped_row_result(
     scalar_node = replace(
         node,
         parameters=replace(params, output_domain=scalar_domain),
-        derivation=replace(node.derivation, output=replace(node.signature, domain=scalar_domain)),
     )
     scalar_method = replace(method, stage=replace(method.stage, node=scalar_node))
     outputs: list[ExchangeResult] = []

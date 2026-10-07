@@ -225,7 +225,9 @@ class Implementation:
     key: QualificationKey
     checks: tuple[CheckId, ...]
     parts: tuple[PartRole, ...]
-    precision: Literal["exact", "checked_int64", "finite_float64", "certified_statistical"]
+    precision: Literal[
+        "exact", "checked_int64", "finite_float64", "certified_statistical", "native_numeric"
+    ]
     resources: ResourceRequirements
     qualification: Qualified | Unavailable
     contract_version: int = 1
@@ -241,7 +243,13 @@ class Implementation:
             or any(item not in get_args(PartRole) for item in self.parts)
             or len(set(self.parts)) != len(self.parts)
             or self.precision
-            not in ("exact", "checked_int64", "finite_float64", "certified_statistical")
+            not in (
+                "exact",
+                "checked_int64",
+                "finite_float64",
+                "certified_statistical",
+                "native_numeric",
+            )
             or type(self.resources) is not ResourceRequirements
             or type(self.qualification) not in (Qualified, Unavailable)
             or type(self.contract_version) is not int
@@ -252,6 +260,21 @@ class Implementation:
                 "complete immutable implementation obligations and qualification",
                 repr(self),
                 "Declare exact checks, parts, precision, resources and evidence.",
+            )
+        if self.precision == "native_numeric" and self.key.method.name not in (
+            "metric.mean",
+            "metric.weighted_mean",
+            "metric.ratio",
+            "metric.linear",
+            "state_rollup.mean",
+            "state_rollup.weighted_mean",
+            "state_rollup.ratio",
+            "state_rollup.linear",
+        ):
+            reject(
+                "an ordinary native numeric method",
+                self.key.method.name,
+                "Retain this method's independent precision contract.",
             )
         if self.precision == "certified_statistical" and self.key.method.name not in (
             "deviation.zscore",
@@ -283,7 +306,7 @@ class Implementation:
         if (
             any(type(item) is DecimalType for item in self.key.input_types)
             and self.key.method.name not in ("row.count", "row.count_defined")
-            and self.precision != "exact"
+            and self.precision not in ("exact", "native_numeric")
             and not (
                 self.precision == "certified_statistical"
                 and self.key.method.name
