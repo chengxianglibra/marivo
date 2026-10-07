@@ -273,6 +273,16 @@ Dataset can perform every transformation. Bounded details and Help disclose
 facts through their existing native owners; Dataset `contract()` combines them
 with current coordinates, selection, and retained state.
 
+An analysis observation resolves its Metric contract once and passes that result
+to dispatch and component binding. Within one runtime-expression forest lowering,
+successful lowering of the same exact catalog Metric Ref is reused; every root,
+occurrence path and presentation label remains ordered and independently counted
+against expression budgets. These results do not survive the consuming call.
+Later consumers still interpret the original callable bodies and current declarations.
+The shallowly frozen registry and compiled dependency inventory are not an
+authority for a load-lifetime interpretation cache. Source schema and unknown
+physical types remain the responsibility of each current component binding.
+
 Relationship key coverage alone cannot advertise an unresolved historical
 Entity as a unique join side. The consuming operation must supply the exact
 temporal anchor; source cardinality follows the Entity declaration without an
