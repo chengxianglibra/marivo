@@ -8,16 +8,21 @@ workflow across `marivo.datasource` and `marivo.semantic`.
 An agent loads current project state, establishes the physical facts needed for
 the task, authors the smallest dependency-coherent semantic slice, and uses one
 `ms.load()` as the project-level static validation event. Exact authored roots
-are then resolved with `catalog.require(...)`, checked through scoped readiness,
-and handed to analysis when their business meaning has current authority.
+are then resolved with `catalog.require(...)`. Scoped readiness is required when
+the delivery needs analysis-ready roots; analysis handoff additionally requires
+current authority for their business meaning. Explanation and datasource tasks
+have their own earlier exits.
 
 The workflow has no public authoring lifecycle graph, no one-object-at-a-time
 checkpoint rule, and no separate static verification result.
 
 ## Ownership
 
-- `marivo.help(...)` owns current constructors, callable operations, effects,
-  input facts, constraints, examples, and repair routes.
+- `marivo.help(...)` owns static constructors, callable operations, effects,
+  input facts, constraints, examples, and proof boundaries. Entry briefings add
+  identity and usage navigation; error briefings preserve concrete failure facts.
+- Entry and details cards own current definitions. Check reports own actual
+  scope, outcomes, affected refs, and structured repair.
 - Datasource inspection, optional bounded sampling, and governed raw SQL expose
   physical evidence. They do not decide reusable business meaning.
 - Project Python is the semantic source of truth; `ms.load()` validates the
@@ -26,7 +31,19 @@ checkpoint rule, and no separate static verification result.
   choice, and residual-risk disclosure.
 - Current authority owns choices that change reusable business meaning.
 
-## Current flow
+## Task exits and decision dependencies
+
+Choose the exit before acquiring evidence:
+
+- Definition explanation loads and reads the current catalog, with details or
+  focused Help as needed; it does not require readiness or preview.
+- Datasource setup or repair ends at the requested connection validation.
+- Reusable authoring or repair supplies the exact roots needed by the parent
+  task, following the dependency flow below.
+
+The packaged skill groups decisions into task boundaries, reuse and business
+authority, evidence and validation choices, and delivery. Help navigation selects
+objects, builders, or checks; it does not repeat that workflow.
 
 ```text
 load current datasource and semantic catalogs
@@ -35,8 +52,9 @@ load current datasource and semantic catalogs
 -> author one dependency-coherent semantic slice
 -> one ms.load()
 -> catalog.require(...) for every authored root
--> scoped readiness and targeted runtime probes when needed
--> first typed analysis use
+-> scoped readiness when analysis-ready delivery is required
+-> targeted runtime/source-health probes for concrete remaining risks
+-> selected authoring exit or first typed analysis use
 ```
 
 ### 1. Enter from current state
@@ -128,8 +146,9 @@ separate per-object validation checkpoint between load and catalog navigation.
 
 ### 6. Scoped readiness and targeted runtime checks
 
-Run `catalog.readiness(refs=[...])` over the exact requested roots and their
-governed dependency closures. Readiness is snapshot-independent: it evaluates
+When delivering analysis-ready roots, run `catalog.readiness(refs=[...])` over
+the exact requested roots and their governed dependency closures. Readiness is
+snapshot-independent: it evaluates
 the current semantic project, the requested closure, and dedicated certified
 temporal artifacts, and exposes only `analysis_ready_inputs` as its handoff.
 
@@ -181,7 +200,8 @@ business semantics.
 ## Closeout
 
 An authoring closeout records the coherent slice changed, physical evidence and
-scope used, authoritative sources for business meaning, validation outcome,
-exact analysis-ready roots, and remaining warnings or runtime risks. If the
+scope used, authoritative sources for business meaning, checks performed and
+their outcomes, exact roots, and remaining warnings or runtime risks. Label
+roots analysis-ready only when readiness established that result. If the
 parent task includes analysis, the current refs or `analysis_ready_inputs` are
 handed to `marivo-analysis` and the original question continues.

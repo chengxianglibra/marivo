@@ -15,6 +15,7 @@ import ibis.expr.types as ir
 import pandas as pd
 
 from marivo._authoring.model import AuthoringRepair
+from marivo._authoring.render import _repair_summary
 from marivo._compat import UTC
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceAuthoringError, _backend_failure_summary
@@ -317,16 +318,35 @@ class SourceHealthCheckResult(RenderableResult):
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),
-            available=(".observed", ".affected_refs", ".repair", ".show()", ".to_dict()"),
+            available=(
+                ".observed",
+                ".affected_refs",
+                ".scopes",
+                ".repair",
+                ".show()",
+                ".to_dict()",
+            ),
         ).status(
             f"user_data_queried={self.user_data_queried} "
             f"datasource={self.datasource.key} source={self.source.kind}"
         )
         if self.affected_refs:
             card = card.listing("affected refs", (ref.key for ref in self.affected_refs))
+        if self.scopes:
+            card = card.listing(
+                "scopes",
+                (
+                    f"{entity_ref.key}: {json.dumps(_scope_dict(scope), sort_keys=True, default=str)}"
+                    for entity_ref, scope in self.scopes
+                ),
+            )
+        if self.observed:
+            card = card.field(
+                "observed", json.dumps(dict(self.observed), sort_keys=True, default=str)
+            )
         if self.repair is not None:
-            card = card.field("repair", self.repair.action)
-        return card
+            card = card.field("repair", _repair_summary(self.repair))
+        return card.field("checked_at", self.checked_at)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -364,10 +384,22 @@ class SourceHealthReport(RenderableResult):
         return f"SourceHealthReport status={self.status} checks={len(self.checks)}"
 
     def _card(self) -> Card:
-        return Card(
+        card = Card(
             identity=self._repr_identity(),
             available=(".checks", ".affected_refs", ".show()", ".to_dict()"),
-        ).table(
+        )
+        failures = tuple(check for check in self.checks if check.status != "current")
+        if failures:
+            card = card.listing(
+                "non-successful checks",
+                (
+                    f"{check.kind}: {check.status}; affected refs: "
+                    f"{', '.join(ref.key for ref in check.affected_refs) or 'none'}"
+                    + (f" -> {_repair_summary(check.repair)}" if check.repair is not None else "")
+                    for check in failures
+                ),
+            )
+        card = card.table(
             columns=("check", "status", "data query", "affected refs"),
             rows=(
                 (
@@ -382,6 +414,7 @@ class SourceHealthReport(RenderableResult):
             label="source health",
             show_omission_counts=True,
         )
+        return card.field("checked_at", self.checked_at)
 
     def to_dict(self) -> dict[str, object]:
         return {

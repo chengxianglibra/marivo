@@ -83,7 +83,7 @@ def _call_name(node: ast.expr) -> str | None:
 
 
 def _validate_minimal_example_signature(
-    *, example: str, public_entrypoint: str, callable_obj: object
+    *, example: str, public_entrypoint: str, callable_obj: object, decorator: bool = False
 ) -> None:
     tree = ast.parse(example)
     matching_calls = tuple(
@@ -96,6 +96,11 @@ def _validate_minimal_example_signature(
     )
 
     call = matching_calls[0]
+    if decorator:
+        assert any(
+            isinstance(node, ast.FunctionDef) and call in node.decorator_list
+            for node in ast.walk(tree)
+        ), f"minimal example must declare a function decorated by {public_entrypoint!r}: {example}"
     assert all(not isinstance(argument, ast.Starred) for argument in call.args), (
         f"minimal example must not use starred positional arguments: {example}"
     )
@@ -253,6 +258,7 @@ def validate_semantic_live_surface() -> None:
                 example=descriptor.minimal_example,
                 public_entrypoint=descriptor.public_entrypoint,
                 callable_obj=callable_obj,
+                decorator=descriptor.invocation_shape == "decorator",
             )
             _validate_parameter_metadata(descriptor, callable_obj)
             _validate_output_metadata(descriptor, callable_obj)

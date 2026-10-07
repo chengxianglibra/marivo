@@ -153,7 +153,8 @@ Authoring guidance is split so each surface has one job (elaborated in
   optional parameters, allowed values, defaults, omit rules, and static
   constraints from their native registries. `md` and `ms` execute their
   domain APIs and intentionally expose no separate `.help()` aliases. Help says
-  *what must be settled*; it carries no runtime data.
+  *what must be settled*. Entry briefings add identity and usage navigation;
+  error briefings preserve the concrete instance's facts and optional repair.
 - **Datasource exploration — runtime evidence.** Metadata inspection is the
   preferred schema path. Optional explicitly scoped sampling supplies generic
   bounded rows and profiles; governed raw SQL handles source-specific bounded
@@ -163,14 +164,16 @@ Authoring guidance is split so each surface has one job (elaborated in
   confirmed with `catalog.require(...)`; scoped preview, explicit source health,
   and readiness keep independent runtime, drift, and static contracts.
 
-The `marivo-semantic` skill owns workflow and routing only:
+The `marivo-semantic` skill owns task exits, reuse and business authority,
+evidence and validation choices, and delivery back to the parent task. Explaining
+an existing definition requires only loading and reading; datasource work ends
+at the requested connection outcome; reusable authoring validates one coherent
+slice and checks readiness when analysis-ready roots are required. Preview and
+source health answer concrete residual risks. Focused Help owns check proof
+boundaries, while result cards own the actual scope, findings, and repair.
 
-```text
-load current catalogs -> inspect -> optional bounded sample and/or governed raw SQL -> author one coherent semantic slice -> one ms.load() -> catalog.require(...) -> scoped readiness -> first typed analysis use
-```
-
-It does not duplicate parameter tables from `marivo.help(...)`. Uncommon
-formats and semantic judgments remain agent-owned.
+The skill does not duplicate parameter tables or impose a fixed check ladder.
+Uncommon formats and semantic judgments remain agent-owned.
 
 ## Ownership
 

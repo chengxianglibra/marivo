@@ -18,61 +18,29 @@ errors own result detail and repair. Project Python evaluated by `ms.load()` is
 the semantic source of truth. The agent interprets evidence and drafts Python;
 current business authority establishes reusable meaning.
 
-Author one dependency-coherent semantic slice. Keep grain, identity, time,
-units, additivity, cardinality, and metric guardrails explicit when they affect
-interpretation. Follow the decision dependencies below without repeating
-already-established facts or completed checks.
+## Task boundary and exit
 
-## General construction method
+Use the host-selected interpreter and start from current project state. Select
+the task's exit before acquiring evidence or changing definitions:
 
-### 1. Frame the reusable demand
+- Explain an existing definition: load and read the current catalog. Use the
+  entry card for key facts, details for structured expansion, and focused Help
+  for its usage contract. Readiness and preview are unnecessary for explanation.
+- Set up or repair a datasource: reuse a suitable definition or register the
+  required one, validate the requested connection, and stop at that outcome.
+- Add or repair reusable semantics: identify the exact roots the parent task
+  needs and author the smallest dependency-coherent slice that supplies them.
+  Select checks according to the delivery goal and remaining risk.
 
-From the parent question, identify the smallest reusable concepts required for
-the answer. Separate organizational truth from question-scoped runtime metrics
-and one-off presentation logic. Name the exact roots analysis will need and the
-business choices that could change their meaning. Those roots define success.
+Keep question-specific calculations and presentation in analysis. Return to
+semantic authoring only when another reusable gap prevents the parent task.
 
-### 2. Start from current project state
-
-Use the host-selected interpreter. When environment identity matters, run
-`<selected-python> -m marivo doctor` once, then route through
-`<selected-python> -m marivo help`, `marivo.help("authoring")`, and
-`marivo.help("semantic.authoring")`.
-
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-datasources = md.load()
-catalog = ms.load()
-```
+## Reuse and business authority
 
 Inspect current identities and definitions before mutation. Reuse matching refs,
-repair the smallest conflict, and author only genuine gaps. For a
-datasource-only request, reuse a suitable existing datasource or declare and
-register a new one, test the connection, and stop.
-
-For a definition-explanation request, use the current catalog and focused Help.
-Do not run preview or readiness solely to explain a declaration; distinguish
-authored meaning from what the available structural evidence can establish.
-
-### 3. Establish necessary physical facts
-
-Use registration, connection testing, and `md.inspect(...)` for source identity,
-columns, physical types, partitions, and capabilities. Prefer metadata when it
-answers the modeling question without reading user data.
-
-Acquire a bounded sample only when rows or profiles are necessary.
-`md.raw_sql(...)` is a normal governed exploration option only for a concrete
-source-specific question inspection cannot answer. It remains read-only, bounded,
-and terminal; its result cannot be passed to typed analysis. Every user-data read
-stays within explicit positive row and timeout budgets; a returned-row limit is
-not a scan bound.
-
-Record unknown or conflicted facts instead of guessing. Reuse matching current
-evidence when source, schema, and scope identity still answer the same question.
-
-### 4. Model in dependency order
+repair the smallest conflict, and author only genuine gaps. Keep grain, identity,
+time, units, additivity, cardinality, and guardrails explicit when they affect
+interpretation.
 
 Use `marivo.help("semantic.objects")` to select the object kind, then follow its
 object page for the stable decision checklist, legal construction modes, and
@@ -85,8 +53,6 @@ governed dependencies. Never hide a guessed join or reusable business choice in
 a downstream calculation. Names, timestamp-like columns, key candidates,
 samples, and familiar formulas are evidence to evaluate, not semantic authority.
 
-### 5. Settle reusable business meaning
-
 Before the first typed analysis use of a new or changed definition, every
 material unresolved choice needs one current, non-conflicting authority:
 
@@ -94,13 +60,22 @@ material unresolved choice needs one current, non-conflicting authority:
 2. an approved existing project definition;
 3. attributable, sufficiently explicit project documentation or provenance.
 
-When authority already establishes the meaning, proceed without asking for redundant confirmation.
+When authority already establishes the meaning, proceed without asking for
+redundant confirmation.
 Otherwise name the earliest material choice, summarize the evidence and its
 limit, ask one question, and stop before typed analysis handoff for the affected
 branch. Continue independent authorized work. Do not create approval tokens or
 batch unrelated business questions.
 
-### 6. Author and validate one coherent slice
+## Evidence and validation choices
+
+Prefer physical metadata when it answers the modeling question. Acquire bounded
+rows or profiles only for a concrete unresolved question. Governed `md.raw_sql`
+is available for source-specific questions inspection cannot answer; its rows
+remain terminal evidence. Every user-data read needs explicit positive row and
+timeout budgets; a returned-row limit is not a scan bound. Reuse evidence only
+when its source, schema, and scope identity still answer the current question.
+Record unknown or conflicting facts instead of guessing.
 
 A coherent slice is the smallest dependency set that can load and be reviewed
 meaningfully: an entity with required fields and base metrics, a relationship
@@ -111,27 +86,27 @@ Author the whole slice in Python, then run one `ms.load()`. Repair its structura
 failures together, reload, and call `catalog.require(ref)` for every authored
 root. Do not add a separate verification checkpoint.
 
-Validate only what the remaining risk requires:
+Run scoped readiness when the delivery requires analysis-ready roots or before
+handing new or changed definitions to analysis. Choose preview only for a
+concrete runtime risk or a current repair, and source health when current source
+or data drift matters. Focused check Help owns what each check proves; the
+returned report owns the actual scope, findings, and repair. Read those facts
+without treating one successful check as another check's evidence or as business
+authority. Do not repeat completed checks while their identity and scope remain
+applicable.
 
-- `ms.load()` establishes project-level static coherence;
-- `catalog.require(...)` establishes exact current identity;
-- scoped readiness supplies ready roots through `analysis_ready_inputs`;
-- scoped preview probes a concrete runtime risk;
-- `catalog.source_health(...)` checks requested current source or data drift and
-  never changes readiness.
+## Delivery and return to the parent task
 
-Preview and source health are conditional branches, not a mandatory authoring
-ladder. Runtime evidence cannot replace static validation or business authority.
-
-### 7. Hand off or stop
-
-Leave authoring when the requested refs are ready. If the parent task includes
-analysis, pass current refs or `analysis_ready_inputs` to `marivo-analysis` and
-continue the original question. Return only for another reusable semantic gap.
+Leave authoring when its selected exit is satisfied. For analysis handoff, pass
+the exact ready refs or `analysis_ready_inputs` to `marivo-analysis` and continue
+the original question. Kind-level Help routes identify candidate consumers;
+their focused contracts own companion inputs, and returned analysis artifacts
+own state-specific continuations.
 
 For authoring-only work, report the slice, evidence and scope, material business
-authority, validation outcome, ready roots, and remaining risks. Disclose data
-reads or source changes. If blocked, name the affected objects, all known
+authority, checks performed, their outcomes, exact roots, and remaining risks.
+Identify roots as ready only when readiness established that result. Disclose
+data reads or source changes. If blocked, name the affected objects, all known
 material blockers, and the smallest next action; do not hide blockers to fit
 a fixed template.
 

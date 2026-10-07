@@ -244,7 +244,7 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
     assert marivo.help(entry) is None
 
 
-def test_error_help_kind_depends_on_concrete_repair_target() -> None:
+def test_error_help_preserves_instances_with_and_without_repair() -> None:
     from marivo.introspection.live.resolve import resolve_live_target
     from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
 
@@ -272,9 +272,9 @@ def test_error_help_kind_depends_on_concrete_repair_target() -> None:
     error_class = resolve_live_target(SemanticLoadError, SEMANTIC_LIVE_SURFACE)
 
     assert briefing.kind == "error_briefing"
-    assert contract.kind == "error_contract"
+    assert contract.kind == "error_briefing"
+    assert contract.original is without_repair
     assert error_class.kind == "error_contract"
-    assert contract == error_class
     assert with_repair.repair is not None
     assert with_repair.repair.help_target == LiveHelpTarget(
         surface="analysis",

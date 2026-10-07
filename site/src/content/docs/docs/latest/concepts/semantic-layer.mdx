@@ -55,10 +55,24 @@ marivo.help()
 marivo.help("authoring")
 marivo.help("analysis")
 ```
+The semantic skill owns task exits, reuse and business authority, evidence and
+validation choices, and delivery. Explaining an existing definition requires
+only loading and reading; datasource work ends at the requested connection
+outcome. Reusable authoring validates a coherent slice and checks readiness
+when analysis-ready delivery is required.
+
+`entry.show()` owns key current definition and dependency facts;
+`entry.details()` expands them. `marivo.help(entry)` reports identity, usage
+navigation, and kind-level handoff. Error-instance Help preserves concrete
+facts with or without repair; aggregate failures disclose omitted child errors
+and a full read through `exc.errors`. Readiness and source-health cards own
+the actual checked scope, affected refs, and available repairs. Displays never
+reload, query, or repeat checks.
+
 After choosing semantic authoring, narrow the next question progressively:
 
 ```python
-marivo.help("semantic.authoring")  # workflow decision hub
+marivo.help("semantic.authoring")  # semantic capability navigation
 marivo.help("semantic.objects")    # object meaning and construction modes
 marivo.help("semantic.builders")   # nested values and typed handles
 marivo.help("semantic.checks")     # what each inspection or check proves
@@ -913,7 +927,7 @@ collection.show()                              # bounded list when identity is u
 entry = collection.get("metric:sales.revenue")  # full path or displayed typed key
 entry.show()
 entry.details().show()
-marivo.help(entry)                             # current details and analysis handoff
+marivo.help(entry)                             # identity, usage navigation, kind-level handoff
 grid = mv.time_grid(during=mv.time_scope(start='2026-10-01', end='2027-01-01'), grain=mv.grain('month'))
 current = (session.members(ms.ref.entity("sales.orders")).each(grid)
     .observe(entry.ref, during=grid.window)
@@ -1262,7 +1276,7 @@ For datasource-backed authoring, inspect authoritative metadata first. Acquire
 an explicit bounded snapshot only when generic profiles or retained rows answer
 the current question.
 Consult `marivo.help("datasource.authoring")` for datasource inspection and
-scope, `marivo.help("semantic.authoring")` for coherent-slice authoring,
+scope, `marivo.help("semantic.authoring")` for semantic capability navigation,
 `marivo.help("semantic.objects")` for object-owned decisions,
 `marivo.help("semantic.builders")` for supporting inputs,
 `marivo.help("semantic.checks")` for proof boundaries, and
@@ -1501,8 +1515,9 @@ and `entry.show()`.
 
 Author the smallest dependency-coherent slice, call `ms.load()` once as the
 project-level static validation event, and resolve every authored root through
-`catalog.require(ref)`. Run scoped readiness over the exact requested roots.
-Use preview only for a concrete runtime risk or a current readiness repair.
+`catalog.require(ref)`. Run scoped readiness over the exact requested roots
+when delivering analysis-ready definitions. Use preview only for a concrete
+runtime risk or a current readiness repair.
 
 When several current-source probes are useful, call
 `catalog.preview_many(refs, scope=scope_or_mapping)`. The exact entity-ref scope

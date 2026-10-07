@@ -618,10 +618,6 @@ class _DetailsBase(RenderableResult):
         card = Card(identity=self._repr_identity(), available=(".show()",))
         for section in self._detail_sections():
             card = card.section(section)
-        card = card.listing(
-            label="suggested next calls",
-            items=(f"catalog.readiness(refs=[ms.ref.{self.ref.kind.value}({self.ref.path!r})])",),
-        )
         return card
 
 

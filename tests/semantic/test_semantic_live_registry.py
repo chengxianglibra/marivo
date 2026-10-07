@@ -741,7 +741,9 @@ def test_type_and_error_help_matrices_are_closed_and_equivalent() -> None:
         by_name = resolve_live_target(error_name, SEMANTIC_LIVE_SURFACE)
         repair_free_instance = error_type.__new__(error_type)
         by_instance = resolve_live_target(repair_free_instance, SEMANTIC_LIVE_SURFACE)
-        assert by_type.kind == by_name.kind == by_instance.kind == "error_contract"
+        assert by_type.kind == by_name.kind == "error_contract"
+        assert by_instance.kind == "error_briefing"
+        assert by_instance.original is repair_free_instance
         assert by_type.error_name == by_name.error_name == by_instance.error_name == error_name
 
 

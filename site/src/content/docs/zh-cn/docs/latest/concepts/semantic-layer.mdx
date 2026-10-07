@@ -46,10 +46,20 @@ marivo.help()
 marivo.help("authoring")
 marivo.help("analysis")
 ```
+语义 skill 负责任务出口、复用与业务权威、证据和验证选择，以及交付。解释已有定义只需
+加载和阅读；数据源工作以所需连接验证为出口；可复用语义编写先验证依赖一致的切片，
+交付需要 analysis-ready 根时才运行就绪检查。
+
+`entry.show()` 展示当前定义和依赖的关键事实，`entry.details()` 提供结构化展开。
+`marivo.help(entry)` 提供身份、使用导航和按 kind 的分析交接入口。错误实例帮助始终保留
+具体事实，无论是否存在 repair；聚合失败明确披露省略的子错误，并通过 `exc.errors` 完整读取。
+Readiness 和 source-health 卡片负责本次实际检查范围、受影响引用和可用修复；展示不会
+重新加载、查询或重复检查。
+
 选择语义编写后，继续渐进收窄下一步问题：
 
 ```python
-marivo.help("semantic.authoring")  # workflow decision hub
+marivo.help("semantic.authoring")  # semantic capability navigation
 marivo.help("semantic.objects")    # object meaning and construction modes
 marivo.help("semantic.builders")   # nested values and typed handles
 marivo.help("semantic.checks")     # what each inspection or check proves
@@ -817,7 +827,7 @@ collection.show()                              # bounded list when identity is u
 entry = collection.get("metric:sales.revenue")  # full path or displayed typed key
 entry.show()
 entry.details().show()
-marivo.help(entry)                             # current details and analysis handoff
+marivo.help(entry)                             # identity, usage navigation, kind-level handoff
 grid = mv.time_grid(during=mv.time_scope(start='2026-10-01', end='2027-01-01'), grain=mv.grain('month'))
 current = (session.members(ms.ref.entity("sales.orders")).each(grid)
     .observe(entry.ref, during=grid.window)
@@ -1128,7 +1138,7 @@ ms.relationship(
 对数据源-backed 语义对象，先检查权威元数据。只有通用 profile 或保留行能回答当前问题时，
 才获取一个显式有界快照。查阅
 `marivo.help("datasource.authoring")` 了解数据源检查与范围，查阅
-`marivo.help("semantic.authoring")` 了解依赖一致的切片编写，查阅
+`marivo.help("semantic.authoring")` 选择语义能力入口，查阅
 `marivo.help("semantic.objects")` 了解对象自身的判断，查阅
 `marivo.help("semantic.builders")` 了解支持性输入，查阅
 `marivo.help("semantic.checks")` 了解证据边界，并查阅
@@ -1339,7 +1349,7 @@ deadline 约束，可用关键字参数 `timeout_seconds` 覆盖；超时会以 
 `entry = catalog.<collection>.get(...)` 和 `entry.show()`。
 
 编写最小的依赖一致语义切片，用一次 `ms.load()` 完成项目级静态验证，再通过
-`catalog.require(ref)` 解析每个新建根，并对精确请求根运行 scoped readiness。
+`catalog.require(ref)` 解析每个新建根；交付需要 analysis-ready 定义时，对精确请求根运行 scoped readiness。
 只有存在具体运行时风险或当前 readiness repair 要求时才运行 preview。
 
 需要多个当前 source 探针时，可调用

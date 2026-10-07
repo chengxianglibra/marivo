@@ -503,13 +503,15 @@ def test_catalog_collection_show_prints_render(semantic_project_factory, capsys)
     assert "sales.revenue" in out
 
 
-def test_semantic_object_details_render_points_to_readiness(
+def test_semantic_object_details_render_preserves_definition_without_check_recipe(
     semantic_project_factory,
 ):
     catalog = _make_catalog(semantic_project_factory)
     details = catalog.require(ms.ref.metric("sales.revenue")).details()
     rendered = details.render()
-    assert "catalog.readiness(refs=[ms.ref.metric('sales.revenue')])" in rendered
+    assert "metric:sales.revenue" in rendered
+    assert "declared_additivity" in rendered
+    assert "readiness(" not in rendered
 
 
 def test_simple_metric_details_carry_and_render_filter(semantic_project_factory) -> None:

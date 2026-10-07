@@ -159,6 +159,18 @@ version, and environment fingerprint. Use the sole public coordinator,
 validation contracts rendered from the semantic registry. The ``ms`` namespace
 executes semantic operations and intentionally has no ``ms.help()`` alias.
 
+The packaged semantic skill owns task exits, reuse and business authority,
+evidence selection, and delivery. Help owns static usage and proof boundaries.
+``entry.show()`` displays key current facts, while ``entry.details()`` expands
+the definition. ``marivo.help(entry)`` adds identity, usage navigation, and
+kind-level analysis handoff without checking readiness or execution admission.
+Explaining an existing definition does not require readiness or preview.
+
+Registered error instances retain concrete facts in Help even without a repair.
+Aggregate load failures preserve child order and disclose omitted errors with
+a full read through ``exc.errors``. Check cards display actual scope, affected
+refs, and available repair routes; their display never repeats checks.
+
 A legal ``ms.where(...)`` declaration that cannot be compared with the resolved
 runtime dtype raises ``filter_value_runtime_incompatible`` before query
 submission. Its authored literal is preserved until the user or business owner
