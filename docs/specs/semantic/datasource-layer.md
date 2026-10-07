@@ -690,6 +690,11 @@ Returned-row limits do not bound source scan cost. `RawSqlResult` is terminal:
 its rows or isolated `to_pandas()` copy confer no Semantic identity, Metric
 components, coverage, Artifact receipt or Analysis continuation. It cannot be
 passed to `session.members`, `observe`, `execute`, or a typed source binding.
+Raw-SQL result `show()` and `render()` use `n=None, max_output_bytes=8192`.
+They fit complete returned rows and report display omissions independently of
+query truncation; unlimited display never fetches more source rows. See the
+[business data display contract](../agent-friendly-public-surface.md#business-data-display).
+
 The `datasource.raw_sql` Help target and public export remain discoverable.
 
 No other public source, inspection or Semantic expression argument accepts SQL

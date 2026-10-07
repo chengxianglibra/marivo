@@ -19,6 +19,7 @@ from marivo._authoring.model import (
     MutationEffect,
     RepairKind,
 )
+from marivo._data_render import _display_help
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import SemanticKind
 from marivo.semantic._capabilities.catalog_members import (
@@ -3601,6 +3602,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         properties: tuple[str, ...] = (),
         methods: tuple[str, ...] = (),
         consumers: tuple[str | LiveHelpTarget, ...] = (),
+        guidance: tuple[str, ...] = (),
     ) -> None:
         def targets(values: tuple[str | LiveHelpTarget, ...]) -> tuple[LiveHelpTarget, ...]:
             return tuple(
@@ -3612,6 +3614,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             producers=targets(producers),
             public_properties=properties,
             public_methods=methods,
+            guidance=guidance,
             consumers=targets(consumers),
         )
 
@@ -3932,6 +3935,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "sample_policy",
         ),
         methods=show_render,
+        guidance=_display_help(),
     )
     add(
         PreviewBatchResult,

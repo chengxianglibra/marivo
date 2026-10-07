@@ -41,6 +41,8 @@ from marivo.analysis.core.rules import (
     CellDerive,
     DeviationFit,
     DeviationRead,
+    DisplayRank,
+    DisplayTable,
     ForecastFit,
     ForecastRead,
     FunnelAttribute,
@@ -247,7 +249,34 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
         and len({edge.node.shape for edge in root.inputs[1:] if isinstance(edge.node, FixedLeaf)})
         == 1
     )
-    if len(shapes) != 1 and not fixed_cohort:
+    timed_shapes = shapes - {FixedShape(NoTime())}
+    # A saved category can carry grid coordinates without reading timestamps.
+    # Display only pairs complete keys; it does not coerce its physical time.
+    fixed_display = (
+        classification.kind == "artifact"
+        and len(shapes) == 2
+        and FixedShape(NoTime()) in shapes
+        and len(timed_shapes) == 1
+        and all(
+            leaf.signature.domain.time_grid is not None
+            and leaf.signature.domain.time_grid
+            == classification.artifacts[0].signature.domain.time_grid
+            and (
+                leaf.shape != FixedShape(NoTime())
+                or (
+                    leaf.signature.quantity is None
+                    and all(
+                        isinstance(node.parameters, (DisplayRank, DisplayTable))
+                        for node in nodes
+                        if isinstance(node, MethodNode)
+                        and any(edge.node is leaf for edge in node.inputs)
+                    )
+                )
+            )
+            for leaf in classification.artifacts
+        )
+    )
+    if len(shapes) != 1 and not (fixed_cohort or fixed_display):
         _refuse(
             "one exact input physical shape",
             "different time or source shapes",
@@ -255,7 +284,11 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
         )
     # Cohort reads the retained opportunity grid, not physical timestamp values.
     # ArtifactReadStage retains each leaf's exact shape and publication contract.
-    shape = FixedShape(NoTime()) if fixed_cohort else next(iter(shapes))
+    shape = (
+        FixedShape(NoTime())
+        if fixed_cohort
+        else next(iter(timed_shapes if fixed_display else shapes))
+    )
     methods = tuple(n for n in nodes if isinstance(n, MethodNode))
     if type(routes) is not tuple or any(type(r) is not RouteChoice for r in routes):
         _refuse("immutable route choices", repr(routes), "Choose one route per method node.")

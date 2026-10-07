@@ -89,13 +89,14 @@ def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
     assert not hasattr(result, "contract")
     rendered = result.render()
     assert "terminal_only" in rendered
-    assert "typed_reentry: false" in rendered
-    assert "row_count_semantics: returned_bounded_rows" in rendered
-    assert "returned_row_count: 1" in rendered
-    assert "requested_limit: 1" in rendered
-    assert "is_truncated: true" in rendered
-    assert "returned rows are not full-source cardinality" in rendered
-    assert "semantic identity, canonical lineage, typed affordances" in rendered
+    assert "no semantic identity or typed analysis reentry" in rendered
+    assert "scope=returned bounded rows" in rendered
+    assert "business_coverage: unknown" in rendered
+    assert "Rows: 1 total; 1 shown" in rendered
+    assert "query_limit: 1" in rendered
+    assert "query_truncated: true" in rendered
+    assert "not full-source cardinality" in rendered
+    assert "no semantic identity or typed analysis reentry" in rendered
     assert "escape_hatch" not in rendered
     assert "diagnose order amount sample" in rendered
     assert "expensive" in rendered
@@ -789,8 +790,7 @@ def test_raw_sql_truncated_result_render_flags_truncation_prominently(tmp_path: 
         project_root=tmp_path,
     )
     rendered = result.render()
-    assert "TRUNCATED" in rendered
-    assert "is_truncated" in rendered
+    assert "query_truncated: true" in rendered
 
 
 def test_raw_sql_default_limit_is_100(tmp_path: Path) -> None:
@@ -817,7 +817,7 @@ def test_raw_sql_default_limit_is_100(tmp_path: Path) -> None:
     assert explicit.requested_limit == 5
 
 
-def test_raw_sql_result_display_shows_terminal_only_and_duration(tmp_path: Path) -> None:
+def test_raw_sql_result_display_prioritizes_data_and_terminal_boundary(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
     result = md.raw_sql(
         ms.ref.datasource("warehouse"),
@@ -829,10 +829,10 @@ def test_raw_sql_result_display_shows_terminal_only_and_duration(tmp_path: Path)
     rendered = result.render()
     assert "terminal_only" in rendered
     assert "escape_hatch" not in rendered
-    assert "10" in rendered
-    assert "duration" in rendered.lower() or "ms" in rendered.lower()
+    assert result.timeout_seconds == 10
+    assert result.duration_ms >= 0
     assert "no metric" in rendered.lower() or "no semantic" in rendered.lower()
-    assert ".to_pandas()" in rendered
+    assert "available:" not in rendered
 
 
 def test_raw_sql_result_carries_duration_ms(tmp_path: Path) -> None:
@@ -934,14 +934,14 @@ def test_raw_sql_terminal_facts_render_in_contract_order(tmp_path: Path) -> None
 
     rendered = result.render()
     labels = (
-        "terminal_only:",
-        "typed_reentry:",
-        "row_count_semantics:",
-        "returned_row_count:",
-        "requested_limit:",
-        "is_truncated:",
-        "preserves:",
-        "does_not_preserve:",
+        "RawSqlResult",
+        "Rows:",
+        "reason:",
+        "columns:",
+        "data:",
+        "query_limit:",
+        "query_truncated:",
+        "boundary:",
     )
     positions = tuple(rendered.index(label) for label in labels)
     assert positions == tuple(sorted(positions))

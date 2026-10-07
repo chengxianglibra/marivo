@@ -1476,6 +1476,15 @@ so corresponding member categories remain composable. Source
 observations admit s/ms/us/ns facts; comparison literals retain at least the
 grid's microsecond precision so coarse source units cannot round scope bounds.
 
+Fixed display consumers may pair a NoTime category carrying the exact same bound
+grid with a timed numeric input. The category must feed rank/table directly; its
+Artifact read preserves NoTime, and qualification uses the single timed shape.
+Different temporal shapes, different grids, and numeric NoTime inputs retain
+the exact-shape rejection. This does not coerce source timestamps or rewrite
+saved metadata. When rank/table consumes local fitted results, its complete-key
+and category checks run against those local inputs, and publication records their
+completed evidence. Upstream source checks remain attached to their source inputs.
+
 F11 source preparation resolves the original member envelope through actual
 Subject parts and captures all later contributions, relationship/version facts
 and full typed keys before local scoring or selection. Prepared grid sum

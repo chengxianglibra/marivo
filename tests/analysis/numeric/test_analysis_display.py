@@ -12,6 +12,90 @@ from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_
 from tests.support.paths import PROJECT_ROOT
 
 
+@pytest.mark.runtime
+def test_business_display_reads_saved_rows_and_preserves_state_summary(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import duckdb
+    import pandas as pd
+
+    from marivo.datasource.adapters import SourceSession
+
+    case = analysis_dsl_case_factory("j2")
+    with duckdb.connect(str(case.database_path)) as db:
+        db.execute('UPDATE "order" SET channel = ?', ["retained" * 200])
+    members = case.session.members(ms.ref.entity("sales.order"))
+    logical = members.read(ms.ref.measure("sales.order.amount"))
+    values = logical.execute()
+    ratio = logical.ratio(logical).execute()
+    table = mv.table(amount=values).execute()
+    category = members.read(ms.ref.dimension("sales.order.channel")).execute()
+    runs = len(case.session.runs().items)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("show must not query sources or convert rows to pandas")
+
+    monkeypatch.setattr(SourceSession, "__enter__", forbidden)
+    monkeypatch.setattr(pd.DataFrame, "__init__", forbidden)
+    for result in (values, table):
+        result.show()
+        text = capsys.readouterr().out
+        assert "11 total; 11 shown" in text
+        assert text.count("<identity>") == 11
+        assert "j2_" not in text
+        assert "required_parts" not in text and "call=" not in text
+        assert "available:" not in text
+        result.show(n=2)
+        text = capsys.readouterr().out
+        assert "11 total; 2 shown" in text
+        assert "Omitted: 9 rows; reason=row_limit" in text
+        assert text.count("<identity>") == 2
+        assert not hasattr(result, "render")
+    category.show()
+    text = capsys.readouterr().out
+    assert len(text.encode()) <= 8192
+    assert "reason=output_budget" in text
+    category.show(max_output_bytes=None)
+    text = capsys.readouterr().out
+    assert len(text.encode()) > 8192
+    assert "11 total; 11 shown" in text
+    ratio.show(n=0)
+    text = capsys.readouterr().out
+    assert "11 total; 0 shown" in text
+    assert "defined=7, null=0, undefined=4, unknown=0" in text
+    assert "undefined(zero_denominator)=4" in text
+    assert "all result rows" in text
+    assert len(case.session.runs().items) == runs
+
+
+@pytest.mark.runtime
+def test_business_display_identifies_current_and_baseline_windows(
+    analysis_dsl_case_factory: DslCaseFactory, capsys: pytest.CaptureFixture[str]
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    customers = case.session.members(ms.ref.entity("sales.customer"))
+    current = customers.observe(
+        ms.ref.metric("sales.revenue"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+    )
+    baseline = customers.observe(
+        ms.ref.metric("sales.revenue"),
+        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+    )
+    current.compare(baseline).execute().show(n=0)
+    text = capsys.readouterr().out
+    assert "current.metric: sales.revenue" in text
+    assert "baseline.metric: sales.revenue" in text
+    assert "current.observation_window: [2026-08-01" in text
+    assert "baseline.observation_window: [2026-07-01" in text
+    assert "unit: CNY" in text
+    assert "current.timezone: UTC" in text
+
+
 @pytest.mark.parametrize(
     "ties,expected",
     [("ordinal", [1, 2, 3]), ("dense", [1, 1, 2]), ("min", [1, 1, 3]), ("max", [2, 2, 3])],
@@ -135,7 +219,10 @@ def test_public_rank_table_source_and_fixed(
     + [("duration_" + unit, True) for unit in ("s", "ms", "ns")],
 )
 def test_display_precision_matrix(
-    analysis_dsl_case_factory: DslCaseFactory, physical: str, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory,
+    physical: str,
+    parquet: bool,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     import duckdb
     import pandas as pd
@@ -190,6 +277,15 @@ def test_display_precision_matrix(
         exported = terminal.to_pandas()
         assert dict(zip(exported.member, exported.amount, strict=True)) == expected
         assert terminal.to_pandas().equals(case.session.artifact(terminal.artifact_ref).to_pandas())
+        terminal.show(max_output_bytes=None)
+        display = capsys.readouterr().out
+        assert "4 total; 4 shown" in display
+        for value in expected.values():
+            if isinstance(value, pd.Timedelta):
+                unit = physical.partition("_")[2] or "us"
+                assert f"{value // pd.Timedelta(1, unit=unit)} {unit}" in display
+            else:
+                assert str(value) in display
         exported.iloc[0, 1] = None
         assert terminal.to_pandas().amount.isna().sum() == 0
 
@@ -391,6 +487,8 @@ ms.load = unavailable
 session = mv.session.resume(sys.argv[1], by='id')
 ranking = session.artifact(sys.argv[2])
 assert isinstance(ranking, mv.MaterializedRankingResult)
+ranking.show(n=2)
+assert not hasattr(ranking, 'render')
 selected = ranking.where(ranking.ranks.value.is_defined())
 selected = selected.where(selected.ranks.value.lte(2)).limit(2).execute()
 assert selected.values.to_pandas().member.tolist() == ['C','D']
@@ -398,6 +496,7 @@ assert selected.ranks.to_pandas().value.tolist() == [1,2]
 assert session.artifact(selected.state.artifact_ref).ranks.to_pandas().equals(selected.ranks.to_pandas())
 table = session.artifact(sys.argv[3])
 assert isinstance(table, mv.MaterializedTable)
+table.show(max_output_bytes=None)
 assert table.to_pandas().columns.tolist() == ['member','amount','rank']
 assert table.to_pandas().amount.tolist() == [1,1,3,2]
 assert mv.table(a=selected.values,b=selected.ranks).execute().to_pandas().a.tolist() == [3,2]
@@ -429,6 +528,8 @@ assert mv.table(a=selected.values,b=selected.ranks).execute().to_pandas().a.toli
     contents = path.read_bytes()
     try:
         path.write_bytes(b"invalid display part")
+        with pytest.raises(AnalysisError):
+            ranking.show(n=0)
         with pytest.raises(AnalysisError):
             continuation.execute()
     finally:

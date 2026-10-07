@@ -3925,6 +3925,15 @@ def lower(
         if isinstance(owner, MethodNode) and (
             isinstance(owner.parameters, PreparedObservation)
             or (
+                isinstance(owner.parameters, (DisplayRank, DisplayTable))
+                and any(
+                    isinstance(stage, LocalMethodStage)
+                    and stage.output == requirement.stage_output
+                    and stage.node is owner
+                    for stage in admitted.stages
+                )
+            )
+            or (
                 isinstance(owner.parameters, (OriginalReduce, CellDerive, AttributionDerive))
                 and any(
                     isinstance(stage, LocalMethodStage)

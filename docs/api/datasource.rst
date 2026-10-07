@@ -153,6 +153,13 @@ full-source cardinality. Ordered ``columns`` and isolated ``to_pandas()`` are
 available, but ``RawSqlResult`` has no ``contract()``, typed affordances, or
 typed-analysis re-entry.
 
+``RawSqlResult.show(n=None, max_output_bytes=8192)`` displays all returned rows
+that fit the UTF-8 budget, including the printed newline. ``n=0`` shows only
+metadata and columns; ``max_output_bytes=None`` removes the display budget,
+not the query limit. ``render()`` accepts the same controls and returns text
+without a newline. Display omissions and query truncation are reported separately.
+Business coverage remains unknown: Raw SQL does not establish semantic coverage.
+
 .. autosummary::
    :toctree: api/
    :nosignatures:

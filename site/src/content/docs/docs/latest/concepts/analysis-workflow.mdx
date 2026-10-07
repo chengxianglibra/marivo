@@ -51,6 +51,22 @@ change = current.compare(baseline).execute()
 change.show()
 ```
 
+`show()` displays as many complete rows as fit within 8 KiB, with no default
+row cap. It reports total/shown/omitted rows and preserves interpretation
+boundaries. Read the full operation directory through `contract()` when needed.
+
+```python
+change.show(n=20)
+change.show(n=0)
+change.show(max_output_bytes=None)
+```
+
+`n=0` shows metadata and columns. `max_output_bytes=None` removes the UTF-8
+budget (which includes the printed newline), still respecting any explicit `n`.
+These calls read the saved result without querying sources. Non-Defined Cells
+keep their tags and reasons; Duration values display exact ticks and units.
+
+
 `compare` supports homogeneous int64/float64 values, same-scale Decimal
 absolute differences, and same-unit Duration ticks. The default `TimeChange`
 requires matching recursive quantity definitions and one shared target capture.

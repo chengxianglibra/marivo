@@ -1540,3 +1540,21 @@ mean 沿用绑定的 Ibis 结果类型。允许原生舍入及精度损失，零
 average_price = ms.weighted_mean(name="average_price", value=price, weight=units)
 # price can be Decimal and units can be integer.
 ```
+
+
+## 读取预览和 SQL 结果行
+
+`PreviewResult` 与 `RawSqlResult` 使用相同的业务数据展示参数：
+
+```python
+preview.show(n=20)
+preview.show(n=0)
+preview.show(max_output_bytes=None)
+text = preview.render(n=20)
+```
+
+示例中的 `preview` 是已经取得的预览结果。默认没有行数上限，在 8 KiB 内展示完整行，
+预算包含打印末尾换行。`n=0` 只展示元数据与列信息；`None` 取消字节预算，仍遵守显式
+行数限制。展示省略会报告准确数量和继续读取方式。查询限制、查询截断、预览覆盖和采样
+警告分别披露；展示全部已返回行不代表覆盖全部源数据，展示也不会重新执行查询。
+批量预览仍使用摘要卡片。

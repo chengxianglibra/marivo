@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.core.graph as graph
 import marivo.semantic as ms
 from marivo.analysis.compiler.graph_plan import (
@@ -38,10 +39,12 @@ from marivo.analysis.core.model import (
 from marivo.analysis.core.rules import (
     BindProject,
     CellDerive,
+    DisplayTable,
     OriginalReduce,
     PartsTransport,
     RowState,
 )
+from marivo.analysis.core.time_grid import bind_grid
 from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.physical import (
     FixedShape,
@@ -463,6 +466,60 @@ def test_noncohort_fixed_shapes_remain_exact() -> None:
     root = _difference(left, right)
     with pytest.raises(CoreRuleError, match="different time or source shapes"):
         plan(root, routes=(RouteChoice(root.identity, "artifact_python"),))
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("temporal_category", [False, True])
+def test_fixed_grid_display_admits_only_time_neutral_categories(
+    reverse: bool, temporal_category: bool
+) -> None:
+    grid = bind_grid(
+        mv.time_scope(start="2026-07-01", end="2026-10-01"),
+        mv.grain("month"),
+        report_timezone="UTC",
+    )
+    original = _fixed()
+    domain = original.signature.domain
+    coord = Coordinate(domain.instance_key[0].entity_ref, "time:" + grid.identity, "anchor")
+    domain = replace(
+        domain,
+        instance_key=(*domain.instance_key, coord),
+        target_key=(*domain.target_key, coord),
+        time_grid=grid,
+    )
+    value = replace(
+        original,
+        signature=replace(original.signature, domain=domain),
+        shape=FixedShape(TimeShape("instant", "us", "UTC")),
+    )
+    category = replace(
+        value,
+        identity="category",
+        artifact=ArtifactRef("history/category"),
+        signature=replace(value.signature, quantity=None),
+        value_type=ScalarType("string"),
+        shape=FixedShape(TimeShape("instant", "ms", "UTC") if temporal_category else NoTime()),
+    )
+    inputs = (category, value) if reverse else (value, category)
+    root = method_node(
+        tuple(Edge("subject" if leaf is category else "quantity", leaf) for leaf in inputs),
+        DisplayTable(
+            ("category", "amount") if reverse else ("amount", "category"),
+            ("string", "int64") if reverse else ("int64", "string"),
+            tuple(leaf.identity for leaf in inputs),
+        ),
+        value_type=inputs[0].value_type,
+    )
+    routes = (RouteChoice(root.identity, "artifact_python"),)
+    if temporal_category:
+        with pytest.raises(CoreRuleError, match="different time or source shapes"):
+            plan(root, routes=routes)
+    else:
+        admitted = plan(root, routes=routes)
+        assert admitted.physical_requirements[-1].key.shape == value.shape
+        assert tuple(
+            stage.leaf.shape for stage in admitted.stages if isinstance(stage, ArtifactReadStage)
+        ) == tuple(leaf.shape for leaf in inputs)
 
 
 def test_time_shape_is_exact_and_fixed_obligations_are_not_recovered():

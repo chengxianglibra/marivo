@@ -561,6 +561,14 @@ The public parity executor has been removed. `ms.load()` does not execute
 historical SQL or infer verification status from it. If historical SQL explains
 a metric, put that explanation in `ai_context`; compare the current Ibis metric
 against an independent business source and report that evidence separately.
+`PreviewResult.show()` and `render()` use `n=None, max_output_bytes=8192`:
+no default row cap, a UTF-8 budget including the printed newline, and explicit
+omission counts. `n=0` displays metadata and columns; `max_output_bytes=None`
+removes only the display byte limit. Source preview limits, coverage, sampling
+and warnings remain separate. `PreviewBatchResult` is still a summary, not a
+flattened data result. See the
+[business data display contract](../agent-friendly-public-surface.md#business-data-display).
+
 `md.raw_sql` is terminal and cannot supply a Semantic or Analysis input.
 
 ### Static policy-time

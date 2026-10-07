@@ -16,6 +16,7 @@ import pandas as pd
 from pandas.api.types import is_object_dtype
 
 from marivo._authoring.model import AuthoringRepair
+from marivo._data_render import _DataCard, _DataResult
 from marivo.datasource import backends as _backends
 from marivo.datasource import secrets as _secrets
 from marivo.datasource import store as _store
@@ -215,7 +216,7 @@ class DatasourceTestResult(RenderableResult):
 
 
 @dataclass(frozen=True, repr=False)
-class RawSqlResult(RenderableResult):
+class RawSqlResult(_DataResult):
     """Bounded terminal result from the datasource raw-SQL execution path."""
 
     datasource: Ref[DatasourceKind]
@@ -255,59 +256,22 @@ class RawSqlResult(RenderableResult):
             f"rows={self.returned_row_count} terminal_only"
         )
 
-    def _card(self) -> Card:
-        preview_rows = tuple(
-            tuple(str(row.get(column)) for column in self.columns) for row in self.rows
+    def _data_card(self) -> _DataCard:
+        return _DataCard(
+            identity=f"RawSqlResult datasource={self.datasource.path} terminal_only",
+            columns=self.columns,
+            rows=lambda: (tuple(row.get(column) for column in self.columns) for row in self.rows),
+            row_count=self.returned_row_count,
+            row_scope="returned bounded rows; not full-source cardinality",
+            facts=(("reason", self.reason),),
+            boundaries=(
+                ("query_limit", str(self.requested_limit)),
+                ("query_truncated", str(self.is_truncated).lower()),
+                ("business_coverage", "unknown; raw SQL does not establish semantic coverage"),
+                ("boundary", "terminal only; no semantic identity or typed analysis reentry"),
+                *(("warning", warning) for warning in self.warnings),
+            ),
         )
-        card = (
-            Card(
-                identity=self._repr_identity(),
-                available=(
-                    ".rows",
-                    ".columns",
-                    ".types",
-                    ".shape",
-                    ".row_count",
-                    ".to_pandas()",
-                    ".show()",
-                ),
-            )
-            .status(
-                f"terminal bounded result{' TRUNCATED' if self.is_truncated else ''} "
-                f"warnings={len(self.warnings)}"
-            )
-            .field("terminal_only", "true")
-            .field("typed_reentry", "false")
-            .field("row_count_semantics", "returned_bounded_rows")
-            .field("returned_row_count", str(self.returned_row_count))
-            .field("requested_limit", str(self.requested_limit))
-            .field("is_truncated", str(self.is_truncated).lower())
-            .field(
-                "preserves",
-                "bounded rows, declared columns/types, datasource, SQL reason",
-            )
-            .field(
-                "does_not_preserve",
-                "semantic identity, canonical lineage, typed affordances",
-            )
-            .field(
-                "row_count_scope",
-                "returned rows are not full-source cardinality",
-            )
-            .field("datasource", self.datasource.path)
-            .field("backend_type", self.backend_type)
-            .field("reason", self.reason)
-            .field("timeout_seconds", str(self.timeout_seconds))
-            .field("duration_ms", str(self.duration_ms))
-            .table(self.columns, preview_rows, row_count=self.returned_row_count)
-            .field(
-                "scope",
-                'bounded returned rows do not guarantee a cheap diagnostic; see marivo.help("datasource.raw_sql")',
-            )
-        )
-        if self.warnings:
-            card.listing("warnings", self.warnings)
-        return card
 
     def to_pandas(self) -> pd.DataFrame:
         """Return a defensively isolated pandas DataFrame from bounded result rows.

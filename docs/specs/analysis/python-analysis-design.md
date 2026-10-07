@@ -819,8 +819,12 @@ receiver and its declared retained components; the old bare-name
 `next_actions` field is removed. `contract().show()` reports the available
 kind, phase, domain, quantity, unit and method facts, current-row weighting,
 Cell fields, source assumptions and retained component roles as applicable.
-It does not query business sources. A materialized relation's `show()` combines
-those facts with one bounded committed preview, redacting Entity member values.
+It does not query business sources. A materialized relation's `show()` selects interpretation facts and committed
+rows without printing the complete contract or action directory, redacting Entity
+member values. It accepts `n=None` (no row cap; zero means metadata only) and
+`max_output_bytes=8192` (UTF-8, including the printed newline). Explicit `None`
+removes the byte cap; rows, Cell states, query/coverage boundaries and omissions
+follow the [business data display contract](../agent-friendly-public-surface.md#business-data-display).
 Cold recovery derives the same disclosure from the validated frozen snapshot
 and Artifact, without reconnecting to current semantics or sources. Integrity
 failure still blocks recovery; a contract is not a storage revalidation result.
@@ -2053,7 +2057,7 @@ AttributionResult.where(predicate: BoundPredicate) -> LogicalAttributionResult
 table(**columns: NumericRelation | CategoryRelation | BooleanRelation |
     TemporalRelation) -> LogicalTable
 LogicalTable.execute() -> MaterializedTable
-MaterializedTable.show(*, max_output_bytes: int | None = None) -> None
+MaterializedTable.show(*, n: int | None = None, max_output_bytes: int | None = 8192) -> None
 MaterializedTable.to_pandas() -> pandas.DataFrame
 ```
 

@@ -716,11 +716,48 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
         elif isinstance(params, (DisplayRank, DisplayTable)):
             from marivo.analysis.materialization.graph_display import fixed
 
-            results[item.stage.output] = fixed(
+            result = fixed(
                 item.stage.node,
                 tuple(results[key] for key in item.stage.inputs),
                 item.stage.node.identity,
             )
+            # fixed() verifies complete key pairing and partition Cells before
+            # returning. Bind those checks to this local invocation, not SQL.
+            proof_digest = hashlib.sha256(
+                result.primary.schema.serialize().to_pybytes()
+                + repr(result.primary.to_pylist()).encode()
+            ).hexdigest()
+            for requirement in prepared.admitted.checks:
+                if requirement.node_id != item.stage.node.identity or any(
+                    proof.requirement == requirement or requirement in proof.consumers
+                    for proof in completed
+                ):
+                    continue
+                if requirement.obligation.fact in item.stage.node.derivation.pre:
+                    if requirement.obligation.check_id not in (
+                        "source.exact_pairing@v1",
+                        "source.group_mapping@v1",
+                        "source.cell_policy@v1",
+                    ):
+                        fail("input_binding", "unqualified local display check", stage="consume")
+                    completed.append(CompletedCheck(requirement, proof_digest))
+                else:
+                    prior = next(
+                        (
+                            proof
+                            for proof in completed
+                            if proof.requirement.obligation == requirement.obligation
+                        ),
+                        None,
+                    )
+                    if prior is None:
+                        fail(
+                            "input_binding",
+                            "local display lacks its completed predecessor check",
+                            stage="consume",
+                        )
+                    completed.append(CompletedCheck(requirement, prior.result_digest))
+            results[item.stage.output] = result
         elif isinstance(params, (AssociationFit, AssociationRead, ForecastFit, ForecastRead)):
             from marivo.analysis.materialization.statistical_execution import execute as statistics
 

@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from marivo.render import Card, RenderableResult
+from marivo._data_render import _DataCard, _DataResult
 
 if TYPE_CHECKING:
     import ibis.expr.types as ir
@@ -96,7 +96,7 @@ class PreviewCoverage:
 
 
 @dataclass(frozen=True, repr=False)
-class PreviewResult(RenderableResult):
+class PreviewResult(_DataResult):
     kind: PreviewKind
     ref: str
     columns: tuple[str, ...]
@@ -122,32 +122,34 @@ class PreviewResult(RenderableResult):
             f"rows={self.returned_row_count}/{self.requested_limit}"
         )
 
-    def _card(self) -> Card:
-        preview_rows = [tuple(str(row.get(col, "")) for col in self.columns) for row in self.rows]
-        status_parts = [
-            f"status={self.status}",
-            f"truncated={self.is_truncated}",
-            (f"scope_coverage={self.coverage.scope_exhaustion}/{self.coverage.scope_exactness}"),
-            (f"sample_policy={self.sample_policy.method}(limit={self.sample_policy.limit})"),
+    def _data_card(self) -> _DataCard:
+        facts = [
+            ("sample_policy", f"{self.sample_policy.method}(limit={self.sample_policy.limit})")
         ]
-        if self.timezones:
-            labels = [
-                f"{column}:read_tz={info.get('read_tz')} report_tz={info.get('report_tz')}"
-                for column, info in sorted(self.timezones.items())
-            ]
-            status_parts.append("; ".join(labels))
-        card = Card(identity=self._repr_identity(), available=(".show()",)).status(
-            " ".join(status_parts)
-        )
-        if self.warnings:
-            card = card.listing(
-                "warnings",
-                (f"{warning.kind}: {warning.message}" for warning in self.warnings),
+        if self.sample_policy.order_by:
+            facts.append(("order_by", ", ".join(self.sample_policy.order_by)))
+        if self.sample_policy.filters:
+            facts.append(("filters", repr(self.sample_policy.filters)))
+        for column, info in sorted(self.timezones.items()):
+            facts.append(
+                (column, f"read_tz={info.get('read_tz')} report_tz={info.get('report_tz')}")
             )
-        return card.table(
-            columns=list(self.columns),
-            rows=preview_rows,
+        return _DataCard(
+            identity=f"PreviewResult kind={self.kind} ref={self.ref}",
+            columns=self.columns,
+            rows=lambda: (tuple(row.get(col, "") for col in self.columns) for row in self.rows),
             row_count=self.returned_row_count,
+            row_scope="returned preview rows; not full-source cardinality",
+            facts=tuple(facts),
+            boundaries=(
+                ("query_limit", str(self.requested_limit)),
+                ("query_truncated", str(self.is_truncated).lower()),
+                (
+                    "scope_coverage",
+                    f"{self.coverage.scope_exhaustion}/{self.coverage.scope_exactness}",
+                ),
+                *((warning.kind, warning.message) for warning in self.warnings),
+            ),
         )
 
 

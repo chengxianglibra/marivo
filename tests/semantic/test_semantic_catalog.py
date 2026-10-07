@@ -1935,7 +1935,7 @@ def test_catalog_preview_metric_preserves_approximate_warning(
     assert preview.sample_policy.limit == METRIC_PREVIEW_SAMPLE_SIZE
     assert any(w.kind == "approximate_preview" for w in preview.warnings)
     rendered = preview.render()
-    assert "sample_policy=pre_aggregate_limit(limit=10000)" in rendered
+    assert "sample_policy: pre_aggregate_limit(limit=10000)" in rendered
     assert "treat the result as approximate" in rendered
 
 
