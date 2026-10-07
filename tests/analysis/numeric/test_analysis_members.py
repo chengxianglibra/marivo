@@ -576,47 +576,42 @@ def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> No
 def test_root_projection_reads_one_source_without_distinct(
     members_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from collections.abc import Mapping, Sequence
-
     import ibis.expr.operations as ops
     import ibis.expr.types as ir
-    import pyarrow as pa
 
-    from marivo.datasource.adapters import CompiledRead, Parameter, QualifiedSource
+    from marivo.datasource.adapters import CompiledRead, SourceBatchStream
 
     session = members_session
     members = session.members(ms.ref.entity(f"{_domain(session)}.plain"))
-    original = SourceSession.compile
-    business: list[ir.Expr] = []
+    original = SourceSession.batches
+    primary: list[ir.Expr] = []
+    purposes: list[str] = []
 
-    def compile_read(
+    def read(
         self: SourceSession,
-        qualified: QualifiedSource | Sequence[QualifiedSource],
-        expression: ir.Expr,
+        issued: CompiledRead,
         *,
-        params: Mapping[ir.Scalar, Parameter] | None = None,
-        purpose: str,
-        expected_schema: pa.Schema,
-    ) -> CompiledRead:
-        if any(
-            not table.name.startswith("mv_graph_")
-            for table in expression.op().find(ops.DatabaseTable)
-        ):
-            business.append(expression)
-        return original(
-            self,
-            qualified,
-            expression,
-            params=params,
-            purpose=purpose,
-            expected_schema=expected_schema,
-        )
+        chunk_size: int,
+    ) -> SourceBatchStream:
+        purposes.append(issued.purpose)
+        if issued.purpose == "analysis.graph.stage":
+            primary.append(issued.expression)
+        return original(self, issued, chunk_size=chunk_size)
 
-    monkeypatch.setattr(SourceSession, "compile", compile_read)
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("Root projection captured or restaged an intermediate exchange")
+
+    monkeypatch.setattr(SourceSession, "batches", read)
+    monkeypatch.setattr(SourceSession, "stage_derived", forbidden)
+    monkeypatch.setattr(SourceSession, "stage_calculated", forbidden)
     members.execute()
-    assert len(business) == 1
-    assert not business[0].op().find(ops.Distinct)
-    assert not business[0].op().find(ops.Aggregate)
+    # Native checks read independently; only the primary projection is single-read.
+    assert "analysis.graph.check" in purposes
+    assert set(purposes) == {"analysis.graph.check", "analysis.graph.stage"}
+    assert len(primary) == 1
+    assert len(primary[0].op().find(ops.DatabaseTable)) == 1
+    assert not primary[0].op().find(ops.Distinct)
+    assert not primary[0].op().find(ops.Aggregate)
 
 
 @pytest.mark.runtime

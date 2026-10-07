@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from importlib import import_module
 from types import ModuleType
 
@@ -133,3 +133,16 @@ def return_annotation_mismatch(
 def owned_docstring(value: object) -> str:
     """Return the installed object's normalized owned docstring."""
     return inspect.getdoc(value) or ""
+
+
+def required_arguments(parameters: Iterable[inspect.Parameter]) -> tuple[str, ...]:
+    """Format required invocation arguments from the owning callable signature."""
+    return tuple(
+        f"*{parameter.name}"
+        if parameter.kind is inspect.Parameter.VAR_POSITIONAL
+        else f"{parameter.name}={parameter.name}"
+        if parameter.kind is inspect.Parameter.KEYWORD_ONLY
+        else parameter.name
+        for parameter in parameters
+        if parameter.default is inspect.Parameter.empty
+    )

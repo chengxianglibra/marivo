@@ -94,7 +94,7 @@ def surface_snapshot() -> list[dict[str, object]]:
 
     exports = {entry.name: entry for provider in REGISTRY.providers for entry in provider.exports}
     result: list[dict[str, object]] = []
-    public_names: object = vars(mv)["__all__"]
+    public_names: object = mv.__all__
     assert isinstance(public_names, list)
     names = tuple(str(name) for name in public_names)
     assert list(names) == public_names

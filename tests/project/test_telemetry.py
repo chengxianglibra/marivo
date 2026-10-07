@@ -83,9 +83,9 @@ def test_track_operation_writes_correlated_v2_pair(telemetry_project: Path) -> N
         project_root=telemetry_project,
     )
     with track_operation(
-        "marivo.analysis.compare",
-        family="operator",
-        intent="compare",
+        surface="analysis",
+        capability_kind="operator",
+        capability_id="compare",
         session=session,
     ):
         pass
@@ -111,9 +111,9 @@ def test_metric_graph_telemetry_keeps_only_bounded_contract_facts(
     from marivo.telemetry import _add_operation_attributes, track_operation
 
     with track_operation(
-        "marivo.analysis.observe",
-        family="operator",
-        intent="observe",
+        surface="analysis",
+        capability_kind="operator",
+        capability_id="observe",
         project_root=telemetry_project,
     ):
         _add_operation_attributes(
@@ -156,9 +156,9 @@ def test_track_operation_records_structured_error_without_message(
     with (
         pytest.raises(ValueError, match="sensitive failure text"),
         track_operation(
-            "marivo.analysis.compare",
-            family="operator",
-            intent="compare",
+            surface="analysis",
+            capability_kind="operator",
+            capability_id="compare",
             project_root=telemetry_project,
         ),
     ):
@@ -796,9 +796,9 @@ def test_concurrent_appends_remain_valid_jsonl(telemetry_project: Path) -> None:
 
     def emit(index: int) -> None:
         with track_operation(
-            f"marivo.analysis.concurrent_{index}",
-            family="read",
-            intent=f"concurrent_{index}",
+            surface="analysis",
+            capability_kind="read",
+            capability_id=f"concurrent_{index}",
             project_root=telemetry_project,
         ):
             pass
@@ -808,6 +808,20 @@ def test_concurrent_appends_remain_valid_jsonl(telemetry_project: Path) -> None:
 
     rows = _records(_event_path(telemetry_project))
     assert len(rows) == 80
+
+
+def _emit_writer_event(event_name: str, *, family: str, intent: str, project_root: Path) -> None:
+    """Exercise the writer directly; native operation coverage owns instrumentation."""
+    import marivo.telemetry as telemetry
+
+    telemetry._write_entry(
+        project_root,
+        telemetry._log_entry(
+            event_name,
+            status="ok",
+            attributes={"marivo.capability.id": intent, "marivo.capability.kind": family},
+        ),
+    )
 
 
 def test_event_files_roll_by_utc_day(
@@ -823,13 +837,13 @@ def test_event_files_roll_by_utc_day(
     )
     monkeypatch.setattr(telemetry, "_now_unix_nano", lambda: next(timestamps))
 
-    telemetry.track_event(
+    _emit_writer_event(
         "marivo.analysis.first_day",
         family="read",
         intent="first_day",
         project_root=telemetry_project,
     )
-    telemetry.track_event(
+    _emit_writer_event(
         "marivo.analysis.second_day",
         family="read",
         intent="second_day",
@@ -849,13 +863,13 @@ def test_event_files_roll_when_size_limit_would_be_exceeded(
     import marivo.telemetry as telemetry
 
     monkeypatch.setattr(telemetry, "_MAX_EVENT_FILE_BYTES", 1)
-    telemetry.track_event(
+    _emit_writer_event(
         "marivo.analysis.first_segment",
         family="read",
         intent="first_segment",
         project_root=telemetry_project,
     )
-    telemetry.track_event(
+    _emit_writer_event(
         "marivo.analysis.second_segment",
         family="read",
         intent="second_segment",
@@ -887,7 +901,7 @@ def test_historical_retention_prunes_managed_segments_only(
     timestamp = str(int(datetime(2026, 7, 29, 12, 0, tzinfo=UTC).timestamp() * 1_000_000_000))
     monkeypatch.setattr(telemetry, "_now_unix_nano", lambda: timestamp)
 
-    telemetry.track_event(
+    _emit_writer_event(
         "marivo.analysis.retention",
         family="read",
         intent="retention",
@@ -915,7 +929,7 @@ def test_historical_files_are_pruned_to_size_limit(
     monkeypatch.setattr(telemetry, "_now_unix_nano", lambda: timestamp)
     monkeypatch.setattr(telemetry, "_MAX_HISTORICAL_TELEMETRY_BYTES", 4)
 
-    telemetry.track_event(
+    _emit_writer_event(
         "marivo.analysis.size_retention",
         family="read",
         intent="size_retention",
@@ -938,14 +952,14 @@ def test_cleanup_failure_does_not_mark_written_event_as_dropped(
         raise OSError("cleanup unavailable")
 
     monkeypatch.setattr(telemetry, "_prune_historical_files", fail_prune)
-    telemetry.track_event(
+    _emit_writer_event(
         "marivo.analysis.cleanup_failed",
         family="read",
         intent="cleanup_failed",
         project_root=telemetry_project,
     )
     monkeypatch.setattr(telemetry, "_prune_historical_files", real_prune)
-    telemetry.track_event(
+    _emit_writer_event(
         "marivo.analysis.cleanup_recovered",
         family="read",
         intent="cleanup_recovered",
@@ -969,14 +983,14 @@ def test_writer_failure_is_isolated_and_reported_on_next_success(
         raise OSError("telemetry disk unavailable")
 
     monkeypatch.setattr(telemetry.os, "open", fail_open)
-    telemetry.track_event(
+    _emit_writer_event(
         "marivo.analysis.failed_write",
         family="read",
         intent="failed_write",
         project_root=telemetry_project,
     )
     monkeypatch.setattr(telemetry.os, "open", real_open)
-    telemetry.track_event(
+    _emit_writer_event(
         "marivo.analysis.recovered_write",
         family="read",
         intent="recovered_write",
@@ -1012,9 +1026,9 @@ def test_telemetry_enablement_precedence(
     else:
         monkeypatch.setenv("MARIVO_TELEMETRY", environment)
     with track_operation(
-        "marivo.analysis.demo",
-        family="read",
-        intent="demo",
+        surface="analysis",
+        capability_kind="read",
+        capability_id="demo",
         project_root=telemetry_project,
     ):
         pass

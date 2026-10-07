@@ -1035,64 +1035,17 @@ def install_surface_instrumentation(
     return frozenset(installed)
 
 
-def _legacy_identity(event_name: str, intent: str) -> tuple[str, str]:
-    prefix = "marivo."
-    if event_name.startswith(prefix):
-        parts = event_name[len(prefix) :].split(".")
-        if parts:
-            return parts[0], ".".join(parts[1:]) or intent
-    return "runtime", intent
-
-
-def track_event(
-    event_name: str,
-    *,
-    family: str,
-    intent: str,
-    session: object | None = None,
-    project_root: Path | None = None,
-    status: str = "ok",
-    duration_ms: int | None = None,
-    error_type: str | None = None,
-    attributes: Mapping[str, TelemetryValue] | None = None,
-) -> None:
-    """Append one custom v2 event without changing caller behavior."""
-    try:
-        arguments: dict[str, object] = {"session": session, "project_root": project_root}
-        root = _project_root(arguments)
-        if not _enabled(root):
-            return
-        surface, capability_id = _legacy_identity(event_name, intent)
-        attrs: dict[str, TelemetryValue] = {
-            "marivo.project.instance_id": _instance_id(root),
-            "marivo.surface": surface,
-            "marivo.capability.id": capability_id,
-            "marivo.capability.kind": family,
-            "marivo.operation.status": status,
-            **_session_attributes(arguments),
-            **dict(attributes or {}),
-        }
-        if duration_ms is not None:
-            attrs["marivo.operation.duration_ms"] = duration_ms
-        if error_type is not None:
-            attrs["marivo.error.class"] = error_type
-        _write_entry(root, _log_entry(event_name, status=status, attributes=attrs))
-    except Exception:
-        return
-
-
 @contextmanager
 def track_operation(
-    event_name: str,
     *,
-    family: str,
-    intent: str,
+    surface: str,
+    capability_id: str,
+    capability_kind: str,
     session: object | None = None,
     project_root: Path | None = None,
     attributes: Mapping[str, TelemetryValue] | None = None,
 ) -> Iterator[_Operation | None]:
-    """Record a v2 operation pair while preserving the legacy internal call shape."""
-    surface, capability_id = _legacy_identity(event_name, intent)
+    """Record a v2 operation pair with an explicit native capability identity."""
     if _already_active(surface, capability_id):
         with telemetry_stage("execute"):
             yield None
@@ -1102,7 +1055,7 @@ def track_operation(
     operation = _Operation(
         surface=surface,
         capability_id=capability_id,
-        capability_kind=family,
+        capability_kind=capability_kind,
         root=root,
         attributes={**_session_attributes(arguments), **dict(attributes or {})},
         defer_start_write=surface == "cli" and capability_id == "init",
@@ -1115,7 +1068,6 @@ __all__ = [
     "install_surface_instrumentation",
     "staged",
     "telemetry_stage",
-    "track_event",
     "track_operation",
     "tracked_capability",
 ]

@@ -24,3 +24,7 @@ cd site && npm run build
 
 The build uses `-W`, so any unresolved reference or malformed docstring fails
 the build. The publish pipeline must run on a Python-capable host.
+
+The site's dev, build and content-verification entrypoints also materialize
+shared historical documentation locally. Original URLs and frontmatter remain
+unchanged; no network fetch is required. See [site maintenance](../../site/README.md).

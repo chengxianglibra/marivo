@@ -275,8 +275,8 @@ def main(argv: list[str] | None = None) -> None:
         from marivo._help.bootstrap import render_bootstrap_help
 
         with track_operation(
-            "marivo.cli.help_bootstrap",
-            family="command",
-            intent="help_bootstrap",
+            surface="cli",
+            capability_kind="command",
+            capability_id="help_bootstrap",
         ):
             print(render_bootstrap_help())
