@@ -2,7 +2,7 @@
 
 Date: 2026-10-07
 
-Status: O1 implemented and validated within the stated scope. O2–O5 remain proposed.
+Status: O1 and O2a implemented and validated within the stated scope. O2b and O3–O5 remain proposed.
 
 Baseline: `panda@ccbed62962e21beef5778c738037e62d912ec8fb`.
 
@@ -10,7 +10,7 @@ Baseline: `panda@ccbed62962e21beef5778c738037e62d912ec8fb`.
 目标是减少同一事实的重复推导、重复表示和重复检查，同时保持结果正确性与清晰的失败边界。
 前三项先按等价内部整理实施；改变支持范围、恢复协议或作者语法的部分分别交付。
 
-O1 已按本文的等价内部整理边界实施，并更新对应私有构造与编译交接规范。
+O1、O2a 已按本文的等价内部整理边界实施，并更新对应私有构造、编译交接与消费者规范。
 其他工作包仍是优化提案；本次不授予新的后端、类型或方法组合资格，也不表示
 R10、安装包、真实 Agent 或发布验收已经完成。`AGENTS.md` 与 packaged skills 保持原样。
 
@@ -203,6 +203,50 @@ O2a 对基线声明集比较方法、输入类型与域、shape、route、实现
 
 通过条件为支持/拒绝集合及选择结果等价，且生产逻辑不再根据验收阶段前缀分支。
 O2b 的新增资格单独记录，不反向改写历史验收结论，也不机械展开所有维度的笛卡尔积。
+
+### O2a 实施记录（2026-10-07）
+
+- 实施基线为 `panda@440dabc14f`，包含 O1 与按行为组织的测试目录；未修改其既有成果。
+  唯一 `MethodRegistry`、声明顺序与去重规则保留。84 个方法、11,470 条基础声明的
+  有序 key、资格状态、实现 ID/版本、consumer/evidence、checks、parts、精度及资源
+  摘要与基线一致。测试内冻结摘要不依赖临时资格证据或源归档。
+- `Implementation.numeric_specialization` 明确区分 `consumer` 与 `exact`；312 条
+  exact 声明的位置与原限制一致，线性组合的输入个数扩展仍先独立处理。复制声明时
+  显式设置最终消费者策略，不通过实现 ID 或证据路径推断能力。
+- 合并 PostgreSQL/MySQL/Trino/ClickHouse 的重复 native 输入声明与两次相同的准入过滤，
+  用小型顺序表保留原 upstream key 溯源文本。native distribution 的后端表由声明和
+  参数消费者共用，没有第二套 registry、配置语言、通配 qualification 或路线重试。
+- 删除 9 处实现 ID 前缀驱动的生产分支。42 条 prepared numeric 声明的本地检查归属
+  由 lowering 与执行准备共享判定；123 条 Subject image 和 13 条 native distribution
+  声明由明确的 key、consumer 与 parts 判定。SQLite funnel axes 和 Anchor observation
+  参数限制归各自物理消费者所有；真实声明匹配、原错误文本和拒绝边界保留。
+- 动态对照包含 376,339 个按现有模板产生的探针，覆盖 Decimal precision/scale、四种
+  Duration 单位、混合类型、输入个数 1/2/3/16/17/64/65、域、时间、后端、table kind
+  与路线邻近变化。预期由基线代码冻结，比较 specialization 的完整旧字段、匹配结果
+  与异常，不只比较数量。另覆盖真实 registry 的特殊类型选择身份、邻近拒绝、ID 与
+  能力解耦、伪造实现拒绝、SQLite 参数边界及新策略的交接篡改反例。
+- 新策略进入 O1 的精确内容交接校验；不进入持久化 qualification key、Store 编码、
+  implementation version 或 plan digest。现有 source/fixed fingerprint、plan digest
+  和 snapshot 字节基线继续通过。mixed source/fixed、异构 shape、缺失 checks/parts
+  及非法图的既有拒绝责任不变。
+
+验收结果：
+
+- 首轮受影响默认测试为 373 passed（11.25 s）；补齐 shape/route 探针与实际选择反例后，
+  专项测试为 138 passed（9.73 s）。新增测试模块与受影响源码的 typing 为 38 个文件通过。
+- `make check-agent` 通过：764 个文件的格式/lint、import contracts、335 个源码文件的
+  typing、默认测试 4,731 passed / 1 skipped（50.04 s），以及 API 文档构建。
+  后补的完整注册方法集合/顺序断言单独复核为 1 passed（0.61 s）。
+- 定向 Runtime 首轮为 10 passed（505.06 s）：DuckDB/SQLite prepared sum/mean
+  attribution、SQLite Anchor observation overlap、SQLite 直接/联合 axes 与 DATE
+  snapshot/validity funnel，以及 table/Parquet funnel 的独立进程恢复。保留现有
+  数值、Cell/parts、来源隔离、损坏/输入变化与资源断言。最终 admission gate 的
+  SQLite Anchor observation 与直接 int64 funnel 另复核为 2 passed（59.73 s）。
+- 相对实施基线，生产源码新增 359 行、删除 203 行，净增 156 行；新增内容主要是明确
+  的策略和消费者规则，并非净代码削减。删除的是上述前缀分支与重复 native 声明路径。
+  不承诺统一执行加速比例，不扩大后端/类型/方法组合资格。
+- 外部 provider Runtime、完整 Runtime、安装包、真实 Agent 与发布验收未运行。
+  `AGENTS.md`、packaged skills、公共导出和 Help 未修改；O2b、O3–O5 未实施。
 
 ## 6. O3 复用已编译的语义契约
 

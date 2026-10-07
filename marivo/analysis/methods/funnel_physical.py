@@ -3,11 +3,13 @@
 from dataclasses import replace
 
 from marivo.analysis.core.model import DomainKind
+from marivo.analysis.core.rules import FunnelAxesPrepare, FunnelReduce, RuleParameters
 from marivo.analysis.methods.domain_preparation import implementations as preparations
 from marivo.analysis.methods.domain_preparation import (
     remote_implementations,
     sqlite_implementations,
 )
+from marivo.analysis.methods.errors import reject
 from marivo.analysis.methods.physical import (
     FixedShape,
     Implementation,
@@ -18,6 +20,7 @@ from marivo.analysis.methods.physical import (
     SourceShape,
 )
 from marivo.analysis.methods.semantics import MethodKey
+from marivo.semantic.ir import TargetSnapshotVersion, TargetValidityVersion
 
 
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
@@ -65,6 +68,12 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             parts=("entry_axes",)
             if method.name == "funnel.entry_axes"
             else ("funnel_state", "finding_policy"),
+            numeric_specialization="consumer"
+            if isinstance(base.key.shape, SourceShape)
+            and base.key.shape.backend in ("postgres", "mysql", "trino", "clickhouse")
+            else "exact"
+            if isinstance(base.key.shape, SourceShape) and base.key.shape.backend == "sqlite"
+            else "consumer",
             qualification=Qualified(
                 f"r94.{base.key.shape.backend}.{method.name}.int64_us_utc@v1"
                 if isinstance(base.key.shape, SourceShape)
@@ -91,3 +100,60 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             and len(types) != 2
         )
     )
+
+
+def admit_axes(implementation: Implementation, params: RuleParameters) -> None:
+    """Admit only the consumer's supported SQLite parameter variants."""
+    if (
+        isinstance(implementation.key.shape, SourceShape)
+        and implementation.key.shape.backend == "sqlite"
+        and implementation.key.method.name in ("funnel.entry_axes", "funnel.reduce")
+        and isinstance(implementation.qualification, Qualified)
+        and implementation.qualification.consumer_id == "analysis.materialization.funnel_execution"
+        and isinstance(params, (FunnelAxesPrepare, FunnelReduce))
+        and (
+            tuple(axis.dimension.logical_type for axis in params.axes)
+            not in (("int64",), ("string",), ("int64", "string"))
+            or any(
+                axis.subject.version is not None
+                or (
+                    axis.path
+                    and not (
+                        len(params.axes) == 1
+                        and axis.dimension.logical_type == "string"
+                        and len(axis.path) == 1
+                        and len(axis.entities) == 2
+                        and (
+                            (
+                                isinstance(axis.entities[1].version, TargetSnapshotVersion)
+                                and dict(axis.entities[1].columns).get(
+                                    axis.entities[1].version.source_column
+                                )
+                                == "date32[day]"
+                                and axis.entities[1].version.timezone == "UTC"
+                            )
+                            or (
+                                isinstance(axis.entities[1].version, TargetValidityVersion)
+                                and axis.entities[1].version.interval == "closed_open"
+                                and axis.entities[1].version.open_end == (None,)
+                                and axis.entities[1].version.timezone == "UTC"
+                                and all(
+                                    dict(axis.entities[1].columns).get(column) == "date32[day]"
+                                    for column in (
+                                        axis.entities[1].version.valid_from_column,
+                                        axis.entities[1].version.valid_to_column,
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+                for axis in params.axes
+            )
+        )
+    ):
+        reject(
+            "direct unversioned Subject axes or one string axis through a UTC DATE snapshot or closed-open validity interval",
+            repr(params),
+            "Use one direct string/int64 axis, an ordered int64/string pair, or one to-one string axis through a UTC DATE snapshot or closed-open validity interval with NULL open end; qualify other paths, versions and axis orders separately.",
+        )

@@ -110,10 +110,10 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.core.time_grid import GridVersionSelection
 from marivo.analysis.methods.builtin import admit
+from marivo.analysis.methods.consumer_rules import prepared_numeric
 from marivo.analysis.methods.physical import (
     DecimalType,
     DurationType,
-    Qualified,
     ScalarType,
     SourceShape,
 )
@@ -3902,8 +3902,7 @@ def lower(
                 and any(
                     isinstance(stage, LocalMethodStage)
                     and stage.node.identity == owner.identity
-                    and isinstance(stage.implementation.qualification, Qualified)
-                    and stage.implementation.qualification.implementation_id.startswith("r93.c09.")
+                    and prepared_numeric(stage.implementation)
                     for stage in admitted.stages
                 )
             )

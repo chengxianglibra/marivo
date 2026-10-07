@@ -83,8 +83,9 @@ from marivo.analysis.materialization.domain_preparation import validate_rows
 from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import CompletedCheck, ExchangeResult
 from marivo.analysis.materialization.graph_execution import PreparedGraph
+from marivo.analysis.methods.consumer_rules import prepared_numeric
 from marivo.analysis.methods.domain_coverage import FACTS, coverage
-from marivo.analysis.methods.physical import Qualified, SourceShape, TimeShape, arrow_scalar_type
+from marivo.analysis.methods.physical import SourceShape, TimeShape, arrow_scalar_type
 from marivo.analysis.methods.prepared_observation import Restriction, restrict, state
 from marivo.datasource.adapters import SourceSession
 from marivo.refs import ref
@@ -409,8 +410,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 isinstance(
                     item.stage.node.parameters, (OriginalReduce, CellDerive, AttributionDerive)
                 )
-                and isinstance(item.stage.implementation.qualification, Qualified)
-                and item.stage.implementation.qualification.implementation_id.startswith("r93.c09.")
+                and prepared_numeric(item.stage.implementation)
             )
             or (
                 isinstance(item.stage.node.parameters, RowState)

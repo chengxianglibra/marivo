@@ -93,6 +93,9 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 else "ibis_python",
             ),
             parts=("history", "history_view", "subject"),
+            numeric_specialization="exact"
+            if isinstance(base.key.shape, SourceShape) and base.key.shape.backend == "sqlite"
+            else "consumer",
             qualification=Qualified(
                 f"r93.c13.sqlite.{method.name}.int64_us_utc@v1"
                 if isinstance(base.key.shape, SourceShape) and base.key.shape.backend == "sqlite"
@@ -128,6 +131,7 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
                 ),
             ),
             parts=tuple(dict.fromkeys((*item.parts, "history_view"))),
+            numeric_specialization="consumer",
             qualification=Qualified(
                 f"r76.{method}.{item.key.shape}@v1",
                 "analysis.materialization.graph_local_execution",
@@ -150,6 +154,7 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
             item,
             key=replace(item.key, input_domains=(domain,)),
             parts=("subject", "history_view"),
+            numeric_specialization="consumer",
             qualification=Qualified(
                 f"r76.{method}.{item.key.shape}.{domain}@v1",
                 "analysis.materialization.graph_local_execution",
@@ -168,6 +173,7 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
             key=replace(item.key, method=method, input_types=(value,), input_domains=(domain,)),
             parts=("row_state",),
             precision="checked_int64",
+            numeric_specialization="consumer",
             qualification=Qualified(
                 f"r76.{method}.{item.key.shape}.{domain}.{value}@v1",
                 "analysis.materialization.graph_local_execution",

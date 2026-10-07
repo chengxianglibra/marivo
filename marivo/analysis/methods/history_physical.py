@@ -31,6 +31,9 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 else "ibis_python",
             ),
             parts=("history", "subject", "occurrences"),
+            numeric_specialization="exact"
+            if isinstance(item.key.shape, SourceShape) and item.key.shape.backend == "sqlite"
+            else "consumer",
             qualification=Qualified(
                 "r93.c13.sqlite.history_replay_int64_us_utc@v1"
                 if isinstance(item.key.shape, SourceShape) and item.key.shape.backend == "sqlite"

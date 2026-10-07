@@ -56,6 +56,12 @@ from marivo.analysis.core.rules import (
     TimeRunRead,
     TimeRuns,
 )
+from marivo.analysis.methods.consumer_rules import (
+    NATIVE_DISTRIBUTION_BACKENDS,
+    native_distribution,
+    prepared_numeric,
+    subject_image,
+)
 from marivo.analysis.methods.errors import reject
 from marivo.analysis.methods.physical import (
     Backend,
@@ -73,7 +79,6 @@ from marivo.analysis.methods.physical import (
     TimeShape,
 )
 from marivo.analysis.methods.semantics import MethodKey
-from marivo.semantic.ir import TargetSnapshotVersion, TargetValidityVersion
 
 PARTS: tuple[PartRole, ...] = (
     "pair_inputs",
@@ -261,6 +266,7 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 key=replace(item.key, method=method),
                 parts=("subject", "cohort_decision"),
                 contract_version=1,
+                numeric_specialization="consumer",
                 qualification=Qualified(
                     f"r63.{item.key.route}.domain.cohort.{item.key.shape}@v1",
                     "analysis.compiler.graph_lowering"
@@ -284,6 +290,7 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 shape=replace(item.key.shape, backend=backend),
             ),
             precision="finite_float64" if numeric_type == ScalarType("float64") else "exact",
+            numeric_specialization="exact",
             qualification=Qualified(
                 f"r93.c04.{backend}.{method}.{numeric_type.name}@v1",
                 "analysis.compiler.graph_lowering",
@@ -315,6 +322,7 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         replace(
             item,
             key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+            numeric_specialization="exact",
             qualification=Qualified(
                 f"r93.c04.{backend}.{method}.{item.key.input_types}@v1",
                 "analysis.compiler.graph_lowering",
@@ -353,6 +361,7 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 replace(
                     item,
                     key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+                    numeric_specialization="exact",
                     qualification=Qualified(
                         f"r93.{'c07' if method.name == 'cell.difference' else 'c05'}.{backend}.{item.key}",
                         "analysis.compiler.graph_lowering",
@@ -452,6 +461,7 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         replace(
             item,
             key=replace(item.key, shape=replace(item.key.shape, backend="sqlite")),
+            numeric_specialization="consumer",
             qualification=Qualified(
                 f"r55.sqlite.{method}.{item.key}",
                 "analysis.compiler.graph_lowering",
@@ -464,16 +474,8 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         and item.key.shape.form == "table"
         and item.key.route == "ibis"
     )
-    postgres = tuple(
-        replace(
-            item,
-            key=replace(item.key, shape=replace(item.key.shape, backend="postgres")),
-            qualification=Qualified(
-                f"r93.postgres.{method}.{item.key}",
-                "analysis.compiler.graph_lowering",
-                "tests/test_r93_method_consumers.py",
-            ),
-        )
+    native_inputs = tuple(
+        item
         for item in sqlite
         if isinstance(item.key.shape, SourceShape)
         and method.name
@@ -490,62 +492,34 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         and item.key.input_domains == ("entity",)
         and item.key.input_types[0] in (ScalarType("int64"), ScalarType("string"))
     )
-    mysql = tuple(
-        replace(
-            item,
-            key=replace(item.key, shape=replace(item.key.shape, backend="mysql")),
-            qualification=Qualified(
-                f"r93.mysql.{method}.{item.key}",
-                "analysis.compiler.graph_lowering",
-                "tests/test_r93_method_consumers.py",
-            ),
-        )
-        for item in postgres
-        if isinstance(item.key.shape, SourceShape)
+    remote: dict[Backend, tuple[Implementation, ...]] = {}
+    # Preserve the original upstream keys in provenance IDs and declaration order.
+    native_routes: tuple[tuple[Backend, Backend], ...] = (
+        ("postgres", "sqlite"),
+        ("mysql", "postgres"),
+        ("trino", "sqlite"),
+        ("clickhouse", "trino"),
     )
-    trino = tuple(
-        replace(
-            item,
-            key=replace(item.key, shape=replace(item.key.shape, backend="trino")),
-            qualification=Qualified(
-                f"r93.trino.{method}.{item.key}",
-                "analysis.compiler.graph_lowering",
-                "tests/test_r93_method_consumers.py",
-            ),
+    for backend, upstream in native_routes:
+        remote[backend] = tuple(
+            replace(
+                item,
+                key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+                numeric_specialization="consumer",
+                qualification=Qualified(
+                    f"r93.{backend}.{method}.{item.key}",
+                    "analysis.compiler.graph_lowering",
+                    "tests/test_r93_method_consumers.py",
+                ),
+            )
+            for item in (native_inputs if upstream == "sqlite" else remote[upstream])
+            if isinstance(item.key.shape, SourceShape)
         )
-        for item in sqlite
-        if isinstance(item.key.shape, SourceShape)
-        and method.name
-        in (
-            "parts_transport",
-            "bind_project",
-            "metric.observe",
-            "metric.sum_zero",
-            "time.product",
-            "state_rollup",
-            "state_rollup.sum_zero",
-        )
-        and item.key.shape.time == TimeShape("instant", "us", "UTC")
-        and item.key.input_domains == ("entity",)
-        and item.key.input_types[0] in (ScalarType("int64"), ScalarType("string"))
-    )
-    clickhouse = tuple(
-        replace(
-            item,
-            key=replace(item.key, shape=replace(item.key.shape, backend="clickhouse")),
-            qualification=Qualified(
-                f"r93.clickhouse.{method}.{item.key}",
-                "analysis.compiler.graph_lowering",
-                "tests/test_r93_method_consumers.py",
-            ),
-        )
-        for item in trino
-        if isinstance(item.key.shape, SourceShape)
-    )
     c05_groups = tuple(
         replace(
             item,
             key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+            numeric_specialization="exact",
             qualification=Qualified(
                 f"r93.c05.{backend}.{item.key}",
                 "analysis.compiler.graph_lowering",
@@ -571,6 +545,9 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         replace(
             item,
             key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+            numeric_specialization="consumer"
+            if item.key.input_types == (ScalarType("int64"),)
+            else "exact",
             qualification=Qualified(
                 f"r94.c06.int64_subject.{backend}.{item.key}"
                 if item.key.input_types == (ScalarType("int64"),)
@@ -594,6 +571,7 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         replace(
             item,
             key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+            numeric_specialization="exact",
             qualification=Qualified(
                 f"r93.c03.{backend}.{method}.{item.key.input_types[0]}.no_time@v1",
                 "analysis.compiler.graph_lowering",
@@ -613,10 +591,7 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
     return (
         *declarations,
         *sqlite,
-        *postgres,
-        *mysql,
-        *trino,
-        *clickhouse,
+        *(item for backend, _ in native_routes for item in remote[backend]),
         *c05_groups,
         *c06_fold,
         *c03_members,
@@ -1143,6 +1118,7 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
                                 and numeric_type == "float64"
                             )
                             else "checked_int64",
+                            numeric_specialization="consumer",
                             qualification=Qualified(
                                 f"r45.{method}.{key.shape}.{numeric_type}.{row_domain}@v1",
                                 "analysis.materialization.graph_local_execution"
@@ -1192,6 +1168,7 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
                             input_types=(*item.key.input_types, ScalarType(predicate_type)),
                             input_domains=(*item.key.input_domains, *item.key.input_domains),
                         ),
+                        numeric_specialization="consumer",
                         qualification=Qualified(
                             f"r54.where.corresponding.{item.key}.{predicate_type}",
                             "analysis.materialization.graph_local_execution"
@@ -1224,6 +1201,7 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     replace(
                         template,
                         key=key,
+                        numeric_specialization="consumer",
                         qualification=Qualified(
                             f"r45.transport.{key.shape}.{numeric_type}.{target_domain}@v1",
                             "analysis.materialization.graph_local_execution"
@@ -1275,6 +1253,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         item.key,
                         shape=replace(item.key.shape, form=form, table_kind=form),
                     ),
+                    numeric_specialization="exact",
                     qualification=Qualified(
                         f"r96.local_file.{form}.{method.name}.entity.{input_type}.no_time@v1",
                         item.qualification.consumer_id,
@@ -1345,6 +1324,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     route="ibis_python" if item.key.route == "ibis" else item.key.route,
                 ),
                 precision="finite_float64",
+                numeric_specialization="consumer",
                 qualification=Qualified(
                     f"r62.{method}.{item.key.shape}@v1",
                     "analysis.materialization.graph_source_execution"
@@ -1354,10 +1334,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 ),
             )
             for item in implementations(MethodKey("cell.difference"))
-            if not (
-                isinstance(item.qualification, Qualified)
-                and item.qualification.implementation_id.startswith("r93.c09.")
-            )
+            if not prepared_numeric(item)
         )
         if method.name == "cell.ratio":
             comparisons += (
@@ -1378,6 +1355,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         "analysis.materialization.graph_local_execution",
                         "tests/test_r93_journey_consumers.py",
                     ),
+                    numeric_specialization="exact",
                 ),
             )
         return comparisons
@@ -1429,6 +1407,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             else replace(
                 item,
                 contract_version=4,
+                numeric_specialization="consumer",
                 qualification=Qualified(
                     f"r62.{item.key.route}.cell.difference.{item.key.shape}@v1",
                     "analysis.compiler.graph_lowering"
@@ -1464,6 +1443,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                             item,
                             key=replace(item.key, route="ibis_python"),
                             checks=NUMERIC_CHECKS,
+                            numeric_specialization="consumer",
                             qualification=Qualified(
                                 f"r82.{method}.{item.key.shape}@v1",
                                 "analysis.materialization.graph_local_execution",
@@ -1492,6 +1472,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     "correspondence",
                     "pair_counts",
                 ),
+                numeric_specialization="consumer",
                 qualification=Qualified(
                     f"r82.retained_transport.{item.key}@v1",
                     "analysis.materialization.graph_local_execution",
@@ -1558,6 +1539,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         expanded.append(
                             replace(
                                 candidate,
+                                numeric_specialization="consumer",
                                 qualification=Qualified(
                                     f"r82.time.{method}.{candidate.key.shape}.{candidate.key.route}@v1",
                                     item.qualification.consumer_id,
@@ -1573,6 +1555,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 replace(
                     item,
                     key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+                    numeric_specialization="exact",
                     qualification=Qualified(
                         f"r93.c08.static_target.{backend}.{item.key}",
                         "analysis.compiler.graph_lowering",
@@ -1636,6 +1619,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         input_domains=input_domains,
                         shape=replace(item.key.shape, backend=backend),
                     ),
+                    numeric_specialization="exact",
                     qualification=Qualified(
                         f"r93.c08.{backend}.{method}.{item.key}",
                         item.qualification.consumer_id,
@@ -1677,6 +1661,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         input_types=(ScalarType("string"),) * 2,
                         shape=replace(item.key.shape, backend=backend),
                     ),
+                    numeric_specialization="exact",
                     qualification=Qualified(
                         f"r93.c08.penetration.{backend}.{item.key}",
                         item.qualification.consumer_id,
@@ -1700,6 +1685,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 replace(
                     item,
                     key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+                    numeric_specialization="exact",
                     qualification=Qualified(
                         f"r93.c09.prepared.{backend}.{item.key}",
                         item.qualification.consumer_id,
@@ -1742,6 +1728,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     ),
                     resources=replace(item.resources, owner="producer"),
                     checks=NUMERIC_CHECKS,
+                    numeric_specialization="exact",
                     qualification=Qualified(
                         f"r93.c09.local.{backend}.{item.key}",
                         item.qualification.consumer_id,
@@ -1788,6 +1775,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     resources=replace(item.resources, owner="producer"),
                     checks=NUMERIC_CHECKS,
                     precision="finite_float64",
+                    numeric_specialization="exact",
                     qualification=Qualified(
                         f"r93.c09.mix.{backend}.{item.key}",
                         item.qualification.consumer_id,
@@ -1808,26 +1796,21 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 and isinstance(item.qualification, Qualified)
             ),
         )
-    c10_backends: dict[str, tuple[Backend, ...]] = {
-        "metric.distinct": ("sqlite", "postgres", "mysql", "trino"),
-        "metric.approx_distinct": ("sqlite", "postgres", "mysql", "trino", "clickhouse"),
-        "metric.quantile": ("postgres",),
-        "metric.approx_quantile": ("postgres", "trino", "clickhouse"),
-    }
-    if method.name in c10_backends:
+    if method.name in NATIVE_DISTRIBUTION_BACKENDS:
         declarations = (
             *declarations,
             *(
                 replace(
                     item,
                     key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+                    numeric_specialization="exact",
                     qualification=Qualified(
                         f"r93.c10.native.{backend}.{item.key}",
                         item.qualification.consumer_id,
                         "tests/test_r93_distribution_consumers.py",
                     ),
                 )
-                for backend in c10_backends[method.name]
+                for backend in NATIVE_DISTRIBUTION_BACKENDS[method.name]
                 for item in declarations
                 if item.key.shape
                 == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
@@ -1857,6 +1840,9 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                             item.key.shape, time=TimeShape("instant", "us", "Asia/Tokyo")
                         ),
                     ),
+                    numeric_specialization="consumer"
+                    if method.name in ("metric.observe", "state_rollup")
+                    else "exact",
                     qualification=Qualified(
                         f"r94.c06.report_zone.{item.key}@v1"
                         if method.name in ("metric.observe", "state_rollup")
@@ -1894,6 +1880,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             replace(
                 item,
                 key=replace(item.key, shape=replace(item.key.shape, form=form, table_kind=form)),
+                numeric_specialization="consumer",
                 qualification=Qualified(
                     f"r94.local_file.{form}.{method.name}.{'no_time' if isinstance(item.key.shape.time, NoTime) else 'utc_us'}@v1",
                     "analysis.compiler.graph_lowering",
@@ -1915,6 +1902,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             replace(
                 item,
                 key=replace(item.key, shape=replace(item.key.shape, form=form, table_kind=form)),
+                numeric_specialization="exact",
                 qualification=Qualified(
                     f"r96.local_file.{form}.{method.name}.{item.key.route}.entity.int64.utc_us@v1",
                     item.qualification.consumer_id,
@@ -1963,25 +1951,7 @@ def specialize_arity(implementation: Implementation, arity: int) -> Implementati
 
 def specialize_numeric(implementation: Implementation, key: QualificationKey) -> Implementation:
     """Bind precise numeric families and closed typed predicate inputs."""
-    if isinstance(
-        implementation.qualification, Qualified
-    ) and implementation.qualification.implementation_id.startswith(
-        (
-            "r93.c03.",
-            "r93.c04.",
-            "r93.c05.",
-            "r93.c06.",
-            "r93.c07.",
-            "r93.c08.",
-            "r93.c09.",
-            "r93.c10.",
-            "r93.c11.",
-            "r93.c12.",
-            "r93.c13.",
-            "r93.c18.",
-            "r96.local_file.",
-        )
-    ):
+    if implementation.numeric_specialization == "exact":
         return implementation
     if key.method.name in ("time.runs", "time.runs_read"):
         from marivo.analysis.methods.runs_physical import specialize
@@ -2069,10 +2039,7 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
     if (
         key.method.name == "map_correspond"
         and isinstance(key.input_types[0], DecimalType)
-        and isinstance(implementation.qualification, Qualified)
-        and implementation.qualification.implementation_id.startswith(
-            ("r82.subject_image.", "r83.subject_image.")
-        )
+        and subject_image(implementation)
     ):
         return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
     if (
@@ -2263,96 +2230,12 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             repr(implementation.key),
             "Qualify a real lowerer and all required checkers for this exact key.",
         )
-    if (
-        isinstance(implementation.qualification, Qualified)
-        and implementation.qualification.implementation_id.startswith("r93.c12.sqlite.")
-        and isinstance(params, (FunnelAxesPrepare, FunnelReduce))
-        and (
-            tuple(axis.dimension.logical_type for axis in params.axes)
-            not in (("int64",), ("string",), ("int64", "string"))
-            or any(
-                axis.subject.version is not None
-                or (
-                    axis.path
-                    and not (
-                        len(params.axes) == 1
-                        and axis.dimension.logical_type == "string"
-                        and len(axis.path) == 1
-                        and len(axis.entities) == 2
-                        and (
-                            (
-                                isinstance(axis.entities[1].version, TargetSnapshotVersion)
-                                and dict(axis.entities[1].columns).get(
-                                    axis.entities[1].version.source_column
-                                )
-                                == "date32[day]"
-                                and axis.entities[1].version.timezone == "UTC"
-                            )
-                            or (
-                                isinstance(axis.entities[1].version, TargetValidityVersion)
-                                and axis.entities[1].version.interval == "closed_open"
-                                and axis.entities[1].version.open_end == (None,)
-                                and axis.entities[1].version.timezone == "UTC"
-                                and all(
-                                    dict(axis.entities[1].columns).get(column) == "date32[day]"
-                                    for column in (
-                                        axis.entities[1].version.valid_from_column,
-                                        axis.entities[1].version.valid_to_column,
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-                for axis in params.axes
-            )
-        )
-    ):
-        reject(
-            "direct unversioned Subject axes or one string axis through a UTC DATE snapshot or closed-open validity interval",
-            repr(params),
-            "Use one direct string/int64 axis, an ordered int64/string pair, or one to-one string axis through a UTC DATE snapshot or closed-open validity interval with NULL open end; qualify other paths, versions and axis orders separately.",
-        )
-    if (
-        isinstance(implementation.qualification, Qualified)
-        and implementation.qualification.implementation_id.startswith(
-            "r93.c18.sqlite.event_observe_"
-        )
-        and isinstance(params, AnchorObserve)
-        and (
-            params.composition is not None
-            or len(params.observations) != 1
-            or not isinstance(params.observations[0], ObserveMetric)
-            or params.observations[0].amount_type != "int64"
-            or params.observations[0].method != "sum"
-            or params.observations[0].metric.empty_rule != "zero"
-            or params.observations[0].fold is not None
-            or params.observations[0].distinct_columns
-            or params.observations[0].coordinates
-            or params.observations[0].filters
-        )
-    ):
-        reject(
-            "one int64 sum-zero Anchor observation",
-            repr(params),
-            "Use one direct int64 sum-zero Metric without coordinates or filters; other variants require separate physical qualification.",
-        )
-    if (
-        isinstance(implementation.qualification, Qualified)
-        and implementation.qualification.implementation_id.startswith("r93.c10.")
-        and isinstance(params, ObserveMetric)
-        and (
-            params.amount_type != "int64"
-            or params.distinct_columns
-            or params.start is None
-            or params.end is None
-        )
-    ):
-        reject(
-            "a bounded int64 direct-column distribution",
-            repr(params),
-            "Use an int64 Measure with an explicit bounded time scope; other input variants require separate physical qualification.",
-        )
+    from marivo.analysis.methods.anchor_physical import admit_observation
+    from marivo.analysis.methods.funnel_physical import admit_axes
+
+    admit_axes(implementation, params)
+    admit_observation(implementation, params)
+    _admit_distribution(implementation, params)
     if isinstance(
         params,
         (
@@ -2480,13 +2363,7 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
                 "Use the qualified singleton target.",
             )
     elif isinstance(params, MapCorrespond):
-        if (
-            isinstance(implementation.qualification, Qualified)
-            and implementation.qualification.implementation_id.startswith(
-                ("r82.subject_image.", "r83.subject_image.")
-            )
-            and params.mode != "subjects"
-        ):
+        if subject_image(implementation) and params.mode != "subjects":
             reject(
                 "a real total Subject projection",
                 params.mode,
@@ -2568,3 +2445,22 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
         "max",
     ):
         reject("a connected row state consumer", repr(params), "Use the registered exact method.")
+
+
+def _admit_distribution(implementation: Implementation, params: RuleParameters) -> None:
+    """Keep native distribution input variants with their direct-column consumer."""
+    if (
+        native_distribution(implementation)
+        and isinstance(params, ObserveMetric)
+        and (
+            params.amount_type != "int64"
+            or params.distinct_columns
+            or params.start is None
+            or params.end is None
+        )
+    ):
+        reject(
+            "a bounded int64 direct-column distribution",
+            repr(params),
+            "Use an int64 Measure with an explicit bounded time scope; other input variants require separate physical qualification.",
+        )
