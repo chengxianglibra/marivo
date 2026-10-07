@@ -68,9 +68,9 @@ from marivo.analysis.materialization.graph_dataset import GraphDataset
 from marivo.analysis.materialization.graph_fields import RootRoutesValue
 from marivo.analysis.materialization.graph_members import MemberGraph, construct_members
 from marivo.analysis.materialization.graph_observation import (
+    _observe_component,
     normalize_metric_input,
     observe_linear_members,
-    observe_members,
     observe_ratio_members,
 )
 from marivo.analysis.materialization.graph_protocol import (
@@ -99,20 +99,9 @@ from marivo.refs import (
 )
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.ir import TargetRelationshipContract
+from marivo.semantic.metric_graph import LinearNodeV1, TargetMetricContract
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from marivo.semantic.validator import Registry
-
-
-def _resolves_linear(live: LiveBinding, metric: Ref[MetricKind] | RuntimeMetricExpr) -> bool:
-    """Report whether an input resolves to a signed linear combination."""
-    from marivo.semantic.metric_graph import LinearNodeV1
-
-    contract = normalize_metric_input(live.graph.registry, metric, sidecar=live.sidecar)
-    roots = contract.graph.roots
-    return any(
-        isinstance(record.node, LinearNodeV1) and record.node_id in roots
-        for record in contract.graph.nodes
-    )
 
 
 def _reject(received: str) -> DatasetConstructionError:
@@ -927,6 +916,7 @@ class Relation:
         self,
         metric: Ref[MetricKind] | RuntimeMetricExpr,
         *,
+        metric_contract: TargetMetricContract,
         during: TimeScope | BoundTimeGrid | None,
         via: Ref[RelationshipKind] | tuple[Ref[RelationshipKind], ...],
         coordinates: tuple[Ref[DimensionKind], ...] = (),
@@ -937,9 +927,10 @@ class Relation:
             isinstance(node, MethodNode) and isinstance(node.parameters, AnchorObserve)
             for node in topology(self.root)
         )
-        graph = observe_members(
+        graph = _observe_component(
             live.graph,
             metric,
+            metric=metric_contract,
             during=during,
             at=at,
             via=via,
@@ -950,11 +941,10 @@ class Relation:
         )
         return Relation(self.runtime, graph.root, replace(live, graph=graph))
 
-    def resolves_multiple_components(self, metric: Ref[MetricKind] | RuntimeMetricExpr) -> bool:
-        """Report whether an input binds more than one canonical occurrence."""
+    def resolve_metric(self, metric: Ref[MetricKind] | RuntimeMetricExpr) -> TargetMetricContract:
+        """Resolve this observation's input once before dispatch and component binding."""
         live = self._live()
-        contract = normalize_metric_input(live.graph.registry, metric, sidecar=live.sidecar)
-        return len(contract.components) > 1
+        return normalize_metric_input(live.graph.registry, metric, sidecar=live.sidecar)
 
     def business_coverage(self, scopes: tuple[TimeScope, ...]) -> Relation:
         """Bind completeness to this exact observation, never to a reconstructed grid."""
@@ -982,6 +972,7 @@ class Relation:
         self,
         metric: Ref[MetricKind] | RuntimeMetricExpr,
         *,
+        metric_contract: TargetMetricContract,
         during: TimeScope | BoundTimeGrid | None,
         paths: tuple[tuple[Ref[RelationshipKind], ...], ...],
         coordinates: tuple[Ref[DimensionKind], ...] = (),
@@ -993,10 +984,14 @@ class Relation:
             isinstance(node, MethodNode) and isinstance(node.parameters, AnchorObserve)
             for node in topology(self.root)
         )
-        if _resolves_linear(live, metric):
+        if any(
+            isinstance(record.node, LinearNodeV1) and record.node_id in metric_contract.graph.roots
+            for record in metric_contract.graph.nodes
+        ):
             linear = observe_linear_members(
                 live.graph,
                 metric,
+                metric=metric_contract,
                 during=during,
                 at=at,
                 paths=paths,
@@ -1009,6 +1004,7 @@ class Relation:
         graph = observe_ratio_members(
             live.graph,
             metric,
+            metric=metric_contract,
             during=during,
             at=at,
             paths=paths,
@@ -1031,6 +1027,7 @@ class Relation:
         graph = observe_ratio_members(
             live.graph,
             metric,
+            metric=self.resolve_metric(metric),
             during=during,
             paths=paths,
             coordinates=coordinates,

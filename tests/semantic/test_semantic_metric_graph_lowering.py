@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Iterator
+from unittest.mock import patch
 
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.refs import RefPayloadV1
 from marivo.semantic.errors import ErrorKind
 from marivo.semantic.ir import LinearComposition, LinearTerm, RatioComposition
 from marivo.semantic.metric_graph import (
+    MAX_EXPRESSION_OCCURRENCES,
     AggregateNodeV1,
     CumulativeNodeV1,
     LinearNodeV1,
@@ -28,7 +32,9 @@ from marivo.semantic.metric_graph_lowering import (
     MetricGraphLoweringError,
     lower_catalog_metric,
     lower_catalog_metrics,
+    normalize_target_metric_inputs,
 )
+from marivo.semantic.runtime_metric_lowering import lower_metric_inputs
 from marivo.semantic.validator import Registry
 
 _CATALOG_SOURCE = """\
@@ -105,6 +111,136 @@ def catalog_registry() -> Iterator[Registry]:
     with load_inline_semantic(_CATALOG_SOURCE) as result:
         assert result.registry is not None
         yield result.registry
+
+
+@pytest.mark.parametrize("metric_id", ("test.revenue", "test.share", "test.net"))
+def test_repeated_catalog_roots_preserve_forest_and_authority(
+    catalog_registry: Registry, metric_id: str
+) -> None:
+    ids = (metric_id, "test.revenue_alias", metric_id)
+    expected = lower_catalog_metrics(catalog_registry, ids)
+    inputs = tuple(ms.ref.metric(item) for item in ids)
+    with patch(
+        "marivo.semantic.runtime_metric_lowering.lower_catalog_metric",
+        wraps=lower_catalog_metric,
+    ) as lower:
+        actual = lower_metric_inputs(catalog_registry, inputs)
+        assert lower.call_count == 2
+        assert lower_metric_inputs(catalog_registry, inputs) == actual
+        assert lower.call_count == 4
+
+    assert canonical_bytes(actual.graph) == canonical_bytes(expected.graph)
+    assert actual.identities == expected.identities
+    assert actual.dependency_digest == expected.dependency_digest
+    assert actual.presentation == expected.presentation
+    assert actual.root_dependency_refs == tuple((RefPayloadV1.from_ref(item),) for item in inputs)
+
+
+def test_repeated_runtime_values_keep_each_label_and_occurrence(
+    catalog_registry: Registry,
+) -> None:
+    revenue = ms.ref.metric("test.revenue")
+    first = mv.runtime_metric.linear(add=(revenue, revenue), label="first")
+    second = mv.runtime_metric.linear(add=(revenue, revenue), label="second")
+    assert first == second
+    with patch(
+        "marivo.semantic.runtime_metric_lowering.lower_catalog_metric",
+        wraps=lower_catalog_metric,
+    ) as lower:
+        actual = lower_metric_inputs(catalog_registry, (first, second, first))
+        assert lower.call_count == 1
+
+    assert actual.graph.roots == (actual.graph.roots[0],) * 3
+    assert len(actual.graph.occurrences) == 9
+    assert tuple((item.occurrence_path, item.label) for item in actual.presentation.labels) == (
+        ("root[0]", "first"),
+        ("root[1]", "second"),
+        ("root[2]", "first"),
+    )
+    assert all(
+        dependencies == (RefPayloadV1.from_ref(revenue),)
+        for dependencies in actual.root_dependency_refs
+    )
+
+
+def test_reused_catalog_lowering_still_counts_every_occurrence(
+    catalog_registry: Registry,
+) -> None:
+    revenue = ms.ref.metric("test.revenue")
+    with patch(
+        "marivo.semantic.runtime_metric_lowering.lower_catalog_metric",
+        wraps=lower_catalog_metric,
+    ) as lower:
+        with pytest.raises(MetricGraphContractError) as error:
+            lower_metric_inputs(catalog_registry, (revenue,) * (MAX_EXPRESSION_OCCURRENCES + 1))
+        assert error.value.kind == "occurrence_limit_exceeded"
+        assert error.value.observed_count == MAX_EXPRESSION_OCCURRENCES + 1
+        assert lower.call_count == 1
+        assert lower_metric_inputs(catalog_registry, (revenue,)).graph.roots
+        assert lower.call_count == 2
+
+
+def test_later_consumption_reinterprets_original_measure_callable() -> None:
+    from marivo.semantic.errors import SemanticLoadError
+    from tests.shared_fixtures import load_inline_semantic
+
+    source = """\
+import marivo.datasource as md
+import marivo.semantic as ms
+
+orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"),
+                   source=md.table("orders", columns={"amount": "amount"}))
+state = {"calls": 0}
+def transform(value):
+    state["calls"] += 1
+    return value if state["calls"] == 1 else value.sum()
+@ms.measure(entity=orders, additivity=ms.additive_all())
+def amount(orders):
+    return transform(orders.amount)
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+"""
+    with load_inline_semantic(source) as loaded:
+        assert loaded.registry is not None
+        metric = ms.ref.metric("test.revenue")
+        assert normalize_target_metric_inputs(
+            loaded.registry, (metric,), sidecar=loaded.expression_sidecar
+        )[0].components
+        with pytest.raises(SemanticLoadError) as error:
+            normalize_target_metric_inputs(
+                loaded.registry, (metric,), sidecar=loaded.expression_sidecar
+            )
+        assert error.value.kind == "invalid_target_metric"
+
+
+def test_new_load_relowers_changed_weighted_mean_dependency() -> None:
+    from tests.shared_fixtures import load_inline_semantic
+
+    metric = ms.ref.metric("test.weighted")
+    forests = []
+    with patch(
+        "marivo.semantic.runtime_metric_lowering.lower_catalog_metric",
+        wraps=lower_catalog_metric,
+    ) as lower:
+        for source in (
+            _CATALOG_SOURCE,
+            _CATALOG_SOURCE.replace(
+                'name="unit_price", entity=orders, column="amount"',
+                'name="unit_price", entity=orders, column="other_amount"',
+            ),
+        ):
+            with load_inline_semantic(source) as loaded:
+                assert loaded.registry is not None
+                forest = lower_metric_inputs(
+                    loaded.registry, (metric, metric), sidecar=loaded.expression_sidecar
+                )
+                expected = lower_catalog_metrics(
+                    loaded.registry, (metric.path, metric.path), sidecar=loaded.expression_sidecar
+                )
+                assert forest.graph == expected.graph
+                assert forest.dependency_digest == expected.dependency_digest
+                forests.append(forest)
+        assert lower.call_count == 2
+    assert forests[0].dependency_digest != forests[1].dependency_digest
 
 
 def _root_node(lowered):

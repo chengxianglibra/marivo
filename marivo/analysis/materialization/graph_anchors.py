@@ -197,9 +197,9 @@ def observe(
             fail("preparation_bounds", "calendar candidate envelope overflows the instant range")
     envelope = time_scope(start=start.isoformat(), end=upper.isoformat())
     from marivo.analysis.materialization.graph_observation import (
+        _observe_component,
         normalize_metric_input,
         observe_linear_members,
-        observe_members,
         observe_ratio_members,
     )
     from marivo.semantic.metric_graph import LinearNodeV1
@@ -216,6 +216,7 @@ def observe(
         prototype_graph = observe_linear_members(
             live.graph,
             metric,
+            metric=metric_contract,
             during=envelope,
             paths=paths,
             sidecar=live.sidecar,
@@ -226,6 +227,7 @@ def observe(
         prototype_graph = observe_ratio_members(
             live.graph,
             metric,
+            metric=metric_contract,
             during=envelope,
             paths=paths,
             sidecar=live.sidecar,
@@ -235,9 +237,10 @@ def observe(
     else:
         if len(paths) != 1:
             fail("anchor_metric", "one route is required for one contribution root")
-        prototype_graph = observe_members(
+        prototype_graph = _observe_component(
             live.graph,
             metric,
+            metric=metric_contract,
             during=envelope,
             via=paths[0],
             sidecar=live.sidecar,

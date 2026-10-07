@@ -1108,7 +1108,10 @@ def test_original_ratio_preserves_independent_root_components(
 ) -> None:
     import marivo.analysis as mv
     from marivo.analysis.core.rules import OriginalReduce
-    from marivo.analysis.materialization.graph_observation import observe_ratio_members
+    from marivo.analysis.materialization.graph_observation import (
+        normalize_metric_input,
+        observe_ratio_members,
+    )
     from tests.shared_fixtures import analysis_dsl_rows
 
     case = analysis_dsl_case_factory(scenario)
@@ -1130,6 +1133,11 @@ def test_original_ratio_preserves_independent_root_components(
     ratio = observe_ratio_members(
         members,
         ms.ref.metric(f"{case.names.domain}.{case.names.aov}"),
+        metric=normalize_metric_input(
+            catalog._state.registry,
+            ms.ref.metric(f"{case.names.domain}.{case.names.aov}"),
+            sidecar=catalog._state.sidecar,
+        ),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         paths=(
             (

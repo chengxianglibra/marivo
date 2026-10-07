@@ -223,8 +223,38 @@ def observe_members(
     multi-component input resolve each distinct contribution root to its own
     route and pass the one bound to ``component_index``.
     """
+    metric = normalize_metric_input(members.registry, metric_ref, sidecar=sidecar)
+    return _observe_component(
+        members,
+        metric_ref,
+        metric=metric,
+        during=during,
+        via=via,
+        sidecar=sidecar,
+        report_timezone=report_timezone,
+        coordinates=coordinates,
+        component_index=component_index,
+        at=at,
+        relative=relative,
+    )
+
+
+def _observe_component(
+    members: MemberGraph,
+    metric_ref: Ref[MetricKind] | RuntimeMetricExpr,
+    *,
+    metric: TargetMetricContract,
+    during: TimeScope | BoundTimeGrid | None,
+    via: Ref[RelationshipKind] | tuple[Ref[RelationshipKind], ...],
+    sidecar: CompiledExpressionSidecar,
+    report_timezone: str,
+    coordinates: tuple[Ref[DimensionKind], ...] = (),
+    component_index: int = 0,
+    at: datetime | GridPoint | None = None,
+    relative: bool = False,
+) -> MemberGraph:
+    """Bind one occurrence of the contract resolved by this observation's entry."""
     registry = members.registry
-    metric = normalize_metric_input(registry, metric_ref, sidecar=sidecar)
     if component_index >= len(metric.components):
         raise _reject("an existing component occurrence index")
     component = metric.components[component_index]
@@ -887,6 +917,7 @@ def observe_ratio_members(
     members: MemberGraph,
     metric_ref: Ref[MetricKind] | RuntimeMetricExpr,
     *,
+    metric: TargetMetricContract,
     during: TimeScope | BoundTimeGrid | None,
     paths: tuple[tuple[Ref[RelationshipKind], ...], ...],
     sidecar: CompiledExpressionSidecar,
@@ -900,7 +931,6 @@ def observe_ratio_members(
     from marivo.semantic.metric_graph import RatioNodeV1
 
     registry = members.registry
-    metric = normalize_metric_input(registry, metric_ref, sidecar=sidecar)
     root_node = next(
         record.node for record in metric.graph.nodes if record.node_id == metric.graph.roots[0]
     )
@@ -914,9 +944,10 @@ def observe_ratio_members(
         raise _reject_ratio("ratio must be a two-component ratio with declared zero policy")
     by_root = bound_routes(registry, metric, paths)
     observed = tuple(
-        observe_members(
+        _observe_component(
             members,
             metric_ref,
+            metric=metric,
             during=during,
             via=by_root[component.computation_root.path],
             sidecar=sidecar,
@@ -952,6 +983,7 @@ def observe_linear_members(
     members: MemberGraph,
     metric_ref: Ref[MetricKind] | RuntimeMetricExpr,
     *,
+    metric: TargetMetricContract,
     during: TimeScope | BoundTimeGrid | None,
     paths: tuple[tuple[Ref[RelationshipKind], ...], ...],
     sidecar: CompiledExpressionSidecar,
@@ -965,7 +997,6 @@ def observe_linear_members(
     from marivo.semantic.metric_graph import LinearNodeV1
 
     registry = members.registry
-    metric = normalize_metric_input(registry, metric_ref, sidecar=sidecar)
     root_node = next(
         record.node for record in metric.graph.nodes if record.node_id == metric.graph.roots[0]
     )
@@ -975,9 +1006,10 @@ def observe_linear_members(
         raise _reject_ratio("linear combination requires retained component state")
     by_root = bound_routes(registry, metric, paths)
     observed = tuple(
-        observe_members(
+        _observe_component(
             members,
             metric_ref,
+            metric=metric,
             during=during,
             via=by_root[component.computation_root.path],
             sidecar=sidecar,
@@ -1080,6 +1112,7 @@ def _observe_ratio_expression(
     return observe_ratio_members(
         members,
         expression,
+        metric=normalize_metric_input(members.registry, expression, sidecar=sidecar),
         during=during,
         paths=paths,
         sidecar=sidecar,

@@ -105,6 +105,7 @@ class _RuntimeGraphBuilder:
         self.root_dependencies: list[set[RefPayloadV1]] = []
         self._active_root_dependencies: set[RefPayloadV1] | None = None
         self.node_units: dict[str, str | None] = {}
+        self.catalog_graphs: dict[str, MetricExpressionGraphV1] = {}
 
     def begin_root(self) -> None:
         dependencies: set[RefPayloadV1] = set()
@@ -171,23 +172,26 @@ class _RuntimeGraphBuilder:
             raise ValueError(f"runtime metric catalog dependency {metric_id!r} is not loaded")
         self.metric_dependencies.add(metric_id)
         self._record_dependency(metric)
-        lowered = lower_catalog_metric(self.registry, metric_id, sidecar=self.sidecar)
-        for record in lowered.graph.nodes:
-            self.nodes.setdefault(record.node_id, record.node)
-        self._remember_unit(lowered.graph.roots[0], self.registry.metrics[metric_id].unit)
+        lowered = self.catalog_graphs.get(metric_id)
+        if lowered is None:
+            lowered = lower_catalog_metric(self.registry, metric_id, sidecar=self.sidecar).graph
+            self.catalog_graphs[metric_id] = lowered
+            for record in lowered.nodes:
+                self.nodes.setdefault(record.node_id, record.node)
+            self._remember_unit(lowered.roots[0], self.registry.metrics[metric_id].unit)
 
         def remap(source: str) -> str:
             if source == "root[0]":
                 return path
             return f"{path}{source.removeprefix('root[0]')}"
 
-        return lowered.graph.roots[0], tuple(
+        return lowered.roots[0], tuple(
             ExpressionOccurrenceV1(
                 path=remap(occurrence.path),
                 node_id=occurrence.node_id,
                 child_paths=tuple(remap(child) for child in occurrence.child_paths),
             )
-            for occurrence in lowered.graph.occurrences
+            for occurrence in lowered.occurrences
         )
 
     def lower(

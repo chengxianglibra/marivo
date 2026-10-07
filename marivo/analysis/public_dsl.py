@@ -145,6 +145,7 @@ from marivo.refs import (
 )
 from marivo.semantic.event import ParticipantRoleHandle
 from marivo.semantic.ir import TargetRelationshipContract
+from marivo.semantic.metric_graph import TargetMetricContract
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from marivo.semantic.validator import normalize_target_relationship
 
@@ -2645,11 +2646,12 @@ class LogicalAnalysisDomain(_CohortDomain):
                 )
             point = GridPoint(bound_point, at._side)
         live = self._node._live()
+        metric_contract: TargetMetricContract | None = None
         if complete_during is not None and (
             not isinstance(during, GridWindow)
             or at is not None
             or coordinates
-            or self._node.resolves_multiple_components(metric)
+            or len((metric_contract := self._node.resolve_metric(metric)).components) > 1
         ):
             raise _reject(
                 "a single original sum on during=grid.window without coordinates or at",
@@ -2682,9 +2684,16 @@ class LogicalAnalysisDomain(_CohortDomain):
         paths = tuple(
             route.through if isinstance(route, RootRouteValue) else (route,) for route in declared
         ) or ((),)
-        if self._node.resolves_multiple_components(metric):
+        if metric_contract is None:
+            metric_contract = self._node.resolve_metric(metric)
+        if len(metric_contract.components) > 1:
             observed = self._node.observe_routes(
-                metric, during=window, at=point, paths=paths, coordinates=coordinates
+                metric,
+                metric_contract=metric_contract,
+                during=window,
+                at=point,
+                paths=paths,
+                coordinates=coordinates,
             )
             if (
                 observed.root.signature.quantity is not None
@@ -2699,14 +2708,13 @@ class LogicalAnalysisDomain(_CohortDomain):
                 "Pass exactly the route of the observed contribution root.",
             )
         single = paths[0]
-        observed = (
-            self._node.observe(
-                metric, during=window, at=point, via=single[0], coordinates=coordinates
-            )
-            if len(single) == 1
-            else self._node.observe(
-                metric, during=window, at=point, via=single, coordinates=coordinates
-            )
+        observed = self._node.observe(
+            metric,
+            metric_contract=metric_contract,
+            during=window,
+            at=point,
+            via=single[0] if len(single) == 1 else single,
+            coordinates=coordinates,
         )
         if coordinates:
             subject = next(p for p in observed.root.signature.parts if isinstance(p, SubjectPart))
@@ -2892,7 +2900,9 @@ class GroupedAnalysisDomain(_Value):
             )
         return GroupedNumericRelation(
             _TOKEN,
-            self._node.observe(metric, during=during, via=via),
+            self._node.observe(
+                metric, metric_contract=self._node.resolve_metric(metric), during=during, via=via
+            ),
             self._runtime,
             inputs=(self,),
         )

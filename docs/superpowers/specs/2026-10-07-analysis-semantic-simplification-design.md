@@ -2,7 +2,7 @@
 
 Date: 2026-10-07
 
-Status: O1, O2a and the selected O2b consumer batches are implemented within the recorded support and validation scope. Other O2b candidates and O3–O5 remain proposed.
+Status: O1, O2a, the selected O2b consumer batches and the narrowed O3 observation/forest reuse are implemented within the recorded support and validation scope. Other O2b candidates and O4–O5 remain proposed.
 
 Baseline: `panda@ccbed62962e21beef5778c738037e62d912ec8fb`.
 
@@ -13,8 +13,8 @@ Baseline: `panda@ccbed62962e21beef5778c738037e62d912ec8fb`.
 O1、O2a 已按本文的等价内部整理边界实施，并更新对应私有构造、编译交接与消费者规范。
 O2b 首批扩大 SQLite Funnel 的直接 string/int64 Subject 轴组合；后续四批扩大
 observation 长路径、SQLite 历史轴、SQLite Anchor 组件和 native distribution 输入。
-新增 remote ordinary Count 声明及原有冻结集合的边界分别记录。其他 O2b 候选与
-O3–O5 仍是优化提案；本轮不表示
+新增 remote ordinary Count 声明及原有冻结集合的边界分别记录。O3 按第 6 节修订边界实施；
+其他 O2b 候选与 O4–O5 仍是优化提案；本轮不表示
 R10、安装包、真实 Agent 或发布验收已经完成。`AGENTS.md` 与 packaged skills 保持原样。
 
 ## 1. 范围与设计原则
@@ -45,7 +45,7 @@ R10、安装包、真实 Agent 或发布验收已经完成。`AGENTS.md` 与 pac
 | --- | --- | --- | --- |
 | O1 图校验 | `method_node()` 验证输入拓扑、节点构造再次校验、随后再验证完整拓扑；`lower()` 重新规划并比较 | 最高 | 复用静态校验结果，保持公开拒绝边界 |
 | O2 实现声明 | 84 个方法注册、11,470 条物理实现声明；部分准入按 `r93.c…` 实现 ID 前缀判断 | 高 | 支持集合、路线和持久化身份保持等价 |
-| O3 语义编译 | `normalize_target_metric()` 每次进入 Metric forest lowering 与规范化 | 高 | 在同一编译状态内按需复用成功的静态契约 |
+| O3 语义编译 | 观察分流、组件构造重复解析，runtime forest 重复降低 catalog 根 | 高 | 一次观察传递契约；单次 builder 复用成功的精确 catalog 根 |
 | O4 持久化 | `validate_descriptor()` 恢复图并调用 `descriptor_plan()`，后者重新选择原生产实现 | 中 | 先消除一次操作内的重复验证，再单独调整协议 |
 | O5 作者语法 | 表达式体只允许单个 return；验证、列提取和编译分别处理 AST | 中 | 先统一解析，局部表达式绑定另作语法增量 |
 
@@ -64,7 +64,7 @@ O1 的基线探针连续添加 `PartsTransport("view", ...)`，记录 `_validate
 
 - O1：[graph.py](../../../marivo/analysis/core/graph.py)、[graph_plan.py](../../../marivo/analysis/compiler/graph_plan.py)、[graph_lowering.py](../../../marivo/analysis/compiler/graph_lowering.py)。
 - O2：[builtin.py](../../../marivo/analysis/methods/builtin.py)、[registry.py](../../../marivo/analysis/methods/registry.py)、[physical.py](../../../marivo/analysis/methods/physical.py)。
-- O3：[compiled state](../../../marivo/semantic/_compiled_state.py)、[metric graph lowering](../../../marivo/semantic/metric_graph_lowering.py)、[graph observation](../../../marivo/analysis/materialization/graph_observation.py)。
+- O3：[runtime metric lowering](../../../marivo/semantic/runtime_metric_lowering.py)、[graph observation](../../../marivo/analysis/materialization/graph_observation.py)、[public DSL](../../../marivo/analysis/public_dsl.py)、[Anchor observation](../../../marivo/analysis/materialization/graph_anchors.py)。
 - O4：[graph protocol](../../../marivo/analysis/materialization/graph_protocol.py)、[graph snapshot](../../../marivo/analysis/materialization/graph_snapshot.py)、[graph storage](../../../marivo/analysis/materialization/graph_storage.py)。
 - O5：[validator](../../../marivo/semantic/validator.py)、[expression binding](../../../marivo/semantic/_expression_binding.py)。
 
@@ -439,27 +439,75 @@ PostgreSQL NaN 初次反例在检查响应的 Decimal-to-Arrow 转换中先失�
 最终环境恢复起始状态：Trino 与其 PostgreSQL catalog、独立 PostgreSQL/MySQL analysis
 服务 healthy，ClickHouse 与两 shard 停止；未替换或删除其 volumes。
 
-## 6. O3 复用已编译的语义契约
+## 6. O3 在一次观察中复用语义解析
 
-在现有 `CompiledSemanticState` 所属生命周期内，按需复用已成功产生的
-`TargetMetricContract`、规范化 Metric forest 和静态依赖事实。首次请求才处理所需
-依赖闭包，避免在 `ms.load()` 时强制编译全部未使用对象或提前拒绝仍可加载的定义。
+### 修订原因与边界
 
-缓存由内部编译上下文拥有，不暴露为公共能力；不修改对外不可变状态。实施前核对
-registry、sidecar 和嵌套定义的真实不可变性，不能仅根据 dataclass 外壳判断安全。
-同一加载状态必须保持确定解释；改变定义通过新加载状态生效。
+原提案的 `CompiledSemanticState` 生命周期缓存不能作为当前契约下的等价优化实施：
+registry 只冻结外层映射；ordinary Measure sidecar 保留原始 Python callable，helper
+仍可读取或修改外部状态。实测同一加载状态中的 helper 首次返回列、后续返回聚合时，
+第二次规范化必须拒绝。成功结果跨消费复用会吞掉该错误。compiled dependency inventory
+也未覆盖 weighted-mean 的全部 Measure 和部分业务时间事实，不能用作完整缓存键。
 
-缓存标识包含实际语义输入、依赖版本和解释规则版本。对 Runtime Metric 输入保留有序
-根与重复位置，以及适用的 presentation 信息；不能只用 Metric 名称、相同显示标签或
-一个与依赖无关的字符串作为键。新加载、不同 project/编译状态相互隔离。
+本次收缩为两项内部整理，不改变 load、作者表达式或依赖清单契约：
 
-仅保存成功的静态结果。不缓存连接、物理 schema、行数据、readiness 的外部完整性事实
-或失败异常对象。未知物理类型仍保持待绑定状态；命中缓存不能跳过本次物理类型校验。
-源表达式的构建预算和输入合法性要求仍由适用入口负责。
+1. 一次公开 `observe()` 在原有校验顺序的入口解析 `TargetMetricContract`，将同一对象
+   显式传给分流和各组件构造。普通、grouped 与 Anchor 入口遵循同一责任划分；后续
+   独立观察仍重新解析。`complete_during` 的短路拒绝顺序保持原样。
+2. 一个 `_RuntimeGraphBuilder` 内按精确 catalog Metric path 保存成功 lowering 的
+   规范化图，不保留未使用的单根 dependency digest 或 identity 投影。registry 和 sidecar
+   由该 builder 固定持有，调用结束即释放。
+   每次使用仍记录依赖、重新映射 occurrence path；有序根、重复位置、catalog authority、
+   runtime 标签和 expression 预算保持原样。不同 Ref 即使 value graph 等价也分别 lowering。
 
-出口包括：同一编译状态中重复消费同一 Metric 不再重复 forest lowering；依赖变化、
-新加载、不同 sidecar 和不同 Runtime Metric 顺序不会错误命中；缓存命中与首次路径
-给出相同语义结果和公开失败边界。记录重复调用收益以及保留对象的内存成本。
+不存失败异常、连接、schema、行数据或 readiness 的外部事实。每个组件继续检查当前
+schema、表达式绑定和物理类型，未知类型与 Decimal 宽度保持待绑定状态。没有生命周期
+缓存、公共 token、新 Help 路径或 Store 协议变更，也不深复制或冻结任意 Python helper。
+一般 callable 的固定加载解释需要单独设计语义契约，不属于本次优化。
+
+出口包括：一次观察只解析一次；同一 forest 的精确 catalog 根只成功 lowering 一次；
+规范化图、依赖摘要和原有输出保持等价；重复 occurrence 不绕过预算，标签不按 value
+equality 合并；后续消费重新解释 callable，schema 漂移仍在业务读取及 Run 分配前拒绝。
+记录纯构造耗时、规范化次数、builder lowering 次数和构造峰值内存；这些不是执行加速
+或完整后端资格的证据。
+
+### 实施记录与构造探针（2026-10-07）
+
+基线为 `panda@b2afa86e20b9d241e027a3384ead89f770cdca03`，通过仓库外 temporary archive
+运行基线包，当前工作树运行新实现。两者使用相同的 SQLite lifecycle fixture、成员、
+时间窗和 route；每项串行构造五次取中位数，不调用 `.execute()`。计时与一次额外的
+`tracemalloc` 构造分开；内存为 Python 分配峰值，不代表 RSS 或后端 workspace。
+
+| 输入 | 契约解析次数，前 → 后 | catalog forest lowering 次数，前 → 后 | 构造中位数 ms，前 → 后 | 规范化中位数 ms，前 → 后 | Python 峰值 KiB，前 → 后 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| catalog sum | 2 → 1 | 2 → 1 | 6.143 → 5.521 | 1.066 → 0.541 | 124.3 → 93.3 |
+| runtime ratio | 5 → 1 | 10 → 2 | 20.259 → 13.354 | 8.606 → 1.779 | 274.3 → 160.5 |
+| runtime linear，2 分量 | 5 → 1 | 10 → 1 | 19.721 → 13.914 | 8.299 → 1.395 | 235.5 → 172.2 |
+| runtime linear，8 分量 | 11 → 1 | 88 → 1 | 99.558 → 47.791 | 51.748 → 2.057 | 771.3 → 275.0 |
+| runtime linear，32 分量 | 35 → 1 | 1,120 → 1 | 774.473 → 220.147 | 572.832 → 5.579 | 1,950.1 → 664.7 |
+
+linear 输入重复同一 revenue Ref；ratio 使用 revenue/count 两个不同 Ref，所以保留两次
+catalog lowering。去重没有删除任何分量。固定 Session 和节点身份的前后探针中，
+以上五项定义 fingerprint 与完整 `freeze_graph()` 字节均相同。构造之外的执行、规划、
+Store 读取和真实远端后端速度未作对比。
+
+全部根都不同的纯 lowering 探针中，2/32/128 个 catalog Ref 的 Python 峰值分别从
+52.8/420.2/1,474.1 KiB 变为 54.0/441.5/1,560.3 KiB。128 根返回后保留分配均为
+760.9 KiB；单次 builder 的图复用表仍增加约 86.2 KiB 峰值。该成本受当前 expression
+预算约束，调用结束后释放，不能把重复输入的内存收益推广到全部不同根的输入。
+
+回归由 `test_semantic_metric_graph_lowering.py` 与 `test_metric_observation_resolution.py`
+分别保护规范化值/authority、标签、预算、后续 callable/新加载依赖，以及公开构造与
+独立数值结果、completeness 拒绝顺序和当前物理类型检查。复用表属于单次 builder；
+没有跨调用保留缓存。删除了多分量分流、组合构造及每个组件的重复规范化，新增一个
+私有组件构造函数承接契约，独立的 `observe_members()` 入口仍自行解析一次。
+
+最终 `make check-agent` 通过：335 个类型检查目标、lint/import contracts、API 文档构建，
+默认测试 4,776 passed、1 skipped（46.69 s）。受影响语义最小集合 46 passed；
+针对性 Runtime 集合 21 passed（225.61 s），覆盖独立多根 ratio、fixed/live 拒绝、
+Decimal、Anchor 组件断源与冷恢复、相对模板及 route authority。复用表收缩为仅存图后，
+新增 Runtime 模块再次 7 passed（57.53 s）；新模块以 `mypy --follow-imports=silent`
+单独检查通过。完整 Runtime、发布 wheel 与真实远端后端资格不属于本次验收。
 
 ## 7. O4 缩小固定结果对生产计划的依赖
 
@@ -545,7 +593,7 @@ O2b、O4b、O5b 是分别调整能力、恢复协议和作者语法的后续工�
 | 正确性 | 独立结果 oracle、Cell/parts/身份、错误种类和公开拒绝时机对照 |
 | 构图成本 | 链式与共享 DAG 的节点数、方法推导/校验次数；时间和内存另测 |
 | 能力等价 | O2a 基础声明、动态 specialization、参数边界与邻近拒绝案例 |
-| 语义复用 | 同状态重复调用次数、新状态失效、依赖与顺序隔离 |
+| 语义复用 | 一次观察解析次数、单次 builder 的精确根复用、后续调用重解释、依赖与顺序隔离 |
 | 固定结果 | 元数据恢复/规划次数、receipt 完整性、固定续算和冷恢复 |
 | 维护成本 | 删除的重复分支、减少的事实 owner、新增辅助类型和净代码变化 |
 

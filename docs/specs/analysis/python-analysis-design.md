@@ -730,6 +730,15 @@ The member DSL reads that axis timezone from the normalized Semantic time
 dimension. This first source route requires UTC; a different or unresolved
 axis timezone is rejected before source execution.
 
+Observation construction resolves one Semantic Metric contract at the consuming
+entry, then hands it to ordinary, grouped or Anchor dispatch and each component
+constructor. Multi-component inputs retain independent occurrence identities,
+routes, filters and original state. Component constructors still validate current
+source schemas and physical types; the resolved contract does not authorize
+source execution or allocate a Run. A subsequent observation resolves again,
+including reinterpreting authored callable bodies. This internal handoff changes
+neither the public input shape nor persisted graph identities and Store versions.
+
 The admitted operations are categorical equality selection and member
 projection; grouping by a member Dimension or retained contribution
 coordinate; exact absolute same-member comparison, strict numeric selection
