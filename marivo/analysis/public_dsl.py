@@ -547,6 +547,17 @@ class _Value:
             else Relation.restore(dataset)
         )
 
+    def _summarize_rows(self, method: RowMethod) -> LogicalStatisticRelation:
+        if not isinstance(method, RowMethod):
+            raise _reject(
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
+            )
+        return LogicalStatisticRelation(
+            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
+        )
+
     def _materialize_before_continuing(self) -> bool:
         return (
             self._dataset is None
@@ -3437,15 +3448,7 @@ class LogicalNumericRelation(_NumericComparison):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
+        return self._summarize_rows(method)
 
     def execute(self) -> MaterializedNumericRelation:
         """Evaluate and publish this exact numeric relation.
@@ -3556,15 +3559,7 @@ class MaterializedNumericRelation(_MaterializedValue, _NumericComparison):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
+        return self._summarize_rows(method)
 
 
 class MaterializedGroupedNumericRelation(MaterializedNumericRelation):
@@ -3607,15 +3602,7 @@ class LogicalRolledNumericRelation(_OriginalContinuation):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
+        return self._summarize_rows(method)
 
     def execute(self) -> MaterializedRolledNumericRelation | MaterializedGroupedNumericRelation:
         """Evaluate and publish this original-state group or Singleton.
@@ -3646,15 +3633,7 @@ class MaterializedRolledNumericRelation(_MaterializedValue, _OriginalContinuatio
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
+        return self._summarize_rows(method)
 
 
 class LogicalRatioRelation(_NumericComparison):
@@ -3718,15 +3697,7 @@ class LogicalRatioRelation(_NumericComparison):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
+        return self._summarize_rows(method)
 
     def execute(self) -> MaterializedRatioRelation:
         """Evaluate and publish this ratio observation.
@@ -3801,15 +3772,7 @@ class MaterializedRatioRelation(_MaterializedValue, _NumericComparison):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
+        return self._summarize_rows(method)
 
 
 class LogicalRolledRatioRelation(_OriginalContinuation):
@@ -3824,15 +3787,7 @@ class LogicalRolledRatioRelation(_OriginalContinuation):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
+        return self._summarize_rows(method)
 
     def execute(self) -> MaterializedRolledRatioRelation:
         """Evaluate and publish this original-component ratio rollup.
@@ -3860,15 +3815,7 @@ class MaterializedRolledRatioRelation(_MaterializedValue, _OriginalContinuation)
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
+        return self._summarize_rows(method)
 
 
 class LogicalDifferenceRelation(_NumericComparison):
@@ -3928,15 +3875,7 @@ class LogicalDifferenceRelation(_NumericComparison):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
+        return self._summarize_rows(method)
 
     def execute(self) -> MaterializedDifferenceRelation:
         """Evaluate and publish the exact Difference.
@@ -4009,15 +3948,7 @@ class MaterializedDifferenceRelation(_MaterializedValue, _NumericComparison):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
+        return self._summarize_rows(method)
 
 
 class LogicalSelectedDifferenceRelation(_NumericComparison):
@@ -4069,15 +4000,7 @@ class LogicalSelectedDifferenceRelation(_NumericComparison):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
+        return self._summarize_rows(method)
 
     def execute(self) -> MaterializedSelectedDifferenceRelation:
         """Evaluate and publish the selected Difference.
@@ -4142,15 +4065,7 @@ class MaterializedSelectedDifferenceRelation(_MaterializedValue, _NumericCompari
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
+        return self._summarize_rows(method)
 
 
 class GroupedStatisticRelation(_Value):
@@ -4347,15 +4262,7 @@ class MaterializedCoefficientRelation(_MaterializedValue):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
+        return self._summarize_rows(method)
 
     def rank(
         self,
@@ -4386,15 +4293,7 @@ class LogicalCoefficientSelectionRelation(_Value):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
+        return self._summarize_rows(method)
 
     def execute(self) -> MaterializedCoefficientSelectionRelation:
         """Evaluate and publish the coefficient selection.
@@ -4438,15 +4337,7 @@ class MaterializedCoefficientSelectionRelation(_MaterializedValue):
         Example: ``result = relation.summarize(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
+        return self._summarize_rows(method)
 
     def rank(
         self,
