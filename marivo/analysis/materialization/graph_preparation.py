@@ -762,8 +762,8 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             from marivo.analysis.materialization.graph_local_execution import (
                 _coordinate_rollup_stage,
                 _difference_stage,
-                _original_ratio_rollup_stage,
-                _original_sum_stage,
+                _fold_rollup_stage,
+                _original_rollup_stage,
             )
 
             values = tuple(results[key] for key in item.stage.inputs)
@@ -780,12 +780,12 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 c for c in prepared.admitted.checks if c.node_id == item.stage.node.identity
             )
             if isinstance(params, OriginalReduce):
-                if params.coordinates:
+                if params.method == "fold":
+                    result = _fold_rollup_stage(item, values[0], item.stage.node.identity)
+                elif params.coordinates:
                     result = _coordinate_rollup_stage(item, values[0], item.stage.node.identity)
-                elif params.method == "mean":
-                    result = _original_ratio_rollup_stage(item, values[0], item.stage.node.identity)
                 else:
-                    result = _original_sum_stage(item, values[0], item.stage.node.identity)
+                    result = _original_rollup_stage(item, values[0], item.stage.node.identity)
             elif isinstance(params, CellDerive):
                 result = _difference_stage(
                     item,

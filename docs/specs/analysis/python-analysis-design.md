@@ -3162,8 +3162,8 @@ The public policies and examples are owned by
 [Operators and Frames](operators-and-frames.md#a1-field-owner-matching-and-evidence).
 Frozen authority and obsolete-format repair are owned by
 [Session State and Runtime](session-state-and-runtime.md#a1-frozen-premise-authority).
-A2 selection fusion has its own bounded execution contract below; A3
-state-kernel convergence remains separate work.
+A2 selection and A3 original-state execution have their own bounded contracts
+below. Neither changes source-native numerical qualification.
 
 ### A2 sequential fixed selection groups
 
@@ -3198,3 +3198,39 @@ is no public optimization switch or persisted second graph. An unqualified group
 uses the already selected ordinary stages. Once grouped computation starts, failure
 never retries those stages or changes route. The shared deadline, cancellation,
 resource cleanup and atomic publication boundaries still apply.
+
+### A3 direct-key original reduction groups
+
+After `validate_fixed_schedule`, the executor may group adjacent fixed
+`artifact_python` OriginalReduce stages for sum, sum_zero, count, mean, ratio,
+weighted mean and linear. The original logical DAG, node identities and selected
+implementations remain intact. Qualification is invocation-local and inspects the
+existing L8 contracts without constructing or saving a replacement graph.
+
+Each mapping must project the complete input key, and successive projections
+may only remove coordinates. Each stage retains the same complete original-state
+binding, contribution, method, output type and finish/empty policy. Only ordinary
+Subject, original_state and coverage parts qualify, with their actual declared
+schemas and full-key layouts. A shared intermediate, requested boundary,
+explicit Artifact leaf, pending check, time coarsening map, nested contribution
+coordinate, allocation or other specialized part ends a group. Reference or
+weight changes and ordered folds never qualify.
+
+A group consumes and indexes the original input once, merges every component
+directly under terminal keys, then finishes and constructs the terminal result.
+It preserves the terminal Signature, complete parts, method state, empty policy
+and the original per-node proof chain. Exact carriers keep their captured range
+checks; floating merges keep the existing numeric contract and retained absolute
+magnitudes. L8 does not grant a new source route or numerical implementation.
+The earlier explicit sum-only StateEquation helper retains its independent
+qualification; invocation grouping does not invoke or broaden that helper.
+Grouping does not scan sources to prove every hypothetical intermediate range.
+Actual component and finish overflows remain execution failures in the captured
+carrier, as specified by the accepted numerical policy.
+
+Index insertion, grouping and stage transitions check the shared deadline.
+Unqualified schedules execute their already selected ordinary stages. Once a
+group starts, a numerical error, malformed consumed state, cancellation or timeout
+propagates without retry; Runtime publication remains atomic. Bounded implementation
+and cost evidence are recorded in the
+[A3 acceptance record](../../superpowers/specs/2026-10-07-analysis-a3-acceptance.md).

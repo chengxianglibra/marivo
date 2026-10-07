@@ -1821,3 +1821,26 @@ the original node. Cancellation, malformed consumed keys or missing required par
 fail the current Run without publishing a partial Artifact. A group that has started
 does not retry the unfused stages; existing resource discharge and prior-publication
 preservation remain authoritative.
+
+### A3 fixed original-state execution and recovery
+
+Direct-key OriginalReduce groups are private physical arrangements of the original
+admitted fixed schedule. They retain every selected implementation and logical
+node's chained proof digest; only the terminal ExchangeResult is constructed.
+They do not change definition fingerprints, `plan_digest`, execution keys, graph
+DAG v2, Store 8, descriptor v3 or continuation v4. A materialized intermediate is
+an explicit fixed input, so grouping cannot cross it or reopen historical sources.
+
+The consumer reads complete primary, original_state and coverage keys once,
+validates consumed Cell/state agreement and transports terminal Subject keys.
+All saved component carriers and auxiliary magnitudes survive. Exact cache hits
+reuse the committed result through the existing Artifact owner. Independent cold
+continuation restores the same primary and parts and can reduce them again while
+models and source connections are unavailable; it does not replay the producer.
+
+Pending checks and specialized parts end groups. Indexing, terminal grouping and
+stage transitions share the monotonic deadline. Missing parts, duplicate consumed
+keys, numerical exceptions, cancellation and timeout fail the current Run without
+publishing partial Artifacts, Evidence or Findings. There is no retry after grouped
+computation begins. Existing resource cleanup and committed-state trust remain
+authoritative; this is not a new content audit on Artifact reads.

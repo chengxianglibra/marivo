@@ -15,7 +15,6 @@ from marivo.analysis.core.model import (
     CoordinateStatePart,
     DomainSignature,
     EndpointPart,
-    OriginalStatePart,
     Signature,
 )
 from marivo.analysis.core.rules import (
@@ -827,15 +826,12 @@ def retain_partition(
     if coordinate is None:
         return parts
     from marivo.analysis.core.model import part_role
-    from marivo.analysis.methods.numeric_state import merge_original
+    from marivo.analysis.methods.numeric_state import merge_components
 
     params = node.parameters
     assert isinstance(params, OriginalReduce)
     original = next(
         p for p in source.contract.signature.parts if isinstance(p, CoordinateStatePart)
-    )
-    original_state = next(
-        p for p in source.contract.signature.parts if isinstance(p, OriginalStatePart)
     )
     state = next(p.table for p in source.parts if p.role == part_role(original))
     source_keys = source.contract.signature.domain.instance_key
@@ -873,13 +869,10 @@ def retain_partition(
             coordinates.items(),
             key=lambda item: tuple((0, "") if v is None else (1, str(v)) for v in item[0]),
         ):
-            totals, _, _, _ = merge_original(
+            totals = merge_components(
                 rows,
                 schema,
                 original.components,
-                params.method,
-                node.value_type,
-                original_state.empty_rules,
             )
             values.append({**dict(zip(original.columns, axis, strict=True)), **totals})
         merged[identity] = values

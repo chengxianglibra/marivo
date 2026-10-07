@@ -13,11 +13,12 @@ from marivo.analysis.core.model import (
     OriginalStatePart,
     RolledQuantity,
     Signature,
+    SubjectPart,
     reject,
     require_part,
 )
 from marivo.analysis.core.predicates import leaves
-from marivo.analysis.core.rules import PartsTransport
+from marivo.analysis.core.rules import OriginalReduce, PartsTransport
 from marivo.analysis.methods.physical import ScalarType
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 from marivo.analysis.methods.semantics import MethodKey
@@ -111,6 +112,50 @@ def fuse_selection(node: MethodNode, *, registry: MethodRegistry = REGISTRY) -> 
     ):
         _fail("identical quantity, parts, evidence, obligations and K", node.identity)
     return combined
+
+
+def original_reduction_fusion_issue(
+    node: MethodNode, *, registry: MethodRegistry = REGISTRY
+) -> tuple[str, str] | None:
+    """Inspect L8 direct-key composition without rewriting the captured graph."""
+    outer = node.parameters
+    inner = node.inputs[0].node if len(node.inputs) == 1 else None
+    if not isinstance(outer, OriginalReduce) or not isinstance(inner, MethodNode):
+        return "two adjacent original-state reductions", node.identity
+    prior = inner.parameters
+    if (
+        not isinstance(prior, OriginalReduce)
+        or len(inner.inputs) != 1
+        or node.inputs[0].role != inner.inputs[0].role
+        or prior.method != outer.method
+        or outer.method
+        not in ("sum", "sum_zero", "count", "mean", "ratio", "weighted_mean", "linear")
+        or prior.time_mapping
+        or outer.time_mapping
+        or inner.value_type != node.value_type
+        or any("L8" not in registry.lookup(n.method).semantics.local_laws for n in (inner, node))
+    ):
+        return "same-method direct-key reductions with the captured finish", node.identity
+    for current in (inner, node):
+        source = current.inputs[0].node.signature
+        params = current.parameters
+        assert isinstance(params, OriginalReduce)
+        if (
+            not set(params.coordinates) <= set(source.domain.instance_key)
+            or any(
+                not isinstance(p, (SubjectPart, OriginalStatePart, CoveragePart))
+                for p in source.parts
+            )
+            or any(
+                isinstance(p, CoveragePart) and p.business_windows is not None for p in source.parts
+            )
+        ):
+            return "complete direct-key mappings and ordinary original parts", current.identity
+    first = next((p for p in inner.signature.parts if isinstance(p, OriginalStatePart)), None)
+    second = next((p for p in node.signature.parts if isinstance(p, OriginalStatePart)), None)
+    if first is None or first != second or first.fold_kind is not None:
+        return "identical complete original components, bindings and empty policy", node.identity
+    return None
 
 
 @dataclass(frozen=True, slots=True)

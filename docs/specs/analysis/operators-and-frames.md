@@ -699,6 +699,22 @@ round differently from source execution. Store 8's committed-state trust boundar
 is unchanged; there is no compatibility migration or new content audit on reads.
 Duration and temporal-fold helpers with independent callers remain available.
 
+Fixed original-state consumers share `numeric_state.merge_components` and
+`finish_original`; `merge_original` composes these internal operations. Sum,
+sum_zero, count, mean, ratio and weighted mean no longer maintain separate scalar
+merge/empty/finish implementations. Linear and extrema keep their existing
+method policies in the same kernel. Each component, support count and absolute
+magnitude keeps its actual saved Arrow type, independently of the display type.
+Coordinate-part transport that needs only totals merges components without
+finishing a discarded display value. State layout, quantity, units, contribution
+bindings, weighting and empty policies remain owned by the registered method.
+
+Consumption still indexes complete primary/state/coverage keys, rejects duplicate
+insertions and missing components, and checks retained coverage and Cell/state
+agreement. Numerical failures are structured execution failures. Current-row
+`summarize` continues to aggregate represented result rows; it does not replace
+original-quantity `rollup`.
+
 ClickHouse native weighted products and retained sums widen exact intermediates
 where its ordinary carriers can wrap. Product/state carrier checks remain
 mandatory; backend overflow is a structured execution failure, not accepted

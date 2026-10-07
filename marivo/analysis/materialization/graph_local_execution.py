@@ -6,7 +6,7 @@ import hashlib
 import math
 from dataclasses import replace
 from datetime import date, datetime
-from decimal import ROUND_HALF_EVEN, Decimal, localcontext
+from decimal import Decimal
 
 import pandas as pd
 import pyarrow as pa
@@ -14,7 +14,7 @@ import pyarrow as pa
 from marivo.analysis.compiler.graph_lowering import LoweredLocal, LoweredPlan, LoweredRelation
 from marivo.analysis.compiler.graph_plan import ArtifactReadStage, CheckRequirement
 from marivo.analysis.core.graph import MethodNode
-from marivo.analysis.core.local_laws import selection_fusion_issue
+from marivo.analysis.core.local_laws import original_reduction_fusion_issue, selection_fusion_issue
 from marivo.analysis.core.model import (
     Cell,
     CoordinateStatePart,
@@ -82,7 +82,7 @@ from marivo.analysis.materialization.graph_spearman_execution import finish_spea
 from marivo.analysis.methods.comparison import evaluate as evaluate_comparison
 from marivo.analysis.methods.comparison import propagated_error, roundoff
 from marivo.analysis.methods.local import arithmetic, count, count_defined
-from marivo.analysis.methods.numeric_state import checked_sum, finish_division
+from marivo.analysis.methods.numeric_state import checked_sum, finish_division, merge_original
 from marivo.analysis.methods.physical import (
     DecimalType,
     DurationType,
@@ -946,6 +946,111 @@ def _selection_group_result(
     return _transport_exchange(group[-1], source, input_binding, primary, tuple(restricted))
 
 
+def _reduction_candidate(method: LoweredLocal, checked_nodes: set[str]) -> bool:
+    node = method.stage.node
+    params = node.parameters
+    return (
+        node.identity not in checked_nodes
+        and method.stage.implementation.key.route == "artifact_python"
+        and len(node.inputs) == 1
+        and isinstance(params, OriginalReduce)
+        and params.method
+        in ("sum", "sum_zero", "count", "mean", "ratio", "weighted_mean", "linear")
+        and not params.time_mapping
+        and set(params.coordinates) <= set(node.inputs[0].node.signature.domain.instance_key)
+        and "L8" in REGISTRY.lookup(node.method).semantics.local_laws
+        and all(
+            isinstance(part, (SubjectPart, OriginalStatePart, CoveragePart))
+            for part in node.inputs[0].node.signature.parts
+        )
+    )
+
+
+def _reduction_groups(lowered: LoweredPlan) -> dict[str, tuple[LoweredLocal, ...]]:
+    """Group single-consumer L8 chains after the original fixed schedule is admitted."""
+    consumers: dict[str, int] = {}
+    for stage in lowered.stages:
+        if isinstance(stage, LoweredLocal):
+            for source in stage.stage.inputs:
+                consumers[source] = consumers.get(source, 0) + 1
+    checked_nodes = {item.node_id for item in lowered.admitted.checks}
+    groups: dict[str, tuple[LoweredLocal, ...]] = {}
+    pending: list[LoweredLocal] = []
+    for stage in lowered.stages:
+        if isinstance(stage, LoweredLocal) and _reduction_candidate(stage, checked_nodes):
+            if pending and (
+                stage.stage.inputs == (pending[-1].stage.output,)
+                and stage.stage.node.inputs[0].node is pending[-1].stage.node
+                and consumers.get(pending[-1].stage.output) == 1
+                and pending[-1].stage.output != lowered.primary_output
+                and original_reduction_fusion_issue(stage.stage.node) is None
+            ):
+                pending.append(stage)
+                continue
+            if len(pending) > 1:
+                groups[pending[0].stage.output] = tuple(pending)
+            pending = [stage]
+        else:
+            if len(pending) > 1:
+                groups[pending[0].stage.output] = tuple(pending)
+            pending = []
+    if len(pending) > 1:
+        groups[pending[0].stage.output] = tuple(pending)
+    return groups
+
+
+def _reduction_source_supported(method: LoweredLocal, source: ExchangeResult) -> bool:
+    """Check consumed physical layouts before starting a direct-key reduction group."""
+    keys = source.contract.key_fields
+    if not {*keys, "value", "cell_tag", "cell_reason"} <= set(source.primary.column_names):
+        raise _invalid("original reduction input lacks complete keys or Cell fields")
+    if not source.primary.schema.equals(source.contract.schema, check_metadata=False):
+        raise _invalid("original reduction producer schema differs from its contract")
+    if not matches_arrow_scalar(
+        source.primary.schema.field("value").type, method.stage.node.value_type
+    ):
+        return False
+    roles = (
+        *(
+            ("subject",)
+            if any(isinstance(p, SubjectPart) for p in source.contract.signature.parts)
+            else ()
+        ),
+        "original_state",
+        "coverage",
+    )
+    for role in roles:
+        part = next((p for p in source.parts if p.role == role), None)
+        declared = next((p for p in source.contract.parts if p.role == role), None)
+        if part is None or declared is None:
+            raise _invalid("original reduction lacks a required retained part")
+        if not part.table.schema.equals(declared.schema, check_metadata=False):
+            raise _invalid("original reduction retained schema differs from its contract")
+        if declared.key_fields != keys:
+            return False
+    return True
+
+
+def _reduction_group_result(
+    group: tuple[LoweredLocal, ...], source: ExchangeResult, binding: str
+) -> ExchangeResult:
+    """Compose direct key projections and finish only at the captured terminal node."""
+    from marivo.analysis.materialization.execute_deadline import check
+
+    for _member in group:
+        check()
+    terminal = group[-1]
+    params = terminal.stage.node.parameters
+    assert isinstance(params, OriginalReduce)
+    result = (
+        _coordinate_rollup_stage(terminal, source, binding)
+        if params.coordinates
+        else _original_rollup_stage(terminal, source, binding)
+    )
+    check()
+    return result
+
+
 def execute_fixed_spearman(
     prepared: PreparedGraph,
     lowered: LoweredPlan,
@@ -1576,6 +1681,8 @@ def _coordinate_rollup_stage(
 ) -> ExchangeResult:
     params = method.stage.node.parameters
     assert isinstance(params, OriginalReduce) and params.coordinates
+    from marivo.analysis.materialization.execute_deadline import check
+
     original_contract = next(
         p for p in source.contract.signature.parts if isinstance(p, OriginalStatePart)
     )
@@ -1592,15 +1699,15 @@ def _coordinate_rollup_stage(
     key_fields = tuple(f"key_{i}" for i in range(len(params.coordinates)))
     entries: list[dict[str, object]]
     if direct:
-        state = next(p.table for p in source.parts if p.role == "original_state")
+        state, original_contract, consumed = _original_input(method, source)
         columns = tuple(f"key_{source_keys.index(c)}" for c in params.coordinates)
         key_types = tuple(state.schema.field(column).type for column in columns)
         entries = [
             {
                 **{key: row[column] for key, column in zip(key_fields, columns, strict=True)},
-                **{name: row[f"original_state__{name}"] for name in components},
+                **{name: row[name] for name in components},
             }
-            for row in state.to_pylist()
+            for row in consumed
         ]
     else:
         coordinate = next(
@@ -1653,11 +1760,10 @@ def _coordinate_rollup_stage(
         for row in p.table.to_pylist()
     ):
         raise _invalid("coordinate reduction requires complete retained coverage")
-    from marivo.analysis.methods.numeric_state import merge_original
-
     original_table = next(p.table for p in source.parts if p.role == "original_state")
     groups: dict[tuple[object, ...], list[dict[str, object]]] = {}
     for item in entries:
+        check()
         label = tuple(item[key] for key in key_fields)
         if any(value is None for value in label):
             raise _invalid("coordinate state has a missing classification")
@@ -1666,6 +1772,7 @@ def _coordinate_rollup_stage(
     state_rows: list[dict[str, object]] = []
     value_type = method.stage.node.value_type
     for label, rows in sorted(groups.items()):
+        check()
         try:
             totals, value, tag, reason = merge_original(
                 rows,
@@ -1757,137 +1864,79 @@ def _coordinate_rollup_stage(
     return from_arrow(primary, contract, parts=parts, method_state=status, validate=False)
 
 
-def _original_ratio_rollup_stage(
-    method: LoweredLocal, source: ExchangeResult, input_binding: str
-) -> ExchangeResult:
-    state = next((part.table for part in source.parts if part.role == "original_state"), None)
-    coverage = next((part.table for part in source.parts if part.role == "coverage"), None)
-    if state is None or coverage is None:
-        raise _invalid("original ratio lacks its complete components or coverage")
-    keys = source.contract.key_fields
-    keyed = _index_rows(state, keys)
-    if any(row["coverage__complete"] is not True for row in coverage.to_pylist()):
-        raise _invalid("original ratio has incomplete coverage")
-    original_contract = next(
-        p for p in source.contract.signature.parts if isinstance(p, OriginalStatePart)
+def _original_input(
+    method: LoweredLocal, source: ExchangeResult
+) -> tuple[pa.Table, OriginalStatePart, list[dict[str, object]]]:
+    """Consume complete keyed components and coverage without inventing empty state."""
+    original = next(
+        (p for p in source.contract.signature.parts if isinstance(p, OriginalStatePart)), None
     )
+    state = next((p.table for p in source.parts if p.role == "original_state"), None)
+    coverage = next((p.table for p in source.parts if p.role == "coverage"), None)
+    if original is None or state is None or coverage is None:
+        raise _invalid("original rollup lacks its bound complete state or coverage")
+    keys = source.contract.key_fields
+    required = {"original_state__" + name for name in original.components}
+    if not {*keys, *required} <= set(state.column_names) or not {
+        *keys,
+        "coverage__complete",
+    } <= set(coverage.column_names):
+        raise _invalid("original rollup lacks required component or coverage columns")
+    keyed = _index_rows(state, keys)
+    covered = _index_rows(coverage, keys)
+    primary = _index_rows(numeric_primary(source.primary), keys)
+    if keyed.keys() != primary.keys() or covered.keys() != primary.keys():
+        raise _invalid("original rollup components and coverage differ from complete input keys")
     state_kind = REGISTRY.lookup(method.stage.node.method).semantics.persistent_state_kind
     assert state_kind is not None
-    components = original_contract.components
-    operands: dict[str, list[int | float | Decimal]] = {name: [] for name in components}
-    totals: dict[str, int | float | Decimal] = {}
-    for row in numeric_primary(source.primary).to_pylist():
-        original = keyed[tuple(row[key] for key in keys)]
-        if not state_matches(state_kind, row, original, empty_rules=original_contract.empty_rules):
-            raise _invalid("original ratio Cells differ from their components")
-        for component in components:
-            value: object = original[f"original_state__{component}"]
-            if not isinstance(value, (int, float, Decimal)) or type(value) not in (
-                int,
-                float,
-                Decimal,
-            ):
-                raise _invalid("original ratio component is not int64")
-            operands[component].append(value)
-    for component, values in operands.items():
-        floating = pa.types.is_floating(state.schema.field(f"original_state__{component}").type)
-        decimal = pa.types.is_decimal(state.schema.field(f"original_state__{component}").type)
-        with localcontext() as context:
-            context.prec = 100
-            total = math.fsum(values) if floating else sum(values)
-        if not math.isfinite(total) or (
-            not floating and not decimal and not -(2**63) <= total < 2**63
-        ):
-            raise _invalid("original component rollup exceeds its declared numeric type")
-        totals[component] = total
-    numerator: int | float | Decimal
-    denominator: int | float | Decimal
-    if state_kind == "original_linear":
-        with localcontext() as context:
-            context.prec = 100
-            numerator = sum(
-                (
-                    float(totals[name])
-                    if method.stage.node.value_type == ScalarType("float64")
-                    else totals[name]
-                )
-                * (1 if name.startswith("plus_") else -1)
-                for name in components[: 2 * len(original_contract.empty_rules) : 2]
-            )
-        denominator = 1
-        defined = all(
-            totals[name] > 0 or rule == "zero"
-            for name, rule in zip(
-                components[1 : 2 * len(original_contract.empty_rules) : 2],
-                original_contract.empty_rules,
-                strict=True,
-            )
-        )
-        tag = "defined" if defined else "null"
-        reason = None if defined else "empty_contribution"
-        if type(numerator) is int and not -(2**63) <= numerator < 2**63:
-            raise _invalid("linear finish exceeds int64")
-    elif state_kind == "original_mean":
-        numerator, denominator = totals["sum"], totals["non_null_count"]
-        defined = denominator > 0
-        tag, reason = ("defined", None) if defined else ("null", "empty_contribution")
-    elif state_kind == "original_weighted_mean":
-        numerator, denominator = totals["weighted_numerator"], totals["weight_sum"]
-        contributed = totals["non_null_pair_count"] > 0
-        defined = contributed and denominator != 0
-        tag = "defined" if defined else "null"
-        reason = None if defined else "zero_weight_sum" if contributed else "empty_contribution"
-    else:
-        numerator, denominator = totals["numerator_sum"], totals["denominator_sum"]
-        contributed = all(
-            totals[f"{prefix}_non_null_count"] > 0 or rule == "zero"
-            for prefix, rule in zip(
-                ("numerator", "denominator"), original_contract.empty_rules, strict=True
-            )
-        )
-        defined = contributed and denominator != 0
-        tag = "defined" if defined else "undefined" if contributed else "null"
-        reason = None if defined else "zero_denominator" if contributed else "empty_contribution"
-    output_type = method.stage.node.value_type
-    physical = arrow_scalar_type(output_type)
-    result: int | float | Decimal | None = None
-    if defined:
-        with localcontext() as context:
-            context.prec = 100
-            if isinstance(output_type, DecimalType):
-                assert isinstance(numerator, (int, Decimal)) and isinstance(
-                    denominator, (int, Decimal)
-                )
-                result = (
-                    Decimal(numerator)
-                    if state_kind == "original_linear"
-                    else Decimal(numerator) / Decimal(denominator)
-                )
-                result = result.quantize(
-                    Decimal(1).scaleb(-output_type.scale), rounding=ROUND_HALF_EVEN
-                )
-            else:
-                assert isinstance(numerator, (int, float, Decimal)) and isinstance(
-                    denominator, (int, float, Decimal)
-                )
-                from marivo.analysis.methods.numeric_state import finish_division
+    entries = []
+    from marivo.analysis.materialization.execute_deadline import check
 
-                result = (
-                    numerator
-                    if state_kind == "original_linear"
-                    else finish_division(numerator, denominator, output_type)
-                )
+    for key, row in primary.items():
+        check()
+        original_row = keyed[key]
+        if covered[key]["coverage__complete"] is not True:
+            raise _invalid("original rollup has incomplete coverage")
+        if not state_matches(state_kind, row, original_row, empty_rules=original.empty_rules):
+            raise _invalid("original rollup state differs from its retained Cells")
+        entries.append(
+            {
+                **{column: original_row[column] for column in keys},
+                **{name: original_row["original_state__" + name] for name in original.components},
+            }
+        )
+    return state, original, entries
+
+
+def _original_rollup_stage(
+    method: LoweredLocal, source: ExchangeResult, input_binding: str
+) -> ExchangeResult:
+    """Merge a Singleton original observation through the shared numeric owner."""
+    params = method.stage.node.parameters
+    assert isinstance(params, OriginalReduce) and not params.coordinates
+    state, original_contract, rows = _original_input(method, source)
+    try:
+        totals, value, tag, reason = merge_original(
+            rows,
+            state.schema,
+            original_contract.components,
+            params.method,
+            method.stage.node.value_type,
+            original_contract.empty_rules,
+        )
+    except (ValueError, OverflowError, KeyError) as error:
+        raise _invalid(str(error)) from error
     primary = pa.table(
         {
-            "value": pa.array([result], type=physical),
+            "value": pa.array([value], type=arrow_scalar_type(method.stage.node.value_type)),
             "cell_tag": [tag],
             "cell_reason": pa.array([reason], type=pa.string()),
         }
     )
     original = pa.table(
         {
-            f"original_state__{name}": pa.array(
-                [total], type=state.schema.field(f"original_state__{name}").type
+            "original_state__" + name: pa.array(
+                [total], type=state.schema.field("original_state__" + name).type
             )
             for name, total in totals.items()
         }
@@ -1896,10 +1945,12 @@ def _original_ratio_rollup_stage(
         ExchangePart("original_state", original),
         ExchangePart("coverage", pa.table({"coverage__complete": [True]})),
     )
-    status = pa.table({"status": primary["cell_tag"]})
+    status = pa.table({"status": [tag]})
     from marivo.analysis.materialization.graph_attribution import retain_partition
 
     parts = retain_partition(method.stage.node, source, primary, parts)
+    semantics = REGISTRY.lookup(method.stage.node.method).semantics
+    assert semantics.persistent_state_kind is not None
     contract = ExchangeContract(
         method.stage.node.signature,
         method.stage.node.method,
@@ -1907,60 +1958,8 @@ def _original_ratio_rollup_stage(
         primary.schema,
         (),
         tuple(PartContract(part.role, part.table.schema, ()) for part in parts),
-        REGISTRY.lookup(method.stage.node.method).semantics.empty_cell_reasons,
-        state_kind,
-        status.schema,
-    )
-    return from_arrow(primary, contract, parts=parts, method_state=status, validate=False)
-
-
-def _original_count_stage(
-    method: LoweredLocal, source: ExchangeResult, input_binding: str
-) -> ExchangeResult:
-    state = next((part.table for part in source.parts if part.role == "original_state"), None)
-    coverage = next((part.table for part in source.parts if part.role == "coverage"), None)
-    if state is None or coverage is None:
-        raise _invalid("original count lacks its bound state or coverage")
-    keys = source.contract.key_fields
-    keyed = _index_rows(state, keys)
-    if any(row["coverage__complete"] is not True for row in coverage.to_pylist()):
-        raise _invalid("original count has incomplete coverage")
-    total = 0
-    for row in numeric_primary(source.primary).to_pylist():
-        original = keyed[tuple(row[key] for key in keys)]
-        if not state_matches("original_count", row, original):
-            raise _invalid("original count state differs from its retained Cells")
-        count_value = original["original_state__count"]
-        assert type(count_value) is int
-        total += count_value
-    if total >= 2**63:
-        raise _invalid("original count exceeds int64")
-    primary = pa.table(
-        {
-            "value": pa.array([total], type=pa.int64()),
-            "cell_tag": ["defined"],
-            "cell_reason": pa.array([None], type=pa.string()),
-        }
-    )
-    state = pa.table({"original_state__count": pa.array([total], type=pa.int64())})
-    coverage = pa.table({"coverage__complete": [True]})
-    parts: tuple[ExchangePart, ...] = (
-        ExchangePart("original_state", state),
-        ExchangePart("coverage", coverage),
-    )
-    status = pa.table({"status": ["defined"]})
-    from marivo.analysis.materialization.graph_attribution import retain_partition
-
-    parts = retain_partition(method.stage.node, source, primary, parts)
-    contract = ExchangeContract(
-        method.stage.node.signature,
-        method.stage.node.method,
-        input_binding,
-        primary.schema,
-        (),
-        tuple(PartContract(part.role, part.table.schema, ()) for part in parts),
-        (),
-        "original_count",
+        semantics.empty_cell_reasons,
+        semantics.persistent_state_kind,
         status.schema,
     )
     return from_arrow(primary, contract, parts=parts, method_state=status, validate=False)
@@ -2118,113 +2117,6 @@ def _fold_rollup_stage(
         tuple(PartContract(p.role, p.table.schema, keys) for p in parts),
         (("null", ("empty_contribution",)),),
         "original_fold",
-        status.schema,
-    )
-    return from_arrow(primary, contract, parts=parts, method_state=status, validate=False)
-
-
-def _original_sum_stage(
-    method: LoweredLocal, source: ExchangeResult, input_binding: str
-) -> ExchangeResult:
-    name = method.stage.node.method.name
-    component = (
-        "min" if name == "state_rollup.min" else "max" if name == "state_rollup.max" else "sum"
-    )
-    state_kind = "original_sum_zero" if name == "state_rollup.sum_zero" else "original_" + component
-    state = next((part.table for part in source.parts if part.role == "original_state"), None)
-    coverage = next((part.table for part in source.parts if part.role == "coverage"), None)
-    if state is None or coverage is None:
-        raise _invalid("original rollup lacks its bound state or coverage")
-    keys = source.contract.key_fields
-    keyed = _index_rows(state, keys)
-    if any(row["coverage__complete"] is not True for row in coverage.to_pylist()):
-        raise _invalid("original rollup has incomplete coverage")
-    for row in numeric_primary(source.primary).to_pylist():
-        if not state_matches(state_kind, row, keyed[tuple(row[key] for key in keys)]):
-            raise _invalid("original rollup state differs from its retained Cells")
-    totals = state.column("original_state__" + component).to_pylist()
-    if component in ("min", "max"):
-        contributing = [
-            row["original_state__" + component]
-            for row in state.to_pylist()
-            if row["original_state__non_null_count"] > 0
-        ]
-        totals = [
-            (min(contributing) if component == "min" else max(contributing)) if contributing else 0
-        ]
-    support = sum(state.column("original_state__non_null_count").to_pylist())
-    value_type = method.stage.node.value_type
-    assert isinstance(value_type, (ScalarType, DecimalType, DurationType))
-    if isinstance(value_type, DecimalType):
-        with localcontext() as context:
-            context.prec = 100
-            total = sum(totals, Decimal(0))
-        if not total.is_finite() or total.copy_abs() >= Decimal(10) ** (
-            value_type.precision - value_type.scale
-        ):
-            raise _invalid("original Decimal state exceeds its declared precision")
-        physical = pa.decimal128(value_type.precision, value_type.scale)
-    elif value_type.name == "int64" or isinstance(value_type, DurationType):
-        total = sum(totals)
-        if not -(2**63) <= total < 2**63:
-            raise _invalid("original sum exceeds int64")
-        physical = (
-            pa.duration(value_type.unit) if isinstance(value_type, DurationType) else pa.int64()
-        )
-    else:
-        try:
-            total = math.fsum(totals)
-        except OverflowError as error:
-            raise _invalid("original sum exceeds float64") from error
-        if not math.isfinite(total):
-            raise _invalid("original sum is not finite")
-        physical = pa.float64()
-    if not 0 <= support < 2**63:
-        raise _invalid("original support count exceeds int64")
-    defined = support > 0 or state_kind == "original_sum_zero"
-    primary = pa.table(
-        {
-            "value": pa.array([total if defined else None], type=physical),
-            "cell_tag": ["defined" if defined else "null"],
-            "cell_reason": pa.array([None if defined else "empty_contribution"], type=pa.string()),
-        }
-    )
-    original = pa.table(
-        {
-            "original_state__" + component: pa.array(
-                [total], type=pa.int64() if isinstance(value_type, DurationType) else physical
-            ),
-            "original_state__non_null_count": pa.array([support], type=pa.int64()),
-            **(
-                {
-                    "original_state__absolute_sum": pa.array(
-                        [math.fsum(state.column("original_state__absolute_sum").to_pylist())],
-                        type=pa.float64(),
-                    )
-                }
-                if "original_state__absolute_sum" in state.column_names
-                else {}
-            ),
-        }
-    )
-    covered = pa.table({"coverage__complete": [True]})
-    parts: tuple[ExchangePart, ...] = (
-        ExchangePart("original_state", original),
-        ExchangePart("coverage", covered),
-    )
-    status = pa.table({"status": ["defined" if defined else "null"]})
-    from marivo.analysis.materialization.graph_attribution import retain_partition
-
-    parts = retain_partition(method.stage.node, source, primary, parts)
-    contract = ExchangeContract(
-        method.stage.node.signature,
-        method.stage.node.method,
-        input_binding,
-        primary.schema,
-        (),
-        tuple(PartContract(part.role, part.table.schema, ()) for part in parts),
-        (("null", ("empty_contribution",)),),
-        state_kind,
         status.schema,
     )
     return from_arrow(primary, contract, parts=parts, method_state=status, validate=False)
@@ -2412,6 +2304,7 @@ def execute_verified_fixed(
         raise _invalid("prepared and lowered fixed plans differ")
     validate_fixed_schedule(lowered)
     groups = _selection_groups(lowered)
+    reductions = _reduction_groups(lowered)
     fused_outputs: set[str] = set()
     selected: dict[str, VerifiedFixedInput] = {}
     for item in inputs:
@@ -2463,6 +2356,21 @@ def execute_verified_fixed(
                 ).hexdigest()
                 fused_outputs.add(member.stage.output)
             results[group[-1].stage.output] = result
+            continue
+        reduction = reductions.get(stage.stage.output)
+        if reduction is not None and _reduction_source_supported(
+            stage, results[stage.stage.inputs[0]]
+        ):
+            result = _reduction_group_result(reduction, results[stage.stage.inputs[0]], binding)
+            for member in reduction:
+                proofs[member.stage.output] = hashlib.sha256(
+                    (
+                        member.stage.node.identity
+                        + "".join(proofs[key] for key in member.stage.inputs)
+                    ).encode()
+                ).hexdigest()
+                fused_outputs.add(member.stage.output)
+            results[reduction[-1].stage.output] = result
             continue
         values = tuple(results[key] for key in stage.stage.inputs)
         proof = hashlib.sha256(
@@ -2561,23 +2469,8 @@ def execute_verified_fixed(
             stage.stage.node.parameters.coordinates
         ):
             result = _coordinate_rollup_stage(stage, values[0], binding)
-        elif name in (
-            "state_rollup.ratio",
-            "state_rollup.weighted_mean",
-            "state_rollup.mean",
-            "state_rollup.fold",
-            "state_rollup.linear",
-        ):
-            result = _original_ratio_rollup_stage(stage, values[0], binding)
-        elif name == "state_rollup.count":
-            result = _original_count_stage(stage, values[0], binding)
-        elif name in (
-            "state_rollup",
-            "state_rollup.sum_zero",
-            "state_rollup.min",
-            "state_rollup.max",
-        ):
-            result = _original_sum_stage(stage, values[0], binding)
+        elif isinstance(stage.stage.node.parameters, OriginalReduce):
+            result = _original_rollup_stage(stage, values[0], binding)
         elif name in ("cell.difference", "cell.relative_change", "cell.ratio"):
             result = _difference_stage(stage, (values[0], values[1]), proof, binding, checks)
         elif name == "association.spearman":
