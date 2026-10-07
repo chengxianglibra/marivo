@@ -1678,3 +1678,19 @@ original-quantity rollup; current-row statistics remain separate.
 Discover declarations with `marivo.help("semantic.aggregate")`.
 
 ClickHouse Dataset execution accepts tables and views under any engine, requires qualified scalar types and effective `join_use_nulls=1` on the read-only account; see the analysis workflow for the exact scope.
+
+### Local expression bindings
+
+Expression decorators (`dimension`, `time_dimension`, `measure`, and `metric`)
+allow fresh sequential local bindings before one final return. Each binding is
+evaluated once; renaming locals preserves definition identity. Reassignment,
+parameter or symbol shadowing, forward references, writes, and control flow are
+rejected. Event predicates continue to require a single return.
+
+```python
+@ms.measure(entity=orders, additivity=ms.additive_all(), unit="CNY")
+def net_amount(rows):
+    gross = rows["price"] * rows["quantity"]
+    discount = rows["discount"].fill_null(0)
+    return gross - discount
+```

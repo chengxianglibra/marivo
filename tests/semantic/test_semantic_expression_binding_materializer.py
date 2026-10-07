@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ibis
+import pytest
 
 from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticCatalog
@@ -42,7 +43,10 @@ def revenue(order_rows):
 """
 
 
-def test_materializer_executes_nested_field_binding(semantic_project_factory) -> None:
+@pytest.mark.parametrize("use_locals", [False, True])
+def test_materializer_executes_nested_field_binding(
+    semantic_project_factory, use_locals: bool
+) -> None:
     project = semantic_project_factory(
         {
             "datasources/warehouse.py": (
@@ -52,7 +56,15 @@ def test_materializer_executes_nested_field_binding(semantic_project_factory) ->
                 "import marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang', default=True)\n"
             ),
-            "sales/model.py": _MODEL,
+            "sales/model.py": _MODEL
+            if not use_locals
+            else _MODEL.replace(
+                "return ms.bind(amount, order_rows) * 0.9",
+                "value = ms.bind(amount, order_rows)\n    net = value * 0.9\n    return net",
+            ).replace(
+                "return ms.bind(net_amount, order_rows).sum()",
+                "value = ms.bind(net_amount, order_rows)\n    return value.sum()",
+            ),
         }
     )
     assert project.is_ready(), project.errors()

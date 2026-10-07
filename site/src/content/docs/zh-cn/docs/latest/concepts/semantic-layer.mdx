@@ -1504,3 +1504,15 @@ p95_estimate = ms.aggregate(
 发现声明契约。
 
 ClickHouse Dataset 执行支持任意引擎下的表和视图，要求已验证标量类型，且只读账户须具有有效的 `join_use_nulls=1`；详细范围见分析工作流。
+
+### 局部表达式绑定
+
+表达式装饰器（`dimension`、`time_dimension`、`measure` 和 `metric`）允许在最终的一个 return 前顺序定义局部表达式。每个绑定只求值一次，局部变量重命名不改变定义身份。重复赋值、覆盖参数或既有符号、前向引用、写入和控制流会被拒绝。Event 谓词仍要求单个 return。
+
+```python
+@ms.measure(entity=orders, additivity=ms.additive_all(), unit="CNY")
+def net_amount(rows):
+    gross = rows["price"] * rows["quantity"]
+    discount = rows["discount"].fill_null(0)
+    return gross - discount
+```

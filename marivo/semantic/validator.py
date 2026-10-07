@@ -9,6 +9,7 @@ Three layers:
 from __future__ import annotations
 
 import ast
+import builtins
 import hashlib
 import inspect
 import textwrap
@@ -1091,22 +1092,41 @@ def _has_pushdown_unfriendly_time_call(node: ast.AST) -> bool:
     return False
 
 
-def _return_expr(fn: Callable[..., Any]) -> ast.AST | None:
-    try:
-        source = textwrap.dedent(inspect.getsource(fn))
-        tree = ast.parse(source)
-    except (OSError, TypeError, IndentationError, SyntaxError):
-        return None
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            for stmt in node.body:
-                if isinstance(stmt, ast.Return):
-                    return stmt.value
+def _return_expr(
+    fn: Callable[..., Any],
+    function: ast.FunctionDef | None = None,
+) -> ast.AST | None:
+    if function is None:
+        try:
+            source = textwrap.dedent(inspect.getsource(fn))
+            tree = ast.parse(source)
+        except (OSError, TypeError, IndentationError, SyntaxError):
             return None
-    return None
+        function = next(
+            (node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)), None
+        )
+    if function is None:
+        return None
+    locals_by_name = {
+        stmt.targets[0].id: stmt.value
+        for stmt in function.body
+        if isinstance(stmt, ast.Assign)
+        and len(stmt.targets) == 1
+        and isinstance(stmt.targets[0], ast.Name)
+    }
+    value = next((stmt.value for stmt in function.body if isinstance(stmt, ast.Return)), None)
+    seen: set[str] = set()
+    while isinstance(value, ast.Name) and value.id in locals_by_name and value.id not in seen:
+        seen.add(value.id)
+        value = locals_by_name[value.id]
+    return value
 
 
-def _time_dimension_pushdown_advisory(field_ir: DimensionIR, fn: Callable[..., Any] | None) -> bool:
+def _time_dimension_pushdown_advisory(
+    field_ir: DimensionIR,
+    fn: Callable[..., Any] | None,
+    function: ast.FunctionDef | None = None,
+) -> bool:
     if not field_ir.is_time_dimension:
         return False
     parse = field_ir.parse
@@ -1116,7 +1136,7 @@ def _time_dimension_pushdown_advisory(field_ir: DimensionIR, fn: Callable[..., A
         return False
     if fn is None:
         return False
-    expr = _return_expr(fn)
+    expr = _return_expr(fn, function)
     if expr is None or not _has_pushdown_unfriendly_time_call(expr):
         return False
     source_column = _source_column_name(expr)
@@ -1157,7 +1177,9 @@ def _infer_terminal_cast(expr: ast.AST) -> str | None:
 
 
 def _time_dimension_dtype_advisory(
-    field_ir: DimensionIR, fn: Callable[..., Any] | None
+    field_ir: DimensionIR,
+    fn: Callable[..., Any] | None,
+    function: ast.FunctionDef | None = None,
 ) -> str | None:
     """Return a cast target that conflicts with the Dimension's declared parse result."""
     if not field_ir.is_time_dimension:
@@ -1168,7 +1190,7 @@ def _time_dimension_dtype_advisory(
         return None
     if fn is None:
         return None
-    expr = _return_expr(fn)
+    expr = _return_expr(fn, function)
     if expr is None:
         return None
     inferred = _infer_terminal_cast(expr)
@@ -1274,9 +1296,16 @@ _FORBIDDEN_STMT_TYPES: frozenset[type[ast.stmt]] = frozenset(
 class _BaseMetricASTValidator(ast.NodeVisitor):
     """Walk a single-return ibis expression body AST and accumulate errors."""
 
-    def __init__(self, fn_name: str, *, body_label: str = "Metric body") -> None:
+    def __init__(
+        self,
+        fn_name: str,
+        *,
+        body_label: str = "Metric body",
+        symbols: frozenset[str] | None = None,
+    ) -> None:
         self.fn_name = fn_name
         self.body_label = body_label
+        self._symbols = symbols
         self.errors: list[SemanticError] = []
         self._param_names: set[str] = set()
         self._parent_map: dict[ast.AST, ast.AST] = {}
@@ -1299,7 +1328,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         # Extract parameter names and build parent map for context-sensitive checks.
-        self._param_names = {arg.arg for arg in node.args.args}
+        self._param_names = {arg.arg for arg in (*node.args.posonlyargs, *node.args.args)}
         self._parent_map = {
             child: parent for parent in ast.walk(node) for child in ast.iter_child_nodes(parent)
         }
@@ -1342,6 +1371,8 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             # expression-body contract.
             if isinstance(child, ast.Return):
                 continue
+            if self._symbols is not None and isinstance(child, ast.Assign) and child in node.body:
+                continue
             for forbidden_type in (*_FORBIDDEN_STMT_TYPES, ast.Expr):
                 if isinstance(child, forbidden_type):
                     # Every statement that reaches this loop is a forbidden
@@ -1357,10 +1388,96 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
                     )
                     break
 
+        if self._symbols is not None:
+            statements = [stmt for stmt in node.body if stmt is not leading_docstring]
+            if statements and not isinstance(statements[-1], ast.Return):
+                self._local_error(
+                    statements[-1], "a final return expression", "statement after return"
+                )
+            defined = set(self._param_names) | set(self._symbols)
+            for stmt in statements:
+                if isinstance(stmt, ast.Assign):
+                    if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
+                        self._local_error(
+                            stmt, "one fresh local name", "non-name or multiple targets"
+                        )
+                        continue
+                    name = stmt.targets[0].id
+                    if name in defined:
+                        self._local_error(
+                            stmt, "one fresh local name", f"reassignment or shadowing of {name!r}"
+                        )
+                    self._validate_local_expression(stmt.value, defined)
+                    defined.add(name)
+                elif isinstance(stmt, ast.Return):
+                    if stmt.value is None:
+                        self._local_error(
+                            stmt, "a final Ibis return expression", "return without a value"
+                        )
+                    else:
+                        self._validate_local_expression(stmt.value, defined)
+
         # Walk only the function body for deeper AST checks. Decorator calls
         # are normal Python and are not part of the captured expression DSL.
         for stmt in node.body:
             self.visit(stmt)
+
+    def _local_error(self, node: ast.AST, expected: str, received: str) -> None:
+        self.errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.INVALID_COMPONENT_BODY,
+                message=f"{self.body_label} of {self.fn_name!r} has an invalid local expression at "
+                f"line {getattr(node, 'lineno', 0)}, column {getattr(node, 'col_offset', 0)}.",
+                refs=(self.fn_name,),
+                expected=expected,
+                received=received,
+                hint="Use fresh local names in definition order and finish with one Ibis return expression.",
+            )
+        )
+
+    def _validate_local_expression(self, value: ast.expr, defined: set[str]) -> None:
+        for child in ast.walk(value):
+            if (
+                isinstance(child, ast.Name)
+                and isinstance(child.ctx, ast.Load)
+                and child.id not in defined
+            ):
+                self._local_error(
+                    child, "a parameter, existing symbol, or previously defined local", child.id
+                )
+            if isinstance(
+                child,
+                (
+                    ast.NamedExpr,
+                    ast.ListComp,
+                    ast.SetComp,
+                    ast.DictComp,
+                    ast.GeneratorExp,
+                    ast.Yield,
+                    ast.YieldFrom,
+                    ast.Await,
+                ),
+            ):
+                self._local_error(
+                    child,
+                    "an expression without nested bindings or control flow",
+                    type(child).__name__,
+                )
+            if (
+                isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Name)
+                and child.func.id not in (self._symbols or ())
+            ):
+                self._local_error(
+                    child,
+                    "an existing expression callable",
+                    f"local callable {child.func.id!r}",
+                )
+        if (
+            isinstance(value, ast.Name)
+            and value.id in (self._symbols or frozenset()) | self._param_names
+        ):
+            self._local_error(value, "an Ibis value expression", f"bare symbol {value.id!r}")
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         # Check for .sql / .raw_sql escape hatches
@@ -1454,27 +1571,33 @@ def _event_call_name(node: ast.Call) -> str | None:
     return None
 
 
-def validate_event_body_ast(fn: Callable[..., Any]) -> Literal["all_rows", "filtered"]:
+def validate_event_body_ast(
+    fn: Callable[..., Any],
+    *,
+    _function: ast.FunctionDef | None = None,
+) -> Literal["all_rows", "filtered"]:
     """Validate the closed Event row-predicate body and classify its shape."""
-    try:
-        source = textwrap.dedent(inspect.getsource(fn))
-        tree = ast.parse(source)
-    except (OSError, TypeError, IndentationError, SyntaxError) as exc:
-        raise SemanticLoadError(
-            kind=ErrorKind.INVALID_EVENT_PREDICATE,
-            message=f"Event body {fn.__name__!r} source could not be inspected.",
-            refs=(fn.__name__,),
-            expected="one inspectable return expression",
-            received=type(exc).__name__,
-        ) from exc
-    function = next(
-        (
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef) and node.name == fn.__name__
-        ),
-        None,
-    )
+    function = _function
+    if function is None:
+        try:
+            source = textwrap.dedent(inspect.getsource(fn))
+            tree = ast.parse(source)
+        except (OSError, TypeError, IndentationError, SyntaxError) as exc:
+            raise SemanticLoadError(
+                kind=ErrorKind.INVALID_EVENT_PREDICATE,
+                message=f"Event body {fn.__name__!r} source could not be inspected.",
+                refs=(fn.__name__,),
+                expected="one inspectable return expression",
+                received=type(exc).__name__,
+            ) from exc
+        function = next(
+            (
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.FunctionDef) and node.name == fn.__name__
+            ),
+            None,
+        )
     if function is None:
         raise SemanticLoadError(
             kind=ErrorKind.INVALID_EVENT_PREDICATE,
@@ -1611,6 +1734,7 @@ def validate_metric_body_ast(
     mode: Literal["base"],
     *,
     body_kind: Literal["dimension", "time_dimension", "measure", "metric"] = "metric",
+    _function: ast.FunctionDef | None = None,
 ) -> str:
     """Layer 2: AST whitelist validation for base metric bodies.
 
@@ -1622,35 +1746,43 @@ def validate_metric_body_ast(
         raise ValueError(f"unsupported metric body AST validation mode {mode!r}")
     body_label = _BODY_KIND_LABELS[body_kind]
 
-    # Compute body AST hash
-    try:
-        source = inspect.getsource(fn)
-        source = textwrap.dedent(source)
-        tree = ast.parse(source)
-        # Find the function definition node
-        func_node: ast.FunctionDef | None = None
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == fn.__name__:
-                func_node = node
-                break
-        if func_node is None:
+    if _function is not None:
+        func_node = _function
+        body_hash = _body_hash_without_docstring(func_node)
+    else:
+        # Compute body AST hash
+        try:
+            source = inspect.getsource(fn)
+            source = textwrap.dedent(source)
+            tree = ast.parse(source)
+            # Find the function definition node
+            func_node = None
             for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef):
+                if isinstance(node, ast.FunctionDef) and node.name == fn.__name__:
                     func_node = node
                     break
+            if func_node is None:
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.FunctionDef):
+                        func_node = node
+                        break
 
-        if func_node is None:
-            body_hash = hashlib.sha256(b"<no-function>").hexdigest()[:16]
-        else:
-            body_hash = _body_hash_without_docstring(func_node)
-    except (OSError, TypeError, IndentationError):
-        body_hash = hashlib.sha256(b"<unavailable>").hexdigest()[:16]
-        return body_hash
+            if func_node is None:
+                body_hash = hashlib.sha256(b"<no-function>").hexdigest()[:16]
+            else:
+                body_hash = _body_hash_without_docstring(func_node)
+        except (OSError, TypeError, IndentationError):
+            body_hash = hashlib.sha256(b"<unavailable>").hexdigest()[:16]
+            return body_hash
 
     if func_node is None:
         return body_hash
 
-    base_validator = _BaseMetricASTValidator(fn.__name__, body_label=body_label)
+    symbols: frozenset[str] | None = None
+    if any(isinstance(stmt, ast.Assign) for stmt in func_node.body):
+        closure = inspect.getclosurevars(fn)
+        symbols = frozenset((*fn.__globals__, *closure.nonlocals, *vars(builtins)))
+    base_validator = _BaseMetricASTValidator(fn.__name__, body_label=body_label, symbols=symbols)
     base_validator.visit(func_node)
     if base_validator.errors:
         raise base_validator.errors[0]
@@ -1917,16 +2049,26 @@ def _non_root_aggregate_entity(
     fn: Callable[..., Any],
     *,
     metric_ir: MetricIR,
+    function: ast.FunctionDef | None = None,
 ) -> str | None:
-    try:
-        source = textwrap.dedent(inspect.getsource(fn))
-    except (OSError, TypeError):
-        return None
-    tree = ast.parse(source)
-    func = next((node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)), None)
+    func = function
+    if func is None:
+        try:
+            source = textwrap.dedent(inspect.getsource(fn))
+        except (OSError, TypeError):
+            return None
+        tree = ast.parse(source)
+        func = next((node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)), None)
     if func is None:
         return None
-    param_names = [arg.arg for arg in func.args.args]
+    param_names = [arg.arg for arg in (*func.args.posonlyargs, *func.args.args)]
+    locals_by_name = {
+        stmt.targets[0].id: stmt.value
+        for stmt in func.body
+        if isinstance(stmt, ast.Assign)
+        and len(stmt.targets) == 1
+        and isinstance(stmt.targets[0], ast.Name)
+    }
     entity_by_param = dict(zip(param_names, metric_ir.entities, strict=False))
     for node in ast.walk(func):
         if not isinstance(node, ast.Call):
@@ -1934,9 +2076,19 @@ def _non_root_aggregate_entity(
         param = _aggregate_receiver_param_name(node)
         if param is None:
             continue
-        entity = entity_by_param.get(param)
-        if entity is not None and entity != metric_ir.root_entity:
-            return entity
+        pending = [param]
+        seen: set[str] = set()
+        while pending:
+            receiver = pending.pop()
+            if receiver in seen:
+                continue
+            seen.add(receiver)
+            entity = entity_by_param.get(receiver)
+            if entity is not None and entity != metric_ir.root_entity:
+                return entity
+            local = locals_by_name.get(receiver)
+            if local is not None:
+                pending.extend(child.id for child in ast.walk(local) if isinstance(child, ast.Name))
     return None
 
 
@@ -3072,7 +3224,9 @@ def assembly_validate(
             body = sidecar.bodies.get(ref_factory.metric(m_id))
             fn = None if body is None else body.callable
             if callable(fn):
-                offending_entity = _non_root_aggregate_entity(fn, metric_ir=m_ir)
+                offending_entity = _non_root_aggregate_entity(
+                    fn, metric_ir=m_ir, function=None if body is None else body._function_ast
+                )
                 if offending_entity is not None:
                     errors.append(
                         SemanticLoadError(
@@ -3292,6 +3446,7 @@ def assembly_validate(
         if _time_dimension_pushdown_advisory(
             f_ir,
             None if body is None else body.callable,
+            None if body is None else body._function_ast,
         ):
             warnings.append(
                 StructuredWarning(
@@ -3318,6 +3473,7 @@ def assembly_validate(
         inferred = _time_dimension_dtype_advisory(
             f_ir,
             None if body is None else body.callable,
+            None if body is None else body._function_ast,
         )
         if inferred is not None:
             compatible = sorted(_CAST_TARGET_TO_DECLARED.get(inferred, set()))

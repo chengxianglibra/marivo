@@ -106,9 +106,13 @@ These rules hold for every object type.
   intent.
 - **Expression bodies are restricted.** The expression-bearing decorators
   (`@ms.dimension`, `@ms.time_dimension`, `@ms.measure`, `@ms.metric`) allow an
-  optional leading docstring and then require exactly one
-  `return <ibis expression>`. Ibis is the only expression language; SQL is
-  metadata (provenance), never an executable body. Any other statement is
+  optional leading docstring, fresh sequential `name = expression` bindings,
+  and exactly one final `return <ibis expression>`. Local names cannot shadow
+  parameters or existing symbols, be reassigned, or be used before definition.
+  Each binding is evaluated once in source order. Local renaming preserves
+  identity; expression and binding-order changes do not. Events retain their
+  separate single-return predicate grammar. Ibis is the only expression language; SQL is
+  metadata (provenance), never an executable body. Other statements, writes, control flow, and local callable aliases are
   rejected at decoration time. Refs remain data-only; nested field expressions
   use `ms.bind(field_ref, entity_alias)` rather than calling the ref.
 - **Fail closed.** If decoration, assembly, or materialization cannot

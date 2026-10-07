@@ -138,7 +138,16 @@ def test_multi_entity_metric_accepts_root_entity_ref(semantic_project_factory):
     assert metric.root_entity.path == "sales.orders"
 
 
-def test_multi_entity_metric_rejects_non_root_aggregate_receiver(semantic_project_factory):
+@pytest.mark.parametrize(
+    "receiver_body",
+    [
+        "    return users.score.sum()\n",
+        "    score = users.score\n    value = score * 2\n    return value.sum()\n",
+    ],
+)
+def test_multi_entity_metric_rejects_non_root_aggregate_receiver(
+    semantic_project_factory, receiver_body: str
+):
     project = semantic_project_factory(
         {
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
@@ -152,8 +161,7 @@ def test_multi_entity_metric_rejects_non_root_aggregate_receiver(semantic_projec
                 "    additivity=ms.additive_all(),\n"
                 "    name='bad_user_sum',\n"
                 "    )\n"
-                "def bad_user_sum(orders, users):\n"
-                "    return users.score.sum()\n"
+                "def bad_user_sum(orders, users):\n" + receiver_body
             ),
         },
         load=False,
