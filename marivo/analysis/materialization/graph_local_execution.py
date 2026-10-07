@@ -14,16 +14,24 @@ import pyarrow as pa
 from marivo.analysis.compiler.graph_lowering import LoweredLocal, LoweredPlan, LoweredRelation
 from marivo.analysis.compiler.graph_plan import ArtifactReadStage, CheckRequirement
 from marivo.analysis.core.graph import MethodNode
+from marivo.analysis.core.local_laws import selection_fusion_issue
 from marivo.analysis.core.model import (
     Cell,
     CoordinateStatePart,
+    CoreRuleError,
+    CorrespondencePart,
+    CoveragePart,
     Defined,
+    EndpointPart,
     Null,
     OriginalStatePart,
+    RowStatePart,
+    StatisticalWeightPart,
     SubjectPart,
     Undefined,
     Unknown,
 )
+from marivo.analysis.core.predicates import compose, leaves
 from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorRetention,
@@ -82,6 +90,7 @@ from marivo.analysis.methods.physical import (
     arrow_scalar_type,
     matches_arrow_scalar,
 )
+from marivo.analysis.methods.predicates import evaluate_leaf
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.analysis.methods.state_validation import state_matches
 
@@ -95,6 +104,12 @@ def _invalid(received: str) -> MaterializationError:
     )
 
 
+def _transport_rows(table: pa.Table) -> list[dict[str, object]]:
+    """Decode one row representation for its actual consumer."""
+    rows: list[dict[str, object]] = table.to_pylist()
+    return rows
+
+
 def _index_rows(
     table: pa.Table, keys: tuple[str, ...]
 ) -> dict[tuple[object, ...], dict[str, object]]:
@@ -102,7 +117,7 @@ def _index_rows(
     from marivo.analysis.materialization.execute_deadline import check
 
     rows: dict[tuple[object, ...], dict[str, object]] = {}
-    for row in table.to_pylist():
+    for row in _transport_rows(table):
         check()
         key = tuple(row[column] for column in keys)
         if key in rows:
@@ -602,9 +617,6 @@ def _transport_stage(
     if params.mode == "cohort":
         return _cohort_stage(method, source, predicate_sources, input_binding)
     keys = source.contract.key_fields
-    from marivo.analysis.core.predicates import compose, leaves
-    from marivo.analysis.methods.predicates import evaluate_leaf
-
     input_rows = [
         _index_rows(numeric_primary(item.primary), keys) for item in (source, *predicate_sources)
     ]
@@ -618,23 +630,9 @@ def _transport_stage(
             raise _invalid("predicate dependency lacks equal complete input keys")
     selected_keys: set[tuple[object, ...]] = set()
     keep: list[bool] = []
-    for row in numeric_primary(source.primary).to_pylist():
+    for row in _transport_rows(numeric_primary(source.primary)):
         key = tuple(row[k] for k in keys)
-        truths = tuple(
-            compose(
-                tree,
-                tuple(
-                    evaluate_leaf(
-                        leaf,
-                        input_rows[leaf.input_index][key],
-                        None if leaf.right_index is None else input_rows[leaf.right_index][key],
-                    )
-                    for leaf in leaves(tree)
-                ),
-            )
-            for tree in params.predicates
-        )
-        accepted = all(value is True for value in truths)
+        accepted = _selection_accepts(method.stage.node, input_rows, key)
         keep.append(accepted)
         if accepted:
             selected_keys.add(key)
@@ -728,10 +726,63 @@ def _transport_stage(
             parts.append(prior)
             continue
         mask = pa.array(
-            [tuple(row[key] for key in keys) in selected_keys for row in prior.table.to_pylist()],
+            [key in selected_keys for key in _transport_part_keys(prior, keys)],
             type=pa.bool_(),
         )
         parts.append(ExchangePart(role, prior.table.filter(mask)))
+    return _transport_exchange(method, source, input_binding, primary, tuple(parts))
+
+
+def _selection_accepts(
+    node: MethodNode,
+    input_rows: list[dict[tuple[object, ...], dict[str, object]]],
+    key: tuple[object, ...],
+) -> bool:
+    params = node.parameters
+    assert isinstance(params, PartsTransport)
+    try:
+        truths = tuple(
+            compose(
+                tree,
+                tuple(
+                    evaluate_leaf(
+                        leaf,
+                        input_rows[leaf.input_index][key],
+                        None if leaf.right_index is None else input_rows[leaf.right_index][key],
+                    )
+                    for leaf in leaves(tree)
+                ),
+            )
+            for tree in params.predicates
+        )
+    except CoreRuleError as error:
+        error.location = f"analysis.predicate.{node.identity}"
+        raise
+    return all(value is True for value in truths)
+
+
+def _transport_part_keys(
+    part: ExchangePart, keys: tuple[str, ...]
+) -> tuple[tuple[object, ...], ...]:
+    from marivo.analysis.materialization.execute_deadline import check
+
+    positions: list[tuple[object, ...]] = []
+    for row in _transport_rows(part.table.select(keys)):
+        check()
+        positions.append(tuple(row[key] for key in keys))
+    return tuple(positions)
+
+
+def _transport_exchange(
+    method: LoweredLocal,
+    source: ExchangeResult,
+    input_binding: str,
+    primary: pa.Table,
+    parts: tuple[ExchangePart, ...],
+) -> ExchangeResult:
+    params = method.stage.node.parameters
+    assert isinstance(params, PartsTransport)
+    keys = source.contract.key_fields
     contract = ExchangeContract(
         method.stage.node.signature,
         method.stage.node.method,
@@ -752,7 +803,147 @@ def _transport_stage(
         (),
         (params.mode in ("where", "limit") or params.display_view is not None) and not keys,
     )
-    return from_arrow(primary, contract, parts=tuple(parts), validate=False)
+    return from_arrow(primary, contract, parts=parts, validate=False)
+
+
+def _selection_candidate(method: LoweredLocal, checked_nodes: set[str]) -> bool:
+    node = method.stage.node
+    params = node.parameters
+    return (
+        node.identity not in checked_nodes
+        and node.value_type == ScalarType("int64")
+        and method.stage.implementation.key.route == "artifact_python"
+        and len(method.stage.inputs) == 1
+        and isinstance(params, PartsTransport)
+        and params.mode == "where"
+        and params.keep_quantity
+        and bool(params.predicates)
+        and not params.external_predicate
+        and not params.inclusion_inputs
+        and params.display_view is None
+        and params.attribution_view is None
+        and params.business_windows is None
+        and all(
+            isinstance(
+                part,
+                (
+                    SubjectPart,
+                    OriginalStatePart,
+                    CoordinateStatePart,
+                    RowStatePart,
+                    CoveragePart,
+                    StatisticalWeightPart,
+                    EndpointPart,
+                    CorrespondencePart,
+                ),
+            )
+            for part in node.inputs[0].node.signature.parts
+        )
+        and all(
+            leaf.operator != "is_defined"
+            and leaf.input_index == 0
+            and leaf.right_index in (None, 0)
+            and leaf.unknown == tree.unknown
+            for tree in params.predicates
+            for leaf in leaves(tree)
+        )
+    )
+
+
+def _selection_groups(lowered: LoweredPlan) -> dict[str, tuple[LoweredLocal, ...]]:
+    """Group existing selected stages only; shared and observable outputs end a group."""
+    consumers: dict[str, int] = {}
+    checked_nodes = {item.node_id for item in lowered.admitted.checks}
+    for stage in lowered.stages:
+        if isinstance(stage, LoweredLocal):
+            for source in stage.stage.inputs:
+                consumers[source] = consumers.get(source, 0) + 1
+    groups: dict[str, tuple[LoweredLocal, ...]] = {}
+    pending: list[LoweredLocal] = []
+    for stage in lowered.stages:
+        if isinstance(stage, LoweredLocal) and _selection_candidate(stage, checked_nodes):
+            if pending and (
+                stage.stage.inputs == (pending[-1].stage.output,)
+                and stage.stage.node.inputs[0].node is pending[-1].stage.node
+                and consumers.get(pending[-1].stage.output) == 1
+                and pending[-1].stage.output != lowered.primary_output
+                and selection_fusion_issue(stage.stage.node) is None
+            ):
+                pending.append(stage)
+                continue
+            if len(pending) > 1:
+                groups[pending[0].stage.output] = tuple(pending)
+            pending = [stage]
+        else:
+            if len(pending) > 1:
+                groups[pending[0].stage.output] = tuple(pending)
+            pending = []
+    if len(pending) > 1:
+        groups[pending[0].stage.output] = tuple(pending)
+    return groups
+
+
+def _selection_source_supported(method: LoweredLocal, source: ExchangeResult) -> bool:
+    """Check actual layouts before starting; unfamiliar transportation stays unfused."""
+    params = method.stage.node.parameters
+    assert isinstance(params, PartsTransport)
+    keys = source.contract.key_fields
+    if not {*keys, "value", "cell_tag", "cell_reason"} <= set(source.primary.column_names):
+        raise _invalid("fixed selection input lacks complete keys or Cell fields")
+    if not source.primary.schema.equals(source.contract.schema, check_metadata=False):
+        raise _invalid("fixed selection producer schema differs from its contract")
+    for role in params.retained_roles:
+        part = next((item for item in source.parts if item.role == role), None)
+        declared = next((item for item in source.contract.parts if item.role == role), None)
+        if part is None or declared is None:
+            raise _invalid("required retained transport part is absent")
+        if not part.table.schema.equals(declared.schema, check_metadata=False):
+            raise _invalid("fixed selection part schema differs from its contract")
+        if declared.key_fields != keys or not set(keys) <= set(part.table.column_names):
+            return False
+    return bool(source.primary.schema.field("value").type == pa.int64())
+
+
+def _selection_group_result(
+    group: tuple[LoweredLocal, ...], source: ExchangeResult, input_binding: str
+) -> ExchangeResult:
+    """Evaluate in stage order over surviving original positions, then transport once."""
+    from marivo.analysis.materialization.execute_deadline import check
+
+    keys = source.contract.key_fields
+    index = _index_rows(source.primary, keys)
+    ordered_keys = tuple(index)
+    positions = list(range(len(ordered_keys)))
+    params = group[-1].stage.node.parameters
+    assert isinstance(params, PartsTransport)
+    parts = tuple(
+        next(part for part in source.parts if part.role == role) for role in params.retained_roles
+    )
+    part_keys = tuple(_transport_part_keys(part, keys) for part in parts)
+    input_rows = [index]
+    for stage in group:
+        check()
+        survivors: list[int] = []
+        for position in positions:
+            check()
+            if _selection_accepts(stage.stage.node, input_rows, ordered_keys[position]):
+                survivors.append(position)
+        positions = survivors
+    check()
+    primary = source.primary.take(pa.array(positions, type=pa.int64())).select(
+        (*keys, "value", "cell_tag", "cell_reason")
+    )
+    selected_keys = {ordered_keys[position] for position in positions}
+    restricted: list[ExchangePart] = []
+    for part, located in zip(parts, part_keys, strict=True):
+        kept: list[int] = []
+        for position, key in enumerate(located):
+            check()
+            if key in selected_keys:
+                kept.append(position)
+        restricted.append(ExchangePart(part.role, part.table.take(pa.array(kept, type=pa.int64()))))
+    check()
+    return _transport_exchange(group[-1], source, input_binding, primary, tuple(restricted))
 
 
 def execute_fixed_spearman(
@@ -2220,6 +2411,8 @@ def execute_verified_fixed(
     if prepared.admitted is not lowered.admitted:
         raise _invalid("prepared and lowered fixed plans differ")
     validate_fixed_schedule(lowered)
+    groups = _selection_groups(lowered)
+    fused_outputs: set[str] = set()
     selected: dict[str, VerifiedFixedInput] = {}
     for item in inputs:
         prior = selected.get(item.artifact_ref)
@@ -2256,6 +2449,21 @@ def execute_verified_fixed(
             proofs[stage.output] = selected_input.receipt.identity_digest
             continue
         assert isinstance(stage, LoweredLocal)
+        if stage.stage.output in fused_outputs:
+            continue
+        group = groups.get(stage.stage.output)
+        if group is not None and _selection_source_supported(stage, results[stage.stage.inputs[0]]):
+            result = _selection_group_result(group, results[stage.stage.inputs[0]], binding)
+            for member in group:
+                proofs[member.stage.output] = hashlib.sha256(
+                    (
+                        member.stage.node.identity
+                        + "".join(proofs[key] for key in member.stage.inputs)
+                    ).encode()
+                ).hexdigest()
+                fused_outputs.add(member.stage.output)
+            results[group[-1].stage.output] = result
+            continue
         values = tuple(results[key] for key in stage.stage.inputs)
         proof = hashlib.sha256(
             (

@@ -2,7 +2,7 @@
 
 Date: 2026-10-07
 
-Status: A1 implementation and bounded acceptance are recorded in [A1 acceptance](2026-10-07-analysis-a1-acceptance.md). A2 and A3 remain proposals. Trusting explicit semantic declarations and handling numerical overflow at execution are the user-selected directions.
+Status: A1 implementation and bounded acceptance are recorded in [A1 acceptance](2026-10-07-analysis-a1-acceptance.md). A2 fixed selection implementation and bounded acceptance are recorded in [A2 acceptance](2026-10-07-analysis-a2-acceptance.md). A3 remains a proposal. Trusting explicit semantic declarations and handling numerical overflow at execution are the user-selected directions.
 
 Research baseline: `panda@6801154111811bd94cd17343d52056e72306103a` plus the working tree inspected on 2026-10-07. Concurrent numeric and documentation changes exist; the SHA does not describe all inspected files.
 
@@ -27,7 +27,7 @@ Research baseline: `panda@6801154111811bd94cd17343d52056e72306103a` plus the wor
 6. source 路线继续使用 Ibis 和已选择的后端；fixed 路线复用本地内核。领域算法继续
    使用其专用方法，不建立覆盖所有算子的通用解释器或代数搜索引擎。
 
-A1 的第 5 节参数已进入可执行 API、owning specs、Help、错误修复、保存格式及中英文使用文档；A2、A3 继续留在后续任务。
+A1 的第 5 节参数已进入可执行 API、owning specs、Help、错误修复、保存格式及中英文使用文档。A2 已进入 fixed 执行器，保留原逻辑图；A3 继续留在后续任务。
 
 ## 2. 当前实现与收益来源
 
@@ -419,5 +419,5 @@ source 声明故意违约的测试不要求普通查询必须发现违约；只�
 先拥有 dtype、精度和原生算术的决定，本方案在其最终实现上复用，不把类型改动计为
 代数优化，也不恢复已被用户放弃的精度要求。
 
-本文交付设计和实施边界，未修改实现、公共 API 或现行 owning specs，未运行新的
-Runtime 验收。下一步实施的首个可观察成果应是 A1 的检查查询收敛。
+本文保留原设计与实施边界。A1、A2 的实现、实际验收及未验证范围由各自验收记录
+拥有；A3 尚未实施，不能由前两包的通过结果推导其资格或收益。

@@ -1797,3 +1797,27 @@ required parts, read completion, cancellation/deadline, resource and atomic
 publication boundaries while trusting producer business guarantees. Necessary
 index insertions reject encountered duplicates; required lookups reject missing
 operands. Numerical exceptions are handled during computation/conversion.
+
+### A2 fixed selection execution and recovery
+
+An admitted fixed schedule may execute qualifying ordinary int64 selections in a
+private sequential group. The original logical nodes and selected implementations
+remain the producer identity. `plan_digest` describes the ordered qualified method
+bindings; invocation-local row-position grouping does not replace those bindings
+or enter execution keys and snapshots. Store 8, graph DAG v2, descriptor v3 and
+continuation v4 remain unchanged.
+
+Each logical stage retains its original chained proof digest. Stages requiring
+check completion are grouping boundaries; grouping cannot invent CompletedCheck
+records or discard earlier completion records. The terminal ExchangeResult owns
+the original selected node's contract and retained part layouts. Fixed exact hits
+reuse that result through the existing Artifact owner, and cold continuation reads
+the same retained primary/state/parts without reconnecting sources or replaying
+the producer's selections.
+
+Index construction, each surviving-row predicate evaluation, stage transitions and
+part restriction share the invocation's monotonic deadline. Predicate failures name
+the original node. Cancellation, malformed consumed keys or missing required parts
+fail the current Run without publishing a partial Artifact. A group that has started
+does not retry the unfused stages; existing resource discharge and prior-publication
+preservation remain authoritative.
