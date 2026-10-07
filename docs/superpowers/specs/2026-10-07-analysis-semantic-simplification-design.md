@@ -2,7 +2,7 @@
 
 Date: 2026-10-07
 
-Status: O1, O2a, the selected O2b consumer batches and the narrowed O3 observation/forest reuse are implemented within the recorded support and validation scope. O4a and O4b are implemented within the validation scope recorded below. Other O2b candidates and O5 remain proposed.
+Status: O1, O2a, the selected O2b consumer batches and the narrowed O3 observation/forest reuse are implemented within the recorded support and validation scope. O4a and O4b are implemented within the validation scope recorded below. O5a and O5b are implemented within the validation scope recorded below. Other O2b candidates remain proposed.
 
 Baseline: `panda@ccbed62962e21beef5778c738037e62d912ec8fb`.
 
@@ -14,7 +14,7 @@ O1、O2a 已按本文的等价内部整理边界实施，并更新对应私有�
 O2b 首批扩大 SQLite Funnel 的直接 string/int64 Subject 轴组合；后续四批扩大
 observation 长路径、SQLite 历史轴、SQLite Anchor 组件和 native distribution 输入。
 新增 remote ordinary Count 声明及原有冻结集合的边界分别记录。O3 按第 6 节修订边界实施；
-O4a 与 O4b 已实施；其他 O2b 候选与 O5 仍是优化提案；本轮不表示
+O4a 与 O4b 已实施；其他 O2b 候选仍是优化提案；O5a 与 O5b 已实施；本轮不表示
 R10、安装包、真实 Agent 或发布验收已经完成。`AGENTS.md` 与 packaged skills 保持原样。
 
 ## 1. 范围与设计原则
@@ -556,7 +556,7 @@ O4b 实施前必须确定最小冻结契约如何支撑现有 continuation、错
 ### O5b 有限局部表达式绑定
 
 在 O5a 后，允许表达式函数使用顺序局部绑定及一个最终 return。示意函数体如下；
-它是拟议语法，目前不满足单返回表达式约束：
+该语法已按下述实施记录支持：
 
 ```python
 def amount(orders):
@@ -578,6 +578,34 @@ Event 等独立受限语法不自动获得相同扩展。
 若实现需要扩展成通用 Python 静态解释器，应缩小语法范围。实施时同步
 Semantic object model、原生 Help 约束、正反例、typing 和最新中英文文档；
 packaged skills 仅在确需修改且取得仓库要求的明确授权后编辑。
+
+### O5 implementation record (2026-10-07)
+
+- O5a captures one function AST per expression compilation and reuses it for
+  validation, binding collection, physical columns, normalized identity, column
+  access analysis, and assembly root/temporal inspection. Hand-built internal
+  bodies retain source-based inspection; no process-global cache was added.
+- O5b supports fresh single-name assignments in source order followed by one
+  final return for Dimension, TimeDimension, Measure, and decorator Metric.
+  Local names normalize by definition order; existing single-return hashes stay
+  unchanged. Original Python execution preserves sharing without substitution.
+- Reassignment, parameter/symbol shadowing, forward/undefined names, callable
+  aliases, table aliases, multi-target/unpacking/writing, annotated/augmented
+  assignments, nested bindings, and control flow remain rejected. Event retains
+  its separate grammar. Non-root aggregates through local values are rejected.
+- Native constraints/Help, authoring docstrings, semantic object model, and
+  latest bilingual examples are aligned. Public exports, persistent formats,
+  AGENTS.md, and packaged skills are unchanged.
+- Parsing probe: one AST parse for compiled local-binding bodies, with no new
+  parse during subsequent column analysis. A pre-change single-return hash is
+  pinned independently. Original callable execution is covered by both a
+  single-evaluation witness and loaded DuckDB materializer result oracles.
+- Validation: targeted binding/validator/materializer/root tests passed (94);
+  final binding/Help tests passed (71). Final `make check-agent` passed: lint,
+  typing (326 modules), default tests (4765 passed, 1 skipped), and API docs.
+  Focused Runtime public J2/J3/J4 documentation workflows passed (3).
+  Full Runtime, installed package, real Agent, and release acceptance are
+  outside this delivery.
 
 ## 9. 交付顺序与验收
 

@@ -292,3 +292,15 @@ def test_live_help_performs_no_runtime_effects(monkeypatch: pytest.MonkeyPatch) 
     assert marivo.help() is None
     for target in ("semantic.load", ms.load, ms.SemanticCatalog):
         assert marivo.help(target) is None
+
+
+def test_expression_constraint_discloses_locals_and_separate_event_grammar() -> None:
+    from marivo.semantic.constraints import CONSTRAINTS, ConstraintId
+
+    constraint = CONSTRAINTS[ConstraintId.AST_SINGLE_RETURN]
+    assert "local bindings" in constraint.title
+    assert "Events" in constraint.title
+    spec = constraint.ast_spec
+    assert spec is not None
+    assert "Assign" not in spec.forbidden_statements
+    assert "AugAssign" in spec.forbidden_statements

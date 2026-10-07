@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 import ibis
+import ibis.expr.types as ir
 import pytest
 
 from marivo.refs import Ref, SemanticKindTag
@@ -438,3 +441,171 @@ def test_sidecar_copies_input_mappings_and_is_immutable() -> None:
     assert AMOUNT in sidecar.bodies
     with pytest.raises(TypeError):
         sidecar.bodies[AMOUNT] = ExpressionBody.for_column("other")  # type: ignore[index]
+
+
+# Sequential bindings are private compilation facts, not executable substitutions.
+def _local_amount(rows: ibis.expr.types.Table) -> ibis.expr.types.Value:
+    gross = rows["amount"] * 2
+    net = gross - 1
+    return net + gross
+
+
+def _renamed_local_amount(rows: ibis.expr.types.Table) -> ibis.expr.types.Value:
+    first = rows["amount"] * 2
+    second = first - 1
+    return second + first
+
+
+def _reassigned_amount(rows: ibis.expr.types.Table) -> ibis.expr.types.Value:
+    value = rows.amount
+    value = value * 2
+    return value
+
+
+def _table_alias_amount(rows: ibis.expr.types.Table) -> ibis.expr.types.Value:
+    alias = rows
+    return alias.amount
+
+
+def test_local_bindings_preserve_renaming_and_column_facts() -> None:
+    from marivo.semantic._expression_binding import expression_column_accesses
+
+    first = compile_expression_body(_local_amount, owning_ref=AMOUNT, ordered_entity_refs=(ORDERS,))
+    second = compile_expression_body(
+        _renamed_local_amount, owning_ref=AMOUNT, ordered_entity_refs=(ORDERS,)
+    )
+    assert first.body_ast_hash == second.body_ast_hash
+    assert first.source_columns == ("amount",)
+    assert expression_column_accesses(first) == ((0, "amount"),)
+    table = ibis.memtable({"amount": [1, 3]})
+    value = first.callable(table)
+    assert isinstance(value, ir.Value)
+    assert value.execute().tolist() == [3, 11]
+
+
+@pytest.mark.parametrize("fn", [_reassigned_amount, _table_alias_amount])
+def test_invalid_local_bindings_reject_at_compilation(fn: Callable[[ir.Table], ir.Value]) -> None:
+    with pytest.raises(SemanticLoadError) as error:
+        compile_expression_body(fn, owning_ref=AMOUNT, ordered_entity_refs=(ORDERS,))
+    assert error.value.kind == ErrorKind.INVALID_COMPONENT_BODY
+    assert "line" in str(error.value)
+
+
+def test_compilation_parses_once_and_column_analysis_reuses_ast() -> None:
+    import ast
+
+    from marivo.semantic._expression_binding import expression_column_accesses
+
+    with patch.object(ast, "parse", wraps=ast.parse) as parser:
+        body = compile_expression_body(
+            _local_amount, owning_ref=AMOUNT, ordered_entity_refs=(ORDERS,)
+        )
+        assert parser.call_count == 1
+        assert expression_column_accesses(body) == ((0, "amount"),)
+        assert parser.call_count == 1
+
+
+def test_local_field_expression_is_evaluated_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    import marivo.semantic._expression_binding as binding_module
+
+    def shared(rows: ir.Table) -> ir.Value:
+        value = bind(AMOUNT, rows)
+        return value + value
+
+    body = compile_expression_body(shared, owning_ref=REVENUE, ordered_entity_refs=(ORDERS,))
+    calls: list[Ref[SemanticKindTag]] = []
+
+    def counted(field: Ref[SemanticKindTag], rows: ir.Table) -> ir.Value:
+        calls.append(field)
+        return rows.amount
+
+    monkeypatch.setitem(shared.__globals__, "bind", counted)
+    table = ibis.memtable({"amount": [2, 5]})
+    value = body.callable(table)
+    assert isinstance(value, ir.Value)
+    assert value.execute().tolist() == [4, 10]
+    assert calls == [AMOUNT]
+    assert len(body.bindings) == 1
+    assert binding_module.expression_column_accesses(body) == ()
+
+
+def test_event_rejects_local_bindings() -> None:
+    event = ref_factory.event("sales.created")
+    with pytest.raises(SemanticLoadError) as error:
+        compile_expression_body(_local_amount, owning_ref=event, ordered_entity_refs=(ORDERS,))
+    assert error.value.kind == ErrorKind.INVALID_EVENT_PREDICATE
+
+
+def test_single_return_preserves_pre_o5_identity() -> None:
+    body = compile_expression_body(_raw_amount, owning_ref=AMOUNT, ordered_entity_refs=(ORDERS,))
+    assert (
+        body.body_ast_hash
+        == "sha256:c4f82f193a6ab98b03b4d60beb5aff7d1212a62a313098fd429efd80c85d54e5"
+    )
+
+
+@pytest.mark.parametrize(
+    "statements",
+    [
+        "value = later * 2\nlater = rows.amount\nreturn value",
+        "value = missing\nreturn value",
+        "rows = rows.amount\nreturn rows",
+        "ibis = rows.amount\nreturn ibis",
+        "value = other = rows.amount\nreturn value",
+        "value, other = rows.amount\nreturn value",
+        "rows.amount = rows.amount\nreturn rows.amount",
+        "rows['amount'] = rows.amount\nreturn rows.amount",
+        "value = rows.amount\nvalue += 1\nreturn value",
+        "value: int = 1\nreturn rows.amount",
+        "value = rows.amount\nif value:\n    return value\nreturn value",
+        "value = rows.amount\nreturn value\nother = rows.amount",
+        "value = rows.amount\nreturn value()",
+        "value = (other := rows.amount)\nreturn value",
+        "value = [x for x in rows.amount]\nreturn value",
+        "value = rows.sql('SELECT 1')\nreturn value",
+        "value = rows.amount\nreturn",
+        "value = yield rows.amount\nreturn value",
+    ],
+)
+def test_local_syntax_boundaries(statements: str) -> None:
+    import ast
+    import textwrap
+
+    from marivo.semantic.validator import validate_metric_body_ast
+
+    tree = ast.parse("def expression(rows):\n" + textwrap.indent(statements, "    "))
+    function = tree.body[0]
+    assert isinstance(function, ast.FunctionDef)
+    with pytest.raises(SemanticLoadError):
+        validate_metric_body_ast(_local_amount, "base", _function=function)
+
+
+@pytest.mark.parametrize(
+    "owner", [AMOUNT, COUNTRY, REVENUE, ref_factory.time_dimension("sales.orders.time")]
+)
+def test_expression_owners_accept_local_bindings(owner: Ref[SemanticKindTag]) -> None:
+    body = compile_expression_body(_local_amount, owning_ref=owner, ordered_entity_refs=(ORDERS,))
+    assert body.source_columns == ("amount",)
+
+
+def test_constant_local_retains_proven_column_free_expression() -> None:
+    from marivo.semantic._expression_binding import expression_column_accesses
+
+    def constant(rows: ir.Table) -> ir.Value:
+        value = ibis.literal(7)
+        alias = value
+        return alias
+
+    body = compile_expression_body(constant, owning_ref=AMOUNT, ordered_entity_refs=(ORDERS,))
+    assert expression_column_accesses(body) == ()
+
+
+def test_binding_expression_change_changes_identity() -> None:
+    def changed(rows: ir.Table) -> ir.Value:
+        gross = rows["amount"] * 3
+        net = gross - 1
+        return net + gross
+
+    first = compile_expression_body(_local_amount, owning_ref=AMOUNT, ordered_entity_refs=(ORDERS,))
+    second = compile_expression_body(changed, owning_ref=AMOUNT, ordered_entity_refs=(ORDERS,))
+    assert first.body_ast_hash != second.body_ast_hash

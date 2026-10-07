@@ -32,7 +32,11 @@ from marivo.semantic.errors import (
     SemanticLoadError,
     SemanticRuntimeError,
 )
-from marivo.semantic.validator import validate_event_body_ast, validate_metric_body_ast
+from marivo.semantic.validator import (
+    _return_expr,
+    validate_event_body_ast,
+    validate_metric_body_ast,
+)
 
 _FIELD_KINDS = frozenset(
     {
@@ -74,6 +78,8 @@ class ExpressionBody:
     source_column: str | None = None
     source_columns: tuple[str, ...] = ()
     source_syntax: str | None = field(default=None, repr=False)
+    _function_ast: ast.FunctionDef | None = field(default=None, repr=False, compare=False)
+    _bound_calls: frozenset[int] = field(default_factory=frozenset, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not callable(self.callable):
@@ -127,12 +133,14 @@ def expression_column_accesses(body: ExpressionBody) -> tuple[tuple[int, str], .
     if body.source_column is not None:
         return ((0, body.source_column),)
     try:
-        tree = ast.parse(
-            body.source_syntax
-            if body.source_syntax is not None
-            else textwrap.dedent(inspect.getsource(body.callable))
-        )
-        function = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef))
+        function = body._function_ast
+        if function is None:
+            tree = ast.parse(
+                body.source_syntax
+                if body.source_syntax is not None
+                else textwrap.dedent(inspect.getsource(body.callable))
+            )
+            function = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef))
         parameters = (*function.args.posonlyargs, *function.args.args)
         if len(parameters) != body.parameter_count:
             raise ValueError("expression arity mismatch")
@@ -157,8 +165,10 @@ def expression_column_accesses(body: ExpressionBody) -> tuple[tuple[int, str], .
                     raise ValueError("dynamic column access")
             elif (
                 isinstance(parent, ast.Call)
-                and isinstance(parent.func, ast.Attribute)
-                and parent.func.attr == "bind"
+                and (
+                    id(parent) in body._bound_calls
+                    or (isinstance(parent.func, ast.Attribute) and parent.func.attr == "bind")
+                )
                 and body.bindings
             ):
                 continue
@@ -171,7 +181,7 @@ def expression_column_accesses(body: ExpressionBody) -> tuple[tuple[int, str], .
             returns = [node.value for node in function.body if isinstance(node, ast.Return)]
             if len(returns) != 1:
                 raise ValueError("unknown constant expression")
-            value = returns[0]
+            value = _return_expr(body.callable, function)
             if not (
                 isinstance(value, ast.Constant)
                 or (
@@ -585,6 +595,7 @@ class _NormalizedBody(ast.NodeTransformer):
         self._parameter_positions = parameter_positions
         self._binding_indexes = binding_indexes
         self._constant_bindings = constant_bindings
+        self._local_names: dict[str, str] = {}
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
         node.name = "expression_body"
@@ -597,6 +608,11 @@ class _NormalizedBody(ast.NodeTransformer):
                 node.body = node.body[1:]
         node.args.defaults = []
         node.args.kw_defaults = []
+        self._local_names = {
+            statement.targets[0].id: f"local_{index}"
+            for index, statement in enumerate(node.body)
+            if isinstance(statement, ast.Assign) and isinstance(statement.targets[0], ast.Name)
+        }
         self.generic_visit(node)
         return node
 
@@ -612,6 +628,8 @@ class _NormalizedBody(ast.NodeTransformer):
         position = self._parameter_positions.get(node.id)
         if position is not None:
             node.id = f"entity_{position}"
+        elif node.id in self._local_names:
+            node.id = self._local_names[node.id]
         elif node.id in self._constant_bindings:
             return ast.copy_location(
                 ast.Constant(value=self._constant_bindings[node.id]),
@@ -723,11 +741,16 @@ def compile_expression_body(
             expected="dimension, time_dimension, measure, metric, or event",
             received=owning.kind.value,
         )
+    try:
+        _, function = _load_function_ast(fn)
+    except SemanticLoadError:
+        if body_kind == "event":
+            validate_event_body_ast(fn)
+        raise
     if body_kind == "event":
-        validate_event_body_ast(fn)
+        validate_event_body_ast(fn, _function=function)
     else:
-        validate_metric_body_ast(fn, "base", body_kind=body_kind)
-    _, function = _load_function_ast(fn)
+        validate_metric_body_ast(fn, "base", body_kind=body_kind, _function=function)
     if function.args.vararg is not None or function.args.kwarg is not None:
         raise SemanticLoadError(
             kind=ErrorKind.COMPILE_ERROR,
@@ -796,6 +819,12 @@ def compile_expression_body(
         parameter_count=len(parameters),
         bindings=tuple(collector.bindings),
         source_syntax=ast.unparse(function),
+        _function_ast=function,
+        _bound_calls=frozenset(
+            id(node)
+            for node in ast.walk(function)
+            if isinstance(node, ast.Call) and _is_bind_target(node.func, symbols)
+        ),
         source_columns=_physical_source_columns(
             function,
             parameter_positions=parameter_positions,

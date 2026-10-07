@@ -139,16 +139,14 @@ def test_base_none_literal() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_base_multiple_statements_error() -> None:
-    """A statement before the return (here an assignment) is forbidden."""
+def test_base_unused_local_binding_allowed() -> None:
+    """A fresh local binding may precede the final return."""
 
-    def bad_metric(table):  # type: ignore[no-untyped-def]
+    def metric(table):  # type: ignore[no-untyped-def]
         x = 1
         return table.amount.sum()
 
-    with pytest.raises(SemanticLoadError) as exc_info:
-        validate_metric_body_ast(bad_metric, "base")
-    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
+    assert validate_metric_body_ast(metric, "base")
 
 
 def test_base_docstring_without_return_error() -> None:
@@ -209,20 +207,14 @@ def test_base_import_error() -> None:
     assert validator.errors[0].kind == ErrorKind.INVALID_COMPONENT_BODY
 
 
-def test_base_assignment_error() -> None:
-    """Assignment statements in metric body are forbidden, and the error
-    routes the author to the body-free derived constructors."""
+def test_base_local_binding_allowed() -> None:
+    """Sequential expression bindings may supply the final return."""
 
-    def bad_metric(table):  # type: ignore[no-untyped-def]
+    def metric(table):  # type: ignore[no-untyped-def]
         x = table.amount.sum()
         return x
 
-    with pytest.raises(SemanticLoadError) as exc_info:
-        validate_metric_body_ast(bad_metric, "base")
-    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-    assert exc_info.value.constraint_id == "ast_forbidden_statement"
-    assert exc_info.value.hint is not None
-    assert "ms.ratio" in exc_info.value.hint
+    assert validate_metric_body_ast(metric, "base")
 
 
 def test_base_for_loop_error() -> None:

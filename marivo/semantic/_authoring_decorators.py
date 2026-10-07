@@ -398,7 +398,7 @@ def dimension(
     """Declare a categorical dimension whose body returns an ibis expression over its entity.
 
     The decorated function takes the entity table and returns a single
-    expression (single-return AST). Use this for both raw columns and derived
+    expression (fresh sequential local bindings and one final return). Use this for both raw columns and derived
     expressions (e.g. ``table.region``).
 
     For quantitative measures, use ``@ms.measure(entity=..., additivity=...)``

@@ -103,10 +103,9 @@ class ConstraintId(StrEnum):
 
 
 _EXPR_BODY_AST_SPEC = ASTSpec(
-    name="single_return_ibis_expression",
+    name="sequential_bindings_ibis_expression",
     single_return=True,
     forbidden_statements=(
-        "Assign",
         "AugAssign",
         "AnnAssign",
         "Import",
@@ -391,9 +390,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "metric_body_not_single_return",
         "ast",
         ("entity", "dimension", "time_dimension", "metric"),
-        "Decorator function bodies must be a single return expression.",
+        "Expression decorators allow fresh sequential local bindings and one final return; Events require one return.",
         "The body is captured as a restricted expression DSL, not arbitrary Python.",
-        "Inline the expression directly as return <ibis expression>.",
+        "Finish with return <ibis expression>; define each local name once before use.",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.STATE_MODEL_SHAPE: _constraint(
@@ -428,9 +427,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "invalid_component_body",
         "ast",
         ("entity", "dimension", "time_dimension", "metric"),
-        "Decorator bodies cannot contain statements, imports, assignments, lambdas, or nested definitions.",
+        "Decorator bodies allow only fresh local expression bindings and a final return; imports, control flow, writes, lambdas, and nested definitions are forbidden.",
         "Only deterministic expression bodies can be stored and recompiled safely.",
-        "Keep the body to a single return expression. For a metric composed from "
+        "Use fresh local bindings and one final return expression (Events allow only the return). For a metric composed from "
         "other metrics, use the body-free constructors instead: "
         "ms.ratio(numerator=, denominator=), ms.linear(add=, subtract=), or "
         "ms.weighted_mean(value=<Ref[measure]>, weight=<Ref[measure]>). For conditionals, use ibis "
