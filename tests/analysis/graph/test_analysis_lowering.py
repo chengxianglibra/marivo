@@ -372,7 +372,12 @@ def test_selection_and_row_reduction_use_independent_original_rows(source_case):
     outer = _selection(inner, threshold=6)
     fused = fuse_selection(outer)
     assert fused.identity != outer.identity
-    assert fused.signature == outer.signature
+    assert (
+        replace(
+            fused.signature, node_id=outer.identity, key_domain_id=outer.signature.key_domain_id
+        )
+        == outer.signature
+    )
     for root in (outer, fused):
         lowered = lower(_plan(root), bindings=(binding,))
         assert _read(source_case[0], lowered, (binding,), _primary(lowered).expression) == [
@@ -657,11 +662,15 @@ def test_duplicate_identity_and_malformed_cell_remain_visible(source_case):
     assert len(_read(source_case[0], lowered, (binding,), pending[0].violations)) == 5
     assert lowered.admitted.root.signature.obligations == (obligation,)
     malformed = table.mutate(tag=ibis.literal("null"))
-    binding = replace(binding, source=replace(source, relation=malformed))
-    lowered = lower(_plan(_count(leaf)), bindings=(binding,))
-    check = next(
-        c for c in lowered.checks if isinstance(c, IntegrityCheck) and "Cell encoding" in c.expected
+    policy = Obligation(
+        Fact("cell_policy", leaf.signature.domain.binding, "cells", "v1"),
+        "source.cell_policy@v1",
+        "consume",
     )
+    leaf = replace(leaf, signature=replace(leaf.signature, obligations=(policy,)))
+    binding = replace(binding, leaf=leaf, source=replace(source, relation=malformed))
+    lowered = lower(_plan(_count(leaf)), bindings=(binding,))
+    check = next(c for c in lowered.checks if isinstance(c, SemanticCheck))
     assert len(_read(source_case[0], lowered, (binding,), check.violations)) == 2
 
 
@@ -774,7 +783,7 @@ def test_parts_transport_preserves_components_and_prunes_k(source_case):
 
 
 @pytest.mark.parametrize("injective", [False, True])
-def test_subject_set_image_and_injective_failure(source_case, injective):
+def test_subject_set_image_and_declared_injectivity(source_case, injective):
     from marivo.analysis.compiler.graph_lowering import ComponentColumn, PartColumns
     from marivo.analysis.core.model import SubjectPart
 
@@ -812,10 +821,9 @@ def test_subject_set_image_and_injective_failure(source_case, injective):
     )
     lowered = lower(_plan(root), bindings=(binding,))
     if injective:
-        check = next(
-            c for c in lowered.checks if isinstance(c, IntegrityCheck) and "injective" in c.expected
-        )
-        assert len(_read(source_case[0], lowered, (binding,), check.violations)) == 2
+        assert not lowered.checks
+        rows = _read(source_case[0], lowered, (binding,), _primary(lowered).expression)
+        assert len(rows) == 5  # A false declaration is not a source audit.
     else:
         rows = _read(source_case[0], lowered, (binding,), _primary(lowered).expression)
         assert sorted(rows, key=lambda r: r["key_0"]) == [
@@ -902,9 +910,7 @@ def test_same_table_leaves_keep_expression_source_identity(source_case, mode):
             for c in lowered.checks
             if isinstance(c, IntegrityCheck) and c.stage_output == relation.output
         ]
-        assert checks
-        for check in checks:
-            assert lowered.sources_for(check.violations) == (binding,)
+        assert not checks  # Source stages do not add business templates.
     if mode != "union_keys":
         checks = [
             c
@@ -1001,7 +1007,8 @@ def test_inherited_pairing_keeps_origin_groups_across_union(source_case, shared)
     inherited = [
         check
         for check in lowered.checks
-        if isinstance(check, SemanticCheck) and check.requirement.node_id == root.identity
+        if isinstance(check, SemanticCheck)
+        and any(item.node_id == root.identity for item in check.consumers)
     ]
     assert [check.source_ids for check in inherited] == [
         tuple(leaf.identity for leaf in leaves[index : index + 2])
@@ -1028,7 +1035,8 @@ def test_inherited_pairing_keeps_origin_groups_across_union(source_case, shared)
         inherited = [
             check
             for check in lowered.checks
-            if isinstance(check, SemanticCheck) and check.requirement.node_id == root.identity
+            if isinstance(check, SemanticCheck)
+            and any(item.node_id == root.identity for item in check.consumers)
         ]
         assert [len(_read(source_case[0], lowered, bindings, c.violations)) for c in inherited] == [
             0,
@@ -1064,10 +1072,14 @@ def test_transport_carries_exact_source_cell_reason_policy(source_case):
     )
     admitted = _plan(view)
     binding = _bind(source_case, leaf)
+    result = execute_source_graph(
+        PreparedGraph(admitted), lower(admitted, bindings=(binding,)), source_case[0]
+    )
+    # Private transport trusts producer business guarantees; external exchange still checks them.
+    from marivo.analysis.materialization.graph_exchange import from_arrow
+
     with pytest.raises(MaterializationError, match="invalid non-Defined Cell"):
-        execute_source_graph(
-            PreparedGraph(admitted), lower(admitted, bindings=(binding,)), source_case[0]
-        )
+        from_arrow(result.primary, result.contract)
     assert not source_case[0]._staged_relations
     declared = replace(
         binding,
@@ -1194,8 +1206,7 @@ def test_source_iteration_failure_closes_terminal_stream_without_temporary_stage
     assert not session._staged_relations
 
 
-def test_duplicate_source_identity_rejects_and_releases_temporary_stage(source_case):
-    from marivo.analysis.materialization.errors import MaterializationError
+def test_false_source_identity_declaration_is_not_reaudited(source_case):
     from marivo.analysis.materialization.graph_execution import PreparedGraph
     from marivo.analysis.materialization.graph_source_execution import execute_source_graph
 
@@ -1206,8 +1217,9 @@ def test_duplicate_source_identity_rejects_and_releases_temporary_stage(source_c
     leaf = _leaf(form)
     admitted = _plan(_count(leaf))
     lowered = lower(admitted, bindings=(_bind(source_case, leaf),))
-    with pytest.raises(MaterializationError, match="violating rows"):
-        execute_source_graph(PreparedGraph(admitted), lowered, session)
+    # This declaration is intentionally false. Analysis does not audit it.
+    result = execute_source_graph(PreparedGraph(admitted), lowered, session)
+    assert result.primary["value"].to_pylist() == [5]
     assert not session._staged_relations
 
 

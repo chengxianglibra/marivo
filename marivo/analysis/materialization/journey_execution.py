@@ -162,7 +162,7 @@ def execute(node: MethodNode, selected: ExchangeResult, binding: str) -> Exchang
         state_kind="journey_assignment",
         state_schema=state.schema,
     )
-    return from_arrow(primary, contract, parts=parts, method_state=state)
+    return from_arrow(primary, contract, parts=parts, method_state=state, validate=False)
 
 
 def validate(

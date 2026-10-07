@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import replace
 
 import ibis.expr.operations as ops
@@ -24,6 +25,7 @@ from marivo.analysis.core.rules import (
     AssociationFit,
     AssociationRead,
     AttributionDerive,
+    BindProject,
     CellDerive,
     DeviationFit,
     DeviationRead,
@@ -100,7 +102,7 @@ def _read(
     purpose: str,
     replacements: dict[ops.Node, ops.Node],
     keys: tuple[str, ...] = (),
-    validate_cells: bool = True,
+    validate_cells: bool = False,
     cell_reasons: tuple[tuple[str, tuple[str, ...]], ...] = (),
 ) -> pa.Table:
     issued = _issue(source, lowered, expression, purpose=purpose, replacements=replacements)
@@ -181,6 +183,46 @@ def _check(
             if isinstance(check, IntegrityCheck)
             else str(check.requirement.obligation.fact.kind)
         )
+        repair = "Correct the exact source rows or choose a qualified input."
+        if isinstance(check, SemanticCheck):
+            fact = check.requirement.obligation.fact
+            owner = next(
+                (
+                    item.node if isinstance(item, LoweredRelation) else item.stage.node
+                    for item in lowered.stages
+                    if isinstance(item, (LoweredRelation, LoweredLocal))
+                    and (
+                        item.node if isinstance(item, LoweredRelation) else item.stage.node
+                    ).identity
+                    == check.requirement.node_id
+                ),
+                None,
+            )
+            if fact.subject_id.startswith("buckets:"):
+                expected += ": complete original period buckets without renumbering"
+                repair = (
+                    "Use the complete captured period grid; retain its original bucket coordinates."
+                )
+            elif fact.subject_id.startswith("coverage:"):
+                expected += ": complete original observation state coverage"
+                repair = "Use original observations with complete retained state before applying Metric empty finish."
+            elif fact.subject_id.startswith("fold_alignment:"):
+                expected += ": aligned pre-fold sampling coordinates"
+                repair = (
+                    "Keep separate spatial groups unless their captured sampling coordinates align."
+                )
+            elif (
+                fact.kind == "key_set_equal"
+                and isinstance(owner, MethodNode)
+                and isinstance(owner.parameters, CellDerive)
+            ):
+                repair = "Use corresponding complete inputs, or explicitly assume equality with mv.ExactKeys(verification='assume') when this exact call guarantees it."
+            elif (
+                fact.kind == "mapping_total"
+                and isinstance(owner, MethodNode)
+                and isinstance(owner.parameters, BindProject)
+            ):
+                repair = "Provide a matching owner row for every consumed key; use match_verification='assume' only when this exact read guarantees matching."
         if expected.startswith("r7."):
             from marivo.analysis.core.domain_captures import DomainPreparationError
 
@@ -194,12 +236,12 @@ def _check(
         raise MaterializationError(
             expected=expected,
             received=f"{table.num_rows} violating rows",
-            repair="Correct the exact source rows or choose a qualified input.",
+            repair=repair,
             stage="graph_check",
         )
     if isinstance(check, SemanticCheck):
         digest = hashlib.sha256(table.schema.serialize().to_pybytes()).hexdigest()
-        return CompletedCheck(check.requirement, digest)
+        return CompletedCheck(check.requirement, digest, check.consumers)
     return None
 
 
@@ -211,7 +253,11 @@ def _ordered_checks(
         raise _invalid("completed source check has no admitted origin")
     ordered: list[CompletedCheck] = []
     for requirement in pending:
-        proofs = tuple(proof for proof in completed if proof.requirement == requirement)
+        proofs = tuple(
+            proof
+            for proof in completed
+            if proof.requirement == requirement or requirement in proof.consumers
+        )
         if not proofs:
             raise _invalid("source check has no completed evidence")
         combined = hashlib.sha256(
@@ -321,6 +367,16 @@ def _result(
     state_kind = REGISTRY.lookup(stage.node.method).semantics.persistent_state_kind
     if state_kind is None:
         raise _invalid(f"method {stage.node.method} has no durable state qualification")
+    if state_kind == "spearman":
+        for status, value in zip(
+            primary["status"].to_pylist(), primary["value"].to_pylist(), strict=True
+        ):
+            if status == "valid" and (
+                type(value) is not float or not math.isfinite(value) or abs(value) > 1 + 1e-12
+            ):
+                raise _invalid(
+                    "finite valid Spearman coefficient in [-1, 1] required at conversion"
+                )
     state = None
     if state_kind != "none":
         statuses = (
@@ -379,6 +435,7 @@ def _result(
         parts=tuple(parts),
         completed_checks=completed,
         method_state=state,
+        validate=False,
     )
 
 

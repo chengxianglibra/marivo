@@ -462,6 +462,7 @@ def combine_observations(
     design: Literal["time", "cohort", "period"] = "time",
     pairing: Literal["exact", "keep", "metric_empty"] = "exact",
     relationship: TargetRelationshipContract | None = None,
+    verification: Literal["check", "assume"] = "check",
 ) -> MemberGraph:
     """Share identical frozen nodes, preserving independent ordered endpoints."""
 
@@ -557,6 +558,7 @@ def combine_observations(
                 time_index=period_mapping(first, second)[0] if design == "period" else None,
                 bucket_mapping=period_mapping(first, second)[1] if design == "period" else (),
                 relationship=relationship,
+                verification=verification,
             ),
             value_type=result_type,
         )

@@ -513,7 +513,7 @@ def result(node: MethodNode, parts: tuple[ExchangePart, ...], binding: str) -> E
         "standardized" if params.kind == "standardize" else params.kind,
         state.schema,
     )
-    return from_arrow(primary, contract, parts=parts, method_state=state)
+    return from_arrow(primary, contract, parts=parts, method_state=state, validate=False)
 
 
 def physical_type(dtype: pa.DataType) -> ValueType:

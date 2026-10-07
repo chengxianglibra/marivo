@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from marivo.analysis.compiler.graph_plan import CheckRequirement
 from marivo.analysis.core.model import (
@@ -424,6 +425,7 @@ class CompletedCheck:
 
     requirement: CheckRequirement
     result_digest: str
+    consumers: tuple[CheckRequirement, ...] = ()
 
 
 def collect(
@@ -1195,18 +1197,20 @@ def from_pandas(
     parts: tuple[ExchangePart, ...] = (),
     completed_checks: tuple[CompletedCheck, ...] = (),
     method_state: pa.Table | None = None,
+    validate: bool = True,
 ) -> ExchangeResult:
-    """Round-trip a selected local method through the common Arrow contract."""
+    """Convert an owned local method through the physical Arrow contract."""
     try:
         table = pa.Table.from_pandas(frame, schema=contract.schema, preserve_index=False, safe=True)
     except (pa.ArrowException, ValueError, TypeError) as error:
         raise _invalid(f"lossy pandas-to-Arrow conversion: {type(error).__name__}") from error
-    return collect(
-        _TableStream(table),
+    return from_arrow(
+        table,
         contract,
         parts=parts,
         completed_checks=completed_checks,
         method_state=method_state,
+        validate=validate,
     )
 
 
@@ -1221,6 +1225,32 @@ def from_arrow(
 ) -> ExchangeResult:
     """Validate an owned Arrow result through the same producer contract."""
     if not validate:
+        if not table.schema.equals(contract.schema, check_metadata=False):
+            raise _invalid("producer schema differs from selected exchange")
+        if tuple(part.role for part in parts) != tuple(part.role for part in contract.parts):
+            raise _invalid("missing, reordered or extra method state part")
+        for declared, part in zip(contract.parts, parts, strict=True):
+            if not part.table.schema.equals(declared.schema, check_metadata=False):
+                raise _invalid(f"{declared.role} schema differs")
+        if (method_state is None) != (contract.state_schema is None) or (
+            method_state is not None
+            and contract.state_schema is not None
+            and not method_state.schema.equals(contract.state_schema, check_metadata=False)
+        ):
+            raise _invalid("missing or mismatched method state vector")
+        if {item.requirement for item in completed_checks} != set(contract.pending_checks):
+            raise _invalid("method result lacks its exact completed check records")
+        for numeric in (
+            table,
+            *(part.table for part in parts),
+            *((method_state,) if method_state is not None else ()),
+        ):
+            for field in numeric.schema:
+                if (
+                    pa.types.is_floating(field.type)
+                    and pc.any(pc.invert(pc.is_finite(numeric[field.name]))).as_py()
+                ):
+                    raise _invalid(f"non-finite numeric output in {field.name}")
         return ExchangeResult(contract, table, parts, completed_checks, method_state)
     return collect(
         _TableStream(table),
@@ -1268,7 +1298,7 @@ def from_receipts(selected: FixedInput, contract: ExchangeContract) -> ExchangeR
             _verified_part_batches(selected.root, item.receipt, declared.schema),
             declared.schema,
         )
-        stream = CheckedStream(reader, declared.schema, declared.key_fields)
+        stream = CheckedStream(reader, declared.schema, (), validate_cells=False)
         try:
             table = pa.Table.from_batches(tuple(stream), schema=declared.schema)
         finally:
@@ -1279,7 +1309,14 @@ def from_receipts(selected: FixedInput, contract: ExchangeContract) -> ExchangeR
     primary_reader = open_receipt_batch_stream(
         selected.root, selected.receipt, selected.row, selected.rows
     )
-    return collect(primary_reader, contract, parts=tuple(checked_parts))
+    stream = CheckedStream(primary_reader, contract.schema, (), validate_cells=False)
+    try:
+        primary = pa.Table.from_batches(tuple(stream), schema=contract.schema)
+    finally:
+        stream.close()
+    if not stream.completed:
+        raise _invalid("fixed receipt did not complete")
+    return from_arrow(primary, contract, parts=tuple(checked_parts), validate=False)
 
 
 def _verified_part_batches(

@@ -799,3 +799,15 @@ missing required attribute anchor or non-to-one path before business I/O; runtim
 checks distinguish a missing representation from a represented null value.
 Native boolean physical fields resolve boolean Dimensions; integer indicators
 remain categorical and do not acquire boolean semantics.
+
+
+### Analysis declaration trust
+
+Analysis consumes Entity primary-key/version grain, field owners, complete
+relationship keys, structural cardinality and declared source-time interpretation
+as semantic premises. It does not automatically audit these declarations while
+executing an analysis. Incorrect declarations do not promise detection.
+Cardinality does not imply that every selected row has a matching owner;
+unknown matching remains an Analysis call premise. Explicit source audits keep
+their independent `source_health` route. Physical schema, decoding and actual
+numeric conversion failures remain mandatory execution boundaries.

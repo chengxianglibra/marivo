@@ -106,7 +106,7 @@ def bind(
         keys,
         tuple(PartContract(p.role, p.table.schema, keys) for p in parts),
     )
-    return from_arrow(primary, contract, parts=parts)
+    return from_arrow(primary, contract, parts=parts, validate=False)
 
 
 def validate(
@@ -444,4 +444,4 @@ def observe(
         tuple(PartContract(p.role, p.table.schema, keys) for p in parts),
         (("null", ("empty_contribution",)), ("undefined", ("zero_denominator",))),
     )
-    return from_arrow(primary, contract, parts=parts)
+    return from_arrow(primary, contract, parts=parts, validate=False)

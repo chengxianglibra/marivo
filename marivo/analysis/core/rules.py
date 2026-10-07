@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
+from hashlib import sha256
 from typing import Literal, TypeAlias
 
 from marivo.analysis.anchors import AnyAnchor, CalendarWindow, ElapsedWindow, EveryAnchor
@@ -164,6 +165,10 @@ class BindProject:
     expression_bodies: tuple[tuple[str, str, str], ...] = ()
     measure_unit: str | None = None
     attribute_time: str = "untimed"
+    match_verification: Literal["check", "assume"] = "check"
+    owner_selection: (
+        TargetSnapshotSelection | TargetValiditySelection | GridVersionSelection | None
+    ) = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -338,6 +343,7 @@ class CellDerive:
     time_index: int | None = None
     bucket_mapping: tuple[tuple[str, str], ...] = ()
     relationship: TargetRelationshipContract | None = None
+    verification: Literal["check", "assume"] = "check"
 
 
 RowMethod: TypeAlias = Literal[
@@ -781,7 +787,250 @@ def _fact(
         binding,
         subject,
         "v1",
-        tuple(FactInput(item.domain, item.quantity) for item in inputs),
+        tuple(FactInput(item.domain, item.quantity, item.node_id) for item in inputs),
+    )
+
+
+def _contribution_mapping_fact(
+    inputs: tuple[Signature, ...],
+    params: ObserveMetric | ObserveCount | ObserveWeightedMean,
+    index: int,
+) -> Fact:
+    """Bind a required path match to this observation's exact ordered inputs and scope."""
+    scope = sha256(repr(params).encode()).hexdigest()
+    return _fact(
+        "mapping_total", inputs[0].domain.binding, f"contribution_mapping:{scope}:{index}", inputs
+    )
+
+
+def captured_mapping_fact(
+    inputs: tuple[Signature, ...],
+    params: OccurrencePrepare | FunnelAxesPrepare | HistoryAxesPrepare,
+    slot: str,
+) -> Fact:
+    """Bind historical matches to ordered nodes, source captures, path, version and window."""
+    if isinstance(params, (FunnelAxesPrepare, HistoryAxesPrepare)):
+        segments = slot.split(":")
+        position = 1 if isinstance(params, FunnelAxesPrepare) else 3
+        axes = params.axes if isinstance(params, FunnelAxesPrepare) else params.request.axes
+        axis = axes[int(segments[position])]
+        segments[position] = sha256(
+            repr((axis.subject, axis.path, axis.entities, axis.source_ids)).encode()
+        ).hexdigest()
+        slot = ":".join(segments)
+    scope = sha256(repr(params).encode()).hexdigest()
+    return _fact(
+        "mapping_total", inputs[0].domain.binding, f"captured_mapping:{scope}:{slot}", inputs
+    )
+
+
+def captured_mapping_derivation(
+    inputs: tuple[Signature, ...], params: RuleParameters, derivation: RuleDerivation
+) -> RuleDerivation:
+    """Add the source-only capture owners' unknown match premises before physical selection."""
+    if isinstance(params, OccurrencePrepare):
+        slots = tuple(
+            f"event:{event.ref.path}:hop:{index}"
+            for event in params.events
+            for index in range(len(event.path))
+        )
+    elif isinstance(params, FunnelAxesPrepare):
+        slots = tuple(
+            f"axis:{axis_index}:hop:{index}"
+            for axis_index, axis in enumerate(params.axes)
+            for index in range(len(axis.entities))
+        )
+    elif isinstance(params, HistoryAxesPrepare):
+        slots = tuple(
+            f"point:{point}:axis:{axis_index}:hop:{index}"
+            for point in range(len(params.request.at))
+            for axis_index, axis in enumerate(params.request.axes)
+            for index in range(len(axis.entities))
+        )
+    else:
+        return derivation
+    facts = tuple(captured_mapping_fact(inputs, params, slot) for slot in slots)
+    obligations = tuple(
+        dict.fromkeys(
+            (
+                *derivation.obligations,
+                *(Obligation(fact, "source.group_mapping@v1", "consume") for fact in facts),
+            )
+        )
+    )
+    return replace(
+        derivation,
+        pre=(*derivation.pre, *facts),
+        obligations=obligations,
+        output=replace(
+            derivation.output,
+            obligations=obligations,
+            evidence=tuple(
+                replace(item, dependencies=tuple(dict.fromkeys((*item.dependencies, *facts))))
+                if item.basis == "builder" and item.source_id == derivation.eval_id
+                else item
+                for item in derivation.output.evidence
+            ),
+        ),
+    )
+
+
+def consumption_facts(
+    inputs: tuple[Signature, ...], params: RuleParameters
+) -> tuple[tuple[str, Fact, CheckId, bool], ...]:
+    """Bind remaining complete-key consumers to exact ordered operands and call scope."""
+    pairs: list[tuple[str, int, int, bool]] = []
+    result: list[tuple[str, Fact, CheckId, bool]] = []
+    if isinstance(params, (DisplayRank, DisplayTable)):
+        pairs = [
+            (
+                f"display:{index}",
+                0,
+                index,
+                isinstance(params, DisplayRank) and index in params.inclusion_inputs,
+            )
+            for index in range(1, len(inputs))
+        ]
+    elif isinstance(params, AttributionDerive):
+        pairs = [("attribution", 0, 1, False)]
+    elif isinstance(params, PartsTransport):
+        cohort = params.mode == "cohort"
+        receiver = 1 if cohort else 0
+        pairs = [
+            (f"predicate:{index}", receiver, index, index in params.inclusion_inputs)
+            for index in range(receiver + 1, len(inputs))
+        ]
+        if cohort:
+            scope = sha256(repr(params).encode()).hexdigest()
+            result.append(
+                (
+                    "opportunity",
+                    _fact(
+                        "complete_coverage",
+                        inputs[0].domain.binding,
+                        f"opportunity:{scope}",
+                        inputs[:2],
+                    ),
+                    "source.complete_coverage@v1",
+                    False,
+                )
+            )
+    if isinstance(params, CellDerive):
+        for index, operand in enumerate(inputs):
+            for label, needed in (
+                ("coverage", params.pairing == "metric_empty"),
+                ("buckets", params.time_index is not None),
+            ):
+                if needed:
+                    scope = sha256(repr(params).encode()).hexdigest()
+                    result.append(
+                        (
+                            f"{label}:{index}",
+                            _fact(
+                                "complete_coverage",
+                                operand.domain.binding,
+                                f"{label}:{index}:{scope}",
+                                (operand,),
+                            ),
+                            "source.complete_coverage@v1",
+                            False,
+                        )
+                    )
+    if isinstance(params, OriginalReduce) and params.method == "fold":
+        scope = sha256(repr(params).encode()).hexdigest()
+        result.append(
+            (
+                "fold_alignment",
+                _fact(
+                    "contribution_partition",
+                    inputs[0].domain.binding,
+                    f"fold_alignment:{scope}",
+                    inputs,
+                ),
+                "source.contribution_partition@v1",
+                False,
+            )
+        )
+    scope = sha256(repr(params).encode()).hexdigest()
+    for slot, left, right, inclusion in pairs:
+        operands = (inputs[left], inputs[right])
+        common = bool(operands[0].key_domain_id) and (
+            operands[0].key_domain_id == operands[1].key_domain_id
+            and operands[0].domain == operands[1].domain
+        )
+        result.append(
+            (
+                slot,
+                _fact(
+                    "mapping_total" if inclusion else "key_set_equal",
+                    operands[0].domain.binding,
+                    f"{slot}:{scope}",
+                    operands,
+                ),
+                "source.group_mapping@v1" if inclusion else "source.exact_pairing@v1",
+                common,
+            )
+        )
+    return tuple(result)
+
+
+def consumption_derivation(
+    inputs: tuple[Signature, ...], params: RuleParameters, derivation: RuleDerivation
+) -> RuleDerivation:
+    """Preserve constructive common domains and schedule only unknown relations."""
+    consumers = consumption_facts(inputs, params)
+    if not consumers:
+        return derivation
+    facts = tuple(item[1] for item in consumers)
+    obligations = tuple(
+        dict.fromkeys(
+            (
+                *derivation.obligations,
+                *(
+                    Obligation(fact, check_id, "consume")
+                    for _, fact, check_id, proven in consumers
+                    if not proven
+                ),
+            )
+        )
+    )
+    premises = tuple(dict.fromkeys((*derivation.pre, *facts)))
+    evidence = tuple(
+        replace(item, dependencies=tuple(dict.fromkeys((*item.dependencies, *facts))))
+        if item.basis == "builder" and item.source_id == derivation.eval_id
+        else item
+        for item in derivation.output.evidence
+    )
+    evidence = (
+        *evidence,
+        *(
+            Evidence(
+                fact,
+                "builder",
+                derivation.eval_id,
+                tuple(
+                    item.fact
+                    for operand in inputs
+                    for item in operand.evidence
+                    if item.basis == "assumption"
+                ),
+            )
+            for _, fact, _, proven in consumers
+            if proven
+        ),
+    )
+    return replace(
+        derivation,
+        pre=premises,
+        obligations=obligations,
+        output=replace(
+            derivation.output,
+            evidence=evidence,
+            obligations=obligations,
+            key_domain_id=inputs[0].key_domain_id
+            if isinstance(params, (DisplayRank, DisplayTable))
+            else derivation.output.key_domain_id,
+        ),
     )
 
 
@@ -818,6 +1067,7 @@ def _result(
     obligations: tuple[Obligation, ...],
     eval_id: str,
     established: tuple[Evidence, ...] = (),
+    preserve_key_domain: bool = False,
 ) -> RuleDerivation:
     input_parts = tuple(part_role(part) for item in inputs for part in item.parts)
     output_roles = tuple(part_role(part) for part in parts)
@@ -832,7 +1082,67 @@ def _result(
     )
     inherited = tuple(obligation for item in inputs for obligation in item.obligations)
     pending = tuple(dict.fromkeys((*inherited, *obligations)))
-    output = Signature(domain, quantity, parts, (*transport, *established), pending)
+    dependencies = tuple(
+        dict.fromkeys(
+            (
+                *pre,
+                *(
+                    item.fact
+                    for source in inputs
+                    for item in source.evidence
+                    if item.basis in ("declaration", "assumption")
+                ),
+            )
+        )
+    )
+    established = tuple(
+        replace(
+            item,
+            dependencies=tuple(
+                dict.fromkeys(
+                    (
+                        *item.dependencies,
+                        *(
+                            evidence.fact
+                            for source in inputs
+                            for evidence in source.evidence
+                            if evidence.basis in ("declaration", "assumption")
+                            and evidence.fact != item.fact
+                        ),
+                        *(
+                            evidence.fact
+                            for evidence in established
+                            if evidence.basis == "declaration" and evidence.fact != item.fact
+                        ),
+                    )
+                )
+            ),
+        )
+        if item.basis == "builder"
+        else item
+        for item in established
+    )
+    constructed = (
+        Evidence(
+            _fact("unique_key", domain.binding, domain.definition_id),
+            "builder",
+            eval_id,
+            dependencies,
+        ),
+        *(
+            Evidence(fact, "builder", eval_id, dependencies)
+            for fact in post
+            if fact.kind in ("output_key", "cell_policy", "state_binding", "subject_image")
+        ),
+    )
+    output = Signature(
+        domain,
+        quantity,
+        parts,
+        tuple(dict.fromkeys((*transport, *established, *constructed))),
+        pending,
+        key_domain_id=inputs[0].key_domain_id if preserve_key_domain else "",
+    )
     return RuleDerivation(
         rule,
         output,
@@ -949,8 +1259,10 @@ def entity_members(
     return Signature(
         domain,
         parts=(subject,),
-        evidence=(Evidence(declared_key, "declaration", entity.dependency_fingerprint),),
-        obligations=(Obligation(source_key, "source.unique_key@v1", "consume"),),
+        evidence=(
+            Evidence(declared_key, "declaration", entity.dependency_fingerprint),
+            Evidence(source_key, "declaration", entity.dependency_fingerprint),
+        ),
     )
 
 
@@ -1086,15 +1398,36 @@ def _bind_project(inputs: tuple[Signature, ...], params: BindProject) -> RuleDer
             "Freeze the resolved field body and each bound field definition.",
             "core.bind_project.expression",
         )
+    if params.match_verification not in ("check", "assume"):
+        reject(
+            "check or assume",
+            str(params.match_verification),
+            "Choose match_verification='check' or 'assume'.",
+            "core.bind_project.verification",
+        )
+    match_scope = (
+        params.ref.path
+        + ":"
+        + sha256(repr((params.path_contracts, params.owner_selection)).encode()).hexdigest()
+    )
     pre = (
         _fact("field_ownership", binding, params.ref.path),
-        _fact("single_value", binding, params.ref.path),
+        _fact("single_value", binding, match_scope, inputs),
+        _fact("mapping_total", binding, match_scope, inputs),
     )
-    obligations = (
-        _premise(inputs, pre[1], check_id="source.single_value@v1", before="consume")
-        if params.path
-        else ()
+    established: tuple[Evidence, ...] = (
+        Evidence(pre[0], "builder", params.ref.path),
+        Evidence(pre[1], "declaration", match_scope),
     )
+    obligations: tuple[Obligation, ...]
+    if not params.path and params.owner_selection == source.domain.version_selection:
+        established = (*established, Evidence(pre[2], "builder", match_scope))
+        obligations = ()
+    elif params.match_verification == "assume":
+        established = (*established, Evidence(pre[2], "assumption", match_scope))
+        obligations = ()
+    else:
+        obligations = _premise(inputs, pre[2], check_id="source.group_mapping@v1", before="consume")
     quantity = params.quantity
     projected_quantity: ObservedQuantity | DerivedQuantity | None = quantity
     if params.ref.kind is SemanticKind.MEASURE:
@@ -1125,7 +1458,8 @@ def _bind_project(inputs: tuple[Signature, ...], params: BindProject) -> RuleDer
         post=(_fact("output_key", binding, source.domain.definition_id),),
         obligations=obligations,
         eval_id="bind_project.projection@v1",
-        established=(Evidence(pre[0], "builder", params.ref.path),),
+        established=established,
+        preserve_key_domain=True,
     )
 
 
@@ -1464,13 +1798,14 @@ def _observe_metric(
     coverage = CoveragePart(binding, quantity.definition_id, binding.scope_id, "v1")
     partition = _fact("contribution_partition", binding, quantity.contribution_id)
     complete = _fact("complete_coverage", binding, quantity.definition_id)
+    mappings = tuple(_contribution_mapping_fact(inputs, params, i) for i in range(len(params.path)))
     return _result(
         "bind_project@v1",
         inputs,
         output_domain,
         quantity,
         (*retained, *((original,) if not direct_only else ()), coverage, *coordinate_parts),
-        pre=(partition, complete),
+        pre=(partition, complete, *mappings),
         required=("subject",),
         created=(
             *(("original_state",) if not direct_only else ()),
@@ -1478,28 +1813,15 @@ def _observe_metric(
             *(part_role(p) for p in coordinate_parts),
         ),
         post=(_fact("state_binding", binding, quantity.definition_id),),
-        obligations=(
-            Obligation(partition, "source.contribution_partition@v1", "publish"),
-            Obligation(complete, "source.complete_coverage@v1", "publish"),
-            *(
-                (
-                    Obligation(complete, "source.calendar_members@v1", "publish"),
-                    Obligation(complete, "source.calendar_contributions@v1", "publish"),
-                )
-                if (
-                    (
-                        source.domain.time_grid is not None
-                        and source.domain.time_grid.snapshot_digest is not None
-                    )
-                    or (
-                        params.cumulative is not None
-                        and params.cumulative.snapshot_digest is not None
-                    )
-                )
-                else ()
-            ),
+        obligations=tuple(
+            Obligation(fact, "source.group_mapping@v1", "consume") for fact in mappings
         ),
         eval_id=f"metric.observe.{aggregate_method}@v1",
+        established=(
+            Evidence(partition, "builder", quantity.contribution_id),
+            Evidence(complete, "builder", quantity.definition_id),
+        ),
+        preserve_key_domain=output_domain == source.domain,
     )
 
 
@@ -1767,8 +2089,47 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
         inputs,
     )
     numeric = _fact("finite_numeric", binding, params.definition_id, inputs)
+    if params.verification not in ("check", "assume"):
+        reject(
+            "check or assume",
+            str(params.verification),
+            "Use ExactKeys(verification='check' or 'assume').",
+            "core.cell.verification",
+        )
+    pairing_evidence: tuple[Evidence, ...] = ()
+    if (
+        params.pairing == "exact"
+        and params.relationship is None
+        and (
+            left.key_domain_id
+            and left.key_domain_id == right.key_domain_id
+            and left.domain == right.domain
+        )
+    ):
+        pairing_evidence = (Evidence(pair, "builder", "shared_key_domain"),)
+    elif params.pairing != "exact" and all(
+        _fact("unique_key", item.domain.binding, item.domain.definition_id) in available_facts(item)
+        for item in inputs
+    ):
+        pairing_evidence = (
+            Evidence(
+                pair,
+                "builder",
+                "unique_endpoint_keys",
+                tuple(
+                    _fact("unique_key", item.domain.binding, item.domain.definition_id)
+                    for item in inputs
+                ),
+            ),
+        )
+    elif params.pairing == "exact" and params.verification == "assume":
+        pairing_evidence = (Evidence(pair, "assumption", params.definition_id),)
     obligations = (
-        *_premise(inputs, pair, check_id=params.pairing_check_id, before="consume"),
+        *(
+            ()
+            if pairing_evidence
+            else _premise(inputs, pair, check_id=params.pairing_check_id, before="consume")
+        ),
         *_premise(inputs, numeric, check_id=params.numeric_check_id, before="consume"),
     )
     output = DerivedQuantity(
@@ -1853,6 +2214,8 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
         post=(_fact("cell_policy", binding, output.definition_id),),
         obligations=obligations,
         eval_id=f"cell_derive.{params.method}@v1",
+        established=pairing_evidence,
+        preserve_key_domain=params.pairing == "exact",
     )
 
 
@@ -1904,6 +2267,9 @@ def _association_score(inputs: tuple[Signature, ...], params: AssociationScore) 
         "strict",
     )
     state = PairCountsPart(binding, left.quantity.definition_id, right.quantity.definition_id, "v1")
+    common = bool(left.key_domain_id) and (
+        left.key_domain_id == right.key_domain_id and left.domain == right.domain
+    )
     return _result(
         "association_score@v1",
         inputs,
@@ -1915,10 +2281,11 @@ def _association_score(inputs: tuple[Signature, ...], params: AssociationScore) 
         created=("pair_counts",),
         post=(_fact("state_binding", binding, quantity.definition_id),),
         obligations=(
-            Obligation(pair, params.pairing_check_id, "consume"),
+            *((Obligation(pair, params.pairing_check_id, "consume"),) if not common else ()),
             Obligation(numeric, params.numeric_check_id, "consume"),
         ),
         eval_id="association.spearman@v1",
+        established=(Evidence(pair, "builder", "shared_key_domain"),) if common else (),
     )
 
 
@@ -2173,15 +2540,22 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
             obligations.extend(_premise(inputs, fact, check_id=check, before="consume"))
     pair = _fact("key_set_equal", binding, quantity.definition_id, inputs)
     pre.append(pair)
-    obligations.extend(_premise(inputs, pair, check_id="source.exact_pairing@v1", before="consume"))
+    pairing_evidence = (
+        (Evidence(pair, "builder", "shared_key_domain"),)
+        if inputs[0].key_domain_id
+        and all(
+            item.key_domain_id == inputs[0].key_domain_id and item.domain == inputs[0].domain
+            for item in inputs[1:]
+        )
+        else ()
+    )
+    if not pairing_evidence:
+        obligations.extend(
+            _premise(inputs, pair, check_id="source.exact_pairing@v1", before="consume")
+        )
     partition = _fact("contribution_partition", binding, quantity.contribution_id)
     complete = _fact("complete_coverage", binding, quantity.definition_id)
-    obligations.extend(
-        (
-            Obligation(partition, "source.contribution_partition@v1", "publish"),
-            Obligation(complete, "source.complete_coverage@v1", "publish"),
-        )
-    )
+
     state = OriginalStatePart(
         binding,
         quantity.definition_id,
@@ -2263,6 +2637,12 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
         post=(partition, complete),
         obligations=tuple(obligations),
         eval_id="original_ratio.finish@v1",
+        established=(
+            *pairing_evidence,
+            Evidence(partition, "builder", quantity.contribution_id, tuple(pre)),
+            Evidence(complete, "builder", quantity.definition_id, tuple(pre)),
+        ),
+        preserve_key_domain=domain == left.domain,
     )
 
 
@@ -2334,7 +2714,19 @@ def _occurrence_combine(inputs: tuple[Signature, ...], params: OccurrenceCombine
             obligations.extend(_premise(inputs, fact, check_id=check, before="consume"))
     pair = _fact("key_set_equal", binding, quantity.definition_id, inputs)
     pre.append(pair)
-    obligations.extend(_premise(inputs, pair, check_id="source.exact_pairing@v1", before="consume"))
+    pairing_evidence = (
+        (Evidence(pair, "builder", "shared_key_domain"),)
+        if inputs[0].key_domain_id
+        and all(
+            item.key_domain_id == inputs[0].key_domain_id and item.domain == inputs[0].domain
+            for item in inputs[1:]
+        )
+        else ()
+    )
+    if not pairing_evidence:
+        obligations.extend(
+            _premise(inputs, pair, check_id="source.exact_pairing@v1", before="consume")
+        )
     # The combined quantity has no source rows of its own: each component's own
     # observation node already owns and publishes its partition/coverage facts,
     # which the combination consumes through the premises bound above.
@@ -2361,12 +2753,7 @@ def _occurrence_combine(inputs: tuple[Signature, ...], params: OccurrenceCombine
     )
     partition = _fact("contribution_partition", binding, quantity.contribution_id)
     complete = _fact("complete_coverage", binding, quantity.definition_id)
-    obligations.extend(
-        (
-            Obligation(partition, "source.contribution_partition@v1", "publish"),
-            Obligation(complete, "source.complete_coverage@v1", "publish"),
-        )
-    )
+
     coordinate = next((p for p in left.parts if isinstance(p, CoordinateStatePart)), None)
     coordinate_parts: tuple[Part, ...] = ()
     if coordinate is not None:
@@ -2420,6 +2807,12 @@ def _occurrence_combine(inputs: tuple[Signature, ...], params: OccurrenceCombine
         post=(partition, complete),
         obligations=tuple(obligations),
         eval_id="occurrence_combine.finish@v1",
+        established=(
+            *pairing_evidence,
+            Evidence(partition, "builder", quantity.contribution_id, tuple(pre)),
+            Evidence(complete, "builder", quantity.definition_id, tuple(pre)),
+        ),
+        preserve_key_domain=domain == left.domain,
     )
 
 
@@ -2931,6 +3324,7 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
         ),
         obligations=(),
         eval_id=f"parts_transport.{params.mode}@v1",
+        preserve_key_domain=params.mode not in ("where", "limit"),
     )
 
 
@@ -3165,18 +3559,48 @@ def _attach_category(inputs: tuple[Signature, ...], params: AttachCategory) -> R
         else p
         for p in source.parts
     )
+    match, policy = group_consumption_facts(inputs, params)
+    established = (
+        (Evidence(match, "builder", "shared_key_domain"),)
+        if not params.subject_mapping
+        and source.key_domain_id
+        and source.key_domain_id == category.key_domain_id
+        else ()
+    )
     return _result(
         "parts_transport@v1",
         inputs,
         params.output_domain,
         source.quantity,
         parts,
-        pre=(),
+        pre=(match, policy),
         required=("subject",) if params.subject_mapping else (),
         created=(),
         post=(),
-        obligations=(),
+        obligations=(
+            *(
+                (Obligation(match, "source.group_mapping@v1", "consume"),)
+                if not established
+                else ()
+            ),
+            Obligation(policy, "source.cell_policy@v1", "consume"),
+        ),
         eval_id="group.attach.complete_keys@v1",
+        established=established,
+    )
+
+
+def group_consumption_facts(
+    inputs: tuple[Signature, ...], params: AttachCategory | CompleteGroups
+) -> tuple[Fact, ...]:
+    """Own classification coverage/policy and explicit-target inclusion separately."""
+    scope = sha256(repr(params).encode()).hexdigest()
+    binding = inputs[0].domain.binding
+    match = _fact("mapping_total", binding, "group_match:" + scope, inputs)
+    return (
+        (match, _fact("cell_policy", binding, "classification_defined:" + scope, inputs))
+        if isinstance(params, AttachCategory)
+        else (match,)
     )
 
 
@@ -3190,6 +3614,8 @@ def _complete_groups(inputs: tuple[Signature, ...], params: CompleteGroups) -> R
             "core.group.target",
         )
     source, target = inputs
+    pre = group_consumption_facts(inputs, params) if source.domain.instance_key else ()
+    obligations = tuple(Obligation(fact, "source.group_mapping@v1", "consume") for fact in pre)
     if (
         source.domain.instance_key != target.domain.instance_key
         or target.quantity is not None
@@ -3216,11 +3642,11 @@ def _complete_groups(inputs: tuple[Signature, ...], params: CompleteGroups) -> R
             params.output_domain,
             None,
             (),
-            pre=(),
+            pre=pre,
             required=(),
             created=(),
             post=(),
-            obligations=(),
+            obligations=obligations,
             eval_id="group.complete.empty_states@v1",
         )
     state_role: PartRole = (
@@ -3237,11 +3663,11 @@ def _complete_groups(inputs: tuple[Signature, ...], params: CompleteGroups) -> R
         params.output_domain,
         source.quantity,
         source.parts,
-        pre=(),
+        pre=pre,
         required=required,
         created=(),
         post=(),
-        obligations=(),
+        obligations=obligations,
         eval_id="group.complete.empty_states@v1",
     )
 

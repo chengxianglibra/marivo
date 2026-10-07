@@ -764,10 +764,16 @@ class Relation:
         *,
         at: datetime | BeforeEndBoundary | GridPoint | None = None,
         via: Ref[RelationshipKind] | RootRoutesValue | None = None,
+        match_verification: Literal["check", "assume"] = "check",
     ) -> Relation:
         live = self._live()
         graph = live.graph.read(
-            dimension, at=at, via=via, sidecar=live.sidecar, report_timezone=live.report_timezone
+            dimension,
+            at=at,
+            via=via,
+            sidecar=live.sidecar,
+            report_timezone=live.report_timezone,
+            match_verification=match_verification,
         )
         return Relation(self.runtime, graph.root, replace(live, graph=graph))
 
@@ -1077,6 +1083,7 @@ class Relation:
         design: Literal["time", "cohort", "period"] = "time",
         pairing: Literal["exact", "keep", "metric_empty"] = "exact",
         relationship: TargetRelationshipContract | None = None,
+        verification: Literal["check", "assume"] = "check",
     ) -> Relation:
         if (
             self.runtime.session_ref != other.runtime.session_ref
@@ -1108,6 +1115,7 @@ class Relation:
                 design=design,
                 pairing=pairing,
                 relationship=relationship,
+                verification=verification,
             )
             return Relation(self.runtime, graph.root, replace(self.binding, graph=graph))
         if isinstance(self.binding, LiveBinding) or isinstance(other.binding, LiveBinding):
@@ -1176,6 +1184,7 @@ class Relation:
                     if design == "period"
                     else (),
                     relationship=relationship,
+                    verification=verification,
                 ),
                 value_type=result_type,
                 retained_endpoints=(current, baseline),

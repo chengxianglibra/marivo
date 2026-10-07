@@ -558,7 +558,7 @@ def _result(
     keys: tuple[str, ...],
     binding: str,
     *,
-    validate: bool = True,
+    validate: bool = False,
 ) -> ExchangeResult:
     reasons: dict[str, set[str]] = {}
     for row in primary.to_pylist():

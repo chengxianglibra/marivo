@@ -128,4 +128,4 @@ def execute(node: MethodNode, source: ExchangeResult, binding: str) -> ExchangeR
         state_kind=state_kind,
         state_schema=None if state is None else state.schema,
     )
-    return from_arrow(primary, contract, parts=parts, method_state=state)
+    return from_arrow(primary, contract, parts=parts, method_state=state, validate=False)

@@ -1059,18 +1059,17 @@ def test_equal_values_from_distinct_artifacts_do_not_hit(case):
     assert _counts(case[0].store) == (4, 4, 4, 0)
 
 
-def test_inconsistent_live_method_part_never_publishes(case, monkeypatch):
+def test_missing_live_method_part_never_publishes(case, monkeypatch):
     import marivo.analysis.materialization.graph_publication as publication
 
     original = publication.execute_source_graph
 
     def inconsistent(*args):
         result = original(*args)
-        part = result.parts[0]
-        return replace(result, parts=(replace(part, table=pa.table({"row_state__count": [999]})),))
+        return replace(result, parts=())
 
     monkeypatch.setattr(publication, "execute_source_graph", inconsistent)
-    with pytest.raises(Exception, match="disagree"):
+    with pytest.raises(Exception, match="missing, reordered or extra method state part"):
         _execute(case)
     assert _counts(case[0].store) == (1, 0, 1, 0)
 

@@ -79,7 +79,10 @@ def fuse_selection(node: MethodNode, *, registry: MethodRegistry = REGISTRY) -> 
         registry=registry,
     )
     if (
-        combined.signature != node.signature
+        replace(
+            combined.signature, node_id=node.identity, key_domain_id=node.signature.key_domain_id
+        )
+        != node.signature
         or registry.continuations(combined.signature) != registry.continuations(node.signature)
         or combined.derivation.part_transform != node.derivation.part_transform
     ):

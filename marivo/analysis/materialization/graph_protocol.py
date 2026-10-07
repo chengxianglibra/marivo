@@ -96,7 +96,7 @@ def decode(text: str, adapter: TypeAdapter[T]) -> T:
             item["loc"] == ("schema",) for item in error.errors()
         ):
             raise IntegrityError(
-                expected="the current graph DAG, descriptor v2 and continuation v3 schema versions",
+                expected="graph DAG v2, descriptor v3 and continuation v4 schema versions",
                 received="obsolete, absent or unknown frozen metadata schema version",
                 repair="Re-execute the source analysis to produce a current snapshot; old snapshots cannot continue.",
                 stage="graph_protocol",

@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
+from typing import Literal
 from uuid import uuid4
 
 import ibis
@@ -137,6 +138,7 @@ class MemberGraph:
         sidecar: CompiledExpressionSidecar | None = None,
         report_timezone: str = "UTC",
         inherit_member_version: bool = False,
+        match_verification: Literal["check", "assume"] = "check",
     ) -> MemberGraph:
         """Bind a typed scalar field through one complete, single-valued path."""
 
@@ -154,6 +156,8 @@ class MemberGraph:
             SemanticKind.MEASURE,
         ):
             raise reject(repr(dimension))
+        if match_verification not in ("check", "assume"):
+            raise reject("match_verification must be 'check' or 'assume'")
         if isinstance(at, GridPoint) and at.grid != self.root.signature.domain.time_grid:
             raise reject("attribute endpoint belongs to a different grid")
         body: ExpressionBody | None = None
@@ -345,6 +349,8 @@ class MemberGraph:
                 if dimension.kind is SemanticKind.MEASURE
                 and any(anchor is not None for anchor in anchors)
                 else "untimed",
+                match_verification=match_verification,
+                owner_selection=leaves[-1].signature.domain.version_selection,
             ),
             sources=leaves,
             value_type=physical,

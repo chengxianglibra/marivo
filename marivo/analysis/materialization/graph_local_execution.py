@@ -32,6 +32,7 @@ from marivo.analysis.core.rules import (
     AttachCategory,
     AttributionDerive,
     CellDerive,
+    CompleteGroups,
     DeviationFit,
     DeviationRead,
     DisplayRank,
@@ -94,6 +95,22 @@ def _invalid(received: str) -> MaterializationError:
     )
 
 
+def _index_rows(
+    table: pa.Table, keys: tuple[str, ...]
+) -> dict[tuple[object, ...], dict[str, object]]:
+    """Build a required index once; an encountered conflict cannot overwrite a row."""
+    from marivo.analysis.materialization.execute_deadline import check
+
+    rows: dict[tuple[object, ...], dict[str, object]] = {}
+    for row in table.to_pylist():
+        check()
+        key = tuple(row[column] for column in keys)
+        if key in rows:
+            raise _invalid("duplicate complete keys during index insertion")
+        rows[key] = row
+    return rows
+
+
 def time_product(node: MethodNode, source: ExchangeResult, binding: str) -> ExchangeResult:
     """Expand captured selected Subjects across the already bound grid only."""
     assert isinstance(node.parameters, TimeProduct)
@@ -128,7 +145,7 @@ def time_product(node: MethodNode, source: ExchangeResult, binding: str) -> Exch
         (PartContract("subject", subject.schema, out_keys),),
         (),
     )
-    return from_arrow(primary, contract, parts=(ExchangePart("subject", subject),))
+    return from_arrow(primary, contract, parts=(ExchangePart("subject", subject),), validate=False)
 
 
 def _cells(input_value: ExchangeResult) -> tuple[Cell, ...]:
@@ -176,7 +193,12 @@ def execute_fixed_row(
     method = methods[0]
     if (
         selected.artifact_ref != read.leaf.artifact.ref
-        or input_contract.signature != read.leaf.signature
+        or replace(
+            input_contract.signature,
+            node_id=read.leaf.identity,
+            key_domain_id=read.leaf.artifact.ref,
+        )
+        != read.leaf.signature
         or method.stage.inputs != (read.output,)
         or input_contract.input_binding != read.leaf.artifact.ref
         or not isinstance(read.leaf.value_type, (ScalarType, DecimalType, DurationType))
@@ -452,6 +474,7 @@ def _row_result(
         parts=(ExchangePart("row_state", part),),
         completed_checks=tuple(completed),
         method_state=pa.table({"status": pa.array([tag], type=pa.string())}),
+        validate=False,
     )
 
 
@@ -541,7 +564,12 @@ def _transport_result(
     source = selected.result
     if (
         read.leaf.artifact.ref != selected.artifact_ref
-        or read.leaf.signature != source.contract.signature
+        or read.leaf.signature
+        != replace(
+            source.contract.signature,
+            node_id=read.leaf.identity,
+            key_domain_id=read.leaf.artifact.ref,
+        )
         or source.contract.input_binding != selected.artifact_ref
         or not isinstance(read.leaf.value_type, (ScalarType, DecimalType, DurationType))
         or (
@@ -578,8 +606,7 @@ def _transport_stage(
     from marivo.analysis.methods.predicates import evaluate_leaf
 
     input_rows = [
-        {tuple(row[k] for k in keys): row for row in numeric_primary(item.primary).to_pylist()}
-        for item in (source, *predicate_sources)
+        _index_rows(numeric_primary(item.primary), keys) for item in (source, *predicate_sources)
     ]
     receiver_keys = set(input_rows[0])
     for index, (item, rows) in enumerate(zip(predicate_sources, input_rows[1:], strict=True), 1):
@@ -632,7 +659,7 @@ def _transport_stage(
     primary = filtered.select(columns)
     if params.attribution_view is not None:
         allocation = next(p.table for p in source.parts if p.role == "allocation")
-        rows = {tuple(r[k] for k in keys): r for r in allocation.to_pylist()}
+        rows = _index_rows(allocation, keys)
         primary = primary.set_column(
             primary.schema.get_field_index("value"),
             "value",
@@ -646,7 +673,7 @@ def _transport_stage(
         )
     if params.display_view == "ranks":
         ranks = next(part.table for part in source.parts if part.role == "ranks")
-        rows = {tuple(row[k] for k in keys): row for row in ranks.to_pylist()}
+        rows = _index_rows(ranks, keys)
         for field in ("value", "cell_tag", "cell_reason"):
             primary = primary.set_column(
                 primary.schema.get_field_index(field),
@@ -725,7 +752,7 @@ def _transport_stage(
         (),
         (params.mode in ("where", "limit") or params.display_view is not None) and not keys,
     )
-    return from_arrow(primary, contract, parts=tuple(parts))
+    return from_arrow(primary, contract, parts=tuple(parts), validate=False)
 
 
 def execute_fixed_spearman(
@@ -764,7 +791,10 @@ def execute_fixed_spearman(
         if (
             item.artifact_ref != read.leaf.artifact.ref
             or contract.input_binding != item.artifact_ref
-            or contract.signature != read.leaf.signature
+            or replace(
+                contract.signature, node_id=read.leaf.identity, key_domain_id=read.leaf.artifact.ref
+            )
+            != read.leaf.signature
             or not isinstance(read.leaf.value_type, (ScalarType, DecimalType, DurationType))
             or contract.schema.field("value").type != pa.type_for_alias(read.leaf.value_type.name)
         ):
@@ -839,7 +869,10 @@ def execute_fixed_difference(
         if (
             item.artifact_ref != read.leaf.artifact.ref
             or contract.input_binding != item.artifact_ref
-            or contract.signature != read.leaf.signature
+            or replace(
+                contract.signature, node_id=read.leaf.identity, key_domain_id=read.leaf.artifact.ref
+            )
+            != read.leaf.signature
             or not matches_arrow_scalar(contract.schema.field("value").type, read.leaf.value_type)
         ):
             raise _invalid("fixed Difference Artifact, binding, signature or numeric type differs")
@@ -1042,13 +1075,17 @@ def _difference_stage(
         for key in keys
     ):
         raise _invalid("fixed Difference endpoint key types differ")
-    current_rows = {
-        tuple(row[key] for key in keys): row for row in numeric_primary(current.primary).to_pylist()
-    }
-    baseline_rows = {
-        tuple(row[key] for key in keys): row
-        for row in numeric_primary(baseline.primary).to_pylist()
-    }
+
+    def index_rows(table: pa.Table) -> dict[tuple[object, ...], dict[str, object]]:
+        rows: dict[tuple[object, ...], dict[str, object]] = {}
+        for row in numeric_primary(table).to_pylist():
+            key = tuple(row[column] for column in keys)
+            if key in rows:
+                raise _invalid("fixed Difference endpoint keys are not injective")
+            rows[key] = row
+        return rows
+
+    current_rows, baseline_rows = index_rows(current.primary), index_rows(baseline.primary)
     original_baseline_keys: dict[tuple[object, ...], tuple[object, ...]] = {}
     if params.time_index is not None:
         time_index = params.time_index
@@ -1064,20 +1101,20 @@ def _difference_stage(
                 )
         mapping = {right: left for left, right in params.bucket_mapping}
         translated: dict[tuple[object, ...], dict[str, object]] = {}
-        for key, row in baseline_rows.items():
+        for key, mapped_row in baseline_rows.items():
             token = key[time_index]
             if not isinstance(token, str) or token not in mapping:
                 raise _invalid("baseline bucket is absent from the frozen complete grid")
             paired_key = (*key[:time_index], mapping[token], *key[time_index + 1 :])
-            translated[paired_key] = row
+            if paired_key in translated:
+                raise _invalid("fixed Difference mapped endpoint keys are not injective")
+            translated[paired_key] = mapped_row
             original_baseline_keys[paired_key] = key
         baseline_rows = translated
     if (
-        len(current_rows) != current.primary.num_rows
-        or len(baseline_rows) != baseline.primary.num_rows
+        any(check.obligation.fact.kind == "key_set_equal" for check in checks)
+        and current_rows.keys() != baseline_rows.keys()
     ):
-        raise _invalid("fixed Difference endpoint keys are not injective")
-    if params.pairing == "exact" and current_rows.keys() != baseline_rows.keys():
         raise _invalid("fixed Difference endpoint key sets differ")
     if params.pairing == "metric_empty":
         for source in values:
@@ -1097,9 +1134,15 @@ def _difference_stage(
     duration_ratio = params.method == "ratio" and all(
         isinstance(edge.node.value_type, DurationType) for edge in method.stage.node.inputs
     )
-    union_keys = tuple(dict.fromkeys((*current_rows, *baseline_rows)))
+    union_keys = (
+        tuple(current_rows)
+        if params.pairing == "exact"
+        else tuple(dict.fromkeys((*current_rows, *baseline_rows)))
+    )
     for key in union_keys:
         first, second = current_rows.get(key), baseline_rows.get(key)
+        if params.pairing == "exact" and second is None:
+            raise _invalid("required exact-key operand is missing during consumption")
         both = first is not None and second is not None
         error_a, error_b = (
             _fixed_operand_bound(current, first, operand_components[0].get(key, {})),
@@ -1278,9 +1321,7 @@ def _difference_stage(
             )
             if retained_subject is None:
                 raise _invalid("period Difference lacks its actual current Subject part")
-            subject_rows = {
-                tuple(row[key] for key in keys): row for row in retained_subject.to_pylist()
-            }
+            subject_rows = _index_rows(retained_subject, keys)
             if len(subject_rows) != retained_subject.num_rows or any(
                 key not in subject_rows for key in union_keys
             ):
@@ -1299,7 +1340,12 @@ def _difference_stage(
             not isinstance(check, CheckRequirement)
             or check.node_id != method.stage.node.identity
             or check.obligation.check_id
-            not in ("source.unique_key@v1", "source.exact_pairing@v1", "source.finite_numeric@v1")
+            not in (
+                "source.unique_key@v1",
+                "source.exact_pairing@v1",
+                "source.finite_numeric@v1",
+                "source.complete_coverage@v1",
+            )
         ):
             raise _invalid("unmatched fixed Difference check")
         result_digest = hashlib.sha256(
@@ -1330,6 +1376,7 @@ def _difference_stage(
         parts=parts,
         completed_checks=tuple(completed),
         method_state=statuses,
+        validate=False,
     )
 
 
@@ -1516,7 +1563,7 @@ def _coordinate_rollup_stage(
         state_kind,
         status.schema,
     )
-    return from_arrow(primary, contract, parts=parts, method_state=status)
+    return from_arrow(primary, contract, parts=parts, method_state=status, validate=False)
 
 
 def _original_ratio_rollup_stage(
@@ -1527,7 +1574,7 @@ def _original_ratio_rollup_stage(
     if state is None or coverage is None:
         raise _invalid("original ratio lacks its complete components or coverage")
     keys = source.contract.key_fields
-    keyed = {tuple(row[key] for key in keys): row for row in state.to_pylist()}
+    keyed = _index_rows(state, keys)
     if any(row["coverage__complete"] is not True for row in coverage.to_pylist()):
         raise _invalid("original ratio has incomplete coverage")
     original_contract = next(
@@ -1673,7 +1720,7 @@ def _original_ratio_rollup_stage(
         state_kind,
         status.schema,
     )
-    return from_arrow(primary, contract, parts=parts, method_state=status)
+    return from_arrow(primary, contract, parts=parts, method_state=status, validate=False)
 
 
 def _original_count_stage(
@@ -1684,7 +1731,7 @@ def _original_count_stage(
     if state is None or coverage is None:
         raise _invalid("original count lacks its bound state or coverage")
     keys = source.contract.key_fields
-    keyed = {tuple(row[key] for key in keys): row for row in state.to_pylist()}
+    keyed = _index_rows(state, keys)
     if any(row["coverage__complete"] is not True for row in coverage.to_pylist()):
         raise _invalid("original count has incomplete coverage")
     total = 0
@@ -1725,7 +1772,7 @@ def _original_count_stage(
         "original_count",
         status.schema,
     )
-    return from_arrow(primary, contract, parts=parts, method_state=status)
+    return from_arrow(primary, contract, parts=parts, method_state=status, validate=False)
 
 
 def _fold_rollup_stage(
@@ -1882,7 +1929,7 @@ def _fold_rollup_stage(
         "original_fold",
         status.schema,
     )
-    return from_arrow(primary, contract, parts=parts, method_state=status)
+    return from_arrow(primary, contract, parts=parts, method_state=status, validate=False)
 
 
 def _original_sum_stage(
@@ -1898,7 +1945,7 @@ def _original_sum_stage(
     if state is None or coverage is None:
         raise _invalid("original rollup lacks its bound state or coverage")
     keys = source.contract.key_fields
-    keyed = {tuple(row[key] for key in keys): row for row in state.to_pylist()}
+    keyed = _index_rows(state, keys)
     if any(row["coverage__complete"] is not True for row in coverage.to_pylist()):
         raise _invalid("original rollup has incomplete coverage")
     for row in numeric_primary(source.primary).to_pylist():
@@ -1989,7 +2036,7 @@ def _original_sum_stage(
         state_kind,
         status.schema,
     )
-    return from_arrow(primary, contract, parts=parts, method_state=status)
+    return from_arrow(primary, contract, parts=parts, method_state=status, validate=False)
 
 
 def validate_fixed_schedule(lowered: LoweredPlan) -> None:
@@ -2113,18 +2160,23 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
             or not set(stage.stage.inputs) <= available
         ):
             raise _invalid("unqualified fixed method schedule")
-        if name in (
-            "state_rollup.min",
-            "state_rollup.max",
-            "state_rollup",
-            "state_rollup.count",
-            "state_rollup.sum_zero",
-            "state_rollup.ratio",
-            "state_rollup.weighted_mean",
-            "state_rollup.mean",
-            "state_rollup.fold",
-            "state_rollup.linear",
-        ) and any(check.node_id == stage.stage.node.identity for check in lowered.admitted.checks):
+        if (
+            name
+            in (
+                "state_rollup.min",
+                "state_rollup.max",
+                "state_rollup",
+                "state_rollup.count",
+                "state_rollup.sum_zero",
+                "state_rollup.ratio",
+                "state_rollup.weighted_mean",
+                "state_rollup.mean",
+                "state_rollup.fold",
+                "state_rollup.linear",
+            )
+            and name != "state_rollup.fold"
+            and any(check.node_id == stage.stage.node.identity for check in lowered.admitted.checks)
+        ):
             raise _invalid("fixed rollup lacks frozen completed partition and coverage evidence")
         if (
             arity == 2
@@ -2183,7 +2235,12 @@ def execute_verified_fixed(
             selected_input = selected.get(stage.leaf.artifact.ref)
             if (
                 selected_input is None
-                or selected_input.result.contract.signature != stage.leaf.signature
+                or replace(
+                    selected_input.result.contract.signature,
+                    node_id=stage.leaf.identity,
+                    key_domain_id=stage.leaf.artifact.ref,
+                )
+                != stage.leaf.signature
                 or selected_input.result.contract.input_binding != selected_input.artifact_ref
                 or not isinstance(stage.leaf.value_type, (ScalarType, DecimalType, DurationType))
                 or (
@@ -2289,8 +2346,6 @@ def execute_verified_fixed(
                 else _subject_image(stage, values[0], binding)
             )
         elif name in ("parts_transport", "domain.cohort"):
-            if checks:
-                raise _invalid("transport carries an unqualified local check")
             result = _transport_stage(stage, values[0], binding, tuple(values[1:]))
         elif name == "state_rollup.fold":
             result = _fold_rollup_stage(stage, values[0], binding)
@@ -2337,6 +2392,48 @@ def execute_verified_fixed(
             )
         else:
             result = _row_result(stage, values[0], proof, binding, checks)
+        if isinstance(
+            stage.stage.node.parameters,
+            (
+                AttachCategory,
+                CompleteGroups,
+                DisplayRank,
+                DisplayTable,
+                AttributionDerive,
+                PartsTransport,
+                OriginalReduce,
+            ),
+        ):
+            # These prerequisites were fulfilled by the required lookup/index work above.
+            if any(
+                item.obligation.check_id
+                not in (
+                    "source.group_mapping@v1",
+                    "source.cell_policy@v1",
+                    "source.exact_pairing@v1",
+                    "source.complete_coverage@v1",
+                    "source.contribution_partition@v1",
+                )
+                for item in checks
+            ):
+                raise _invalid("unimplemented local consumer prerequisite")
+            result = replace(
+                result,
+                contract=replace(result.contract, pending_checks=checks),
+                completed_checks=tuple(
+                    CompletedCheck(
+                        item,
+                        proof
+                        if item.obligation.fact in stage.stage.node.derivation.pre
+                        else next(
+                            done.result_digest
+                            for done in completed
+                            if done.requirement.obligation == item.obligation
+                        ),
+                    )
+                    for item in checks
+                ),
+            )
         results[stage.stage.output] = result
         proofs[stage.stage.output] = proof
         completed.extend(result.completed_checks)
@@ -2347,6 +2444,7 @@ def execute_verified_fixed(
         parts=result.parts,
         completed_checks=tuple(completed),
         method_state=result.method_state,
+        validate=False,
     )
 
 
@@ -2394,7 +2492,7 @@ def _subject_image(method: LoweredLocal, source: ExchangeResult, binding: str) -
         None,
         (),
     )
-    return from_arrow(primary, contract, parts=(part,))
+    return from_arrow(primary, contract, parts=(part,), validate=False)
 
 
 def _attach_category_stage(
@@ -2404,9 +2502,7 @@ def _attach_category_stage(
     assert isinstance(params, AttachCategory)
     category_keys = category.contract.key_fields
     labels: dict[tuple[object, ...], str | int] = {}
-    category_rows = {
-        tuple(row[k] for k in category_keys): row for row in category.primary.to_pylist()
-    }
+    category_rows = _index_rows(category.primary, category_keys)
     if len(category_rows) != category.primary.num_rows:
         raise _invalid("classification has duplicate complete keys")
     mapping = next((p.table for p in source.parts if p.role == "subject"), None)
@@ -2428,7 +2524,10 @@ def _attach_category_stage(
             or type(classified["value"]) not in (str, int)
         ):
             raise _invalid("classification must be total and Defined on consumed complete keys")
-        labels[tuple(row[k] for k in source.contract.key_fields)] = classified["value"]
+        label = classified["value"]
+        if not isinstance(label, (str, int)) or type(label) is bool:
+            raise _invalid("classification must be a string or integer")
+        labels[tuple(row[k] for k in source.contract.key_fields)] = label
     new_key = f"key_{len(source.contract.key_fields)}"
     keys = (*source.contract.key_fields, new_key)
 
@@ -2458,7 +2557,7 @@ def _attach_category_stage(
         "none",
         None,
     )
-    return from_arrow(primary, contract, parts=parts)
+    return from_arrow(primary, contract, parts=parts, validate=False)
 
 
 def _grouped_row_result(
@@ -2592,6 +2691,7 @@ def _grouped_row_result(
         parts=parts,
         method_state=state,
         completed_checks=template.completed_checks,
+        validate=False,
     )
 
 
@@ -2606,7 +2706,7 @@ def _complete_groups_stage(
     ]
     if len(set(targets)) != len(targets) or any(any(v is None for v in key) for key in targets):
         raise _invalid("explicit target requires unique complete keys")
-    rows = {tuple(row[k] for k in keys): row for row in numeric_primary(source.primary).to_pylist()}
+    rows = _index_rows(numeric_primary(source.primary), keys)
     if not rows.keys() <= set(targets):
         raise _invalid("consumed groups are absent from the explicit target")
     if source.contract.signature.quantity is None:
@@ -2617,7 +2717,7 @@ def _complete_groups_stage(
             target.primary.schema,
             target.contract.key_fields,
         )
-        return from_arrow(target.primary, contract)
+        return from_arrow(target.primary, contract, validate=False)
     value, tag, reason = empty_reduction_cell(source.contract.signature)
     primary_rows = [
         rows[key]
@@ -2639,7 +2739,7 @@ def _complete_groups_stage(
     }
     parts: list[ExchangePart] = []
     for part in source.parts:
-        retained = {tuple(row[k] for k in keys): row for row in part.table.to_pylist()}
+        retained = _index_rows(part.table, keys)
         completed = [
             retained[key]
             if key in retained
@@ -2673,7 +2773,7 @@ def _complete_groups_stage(
         "none",
         None,
     )
-    return from_arrow(primary, contract, parts=tuple(parts))
+    return from_arrow(primary, contract, parts=tuple(parts), validate=False)
 
 
 def _group_domain_stage(
@@ -2705,7 +2805,7 @@ def _group_domain_stage(
     contract = ExchangeContract(
         method.stage.node.signature, method.stage.node.method, binding, schema, keys
     )
-    return from_arrow(primary, contract)
+    return from_arrow(primary, contract, validate=False)
 
 
 def _cohort_stage(
@@ -2745,11 +2845,7 @@ def _cohort_stage(
             raise _invalid("Journey subjects escape the target population")
         expected = set(subject_map)
     indexed: list[dict[tuple[object, ...], dict[str, object]]] = [{}] + [
-        {
-            tuple(row[k] for k in opportunity_keys): row
-            for row in numeric_primary(item.primary).to_pylist()
-        }
-        for item in inputs
+        _index_rows(numeric_primary(item.primary), opportunity_keys) for item in inputs
     ]
     if any(item.contract.key_fields != opportunity_keys for item in inputs) or any(
         set(rows) != expected for rows in indexed[1:]
@@ -2850,7 +2946,7 @@ def _cohort_stage(
         status.schema,
         (),
     )
-    return from_arrow(primary, contract, parts=parts, method_state=status)
+    return from_arrow(primary, contract, parts=parts, method_state=status, validate=False)
 
 
 def _duration_mean(
@@ -2931,4 +3027,5 @@ def _duration_mean(
         parts=(ExchangePart("row_state", retained),),
         method_state=state,
         completed_checks=proofs,
+        validate=False,
     )

@@ -1521,6 +1521,7 @@ class FactInput:
 
     domain: DomainSignature
     quantity: Quantity | None
+    node_id: str = field(default="", repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1555,7 +1556,9 @@ class Fact:
         _nonempty(self.version, "core.fact.version")
 
 
-EvidenceBasis: TypeAlias = Literal["declaration", "builder", "check", "observation", "deduction"]
+EvidenceBasis: TypeAlias = Literal[
+    "declaration", "builder", "assumption", "check", "observation", "deduction"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1567,26 +1570,55 @@ class Evidence:
 
     def __post_init__(self) -> None:
         _nonempty(self.source_id, "core.evidence.source")
-        if self.basis not in ("declaration", "builder", "check", "observation", "deduction"):
+        if self.basis not in (
+            "declaration",
+            "builder",
+            "assumption",
+            "check",
+            "observation",
+            "deduction",
+        ):
             reject(
                 "a closed evidence basis", str(self.basis), "Use the owning basis.", "core.evidence"
             )
         if self.basis == "declaration" and self.fact.kind not in (
             "declared_key",
             "field_ownership",
+            "unique_key",
+            "single_value",
+            "mapping_injective",
+            "finite_numeric",
         ):
             reject(
                 "a declared definition fact",
                 self.fact.kind,
-                "Use a completed source check for runtime facts.",
+                "Use a fact owned by the exact semantic declaration.",
                 "core.evidence.declaration",
             )
-        if self.basis == "builder" and self.fact.kind != "field_ownership":
+        if self.basis == "builder" and self.fact.kind not in (
+            "field_ownership",
+            "unique_key",
+            "output_key",
+            "cell_policy",
+            "state_binding",
+            "contribution_partition",
+            "complete_coverage",
+            "subject_image",
+            "mapping_total",
+            "key_set_equal",
+        ):
             reject(
                 "a builder-owned definition fact",
                 self.fact.kind,
                 "Keep conditional Post and source checks pending.",
                 "core.evidence.builder",
+            )
+        if self.basis == "assumption" and self.fact.kind not in ("key_set_equal", "mapping_total"):
+            reject(
+                "an exact pairing or field-owner matching assumption",
+                self.fact.kind,
+                "Use the named verification parameter for this operation.",
+                "core.evidence.assumption",
             )
         if type(self.dependencies) is not tuple or any(
             type(fact) is not Fact for fact in self.dependencies
@@ -1662,6 +1694,8 @@ class Signature:
     parts: tuple[Part, ...] = ()
     evidence: tuple[Evidence, ...] = ()
     obligations: tuple[Obligation, ...] = ()
+    node_id: str = field(default="", repr=False)
+    key_domain_id: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:
         if self.quantity is not None:

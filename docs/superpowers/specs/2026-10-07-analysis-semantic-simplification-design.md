@@ -706,3 +706,12 @@ Validation for this implementation:
 
 No migration, publication, commit, packaged-skill edit or deletion of persisted project state
 was performed. Existing staged work was preserved.
+
+
+## A1 实施后的边界
+
+[执行优化设计](2026-10-07-analysis-algebra-execution-optimization-design.md) 的 A1 已接入
+声明、构造推导、调用假设和实际检查四种依据。`ExactKeys.verification` 与
+`read.match_verification` 只影响其具名前提。冻结图使用 graph DAG v2；Store 8、descriptor
+v3 和 continuation v4 不变。此实现不增加 nullable/finite/total 的通用声明框架，
+也不实施 A2 或 A3。范围和资格以 [A1 验收记录](2026-10-07-analysis-a1-acceptance.md) 为准。

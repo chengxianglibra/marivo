@@ -294,7 +294,7 @@ def test_malformed_and_noncanonical_encodings(damage: str) -> None:
     elif damage == "role":
         body = body.replace('"current"', '"invalid-role"')
     elif damage == "version":
-        body = body.replace("graph_dag/v1", "graph_dag/v999")
+        body = body.replace("graph_dag/v2", "graph_dag/v999")
     elif damage == "expanded":
         body = " " * (4 * 1024 * 1024 + 1)
     text = _compress(body)
@@ -401,3 +401,12 @@ def test_duplicate_identity_cannot_hide_equal_but_differently_typed_literals() -
     object.__setattr__(root, "inputs", (Edge("current", first), Edge("baseline", second)))
     with pytest.raises(IntegrityError, match="different frozen definitions"):
         freeze_graph(root)
+
+
+def test_obsolete_graph_dag_is_preserved_and_requires_reexecution() -> None:
+    current = freeze_graph(_observation())
+    old = "graph-dag-v1:" + current.removeprefix(PREFIX)
+    retained_bytes = old.encode()
+    with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
+        thaw_graph(old)
+    assert old.encode() == retained_bytes

@@ -234,7 +234,7 @@ def test_read_path_coverage_null_and_consumed_scope(members_session: Session) ->
     read = chosen.read(amount, at=september, via=route)
     assert read.execute().to_pandas()["value"].tolist() == [30]
     # Missing B is not a Null field and cannot be silently dropped.
-    with pytest.raises(AnalysisError, match="coverage"):
+    with pytest.raises(AnalysisError, match="mapping_total"):
         members.read(amount, at=september, via=route).execute()
     # Duplicate an unrelated owner identity; scoped A consumption stays valid.
     _replace_source(
@@ -253,12 +253,14 @@ def test_read_path_coverage_null_and_consumed_scope(members_session: Session) ->
         "r52",
         "INSERT INTO r52 SELECT * FROM r52 WHERE id = 'A' AND day = DATE '2026-09-01'",
     )
-    with pytest.raises(AnalysisError, match=r"single field value|single_value|identity"):
-        read.execute()
+    duplicate = read.execute()
+    assert duplicate.to_pandas()["cell_tag"].tolist() == ["null", "null"]
+    with pytest.raises(AnalysisError, match="duplicate"):
+        duplicate.rank(order="ascending", ties="ordinal").execute()
 
 
 @pytest.mark.runtime
-def test_duplicate_members_versions_and_no_business_preflight(
+def test_declared_versions_are_trusted_and_actual_indexes_reject_conflicts(
     members_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = members_session
@@ -286,9 +288,11 @@ def test_duplicate_members_versions_and_no_business_preflight(
         "r52",
         "INSERT INTO r52 SELECT * FROM r52 WHERE id = 'A' AND day = DATE '2026-08-01'",
     )
-    for logical in (members, read):
-        with pytest.raises(AnalysisError, match=r"identity|unique"):
-            logical.execute()
+    assert members.execute().to_pandas()["coord_0"].tolist() == ["A", "A", "B"]
+    saved = read.execute()
+    assert saved.to_pandas()["coord_0"].tolist().count("A") > 1
+    with pytest.raises(AnalysisError, match="duplicate"):
+        saved.rank(order="ascending", ties="ordinal").execute()
 
 
 @pytest.mark.runtime
@@ -551,8 +555,12 @@ def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> No
         "r52",
         "UPDATE r52 SET finish = DATE '2026-09-02' WHERE id = 'A' AND day = DATE '2026-08-01'",
     )
-    with pytest.raises(AnalysisError, match=r"identity|unique"):
-        session.members(entity, at=at).execute()
+    # Overlapping versions violate the declaration; analysis does not re-audit it.
+    assert session.members(entity, at=at).execute().to_pandas()["coord_0"].tolist() == [
+        "A",
+        "A",
+        "B",
+    ]
     with pytest.raises(AnalysisError, match="aware"):
         session.members(entity, at=datetime(2026, 9, 1))
     members = session.members(ms.ref.entity(f"{prefix}.plain"))
@@ -605,9 +613,8 @@ def test_root_projection_reads_one_source_without_distinct(
     monkeypatch.setattr(SourceSession, "stage_derived", forbidden)
     monkeypatch.setattr(SourceSession, "stage_calculated", forbidden)
     members.execute()
-    # Native checks read independently; only the primary projection is single-read.
-    assert "analysis.graph.check" in purposes
-    assert set(purposes) == {"analysis.graph.check", "analysis.graph.stage"}
+    # The declared identity needs no independent business audit.
+    assert purposes == ["analysis.graph.stage"]
     assert len(primary) == 1
     assert len(primary[0].op().find(ops.DatabaseTable)) == 1
     assert not primary[0].op().find(ops.Distinct)

@@ -686,7 +686,7 @@ def _result(
     parts: tuple[ExchangePart, ...],
     binding: str,
     *,
-    validate: bool = True,
+    validate: bool = False,
 ) -> ExchangeResult:
     keys = tuple(k for k in primary.column_names if k.startswith("key_"))
     kind = REGISTRY.lookup(node.method).semantics.persistent_state_kind

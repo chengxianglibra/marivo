@@ -230,7 +230,11 @@ def fixed(node: MethodNode, selected: ExchangeResult, binding: str) -> ExchangeR
         selected.contract, signature=node.signature, input_binding=binding, pending_checks=()
     )
     return from_arrow(
-        selected.primary, contract, parts=selected.parts, method_state=selected.method_state
+        selected.primary,
+        contract,
+        parts=selected.parts,
+        method_state=selected.method_state,
+        validate=False,
     )
 
 

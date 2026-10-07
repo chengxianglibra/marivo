@@ -107,11 +107,19 @@ from marivo.analysis.core.rules import (
     TimeProduct,
     TimeRunRead,
     TimeRuns,
+    _contribution_mapping_fact,
+    captured_mapping_fact,
+    group_consumption_facts,
 )
 from marivo.analysis.core.time_grid import GridVersionSelection
 from marivo.analysis.methods.builtin import admit
 from marivo.analysis.methods.consumer_rules import prepared_numeric
-from marivo.analysis.methods.native_numeric import adapt_measure, add, transport_cast
+from marivo.analysis.methods.native_numeric import (
+    adapt_measure,
+    add,
+    bounded_transport_cast,
+    transport_cast,
+)
 from marivo.analysis.methods.physical import (
     DecimalType,
     DurationType,
@@ -333,6 +341,7 @@ class SemanticCheck:
     requirement: CheckRequirement
     violations: ir.Table
     source_ids: tuple[str, ...]
+    consumers: tuple[CheckRequirement, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -407,6 +416,50 @@ class LoweredPlan:
 def _source_ids(*groups: tuple[str, ...]) -> tuple[str, ...]:
     """Preserve ordered explicit provenance without merging equal definitions."""
     return tuple(dict.fromkeys(identity for group in groups for identity in group))
+
+
+def captured_match_check(
+    stage: SourceMethodStage, slot: str, violations: ir.Table, source_ids: tuple[str, ...]
+) -> SemanticCheck:
+    """Fulfill only the capture owner's physically admitted exact match obligation."""
+    params = stage.node.parameters
+    assert isinstance(params, (OccurrencePrepare, FunnelAxesPrepare, HistoryAxesPrepare))
+    fact = captured_mapping_fact(
+        tuple(edge.node.signature for edge in stage.node.inputs), params, slot
+    )
+    obligation = next(
+        (item for item in stage.node.derivation.obligations if item.fact == fact), None
+    )
+    if obligation is None:
+        _fail("a qualified exact historical match obligation", slot)
+    return SemanticCheck(
+        CheckRequirement(stage.node.identity, stage.output, obligation), violations, source_ids
+    )
+
+
+def consumption_check(
+    stage: SourceMethodStage, slot: str, violations: ir.Table, source_ids: tuple[str, ...]
+) -> tuple[SemanticCheck, ...]:
+    """Emit a consumer's admitted obligation only when construction did not discharge it."""
+    from marivo.analysis.core.rules import consumption_facts
+
+    fact = next(
+        fact
+        for name, fact, _, _ in consumption_facts(
+            tuple(edge.node.signature for edge in stage.node.inputs), stage.node.parameters
+        )
+        if name == slot
+    )
+    obligation = next(
+        (item for item in stage.node.derivation.obligations if item.fact == fact), None
+    )
+    if obligation is None:
+        return ()
+    return (
+        SemanticCheck(
+            CheckRequirement(stage.node.identity, stage.output, obligation), violations, source_ids
+        ),
+    )
 
 
 def canonical_layout(signature: Signature, *, has_value: bool) -> RelationLayout:
@@ -723,23 +776,14 @@ def _difference(
     keys = tuple(item.column for item in left.layout.keys)
     if a is None or b is None or keys != tuple(item.column for item in right.layout.keys):
         _fail("two Cell-valued endpoints with the same complete keys", repr(keys))
-    if params.pairing == "exact":
-        checks.append(
-            IntegrityCheck(
-                stage.output,
-                "equal complete endpoint key sets",
-                _pair_violations(left, _mapped_period_input(right, params)),
-                _source_ids(left.source_ids, right.source_ids),
-            )
-        )
     if params.pairing == "metric_empty":
-        for source in inputs:
+        for index, source in enumerate(inputs):
             if "coverage__complete" not in source.expression.columns:
                 _fail("retained original coverage for metric_empty", "missing coverage")
-            checks.append(
-                IntegrityCheck(
-                    stage.output,
-                    "complete original observation coverage",
+            checks.extend(
+                consumption_check(
+                    stage,
+                    f"coverage:{index}",
                     source.expression.filter(~source.expression.coverage__complete),
                     source.source_ids,
                 )
@@ -757,19 +801,17 @@ def _difference(
                 bucket_count=source.expression[time_key].nunique(),
                 row_count=source.expression.count(),
             )
-            checks.append(
-                IntegrityCheck(
-                    stage.output,
-                    "complete original period buckets without renumbering",
-                    counts.filter((counts.row_count > 0) & (counts.bucket_count != len(expected))),
-                    source.source_ids,
-                )
+            invalid = counts.filter(
+                (counts.row_count > 0) & (counts.bucket_count != len(expected))
+            ).select(violation=ibis.literal(1))
+            outside = source.expression.filter(~source.expression[time_key].isin(expected)).select(
+                violation=ibis.literal(1)
             )
-            checks.append(
-                IntegrityCheck(
-                    stage.output,
-                    "original bucket coordinates",
-                    source.expression.filter(~source.expression[time_key].isin(expected)),
+            checks.extend(
+                consumption_check(
+                    stage,
+                    f"buckets:{index}",
+                    invalid.union(outside, distinct=False),
                     source.source_ids,
                 )
             )
@@ -872,19 +914,7 @@ def _difference(
         value = first.cast(stage.node.value_type.name) - second.cast(stage.node.value_type.name)
     if stage.operation == "ibis" and first.type().is_integer():
         widened = first.cast("decimal(38,0)") - second.cast("decimal(38,0)")
-        in_range = widened.between(
-            ibis.literal(-(2**63), type="decimal(38,0)"),
-            ibis.literal(2**63 - 1, type="decimal(38,0)"),
-        )
-        value = in_range.ifelse(widened, ibis.literal(0).cast("decimal(38,0)")).cast("int64")
-        checks.append(
-            IntegrityCheck(
-                stage.output,
-                "difference within signed int64 storage",
-                paired.filter(defined & ~in_range),
-                _source_ids(left.source_ids, right.source_ids),
-            )
-        )
+        value = widened.cast("int64")
     tag = ibis.ifelse(
         defined, "defined", ibis.ifelse(~both & (params.pairing == "keep"), "undefined", "null")
     )
@@ -1010,10 +1040,10 @@ def _transport(
                 if len(branches) > 1
                 else branches[0]
             )
-        checks.append(
-            IntegrityCheck(
-                stage.output,
-                "complete opportunity keys",
+        checks.extend(
+            consumption_check(
+                stage,
+                "opportunity",
                 _pair_violations(replace(first, expression=expected), first),
                 source_ids,
             )
@@ -1025,10 +1055,10 @@ def _transport(
         receiver = first if cohort else source
         assert receiver is not None
         keys = tuple(k.column for k in receiver.layout.keys)
-        checks.append(
-            IntegrityCheck(
-                stage.output,
-                "equal complete predicate keys",
+        checks.extend(
+            consumption_check(
+                stage,
+                f"predicate:{index}",
                 receiver.expression.select(*keys).anti_join(
                     other_input.expression.select(*keys), keys
                 )
@@ -1415,21 +1445,14 @@ def _bind(
             __bound_value=scoped[f"owner__{field}"],
         ).view()
     source_ids = _source_ids(source.source_ids, tuple(item.leaf.identity for item in selected))
-    checks.append(
-        IntegrityCheck(
-            stage.output,
-            "single field value per complete consumed identity",
-            _key_violations(projected, RelationLayout(source.layout.keys, None)),
-            source_ids,
-        )
-    )
-    checks.append(
-        IntegrityCheck(
-            stage.output,
-            "complete field-owner coverage",
+    checks.extend(
+        SemanticCheck(
+            CheckRequirement(stage.node.identity, stage.output, obligation),
             source.expression.anti_join(projected, keys),
             source_ids,
         )
+        for obligation in stage.node.derivation.obligations
+        if obligation.fact in stage.node.derivation.pre and obligation.fact.kind == "mapping_total"
     )
     joined = source.expression.left_join(projected, keys).select(
         *(
@@ -1500,16 +1523,7 @@ def _map(
         projected = source.expression.select(
             *(source.expression[c.column].name(f"key_{i}") for i, c in enumerate(subject.columns))
         )
-        if subject.part.injective:
-            checks.append(
-                IntegrityCheck(
-                    stage.output,
-                    "injective declared Subject map",
-                    _key_violations(projected, RelationLayout(target.keys, None)),
-                    source.source_ids,
-                )
-            )
-        else:
+        if not subject.part.injective:
             projected = projected.distinct()
         projected = projected.mutate(
             **{
@@ -1523,14 +1537,6 @@ def _map(
     right = inputs[1].expression.select(*(k.column for k in inputs[1].layout.keys))
     if params.mode == "union_keys":
         return left.union(right, distinct=True), target
-    checks.append(
-        IntegrityCheck(
-            stage.output,
-            "equal complete key sets",
-            _pair_violations(*inputs),
-            _source_ids(*(input.source_ids for input in inputs)),
-        )
-    )
     return left, target
 
 
@@ -1784,22 +1790,6 @@ def _spearman(
         pair_counts__null_pair_count=result.null_pair_count,
         pair_counts__complete_pair_count=result.complete_pair_count,
     )
-    checks.append(
-        IntegrityCheck(
-            stage.output,
-            "finite valid Spearman coefficient in [-1, 1]",
-            output.filter(
-                (output.status == "valid")
-                & (
-                    output.value.isnull()
-                    | output.value.isnan().fill_null(False)
-                    | output.value.isinf().fill_null(False)
-                    | (output.value.abs() > 1 + 1e-12)
-                )
-            ),
-            _source_ids(left.source_ids, right.source_ids),
-        )
-    )
     return output.select(*target.columns), target
 
 
@@ -1845,15 +1835,7 @@ def _occurrence_combine(
                 )
         parts.append(source.expression.select(**selection).view())
     table = parts[0]
-    for index, part in enumerate(parts[1:], start=1):
-        checks.append(
-            IntegrityCheck(
-                stage.output,
-                "equal combined occurrence keys",
-                _pair_violations(first, inputs[index]),
-                _source_ids(first.source_ids, inputs[index].source_ids),
-            )
-        )
+    for part in parts[1:]:
         table = table.inner_join(part, keys)
     layout = canonical_layout(stage.node.signature, has_value=True)
     coordinate = next(
@@ -2076,14 +2058,6 @@ def _original_ratio(
     left, right = inputs
     a, b = left.expression.view(), right.expression.view()
     keys = tuple(k.column for k in left.layout.keys)
-    checks.append(
-        IntegrityCheck(
-            stage.output,
-            "equal original component keys",
-            _pair_violations(left, right),
-            _source_ids(left.source_ids, right.source_ids),
-        )
-    )
     joined = a.inner_join(b, keys)
     layout = canonical_layout(stage.node.signature, has_value=True)
     first_sum, first_support = _state_magnitude(_original_state(left.node.signature))
@@ -2285,25 +2259,16 @@ def _fold_rollup(
         actual=samples.count(),
     )
     alignment = merged.left_join(expected, [*output_keys, "period"])
-    checks.append(
-        IntegrityCheck(
-            stage.output,
-            "aligned pre-fold sampling coordinates",
+    checks.extend(
+        consumption_check(
+            stage,
+            "fold_alignment",
             alignment.filter(merged.actual != expected.expected),
             source.source_ids,
         )
     )
+    # Closed disjoint period boundaries already own temporal sample separation.
     combined = merged.drop("period", "actual")
-    checks.append(
-        IntegrityCheck(
-            stage.output,
-            "disjoint temporal sampling coordinates",
-            combined.group_by(*output_keys, "sample_time")
-            .aggregate(n=combined.count())
-            .filter(ibis._.n != 1),
-            source.source_ids,
-        )
-    )
     targets = (
         base.select(*output_keys).distinct() if output_keys else base.aggregate(n=base.count())
     )
@@ -2352,15 +2317,7 @@ def _retained_sums(
                 )
             else:
                 valid = value.between(-(2**63), 2**63 - 1)
-            checks.append(
-                IntegrityCheck(
-                    stage.output,
-                    "retained numeric sum within declared carrier",
-                    reduced.filter(~valid).select(violation=ibis.literal(1)),
-                    source_ids,
-                )
-            )
-            value = valid.ifelse(value, ibis.null().cast(value.type()))
+            value = bounded_transport_cast(value, str(dtype), valid)
         finished[name] = transport_cast(value, str(dtype))
     return reduced.mutate(**finished)
 
@@ -2627,47 +2584,9 @@ def _contribution_rows(
         )
     ):
         _fail("the exact contribution amount type", str(root[params.amount_column].type()))
-    if prepared:
-        from marivo.analysis.compiler.domain_preparation import version_checks
-
-        version_checks(
-            root,
-            root_binding,
-            tuple(key.coordinate.field for key in root_binding.layout.keys),
-            stage.output,
-            (root_binding.leaf.identity,),
-            checks,
-        )
     root_filters = _owner_predicate(root, params.filters, params.contribution.path)
     if root_filters is not None:
         root = root.filter(root_filters)
-    if prepared and root_binding.leaf.definition.version is not None:
-        from marivo.analysis.compiler.domain_preparation import _version, capture_time
-        from marivo.analysis.compiler.source_time import source_time
-        from marivo.analysis.core.domain_captures import fail
-
-        if params.event.entity_ref.path != params.contribution.path:
-            fail(
-                "physical_qualification",
-                "versioned contribution needs its own captured event time",
-                stage="lowering",
-            )
-        instant, _ = source_time(
-            capture_time(root[params.event.source_column]),
-            params.event,
-            boundary_timezone="UTC",
-            read_timezone=params.event.timezone,
-            engine="duckdb",
-        )
-        instant = instant.cast("timestamp('UTC')")
-        checks.append(
-            IntegrityCheck(
-                stage.output,
-                "r7.input_binding: contribution version at captured time",
-                root.filter(~_version(root, root_binding, instant).fill_null(False)),
-                (root_binding.leaf.identity,),
-            )
-        )
     fields: dict[str, ir.Value] = {
         **{name: root[column] for name, column in captured_columns},
         **(
@@ -2736,17 +2655,6 @@ def _contribution_rows(
             binding.source.relation if prepared else _staged_source(binding, relations)
         ).view()
         destination_keys = tuple(key for _, key in relationship.keys)
-        if prepared:
-            from marivo.analysis.compiler.domain_preparation import version_checks
-
-            version_checks(
-                destination,
-                binding,
-                destination_keys,
-                stage.output,
-                _source_ids(source_ids, (binding.leaf.identity,)),
-                checks,
-            )
         predicates = [
             rows[f"next_key_{i}"] == destination[key] for i, key in enumerate(destination_keys)
         ]
@@ -2777,10 +2685,15 @@ def _contribution_rows(
             predicates,
         )
         source_ids = _source_ids(source_ids, (binding.leaf.identity,))
+        fact = _contribution_mapping_fact((stage.node.inputs[0].node.signature,), params, index)
+        obligation = next(
+            (item for item in stage.node.derivation.obligations if item.fact == fact), None
+        )
+        if obligation is None:
+            _fail("a typed obligation for the unknown contribution path match", fact.subject_id)
         checks.append(
-            IntegrityCheck(
-                stage.output,
-                "complete contribution relationship mapping",
+            SemanticCheck(
+                CheckRequirement(stage.node.identity, stage.output, obligation),
                 joined.filter(reduce(or_, (destination[key].isnull() for key in destination_keys))),
                 source_ids,
             )
@@ -2832,15 +2745,6 @@ def _contribution_rows(
     )
     if prepared:
         rows = rows.mutate(__raw_event_time=raw_time)
-    else:
-        checks.append(
-            TemporalCheck(
-                stage.output,
-                rows.select(raw_time=raw_time, normalized_time=normalized).distinct(),
-                source_ids,
-                params.event,
-            )
-        )
     rows = rows.mutate(event_time=normalized)
     return rows, source_ids
 
@@ -3209,32 +3113,7 @@ def _observe(
                 return (value >= -(2**63)) & (value <= 2**63 - 1)
 
             valid_product = in_carrier(product, product_type)
-            checks.append(
-                IntegrityCheck(
-                    stage.output,
-                    "weighted product within retained carrier",
-                    values.filter(pair & ~valid_product),
-                    source_ids,
-                )
-            )
-            # Invalid rows cannot reach the accumulator even if query scheduling
-            # evaluates the primary expression before the separate check.
-            values = values.filter(~pair | valid_product)
-            product = multiply(values.amount, values.weight)
-            pair = values.amount.notnull() & values.weight.notnull()
-            totals = values.group_by(*target_keys).aggregate(
-                n=pair.ifelse(product, 0).sum(), w=pair.ifelse(values.weight, 0).sum()
-            )
-            checks.append(
-                IntegrityCheck(
-                    stage.output,
-                    "weighted state within retained carriers",
-                    totals.filter(
-                        ~in_carrier(totals.n, product_type) | ~in_carrier(totals.w, weight_type)
-                    ),
-                    source_ids,
-                )
-            )
+            product = bounded_transport_cast(product, str(product.type()), valid_product)
         summed = values.group_by(*target_keys).aggregate(
             absolute_weight_sum=pair.ifelse(values.weight.abs(), 0).sum().fill_null(0),
             absolute_weighted_numerator=pair.ifelse(multiply(values.amount, values.weight).abs(), 0)
@@ -3242,13 +3121,29 @@ def _observe(
             .fill_null(0)
             if product.type().is_floating()
             else ibis.literal(0).cast(product_type),
-            weighted_numerator=transport_cast(
-                pair.ifelse(product, 0).sum().fill_null(0), product_type
-            ),
-            weight_sum=pair.ifelse(values.weight, 0).sum().fill_null(0).cast(weight_type),
+            weighted_numerator=pair.ifelse(product, 0).sum().fill_null(0),
+            weight_sum=pair.ifelse(values.weight, 0).sum().fill_null(0),
             non_null_pair_count=pair.ifelse(1, 0).sum().fill_null(0).cast("int64"),
             row_count=values.count().cast("int64"),
         )
+        if clickhouse_numeric:
+            summed = summed.mutate(
+                weighted_numerator=bounded_transport_cast(
+                    summed.weighted_numerator,
+                    product_type,
+                    in_carrier(summed.weighted_numerator, product_type),
+                ),
+                weight_sum=bounded_transport_cast(
+                    summed.weight_sum,
+                    weight_type,
+                    in_carrier(summed.weight_sum, weight_type),
+                ),
+            )
+        else:
+            summed = summed.mutate(
+                weighted_numerator=transport_cast(summed.weighted_numerator, product_type),
+                weight_sum=transport_cast(summed.weight_sum, weight_type),
+            )
         dense = targets.left_join(summed, list(target_keys))
         table = dense.select(
             **{key: targets[key] for key in target_keys},
@@ -3326,16 +3221,8 @@ def _observe(
                 ibis.literal(Decimal("-" + digits), type=output_dtype),
                 ibis.literal(Decimal(digits), type=output_dtype),
             )
-            checks.append(
-                IntegrityCheck(
-                    stage.output,
-                    "Decimal sum within declared precision and scale",
-                    summed.filter(~sum_in_range).select(*target_keys),
-                    source_ids,
-                )
-            )
         bounded_sum = (
-            sum_in_range.ifelse(summed.state_sum, ibis.null().cast(summed.state_sum.type()))
+            bounded_transport_cast(summed.state_sum, amount_type, sum_in_range)
             if wide_decimal_sum
             else summed.state_sum
         )
@@ -3527,7 +3414,9 @@ def _fact_relations(
         immediate = tuple(edge.node for edge in node.inputs)
         if fact in node.derivation.pre and (
             fact.inputs
-            == tuple(FactInput(n.signature.domain, n.signature.quantity) for n in immediate)
+            == tuple(
+                FactInput(n.signature.domain, n.signature.quantity, n.identity) for n in immediate
+            )
             or (
                 not fact.inputs
                 and len(immediate) == 1
@@ -4005,70 +3894,34 @@ def lower(
         results[stage.output] = relation
         layouts[stage.output] = layout
         stages.append(relation)
-        auxiliary = isinstance(node, SourceLeaf) and not any(
-            isinstance(candidate, MethodNode)
-            and any(edge.node is node for edge in candidate.inputs)
-            for candidate in captured.nodes
-        )
-        if not auxiliary:
-            checks.append(
-                IntegrityCheck(
-                    stage.output,
-                    "unique non-null complete identity",
-                    _key_violations(
-                        table,
-                        layout,
-                        allow_empty=isinstance(node, MethodNode)
-                        and (
-                            isinstance(node.parameters, (CellDerive, DisplayRank, DisplayTable))
-                            or (
-                                isinstance(node.parameters, PartsTransport)
-                                and (
-                                    node.parameters.mode in ("where", "limit")
-                                    or node.parameters.display_view is not None
-                                )
-                            )
-                        )
-                        and not layout.keys,
-                    ),
-                    source_ids,
-                )
-            )
-        if layout.cell is not None:
-            checks.append(
-                IntegrityCheck(
-                    stage.output,
-                    "valid four-state Cell encoding",
-                    _cell_violations(table, layout.cell),
-                    source_ids,
-                )
-            )
     for requirement in admitted.checks:
+        owner = captured.index[requirement.node_id]
         existing = next(
             (
                 check
                 for check in checks
                 if isinstance(check, SemanticCheck)
-                and requirement.obligation.check_id
-                in (
-                    "source.contribution_partition@v1",
-                    "source.complete_coverage@v1",
-                    "source.calendar_members@v1",
-                    "source.calendar_contributions@v1",
-                )
                 and check.requirement.obligation.fact == requirement.obligation.fact
                 and check.requirement.obligation.check_id == requirement.obligation.check_id
+                and (
+                    check.requirement.node_id == requirement.node_id
+                    or (
+                        isinstance(owner, MethodNode)
+                        and requirement.obligation.fact not in owner.derivation.pre
+                    )
+                )
             ),
             None,
         )
         if existing is not None:
             if existing.requirement != requirement:
-                checks.append(replace(existing, requirement=requirement))
+                checks[checks.index(existing)] = replace(
+                    existing, consumers=(*existing.consumers, requirement)
+                )
             continue
         if admitted.classification.kind == "artifact":
             checks.append(requirement)
             continue
-        owner = captured.index[requirement.node_id]
         if isinstance(owner, MethodNode) and (
             isinstance(owner.parameters, PreparedObservation)
             or (
@@ -4230,10 +4083,33 @@ def lower(
             else:
                 _fail("an implemented checker for this bound obligation", check_id)
             checks.append(SemanticCheck(requirement, violations, source_ids))
+    scheduled: list[LoweredCheck] = []
+    for check in checks:
+        prior = next(
+            (
+                item
+                for item in scheduled
+                if isinstance(item, SemanticCheck)
+                and isinstance(check, SemanticCheck)
+                and item.requirement.obligation == check.requirement.obligation
+                and item.source_ids == check.source_ids
+                and item.violations.op() == check.violations.op()
+            ),
+            None,
+        )
+        if isinstance(prior, SemanticCheck) and isinstance(check, SemanticCheck):
+            scheduled[scheduled.index(prior)] = replace(
+                prior,
+                consumers=tuple(
+                    dict.fromkeys((*prior.consumers, check.requirement, *check.consumers))
+                ),
+            )
+        else:
+            scheduled.append(check)
     return LoweredPlan(
         admitted,
         tuple(stages),
-        tuple(checks),
+        tuple(scheduled),
         PhysicalRequirement(
             "analysis.r34",
             1,
@@ -4273,28 +4149,26 @@ def _attach_category(
     ]
     selected = right.semi_join(left, predicates)
     source_ids = _source_ids(source.source_ids, category.source_ids)
-    checks.extend(
-        (
-            IntegrityCheck(
-                stage.output,
-                "complete classification mapping",
-                left.anti_join(right, predicates),
-                source_ids,
-            ),
-            IntegrityCheck(
-                stage.output,
-                "one classification per complete key",
-                _key_violations(selected, category.layout),
-                source_ids,
-            ),
-            IntegrityCheck(
-                stage.output,
-                "Defined non-null classifications",
-                selected.filter((selected[cell.tag] != "defined") | selected[cell.value].isnull()),
-                source_ids,
-            ),
+    facts = group_consumption_facts(tuple(item.node.signature for item in inputs), params)
+    for fact in facts:
+        obligation = next(
+            (item for item in stage.node.derivation.obligations if item.fact == fact), None
         )
-    )
+        if obligation is not None:
+            violations = (
+                left.anti_join(right, predicates)
+                if fact.kind == "mapping_total"
+                else selected.filter(
+                    (selected[cell.tag] != "defined") | selected[cell.value].isnull()
+                )
+            )
+            checks.append(
+                SemanticCheck(
+                    CheckRequirement(stage.node.identity, stage.output, obligation),
+                    violations,
+                    source_ids,
+                )
+            )
     target = canonical_layout(stage.node.signature, has_value=source.layout.cell is not None)
     result = left.inner_join(right, predicates).select(
         *[left[name] for name in source.layout.columns],
@@ -4308,36 +4182,21 @@ def _complete_groups(
 ) -> tuple[ir.Table, RelationLayout]:
     from marivo.analysis.methods.state_validation import empty_reduction_cell
 
+    params = stage.node.parameters
+    assert isinstance(params, CompleteGroups)
     source, target = inputs
     keys = tuple(k.column for k in source.layout.keys)
     if not keys:
-        checks.append(
-            IntegrityCheck(
-                stage.output,
-                "exact Singleton target",
-                target.expression.aggregate(rows=target.expression.count()).filter(
-                    lambda t: t.rows != 1
-                ),
-                target.source_ids,
-            )
-        )
         return source.expression, source.layout
     left, right = source.expression.view(), target.expression.select(*keys).view()
     source_ids = _source_ids(source.source_ids, target.source_ids)
+    fact = group_consumption_facts(tuple(item.node.signature for item in inputs), params)[0]
+    obligation = next(item for item in stage.node.derivation.obligations if item.fact == fact)
     checks.append(
-        IntegrityCheck(
-            stage.output,
-            "all consumed groups in the explicit target",
+        SemanticCheck(
+            CheckRequirement(stage.node.identity, stage.output, obligation),
             left.anti_join(right, keys),
             source_ids,
-        )
-    )
-    checks.append(
-        IntegrityCheck(
-            stage.output,
-            "unique complete explicit targets",
-            _key_violations(right, RelationLayout(target.layout.keys, None)),
-            target.source_ids,
         )
     )
     if source.layout.cell is None:

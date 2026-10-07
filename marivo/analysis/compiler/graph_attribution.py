@@ -6,12 +6,12 @@ import ibis
 import ibis.expr.types as ir
 
 from marivo.analysis.compiler.graph_lowering import (
-    IntegrityCheck,
     LoweredCheck,
     LoweredRelation,
     RelationLayout,
     _pair_violations,
     canonical_layout,
+    consumption_check,
 )
 from marivo.analysis.compiler.graph_plan import SourceMethodStage
 from marivo.analysis.core.model import AttributionPart
@@ -29,10 +29,10 @@ def prepare(
     assert isinstance(params, AttributionDerive)
     first, expanded = inputs
     keys = tuple(k.column for k in first.layout.keys)
-    checks.append(
-        IntegrityCheck(
-            stage.output,
-            "exact original and expanded attribution scope",
+    checks.extend(
+        consumption_check(
+            stage,
+            "attribution",
             _pair_violations(first, expanded),
             tuple(dict.fromkeys((*first.source_ids, *expanded.source_ids))),
         )

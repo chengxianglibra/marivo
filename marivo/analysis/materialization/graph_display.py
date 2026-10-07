@@ -253,12 +253,18 @@ def ranked(
                     if ties == "min"
                     else end
                 )
-                output[tuple(defined[i][k] for k in keys)] = rank, position
+                key = tuple(defined[i][k] for k in keys)
+                if key in output:
+                    raise invalid("duplicate complete key during rank index insertion")
+                output[key] = rank, position
             index = end
         for row in group:
             if row["cell_tag"] != "defined":
                 position += 1
-                output[tuple(row[k] for k in keys)] = None, position
+                key = tuple(row[k] for k in keys)
+                if key in output:
+                    raise invalid("duplicate complete key during rank index insertion")
+                output[key] = None, position
     return output
 
 
@@ -324,7 +330,10 @@ def _fixed_rows(result: ExchangeResult) -> dict[tuple[object, ...], dict[str, ob
         for name in result.primary.column_names:
             value: object = frame.at[index, name]
             row[name] = None if value is pd.NA or value is pd.NaT else value
-        rows[tuple(row[k] for k in result.contract.key_fields)] = row
+        key = tuple(row[k] for k in result.contract.key_fields)
+        if key in rows:
+            raise invalid("duplicate complete key during required display index insertion")
+        rows[key] = row
     return rows
 
 
@@ -464,7 +473,7 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
         if isinstance(params, DisplayTable)
         else (),
     )
-    return from_arrow(primary, contract, parts=parts, method_state=state)
+    return from_arrow(primary, contract, parts=parts, method_state=state, validate=False)
 
 
 def validate(

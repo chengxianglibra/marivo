@@ -804,8 +804,8 @@ contract 4. A retained correspondence has separate Boolean presence, original
 ordered coordinate vectors and three float64 error bounds; these are checked
 against endpoint Cells and the frozen policy, including zero-row schemas.
 
-All graph continuation roots use the canonical `graph-dag-v1:` deflate/base64
-encoding, containing `marivo.analysis.graph_dag/v1`. The continuation envelope is
+All graph continuation roots use the canonical `graph-dag-v2:` deflate/base64
+encoding, containing `marivo.analysis.graph_dag/v2`. The continuation envelope is
 `marivo.analysis.continuation/v2`; graph execution keys use
 `marivo.analysis.execution_key/v2`. Store generation remains 7, and physical
 receipts, method versions and state/part versions do not change for this encoding.
@@ -1570,10 +1570,11 @@ capture intermediate Arrow tables just to submit them again as literal or tempor
 source relations. Independent check queries may still produce temporary Arrow
 validation results; only the intermediate stage capture/restaging is removed.
 Terminal primary and required-part data remain retained Artifact payloads.
-The terminal Arrow exchange still validates actual complete
-keys and Cells; primary/RequiredParts schemas, bindings and internal arithmetic
-remain validated before Store 7 atomic publication and on recovery. Permitted
-source changes do not excuse an internally inconsistent Artifact.
+A1 retains primary/RequiredParts schemas, physical decoding, exact bindings,
+read completion and resource checks before Store 8 atomic publication and on
+recovery. Producer-owned complete keys, Cells and sufficient state are transported
+without repeated business audits. Necessary consumer indexes and required operand
+lookups reject actual conflicts and missing values.
 
 This is an internal execution strategy, not a new public route or callable.
 Read-only credentials, unchanged Ibis submissions, one 600-second monotonic budget,
@@ -1582,17 +1583,13 @@ prepare all downstream source inputs before local consumption or selection.
 Fixed execution and cold recovery remain source-free and do not refit a retained
 producer. This amendment does not grant new physical keys or all-backend qualification.
 
-The shared exchange validates complete keys and Cell payloads from bounded Arrow
-column slices, retaining a deadline checkpoint for every row and exact cross-batch
-duplicate detection. Only a fully exhausted and successfully closed stream may
-reuse its own primary key index during that collection. Independent RequiredParts
-and method-state tables retain separate schema, key and arithmetic validation;
-neither another source read nor a later invocation inherits that index.
-Prepared observation expands selected rows once and reuses validated complete-key
-and Subject restrictions for output. Its default window, grid index and anchor
-position are initialized once at the original bounds-check point. Every selected
-row, original-envelope check, grid membership and overlapping contribution use
-remains checked; numeric state algorithms and precision policies are unchanged.
+A1 uses schema-bound exhausted streams for private producer transportation.
+Only necessary consumer indexes enforce duplicate insertion during normal use;
+there is no reusable source snapshot or cross-read index guarantee. Prepared
+observation retains its exact member support, bounds, target grid and original
+state without replaying producer business validation. Method input policies,
+physical decoding, numeric conversion and computation failures retain their
+owners; numeric state algorithms and precision policies are unchanged.
 
 F11's mandatory chain is change->deviation->where->observed.members->observe->
 summarize in one Logical DAG. Before any local score/Subject selection, collect
@@ -1775,3 +1772,28 @@ source or insert artifacts into DuckDB. Native rounding can differ across source
 and continuation. This changes numerical computation, not Store 8's trusted-read
 boundary or Unknown/Undefined/null semantics. No legacy algorithm migration is
 introduced.
+
+
+### A1 frozen premise authority
+
+Graph DAG v2 saves exact ordered input node identities for composite Facts,
+including their windows, quantity, version and path bindings. A selection may
+retain a symbolic DomainSignature while changing its key-domain capture.
+Assumption Evidence retains the `assumption` basis after source-offline and
+fresh-process recovery. It is never emitted as CompletedEvidence. Definition
+fingerprints preserve structural identity; execution keys canonicalize captured
+node positions while binding check/assume policies and ordered Artifact inputs.
+
+The `graph-dag-v1:` prefix and `graph_dag/v1` documents are rejected with a
+source re-execution repair. Existing bytes are preserved. There is no migration
+or dual read. Store 8, descriptor v3 and continuation v4 remain unchanged.
+Committed local results are consumed without a new business-content audit.
+
+An invocation schedules one actual check per exact Fact, actual source inputs
+and fulfillment location. Other consumers reference that completed record.
+Independent source reads never share completion evidence or obtain snapshot
+isolation from it. Private Exchange transport retains schema/decoding, ordered
+required parts, read completion, cancellation/deadline, resource and atomic
+publication boundaries while trusting producer business guarantees. Necessary
+index insertions reject encountered duplicates; required lookups reject missing
+operands. Numerical exceptions are handled during computation/conversion.
