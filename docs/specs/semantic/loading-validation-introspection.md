@@ -156,8 +156,12 @@ set is explicit (`candidate_time_dimensions: none`). Omitted members include an
 omitted count and a concrete full read such as `details().show()`; cards never
 rank axes or recommend an operator.
 
-`marivo.help(entry)` composes that current catalog identity with the analysis
-registry's kind-level handoff. It shows only the first focused analysis target
+`entry.show()` is the first read for key definition and dependency facts;
+`entry.details()` provides structured expansion. Details cards do not prescribe
+readiness merely because a definition was inspected.
+
+`marivo.help(entry)` composes that current catalog identity and usage navigation
+with the analysis registry's kind-level handoff. It shows only the first focused analysis target
 or policy choices, their registered call shapes, and the artifact family of an
 operator result. It does not infer readiness, enumerate downstream operators,
 or create a second programmable navigation result. The caller inspects the
@@ -196,7 +200,7 @@ collection.show()                              # bounded list when identity is u
 entry = collection.get("metric:sales.revenue")  # full path or displayed typed key
 entry.show()
 entry.details().show()
-marivo.help(entry)                             # current details and kind handoff
+marivo.help(entry)                             # identity, usage navigation, kind handoff
 dataset = session.observe(entry, time_scope=mv.time_scope(start='2026-07-01', end='2026-10-01')).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('month')).aggregate()
 ```
 `ms.load()` and `session.catalog` build separate immutable catalog snapshots
@@ -325,8 +329,8 @@ the live catalog, and the acquisition path cannot drift independently.
 
 ## Result contract
 
-Every semantic result object follows the shared no-side-effect contract — the
-methods **do not write stdout**; inspection is explicit and silent by default:
+Semantic result construction and inspection are silent by default. Only
+explicit display writes stdout:
 
 - `result.show()` — print a bounded result card and return `None`.
 - `result.render()` — return the same bounded text without writing stdout.
@@ -335,6 +339,20 @@ methods **do not write stdout**; inspection is explicit and silent by default:
 Semantic authoring results expose bounded detail plus structured errors and
 typed repairs. Callable operations, effects, and input facts come from the
 native registry without a shared lifecycle-state result.
+
+Readiness cards disclose the checked dependency closure, ready inputs,
+blockers, warnings, affected refs, and available repairs with qualified Help.
+Source-health reports summarize every check and expose non-successful checks'
+affected refs and repair; individual check cards include existing observed facts,
+user-data query disclosure, and exact scopes. Cards read only retained facts and
+use the shared output budget and full-read recovery.
+
+Error classes have static Help contracts. Every registered error instance has a
+current briefing, whether or not a repair exists: kind, message, expected,
+received, refs, and location remain visible. `SemanticLoadFailed` shows ordered
+child errors. Dynamic values and child lists may be explicitly omitted to fit
+the current-briefing budget, with full reads through error fields or `.errors`.
+Static Help remains strictly budgeted; instance display never loads or queries.
 
 Catalog browsing returns a `CatalogCollection` (not a raw list); use `.items`,
 `.refs`, `.render()`, and `.show()`. This is the semantic-layer instance of the

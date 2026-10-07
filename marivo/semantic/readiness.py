@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar, Literal, cast
 
 from marivo._authoring.model import AuthoringRepair
+from marivo._authoring.render import _repair_summary
 from marivo._compat import UTC
 from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
@@ -83,6 +84,15 @@ class ReadinessInputSummary:
         }
 
 
+def _issue_summary(issue: ReadinessIssue) -> str:
+    summary = f"{issue.kind}: {issue.message}"
+    if issue.refs:
+        summary += f"; affected refs: {', '.join(issue.refs)}"
+    if issue.repair is not None:
+        summary += " -> " + _repair_summary(issue.repair, optional=issue.severity == "advisory")
+    return summary
+
+
 @dataclass(frozen=True, repr=False)
 class ReadinessReport(RenderableResult):
     scope: ClassVar[Literal["semantic_static"]] = "semantic_static"
@@ -107,36 +117,28 @@ class ReadinessReport(RenderableResult):
                 ".show()",
                 ".to_dict()",
                 ".analysis_ready_inputs",
+                ".input_summary",
+                ".blockers",
+                ".warnings",
             ),
         )
         card = card.field(label="scope", value=self.scope)
         if self.blockers:
-            blocker_items = [
-                f"{i.kind}: {i.message} -> fix: {i.repair.action if i.repair else ''}"
-                for i in self.blockers
-            ]
             card = card.listing(
                 label=f"blockers ({len(self.blockers)})",
-                items=tuple(blocker_items),
+                items=(_issue_summary(issue) for issue in self.blockers),
             )
         actual_warnings = tuple(issue for issue in self.warnings if issue.severity == "warning")
         advisories = tuple(issue for issue in self.warnings if issue.severity == "advisory")
         if actual_warnings:
-            warning_items = [
-                f"{i.kind}: {i.message} -> fix: {i.repair.action if i.repair else ''}"
-                for i in actual_warnings
-            ]
             card = card.listing(
                 label=f"warnings ({len(actual_warnings)})",
-                items=tuple(warning_items),
+                items=(_issue_summary(issue) for issue in actual_warnings),
             )
         if advisories:
             card = card.listing(
                 label=f"advisories ({len(advisories)})",
-                items=tuple(
-                    f"{i.kind}: {i.message} -> optional fix: {i.repair.action if i.repair else ''}"
-                    for i in advisories
-                ),
+                items=(_issue_summary(issue) for issue in advisories),
             )
         ready_refs = tuple(item for item in self.analysis_ready_inputs if type(item) is Ref)
         if ready_refs:
@@ -150,6 +152,11 @@ class ReadinessReport(RenderableResult):
                 label="analysis_ready_runtime",
                 value=", ".join(item.label for item in runtime_inputs),
             )
+        card = card.listing("checked refs", self.input_summary.refs)
+        if self.input_summary.datasources:
+            card = card.listing("checked datasources", self.input_summary.datasources)
+        if self.input_summary.tables:
+            card = card.listing("checked tables", self.input_summary.tables)
         return card.field(label="checked_at", value=self.checked_at)
 
     def to_dict(self) -> dict[str, object]:

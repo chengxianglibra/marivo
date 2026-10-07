@@ -381,11 +381,20 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
             "ReadinessReport scope=semantic_static status=ready issues=0",
             "scope: semantic_static",
             "analysis_ready: metric:sales.revenue",
+            "checked refs:",
+            "- sales.revenue",
+            "checked datasources:",
+            "- warehouse",
+            "checked tables:",
+            "- sales.orders",
             "checked_at: 2026-06-09T00:00:00Z",
             "available:",
             "- .show()",
             "- .to_dict()",
             "- .analysis_ready_inputs",
+            "- .input_summary",
+            "- .blockers",
+            "- .warnings",
         ]
     )
     assert _richness_report().render() == "\n".join(

@@ -2495,7 +2495,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ast_single_return", "ast_forbidden_statement"),
-            example="ms.dimension(name='region', entity=orders)",
+            example=(
+                "@ms.dimension(name='region', entity=orders)\n"
+                "def region(rows):\n"
+                "    return rows.region"
+            ),
             invocation_shape="decorator",
         ),
         _capability(
@@ -2529,7 +2533,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "time_dimension_dtype_compat",
                 "time_granularity_parse_compatible",
             ),
-            example="ms.time_dimension(name='log_date', entity=orders, granularity='day')",
+            example=(
+                "@ms.time_dimension(name='log_date', entity=orders, granularity='day')\n"
+                "def log_date(rows):\n"
+                "    return rows.log_date"
+            ),
             invocation_shape="decorator",
         ),
         _capability(
@@ -2665,7 +2673,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ast_single_return", "ast_forbidden_statement"),
-            example="ms.measure(name='amount', entity=orders, additivity=ms.additive_all())",
+            example=(
+                "@ms.measure(name='amount', entity=orders, additivity=ms.additive_all())\n"
+                "def amount(rows):\n"
+                "    return rows.amount"
+            ),
             invocation_shape="decorator",
         ),
         _capability(
@@ -3104,7 +3116,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "metric_entities_required",
                 "metric_additivity_required",
             ),
-            example="ms.metric(name='revenue', entities=[orders], additivity=ms.additive_all())",
+            example=(
+                "@ms.metric(name='revenue', entities=[orders], additivity=ms.additive_all())\n"
+                "def revenue(rows):\n"
+                "    return rows.amount.sum()"
+            ),
             invocation_shape="decorator",
         ),
         _capability(
