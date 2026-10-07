@@ -3099,3 +3099,33 @@ checks reject duplicate/fanout bindings. Empty members are Defined(0); original
 count state remains int64 and fixed rollup/recovery consumes retained components.
 The original O2a declaration and specialization oracle remains unchanged for all
 preexisting declarations. These eight additions have separate acceptance evidence.
+
+
+### O4 fixed metadata and producer independence (2026-10-07)
+
+Store 7 publishes `artifact_descriptor/v2` and `continuation/v3`. Earlier
+Artifact descriptors reject with an explicit re-execution repair. Files are
+preserved; there is no migration or dual-read path.
+
+Fixed reading validates the bounded canonical graph records, frozen signatures,
+row/Cell contracts, method state, completed obligation facts, receipt bindings,
+producer Run and ordered execution inputs. The production plan is immutable
+identity material: readers verify its digest and exact execution key without
+selecting a production implementation. Actual primary and part reads always
+verify their receipts and bytes, including within one operation.
+
+| Consumer | Frozen authority |
+| --- | --- |
+| Fixed signature | Signature and completed obligation facts |
+| Results and display | Realized schema, row/Cell contracts, root parameters and value type |
+| Materialized construction | Root record, signature and frozen time shape |
+| Findings and Evidence | Ordered Artifact input records, extractor policy, completed checks and receipts |
+| Producer identity | Frozen ordered physical plan, Run input bindings and execution key |
+| New continuation | Verified parts/state/input identity, restored historical semantic definitions and current successor capability |
+
+A validated descriptor handle is bound to the exact descriptor object and is
+passed through helpers within one operation. Independent operations re-read and
+validate stored metadata. The handle never certifies unchanged disk contents.
+The complete historical DAG, implementation identities and lineage remain
+retained. Typed continuation and mechanical continuation disclosure may restore
+historical semantics, but neither selects the original production route.

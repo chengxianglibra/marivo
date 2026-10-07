@@ -13,11 +13,12 @@ from pydantic import BeforeValidator, PlainSerializer, TypeAdapter, ValidationEr
 
 from marivo.analysis.compiler.graph_plan import CheckRequirement, GraphPlan, RouteChoice
 from marivo.analysis.compiler.graph_plan import plan as make_plan
-from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
+from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, _digest, topology
 from marivo.analysis.core.model import (
     AttributionPart,
     CorrespondencePart,
     Evidence,
+    Fact,
     OccurrencePart,
     PartRole,
     Signature,
@@ -51,9 +52,24 @@ from marivo.analysis.materialization.contracts import (
     receipt_payload,
 )
 from marivo.analysis.materialization.errors import IntegrityError
-from marivo.analysis.materialization.execution_key import FixedPartKey, _ordered_plan
+from marivo.analysis.materialization.execution_key import (
+    FixedPartKey,
+    _CanonicalValue,
+    _ordered_plan,
+    _wire,
+)
 from marivo.analysis.materialization.graph_snapshot import (
     GRAPH as GRAPH,
+)
+from marivo.analysis.materialization.graph_snapshot import (
+    FixedRecord,
+    GraphDocument,
+    MethodRecord,
+    Record,
+    SourceRecord,
+    _order,
+    _signature,
+    read_graph_document,
 )
 from marivo.analysis.materialization.graph_snapshot import (
     freeze_graph as freeze_graph,
@@ -64,7 +80,7 @@ from marivo.analysis.materialization.graph_snapshot import (
 from marivo.analysis.materialization.graph_snapshot import (
     thaw_graph as thaw_graph,
 )
-from marivo.analysis.methods.physical import Qualified
+from marivo.analysis.methods.physical import NoTime, Qualified, TimeShape
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.analysis.methods.semantics import MethodKey, MethodName, PersistentStateKind
 
@@ -101,12 +117,12 @@ def decode(text: str, adapter: TypeAdapter[T]) -> T:
             raise invalid("noncanonical, missing or extra metadata fields")
         return value
     except ValidationError as error:
-        if adapter in (GRAPH, SNAPSHOT) and any(
+        if adapter in (GRAPH, SNAPSHOT, DESCRIPTOR) and any(
             item["loc"] == ("schema",) for item in error.errors()
         ):
             raise IntegrityError(
-                expected="the current graph DAG and continuation schema versions",
-                received="obsolete, absent or unknown snapshot schema version",
+                expected="the current graph DAG, descriptor v2 and continuation v3 schema versions",
+                received="obsolete, absent or unknown frozen metadata schema version",
                 repair="Re-execute the source analysis to produce a current snapshot; old snapshots cannot continue.",
                 stage="graph_protocol",
                 help_target="actions.execute",
@@ -287,8 +303,6 @@ class MethodState:
             or any(role not in get_args(PartRole) for role in self.ordered_part_roles)
             or not set(required).issubset(self.ordered_part_roles)
             or not self.input_binding
-            or REGISTRY.lookup(MethodKey(self.method_name)).semantics.persistent_state_kind
-            != self.kind
         ):
             raise invalid("method state, method or required roles differ")
 
@@ -300,7 +314,7 @@ CHECK = TypeAdapter(CheckRequirement)
 
 @dataclass(frozen=True, slots=True)
 class Continuation:
-    schema: Literal["marivo.analysis.continuation/v2"]
+    schema: Literal["marivo.analysis.continuation/v3"]
     root: str
     entity_facts: tuple[str, ...]
     dimension_facts: tuple[str, ...]
@@ -325,6 +339,7 @@ class CompletedEvidence:
     status: Literal["completed"]
     producing_run_ref: str
     result_digest: str
+    fact: Fact
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,7 +364,7 @@ class MethodBinding:
 
 @dataclass(frozen=True, slots=True)
 class Descriptor:
-    schema: Literal["marivo.analysis.artifact_descriptor/v1"]
+    schema: Literal["marivo.analysis.artifact_descriptor/v2"]
     definition_fingerprint: str
     producing_run_ref: str
     execution_key_digest: str
@@ -365,19 +380,22 @@ class Descriptor:
     method_state: MethodState
     continuation_snapshot: str
     continuation_snapshot_digest: str
+    production_plan: str
+    time_shape: NoTime | TimeShape
 
 
-def fixed_signature(value: Descriptor) -> Signature:
+def fixed_signature(
+    value: Descriptor, *, _validated: ValidatedDescriptor | None = None
+) -> Signature:
     """Expose a checked Artifact's semantic signature to a fixed-only graph."""
-    root = validate_descriptor(value)
-    admitted = descriptor_plan(value, root)
+    checked = checked_metadata(value, _validated)
     proven = tuple(
         Evidence(
-            check.obligation.fact,
+            actual.fact,
             "check",
             digest(actual.producing_run_ref + actual.result_digest + actual.origin_node),
         )
-        for check, actual in zip(admitted.checks, value.completed_checks, strict=True)
+        for actual in checked.descriptor.completed_checks
     )
     return replace(
         value.signature,
@@ -393,13 +411,25 @@ def semantic_versions(
     root: Node, *, _nodes: tuple[Node, ...] | None = None
 ) -> tuple[tuple[str, str], ...]:
     nodes = topology(root) if _nodes is None else _nodes
+    return record_semantic_versions(nodes)
+
+
+def record_semantic_versions(
+    nodes: tuple[Node, ...] | tuple[Record, ...],
+) -> tuple[tuple[str, str], ...]:
     versions = [
         (node.definition.ref.path, node.definition.fingerprint)
         for node in nodes
-        if isinstance(node, SourceLeaf)
+        if isinstance(node, (SourceLeaf, SourceRecord))
     ]
     for node in nodes:
-        captures = tuple(part for part in node.signature.parts if isinstance(part, OccurrencePart))
+        captures = tuple(
+            part
+            for part in (
+                node.derivation.output if isinstance(node, MethodRecord) else node.signature
+            ).parts
+            if isinstance(part, OccurrencePart)
+        )
         for capture in captures:
             versions.extend((event.ref.path, event.fingerprint) for event in capture.events)
             versions.extend(
@@ -412,7 +442,9 @@ def semantic_versions(
             if capture.model is not None:
                 versions.append((capture.model.ref.path, capture.model.fingerprint))
                 versions.extend(capture.model.dependencies)
-        if isinstance(node, MethodNode) and isinstance(node.parameters, PreparedObservation):
+        if isinstance(node, (MethodNode, MethodRecord)) and isinstance(
+            node.parameters, PreparedObservation
+        ):
             metric = node.parameters.observation.metric
             versions.append(
                 (node.parameters.observation.quantity.definition_id, metric.dependency_fingerprint)
@@ -420,9 +452,16 @@ def semantic_versions(
     # Preserve the original source-only sequence for already connected methods.
     return (
         tuple(dict.fromkeys(versions))
-        if any(isinstance(part, OccurrencePart) for node in nodes for part in node.signature.parts)
+        if any(
+            isinstance(part, OccurrencePart)
+            for node in nodes
+            for part in (
+                node.derivation.output if isinstance(node, MethodRecord) else node.signature
+            ).parts
+        )
         or any(
-            isinstance(node, MethodNode) and isinstance(node.parameters, PreparedObservation)
+            isinstance(node, (MethodNode, MethodRecord))
+            and isinstance(node.parameters, PreparedObservation)
             for node in nodes
         )
         else tuple(versions)
@@ -450,54 +489,78 @@ def evidence_identity(check: CheckRequirement, run_ref: str, result: str) -> Com
         "completed",
         run_ref,
         result,
+        fact,
     )
 
 
-def descriptor_plan(value: Descriptor, root: Node) -> GraphPlan:
-    nodes = tuple(n for n in topology(root) if isinstance(n, MethodNode))
-    if len(nodes) != len(value.method_bindings):
-        raise invalid("method implementation inventory differs from frozen graph")
-    routes: list[RouteChoice] = []
-    for node, binding in zip(nodes, value.method_bindings, strict=True):
-        choices = {
-            impl.key.route
-            for impl in REGISTRY.lookup(node.method).implementations
-            if isinstance(impl.qualification, Qualified)
-            and impl.qualification.implementation_id == binding.implementation_id
-            and impl.contract_version == binding.implementation_version
-            and node.method == binding.method
-        }
-        if len(choices) != 1:
-            raise invalid("unknown or ambiguous frozen implementation/version")
-        routes.append(RouteChoice(node.identity, next(iter(choices))))
-    admitted = make_plan(root, routes=tuple(routes))
-    for physical, binding in zip(
-        admitted.physical_requirements, value.method_bindings, strict=True
-    ):
-        qualification = physical.implementation.qualification
-        if (
-            not isinstance(qualification, Qualified)
-            or qualification.implementation_id != binding.implementation_id
-            or physical.implementation.contract_version != binding.implementation_version
-        ):
-            raise invalid("frozen physical implementation differs")
-    if len(admitted.checks) != len(value.completed_checks):
-        raise invalid("missing or duplicate durable check evidence")
-    expected = tuple(
-        evidence_identity(check, value.producing_run_ref, actual.result_digest)
-        for check, actual in zip(admitted.checks, value.completed_checks, strict=True)
-    )
-    if expected != value.completed_checks:
-        raise invalid("completed check origin, scope or ordered inputs differ")
-    return admitted
+@dataclass(frozen=True, slots=True)
+class ValidatedDescriptor:
+    descriptor: Descriptor
+    snapshot: Continuation
+    document: GraphDocument
+    root: MethodRecord
+    nodes: tuple[Record, ...]
+    production_plan: tuple[_CanonicalValue, ...] = ()
 
 
-def validate_descriptor(value: Descriptor) -> Node:
+def validate_metadata(value: Descriptor) -> ValidatedDescriptor:
     if len(value.continuation_snapshot.encode("utf-8")) > 262144:
         raise invalid("frozen continuation exceeds the 256 KiB metadata budget")
     snapshot = decode(value.continuation_snapshot, SNAPSHOT)
-    root = thaw_graph(snapshot.root)
-    if isinstance(root, MethodNode):
+    document = read_graph_document(snapshot.root)
+    all_nodes = _order(document)
+    nodes = execution_records(document)
+    root = next(record for record in nodes if record.identity == document.root)
+    if not isinstance(root, MethodRecord):
+        raise invalid("Artifact has no frozen method result")
+    fingerprints: dict[str, str] = {}
+    for record in all_nodes:
+        if isinstance(record, MethodRecord):
+            fingerprints[record.identity] = _digest(
+                (
+                    record.method,
+                    record.parameters,
+                    tuple((edge.role, fingerprints[edge.node]) for edge in record.inputs),
+                    record.derivation,
+                    record.value_type,
+                    tuple(fingerprints[item] for item in record.sources),
+                    tuple(fingerprints[item] for item in record.retained_endpoints),
+                )
+            )
+        elif isinstance(record, SourceRecord):
+            fingerprints[record.identity] = _digest(
+                (record.definition, record.signature, record.value_type)
+            )
+        else:
+            fingerprints[record.identity] = _digest(
+                (
+                    record.artifact.ref,
+                    record.definition_fingerprint,
+                    record.signature,
+                    record.value_type,
+                    record.shape,
+                )
+            )
+    owners = {
+        (_signature(n).domain.binding.session_id, _signature(n).domain.binding.owner_id)
+        for n in all_nodes
+    }
+    if len(owners) != 1:
+        raise invalid("definition closure has multiple Session or owner bindings")
+    records = {n.identity: n for n in all_nodes}
+    for record in all_nodes:
+        if isinstance(record, MethodRecord) and record.retained_endpoints:
+            for edge, endpoint in zip(record.inputs, record.retained_endpoints, strict=True):
+                input_record = records[edge.node]
+                expected = (
+                    input_record.definition_fingerprint
+                    if isinstance(input_record, FixedRecord)
+                    else fingerprints[input_record.identity]
+                )
+                if fingerprints[endpoint] != expected:
+                    raise invalid("retained endpoint definition differs from fixed input")
+    signature = root.derivation.output
+    if isinstance(root, MethodRecord):
         params = root.parameters
         expects_value = (
             False
@@ -516,10 +579,10 @@ def validate_descriptor(value: Descriptor) -> Node:
                     JourneyCompleted,
                 ),
             )
-            or (isinstance(params, HistoryView) and root.signature.quantity is None)
+            or (isinstance(params, HistoryView) and signature.quantity is None)
             else params.keep_quantity
             if isinstance(params, PartsTransport)
-            else root.signature.quantity is not None
+            else signature.quantity is not None
             if isinstance(params, CompleteGroups)
             else params.mode == "group"
             if isinstance(params, MapCorrespond)
@@ -532,9 +595,9 @@ def validate_descriptor(value: Descriptor) -> Node:
     schema = schema_from(value.realized_schema)
     keys = tuple((name, str(schema.field(name).type)) for name in value.row_contract.key_fields)
     if (
-        not isinstance(root, MethodNode)
-        or value.definition_fingerprint != root.fingerprint
-        or value.signature != root.signature
+        not isinstance(root, MethodRecord)
+        or value.definition_fingerprint != fingerprints[root.identity]
+        or value.signature != signature
         or not value.method_bindings
         or value.method_bindings[-1].method != root.method
         or state.method_name != root.method.name
@@ -619,18 +682,170 @@ def validate_descriptor(value: Descriptor) -> Node:
         )
     ):
         raise invalid("descriptor, snapshot, state or receipt authority differs")
-    nodes = topology(root)
     if (
         snapshot.entity_facts
         != tuple(
-            dict.fromkeys(c.entity_ref.path for n in nodes for c in n.signature.domain.instance_key)
+            dict.fromkeys(
+                c.entity_ref.path for n in nodes for c in _signature(n).domain.instance_key
+            )
         )
         or snapshot.dimension_facts
-        != tuple(dict.fromkeys(c.field for n in nodes for c in n.signature.domain.instance_key))
-        or snapshot.semantic_versions != semantic_versions(root)
-        or snapshot.method_versions != tuple(n.method for n in nodes if isinstance(n, MethodNode))
+        != tuple(dict.fromkeys(c.field for n in nodes for c in _signature(n).domain.instance_key))
         or value.semantic_dependency_digest != digest(canonical_json(snapshot.semantic_versions))
+        or snapshot.semantic_versions != record_semantic_versions(nodes)
+        or snapshot.method_versions != tuple(n.method for n in nodes if isinstance(n, MethodRecord))
     ):
         raise invalid("frozen facts or semantic dependency digest differ")
-    descriptor_plan(value, root)
-    return root
+    if tuple(n.method for n in nodes if isinstance(n, MethodRecord)) != tuple(
+        b.method for b in value.method_bindings
+    ):
+        raise invalid("frozen method inventory differs")
+    requirements: list[CheckRequirement] = []
+    fixed = not any(isinstance(n, SourceRecord) for n in nodes)
+    for record in nodes:
+        if isinstance(record, MethodRecord):
+            for obligation in record.derivation.obligations:
+                if not fixed or not any(prior.obligation == obligation for prior in requirements):
+                    requirements.append(CheckRequirement(record.identity, "frozen", obligation))
+    if len(requirements) != len(value.completed_checks) or any(
+        evidence_identity(requirement, value.producing_run_ref, actual.result_digest) != actual
+        for requirement, actual in zip(requirements, value.completed_checks, strict=True)
+    ):
+        raise invalid("missing or mismatched durable check evidence")
+    for actual in value.completed_checks:
+        if (
+            actual.scope != actual.fact.binding.scope_id
+            or actual.ordered_input_occurrences
+            != tuple(
+                digest(encode(Signature(item.domain, item.quantity), SIGNATURE))
+                for item in actual.fact.inputs
+            )
+        ):
+            raise invalid("completed evidence fact binding differs")
+    checked = ValidatedDescriptor(value, snapshot, document, root, nodes)
+    return replace(checked, production_plan=frozen_plan(checked))
+
+
+def validate_descriptor(value: Descriptor) -> Node:
+    """Validate frozen metadata then restore semantics for a new continuation."""
+    checked = validate_metadata(value)
+    return thaw_graph(checked.snapshot.root)
+
+
+def execution_records(document: GraphDocument) -> tuple[Record, ...]:
+    records = {record.identity: record for record in document.nodes}
+    seen: set[str] = set()
+    ordered: list[Record] = []
+
+    def visit(identity: str) -> None:
+        if identity in seen:
+            return
+        seen.add(identity)
+        record = records[identity]
+        if isinstance(record, MethodRecord):
+            for edge in record.inputs:
+                visit(edge.node)
+            for source in record.sources:
+                visit(source)
+        ordered.append(record)
+
+    visit(document.root)
+    return tuple(ordered)
+
+
+def checked_metadata(value: Descriptor, checked: ValidatedDescriptor | None) -> ValidatedDescriptor:
+    if checked is None:
+        return validate_metadata(value)
+    if checked.descriptor is not value:
+        raise invalid("validated metadata belongs to a different descriptor")
+    return checked
+
+
+def descriptor_plan(value: Descriptor, root: Node) -> GraphPlan:
+    """Explicit producer diagnostics; fixed readers never invoke this planner."""
+    nodes = tuple(n for n in topology(root) if isinstance(n, MethodNode))
+    if len(nodes) != len(value.method_bindings):
+        raise invalid("method implementation inventory differs from frozen graph")
+    routes: list[RouteChoice] = []
+    for node, binding in zip(nodes, value.method_bindings, strict=True):
+        choices = {
+            impl.key.route
+            for impl in REGISTRY.lookup(node.method).implementations
+            if isinstance(impl.qualification, Qualified)
+            and impl.qualification.implementation_id == binding.implementation_id
+            and impl.contract_version == binding.implementation_version
+            and node.method == binding.method
+        }
+        if len(choices) != 1:
+            raise invalid("unknown or ambiguous frozen implementation/version")
+        routes.append(RouteChoice(node.identity, next(iter(choices))))
+    admitted = make_plan(root, routes=tuple(routes))
+    for physical, binding in zip(
+        admitted.physical_requirements, value.method_bindings, strict=True
+    ):
+        qualification = physical.implementation.qualification
+        if (
+            not isinstance(qualification, Qualified)
+            or qualification.implementation_id != binding.implementation_id
+            or physical.implementation.contract_version != binding.implementation_version
+        ):
+            raise invalid("frozen physical implementation differs")
+    if len(admitted.checks) != len(value.completed_checks):
+        raise invalid("missing or duplicate durable check evidence")
+    expected = tuple(
+        evidence_identity(check, value.producing_run_ref, actual.result_digest)
+        for check, actual in zip(admitted.checks, value.completed_checks, strict=True)
+    )
+    if expected != value.completed_checks:
+        raise invalid("completed check origin, scope or ordered inputs differ")
+    return admitted
+
+
+def frozen_plan(checked: ValidatedDescriptor) -> tuple[_CanonicalValue, ...]:
+    """Decode identity material; this does not select or admit an implementation."""
+
+    def canonical(value: object) -> _CanonicalValue:
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return value
+        if isinstance(value, list):
+            return tuple(canonical(item) for item in value)
+        raise invalid("invalid frozen production plan material")
+
+    def field_value(value: _CanonicalValue, name: str) -> _CanonicalValue:
+        if isinstance(value, tuple) and len(value) == 2 and isinstance(value[1], tuple):
+            for entry in value[1]:
+                if isinstance(entry, tuple) and len(entry) == 2 and entry[0] == name:
+                    return entry[1]
+        raise invalid("missing frozen physical key field")
+
+    descriptor = checked.descriptor
+    if len(descriptor.production_plan.encode()) > 4 * 1024 * 1024:
+        raise invalid("frozen production identity exceeds its 4 MiB budget")
+    try:
+        plan = canonical(json.loads(descriptor.production_plan))
+    except ValueError as error:
+        raise invalid("invalid frozen production plan JSON") from error
+    if canonical_json(plan) != descriptor.production_plan or not isinstance(plan, tuple):
+        raise invalid("noncanonical frozen production plan")
+    methods = tuple(n for n in checked.nodes if isinstance(n, MethodRecord))
+    if len(plan) != len(methods):
+        raise invalid("frozen production plan inventory differs")
+    for item, node, binding in zip(plan, methods, descriptor.method_bindings, strict=True):
+        if (
+            not isinstance(item, tuple)
+            or len(item) != 7
+            or item[:2] != (node.method.name, node.method.version)
+            or item[4:6] != (binding.implementation_id, binding.implementation_version)
+            or item[6] != _wire(node.derivation.output)
+        ):
+            raise invalid("frozen production plan binding differs")
+    last = plan[-1]
+    assert isinstance(last, tuple)
+    expected_time = (
+        field_value(field_value(last[3], "shape"), "time")
+        if descriptor.signature.domain.time_grid is not None
+        else _wire(NoTime())
+    )
+    if expected_time != _wire(descriptor.time_shape):
+        raise invalid("frozen continuation time shape differs from production key")
+    return plan

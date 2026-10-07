@@ -2,7 +2,7 @@
 
 Date: 2026-10-07
 
-Status: O1, O2a, the selected O2b consumer batches and the narrowed O3 observation/forest reuse are implemented within the recorded support and validation scope. Other O2b candidates and O4–O5 remain proposed.
+Status: O1, O2a, the selected O2b consumer batches and the narrowed O3 observation/forest reuse are implemented within the recorded support and validation scope. O4a and O4b are implemented within the validation scope recorded below. Other O2b candidates and O5 remain proposed.
 
 Baseline: `panda@ccbed62962e21beef5778c738037e62d912ec8fb`.
 
@@ -14,7 +14,7 @@ O1、O2a 已按本文的等价内部整理边界实施，并更新对应私有�
 O2b 首批扩大 SQLite Funnel 的直接 string/int64 Subject 轴组合；后续四批扩大
 observation 长路径、SQLite 历史轴、SQLite Anchor 组件和 native distribution 输入。
 新增 remote ordinary Count 声明及原有冻结集合的边界分别记录。O3 按第 6 节修订边界实施；
-其他 O2b 候选与 O4–O5 仍是优化提案；本轮不表示
+O4a 与 O4b 已实施；其他 O2b 候选与 O5 仍是优化提案；本轮不表示
 R10、安装包、真实 Agent 或发布验收已经完成。`AGENTS.md` 与 packaged skills 保持原样。
 
 ## 1. 范围与设计原则
@@ -641,3 +641,40 @@ for depth in (10, 20, 40):
         print(depth, checks.call_count)
 PY
 ```
+
+
+### O4 implementation record (2026-10-07)
+
+O4a and O4b use the frozen-reader consumer inventory in
+`docs/specs/analysis/python-analysis-design.md`. Store 7 retains its layout;
+Artifact descriptors use v2 and continuation metadata uses v3. Historical DAGs
+remain intact. Old descriptors require re-execution, without migration or file
+deletion. Metadata interpretation is reused through operation-owned validation
+handles; receipt bytes are independently verified on every read.
+
+Fixed reads and public Materialized construction no longer select production
+implementations. Historical semantic restoration belongs to typed continuation
+and mechanical continuation disclosure. Completed evidence carries its frozen
+Fact and is checked against the retained obligation inventory. The production
+physical plan remains identity material rather than an executable recovery plan.
+
+
+Validation for this implementation:
+
+- `make check-agent`: 4,753 passed, 1 skipped; lint, typing and API documentation passed.
+- Materialization and snapshot regressions: 99 passed, including unavailable producer registry,
+  independent cold reading, descriptor identity binding, receipt replacement and obsolete formats.
+- State and multiroot Runtime: 11 passed, 4 external-backend cases skipped; DuckDB and SQLite
+  independent-process recovery passed. After preserving the previous `NoTime` rule, the state
+  Runtime subset passed all 9 cases again.
+- Installed candidate wheel: 4 offline/cold scenarios passed (relations, statistics, funnel,
+  history). The final wheel was rebuilt after the time-shape and Help updates; its relation
+  produce/continue/recover scenario passed again, with wheel SHA-256
+  `00a05ddf88ed1627f46d9e6a1b5115448e2f9f038f62a898956e74091f055048`.
+- An earlier `make release-test` unexpectedly selected the full packaging group and used a
+  pre-repair wheel: 26 passed, 10 failed. The failures exposed the missing explicit-source
+  traversal and were repaired; the later bounded wheel runs are the acceptance evidence.
+  This work does not claim a passing full release or full Runtime gate.
+
+No migration, publication, commit, packaged-skill edit or deletion of persisted project state
+was performed. Existing staged work was preserved.

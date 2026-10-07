@@ -357,7 +357,7 @@ def test_old_continuation_has_explicit_reexecution_repair() -> None:
     from marivo.analysis.materialization.graph_protocol import SNAPSHOT, Continuation, decode
 
     current = Continuation(
-        "marivo.analysis.continuation/v2",
+        "marivo.analysis.continuation/v3",
         freeze_graph(_observation()),
         (),
         (),
@@ -368,7 +368,7 @@ def test_old_continuation_has_explicit_reexecution_repair() -> None:
         (),
         "state",
     )
-    old = encode(current, SNAPSHOT).replace("continuation/v2", "continuation/v1")
+    old = encode(current, SNAPSHOT).replace("continuation/v3", "continuation/v1")
     with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
         decode(old, SNAPSHOT)
 

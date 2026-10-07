@@ -38,6 +38,7 @@ from marivo.analysis.materialization.execution_key import (
     FixedPartKey,
     SourceKeyBinding,
     _fixed_input_occurrences,
+    _ordered_plan,
     graph_fixed_execution_key,
     graph_source_execution_key,
 )
@@ -92,6 +93,7 @@ from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.methods.physical import (
     DecimalType,
     DurationType,
+    NoTime,
     Qualified,
     ScalarType,
     matches_arrow_scalar,
@@ -232,7 +234,7 @@ def _execute(
                 descriptor = record.descriptor
                 if (
                     record.session_ref != session
-                    or fixed_signature(descriptor) != leaf.signature
+                    or fixed_signature(descriptor, _validated=record.validated) != leaf.signature
                     or descriptor.definition_fingerprint != leaf.definition_fingerprint
                     or not isinstance(leaf.value_type, (ScalarType, DecimalType, DurationType))
                 ):
@@ -245,13 +247,16 @@ def _execute(
                 ):
                     raise invalid("fixed physical value type differs before receipt read")
                 if leaf.identity not in fixed:
-                    result = read_result(store.project_root, descriptor)
+                    result = read_result(
+                        store.project_root, descriptor, _validated=record.validated
+                    )
                     result = replace(
                         result,
                         contract=replace(
                             result.contract,
                             signature=leaf.signature,
                             input_binding=record.artifact_ref,
+                            _frozen=None,
                         ),
                     )
                     fixed[leaf.identity] = VerifiedFixedInput(
@@ -284,7 +289,7 @@ def _execute(
                 )
             if hits:
                 hit = _read_artifact(store, _text(hits[0], "artifact_ref"))
-                read_result(store.project_root, hit.descriptor)
+                read_result(store.project_root, hit.descriptor, _validated=hit.validated)
                 return hit
         run_ref = _new_run_ref()
         if source_only:
@@ -512,7 +517,7 @@ def _execute(
                 if isinstance(item.implementation.qualification, Qualified)
             )
             snapshot = Continuation(
-                "marivo.analysis.continuation/v2",
+                "marivo.analysis.continuation/v3",
                 frozen_graph,
                 tuple(
                     dict.fromkeys(
@@ -531,7 +536,7 @@ def _execute(
             )
             frozen = encode(snapshot, SNAPSHOT)
             descriptor = Descriptor(
-                "marivo.analysis.artifact_descriptor/v1",
+                "marivo.analysis.artifact_descriptor/v2",
                 root.fingerprint,
                 run_ref,
                 key,
@@ -571,6 +576,10 @@ def _execute(
                 state,
                 frozen,
                 digest(frozen),
+                canonical_json(_ordered_plan(plan)),
+                plan.physical_requirements[-1].key.shape.time
+                if root.signature.domain.time_grid is not None
+                else NoTime(),
             )
             descriptor = decode(encode(descriptor, DESCRIPTOR), DESCRIPTOR)
             _fsync_directory(staging)
@@ -607,7 +616,9 @@ def _execute(
                             or saved.descriptor != descriptor
                         ):
                             raise invalid("commit read-back differs from original invocation")
-                        read_result(store.project_root, saved.descriptor)
+                        read_result(
+                            store.project_root, saved.descriptor, _validated=saved.validated
+                        )
                         return saved
                     with store._read() as conn:
                         conflicts = _rows(

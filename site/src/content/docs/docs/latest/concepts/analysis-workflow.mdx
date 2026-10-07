@@ -1724,3 +1724,9 @@ result = session.members(ms.ref.entity("sales.facts")).observe(
 ).execute()
 result.show()
 ```
+
+
+Fixed results retain their schema, semantic contract, evidence and exact input bindings.
+Reading a result does not require selecting its original production implementation.
+New continuations still validate required state and their current method capability.
+Obsolete persisted formats require re-executing the source analysis; existing files are preserved.

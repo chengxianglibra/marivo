@@ -21,9 +21,10 @@ from marivo.analysis.materialization.graph_exchange import (
 )
 from marivo.analysis.materialization.graph_protocol import (
     Descriptor,
+    ValidatedDescriptor,
+    checked_metadata,
     invalid,
     schema_from,
-    validate_descriptor,
 )
 from marivo.analysis.materialization.storage import (
     _checked_path,
@@ -106,8 +107,10 @@ def read_table(root: Path, receipt: LocalReceipt) -> pa.Table:
                 raise invalid("committed Parquet reader did not close successfully") from None
 
 
-def read_result(root: Path, descriptor: Descriptor) -> ExchangeResult:
-    node = validate_descriptor(descriptor)
+def read_result(
+    root: Path, descriptor: Descriptor, *, _validated: ValidatedDescriptor | None = None
+) -> ExchangeResult:
+    checked = checked_metadata(descriptor, _validated)
     primary = read_table(root, descriptor.primary_receipt.local)
     parts = tuple(ExchangePart(p.role, read_table(root, p.local)) for p in descriptor.parts)
     method = descriptor.method_bindings[-1].method
@@ -146,12 +149,14 @@ def read_result(root: Path, descriptor: Descriptor) -> ExchangeResult:
             statuses = statuses.append_column(
                 "error_bound",
                 pa.array(
-                    error_bounds(reference_parameters(node.signature), parts, primary),
+                    error_bounds(
+                        reference_parameters(checked.descriptor.signature), parts, primary
+                    ),
                     type=pa.float64(),
                 ),
             )
     contract = ExchangeContract(
-        node.signature,
+        checked.descriptor.signature,
         MethodKey(method.name, method.version),
         state.input_binding,
         schema_from(descriptor.realized_schema),
@@ -170,5 +175,6 @@ def read_result(root: Path, descriptor: Descriptor) -> ExchangeResult:
         (),
         descriptor.row_set_contract.kind == "optional_singleton",
         descriptor.row_contract.column_reasons,
+        _frozen=checked,
     )
     return from_arrow(primary, contract, parts=parts, method_state=statuses)
