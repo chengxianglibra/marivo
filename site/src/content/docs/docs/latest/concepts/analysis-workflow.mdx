@@ -328,7 +328,7 @@ internally inconsistent Artifact or trigger a failure fallback.
 For the Entity-domain J1–J4 slice, repeated logical source execution reads the
 source again. Fixed continuations can hit the same exact committed Artifact;
 recover it explicitly with `session.artifact(ref)`. Other paths use their exact current method and physical-input qualifications.
-Recovery integrity checks cover Artifact, storage authority and Evidence, not
+Local recovery trusts committed Artifact and Evidence data. It does not establish
 current semantic authority or datasource freshness.
 
 ## Local execution and resource responsibility

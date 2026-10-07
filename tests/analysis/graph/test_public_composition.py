@@ -1,4 +1,4 @@
-"""Public Store 7 replacements for the retired scenario-specific v6 tests."""
+"""Public Store 8 replacements for the retired scenario-specific v6 tests."""
 
 from __future__ import annotations
 
@@ -134,7 +134,7 @@ def test_empty_numeric_selection_has_distinct_row_policies(
 
 
 @pytest.mark.runtime
-@pytest.mark.parametrize("corruption", ["receipt", "part", "snapshot", "state_version", "binding"])
+@pytest.mark.parametrize("corruption", ["part", "snapshot", "state_version"])
 def test_exact_artifact_corruption_blocks_recovery_and_dynamic_k(
     analysis_dsl_case_factory: DslCaseFactory,
     corruption: str,
@@ -148,11 +148,7 @@ def test_exact_artifact_corruption_blocks_recovery_and_dynamic_k(
     assert record is not None
     reference = record.artifact_ref
     before = len(case.session.runs().items)
-    if corruption == "receipt":
-        path = case.root / record.descriptor.primary_receipt.local.project_relative_path
-        payload = next(path.glob("*.parquet"))
-        payload.write_bytes(payload.read_bytes() + b"changed")
-    elif corruption == "part":
+    if corruption == "part":
         next(
             (case.root / record.descriptor.parts[0].local.project_relative_path).glob("*.parquet")
         ).unlink()
@@ -416,4 +412,4 @@ def test_public_parquet_journeys_have_separate_source_evidence(
                 "C": -50,
                 "D": 0,
             }
-    assert case.session._runtime.store.layout.generation == 7
+    assert case.session._runtime.store.layout.generation == 8

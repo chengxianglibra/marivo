@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import time
 from collections.abc import Generator, Iterator
 from pathlib import Path
@@ -37,14 +36,9 @@ class _ReceiptBatchStream:
         self._closed = False
         try:
             header = next(self._reader)
-            if (
-                header.num_rows
-                or hashlib.sha256(header.schema.serialize().to_pybytes()).hexdigest()
-                != (receipt.schema_fingerprint)
-                or any(
-                    expected.nullable != actual.nullable
-                    for expected, actual in zip(row.schema.columns, header.schema, strict=True)
-                )
+            if header.num_rows or any(
+                expected.nullable != actual.nullable
+                for expected, actual in zip(row.schema.columns, header.schema, strict=True)
             ):
                 _integrity("the exact receipt-bound exchange schema", "selected schema differs")
             storage._realized_schema(row, header.schema)
@@ -117,20 +111,13 @@ def _payload_batches(
         if not seen and receipt.realized_row_count:
             _integrity("all selected payload rows", "missing payload stream")
 
-    parquet, path = storage._open_payload(project_root, receipt)
+    parquet, _path = storage._open_payload(project_root, receipt)
     try:
-        if audit and storage._hash_file(path) != receipt.bytes_hash:
-            raise StorageAccessError("mutated")
         yield pa.RecordBatch.from_arrays(
             [pa.array([], type=f.type) for f in parquet.schema_arrow],
             schema=parquet.schema_arrow,
         )
         yield from checked(storage._parquet_batches(parquet, policy, preview=preview))
-        if not preview and (
-            storage._hash_file(path) != receipt.bytes_hash
-            or receipt.file_manifest[0].sha256 != receipt.bytes_hash
-        ):
-            _integrity("the immutable selected local payload", "local content changed")
     finally:
         parquet.close()
     if not preview and count != receipt.realized_row_count:

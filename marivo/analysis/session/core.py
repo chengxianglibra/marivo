@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, overload
 
 from marivo._temporal import BeforeEndBoundary, TimeScope
-from marivo.analysis.evidence._dataset_types import ArtifactRevalidation
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.observation.contracts import ObservationOwner
 from marivo.analysis.observation.source_bindings import SourceBindingMap
@@ -289,7 +288,7 @@ class Session:
         """Recover an exact committed Dataset without reading current sources.
 
         Args: reference: Exact ArtifactRef or reference string.
-        Returns: The materialized relation variant selected by its checked Store 7 definition.
+        Returns: The materialized relation variant selected by its checked Store 8 definition.
         Example: ``saved = session.artifact(ref)``.
         Constraints: Recovery verifies descriptor v2, continuation v3, receipts and required state without selecting the original production implementation or opening sources. Obsolete formats require source re-execution; existing files are preserved.
         """
@@ -351,16 +350,6 @@ class Session:
         return self._runtime.graph(
             artifact_ref=artifact_ref, direction=direction, max_nodes=max_nodes
         )
-
-    def revalidate(self, reference: str | ArtifactRef) -> ArtifactRevalidation:
-        """Explicitly inspect Artifact, storage and Evidence integrity.
-
-        Args: reference: Exact committed Artifact identity.
-        Returns: Three independent integrity and authority assessments.
-        Example: ``session.revalidate(ref).show()``.
-        Constraints: This is not a source freshness or reuse verdict.
-        """
-        return self._runtime.revalidate(reference)
 
     def render(self, *, max_output_bytes: int | None = 8192) -> str:
         """Render a bounded metadata recap.

@@ -158,7 +158,7 @@ originating Session; carry an exact committed Artifact identity when moving betw
 Never replay origin queries to conceal missing retained state. For the admitted
 source-backed Analysis DSL branches, executing a logical source branch again evaluates
 the source again; an exact fixed continuation may hit its committed execution
-key. Recover a public result from its exact Artifact reference and validated
+key. Recover a public result from its exact Artifact reference and retained
 continuation snapshot, including required retained parts. A missing or
 incompatible snapshot blocks that branch; do not rebuild it from displayed rows
 or current Semantic declarations. If the question requires current source rows,
@@ -171,7 +171,8 @@ restore it, and graph or Finding reads only when adjacency or audit detail is
 needed. Consult `marivo.help("analysis.evidence")` before relying on recovered
 Evidence.
 
-Recovery and integrity checks do not establish current semantic authority,
+Local committed results are trusted; recovery does not audit content for tampering.
+Recovery does not establish current semantic authority,
 source freshness, causality, or business validity. Follow live inspection and
 repair guidance; disclose freshness as unchecked without a separate current
 source check. If authority or Evidence cannot be restored, stop and disclose

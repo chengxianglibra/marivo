@@ -276,46 +276,6 @@ def test_allocation_selection_rank_table_and_repair(funnel_public):
 
 @pytest.mark.runtime
 @pytest.mark.parametrize(
-    "fault", ["omit", "body", "identity", "ordinal", "count", "digest", "version"]
-)
-def test_nonempty_finding_collection_corruption_rejects(funnel_public, fault):
-    from marivo.analysis.materialization.errors import MaterializationError
-
-    session, journeys, _, _ = funnel_public
-    result = journeys().funnel().compare(journeys(START - timedelta(days=3)).funnel()).execute()
-    store = session._runtime.store
-    artifact = result.state.artifact_ref.ref
-    with store._write() as connection:
-        if fault == "omit":
-            connection.execute("DELETE FROM findings WHERE artifact_ref=?", (artifact,))
-        elif fault in ("body", "identity"):
-            column = "finding_body_payload" if fault == "body" else "finding_identity_digest"
-            connection.execute(
-                f"UPDATE findings SET {column}=? WHERE artifact_ref=?",
-                ("{}" if fault == "body" else "0" * 64, artifact),
-            )
-        elif fault == "ordinal":
-            connection.execute(
-                "UPDATE findings SET finding_ordinal=7 WHERE artifact_ref=?", (artifact,)
-            )
-        else:
-            column = {
-                "count": "finding_count",
-                "digest": "finding_set_digest",
-                "version": "extractor_contract_versions_payload",
-            }[fault]
-            connection.execute(
-                f"UPDATE dataset_evidence SET {column}=? WHERE artifact_ref=?",
-                (0 if fault == "count" else "[]", artifact),
-            )
-    with pytest.raises(MaterializationError):
-        result.findings()
-    with pytest.raises(MaterializationError):
-        session.artifact(result._dataset.artifact.artifact_ref)
-
-
-@pytest.mark.runtime
-@pytest.mark.parametrize(
     "point",
     ["insert_artifact", "insert_evidence", "insert_findings", "insert_terminal", "before_commit"],
 )
@@ -597,50 +557,6 @@ def test_funnel_exact_period_and_matching_rejections(funnel_public):
             target=mv.funnel_loss_rate(step=pattern.steps[1]),
             axes=(ref.dimension("sales.customers.region"),),
         )
-
-
-@pytest.mark.runtime
-@pytest.mark.parametrize("fault", ["swap", "producer", "binding", "receipt"])
-def test_finding_swap_binding_and_receipt_reject(funnel_public, fault):
-    import json
-
-    from marivo.analysis.materialization.errors import MaterializationError
-
-    session, journeys, _, _ = funnel_public
-    source = journeys().funnel().compare(journeys(START - timedelta(days=3)).funnel())
-    left, right = source.execute(), source.execute()
-    store = session._runtime.store
-    with store._write() as connection:
-        body = connection.execute(
-            "SELECT finding_body_payload FROM findings WHERE artifact_ref=?",
-            (left.state.artifact_ref.ref,),
-        ).fetchone()[0]
-        if fault == "swap":
-            connection.execute(
-                "UPDATE findings SET finding_body_payload=? WHERE artifact_ref=?",
-                (body, right.state.artifact_ref.ref),
-            )
-        elif fault == "receipt":
-            descriptor = right._dataset.artifact.descriptor
-            receipt = descriptor.primary_receipt.local
-            path = (
-                store.project_root
-                / receipt.project_relative_path
-                / receipt.file_manifest[0].relative_path
-            )
-            path.write_bytes(path.read_bytes() + b"tampered")
-        else:
-            payload = json.loads(body)
-            if fault == "producer":
-                payload["derivation"]["producer_id"] = "funnel_ratio_mix"
-            else:
-                payload["derivation"]["ordered_input_bindings"] = ["capture:" + "0" * 64]
-            connection.execute(
-                "UPDATE findings SET finding_body_payload=? WHERE artifact_ref=?",
-                (json.dumps(payload), right.state.artifact_ref.ref),
-            )
-    with pytest.raises(MaterializationError):
-        right.findings()
 
 
 @pytest.mark.runtime

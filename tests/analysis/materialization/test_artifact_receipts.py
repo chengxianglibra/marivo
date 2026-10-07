@@ -9,13 +9,10 @@ from marivo.analysis.materialization.errors import IntegrityError
 
 
 def _local() -> c.LocalReceipt:
-    entries = (c.FileEntry("data.parquet", 4096, "a" * 64),)
+    entries = (c.FileEntry("data.parquet", 4096),)
     return c.LocalReceipt(
         "sessions/s/artifacts/a/primary",
         entries,
-        c.manifest_digest(entries),
-        "a" * 64,
-        "c" * 64,
         2,
         4096,
     )
@@ -36,7 +33,6 @@ def test_closed_receipt_round_trip() -> None:
         ("format", "csv"),
         ("project_relative_path", "../foreign"),
         ("project_relative_path", "/absolute"),
-        ("bytes_hash", "mutable"),
         ("realized_row_count", True),
     ],
 )

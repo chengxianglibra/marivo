@@ -192,7 +192,7 @@ def execute_fixed_row(
     return _row_result(
         method,
         verified,
-        selected.receipt.bytes_hash,
+        selected.receipt.identity_digest,
         read.leaf.artifact.ref,
         lowered.admitted.checks,
     )
@@ -791,8 +791,8 @@ def execute_fixed_spearman(
             raise _invalid("unmatched fixed Spearman check")
         digest = hashlib.sha256(
             (
-                selected[0].receipt.bytes_hash
-                + selected[1].receipt.bytes_hash
+                selected[0].receipt.identity_digest
+                + selected[1].receipt.identity_digest
                 + check.obligation.check_id
             ).encode()
         ).hexdigest()
@@ -847,7 +847,7 @@ def execute_fixed_difference(
     return _difference_stage(
         methods[0],
         (values[0], values[1]),
-        selected[0].receipt.bytes_hash + selected[1].receipt.bytes_hash,
+        selected[0].receipt.identity_digest + selected[1].receipt.identity_digest,
         ",".join(item.artifact_ref for item in selected),
         lowered.admitted.checks,
     )
@@ -2177,7 +2177,7 @@ def execute_verified_fixed(
             ):
                 raise _invalid("fixed stage differs from its exact verified Artifact")
             results[stage.output] = selected_input.result
-            proofs[stage.output] = selected_input.receipt.bytes_hash
+            proofs[stage.output] = selected_input.receipt.identity_digest
             continue
         assert isinstance(stage, LoweredLocal)
         values = tuple(results[key] for key in stage.stage.inputs)

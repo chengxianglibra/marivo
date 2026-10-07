@@ -38,15 +38,12 @@ Recover through `session.artifact(reference)` or a SucceededRun's
 `output_artifact_ref`. Session Run/graph reads report committed runtime history;
 Artifact lookup does not execute an origin recipe or resolve a current source.
 
-`session.revalidate(reference)` checks separate Artifact, storage authority and
-Evidence integrity axes. Confirmed integrity does not prove freshness, causal
-validity or suitability for the agent's question. Typed unavailable/unknown states
-must not be collapsed into a successful reuse verdict.
-
-Corrupt metadata, incompatible Store generations, missing private parts, altered
-receipts and invalid cursor/ownership fail through structured errors. Rejected
-old-generation reads leave existing bytes unchanged. Bounded cards do not hide
-missing Evidence by returning an empty page or making a source query.
+Committed local Evidence and Findings are trusted. Reads decode their typed
+records without re-extracting Findings or comparing content hashes. Recovery
+does not establish freshness, causality or suitability for the current question.
+Missing data, unreadable formats, incompatible Store generations and invalid
+cursor or Session ownership still fail through structured errors. Old-generation
+reads preserve existing bytes.
 
 ## Interpretation boundaries
 

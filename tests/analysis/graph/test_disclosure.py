@@ -90,9 +90,7 @@ EXPECTED_EXPORTS = (
     "MaterializedTimeAnalysisDomain",
     "ArtifactDigest",
     "ArtifactRef",
-    "ArtifactRevalidation",
     "ArtifactSummary",
-    "EvidenceIntegrityError",
     "FailedRun",
     "Finding",
     "FindingPage",
@@ -211,7 +209,6 @@ REQUIRED_TARGETS = {
     "actions.to_pandas",
     "artifact.findings",
     "artifact.finding",
-    "session.revalidate",
 }
 
 

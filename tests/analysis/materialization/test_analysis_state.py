@@ -11,88 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.materialization import graph_store
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.store import SessionStore
-from marivo.datasource.adapters import SourceSession
-from tests.analysis.materialization.state_fixtures import _snapshot, _values
+from tests.analysis.materialization.state_fixtures import _values
 from tests.shared_fixtures import DslCaseFactory
-
-
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "fault", ("none", "producer", "evidence", "descriptor", "finding", "missing", "mutated")
-)
-def test_revalidation_axes_are_independent_read_only_and_source_free(
-    analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
-    fault: str,
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    fixed = _values(case).execute()
-    assert fixed.to_pandas().set_index("member")["value"].to_dict() == {
-        "A": 60,
-        "B": 120,
-        "C": 0,
-        "D": 0,
-    }
-    store, reference = case.session._runtime.store, fixed.state.artifact_ref
-    with store._read() as connection:
-        record = graph_store.artifact(store, connection, reference.ref)
-    assert record is not None
-    if fault in {"producer", "evidence", "descriptor", "finding"}:
-        with store._write() as connection:
-            if fault == "producer":
-                connection.execute(
-                    "UPDATE analysis_action_runs SET execution_key_digest=? WHERE run_ref=?",
-                    ("0" * 64, record.producing_run_ref),
-                )
-            elif fault == "evidence":
-                connection.execute(
-                    "UPDATE dataset_evidence SET evidence_digest=? WHERE artifact_ref=?",
-                    ("0" * 64, reference.ref),
-                )
-            elif fault == "descriptor":
-                connection.execute(
-                    "UPDATE dataset_artifacts SET descriptor_payload='{}' WHERE artifact_ref=?",
-                    (reference.ref,),
-                )
-            else:
-                connection.execute(
-                    "INSERT INTO findings VALUES(?,?,?,?,?)",
-                    ("bad", reference.ref, 0, "0" * 64, "private-canary"),
-                )
-    elif fault in {"missing", "mutated"}:
-        receipt = record.descriptor.primary_receipt.local
-        path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
-        if fault == "missing":
-            path.unlink()
-        else:
-            path.write_bytes(b"changed bytes")
-    before = _snapshot(store)
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("revalidation opened the business source")
-
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
-    inspection = case.session.revalidate(reference)
-    expected = {
-        "none": ("valid", "readable", "valid"),
-        "producer": ("invalid", "readable", "valid"),
-        "evidence": ("valid", "readable", "invalid"),
-        "descriptor": ("invalid", "unknown", "unverifiable"),
-        "finding": ("valid", "readable", "invalid"),
-        "missing": ("valid", "missing", "unverifiable"),
-        "mutated": ("valid", "mutated", "unverifiable"),
-    }[fault]
-    assert (
-        inspection.artifact_integrity,
-        inspection.storage_authority,
-        inspection.evidence_integrity,
-    ) == expected
-    assert _snapshot(store) == before
-    assert "private-canary" not in repr(inspection)
-    assert all("private-canary" not in issue.safe_message for issue in inspection.issues)
 
 
 @pytest.mark.runtime
@@ -117,7 +39,6 @@ value = session.artifact(sys.argv[2])
 assert isinstance(value, mv.MaterializedNumericRelation)
 assert value.to_pandas().set_index("member")["value"].to_dict() == {"A":60,"B":120,"C":0,"D":0}
 assert value.rollup().execute().to_pandas().value.tolist() == [180]
-assert session.revalidate(value.state.artifact_ref).storage_authority == "readable"
 assert session._runtime.statistics.statements == []
 print(json.dumps({"runs":len(session.runs().items)}))
 """
@@ -139,7 +60,7 @@ print(json.dumps({"runs":len(session.runs().items)}))
 def test_read_factory_never_initializes_missing_or_unversioned_state(
     tmp_path: Path, state: str
 ) -> None:
-    path = tmp_path / ".marivo/analysis/generations/v7/session_store.db"
+    path = tmp_path / ".marivo/analysis/generations/v8/session_store.db"
     if state != "missing":
         path.parent.mkdir(parents=True)
         with sqlite3.connect(path) as connection:

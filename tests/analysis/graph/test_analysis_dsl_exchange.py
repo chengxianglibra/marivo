@@ -26,7 +26,7 @@ from marivo.analysis.core.model import (
 from marivo.analysis.core.rules import AssociationScore, RowState
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.materialization.contracts import LocalReceipt
-from marivo.analysis.materialization.errors import IntegrityError, MaterializationError
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     CheckedStream,
     FixedInput,
@@ -515,9 +515,6 @@ def test_fixed_count_reads_verified_receipts_without_duckdb(
                 completed_checks=result.completed_checks,
                 method_state=result.method_state,
             )
-    damaged = replace(written.primary_receipt, bytes_hash="0" * 64)
-    with pytest.raises(IntegrityError):
-        execute(PreparedGraph(admitted), lowered, replace(selected, receipt=damaged), contract)
     from marivo.analysis.materialization import graph_local_execution
 
     def unexpected_read(*args: object, **kwargs: object) -> None:

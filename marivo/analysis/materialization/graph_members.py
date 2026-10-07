@@ -1,4 +1,4 @@
-"""Exact v7 member graph construction and R1 source binding."""
+"""Exact v8 member graph construction and R1 source binding."""
 
 from __future__ import annotations
 
@@ -416,7 +416,7 @@ class MemberGraph:
         return replace(read, root=root)
 
     def execute(self) -> GraphArtifact:
-        """Publish one fresh source evaluation through the common v7 Runtime."""
+        """Publish one fresh source evaluation through the common v8 Runtime."""
         contract = self.entity_schema.contract
         datasource = self.registry.datasources[contract.datasource_ref.path]
         service = DatasourceConnectionService(

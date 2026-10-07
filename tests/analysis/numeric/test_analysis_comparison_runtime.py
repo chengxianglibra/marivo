@@ -129,9 +129,8 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
 ) -> None:
     from dataclasses import replace
 
-    from marivo.analysis.materialization.errors import IntegrityError, MaterializationError
+    from marivo.analysis.materialization.errors import MaterializationError
     from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
-    from marivo.analysis.materialization.graph_protocol import validate_descriptor
 
     case = analysis_dsl_case_factory("j2")
     if parquet:
@@ -154,13 +153,6 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
     descriptor = dataset.artifact.descriptor
     assert descriptor.method_state.contract_version == 2
     assert all(part.contract_version == part.method_state_version == 2 for part in descriptor.parts)
-    with pytest.raises(IntegrityError):
-        validate_descriptor(
-            replace(
-                descriptor,
-                parts=tuple(replace(part, contract_version=1) for part in descriptor.parts),
-            )
-        )
     checked = dataset.verified()
     mapping = next(part.table for part in checked.parts if part.role == "correspondence")
     corrupted = mapping.set_column(

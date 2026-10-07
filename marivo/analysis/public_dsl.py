@@ -1,4 +1,4 @@
-"""Existing public Analysis receivers over one typed graph Runtime and Store 7."""
+"""Existing public Analysis receivers over one typed graph Runtime and Store 8."""
 
 from __future__ import annotations
 
@@ -570,7 +570,7 @@ class _Value:
         Args: None.
         Returns: An AnalysisContract for this exact relation.
         Example: ``relation.contract().show()``.
-        Constraints: Fixed results verify their Store 7 files without opening sources.
+        Constraints: Fixed results verify their Store 8 files without opening sources.
         """
         if self._dataset is not None:
             self._dataset.verified()
@@ -2333,12 +2333,12 @@ class _MaterializedRead(_Value):
         )
 
     def evidence_digest(self) -> ArtifactDigest:
-        """Read the checked Evidence authority of this committed Artifact.
+        """Read the retained Evidence summary of this committed Artifact.
 
         Args: None.
         Returns: The exact ArtifactDigest including Finding count and extractor versions.
         Example: ``digest = result.evidence_digest()``.
-        Constraints: All receipts and the complete Finding collection must validate.
+        Constraints: Reads committed Evidence without re-reading result payloads.
         """
         assert self._dataset is not None
         return self._dataset.evidence_digest()
@@ -2349,7 +2349,7 @@ class _MaterializedRead(_Value):
         Args: limit: Exact integer 1..100. cursor: This Artifact's previous page cursor.
         Returns: A FindingPage in frozen extractor order.
         Example: ``page = result.findings(limit=20)``.
-        Constraints: Collection integrity is checked before any page is exposed.
+        Constraints: The cursor belongs to this Artifact; local committed Findings are trusted.
         """
         assert self._dataset is not None
         return self._dataset.findings(limit, cursor)
@@ -4610,7 +4610,7 @@ class LogicalDeviationResult(_Value):
 
 
 class MaterializedDeviationResult(_MaterializedValue):
-    """Fixed deviation fit whose four fields share one checked Store 7 Artifact."""
+    """Fixed deviation fit whose four fields share one checked Store 8 Artifact."""
 
     def where(self, predicate: BoundPredicate) -> LogicalDeviationResult:
         """Select retained deviation rows without changing the fitted scope.

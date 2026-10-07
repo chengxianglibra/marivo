@@ -149,11 +149,6 @@ def test_retained_closure_shares_definitions_but_does_not_schedule_them() -> Non
     captured = capture_graph(node)
     assert captured.nodes == (fixed, node)
     assert len(captured.retained) == 5
-    assert captured.unchanged(node, captured.registry)
-    alias = node.retained_endpoints[1]
-    object.__setattr__(alias, "derivation", replace(alias.derivation, eval_id="tampered"))
-    assert not captured.unchanged(node, captured.registry)
-    object.__setattr__(alias, "derivation", original.derivation)
     document = graph_document(node)
     assert len(document.nodes) == 4
     restored = thaw_graph(freeze_graph(node))
@@ -357,18 +352,15 @@ def test_old_continuation_has_explicit_reexecution_repair() -> None:
     from marivo.analysis.materialization.graph_protocol import SNAPSHOT, Continuation, decode
 
     current = Continuation(
-        "marivo.analysis.continuation/v3",
+        "marivo.analysis.continuation/v4",
         freeze_graph(_observation()),
         (),
         (),
         (),
         (),
         "input",
-        "primary",
-        (),
-        "state",
     )
-    old = encode(current, SNAPSHOT).replace("continuation/v3", "continuation/v1")
+    old = encode(current, SNAPSHOT).replace("continuation/v4", "continuation/v1")
     with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
         decode(old, SNAPSHOT)
 

@@ -18,7 +18,6 @@ from marivo.analysis.evidence import _dataset_types as t
 from marivo.analysis.evidence._dataset_codec import (
     decode_finding_body,
     finding_identity,
-    finding_set_digest,
 )
 from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
@@ -36,7 +35,6 @@ from marivo.analysis.materialization.graph_protocol import (
     invalid,
 )
 from marivo.analysis.materialization.graph_snapshot import FixedRecord, MethodRecord
-from marivo.analysis.materialization.graph_storage import read_result
 from marivo.analysis.methods import funnel as f
 from marivo.analysis.refs import ArtifactRef
 from marivo.refs import RefPayloadV1, ref
@@ -413,7 +411,6 @@ def collection(
     descriptor: Descriptor,
     artifact_ref: str,
     *,
-    verify_receipts: bool = True,
     _validated: ValidatedDescriptor | None = None,
 ) -> tuple[tuple[t.Finding, ...], t.ArtifactDigest]:
     artifact = conn.execute(
@@ -425,13 +422,6 @@ def collection(
     if artifact is None or evidence is None:
         raise invalid("Artifact lacks atomic Evidence")
     committed_at = datetime.fromisoformat(artifact[0])
-    if verify_receipts:
-        result = read_result(store.project_root, descriptor, _validated=_validated)
-        expected = extract(descriptor, result, artifact_ref, committed_at, _validated=_validated)
-    else:
-        if any(isinstance(p, FindingPolicyPart) for p in descriptor.signature.parts):
-            raise invalid("Finding producer requires receipt verification")
-        expected = ()
     rows = conn.execute(
         "SELECT * FROM findings WHERE artifact_ref=? ORDER BY finding_ordinal", (artifact_ref,)
     ).fetchall()
@@ -447,28 +437,18 @@ def collection(
             session_id=descriptor.signature.domain.binding.session_id,
             committed_at=committed_at,
         )
-        if finding_identity(finding) != row[
-            "finding_identity_digest"
-        ] or finding.finding_id != "finding_" + finding_identity(finding):
-            raise invalid("Finding identity or body binding differs")
         actual.append(finding)
     findings = tuple(actual)
-    version = versions(result) if verify_receipts else ("graph.no_findings@v1",)
-    if (
-        findings != expected
-        or evidence["finding_count"] != len(expected)
-        or evidence["finding_set_digest"] != finding_set_digest(expected)
-        or evidence["extractor_contract_versions_payload"] != encode_versions(version)
-        or evidence["evidence_digest"] != digest(encode(descriptor, DESCRIPTOR))
-    ):
-        raise invalid("Finding collection, body, version, count or digest differs")
+    version = TypeAdapter(tuple[str, ...]).validate_json(
+        evidence["extractor_contract_versions_payload"], strict=True
+    )
     return findings, t.ArtifactDigest(
         artifact_ref=ArtifactRef(ref=artifact_ref),
         quality_summary_digest=digest(encode(descriptor, DESCRIPTOR)),
         typed_issue_digest=digest("[]"),
         evidence_digest=evidence["evidence_digest"],
         finding_count=len(findings),
-        finding_set_digest=finding_set_digest(findings),
+        finding_set_digest=evidence["finding_set_digest"],
         extractor_contract_versions=version,
     )
 

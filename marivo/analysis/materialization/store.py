@@ -111,7 +111,7 @@ CREATE INDEX artifact_recency ON dataset_artifacts(session_ref,committed_at,arti
 """
 
 
-def _generation_error(version: object, expected: int = 7) -> IntegrityError:
+def _generation_error(version: object, expected: int = 8) -> IntegrityError:
     return IntegrityError(
         expected=f"an existing complete Session Store with user_version={expected}",
         received=f"Session Store user_version={version}",
@@ -144,7 +144,7 @@ def _enable_wal(conn: sqlite3.Connection) -> None:
             time.sleep(0.01)
         else:
             if mode != "wal":
-                raise invalid("Store 7 requires WAL durability")
+                raise invalid("Store 8 requires WAL durability")
             return
 
 
@@ -195,17 +195,17 @@ class SessionStore:
     def __init__(self, project_root: str | Path, *, existing_only: bool = False) -> None:
         self.layout = MaterializationLayout(Path(project_root))
         generations = self.layout.generation_dir.parent
-        if generations.exists() and any(p.name != "v7" for p in generations.iterdir()):
+        if generations.exists() and any(p.name != "v8" for p in generations.iterdir()):
             raise _generation_error("old generation directory")
         self._initialize(existing_only=existing_only)
 
     @classmethod
     def open_existing(cls, project_root: str | Path) -> SessionStore:
-        """Open an existing complete Store 7 without initializing state."""
+        """Open an existing complete Store 8 without initializing state."""
         try:
             return cls(project_root, existing_only=True)
         except (sqlite3.Error, OSError):
-            raise invalid("selected Store 7 is unavailable") from None
+            raise invalid("selected Store 8 is unavailable") from None
 
     @property
     def project_root(self) -> Path:
@@ -282,11 +282,11 @@ class SessionStore:
                         with self.db_path.open("rb") as source:
                             wal_header = source.read(20)[18:20]
                         if wal_header != b"\x02\x02":
-                            raise invalid("Store 7 requires WAL durability")
+                            raise invalid("Store 8 requires WAL durability")
                     else:
                         journal: object = read.execute("PRAGMA journal_mode").fetchone()[0]
                         if journal != "wal":
-                            raise invalid("Store 7 requires WAL durability")
+                            raise invalid("Store 8 requires WAL durability")
             finally:
                 read.close()
             if version == self.layout.generation:

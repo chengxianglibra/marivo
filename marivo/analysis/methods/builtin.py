@@ -1232,7 +1232,7 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
 
 @cache
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
-    """Version typed folds and once-rounded numeric consumers in Store 7."""
+    """Version typed folds and once-rounded numeric consumers in Store 8."""
     if method.name.startswith(("association.", "forecast.")):
         from marivo.analysis.methods.statistical_physical import implementations as statistics
 

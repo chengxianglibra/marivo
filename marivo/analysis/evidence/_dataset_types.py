@@ -11,7 +11,6 @@ from typing import Literal, TypeAlias, Union, get_args, get_origin, get_type_hin
 
 from marivo.analysis._pages import _BoundedPage
 from marivo.analysis.datasets.descriptors import DatasetFieldId, DatasetFieldIdentity
-from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization.contracts import invalid
 from marivo.analysis.refs import ArtifactRef
 from marivo.refs import RefPayloadV1, SemanticKind
@@ -20,9 +19,6 @@ from marivo.render import Card, RenderableResult
 Scalar: TypeAlias = str | int | float | bool | Decimal | date | datetime | None
 Number: TypeAlias = int | float | Decimal
 FindingType: TypeAlias = Literal["association", "contribution", "forecast_point", "funnel_delta"]
-IntegrityStatus: TypeAlias = Literal["valid", "invalid", "unverifiable"]
-StorageStatus: TypeAlias = Literal["readable", "unauthorized", "missing", "mutated", "unknown"]
-IntegrityAxis: TypeAlias = Literal["artifact_integrity", "storage_authority", "evidence_integrity"]
 CoordinatePresence: TypeAlias = Literal["matched", "current_only", "baseline_only"]
 
 
@@ -132,35 +128,6 @@ class ArtifactIssueCounts(_Value):
         _Value.__post_init__(self)
         _count(self.warning)
         _count(self.blocking)
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class ArtifactRevalidationIssue(_Value):
-    axis: IntegrityAxis
-    kind: str
-    safe_message: str
-    expected: str | None = None
-    received: str | None = None
-    repair: AnalysisRepair | None = None
-
-    def __post_init__(self) -> None:
-        _Value.__post_init__(self)
-        _text(self.safe_message, limit=1024)
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class ArtifactRevalidation(_Value):
-    artifact_ref: ArtifactRef
-    checked_at: datetime
-    artifact_integrity: IntegrityStatus
-    storage_authority: StorageStatus
-    evidence_integrity: IntegrityStatus
-    issues: tuple[ArtifactRevalidationIssue, ...] = ()
-    revalidation_version: Literal["v2"] = "v2"
-
-    def __post_init__(self) -> None:
-        _Value.__post_init__(self)
-        _aware(self.checked_at)
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)

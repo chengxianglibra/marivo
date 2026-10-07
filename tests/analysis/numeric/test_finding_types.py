@@ -312,22 +312,6 @@ def test_digest_and_three_axis_results_have_exact_private_shape() -> None:
     )
     assert result.digest_version == "v3"
     assert not hasattr(result, "items")
-    audit = t.ArtifactRevalidation(
-        artifact_ref=result.artifact_ref,
-        checked_at=datetime.now(timezone.utc),
-        artifact_integrity="invalid",
-        storage_authority="unauthorized",
-        evidence_integrity="valid",
-        issues=(
-            t.ArtifactRevalidationIssue(
-                axis="artifact_integrity",
-                kind="metadata_invalid",
-                safe_message="Invalid descriptor.",
-            ),
-        ),
-    )
-    assert audit.revalidation_version == "v2"
-    assert len(audit.render()) < 8000
 
 
 def test_finding_body_rejects_unknown_value_discriminant() -> None:

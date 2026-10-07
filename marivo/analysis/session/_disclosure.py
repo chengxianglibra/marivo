@@ -18,7 +18,6 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
-from marivo.analysis.errors import EvidenceIntegrityError
 from marivo.analysis.evidence import _dataset_types as e
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session import _lazy_read_model as r
@@ -27,9 +26,7 @@ from marivo.analysis.session.core import Session
 READ_TYPES: tuple[type[object], ...] = (
     e.ArtifactDigest,
     ArtifactRef,
-    e.ArtifactRevalidation,
     r.ArtifactSummary,
-    EvidenceIntegrityError,
     r.FailedRun,
     e.Finding,
     e.FindingPage,
@@ -76,22 +73,12 @@ def provider() -> DisclosureProvider:
         "ArtifactRef": (
             "Read materialized.state.artifact_ref or a returned ArtifactSummary.artifact_ref.",
             ("datasets.materialized_state", "ArtifactSummary"),
-            ("session.artifact", "session.revalidate", "session.graph"),
-        ),
-        "ArtifactRevalidation": (
-            "Call session.revalidate(artifact_ref).",
-            ("session.revalidate",),
-            ("runtime.values.render", "runtime.values.show"),
+            ("session.artifact", "session.graph"),
         ),
         "ArtifactSummary": (
             "Read the selected Artifact entries in session.graph(...).artifacts.",
             ("session.graph",),
             ("runtime.values.render", "runtime.values.show"),
-        ),
-        "EvidenceIntegrityError": (
-            "Inspect the structured error from a selected Evidence read.",
-            ("artifact.finding", "artifact.findings"),
-            ("session.revalidate",),
         ),
         "FailedRun": (
             "Select a failed Run from session.runs() or session.get_run(id).",
@@ -218,7 +205,7 @@ def provider() -> DisclosureProvider:
             "artifact",
             "Verified materialized relation variant",
             "result = session.artifact(artifact_ref)",
-            "Recover the exact Store 7 relation type after snapshot, receipt and required-part validation; never load current sources or Semantic.",
+            "Recover the exact Store 8 relation type from the retained snapshot and required parts; never load current sources or Semantic.",
         ),
         (
             Session,
@@ -240,13 +227,6 @@ def provider() -> DisclosureProvider:
             "SessionGraph",
             "result = session.graph(artifact_ref=artifact_ref)",
             "Read bounded committed edges and exact consumed foreign boundaries.",
-        ),
-        (
-            Session,
-            "revalidate",
-            "ArtifactRevalidation",
-            "result = session.revalidate(artifact_ref)",
-            "Explicitly validate Artifact integrity, storage authority and Evidence integrity; not semantic freshness.",
         ),
         (
             Session,
@@ -317,8 +297,6 @@ def provider() -> DisclosureProvider:
                 if name in ("show", "render")
                 else "runtime.runs"
                 if name in ("runs", "get_run")
-                else "evidence"
-                if name == "revalidate"
                 else "runtime",
                 related=("session.resume",) if name in ("runs", "get_run", "artifact") else (),
                 parameters=tuple(
@@ -342,7 +320,7 @@ def provider() -> DisclosureProvider:
                     else ("session", "pending_run")
                     if name == "abandon_run"
                     else ("session", "artifact_ref")
-                    if name in ("artifact", "graph", "revalidate")
+                    if name in ("artifact", "graph")
                     else ("session", "run_id")
                     if name == "get_run"
                     else ("session", "entity_ref")

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import math
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -33,7 +32,7 @@ from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.execution import BatchStream
 from marivo.analysis.materialization.reads import open_receipt_batch_stream
-from marivo.analysis.materialization.storage import _hash_file, _open_payload
+from marivo.analysis.materialization.storage import _open_payload
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.analysis.methods.state_validation import (
@@ -1222,8 +1221,11 @@ def from_arrow(
     parts: tuple[ExchangePart, ...] = (),
     completed_checks: tuple[CompletedCheck, ...] = (),
     method_state: pa.Table | None = None,
+    validate: bool = True,
 ) -> ExchangeResult:
     """Validate an owned Arrow result through the same producer contract."""
+    if not validate:
+        return ExchangeResult(contract, table, parts, completed_checks, method_state)
     return collect(
         _TableStream(table),
         contract,
@@ -1235,7 +1237,7 @@ def from_arrow(
 
 @dataclass(frozen=True, slots=True)
 class VerifiedFixedInput:
-    """Invocation-owned v7 input, already exhausted by the receipt owner."""
+    """Invocation-owned v8 input, already exhausted by the receipt owner."""
 
     artifact_ref: str
     receipt: LocalReceipt
@@ -1288,23 +1290,15 @@ def _verified_part_batches(
     root: Path, receipt: LocalReceipt, schema: pa.Schema
 ) -> Iterator[pa.RecordBatch]:
     """Verify a physical part without borrowing a legacy method codec."""
-    parquet, path = _open_payload(root, receipt)
+    parquet, _path = _open_payload(root, receipt)
     rows = 0
     try:
-        if (
-            not parquet.schema_arrow.equals(schema, check_metadata=False)
-            or receipt.schema_fingerprint
-            != hashlib.sha256(schema.serialize().to_pybytes()).hexdigest()
-        ):
+        if not parquet.schema_arrow.equals(schema, check_metadata=False):
             raise _invalid("fixed part schema or fingerprint differs")
         for batch in parquet.iter_batches(batch_size=1024):
             rows += batch.num_rows
             yield batch
-        if (
-            rows != receipt.realized_row_count
-            or _hash_file(path) != receipt.bytes_hash
-            or receipt.file_manifest[0].sha256 != receipt.bytes_hash
-        ):
+        if rows != receipt.realized_row_count:
             raise _invalid("fixed part content or cardinality differs")
     finally:
         parquet.close()

@@ -41,7 +41,7 @@ def provider() -> DisclosureProvider:
             "Execute the current logical typed analysis graph.",
             (),
             guidance=(
-                "Call logical.execute() to publish into Store 7 the paired materialized result.",
+                "Call logical.execute() to publish into Store 8 the paired materialized result.",
                 "Use marivo.help(logical.execute) for the exact receiver contract; construction and contract() do not execute.",
             ),
             related=("session.members", "dsl.LogicalAnalysisDomain.execute"),

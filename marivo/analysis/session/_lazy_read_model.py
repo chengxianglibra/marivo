@@ -315,7 +315,6 @@ class SessionGraph(RenderableResult):
             .listing("runs", (repr(value) for value in self.runs))
             .listing("heads", (str(ref) for ref in self.head_artifact_refs))
             .listing("boundaries", (*map(str, self.boundary_artifact_refs), *self.boundary_run_ids))
-            .field("full integrity", "not checked; call session.revalidate(ref)")
             .field("source freshness", "not checked by SessionGraph")
         )
 
@@ -384,7 +383,6 @@ class SessionRuntimeRecap(RenderableResult):
             .field("artifacts", f"total={self.artifact_count} heads={self.head_artifact_count}")
             .listing("heads", map(str, self.head_artifact_refs))
             .listing("attention", self.attention_run_ids)
-            .field("full integrity", "not checked; call session.revalidate(ref)")
         )
 
 

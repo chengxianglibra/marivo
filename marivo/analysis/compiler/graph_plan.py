@@ -12,7 +12,6 @@ from marivo.analysis.core.graph import (
     Node,
     SourceLeaf,
     _CapturedGraph,
-    _static_digest,
     capture_graph,
     topology,
 )
@@ -174,34 +173,6 @@ class GraphPlan:
 class _PlanHandoff:
     plan: ReferenceType[GraphPlan]
     captured: _CapturedGraph
-    state: str
-
-
-def _plan_digest(admitted: GraphPlan, captured: _CapturedGraph) -> str:
-    return _static_digest(
-        (
-            admitted.root,
-            admitted.classification,
-            admitted.stages,
-            admitted.checks,
-            admitted.physical_requirements,
-            admitted.primary_output,
-            (
-                captured.root,
-                id(captured.registry),
-                captured.nodes,
-                captured.retained,
-                tuple(captured.index.items()),
-                tuple(captured.fingerprints.items()),
-                captured.node_states,
-                tuple(
-                    (id(registration), state)
-                    for registration, state in captured.registration_states
-                ),
-                id(captured.registrations),
-            ),
-        )
-    )
 
 
 def admitted_capture(admitted: GraphPlan, registry: MethodRegistry = REGISTRY) -> _CapturedGraph:
@@ -219,8 +190,7 @@ def admitted_capture(admitted: GraphPlan, registry: MethodRegistry = REGISTRY) -
     if (
         type(handoff) is not _PlanHandoff
         or handoff.plan() is not admitted
-        or handoff.state != _plan_digest(admitted, handoff.captured)
-        or not handoff.captured.unchanged(admitted.root, registry)
+        or handoff.captured.registry is not registry
     ):
         _refuse(
             "an unchanged admitted plan",
@@ -621,6 +591,6 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
     object.__setattr__(
         admitted,
         "_handoff",
-        _PlanHandoff(ref(admitted), captured, _plan_digest(admitted, captured)),
+        _PlanHandoff(ref(admitted), captured),
     )
     return admitted
