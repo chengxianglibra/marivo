@@ -105,7 +105,7 @@ _HUBS = (
         "decision_hub",
         guidance=(
             "Start with materialized.show() and materialized.evidence_digest; read selected Findings when the question needs detail.",
-            "Revalidation checks Artifact, storage and Evidence integrity, not current semantic authority or source freshness.",
+            "Recovery trusts committed local Evidence; it does not establish current semantic authority or source freshness.",
         ),
         related=("ArtifactDigest", "runtime.values", "actions.show"),
     ),
