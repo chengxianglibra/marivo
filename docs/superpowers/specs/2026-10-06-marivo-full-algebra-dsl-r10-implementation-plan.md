@@ -6,10 +6,12 @@ Git history; local-only execution files were discarded. Recorded phase results
 below describe their original scope.
 
 Date: 2026-10-06
+Revised: 2026-10-07
 
-Status: R10.1 scoped implementation and validation complete; R10.2-R10.5 pending.
-See the R10.1 validation record (historical record in Git history). Installed-package,
-real-Agent and release acceptance have not been performed.
+Status: R10.1 scoped implementation and validation complete for `642271bf35`;
+incremental closure for the current candidate is pending. R10.2-R10.5 remain pending.
+Historical R10.1 evidence is located in §1.2. This revision does not establish
+installed-package, real-Agent or release acceptance for the current candidate.
 
 ## 1. 目标与前置交接
 
@@ -23,9 +25,7 @@ real-Agent and release acceptance have not been performed.
 本文初次交付仅新增实施文档；实施记录另行绑定实际候选 SHA、未提交 diff、新增文件摘要及依赖版本，
 不把 HEAD 单独当作完整候选身份。
 
-前置证据读取R9.7 审计 (historical record in Git history)、
-R10 交接 (historical record in Git history)与
-验收主记录 (historical record in Git history)。R9 的当前交付保留
+前置证据读取 §1.2 定位的 R9.7 审计、R10 交接与历史验收主记录。R9 的历史交接保留
 394 个原始 ID：379 个有限 owner-proof 绑定、15 个 `authorized_skipped` 成本出口，
 以及 V17 内四个未验证物理 producer 绑定。这些是交接状态，不能转换成 394 项实测通过，
 也不授予安装包、真实 Agent 或完整成本资格。
@@ -39,22 +39,74 @@ R10 默认不重启用户已明确跳过的成本采集，不机械展开 9,109 
 | 权威 | R10 消费的责任 |
 | --- | --- |
 | [总实施计划](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md) | C01–C18、A01–A13、方法验收义务与完整完成条件 |
-| [R0 capability ledger](2026-09-26-marivo-full-refactor-r0-capability-ledger.md)与各阶段当前 ledger | 能力去向、已接受的删除及范围修订；历史行用于追溯 |
+| [R0 capability ledger](2026-09-26-marivo-full-refactor-r0-capability-ledger.md)、仍保留的阶段 ledger 与 §1.2 历史索引 | 能力去向、已接受的删除及范围修订；历史行用于追溯，现行契约修订由 owning spec 决定 |
 | [Python Analysis design](../../specs/analysis/python-analysis-design.md)、[Operators](../../specs/analysis/operators-and-frames.md)、[Session/Runtime](../../specs/analysis/session-state-and-runtime.md) | 精确类型、方法语义、Cell/域/parts/K、身份、执行与恢复 |
 | [Semantic overview](../../specs/semantic/overview.md)与[Datasource layer](../../specs/semantic/datasource-layer.md) | 业务声明、读取治理、凭据、真实物理资格及终端边界 |
 | [公共披露规范](../../specs/agent-friendly-public-surface.md)与[AGENTS.md](../../../AGENTS.md) | Help、结果、错误、CLI、文档与 skills 的责任和编辑要求 |
-| [R9 实施文档](2026-10-04-marivo-full-algebra-dsl-r9-implementation-plan.md)、R9.5 SQL ledger (historical record in Git history)、R9.7/R10 交接 | 有限代表场景、实际证据、成本缺口与已批准 SQL 边界 |
+| [R9 实施文档](2026-10-04-marivo-full-algebra-dsl-r9-implementation-plan.md)、§1.2 的 R9.5 SQL ledger 与 R9.7/R10 交接 | 有限代表场景、实际证据、成本缺口与已批准 SQL 边界；按当前方法契约重新判断证据适用性 |
+| [测试分工与入口](../../testing/runtime-coverage.md) | 按行为归属复用测试；区分 daily、Runtime、release 和显式多源安装门禁 |
 | [marivo-release](../../../.agents/skills/marivo-release/SKILL.md)、当前 [Makefile](../../../Makefile)与[发布 CI](../../../.github/workflows/release.yml) | 发布准备、构建、安装与发布操作的门禁和授权边界 |
 
 本文只安排已有目标的闭合，不新增分析能力、自动 planner、第七种后端、兼容 alias、旧状态
 迁移或另一套 registry/Runtime。发现产品缺口时修复其现有 owner，并重验受影响范围；
 需要新契约的事项先回到 owning spec 接受，不用临时 wrapper 隐藏问题。
 
+### 1.2 历史证据与当前验收索引
+
+清理前可读取版本为 `642271bf351c686a16b6d45151d4e896bb20c972`，即
+`ccbed62962` 的父提交。下列路径均相对于仓库根，读取形式为
+`git show 642271bf351c686a16b6d45151d4e896bb20c972:<path>`：
+
+| 历史记录 | path |
+| --- | --- |
+| R9.5 SQL owner | `docs/superpowers/specs/2026-10-06-marivo-r95-sql-ledger.md` |
+| R9.7 审计 | `docs/superpowers/specs/2026-10-06-marivo-r97-completion-audit.md` |
+| R10 交接 | `docs/superpowers/specs/2026-10-06-marivo-r10-handoff.md` |
+| R10.1 验证 | `docs/superpowers/specs/2026-10-06-marivo-r101-validation.md` |
+| 原主验收 | `docs/superpowers/specs/2026-09-26-marivo-full-refactor-acceptance.md` |
+
+这些记录只证明原候选与原范围；引用的附件须逐项确认可取得。已丢弃的本地文件登记为
+不可取得，不因文字记录仍在就视为可复核证据；影响必需出口时登记缺口。
+
+R10 实施时创建并维护新的精简索引
+`docs/superpowers/specs/2026-10-07-marivo-r10-acceptance-index.md`，本次计划修订不创建
+验收结果。索引按 C01–C18、A01–A13 与独立风险关联当前 owner、候选、证据位置和状态，
+引用历史 `commit:path`，不恢复已删除的阶段清单、临时脚本或全排列台账。首次增量收口时
+建立索引，后续各包补充，R10.5 完成审计；历史分母、范围修订和未满足义务保持可追溯。
+
+### 1.3 本次修订基线与增量范围
+
+本次读取的已提交基线为 `panda@e25ba4a19aa8a0d6bd30524719c8daabc2b0a2a9`。
+R10.1 原候选的完成状态保留；以下已提交变化需要纳入当前候选的影响分析和增量收口，
+不能直接继承旧候选的安装包、后端或 Agent 资格。
+
+| 已提交变化 | R10 的承接要求 |
+| --- | --- |
+| 图捕获复用、消费者准入扩展、静态观察契约复用及顺序局部绑定 | 以当前消费者规则、公开声明与真实可组合路径更新能力映射；复用未受影响证据，补验新增组合与拒绝边界 |
+| fixed 读取解耦（`c73356872c`）、Store 8 本地信任（`94203b7c27`） | 当前为 Store 8、descriptor v3、continuation v4；分开验收已提交读取与新执行校验，退出旧防篡改和 revalidate 要求 |
+| native numeric（`94813fe387`） | 按当前方法版本、实际 component/result carrier 和精度契约重绑 oracle；普通 mean/weighted mean/ratio/linear 及其 rollup 使用 implementation contract v5 |
+| A1 前提检查、A2 fixed selection、A3 原量归约与 direct-key L8 | 复用各自有限局部证据，补当前安装旅程中的状态、逻辑身份、共享/物化边界和失败原子性；不扩成新后端或全链路成本资格 |
+| 渐进 Help（`9933cc3784`）、analysis skill（`329dcc4cc4`）、semantic guidance（`e25ba4a19a`） | 静态 Help、当前状态、错误修复与工作流判断分别归其 owner；安装后发现路径与真实 Agent 能力映射同步更新 |
+
+局部优化证据见 [A1](2026-10-07-analysis-a1-acceptance.md)、
+[A2](2026-10-07-analysis-a2-acceptance.md)、[A3](2026-10-07-analysis-a3-acceptance.md)；
+Help 字符/页面预算见[上下文验收](../../testing/analysis-help-context.md)。这些记录的范围和
+未验证项独立保留，字符/页面减少不等于真实 Agent 效率或成功率提升。
+
+修订时工作区另有未提交的业务数据展示及相关编译/执行改动，包括
+`show(n, max_output_bytes)`、同 grid 的 NoTime category 与 timed numeric 的 fixed
+rank/table 组合，以及本地展示检查的执行证据绑定。这些只列为候选纳入项，尚未冻结或
+由本文验收。纳入时先确定最终 owning spec、diff 与新增文件摘要，再验证预算/省略、
+Cell 与精度披露、身份脱敏、无来源读取，以及组合准入、检查归属和失败边界。若未纳入，
+候选清单明确排除；后续变化同样按影响更新，不能将当前工作区等同于上述 HEAD。
+
 ## 2. 工作包与实施顺序
 
 主顺序为 `R10.1 → R10.2 → R10.3 → R10.4 → R10.5`。独立 oracle、证据索引和 Agent
 业务题可提前准备；安装包与 Agent 的正式验收必须绑定已收口的同一候选。每包先列明
 发现的缺口，再做最小修复；前序已有成功证据按实际影响复用，不为改写记录重复业务执行。
+本轮从 R10.1 增量收口进入，不重做已关闭的旧链退役。先将 §1.3 的变更映射到受影响
+能力、证据和缺口，再固定 R10.2 候选；未提交改动不得绕过这一步进入正式包或 Agent 验收。
 
 | 工作包 | 主要交付 | 出口 |
 | --- | --- | --- |
@@ -70,6 +122,8 @@ R10 默认不重启用户已明确跳过的成本采集，不机械展开 9,109 
 
 **主要工作：**
 
+- 按 §1.3 对原 R10.1 候选做增量核对，建立 §1.2 当前索引。为每项变更记录沿用、
+  被新契约取代或待补验证的证据，按当前 Store、数值、消费者与披露 owner 收口。
 - 以能力/迁移台账反查 exports、imports、调用、方法注册、codec/cache、安装包内容和
   实际发现入口；删除仍可达的被替换家族、转发 alias、SQL 模板及仅维护旧实现的测试。
   保留独立 oracle、有效业务反例及历史证据，不按文件名或 `Dataset` 字样批量删除。
@@ -78,6 +132,9 @@ R10 默认不重启用户已明确跳过的成本采集，不机械展开 9,109 
 - 将公共具体类型、docstrings、原生 Help registry、渐进导航和预算、repr/show/contract、
   expected/received/repair、CLI bootstrap 与 latest 中英文示例作为一个变更同步。
   独立验证 exports、可达性、漂移、预算、typing 正反例和可运行示例。
+- 核对顺序局部绑定的完整 decorator 示例、当前消费者组合与拒绝路径、渐进 Help
+  导航、readiness/source-health 的证据边界，以及已批准 skills 的问题驱动流程。
+  §1.3 的展示改动若纳入，连同其编译/执行变化一并验证，不只检查渲染快照。
 - 核对已批准 provider、MySQL/ClickHouse 自有查询控制、Store SQL 与 `md.raw_sql`
   终端用途。未批准生产 SQL 必须为零；批准通道保持精确用途，不恢复 SQL 文本分类器、
   编译后改写或执行失败后换路线。
@@ -103,9 +160,14 @@ R10 默认不重启用户已明确跳过的成本采集，不机械展开 9,109 
 - 验证基础安装及各所选 backend extra 的导入/执行与缺驱动结构化错误；未选可选依赖
   不得被隐式导入。核对安装脚本、CLI bootstrap、Python Help、packaged skills 及
   运行所需资源在安装后可用。
-- 复用并扩展 `tests/test_analysis_runtime_wheel.py`、安装脚本测试和
-  `tests/test_installed_multisource.py`。已有 J1–J4/R5–R8 门禁是起点；按 R9 交接补入
-  当前适用见证，不能将旧门禁的成功直接登记为完整 R10 安装资格。
+- 复用 `tests/packaging/test_wheel.py`、`tests/packaging/test_installer.py`、
+  `tests/packaging/test_installer_uv.py` 与 `tests/packaging/test_installed_sources.py`。
+  按当前测试分工，功能矩阵留在行为 owner；wheel 门禁证明安装边界与代表性公开旅程，
+  只补 A01–A13 和当前变更的具体安装组合缺口，不恢复整套开发测试重放。已有门禁
+  成功不能直接登记为完整 R10 安装资格。
+- 安装测试默认读取 `dist/pypi`；使用 `MARIVO_TEST_WHEEL_DIR` 时将同一已构建候选
+  放入隔离目录并记录 hash。测试会对照 checkout 的产品/资源字节，运行时须固定对应
+  checkout。`make release-test` 会重新构建；如产物 hash 改变，按新候选规则处理。
 
 **交付与出口：**一个候选包身份及隔离环境清单，包内容、依赖、安装/CLI 和来源检查
 全部通过。后续记录引用同一个 wheel hash；任何产品、包资源或依赖变化都产生新候选，
@@ -118,18 +180,35 @@ R10 默认不重启用户已明确跳过的成本采集，不机械展开 9,109 
 **主要工作：**
 
 - 每条旅程具有正式 datasource/semantic 项目、独立脚本、独立 oracle 与新进程恢复。
-  复用 R9 交接列出的 source、方法、producer/recovery、SQL 和统计消费者，补足组合缺口；
-  预期值来自独立业务定义，不能从产品 registry 或相同算法实现复制。
+  将 R9 交接列出的 source、方法、producer/recovery、SQL 和统计消费者映射到当前
+  版本、准入范围及物理形状，再决定证据复用与组合补验。预期值来自独立业务定义和
+  当前方法精度契约，不能从产品 registry 或相同算法实现复制。
+- 普通 native numeric 按实际输入、保留分量与输出 carrier 验证；接受规范允许的原生
+  舍入及 source/fixed 新续算差异，不套用旧的统一误差界、精确有理数收尾或 HALF_EVEN。
+  cold 读取必须保留已存 primary，不重算。Duration、时间折叠、归因、当前行统计及
+  其他统计方法仍按各自严格契约验收；下游误差界针对表示后的 Cell，不为原始聚合
+  误差背书。非有限值、溢出、非法 Cell、缺失必需状态与真实零分母策略保持独立断言，
+  不以“原生精度”放宽。独立 oracle 同时记录数学参照、表示类型与允许差异的依据。
 - 同时检查数值、完整键域、多重性、四 Cell、空组、定义/单位/时间角色、原始方法状态及
   可执行 K。保留 J1–J4、两种归约差异、L1/L6/L8/L9 等已有独立反例，不只核对最终数字。
 - 分别验证来源再次求值、图内共享、fixed-only 续算、exact hit、断源新进程恢复及
-  损坏/缺失部件、跨 Session、混合输入、资源/取消和原子失败。恢复不能重查来源、重放
-  历史或重新拟合；Artifact 不进入 DuckDB。
+  缺失 payload、不可解码输入、跨 Session、混合输入、资源/取消和原子失败。遵守 Store 8
+  本地信任边界，不要求已提交内容的字节/hash 防篡改、私有编译对象深度突变检测或
+  `session.revalidate`。生产及新续算仍验证其必需输入、方法状态和输出。
+- 从新项目产出 Store 8 后执行断源恢复；读取不能依赖原 producer registry/planner，
+  不能重查来源、重放历史或重新拟合，Artifact 不进入 DuckDB。Store 7 及更早状态应
+  无迁移、无修改地拒绝，保留旧目录并给出使用新项目的修复。读取已存 Findings 不要求
+  打开结果 payload；实际值读取/执行缺文件仍须给出可操作错误。
+- 将 A1–A3 的独立风险接入受影响旅程：前提检查实际归属、selection/归约融合的共享与
+  显式物化边界、完整原量分量与逻辑身份、deadline/取消及失败不部分发布。保留允许的
+  浮点重组差异，不能要求所有融合前后结果逐位相同；局部工作量或耗时证据不授予
+  整体性能、远程后端或安装包资格，也不重启已跳过的 R9 成本采集。
 - 按 R9 有限方法族/关键风险场景补足安装后见证，保留后端、表拓扑、数值/时间形状、
   路线和 producer 身份。六后端技术资格、共享核与特殊物理差异分别绑定，不要求每条
   A 旅程机械重复于所有后端，也不把一个 producer 的恢复授予其他 producer。
-- 已选择服务就绪后，使用 `MARIVO_INSTALLED_MULTISOURCE_TEST=1` 及对应 backend
-  opt-in 执行 `make installed-multisource-test`。Trino 与 ClickHouse 服务阶段串行互斥；
+- 已选择服务就绪后，使用 `MARIVO_INSTALLED_MULTISOURCE_TEST=1`、
+  `MARIVO_INSTALLED_BACKENDS` 及对应 backend opt-in 执行
+  `make installed-multisource-test`。Trino 与 ClickHouse 服务阶段串行互斥；
   服务不可用、未选节点和跳过测试单列状态。
 
 **交付与出口：**A01–A13 每条有脚本/oracle/恢复与能力映射，必需成功和拒绝均有实测
@@ -144,8 +223,14 @@ R10 默认不重启用户已明确跳过的成本采集，不机械展开 9,109 
 
 - 从 A01–A13 准备业务题和能力覆盖映射；一题可以覆盖多个簇，以覆盖全部公开能力为
   出口，不机械展开模型×题目×数据库。Agent 可使用已资格后端，其他后端由技术矩阵负责。
-- 每次使用隔离项目/会话及 R10.2 候选包，只提供业务问题、正式声明、安装环境与 Help
-  起点。不给 oracle、预写答案、私有代码或可复用的正确执行脚本。
+- 每次使用隔离项目/会话及 R10.2 候选包，提供业务问题、正式声明、安装环境、公开 Help
+  起点及候选包中正式交付的 skills；记录实际可见内容，不另给能力到调用的答案映射。
+  不给 oracle、预写答案、私有代码或可复用的正确执行脚本。
+- 从当前公开面重建能力覆盖映射，覆盖渐进发现、按业务问题选方法、必要的语义声明
+  与顺序局部绑定、状态读取、机械续算和具体错误修复。区分静态加载、readiness 与
+  source-health 的结论；读数时遵守 native numeric 与保留状态边界。若纳入展示改动，
+  验证 Agent 能识别省略/预算、完整结果与来源覆盖的区别，并走实际可用的后续读取入口。
+  Help 字符/页面预算测试仍由技术门禁负责，其通过不替代这些真实轨迹。
 - 记录实际模型、工具、完整提示、wheel/依赖、session、操作轨迹、结果与评价。评估由
   独立 oracle 及语义检查完成，覆盖公开发现、续算、错误修复和边界判断。
 - 正确数字但使用旧入口、手工 pandas 重写必需 DSL、误用时间域或将相关/归因当因果，
@@ -160,9 +245,11 @@ R10 默认不重启用户已明确跳过的成本采集，不机械展开 9,109 
 
 **主要工作：**
 
-- 在验收主记录 (historical record in Git history)中闭合 C01–C18、
+- 在 §1.2 指定的当前验收索引中闭合 C01–C18、
   方法义务、A01–A13、旧链退出、SQL owner、公共披露、后端/资源、包和 Agent 维度。
-  采用 R9 接受的有限代表场景与后续实际反例，保留历史分母和范围修订依据。
+  采用 R9 接受的有限代表场景与后续实际反例，保留历史分母和范围修订依据；按现行
+  owning spec 标明已取代的旧契约，不以不再适用的防篡改或数值义务阻塞当前出口。
+  这类契约替代不豁免未受影响的历史缺口，也不把旧方法/旧 Store 的资格转授当前候选。
 - 最终执行 `make check-agent`、相关 Runtime、API/site、包与安装门禁；发布准备时按
   release 流程执行 `make release-check`。真实多源安装门禁独立补足，不能因
   `release-check` 成功就认为其 opt-in 服务或 Agent 已执行。
@@ -189,9 +276,10 @@ R10 默认不重启用户已明确跳过的成本采集，不机械展开 9,109 
 | --- | --- |
 | 受影响 Python/测试 | `make test TESTS='...'`、`make runtime-test TESTS='...'`、`make typecheck TYPECHECK_TARGETS='...'`、`make lint-agent LINT_TARGETS='...'` |
 | 广域工程与 API | `make check-agent`；独立 API 构建使用 `make docs-api` |
+| 增量风险与门禁分工 | 以 `docs/testing/runtime-coverage.md` 的当前行为 owner 选窄门禁；Runtime 与 release 标记分别执行，文件路径本身不覆盖默认排除规则 |
 | latest 中英文文档 | 在 `site/` 执行 `npm run verify:content` 与 `npm run build` |
-| 构建与包内容 | `make pypi-build pypi-check`，隔离安装来源/依赖及公开旅程 |
-| 安装后多源 | 服务就绪、所选 opt-in 和同一候选 wheel 下执行 `make installed-multisource-test` |
+| 构建与包内容 | `make pypi-build pypi-check`；冻结候选后用 `.venv/bin/pytest -n 0 -m release tests/packaging/test_installer.py tests/packaging/test_installer_uv.py tests/packaging/test_wheel.py` 验证安装，绑定实际 wheel hash |
+| 安装后多源 | 服务就绪，设置 `MARIVO_INSTALLED_MULTISOURCE_TEST=1`、`MARIVO_INSTALLED_BACKENDS` 与所需 backend opt-in，使用同一候选 wheel 执行 `make installed-multisource-test` |
 | 最终发布准备 | 按当前 release 流程执行 `make release-check`，另绑定多源安装及真实 Agent |
 
 最终逐项回答：C01–C18 是否闭合；产品是否只剩当前统一链；生产读取是否全部属于 Ibis
