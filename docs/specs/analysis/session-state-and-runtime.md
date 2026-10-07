@@ -828,6 +828,11 @@ add a stage, or promote rollup, share or attribution capability. Template inspec
 and structural hashing use per-call memoization; there is no cross-run value cache,
 history lookup or recovery from the current Semantic catalog.
 
+Within one fixed display graph, views of the same exact Artifact receipts share
+one isolated definition closure for executable views and retained metadata.
+Different receipt sets remain isolated;
+sharing does not merge executions or change definition fingerprints.
+
 The full persisted continuation remains bounded by 256 KiB and expanded definition
 JSON by 4 MiB. Additional limits are 4,096 unique nodes, 16,384 input/source/retention
 references (plus the root reference), and 128 nodes along any definition path. The encoder also

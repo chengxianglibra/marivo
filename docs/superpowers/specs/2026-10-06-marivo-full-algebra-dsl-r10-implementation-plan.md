@@ -9,9 +9,11 @@ Date: 2026-10-06
 Revised: 2026-10-07
 
 Status: R10.1 scoped implementation and validation complete for `642271bf35`;
-incremental closure for the current candidate is pending. R10.2-R10.5 remain pending.
-Historical R10.1 evidence is located in §1.2. This revision does not establish
-installed-package, real-Agent or release acceptance for the current candidate.
+required current incremental closure and bounded R10.2 installation acceptance are
+complete. See the [current acceptance index](2026-10-07-marivo-r10-acceptance-index.md)
+for the frozen candidate, dependency constraints, passed exits and failed baseline
+History handoff. R10.3-R10.5 remain pending. Historical R10.1 evidence is located
+in §1.2; this result grants no complete-journey, real-Agent or release acceptance.
 
 ## 1. 目标与前置交接
 

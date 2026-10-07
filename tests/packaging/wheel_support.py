@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import importlib.metadata
 import json
 import os
 import shutil
@@ -18,6 +17,8 @@ from tests.support.json import Json, read
 from tests.support.paths import PROJECT_ROOT
 
 PROBE_MODULES = (
+    "tests.packaging.boundary_probe",
+    "tests.packaging.display_journey",
     "tests.packaging.wheel_probe",
     "tests.packaging.source_probe",
     "tests.analysis.statistics.recovery_worker",
@@ -74,6 +75,7 @@ class InstalledWheel:
     environment: dict[str, str]
     wheel: Path
     archives: dict[str, str | int]
+    extras: tuple[str, ...] = ("duckdb",)
     commands: list[dict[str, Json]] = field(default_factory=list)
 
     @property
@@ -128,7 +130,7 @@ class InstalledWheel:
         return read(report)
 
 
-def prepare_wheel(work: Path) -> InstalledWheel:
+def prepare_wheel(work: Path, *, extras: tuple[str, ...] = ("duckdb",)) -> InstalledWheel:
     """Validate archives, stage probes and install one exact candidate wheel."""
     directory = Path(os.environ.get("MARIVO_TEST_WHEEL_DIR", str(PROJECT_ROOT / "dist/pypi")))
     wheels = tuple(directory.glob("marivo-*.whl"))
@@ -150,20 +152,15 @@ def prepare_wheel(work: Path) -> InstalledWheel:
         MARIVO_WHEEL_SHA256=str(archives["wheel_sha256"]),
     )
     interpreter = work / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    candidate = InstalledWheel(work, interpreter, environment, wheel, archives)
+    candidate = InstalledWheel(work, interpreter, environment, wheel, archives, extras)
     (candidate.reports / "archives.json").write_text(json.dumps(archives, sort_keys=True))
-    candidate.run("create-venv", [sys.executable, "-m", "venv", str(work / ".venv")])
+    python = os.environ.get("MARIVO_TEST_PYTHON", sys.executable)
+    candidate.run("create-venv", [python, "-m", "venv", str(work / ".venv")])
+    candidate.run("bootstrap-pip", [str(interpreter), "-m", "pip", "install", "--upgrade", "pip"])
     constraints = work / "constraints.txt"
-    constraints.write_text(
-        "\n".join(
-            sorted(
-                f"{item.metadata['Name']}=={item.version}"
-                for item in importlib.metadata.distributions()
-                if item.metadata["Name"].lower() != "marivo"
-            )
-        )
-        + "\n"
-    )
+    supplied_constraints = os.environ.get("MARIVO_TEST_CONSTRAINTS")
+    constraint_args = ["--constraint", supplied_constraints] if supplied_constraints else []
+    package = str(wheel) + ("[" + ",".join(extras) + "]" if extras else "")
     candidate.run(
         "install",
         [
@@ -172,14 +169,16 @@ def prepare_wheel(work: Path) -> InstalledWheel:
             "pip",
             "install",
             "--disable-pip-version-check",
-            "--constraint",
-            str(constraints),
-            f"{wheel}[duckdb]",
+            *constraint_args,
+            package,
             "pytest",
         ],
     )
     candidate.run("dependency-check", [str(interpreter), "-m", "pip", "check"])
     candidate.run("dependencies", [str(interpreter), "-m", "pip", "list", "--format=json"])
+    constraints.write_text(
+        candidate.run("freeze", [str(interpreter), "-m", "pip", "freeze", "--exclude", "marivo"])
+    )
     candidate.probe("installed-origin", "guard")
     candidate.probe("origin-hook", "install-hook")
     candidate.environment["MARIVO_INSTALLED_ORIGIN_DIR"] = str(candidate.reports / "origins")

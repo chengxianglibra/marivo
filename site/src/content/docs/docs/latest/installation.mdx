@@ -55,6 +55,10 @@ On Windows Bash shells, activate it with `source .venv/Scripts/activate`.
 | Trino | `uv pip install "marivo[trino]"` |
 | All packaged backends | `uv pip install "marivo[all]"` |
 
+The base package includes Arrow for semantic authoring and local Artifact reads;
+database drivers remain optional. PostgreSQL requires a native `libpq` library;
+MySQL requires its native client library and build prerequisites.
+
 Provider discovery does not import unselected drivers. If a selected driver is
 missing, `DatasourceConnectionError` names the backend extra to install in the
 active environment; retry the connection after installing it.

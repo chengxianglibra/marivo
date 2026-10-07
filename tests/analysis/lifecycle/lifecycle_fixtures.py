@@ -1,6 +1,6 @@
 """Governed Lifecycle projects for public and independent-process acceptance."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 import ibis
@@ -90,7 +90,7 @@ RECOVERY_PROFILES = tuple(
     if time["id"] == "T07" or key["id"] == "K33"
 )
 
-START = datetime(2026, 2, 1, tzinfo=UTC)
+START = datetime(2026, 2, 1, tzinfo=timezone.utc)
 END = START + timedelta(seconds=100)
 TRIGGERS = ("started", "paid", "pulse", "finished")
 

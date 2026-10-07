@@ -465,6 +465,31 @@ def installed_wheel(tmp_path_factory: pytest.TempPathFactory) -> InstalledWheel:
     return prepare_wheel(tmp_path_factory.mktemp("installed-wheel"))
 
 
+@pytest.fixture(
+    scope="session", params=("base", "duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
+)
+def installed_dependency_wheel(
+    request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+) -> InstalledWheel:
+    """Keep each extra's dependency graph in a separate noneditable environment."""
+    extra = str(request.param)
+    if extra in ("base", "duckdb"):
+        existing: object = request.getfixturevalue(
+            "installed_base_wheel" if extra == "base" else "installed_wheel"
+        )
+        assert isinstance(existing, InstalledWheel)
+        return existing
+    return prepare_wheel(
+        tmp_path_factory.mktemp("installed-" + extra), extras=() if extra == "base" else (extra,)
+    )
+
+
+@pytest.fixture(scope="session")
+def installed_base_wheel(tmp_path_factory: pytest.TempPathFactory) -> InstalledWheel:
+    """Reuse the core-only environment for isolation and real saved Artifact reads."""
+    return prepare_wheel(tmp_path_factory.mktemp("installed-base"), extras=())
+
+
 @pytest.fixture(scope="session")
 def installed_multisource_wheel(installed_wheel: InstalledWheel) -> InstalledWheel:
     """Add native drivers only for explicitly opted-in installed-source checks."""

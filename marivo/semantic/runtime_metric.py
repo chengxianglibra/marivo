@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypeAlias, TypedDict, cast
+from typing import Any, Literal, TypeAlias, cast
+
+from typing_extensions import TypedDict
 
 from marivo.refs import (
     FieldKind,

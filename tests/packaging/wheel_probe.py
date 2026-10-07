@@ -19,7 +19,9 @@ def assert_installed_origin() -> dict[str, object]:
     import marivo
 
     site = Path(sysconfig.get_path("purelib")).resolve()
-    assert site.is_relative_to(Path(sys.prefix)), "expected an isolated virtual environment"
+    assert site.is_relative_to(Path(sys.prefix).resolve()), (
+        "expected an isolated virtual environment"
+    )
     package = site / "marivo"
     assert Path(marivo.__file__).resolve() == package / "__init__.py", "foreign Marivo import"
     origins: dict[str, str] = {}
@@ -42,7 +44,13 @@ def assert_installed_origin() -> dict[str, object]:
     )
     direct = json.loads(distribution.read_text("direct_url.json") or "{}")
     assert "archive_info" in direct and "dir_info" not in direct, direct
-    assert direct["archive_info"]["hashes"]["sha256"] == os.environ["MARIVO_WHEEL_SHA256"]
+    archive = direct["archive_info"]
+    expected = os.environ["MARIVO_WHEEL_SHA256"]
+    assert "hash" in archive or "hashes" in archive, "candidate archive hash missing"
+    if "hash" in archive:
+        assert archive["hash"] == "sha256=" + expected, "candidate archive hash mismatch"
+    if "hashes" in archive:
+        assert archive["hashes"].get("sha256") == expected, "candidate archive hash mismatch"
     return {
         "python": sys.executable,
         "package": str(package),
@@ -94,7 +102,7 @@ def surface_snapshot() -> list[dict[str, object]]:
 
     exports = {entry.name: entry for provider in REGISTRY.providers for entry in provider.exports}
     result: list[dict[str, object]] = []
-    public_names: object = mv.__all__
+    public_names: object = getattr(mv, "__all__", None)
     assert isinstance(public_names, list)
     names = tuple(str(name) for name in public_names)
     assert list(names) == public_names

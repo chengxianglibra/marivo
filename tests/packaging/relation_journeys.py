@@ -737,10 +737,12 @@ def _produce(
         saved["all"] = targets.cohort(
             values.value.gt(0), rule=mv.all_instances(empty=mv.empty_opportunity.false())
         ).execute()
-        with pytest.raises(AnalysisError, match=r"opportunity|keys"):
+        with pytest.raises(AnalysisError) as incomplete:
             targets.cohort(
                 values.where(values.value.gt(0)).value.gt(0), rule=mv.any_instance()
             ).execute()
+        assert incomplete.value.expected == "complete_coverage"
+        assert incomplete.value.location == "dataset.graph_check"
     return saved
 
 

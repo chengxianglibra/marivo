@@ -13,6 +13,29 @@ from tests.support.paths import PROJECT_ROOT
 
 
 @pytest.mark.runtime
+@pytest.mark.parametrize("parquet", (False, True))
+def test_current_row_mean_of_integer_counts(
+    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    if parquet:
+        export_dsl_parquet_models(case, case.root)
+        ms.load(workspace_dir=case.root)
+    members = case.session.members(ms.ref.entity("sales.customer"))
+    counts = members.observe(
+        ms.ref.metric("sales.order_count"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+    )
+    facts = analysis_dsl_rows("j2")
+    expected = sum(str(order[4]).startswith("2026-08") for order in facts.orders) / len(
+        facts.customers
+    )
+    mean = counts.summarize(mv.mean()).execute()
+    assert mean.to_pandas().value.tolist() == [expected]
+
+
+@pytest.mark.runtime
 def test_business_display_reads_saved_rows_and_preserves_state_summary(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
