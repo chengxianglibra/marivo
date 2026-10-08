@@ -123,6 +123,7 @@ truth.where(truth.value.eq(True)).members().observe(
     ms.ref.metric("commerce.revenue"),
     during=window,
     via=ms.ref.relationship("commerce.participant"),
+    by=(ms.ref.entity("commerce.subjects"),),
 ).execute().show()
 
 retained_intervals = intervals.execute()

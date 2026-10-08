@@ -28,6 +28,7 @@ def test_row_methods_source_and_fixed(
         ms.ref.metric(f"{names.domain}.{names.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
+        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
     descriptor = {"min": mv.min(), "max": mv.max(), "count_defined": mv.count_defined()}[method]
@@ -65,7 +66,11 @@ def test_complete_coordinate_tuple_rollup(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-        coordinates=(channel, status),
+        by=(
+            ms.ref.entity(f"{n.domain}.{n.customer}"),
+            channel,
+            status,
+        ),
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
     result = (observed.execute() if fixed else observed).group_by(channel, status).execute()
@@ -103,6 +108,7 @@ def test_empty_numeric_row_state(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
+        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
     for current in (observed, observed.execute()):
@@ -129,6 +135,7 @@ def test_explicit_classification_rollup_and_current_rows(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
+        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
     current = observed.execute() if fixed else observed
@@ -157,6 +164,7 @@ def test_explicit_targets_preserve_empty_row_groups(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
+        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
     current = observed.execute() if fixed else observed
@@ -208,6 +216,7 @@ def test_original_mean_merges_support_not_finished_values(
         ms.ref.metric("sales.mean_amount"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=(ms.ref.relationship("sales.line_order"), ms.ref.relationship("sales.order_buyer")),
+        by=(ms.ref.entity("sales.customer"),),
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
     fixed = observed.execute()
@@ -230,7 +239,11 @@ def test_partial_reduction_matches_components_and_preserves_keys(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        coordinates=(channel, status),
+        by=(
+            customer,
+            channel,
+            status,
+        ),
     )
     current = observed.execute() if fixed else observed
     direct = current.rollup().execute()
@@ -270,6 +283,7 @@ def test_row_statistics_grouped_merge_preserves_empty_state_and_identity(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     grouped = values.group_by(region).summarize(method)
     direct = values.summarize(method).execute()
@@ -297,6 +311,7 @@ def test_cold_grouped_statistic_recovers_without_models_source_or_duckdb(retaine
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     fixed = observed.group_by(region).summarize(mv.mean()).execute()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
@@ -338,10 +353,12 @@ def test_no_key_grouping_is_singleton(retained_coordinates_case):
     assert fixed._node.root.signature.domain.kind == "singleton"
     assert len(fixed.to_pandas()) == 1
     result = (
-        grouped.observe(
+        case.session.members(ms.ref.entity("sales.customer"))
+        .observe(
             ms.ref.metric("sales.revenue"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales.order_buyer"),
+            by=(),
         )
         .rollup()
         .execute()
@@ -381,7 +398,11 @@ def test_full_tuple_union_retains_denominator_only_and_cancelled_coordinates(
         expression,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        coordinates=(channel, status),
+        by=(
+            ms.ref.entity("sales.customer"),
+            channel,
+            status,
+        ),
     )
     for current in (observed, observed.execute()):
         result = current.group_by(channel, status).rollup().execute()
@@ -447,6 +468,7 @@ def test_consumed_classification_must_cover_every_complete_key(retained_coordina
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     current = observed.execute() if fixed else observed
     category = east.execute() if fixed else east
@@ -475,7 +497,10 @@ def test_weighted_coordinates_merge_paired_components(
         ms.ref.metric("sales.weighted"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        coordinates=(channel,),
+        by=(
+            ms.ref.entity("sales.customer"),
+            channel,
+        ),
     )
     for current in (observed, observed.execute()):
         partial = current.group_by(channel).rollup().execute()
@@ -510,10 +535,14 @@ def test_combined_member_classifications_do_not_expand_facts(
     members = case.session.members(ms.ref.entity("sales.customer"))
     region = ms.ref.dimension("sales.customer.region")
     cohort = ms.ref.dimension("sales.customer.cohort")
-    grouped = members.group_by(region, cohort).observe(
+    grouped = members.observe(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(
+            region,
+            cohort,
+        ),
     )
     fixed = grouped.rollup().execute()
     assert len(fixed.to_pandas()) == 4
@@ -553,6 +582,7 @@ def test_invalid_classification_or_target_rejects(retained_coordinates_case, vio
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     target = (
         region.where(region.value.eq("east"))
@@ -627,6 +657,7 @@ def test_typed_integer_classification_and_explicit_singleton(retained_coordinate
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     target = members.group_by()
     current = values.execute() if fixed else values
@@ -654,6 +685,7 @@ def test_explicit_entity_targets_keep_complete_subject_mapping(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(customer,),
     )
     current = observed.execute() if fixed else observed
     targets = members.execute() if fixed else members
@@ -768,7 +800,10 @@ def test_review_foreign_fact_predicate_transports_source_bindings(
     members = case.session.members(ms.ref.entity("sales.customer"))
     window = mv.time_scope(start="2026-08-01", end="2026-09-01")
     revenue = members.observe(
-        ms.ref.metric("sales.revenue"), during=window, via=ms.ref.relationship("sales.order_buyer")
+        ms.ref.metric("sales.revenue"),
+        during=window,
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     lines = members.observe(
         ms.ref.metric("sales.line_revenue"),
@@ -782,6 +817,7 @@ def test_review_foreign_fact_predicate_transports_source_bindings(
                 ),
             )
         ),
+        by=(ms.ref.entity("sales.customer"),),
     )
     assert isinstance(revenue, mv.LogicalNumericRelation)
     assert isinstance(lines, mv.LogicalNumericRelation)
@@ -880,6 +916,7 @@ def test_review_fixed_group_statistics_keep_axes_and_current_rows(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
     grouped = observed.group_by(category, groups=category.group_by())

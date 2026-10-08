@@ -47,7 +47,7 @@ def test_local_file_declarations_are_closed_to_verified_methods() -> None:
         assert len(entries) == {
             "parts_transport": 4,
             "metric.sum_zero": 2,
-            "state_rollup.sum_zero": 4,
+            "state_rollup.sum_zero": 12,
             "deviation.zscore": 2,
             "deviation.read": 2,
         }.get(name, 0)
@@ -62,7 +62,11 @@ def test_local_file_declarations_are_closed_to_verified_methods() -> None:
                 else ScalarType("int64")
             )
             assert item.key.input_types == (input_type,)
-            assert item.key.input_domains == ("entity",)
+            assert (
+                item.key.input_domains in (("entity",), ("group",), ("singleton",))
+                if name == "state_rollup.sum_zero"
+                else item.key.input_domains == ("entity",)
+            )
             assert item.key.route in (("ibis",) if prior else ("ibis", "ibis_python"))
             assert item.key.shape.backend == "duckdb"
             assert item.key.shape.time in (
@@ -121,11 +125,14 @@ def test_file_construction_and_refusals_never_submit_business_rows(
         members = session.members(ms.ref.entity("sales.facts"))
         received: str | None = None
         if case_kind == "metadata":
-            members.observe(ms.ref.metric("sales.total"))
+            members.observe(ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),))
         else:
             with pytest.raises(AnalysisError) as caught:
                 members.observe(
-                    ms.ref.metric("sales.average" if case_kind == "integer-mean" else "sales.total")
+                    ms.ref.metric(
+                        "sales.average" if case_kind == "integer-mean" else "sales.total"
+                    ),
+                    by=(ms.ref.entity("sales.facts"),),
                 )
             error = caught.value
             assert error.expected == "an ordinary int64 sum-zero observation from local CSV/JSON"

@@ -223,14 +223,16 @@ changes = md.json(
 {/* example: source-bindings */}
 
 ```python
-with session.source_bindings({
-    ms.ref.entity("monitoring.api_events"): {
-        "start": "now-3600",
-        "end": "now",
-    },
-}):
+with session.source_bindings(
+    {
+        ms.ref.entity("monitoring.api_events"): {
+            "start": "now-3600",
+            "end": "now",
+        },
+    }
+):
     dataset = session.members(ms.ref.entity("monitoring.api_events")).observe(
-        ms.ref.metric("monitoring.pending_containers")
+        ms.ref.metric("monitoring.pending_containers"), by=(ms.ref.entity("monitoring.api_events"),)
     )
 ```
 

@@ -872,7 +872,7 @@ def test_corrupt_input_cannot_hit_or_admit(case, target):
 @pytest.mark.parametrize(
     "mutate",
     [
-        lambda p: p.update(schema="marivo.dataset_artifact_descriptor/v2"),
+        lambda p: p.update(schema="marivo.dataset_artifact_descriptor/v3"),
         lambda p: p.update(extra=True),
         lambda p: p.pop("parts"),
         lambda p: p["method_state"].update(contract_version=2),
@@ -1377,7 +1377,7 @@ def test_old_descriptor_rejects_without_migration(case):
 
     output = _execute(case)
     old = encode(output.descriptor, DESCRIPTOR).replace(
-        "artifact_descriptor/v3", "artifact_descriptor/v2"
+        "artifact_descriptor/v4", "artifact_descriptor/v3"
     )
     with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
         decode(old, DESCRIPTOR)

@@ -20,10 +20,15 @@ grid = mv.time_grid(
     during=mv.time_scope(start="2026-08-01", end="2026-11-01"),
     grain=mv.grain("month"),
 )
-monthly = session.members(ms.ref.entity("sales.customer")).each(grid).observe(
-    ms.ref.metric("sales.revenue"),
-    during=grid.window,
-    via=ms.ref.relationship("sales.order_buyer"),
+monthly = (
+    session.members(ms.ref.entity("sales.customer"))
+    .each(grid)
+    .observe(
+        ms.ref.metric("sales.revenue"),
+        during=grid.window,
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
+    )
 )
 fixed = monthly.execute()
 totals = fixed.group_by(grid).rollup().execute()
@@ -33,6 +38,23 @@ totals = fixed.group_by(grid).rollup().execute()
 固定 TimeScope 会在每个 cell 上重复同一区间，不能跨时间求和。
 粗化要求完整原始 cell 能放入目标桶，跨月周会拒绝。
 默认网格时区绑定到消费该网格的 Session。
+
+省略 `by` 时，每个月直接得到一个总体指标。逐成员逐月观测使用 `by=(member_entity,)`；`by` 只选择空间粒度，时间粒度由 `grid` 决定。
+
+{/* example: default-time-grain */}
+
+```python
+monthly_total = (
+    session.members(ms.ref.entity("sales.customer"))
+    .each(grid)
+    .observe(
+        ms.ref.metric("sales.revenue"),
+        during=grid.window,
+        via=ms.ref.relationship("sales.order_buyer"),
+    )
+)
+monthly_total.execute().show()
+```
 
 ## 选择版本与读取属性
 
@@ -58,14 +80,22 @@ selected.execute().show()
 from datetime import datetime, timezone
 
 accounts = session.members(
-    ms.ref.entity("sales.account"), at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+    ms.ref.entity("sales.account"),
+    at=datetime(2026, 8, 1, tzinfo=timezone.utc),
 )
 balances = accounts.each(grid).read(
-    ms.ref.measure("sales.account.balance"), at=grid.before_end,
+    ms.ref.measure("sales.account.balance"),
+    at=grid.before_end,
 )
-running = session.members(ms.ref.entity("sales.customer")).each(grid).observe(
-    ms.ref.metric("sales.running_revenue"), at=grid.end,
-    via=ms.ref.relationship("sales.order_buyer"),
+running = (
+    session.members(ms.ref.entity("sales.customer"))
+    .each(grid)
+    .observe(
+        ms.ref.metric("sales.running_revenue"),
+        at=grid.end,
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
+    )
 )
 ```
 
@@ -165,10 +195,14 @@ fiscal_mtd = ms.cumulative(
 )
 
 fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
-grid = mv.time_grid(during=mv.time_scope(start='2026-01-01', end='2026-03-01'), grain=fiscal_week)
-dataset = (session.members(ms.ref.entity("sales.events")).each(grid)
-    .observe(fiscal_mtd, at=grid.end)
-    .group_by(grid).rollup())
+grid = mv.time_grid(during=mv.time_scope(start="2026-01-01", end="2026-03-01"), grain=fiscal_week)
+dataset = (
+    session.members(ms.ref.entity("sales.events"))
+    .each(grid)
+    .observe(fiscal_mtd, at=grid.end, by=(ms.ref.entity("sales.events"),))
+    .group_by(grid)
+    .rollup()
+)
 ```
 {/* example: cumulative-trailing-anchor */}
 
@@ -198,12 +232,11 @@ revenue = members.observe(
     ms.ref.metric("sales.revenue"),
     during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
     via=ms.ref.relationship("sales.order_buyer"),
+    by=(ms.ref.entity("sales.customer"),),
 )
 defined = revenue.where(revenue.value.is_defined())
 defined.contract().show()
-selected = defined.where(
-    mv.all_of(defined.value.gt(0), region.value.eq("east"))
-)
+selected = defined.where(mv.all_of(defined.value.gt(0), region.value.eq("east")))
 ```
 {/* example: cohort-opportunities */}
 
@@ -216,6 +249,7 @@ activity = members.each(grid).observe(
     ms.ref.metric("sales.order_count"),
     during=grid.window,
     via=ms.ref.relationship("sales.order_buyer"),
+    by=(ms.ref.entity("sales.customer"),),
 )
 cohort = members.cohort(activity.value.gt(0), rule=mv.at_least(2))
 cohort.contract().show()
@@ -239,7 +273,10 @@ complete = mv.time_scope(
     end=datetime(2026, 8, 3, tzinfo=timezone.utc),
 )
 daily = members.each(grid).observe(
-    sum_metric, during=grid.window, complete_during=(complete,),
+    sum_metric,
+    during=grid.window,
+    complete_during=(complete,),
+    by=(ms.ref.entity("sales.customer"),),
 )
 ```
 
@@ -262,9 +299,16 @@ values = members.observe(
     ms.ref.metric("sales.revenue"),
     during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
     via=ms.ref.relationship("sales.order_buyer"),
+    by=(ms.ref.entity("sales.customer"),),
 )
 targets = all_regions.group_by()
-original = values.group_by(region, groups=targets).rollup().execute()
+original = members.observe(
+    ms.ref.metric("sales.revenue"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(region,),
+    groups=targets,
+).execute()
 row_mean = values.group_by(region, groups=targets).summarize(mv.mean()).execute()
 total_row_mean = row_mean.rollup().execute()
 selected_regions = all_regions.where(all_regions.value.eq("east"))
@@ -276,12 +320,16 @@ fixed_targets = selected_regions.group_by(groups=targets).execute()
 ```python
 mean_amount = ms.ref.metric("sales.mean_amount")
 channel = ms.ref.dimension("sales.orders.channel")
-means = session.members(ms.ref.entity("sales.customer")).observe(
-    mean_amount,
-    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-    via=ms.ref.relationship("sales.order_buyer"),
-    coordinates=(channel,),
-).group_by(channel).rollup().execute()
+means = (
+    session.members(ms.ref.entity("sales.customer"))
+    .observe(
+        mean_amount,
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(channel,),
+    )
+    .execute()
+)
 overall = means.rollup().execute()
 overall.show()
 ```
@@ -294,12 +342,12 @@ import marivo.semantic as ms
 window = mv.time_scope(start="2026-07-01", end="2026-07-03")
 orders = session.members(ms.ref.entity("sales.orders"))
 hours = mv.time_grid(during=window, grain=mv.grain("hour"))
-orders_by_hour = (orders.each(hours)
-    .observe(ms.ref.metric("sales.revenue"), during=hours.window)
-    .group_by(hours).rollup().execute())
+orders_by_hour = (
+    orders.each(hours).observe(ms.ref.metric("sales.revenue"), during=hours.window).execute()
+)
 # A new daily observation uses the same business window.
 days = mv.time_grid(during=window, grain=mv.grain("day"))
-orders.each(days).observe(ms.ref.metric("sales.revenue"), during=days.window).group_by(days).rollup().execute().show()
+orders.each(days).observe(ms.ref.metric("sales.revenue"), during=days.window).execute().show()
 ```
 
 均值示例另需 `sales.orders`、`sales.mean_amount`与 channel；小时示例需要该 orders

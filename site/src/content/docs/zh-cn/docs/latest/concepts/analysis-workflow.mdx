@@ -23,10 +23,16 @@ customers = session.members(ms.ref.entity("sales.customer"))
 revenue = ms.ref.metric("sales.revenue")
 buyer = ms.ref.relationship("sales.order_buyer")
 current = customers.observe(
-    revenue, during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=buyer
+    revenue,
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=buyer,
+    by=(ms.ref.entity("sales.customer"),),
 )
 baseline = customers.observe(
-    revenue, during=mv.time_scope(start="2026-07-01", end="2026-08-01"), via=buyer
+    revenue,
+    during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+    via=buyer,
+    by=(ms.ref.entity("sales.customer"),),
 )
 change = current.compare(baseline).execute()
 change.show()
@@ -65,8 +71,10 @@ customers = session.members(ms.ref.entity("sales.customer"))
 revenue = ms.ref.metric("sales.revenue")
 buyer = ms.ref.relationship("sales.order_buyer")
 august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-august_revenue = customers.observe(revenue, during=august, via=buyer)
-total = august_revenue.rollup().execute()
+august_revenue = customers.observe(
+    revenue, during=august, via=buyer, by=(ms.ref.entity("sales.customer"),)
+)
+total = customers.observe(revenue, during=august, via=buyer).execute()
 total.show()
 restored = session.artifact(total.state.artifact_ref)
 restored.contract().show()
@@ -82,6 +90,8 @@ recovered_observation.summarize(method=mv.count()).execute().show()
 显示均值的平均值并不等于原始加权均值。
 同一 Entity 根上的分组观察，不因分组而额外需要关系。
 
+普通 `observe` 直接计算总体指标。成员范围决定纳入哪些贡献；`by=(member_entity,)` 保留成员完整身份，`by=(dimension,)` 直接计算分组指标。`groups` 指定逻辑目标域并保留空组。`each(grid)` 始终保留全部时间桶，`by` 只选择空间粒度。归因需要分区时，先观测分区再做原始归并。原有 `coordinates` 参数和分组域的 `observe` 入口已移除。
+
 ## 按同一实体分组
 
 此销售模型使用 `sales.order` 和其已声明的类别维度 `channel`。
@@ -91,10 +101,11 @@ recovered_observation.summarize(method=mv.count()).execute().show()
 ```python
 orders = session.members(ms.ref.entity("sales.order"))
 channel = ms.ref.dimension("sales.order.channel")
-channel_revenue = orders.group_by(channel).observe(
+channel_revenue = orders.observe(
     ms.ref.metric("sales.revenue"),
     during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-).rollup().execute()
+    by=(channel,),
+).execute()
 channel_revenue.show()
 ```
 

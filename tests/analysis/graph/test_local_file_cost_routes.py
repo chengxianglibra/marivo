@@ -41,11 +41,12 @@ def test_file_cost_keys_are_exact_and_do_not_specialize_other_numeric_inputs() -
         QualificationKey(
             MethodKey("state_rollup.sum_zero"),
             (ScalarType("int64"),),
-            ("entity",),
+            (kind,),
             SourceShape("duckdb", form, form, time),
             route,
         )
         for form, route in source_routes
+        for kind in ("entity", "group", "singleton")
     }
     expected.update(
         QualificationKey(
@@ -76,7 +77,7 @@ def test_file_cost_keys_are_exact_and_do_not_specialize_other_numeric_inputs() -
         for typ in (ScalarType(other_scalar), DecimalType(20, 2)):
             requested = replace(entry.key, input_types=(typ,))
             assert builtin.specialize_numeric(entry, requested).key != requested
-        requested = replace(entry.key, input_domains=("group",))
+        requested = replace(entry.key, input_domains=("occurrence",))
         assert builtin.specialize_numeric(entry, requested).key != requested
     for name in (
         "deviation.mad",

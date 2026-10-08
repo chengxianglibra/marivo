@@ -215,6 +215,7 @@ def test_decimal_grid_tables_retain_current_keys_and_full_fit(
             ms.ref.metric("sales.revenue"),
             during=grid.window,
             via=ms.ref.relationship("sales." + case.names.buyer),
+            by=(ms.ref.entity("sales.customer"),),
         )
     )
     original = raw.execute()

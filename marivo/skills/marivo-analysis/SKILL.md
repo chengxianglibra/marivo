@@ -36,6 +36,12 @@ Before choosing an operation, establish the distinctions that affect the answer:
 - Distinguish statistics over current result rows from aggregation of an
   original Metric. They may describe different quantities; preserve grain,
   units, weighting, and additivity when choosing the intended calculation.
+- Choose output grain independently of member scope. Ordinary observation
+  computes the overall Metric; preserve member identity explicitly for member
+  screening, comparisons or association. A time grid retains its buckets while
+  spatial grouping chooses who shares each value. Preserve attribution
+  partitions before reducing them, and use current-row statistics only when the
+  question concerns the represented rows rather than the original Metric.
 - Establish the comparison baseline and comparability before interpreting a
   difference. Algebraic attribution and association do not establish cause;
   forecasts describe model outputs under assumptions, not observed outcomes.

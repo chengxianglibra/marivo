@@ -27,15 +27,15 @@ def test_runtime_aggregate_help_discloses_static_backend_check() -> None:
     assert "execution never substitutes the definition" in text
 
 
-def test_grouped_observation_help_discloses_optional_identity_route() -> None:
-    text, _, _ = render_help_text(mv.GroupedAnalysisDomain.observe)
-    focused, _, _ = render_help_text("analysis.dsl.GroupedAnalysisDomain.observe")
+def test_observation_help_discloses_grain_and_optional_identity_route() -> None:
+    text, _, _ = render_help_text(mv.LogicalAnalysisDomain.observe)
+    focused, _, _ = render_help_text("analysis.dsl.LogicalAnalysisDomain.observe")
 
     assert text == focused
     assert "via: 'Ref[RelationshipKind] | RootRoutes | None' = None" in text
     assert "omit or pass None for the same Entity root" in text
-    assert "Grouping does not require an additional relationship" in text
-    assert "result = relation.observe(metric)" in text
+    assert "by" in text and "Singleton" in text and "time" in text
+    assert "result = relation.observe(metric," in text
 
 
 def test_history_interpretation_help_uses_producer_contract() -> None:
@@ -183,8 +183,18 @@ def test_rendered_focused_examples_execute(
     members = case.session.members(ms.ref.entity("sales.customer"))
     buyer = ms.ref.relationship("sales.order_buyer")
     scope = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    values = members.observe(ms.ref.metric("sales.order_count"), during=scope, via=buyer)
-    revenue = members.observe(ms.ref.metric("sales.revenue"), during=scope, via=buyer)
+    values = members.observe(
+        ms.ref.metric("sales.order_count"),
+        during=scope,
+        via=buyer,
+        by=(ms.ref.entity("sales.customer"),),
+    )
+    revenue = members.observe(
+        ms.ref.metric("sales.revenue"),
+        during=scope,
+        via=buyer,
+        by=(ms.ref.entity("sales.customer"),),
+    )
     if method == "correlate":
         order_members = case.session.members(ms.ref.entity("sales.order"))
         revenue = order_members.read(ms.ref.measure("sales.order.profile_0"))
@@ -240,7 +250,9 @@ def test_rendered_forecast_example_executes(analysis_dsl_case_factory: DslCaseFa
     )
     daily = (
         members.each(grid)
-        .observe(ms.ref.metric("sales.total_0"), during=grid.window)
+        .observe(
+            ms.ref.metric("sales.total_0"), during=grid.window, by=(ms.ref.entity("sales.order"),)
+        )
         .group_by(grid)
         .rollup()
     )

@@ -114,6 +114,7 @@ def test_selected_difference_discloses_where_continuation(
             ms.ref.metric("sales.order_count"),
             during=mv.time_scope(start=start, end=end),
             via=ms.ref.relationship(f"sales.{case.names.buyer}"),
+            by=(ms.ref.entity("sales.customer"),),
         )
         for start, end in (("2026-08-01", "2026-09-01"), ("2026-07-01", "2026-08-01"))
     )
@@ -176,6 +177,7 @@ def test_public_multi_input_source_and_fixed(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"sales.{case.names.buyer}"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     twice = members.observe(
         mv.runtime_metric.linear(
@@ -183,6 +185,7 @@ def test_public_multi_input_source_and_fixed(
         ),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"sales.{case.names.buyer}"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     predicate = mv.all_of(amount.value.is_defined(), amount.value.gt(0), category.value.eq("east"))
     facts = analysis_dsl_rows("j2")
@@ -237,6 +240,7 @@ def test_tag_selection_precedes_numeric_consumption(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
+        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
     )
     current = values.execute() if fixed else values
     with pytest.raises(Exception, match=r"Defined|defined"):
@@ -321,6 +325,7 @@ def test_public_precise_field_comparisons(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
+        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
     )
     values = values.where(values.value.is_defined())
     facts = analysis_dsl_rows("j2")
@@ -375,6 +380,7 @@ def test_public_duration_field_comparison(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"sales.{case.names.buyer}"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     selected = values.where(values.value.is_defined())
     expected = {

@@ -55,9 +55,11 @@ import marivo.semantic as ms
 import marivo.analysis as mv
 
 session = mv.session.get_or_create("file-analysis", report_timezone="UTC")
-result = session.members(ms.ref.entity("sales.facts")).observe(
-    ms.ref.metric("sales.total")
-).execute()
+result = (
+    session.members(ms.ref.entity("sales.facts"))
+    .observe(ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),))
+    .execute()
+)
 result.show()
 ```
 

@@ -37,6 +37,7 @@ from marivo.analysis.core.rules import (
     AnchorRetention,
     AssociationFit,
     AssociationRead,
+    AttachCategory,
     AttributionDerive,
     CellDerive,
     DeviationFit,
@@ -251,8 +252,8 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
     )
     timed_shapes = shapes - {FixedShape(NoTime())}
     # A saved category can carry grid coordinates without reading timestamps.
-    # Display only pairs complete keys; it does not coerce its physical time.
-    fixed_display = (
+    # Display and classification pair complete keys without reading timestamps.
+    fixed_keyed = (
         classification.kind == "artifact"
         and len(shapes) == 2
         and FixedShape(NoTime()) in shapes
@@ -267,6 +268,10 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
                     leaf.signature.quantity is None
                     and all(
                         isinstance(node.parameters, (DisplayRank, DisplayTable))
+                        or (
+                            isinstance(node.parameters, AttachCategory)
+                            and node.inputs[1].node is leaf
+                        )
                         for node in nodes
                         if isinstance(node, MethodNode)
                         and any(edge.node is leaf for edge in node.inputs)
@@ -276,7 +281,7 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
             for leaf in classification.artifacts
         )
     )
-    if len(shapes) != 1 and not (fixed_cohort or fixed_display):
+    if len(shapes) != 1 and not (fixed_cohort or fixed_keyed):
         _refuse(
             "one exact input physical shape",
             "different time or source shapes",
@@ -287,7 +292,7 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
     shape = (
         FixedShape(NoTime())
         if fixed_cohort
-        else next(iter(timed_shapes if fixed_display else shapes))
+        else next(iter(timed_shapes if fixed_keyed else shapes))
     )
     methods = tuple(n for n in nodes if isinstance(n, MethodNode))
     if type(routes) is not tuple or any(type(r) is not RouteChoice for r in routes):

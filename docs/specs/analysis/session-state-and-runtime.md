@@ -125,12 +125,12 @@ Store, graph, descriptor, continuation and method-state versions are distinct:
 | Current protocol | Authority |
 | --- | --- |
 | SQLite Store user_version=8 | Session, Run, Artifact, resources, committed Evidence/Findings and execution-key uniqueness |
-| graph_dag/v2, `graph-dag-v2:` | Bounded frozen Source/Fixed/Method records, ordered edges, derivations and retained references |
+| graph_dag/v3, `graph-dag-v3:` | Bounded frozen Source/Fixed/Method records, ordered edges, derivations and retained references |
 | run_input/v1 | Closed source/fixed invocation inputs and selected plan identity |
-| artifact_descriptor/v3 | Signature, row/row-set and realized schema, producing Run/key, method bindings, completed records, receipts, state, continuation and saved time shape |
+| artifact_descriptor/v4 | Signature, row/row-set and realized schema, producing Run/key, method bindings, completed records, receipts, state, continuation and saved time shape |
 | receipt/v1 | Closed primary/part variants with complete key schema and local storage facts |
 | method_state/v1 | Kind-dispatched state, binding and method/contract versions |
-| continuation/v4 | Frozen graph and Entity/Dimension/semantic/method/input facts, without receipt or method-state proof digests |
+| continuation/v5 | Frozen graph and Entity/Dimension/semantic/method/input facts, without receipt or method-state proof digests |
 | execution_key/v2 | Same-Session execution identity, independent of Store generation |
 
 Complete graph protocol names have the `marivo.analysis.` prefix. Parts preserve

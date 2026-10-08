@@ -97,7 +97,7 @@ def computation_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.S
 def _aggregate(session: mv.Session, metric: str) -> mv.MaterializedNumericRelation:
     return (
         session.members(ms.ref.entity("sales.orders"))
-        .observe(ms.ref.metric(f"sales.{metric}"))
+        .observe(ms.ref.metric(f"sales.{metric}"), by=(ms.ref.entity("sales.orders"),))
         .rollup()
         .execute()
     )
@@ -148,7 +148,7 @@ def test_runtime_linear_over_int64_measures_stays_int64(
     )
     result = (
         computation_session.members(ms.ref.entity("sales.orders"))
-        .observe(expression)
+        .observe(expression, by=(ms.ref.entity("sales.orders"),))
         .rollup()
         .execute()
     )
@@ -371,7 +371,7 @@ def test_mysql_decimal_mean_stays_rejected_until_the_mean_equation_lands(
         session = _remote_project_session(tmp_path, monkeypatch, backend, table)
         logical = (
             session.members(ms.ref.entity("sales.orders"))
-            .observe(ms.ref.metric("sales.amount_mean"))
+            .observe(ms.ref.metric("sales.amount_mean"), by=(ms.ref.entity("sales.orders"),))
             .rollup()
         )
         with pytest.raises(AnalysisError):
@@ -457,7 +457,7 @@ def test_trino_computed_measure_decimal_sum_is_exact(
     # 15.75 * 3 + 4.25 * 1 = 51.50, exact through Trino DECIMAL arithmetic.
     rows = (
         trino_session.members(ms.ref.entity("sales.orders"))
-        .observe(ms.ref.metric("sales.net_total"))
+        .observe(ms.ref.metric("sales.net_total"), by=(ms.ref.entity("sales.orders"),))
         .rollup()
         .execute()
         .to_pandas()
@@ -473,7 +473,7 @@ def test_trino_decimal_mean_keeps_rejection(trino_session: mv.Session) -> None:
 
     logical = (
         trino_session.members(ms.ref.entity("sales.orders"))
-        .observe(ms.ref.metric("sales.amount_mean"))
+        .observe(ms.ref.metric("sales.amount_mean"), by=(ms.ref.entity("sales.orders"),))
         .rollup()
     )
     with pytest.raises(AnalysisError):
@@ -493,5 +493,5 @@ def test_computed_measure_graph_rejects_before_business_reads_and_run(
     monkeypatch.setattr(SourceSession, "batches", forbidden)
     members = computation_session.members(ms.ref.entity("sales.orders"))
     with pytest.raises(AnalysisError, match="Measure is not a frozen direct column"):
-        members.observe(ms.ref.metric(f"sales.{metric}"))
+        members.observe(ms.ref.metric(f"sales.{metric}"), by=(ms.ref.entity("sales.orders"),))
     assert computation_session.runs().items == ()

@@ -146,6 +146,11 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
 
     session = mv.session.get_or_create(name="external_layer_observe", report_timezone="UTC")
     metric = session.catalog.require(ms.ref.metric("finance.refunds_total")).ref
-    frame = session.members(ms.ref.entity("finance.refunds")).observe(metric).rollup().execute()
+    frame = (
+        session.members(ms.ref.entity("finance.refunds"))
+        .observe(metric, by=(ms.ref.entity("finance.refunds"),))
+        .rollup()
+        .execute()
+    )
 
     assert frame.to_pandas()["value"].tolist() == [150.0]

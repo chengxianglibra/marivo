@@ -25,6 +25,7 @@ def test_ratio_without_retained_coverage_rejects_with_typed_error(
             ms.ref.metric("sales.order_count"),
             during=grid.window,
             via=ms.ref.relationship("sales." + case.names.buyer),
+            by=(ms.ref.entity("sales.customer"),),
         )
         .execute()
     )
@@ -44,6 +45,7 @@ def test_public_runs(analysis_dsl_case_factory: DslCaseFactory) -> None:
         ms.ref.metric("sales.revenue"),
         during=grid.window,
         via=ms.ref.relationship("sales." + case.names.buyer),
+        by=(ms.ref.entity("sales.customer"),),
     )
     assert isinstance(daily, mv.LogicalNumericRelation)
     segments = daily.runs(where=daily.value.gt(-1))
@@ -170,12 +172,19 @@ def test_new_grid_after_subject_selection(
     scope = mv.time_scope(start="2026-08-01", end="2026-08-04")
     via = ms.ref.relationship("sales." + case.names.buyer)
     members = case.session.members(ms.ref.entity("sales.customer"))
-    values = members.observe(ms.ref.metric("sales.revenue"), during=scope, via=via)
+    values = members.observe(
+        ms.ref.metric("sales.revenue"), during=scope, via=via, by=(ms.ref.entity("sales.customer"),)
+    )
     assert isinstance(values, mv.LogicalNumericRelation)
     selected = values.where(values.value.is_defined()).members()
     assert isinstance(selected, mv.LogicalAnalysisDomain)
     grid = mv.time_grid(during=scope, grain=mv.grain("day"))
-    fresh = selected.each(grid).observe(ms.ref.metric("sales.revenue"), during=grid.window, via=via)
+    fresh = selected.each(grid).observe(
+        ms.ref.metric("sales.revenue"),
+        during=grid.window,
+        via=via,
+        by=(ms.ref.entity("sales.customer"),),
+    )
     assert isinstance(fresh, mv.LogicalNumericRelation)
     receiver = fresh.execute() if fixed else fresh
     result = receiver.runs(where=receiver.value.is_defined()).execute()

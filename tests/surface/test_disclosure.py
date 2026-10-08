@@ -108,7 +108,11 @@ def test_logical_metric_repr_is_bounded_and_has_identity(analysis_dsl_case_facto
     result = (
         analysis_dsl_case_factory("j2")
         .session.members(ms.ref.entity("sales.customer"))
-        .observe(ms.ref.metric("sales.revenue"), via=ms.ref.relationship("sales.order_buyer"))
+        .observe(
+            ms.ref.metric("sales.revenue"),
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
+        )
     )
     rendered = repr(result)
     assert "\n" not in rendered
@@ -133,7 +137,11 @@ def test_dataset_contract_render_is_silent(analysis_dsl_case_factory, capsys) ->
     result = (
         analysis_dsl_case_factory("j2")
         .session.members(ms.ref.entity("sales.customer"))
-        .observe(ms.ref.metric("sales.revenue"), via=ms.ref.relationship("sales.order_buyer"))
+        .observe(
+            ms.ref.metric("sales.revenue"),
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
+        )
         .contract()
     )
     assert result.actions
@@ -146,7 +154,11 @@ def test_dataset_contract_show_prints_render_plus_newline(
     result = (
         analysis_dsl_case_factory("j2")
         .session.members(ms.ref.entity("sales.customer"))
-        .observe(ms.ref.metric("sales.revenue"), via=ms.ref.relationship("sales.order_buyer"))
+        .observe(
+            ms.ref.metric("sales.revenue"),
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
+        )
         .contract()
     )
     assert result.show() is None

@@ -195,7 +195,7 @@ class EntityObservationTarget:
 @dataclass(frozen=True, slots=True)
 class GroupObservationTarget:
     domain: DomainSignature
-    field: TargetDimensionContract
+    coordinates: tuple[Coordinate, ...]
 
 
 ObservationTarget: TypeAlias = EntityObservationTarget | GroupObservationTarget
@@ -370,6 +370,7 @@ class OriginalRatio:
     quantity: ObservedQuantity
     numerator: Ref[MetricKind] | RuntimeMetricExpr
     denominator: Ref[MetricKind] | RuntimeMetricExpr
+    union_targets: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -381,6 +382,7 @@ class OccurrenceCombine:
     output_domain: DomainSignature
     pairing_check_id: CheckId | None = None
     numeric_check_id: CheckId | None = None
+    union_targets: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1689,24 +1691,35 @@ def _observe_metric(
             )
         retained: tuple[Part, ...] = (subject,)
     else:
-        field = params.target.field
-        expected_key = (Coordinate(subject.entity_ref, field.ref.path, "group"),)
+        keys = params.target.coordinates
+        available = (
+            *source.domain.instance_key,
+            *(
+                Coordinate(semantic_ref.entity(c.entity_ref.path), c.ref.path, "group")
+                for c in params.coordinates
+            ),
+        )
         if (
-            output_domain.kind != "group"
+            output_domain.kind != ("group" if keys else "singleton")
             or output_domain.binding != source.domain.binding
-            or output_domain.instance_key != expected_key
-            or output_domain.target_key != expected_key
-            or field.entity_ref.path != subject.entity_ref.path
-            or field.logical_type != "string"
-            or _fact("field_ownership", binding, field.ref.path) not in available_facts(source)
+            or output_domain.instance_key != keys
+            or output_domain.target_key != keys
+            or len(set(keys)) != len(keys)
+            or not set(keys) <= set(available)
+            or output_domain.time_grid != source.domain.time_grid
+            or any(c.role == "anchor" and c not in keys for c in source.domain.instance_key)
         ):
             reject(
-                "the bound string member Group projection",
+                "complete unique observation keys retaining the receiver's time grid",
                 repr(output_domain),
-                "Group by the exact member Dimension.",
+                "Choose bound member identities or admitted classification and contribution dimensions.",
                 "core.observe.target",
             )
-        retained = ()
+        retained = (
+            (replace(subject, source_key=keys, injective=set(keys) == set(subject.subject_key)),)
+            if set(subject.subject_key) <= set(keys)
+            else ()
+        )
     direct_only = aggregate_method in DIRECT_ONLY_AGGREGATES
     original = OriginalStatePart(
         binding,
@@ -1759,7 +1772,7 @@ def _observe_metric(
     )
     if coordinate_type.startswith("decimal("):
         coordinate_type = "decimal(38," + coordinate_type.split(",")[1]
-    for index, coordinate in enumerate(params.coordinates):
+    for coordinate in params.coordinates:
         if (
             coordinate.logical_type != "string"
             or coordinate.parse is not None
@@ -1776,25 +1789,34 @@ def _observe_metric(
                 "Use a qualified contribution Dimension.",
                 "core.observe.coordinates",
             )
-        if index == 0:
-            coordinate_parts = (
-                CoordinateStatePart(
-                    binding,
-                    quantity.definition_id,
-                    semantic_ref.dimension(coordinate.ref.path),
-                    semantic_ref.entity(coordinate.entity_ref.path),
-                    original.components,
-                    coordinate_type,
-                    "v1",
-                    tuple(
-                        Coordinate(semantic_ref.entity(c.entity_ref.path), c.ref.path, "group")
-                        for c in params.coordinates[1:]
-                    ),
-                    component_types=weighted_state_types(params.amount_type, params.weight_type)
-                    if isinstance(params, ObserveWeightedMean)
-                    else (),
+    retained_coordinates = tuple(
+        dict.fromkeys(
+            (
+                *(c for c in output_domain.instance_key if c.role == "group"),
+                *(
+                    Coordinate(semantic_ref.entity(c.entity_ref.path), c.ref.path, "group")
+                    for c in params.coordinates
                 ),
             )
+        )
+    )
+    if retained_coordinates and not direct_only and state_method != "fold":
+        retained_coordinate = retained_coordinates[0]
+        coordinate_parts = (
+            CoordinateStatePart(
+                binding,
+                quantity.definition_id,
+                semantic_ref.dimension(retained_coordinate.field),
+                retained_coordinate.entity_ref,
+                original.components,
+                coordinate_type,
+                "v1",
+                retained_coordinates[1:],
+                component_types=weighted_state_types(params.amount_type, params.weight_type)
+                if isinstance(params, ObserveWeightedMean)
+                else (),
+            ),
+        )
     coverage = CoveragePart(binding, quantity.definition_id, binding.scope_id, "v1")
     partition = _fact("contribution_partition", binding, quantity.contribution_id)
     complete = _fact("complete_coverage", binding, quantity.definition_id)
@@ -2539,7 +2561,8 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
             pre.append(fact)
             obligations.extend(_premise(inputs, fact, check_id=check, before="consume"))
     pair = _fact("key_set_equal", binding, quantity.definition_id, inputs)
-    pre.append(pair)
+    if not params.union_targets:
+        pre.append(pair)
     pairing_evidence = (
         (Evidence(pair, "builder", "shared_key_domain"),)
         if inputs[0].key_domain_id
@@ -2549,7 +2572,7 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
         )
         else ()
     )
-    if not pairing_evidence:
+    if not params.union_targets and not pairing_evidence:
         obligations.extend(
             _premise(inputs, pair, check_id="source.exact_pairing@v1", before="consume")
         )
@@ -2612,7 +2635,9 @@ def _original_ratio(inputs: tuple[Signature, ...], params: OriginalRatio) -> Rul
         )
         domain = replace(
             domain,
-            instance_key=(*domain.instance_key, *first_coordinate.coordinates),
+            instance_key=domain.instance_key
+            if params.union_targets
+            else tuple(dict.fromkeys((*domain.instance_key, *first_coordinate.coordinates))),
             definition_id=quantity.definition_id,
         )
     parts: tuple[Part, ...] = (
@@ -2713,7 +2738,8 @@ def _occurrence_combine(inputs: tuple[Signature, ...], params: OccurrenceCombine
             pre.append(fact)
             obligations.extend(_premise(inputs, fact, check_id=check, before="consume"))
     pair = _fact("key_set_equal", binding, quantity.definition_id, inputs)
-    pre.append(pair)
+    if not params.union_targets:
+        pre.append(pair)
     pairing_evidence = (
         (Evidence(pair, "builder", "shared_key_domain"),)
         if inputs[0].key_domain_id
@@ -2723,7 +2749,7 @@ def _occurrence_combine(inputs: tuple[Signature, ...], params: OccurrenceCombine
         )
         else ()
     )
-    if not pairing_evidence:
+    if not params.union_targets and not pairing_evidence:
         obligations.extend(
             _premise(inputs, pair, check_id="source.exact_pairing@v1", before="consume")
         )
@@ -2783,8 +2809,11 @@ def _occurrence_combine(inputs: tuple[Signature, ...], params: OccurrenceCombine
             ),
         )
     domain = replace(params.output_domain, definition_id=quantity.definition_id)
-    if coordinate is not None:
-        domain = replace(domain, instance_key=(*domain.instance_key, *coordinate.coordinates))
+    if coordinate is not None and not params.union_targets:
+        domain = replace(
+            domain,
+            instance_key=tuple(dict.fromkeys((*domain.instance_key, *coordinate.coordinates))),
+        )
     parts: tuple[Part, ...] = (
         *coordinate_parts,
         *tuple(
@@ -3519,6 +3548,14 @@ def derive_numeric_cell(
     return Defined(result)
 
 
+def classification_key_prefix(source: DomainSignature, category: DomainSignature) -> bool:
+    """Match complete classification keys before subsequently attached group axes."""
+    size = len(category.instance_key)
+    return source.instance_key[:size] == category.instance_key and all(
+        coordinate.role == "group" for coordinate in source.instance_key[size:]
+    )
+
+
 def _attach_category(inputs: tuple[Signature, ...], params: AttachCategory) -> RuleDerivation:
     binding = _binding(inputs, "core.group.classification")
     if len(inputs) != 2:
@@ -3529,7 +3566,11 @@ def _attach_category(inputs: tuple[Signature, ...], params: AttachCategory) -> R
             "core.group.classification",
         )
     source, category = inputs
-    expected_key = source.domain.instance_key
+    expected_key = (
+        category.domain.instance_key
+        if classification_key_prefix(source.domain, category.domain)
+        else source.domain.instance_key
+    )
     if params.subject_mapping:
         subject = require_part(source, "subject")
         if not isinstance(subject, SubjectPart) or not subject.total:
@@ -3652,8 +3693,13 @@ def _complete_groups(inputs: tuple[Signature, ...], params: CompleteGroups) -> R
     state_role: PartRole = (
         "row_state" if isinstance(source.quantity, RowStatisticQuantity) else "original_state"
     )
-    require_part(source, state_role)
-    required: tuple[PartRole, ...] = (state_role,)
+    direct = (
+        isinstance(source.quantity, ObservedQuantity)
+        and source.quantity.method_version.removesuffix("@v1") in DIRECT_ONLY_AGGREGATES
+    )
+    if not direct:
+        require_part(source, state_role)
+    required: tuple[PartRole, ...] = () if direct else (state_role,)
     if state_role == "original_state":
         require_part(source, "coverage")
         required = (*required, "coverage")

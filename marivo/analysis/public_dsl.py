@@ -470,6 +470,10 @@ def _kind(node: Relation) -> str:
             if quantity is None
             else "summarize"
             if isinstance(quantity, RowStatisticQuantity)
+            else "ratio_observe"
+            if isinstance(quantity, ObservedQuantity) and quantity.method_version == "ratio@v1"
+            else "observe"
+            if isinstance(quantity, ObservedQuantity)
             else "ratio_rollup"
             if quantity is not None and quantity.method_version == "ratio@v1"
             else "rollup"
@@ -726,7 +730,7 @@ class _Value:
                 else ()
             )
         elif kind == "group":
-            names = ("observe",)
+            names = ()
         elif kind == "correlate":
             names = ("coefficient",) if fixed else ("execute",)
         elif kind == "correlate_where":
@@ -1445,6 +1449,24 @@ class _Value:
         if _kind(self._node) in ("ratio_observe", "ratio_rollup"):
             facts.append(("weighting", "original numerator and denominator components"))
         if quantity is not None:
+            facts.extend(
+                (
+                    (
+                        "output_grain",
+                        ", ".join(
+                            c.field for c in signature.domain.instance_key if c.role != "anchor"
+                        )
+                        or "overall",
+                    ),
+                    (
+                        "time_axes",
+                        ", ".join(
+                            c.field for c in signature.domain.instance_key if c.role == "anchor"
+                        )
+                        or "none",
+                    ),
+                )
+            )
             facts.extend(
                 (
                     ("unit", quantity.unit or "not declared"),
@@ -2709,7 +2731,7 @@ class LogicalAnalysisDomain(_CohortDomain):
             keys: Own Dimension Refs or explicitly corresponding categorical reads.
             groups: Optional explicit target domain, including empty groups.
         Returns: A lazy grouped member domain; no keys denotes Singleton.
-        Example: ``result = members.group_by(region).observe(metric, during=window, via=buyer)``.
+        Example: ``targets = members.group_by(region).execute()``.
         Constraints: Classifications must be Defined on consumed members and align by full keys.
         """
         node = self._node
@@ -2732,8 +2754,7 @@ class LogicalAnalysisDomain(_CohortDomain):
             target,
             self._runtime,
             inputs=(self, *categories),
-            member_source=self,
-            categories=tuple(categories),
+            row_node=node,
             target_groups=groups,
         )
 
@@ -2744,22 +2765,32 @@ class LogicalAnalysisDomain(_CohortDomain):
         during: TimeScope | GridWindow | None = None,
         at: datetime | GridEndpoint | None = None,
         via: Ref[RelationshipKind] | RootRoutes | None = None,
-        coordinates: tuple[Ref[DimensionKind], ...] = (),
+        by: tuple[
+            Ref[EntityKind]
+            | Ref[DimensionKind]
+            | LogicalCategoryRelation
+            | LogicalSelectedCategoryRelation,
+            ...,
+        ] = (),
+        groups: LogicalAnalysisDomain | GroupedAnalysisDomain | None = None,
         complete_during: tuple[TimeScope, ...] | None = None,
     ) -> LogicalNumericRelation | LogicalRatioRelation:
-        """Observe one governed Metric or runtime expression over this member domain.
+        """Compute a governed Metric directly at the requested output grain.
 
         Args:
             metric: Declared Metric Ref or closed runtime Metric expression to observe.
             during: Fixed TimeScope, the exact grid.window, or None for no added restriction.
             at: Explicit cumulative endpoint, bound grid endpoint or aware datetime.
-            via: Admitted relationship Ref or ordered routes; omit only for the same Entity root.
-            coordinates: Optional declared contribution coordinate Dimension Refs.
+            via: Admitted relationship Ref or ordered routes; omit or pass None for the same Entity root.
+            by: Ordered tuple of the receiver's member Entity, categorical Dimensions, or
+                same-Session logical classifications. The Entity retains its full primary key.
+                Empty means Singleton on ordinary members, or one overall value per time bucket.
+            groups: Optional same-Session logical target domain retaining explicit empty groups.
             complete_during: Explicit business-complete scopes with aware datetime bounds.
                 Omit for the existing observation policy; an empty tuple declares no complete buckets.
-        Returns: A LogicalNumericRelation | LogicalRatioRelation bound to this exact relation.
+        Returns: An original LogicalNumericRelation | LogicalRatioRelation at the selected grain.
         Example: ``result = relation.observe(metric, during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=buyer)``.
-        Constraints: Ordinary Metric/Count routes have no fixed hop limit; each hop must be contiguous, explicitly keyed and directed to-one between unversioned Entities. The Metric, window, path and member binding must be admitted. Completeness requires one original sum on during=grid.window, no coordinates or at, and a complete non-partial grid. Uncovered buckets are Unknown with retained partial state. Business-covered observations cannot roll up; production uses DuckDB table/Parquet.
+        Constraints: Ordinary Metric/Count routes have no fixed hop limit; each hop must be contiguous, explicitly keyed and directed to-one between unversioned Entities. The Metric, window, path and member binding must be admitted. Completeness requires one original sum on during=grid.window, no dimension grouping or at, and a complete non-partial grid. Uncovered buckets are Unknown with retained partial state. Business-covered observations cannot roll up; production uses DuckDB table/Parquet.
         """
         point: datetime | GridPoint | None = at if not isinstance(at, GridEndpoint) else None
         if isinstance(at, GridEndpoint):
@@ -2771,16 +2802,73 @@ class LogicalAnalysisDomain(_CohortDomain):
                     "Use the same grid as each(grid).",
                 )
             point = GridPoint(bound_point, at._side)
-        live = self._node._live()
+        if type(by) is not tuple:
+            raise _reject(
+                "an ordered tuple of typed observation axes",
+                type(by).__name__,
+                "Pass by=(axis, ...).",
+            )
+        if groups is not None and not isinstance(
+            groups, (LogicalAnalysisDomain, GroupedAnalysisDomain)
+        ):
+            raise _reject(
+                "a same-Session logical target domain",
+                type(groups).__name__,
+                "Use a logical complete target domain for groups.",
+            )
+        node = self._node
+        subject = next(p for p in node.root.signature.parts if isinstance(p, SubjectPart))
+        keys: list[Coordinate] = []
+        coordinates: list[Ref[DimensionKind]] = []
+        categories: list[LogicalCategoryRelation | LogicalSelectedCategoryRelation] = []
+        from marivo.refs import ref as semantic_ref
+        from marivo.semantic.validator import normalize_target_dimension
+
+        category: object
+        for axis in by:
+            if isinstance(axis, Ref) and axis.kind == "entity":
+                if axis != subject.entity_ref:
+                    raise _reject(
+                        "the receiver's member Entity",
+                        axis.path,
+                        "Use the complete member Entity ref in by.",
+                    )
+                keys.extend(subject.subject_key)
+                continue
+            if isinstance(axis, Ref) and axis.kind == "dimension":
+                dimension = semantic_ref.dimension(axis.path)
+                field = normalize_target_dimension(node._live().graph.registry, axis.path)
+                if field.entity_ref.path != subject.entity_ref.path:
+                    coordinates.append(dimension)
+                    keys.append(
+                        Coordinate(semantic_ref.entity(field.entity_ref.path), axis.path, "group")
+                    )
+                    continue
+                category = self.read(dimension)
+            else:
+                category = axis
+            if not isinstance(category, (LogicalCategoryRelation, LogicalSelectedCategoryRelation)):
+                raise _reject(
+                    "a member Entity or categorical Dimension",
+                    type(axis).__name__,
+                    "Choose a typed axis in by.",
+                )
+            node = node.attach_category(category._node)
+            categories.append(category)
+            keys.append(category._node.classification_coordinate())
+        if len(set(keys)) != len(keys):
+            raise _reject("distinct observation axes", repr(by), "Remove repeated axes from by.")
+        keys.extend(c for c in node.root.signature.domain.instance_key if c.role == "anchor")
+        live = node._live()
         metric_contract: TargetMetricContract | None = None
         if complete_during is not None and (
             not isinstance(during, GridWindow)
             or at is not None
-            or coordinates
-            or len((metric_contract := self._node.resolve_metric(metric)).components) > 1
+            or any(c.role == "group" for c in keys)
+            or len((metric_contract := node.resolve_metric(metric)).components) > 1
         ):
             raise _reject(
-                "a single original sum on during=grid.window without coordinates or at",
+                "a single original sum on during=grid.window without dimension grouping or at",
                 "incompatible business-completeness observation",
                 "Use members.each(grid).observe(sum_metric, during=grid.window, complete_during=(scope,)).",
             )
@@ -2811,22 +2899,27 @@ class LogicalAnalysisDomain(_CohortDomain):
             route.through if isinstance(route, RootRouteValue) else (route,) for route in declared
         ) or ((),)
         if metric_contract is None:
-            metric_contract = self._node.resolve_metric(metric)
+            metric_contract = node.resolve_metric(metric)
         if len(metric_contract.components) > 1:
-            observed = self._node.observe_routes(
+            observed = node.observe_routes(
                 metric,
                 metric_contract=metric_contract,
                 during=window,
                 at=point,
                 paths=paths,
-                coordinates=coordinates,
+                coordinates=tuple(coordinates),
+                target_keys=tuple(keys),
             )
+            if groups is not None:
+                observed = observed.complete_groups(groups._node)
             if (
                 observed.root.signature.quantity is not None
                 and observed.root.signature.quantity.method_version == "linear@v1"
             ):
-                return LogicalNumericRelation(_TOKEN, observed, self._runtime, inputs=(self,))
-            return LogicalRatioRelation(_TOKEN, observed, self._runtime, inputs=(self,))
+                return LogicalNumericRelation(
+                    _TOKEN, observed, self._runtime, inputs=(self, *categories)
+                )
+            return LogicalRatioRelation(_TOKEN, observed, self._runtime, inputs=(self, *categories))
         if len(paths) != 1:
             raise _reject(
                 "one route for the single contribution root",
@@ -2834,23 +2927,20 @@ class LogicalAnalysisDomain(_CohortDomain):
                 "Pass exactly the route of the observed contribution root.",
             )
         single = paths[0]
-        observed = self._node.observe(
+        observed = node.observe(
             metric,
             metric_contract=metric_contract,
             during=window,
             at=point,
             via=single[0] if len(single) == 1 else single,
-            coordinates=coordinates,
+            coordinates=tuple(coordinates),
+            target_keys=tuple(keys),
         )
-        if coordinates:
-            subject = next(p for p in observed.root.signature.parts if isinstance(p, SubjectPart))
-            grid = observed.root.signature.domain.time_grid
-            observed = observed.rollup(
-                subject.entity_ref, *coordinates, *((grid,) if grid is not None else ())
-            )
+        if groups is not None:
+            observed = observed.complete_groups(groups._node)
         if complete_during is not None:
             observed = observed.business_coverage(complete_during)
-        return LogicalNumericRelation(_TOKEN, observed, self._runtime, inputs=(self,))
+        return LogicalNumericRelation(_TOKEN, observed, self._runtime, inputs=(self, *categories))
 
 
 class MaterializedAnalysisDomain(_MaterializedValue, _CohortDomain):
@@ -2936,8 +3026,6 @@ class GroupedAnalysisDomain(_Value):
         runtime: DatasetRuntime,
         *,
         inputs: tuple[_Value, ...],
-        member_source: LogicalAnalysisDomain | None = None,
-        categories: tuple[LogicalCategoryRelation | LogicalSelectedCategoryRelation, ...] = (),
         target_groups: LogicalAnalysisDomain
         | GroupedAnalysisDomain
         | MaterializedAnalysisDomain
@@ -2947,8 +3035,6 @@ class GroupedAnalysisDomain(_Value):
         if target_groups is not None:
             node = node.complete_groups(target_groups._node)
         super().__init__(token, node, runtime, inputs=inputs)
-        self._member_source = member_source
-        self._categories = categories
         self._target_groups = target_groups
         self._row_node = row_node
 
@@ -2961,8 +3047,6 @@ class GroupedAnalysisDomain(_Value):
         Constraints: Target-only groups do not create observations or row state.
         """
         names: tuple[str, ...] = ("execute",)
-        if self._member_source is not None:
-            names = (*names, "observe")
         if self._row_node is not None:
             names = (*names, "summarize")
         return replace(super().contract(), actions=self._action_contract(names))
@@ -2997,41 +3081,6 @@ class GroupedAnalysisDomain(_Value):
         Constraints: Validate consumed keys against explicit targets and retain all target groups.
         """
         return MaterializedAnalysisDomain(_TOKEN, self._node, self._runtime, dataset=self._run())
-
-    def observe(
-        self,
-        metric: MetricInputValue,
-        *,
-        during: TimeScope | None = None,
-        via: Ref[RelationshipKind] | RootRoutes | None = None,
-    ) -> GroupedNumericRelation | GroupedRatioRelation:
-        """Observe a Metric grouped by the bound member attribute.
-
-        Args:
-            metric: Declared Metric Ref to observe.
-            during: Optional fixed TimeScope for the observation.
-            via: Admitted relationship Ref or ordered routes; omit or pass None for the same Entity root.
-        Returns: A GroupedNumericRelation | GroupedRatioRelation bound to this exact relation.
-        Example: ``result = relation.observe(metric)``.
-        Constraints: The Metric, window, path, and member binding must be admitted. Grouping does not require an additional relationship.
-        """
-        if self._member_source is not None:
-            observed = self._member_source.observe(metric, during=during, via=via)
-            return observed.group_by(*self._categories, groups=self._target_groups)
-        if not isinstance(via, Ref):
-            raise _reject(
-                "a grouped member observation",
-                "target-only group domain",
-                "Group the member domain before observing multiple contribution roots.",
-            )
-        return GroupedNumericRelation(
-            _TOKEN,
-            self._node.observe(
-                metric, metric_contract=self._node.resolve_metric(metric), during=during, via=via
-            ),
-            self._runtime,
-            inputs=(self,),
-        )
 
 
 class LogicalCategoryRelation(_CountRelation):
@@ -5064,7 +5113,9 @@ def wrap_materialized(
         return MaterializedRatioRelation(_TOKEN, node, runtime, dataset=dataset)
     if kind == "ratio_rollup":
         return MaterializedRolledRatioRelation(_TOKEN, node, runtime, dataset=dataset)
-    if kind in ("observe", "rollup"):
+    if kind == "observe":
+        return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
+    if kind == "rollup":
         if node.root.signature.domain.kind == "group":
             from marivo.analysis.core.rules import (
                 EntityObservationTarget,

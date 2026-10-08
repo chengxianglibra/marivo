@@ -37,8 +37,10 @@ def test_public_source_reexecution_and_fixed_hit(
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r93-execution", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
-        values = members.observe(ms.ref.metric("sales.total"))
-        independent = members.observe(ms.ref.metric("sales.total"))
+        values = members.observe(ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),))
+        independent = members.observe(
+            ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),)
+        )
         assert isinstance(values, mv.LogicalNumericRelation)
         assert isinstance(independent, mv.LogicalNumericRelation)
         shared = values.ratio(values)
@@ -141,8 +143,8 @@ def test_independent_equal_nodes_execute_distinct_source_stages(
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r93-independent-work", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
-        first = members.observe(ms.ref.metric("sales.total"))
-        second = members.observe(ms.ref.metric("sales.total"))
+        first = members.observe(ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),))
+        second = members.observe(ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),))
         assert isinstance(first, mv.LogicalNumericRelation)
         assert isinstance(second, mv.LogicalNumericRelation)
         assert first._node.definition.fingerprint == second._node.definition.fingerprint

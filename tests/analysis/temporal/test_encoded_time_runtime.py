@@ -143,6 +143,7 @@ def test_observation_preserves_population_windows_and_query_count(
         .observe(
             ms.ref.metric("sales.revenue"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+            by=(ms.ref.entity("sales.order"),),
         )
         .execute()
         .to_pandas()
@@ -248,6 +249,7 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
             ms.ref.metric("sales.running"),
             at=datetime(2026, 10, 1, tzinfo=timezone.utc),
             via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
         )
         .rollup()
         .execute()

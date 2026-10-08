@@ -52,6 +52,7 @@ def test_direct_distribution(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     fixed = observed.execute()
     rows = fixed.to_pandas().set_index("member")
@@ -107,7 +108,11 @@ def test_native_quantile_precision_is_source_owned(
     )
     fixed = (
         case.session.members(ms.ref.entity("sales.customer"))
-        .observe(metric, via=ms.ref.relationship("sales.order_buyer"))
+        .observe(
+            metric,
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
+        )
         .execute()
     )
     result = fixed.to_pandas().set_index("member").loc["A", "value"]
@@ -158,7 +163,7 @@ def test_float_original_mean_state(
         )
     )
     observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        metric, via=ms.ref.relationship("sales.order_buyer")
+        metric, via=ms.ref.relationship("sales.order_buyer"), by=(ms.ref.entity("sales.customer"),)
     )
     fixed = observed.execute()
     expected = 20.75 / 4 if weighted else 4.0
@@ -186,6 +191,7 @@ def test_original_extrema(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     fixed = logical.execute()
     assert fixed.to_pandas().set_index("member").loc["D", "cell_tag"] == "null"
@@ -262,6 +268,7 @@ def test_decimal_original_state(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     fixed = logical.execute()
     assert logical.rollup().execute().to_pandas()["value"].tolist() == [Decimal(expected)]
@@ -331,7 +338,10 @@ def test_numeric_composition_matrix(
     logical = case.session.members(ms.ref.entity("sales.customer")).observe(
         expr,
         via=ms.ref.relationship("sales.order_buyer"),
-        coordinates=(ms.ref.dimension("sales.order.channel"),) if coordinates else (),
+        by=(
+            ms.ref.entity("sales.customer"),
+            *((ms.ref.dimension("sales.order.channel"),) if coordinates else ()),
+        ),
     )
     fixed = logical.execute()
     if kind == "weighted":
@@ -477,9 +487,14 @@ def test_duration_matrix(
     logical = case.session.members(ms.ref.entity("sales.customer")).observe(
         expr,
         via=ms.ref.relationship("sales.order_buyer"),
-        coordinates=(ms.ref.dimension("sales.order.channel"),)
-        if coordinates and kind != "count_distinct"
-        else (),
+        by=(
+            ms.ref.entity("sales.customer"),
+            *(
+                (ms.ref.dimension("sales.order.channel"),)
+                if coordinates and kind != "count_distinct"
+                else ()
+            ),
+        ),
     )
     fixed = logical.execute()
     if kind == "count_distinct":
@@ -567,6 +582,7 @@ running = ms.cumulative(name='running', base=revenue)
         if kind == "cumulative"
         else mv.time_scope(start="2026-08-01", end="2026-08-03"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     fixed = logical.execute()
     expected = {"first": 2, "last": 5, "min": 2, "max": 5, "mean": 3.5, "cumulative": 7}[kind]
@@ -738,7 +754,7 @@ from dataclasses import asdict
 from pathlib import Path
 from marivo.analysis.materialization.graph_protocol import SIGNATURE, encode
 for kind, metric in metrics.items():
-    fixed = session.members(ms.ref.entity('sales.customer')).observe(metric, during=mv.time_scope(start='2026-08-01',end='2026-08-03'),via=ms.ref.relationship('sales.order_buyer')).execute()
+    fixed = session.members(ms.ref.entity('sales.customer')).observe(metric, during=mv.time_scope(start='2026-08-01',end='2026-08-03'),via=ms.ref.relationship('sales.order_buyer'),by=(ms.ref.entity('sales.customer'),)).execute()
     artifacts[kind] = fixed.state.artifact_ref.ref
     contracts[kind] = {'K': asdict(fixed.contract()), 'signature': encode(fixed._node.root.signature, SIGNATURE)}
 Path('recovery-contracts.json').write_text(json.dumps(contracts))
@@ -786,13 +802,20 @@ for kind, artifact in json.loads(sys.argv[2]).items():
     fixed = session.artifact(artifact)
     assert any(action.call == 'relation.rollup()' for action in fixed.contract().actions)
     assert json.loads(json.dumps(asdict(fixed.contract()))) == contracts[kind]['K']
-    assert encode(fixed._node.root.signature, SIGNATURE) == contracts[kind]['signature']
+    restored_signature = json.loads(encode(fixed._node.root.signature, SIGNATURE))
+    original_signature = json.loads(contracts[kind]['signature'])
+    # Restoration creates a fresh graph node over the same retained contract.
+    restored_signature.pop('node_id')
+    original_signature.pop('node_id')
+    assert restored_signature == original_signature, kind
     result = fixed.rollup().execute()
     again = fixed.rollup().execute()
     assert again.state.artifact_ref == result.state.artifact_ref
     assert session._runtime.statistics.primary_queries == 0
     verified = result._dataset.verified()
-    output[kind] = {'value': [str(value) for value in numeric_primary(verified.primary)['value'].to_pylist()], 'state': [part.table.to_pylist() for part in verified.parts if part.role == 'original_state'], 'K': asdict(result.contract()), 'signature': encode(result._node.root.signature, SIGNATURE), 'artifact': result.state.artifact_ref.ref, 'run': result.state.producing_run_ref, 'execution_key': result._dataset.artifact.descriptor.execution_key_digest}
+    result_signature = json.loads(encode(result._node.root.signature, SIGNATURE))
+    result_signature.pop('node_id')
+    output[kind] = {'value': [str(value) for value in numeric_primary(verified.primary)['value'].to_pylist()], 'state': [part.table.to_pylist() for part in verified.parts if part.role == 'original_state'], 'K': asdict(result.contract()), 'signature': result_signature, 'artifact': result.state.artifact_ref.ref, 'run': result.state.producing_run_ref, 'execution_key': result._dataset.artifact.descriptor.execution_key_digest}
 print(json.dumps(output, default=str, sort_keys=True))
 """
     first = run(consumer, json.dumps(artifacts))
@@ -929,7 +952,7 @@ def test_numeric_boundary_facts(
         label="boundary",
     )
     logical = case.session.members(ms.ref.entity("sales.customer")).observe(
-        metric, via=ms.ref.relationship("sales.order_buyer")
+        metric, via=ms.ref.relationship("sales.order_buyer"), by=(ms.ref.entity("sales.customer"),)
     )
     if case_kind in ("overflow", "nonfinite", "calendar"):
         with pytest.raises(AnalysisError):
@@ -975,7 +998,11 @@ def test_distribution_duplicates_nulls_and_interpolation(
     )
     fixed = (
         case.session.members(ms.ref.entity("sales.customer"))
-        .observe(metric, via=ms.ref.relationship("sales.order_buyer"))
+        .observe(
+            metric,
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
+        )
         .execute()
     )
     assert fixed.to_pandas().loc[0, "value"] == expected
@@ -1124,7 +1151,7 @@ cancel = ms.measure_column(name='cancel', entity=orders, column='cancel', additi
     ]
     expr = mv.runtime_metric.linear(add=leaves[:2], subtract=[leaves[2]], label="cancellation")
     logical = case.session.members(ms.ref.entity("sales.customer")).observe(
-        expr, via=ms.ref.relationship("sales.order_buyer")
+        expr, via=ms.ref.relationship("sales.order_buyer"), by=(ms.ref.entity("sales.customer"),)
     )
     fixed = logical.execute()
     oracle = Fraction(large) + 1 - Fraction(large)
@@ -1181,6 +1208,7 @@ def test_current_row_counts_keep_numeric_null_policy(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     assert isinstance(logical, mv.LogicalNumericRelation)
     fixed = logical.execute()

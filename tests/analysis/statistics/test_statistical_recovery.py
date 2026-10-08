@@ -103,14 +103,17 @@ def test_native_nine_methods_independent_fixed_and_cold(
         session = mv.session.get_or_create("r94-statistical", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
         window = mv.time_scope(start="2026-08-01", end="2026-08-04")
-        entity = members.observe(ms.ref.metric("sales.total"), during=window)
-        other = members.observe(ms.ref.metric("sales.copy_total"), during=window)
+        entity = members.observe(
+            ms.ref.metric("sales.total"), during=window, by=(ms.ref.entity("sales.facts"),)
+        )
+        other = members.observe(
+            ms.ref.metric("sales.copy_total"), during=window, by=(ms.ref.entity("sales.facts"),)
+        )
         grid = mv.time_grid(during=window, grain=mv.grain("day"))
         timed = (
             members.each(grid)
             .observe(
-                ms.ref.metric("sales.total"),
-                during=grid.window,
+                ms.ref.metric("sales.total"), during=grid.window, by=(ms.ref.entity("sales.facts"),)
             )
             .group_by(grid)
             .rollup()

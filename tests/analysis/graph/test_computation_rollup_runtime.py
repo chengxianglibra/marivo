@@ -83,7 +83,7 @@ def test_duckdb_decimal_mean_retains_exact_result(
     session = mv.session.get_or_create("equation-mean", report_timezone="UTC")
     fixed = (
         session.members(ms.ref.entity("sales.orders"))
-        .observe(ms.ref.metric("sales.amount_mean"))
+        .observe(ms.ref.metric("sales.amount_mean"), by=(ms.ref.entity("sales.orders"),))
         .execute()
     )
     result = fixed.rollup().execute()

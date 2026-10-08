@@ -67,7 +67,12 @@ catalog.preview(
 campaigns = catalog.temporal_sets.get("sales.campaigns")
 launch = campaigns.occurrence("spring-2026")
 members = session.members(ms.ref.entity("sales.customer"))
-dataset = members.observe(revenue, during=launch, via=ms.ref.relationship("sales.order_buyer"))
+dataset = members.observe(
+    revenue,
+    during=launch,
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(ms.ref.entity("sales.customer"),),
+)
 ```
 
 Keep occurrence identity and interval semantics explicit; a selected occurrence is not a global time filter for every unrelated quantity.

@@ -163,6 +163,7 @@ def test_native_independent_multiroot_fixed_and_cold(
                         label="combined",
                     ),
                     via=routes,
+                    by=(ms.ref.entity("sales.subjects"),),
                 ),
                 "ratio": members.observe(
                     mv.runtime_metric.ratio(
@@ -171,6 +172,7 @@ def test_native_independent_multiroot_fixed_and_cold(
                         label="ratio",
                     ),
                     via=routes,
+                    by=(ms.ref.entity("sales.subjects"),),
                 ),
                 "weighted": members.observe(
                     mv.runtime_metric.weighted_mean(
@@ -179,12 +181,14 @@ def test_native_independent_multiroot_fixed_and_cold(
                         label="weighted",
                     ),
                     via=ms.ref.relationship("sales.left_subject"),
+                    by=(ms.ref.entity("sales.subjects"),),
                 ),
                 "aggregate": members.observe(
                     mv.runtime_metric.aggregate(
                         ms.ref.measure("sales.left.amount"), agg="sum", label="total"
                     ),
                     via=ms.ref.relationship("sales.left_subject"),
+                    by=(ms.ref.entity("sales.subjects"),),
                 ),
                 "slice": members.observe(
                     mv.runtime_metric.slice(
@@ -193,6 +197,7 @@ def test_native_independent_multiroot_fixed_and_cold(
                         label="selected",
                     ),
                     via=ms.ref.relationship("sales.right_subject"),
+                    by=(ms.ref.entity("sales.subjects"),),
                 ),
             }
         originals: dict[str, Json] = {}

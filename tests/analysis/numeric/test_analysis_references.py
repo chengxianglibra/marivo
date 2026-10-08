@@ -134,6 +134,7 @@ def test_public_references_source_and_fixed(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"sales.{case.names.buyer}"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     facts = analysis_dsl_rows("j2")
     counts = {
@@ -235,6 +236,7 @@ def test_public_share_numeric_matrix(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     if physical.startswith("duration"):
         category = members.read(ms.ref.dimension("sales.customer.region"))
@@ -245,6 +247,7 @@ def test_public_share_numeric_matrix(
                 ms.ref.metric("sales.order_count"),
                 during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
                 via=ms.ref.relationship("sales.order_buyer"),
+                by=(ms.ref.entity("sales.customer"),),
             )
             .group_by(category)
             .rollup()
@@ -340,7 +343,12 @@ def test_original_metric_standardization_matrix(
         metrics["count"] = ms.ref.metric("sales.order_count")
     scope = mv.time_scope(start="2026-08-01", end="2026-09-01")
     volume = (
-        members.observe(base, during=scope, via=ms.ref.relationship("sales.order_buyer"))
+        members.observe(
+            base,
+            during=scope,
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
+        )
         .group_by(categories)
         .rollup()
     )
@@ -357,7 +365,12 @@ def test_original_metric_standardization_matrix(
         originals[name], original_parts[name] = snapshot(value), parts(value)
     for kind, metric in metrics.items():
         groups = (
-            members.observe(metric, during=scope, via=ms.ref.relationship("sales.order_buyer"))
+            members.observe(
+                metric,
+                during=scope,
+                via=ms.ref.relationship("sales.order_buyer"),
+                by=(ms.ref.entity("sales.customer"),),
+            )
             .group_by(categories)
             .rollup()
         )
@@ -509,6 +522,7 @@ def test_public_exact_integer_reference_weights(
             ms.ref.metric("sales.order_count"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
         )
         .group_by(category)
         .rollup()
@@ -520,6 +534,7 @@ def test_public_exact_integer_reference_weights(
             ),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
         )
         .group_by(category)
         .rollup()
@@ -572,6 +587,7 @@ def test_reference_cold_continuations_and_corruption(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     groups = values.group_by(category).rollup()
     weights = groups.share_of(groups.rollup())
@@ -721,6 +737,7 @@ def test_static_reference_rejections_are_zero_read(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     fixed = values.execute()
     other = analysis_dsl_case_factory("j2")
@@ -773,6 +790,7 @@ def test_static_reference_rejections_are_zero_read(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     with pytest.raises(AnalysisError):
         other_time.group_by(category).rollup().standardize(reference=reference)
@@ -838,6 +856,7 @@ def test_zero_and_signed_share_support(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     reference = values.rollup()
     shares = values.share_of(reference).execute()
@@ -871,6 +890,7 @@ def test_reference_publication_faults_are_atomic(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     fixed = values.execute()
     before = {
@@ -948,6 +968,7 @@ def test_shared_reference_source_reexecution_and_fixed_inputs(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     share = values.share_of(values.rollup())
     calls: list[str] = []
@@ -1003,6 +1024,7 @@ def test_invalid_public_standardization_rejects_without_normalization(
             ms.ref.metric("sales.revenue"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
         )
         .group_by(category)
         .rollup()
@@ -1031,6 +1053,7 @@ def test_fixed_selected_original_can_use_retained_full_reference(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     ).execute()
     reference = values.rollup().execute()
     selected = values.where(values.value.gt(0)).execute()
@@ -1058,6 +1081,7 @@ def test_reference_preparation_captures_independent_source_origins(
             ms.ref.metric("sales.order_count"),
             during=scope,
             via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
         )
         .group_by(categories)
         .rollup()
@@ -1075,6 +1099,7 @@ def test_reference_preparation_captures_independent_source_origins(
                     ),
                 )
             ),
+            by=(ms.ref.entity("sales.customer"),),
         )
         .group_by(categories)
         .rollup()
@@ -1107,6 +1132,7 @@ def test_reference_preparation_captures_independent_source_origins(
             ms.ref.metric(f"sales.{case.names.aov}"),
             during=scope,
             via=mv.routes(*reversed(routes.routes)),
+            by=(ms.ref.entity("sales.customer"),),
         )
         .group_by(categories)
         .rollup()
@@ -1131,6 +1157,7 @@ def test_reference_preparation_captures_independent_source_origins(
             ),
             during=scope,
             via=routes,
+            by=(ms.ref.entity("sales.customer"),),
         )
         .group_by(categories)
         .rollup()

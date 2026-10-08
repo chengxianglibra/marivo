@@ -55,7 +55,9 @@ def test_decimal_measure_and_retained_schema_agree(decimal_session: mv.Session) 
     result = (
         decimal_session.members(ms.ref.entity("sales.orders"))
         .observe(
-            ms.ref.metric("sales.gmv"), during=mv.time_scope(start="2026-07-01", end="2026-07-02")
+            ms.ref.metric("sales.gmv"),
+            during=mv.time_scope(start="2026-07-01", end="2026-07-02"),
+            by=(ms.ref.entity("sales.orders"),),
         )
         .rollup()
         .execute()
@@ -80,7 +82,7 @@ def test_runtime_ratio_accepts_independent_numeric_components(
     )
     members = decimal_session.members(ms.ref.entity("sales.orders"))
     scope = mv.time_scope(start="2026-07-01", end="2026-07-02")
-    observed = members.observe(expression, during=scope)
+    observed = members.observe(expression, during=scope, by=(ms.ref.entity("sales.orders"),))
     mixed = observed.rollup().execute()
     assert observed.execute().rollup().execute().to_pandas()["value"].tolist() == [0.25]
     assert mixed.to_pandas()["value"].tolist() == [0.25]
@@ -89,7 +91,11 @@ def test_runtime_ratio_accepts_independent_numeric_components(
     )
     result = (
         decimal_session.members(ms.ref.entity("sales.orders"))
-        .observe(expression, during=mv.time_scope(start="2026-07-01", end="2026-07-02"))
+        .observe(
+            expression,
+            during=mv.time_scope(start="2026-07-01", end="2026-07-02"),
+            by=(ms.ref.entity("sales.orders"),),
+        )
         .rollup()
         .execute()
     )
@@ -108,7 +114,9 @@ def test_mixed_linear_retains_each_component(decimal_session: mv.Session, fixed:
         add=[ms.ref.metric("sales.gmv")], subtract=[ms.ref.metric("sales.fee")], label="net"
     )
     observed = decimal_session.members(ms.ref.entity("sales.orders")).observe(
-        expression, during=mv.time_scope(start="2026-07-01", end="2026-07-02")
+        expression,
+        during=mv.time_scope(start="2026-07-01", end="2026-07-02"),
+        by=(ms.ref.entity("sales.orders"),),
     )
     result = (observed.execute() if fixed else observed).rollup().execute()
     assert result.to_pandas().value.tolist() == [15.0]

@@ -212,7 +212,9 @@ def run(
         entries = []
         for index in range(len(PROFILES)):
             raw = members.each(grid).observe(
-                ms.ref.metric(f"sales.maximum_{index}"), during=grid.window
+                ms.ref.metric(f"sales.maximum_{index}"),
+                during=grid.window,
+                by=(ms.ref.entity("sales.order"),),
             )
             assert isinstance(raw, mv.LogicalNumericRelation)
             sources: dict[str, mv.LogicalNumericRelation | mv.LogicalRolledNumericRelation] = {

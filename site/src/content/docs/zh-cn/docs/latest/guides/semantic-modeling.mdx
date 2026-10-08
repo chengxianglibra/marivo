@@ -221,10 +221,14 @@ region = orders.dimensions.get("region")  # one dimension object
 ```python
 revenue_entry = catalog.metrics.get("sales.revenue")
 revenue_entry.details().show()
-grid = mv.time_grid(during=mv.time_scope(start='2026-01-01', end='2026-04-01'), grain=mv.grain('month'))
-dataset = (session.members(ms.ref.entity("sales.orders")).each(grid)
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-01-01", end="2026-04-01"), grain=mv.grain("month")
+)
+dataset = (
+    session.members(ms.ref.entity("sales.orders"))
+    .each(grid)
     .observe(revenue_entry.ref, during=grid.window)
-    .group_by(grid).rollup())
+)
 ```
 {/* example: catalog-regional-observation */}
 
@@ -242,10 +246,18 @@ revenue_entry = catalog.metrics.get("sales.revenue")
 region_entry = catalog.dimensions.get("sales.orders.region")
 
 revenue_entry.details().show()
-grid = mv.time_grid(during=mv.time_scope(start='2026-10-01', end='2027-01-01'), grain=mv.grain('month'))
-current = (session.members(ms.ref.entity("sales.orders")).each(grid)
-    .observe(revenue_entry.ref, during=grid.window, coordinates=(region_entry.ref,))
-    .group_by(grid, region_entry.ref).rollup())
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-10-01", end="2027-01-01"), grain=mv.grain("month")
+)
+current = (
+    session.members(ms.ref.entity("sales.orders"))
+    .each(grid)
+    .observe(
+        revenue_entry.ref,
+        during=grid.window,
+        by=(region_entry.ref,),
+    )
+)
 ```
 {/* example: catalog-discovery */}
 
@@ -258,15 +270,19 @@ marivo.help("analysis.catalog.metrics")
 catalog = session.catalog
 catalog.show()
 collection = catalog.metrics
-collection.show()                              # bounded list when identity is unknown
+collection.show()  # bounded list when identity is unknown
 entry = collection.get("metric:sales.revenue")  # full path or displayed typed key
 entry.show()
 entry.details().show()
-marivo.help(entry)                             # identity, usage navigation, kind-level handoff
-grid = mv.time_grid(during=mv.time_scope(start='2026-10-01', end='2027-01-01'), grain=mv.grain('month'))
-current = (session.members(ms.ref.entity("sales.orders")).each(grid)
+marivo.help(entry)  # identity, usage navigation, kind-level handoff
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-10-01", end="2027-01-01"), grain=mv.grain("month")
+)
+current = (
+    session.members(ms.ref.entity("sales.orders"))
+    .each(grid)
     .observe(entry.ref, during=grid.window)
-    .group_by(grid).rollup())
+)
 ```
 
 三个观察示例需要 `session`、`mv`、`ms`、orders Entity 的 region/date 字段及所示时间范围。
@@ -281,14 +297,17 @@ Catalog 条目携带确切 typed `.ref`。构造不会发布结果。
 {/* example: long-metric-routes */}
 
 ```python
-long_routes = mv.routes(mv.route(
-    ms.ref.entity("sales.facts"),
-    through=tuple(ms.ref.relationship(f"sales.hop{i}") for i in range(4)),
-))
+long_routes = mv.routes(
+    mv.route(
+        ms.ref.entity("sales.facts"),
+        through=tuple(ms.ref.relationship(f"sales.hop{i}") for i in range(4)),
+    )
+)
 long_count = population.observe(
     ms.ref.metric("sales.number"),
     during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
     via=long_routes,
+    by=(ms.ref.entity("sales.orders"),),
 ).execute()
 ```
 

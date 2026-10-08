@@ -25,13 +25,19 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        coordinates=axes,
+        by=(
+            ms.ref.entity("sales.customer"),
+            *axes,
+        ),
     )
     baseline = members.observe(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        coordinates=axes,
+        by=(
+            ms.ref.entity("sales.customer"),
+            *axes,
+        ),
     )
     current = current.group_by(ms.ref.entity("sales.customer")).rollup()
     baseline = baseline.group_by(ms.ref.entity("sales.customer")).rollup()
@@ -141,7 +147,7 @@ def test_numeric_source_fixed_and_axis_expansion(
             metric,
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            coordinates=axes if retain else (),
+            by=axes if retain else (),
         ).rollup()
 
     for kind in methods:
@@ -310,7 +316,7 @@ def test_common_other_mapping_each_parent_and_resolution(
             metric,
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            coordinates=axes,
+            by=axes,
         ).rollup()
 
     change = endpoint(8).compare(endpoint(7))
@@ -349,7 +355,7 @@ def test_offline_cold_parts_and_selected_views(
             ms.ref.metric("sales.order_count"),
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            coordinates=axes,
+            by=axes,
         ).rollup()
 
     saved = endpoint(8).compare(endpoint(7)).execute()
@@ -450,7 +456,7 @@ def test_static_refusals_and_shared_compiled_submissions(
             ms.ref.metric("sales.order_count"),
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            coordinates=axes,
+            by=axes,
         ).rollup()
 
     current, baseline = endpoint(8), endpoint(7)
@@ -525,7 +531,7 @@ def test_period_buckets_and_retained_coarsened_partition(
             ms.ref.metric("sales.order_count"),
             during=grid.window,
             via=ms.ref.relationship("sales.order_buyer"),
-            coordinates=axes,
+            by=axes,
         )
         if coarsen:
             values = values.group_by(ms.ref.entity("sales.customer"), mv.grain("month")).rollup()
@@ -586,7 +592,7 @@ def test_zero_component_basis_cannot_hide_under_other(
             expression,
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            coordinates=axes,
+            by=axes,
         ).rollup()
 
     change = endpoint(8).compare(endpoint(7))
@@ -611,7 +617,7 @@ def test_new_source_evaluation_preserves_fixed_basis(
             ms.ref.metric("sales.order_count"),
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            coordinates=axes,
+            by=axes,
         ).rollup()
 
     difference = endpoint(8).compare(endpoint(7))
@@ -669,7 +675,7 @@ def test_public_decimal_small_partition_rounding_refuses_publication(
             expression,
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            coordinates=axes,
+            by=axes,
         ).rollup()
 
     change = endpoint(8).compare(endpoint(7))
@@ -720,7 +726,7 @@ def test_float_view_arithmetic_retains_allocation_error_bounds(
             expression,
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            coordinates=axes,
+            by=axes,
         ).rollup()
 
     allocation = endpoint(8).compare(endpoint(7)).attribute(axes=axes)
@@ -775,7 +781,7 @@ def test_numeric_view_rank_uses_typed_other_order(
             ms.ref.metric("sales.order_count"),
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            coordinates=axes,
+            by=axes,
         ).rollup()
 
     allocation = endpoint(8).compare(endpoint(7)).attribute(axes=axes, top_k=2)
@@ -808,7 +814,7 @@ def test_attribution_publication_cleans_only_failed_run(
             ms.ref.metric("sales.order_count"),
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            coordinates=axes,
+            by=axes,
         ).rollup()
 
     change = endpoint(8).compare(endpoint(7))

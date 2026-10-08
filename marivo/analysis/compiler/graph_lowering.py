@@ -84,7 +84,6 @@ from marivo.analysis.core.rules import (
     FunnelAxesPrepare,
     FunnelCompare,
     FunnelReduce,
-    GroupObservationTarget,
     HistoryAxesPrepare,
     HistoryReplay,
     HistoryView,
@@ -1843,7 +1842,19 @@ def _occurrence_combine(
         parts.append(source.expression.select(**selection).view())
     table = parts[0]
     for part in parts[1:]:
-        table = table.inner_join(part, keys)
+        if params.union_targets:
+            joined = table.outer_join(part, keys)
+            table = joined.select(
+                **{key: table[key].coalesce(part[key]) for key in keys},
+                **{
+                    name: table[name].fill_null(0)
+                    for name in table.columns
+                    if name not in keys and not name.startswith("subject__")
+                },
+                **{name: part[name].fill_null(0) for name in part.columns if name not in keys},
+            ).view()
+        else:
+            table = table.inner_join(part, keys)
     layout = canonical_layout(stage.node.signature, has_value=True)
     coordinate = next(
         (p for p in stage.node.signature.parts if isinstance(p, CoordinateStatePart)), None
@@ -1893,13 +1904,30 @@ def _occurrence_combine(
         )
         table = merged.select(
             *keys,
-            **{f"key_{len(keys) + i}": merged[name] for i, name in enumerate(coordinate.columns)},
+            **{
+                f"key_{len(keys) + i}": merged[name]
+                for i, name in enumerate(coordinate.columns)
+                if coordinate.coordinates[i] not in first.node.signature.domain.instance_key
+            },
             **{f"original_state__{name}": merged[name] for name in coordinate.components},
             **{f"subject__key_{i}": merged[key] for i, key in enumerate(keys)}
             if any(isinstance(p, SubjectPart) for p in stage.node.signature.parts)
             else {},
             coordinate_state__groups=ibis.array([cells]),
         )
+        if params.union_targets and not set(coordinate.coordinates) <= set(
+            first.node.signature.domain.instance_key
+        ):
+            table = (merged.group_by(*keys) if keys else merged).aggregate(
+                **{
+                    f"original_state__{name}": merged[name].sum().fill_null(0)
+                    for name in coordinate.components
+                },
+                coordinate_state__groups=cells.collect(
+                    order_by=[merged[name] for name in coordinate.columns]
+                ),
+            )
+    table = _reduction_subjects(table, stage.node.signature)
     table = _linear_finish(table, layout, stage.node.signature, stage.node.value_type.name)
     for requirement in admitted.checks:
         if requirement.node_id == stage.node.identity and requirement.obligation.check_id in (
@@ -2063,19 +2091,21 @@ def _original_ratio(
     admitted: GraphPlan,
 ) -> tuple[ir.Table, RelationLayout]:
     left, right = inputs
+    params = stage.node.parameters
+    assert isinstance(params, OriginalRatio)
     a, b = left.expression.view(), right.expression.view()
     keys = tuple(k.column for k in left.layout.keys)
-    joined = a.inner_join(b, keys)
+    joined = a.outer_join(b, keys) if params.union_targets else a.inner_join(b, keys)
     layout = canonical_layout(stage.node.signature, has_value=True)
     first_sum, first_support = _state_magnitude(_original_state(left.node.signature))
     second_sum, second_support = _state_magnitude(_original_state(right.node.signature))
-    fields = {key: a[key] for key in keys}
+    fields = {key: a[key].coalesce(b[key]) if params.union_targets else a[key] for key in keys}
     fields.update(
         {
-            "original_state__numerator_sum": a[first_sum],
-            "original_state__numerator_non_null_count": a[first_support],
-            "original_state__denominator_sum": b[second_sum],
-            "original_state__denominator_non_null_count": b[second_support],
+            "original_state__numerator_sum": a[first_sum].fill_null(0),
+            "original_state__numerator_non_null_count": a[first_support].fill_null(0),
+            "original_state__denominator_sum": b[second_sum].fill_null(0),
+            "original_state__denominator_non_null_count": b[second_support].fill_null(0),
         }
     )
     for side, source in (("numerator", a), ("denominator", b)):
@@ -2143,14 +2173,32 @@ def _original_ratio(
         )
         base = merged.select(
             *keys,
-            **{f"key_{len(keys) + i}": merged[name] for i, name in enumerate(coordinate.columns)},
+            **{
+                f"key_{len(keys) + i}": merged[name]
+                for i, name in enumerate(coordinate.columns)
+                if coordinate.coordinates[i] not in left.node.signature.domain.instance_key
+            },
             **{f"original_state__{name}": merged[name] for name in coordinate.components},
             **{f"subject__key_{i}": merged[key] for i, key in enumerate(keys)}
             if any(isinstance(part, SubjectPart) for part in stage.node.signature.parts)
             else {},
             coordinate_state__groups=ibis.array([cells]),
         )
-    table = _ratio_finish(base, layout, stage.node.signature)
+        if params.union_targets and not set(coordinate.coordinates) <= set(
+            left.node.signature.domain.instance_key
+        ):
+            base = (merged.group_by(*keys) if keys else merged).aggregate(
+                **{
+                    f"original_state__{name}": merged[name].sum().fill_null(0)
+                    for name in coordinate.components
+                },
+                coordinate_state__groups=cells.collect(
+                    order_by=[merged[name] for name in coordinate.columns]
+                ),
+            )
+    table = _ratio_finish(
+        _reduction_subjects(base, stage.node.signature), layout, stage.node.signature
+    )
     for requirement in admitted.checks:
         if requirement.node_id == stage.node.identity and requirement.obligation.check_id in (
             "source.contribution_partition@v1",
@@ -2924,6 +2972,7 @@ def _observe(
     from datetime import date, datetime
 
     from marivo.analysis.compiler.source_time import encoded_time_predicate
+    from marivo.refs import ref as semantic_ref
 
     params = stage.node.parameters
     assert isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean))
@@ -2933,7 +2982,7 @@ def _observe(
     event_type = source.event_time.type()
     if (
         tuple(
-            key.coordinate.field for key in members.layout.keys if key.coordinate.role != "anchor"
+            key.coordinate.field for key in members.layout.keys if key.coordinate.role == "identity"
         )
         != (
             tuple(destination for _, destination in params.path[-1].keys)
@@ -3032,29 +3081,24 @@ def _observe(
     mapping = members.expression
     keys = tuple(k.column for k in members.layout.keys)
     source_ids = _source_ids(members.source_ids, contribution_ids)
-    target_fields = {key: mapping[key] for key in keys}
-    if isinstance(params.target, GroupObservationTarget):
-        cell = members.layout.cell
-        if cell is None or str(mapping[cell.value].type()) != "string":
-            _fail("the exact Group field value", "missing Group projection")
-        checks.append(
-            IntegrityCheck(
-                stage.output,
-                "defined member Group coordinates",
-                mapping.filter(mapping[cell.tag] != "defined"),
-                members.source_ids,
-            )
-        )
-        target_fields = {"key_0": mapping[cell.value]}
-    targets = mapping.select(**target_fields)
-    if not isinstance(params.target, EntityObservationTarget) or not any(
-        evidence.fact.kind == "unique_key"
-        and evidence.fact.binding == members.node.signature.domain.binding
-        and evidence.fact.subject_id == members.node.signature.domain.definition_id
-        for evidence in members.node.signature.evidence
-    ):
-        targets = targets.distinct()
-    member_keys = tuple(k.column for k in members.layout.keys if k.coordinate.role != "anchor")
+    member_keys = tuple(k.column for k in members.layout.keys if k.coordinate.role == "identity")
+    source_coordinates = members.node.signature.domain.instance_key
+    raw_coordinates = tuple(
+        Coordinate(semantic_ref.entity(c.entity_ref.path), c.ref.path, "group")
+        for c in params.coordinates
+    )
+    output_coordinates = stage.node.signature.domain.instance_key
+    target_fields: dict[str, ir.Value] = {}
+    for index, coordinate in enumerate(output_coordinates):
+        if coordinate in source_coordinates:
+            target_fields[f"key_{index}"] = mapping[keys[source_coordinates.index(coordinate)]]
+        else:
+            raw_index = raw_coordinates.index(coordinate)
+            target_fields[f"key_{index}"] = source[
+                "coordinate" if raw_index == 0 else f"coordinate_{raw_index}"
+            ]
+    if not target_fields:
+        target_fields["__target"] = ibis.literal(0, type="int64")
     predicates = [source[f"member_{i}"] == mapping[key] for i, key in enumerate(member_keys)]
     grid = members.node.signature.domain.time_grid
     if params.grid_window:
@@ -3090,6 +3134,55 @@ def _observe(
     identity = _identity_observation(stage, members, params)
     joined = source if identity else source.inner_join(mapping, predicates)
     target_keys = tuple(target_fields)
+    if any(c in output_coordinates for c in raw_coordinates):
+        targets = joined.select(**target_fields).distinct()
+        if grid is not None:
+            spatial = targets.select(
+                *(f"key_{i}" for i, c in enumerate(output_coordinates) if c.role != "anchor")
+            ).distinct()
+            targets = reduce(
+                lambda left, right: left.union(right, distinct=False),
+                (
+                    spatial.select(
+                        **{
+                            f"key_{i}": ibis.literal(cell.identity)
+                            if coordinate.role == "anchor"
+                            else spatial[f"key_{i}"]
+                            for i, coordinate in enumerate(output_coordinates)
+                        }
+                    )
+                    for cell in grid.cells
+                ),
+            )
+    elif output_coordinates:
+        if grid is not None and all(c.role == "anchor" for c in output_coordinates):
+            seed = mapping.aggregate(__members=mapping.count())
+            targets = reduce(
+                lambda left, right: left.union(right, distinct=False),
+                (seed.select(key_0=ibis.literal(cell.identity)) for cell in grid.cells),
+            )
+        else:
+            targets = mapping.select(**target_fields)
+            if not isinstance(params.target, EntityObservationTarget) or not any(
+                evidence.fact.kind == "unique_key"
+                and evidence.fact.binding == members.node.signature.domain.binding
+                and evidence.fact.subject_id == members.node.signature.domain.definition_id
+                for evidence in members.node.signature.evidence
+            ):
+                targets = targets.distinct()
+    else:
+        targets = mapping.aggregate(__members=mapping.count()).select(
+            __target=ibis.literal(0, type="int64")
+        )
+    subject_fields = {
+        f"subject__key_{index}": targets[f"key_{output_coordinates.index(coordinate)}"]
+        for part in stage.node.signature.parts
+        if isinstance(part, SubjectPart)
+        for index, coordinate in enumerate(part.subject_key)
+    }
+    coordinate_part = next(
+        (p for p in stage.node.signature.parts if isinstance(p, CoordinateStatePart)), None
+    )
     contribution_fields = (
         {key: source[f"member_{i}"] for i, key in enumerate(target_keys)}
         if identity
@@ -3104,12 +3197,22 @@ def _observe(
             else {}
         ),
         **({"weight": source.weight} if isinstance(params, ObserveWeightedMean) else {}),
-        **{
-            ("coordinate" if i == 0 else f"coordinate_{i}"): source[
-                "coordinate" if i == 0 else f"coordinate_{i}"
-            ]
-            for i in range(len(params.coordinates))
-        },
+        **(
+            {
+                name: target_fields[f"key_{output_coordinates.index(coordinate)}"]
+                if coordinate in output_coordinates
+                else source[
+                    "coordinate"
+                    if raw_coordinates.index(coordinate) == 0
+                    else f"coordinate_{raw_coordinates.index(coordinate)}"
+                ]
+                for name, coordinate in zip(
+                    coordinate_part.columns, coordinate_part.coordinates, strict=True
+                )
+            }
+            if coordinate_part is not None
+            else {}
+        ),
     )
     if isinstance(params, (ObserveMetric, ObserveWeightedMean)) and params.amount_type == "float64":
         checks.append(
@@ -3164,7 +3267,7 @@ def _observe(
             value = value.cast("float64")
         table = dense.select(
             **{key: targets[key] for key in target_keys},
-            **{f"subject__key_{i}": targets[key] for i, key in enumerate(member_keys)},
+            **subject_fields,
             value=value,
             cell_tag=value.notnull().ifelse("defined", "null"),
             cell_reason=value.notnull().ifelse(ibis.null().cast("string"), "empty_contribution"),
@@ -3253,7 +3356,7 @@ def _observe(
         dense = targets.left_join(summed, list(target_keys))
         table = dense.select(
             **{key: targets[key] for key in target_keys},
-            **{f"subject__key_{i}": targets[key] for i, key in enumerate(member_keys)},
+            **subject_fields,
             **{
                 f"original_state__{name}": transport_cast(
                     summed[name].fill_null(0),
@@ -3271,6 +3374,9 @@ def _observe(
             replace(
                 target,
                 parts=tuple(p for p in target.parts if not isinstance(p.part, CoordinateStatePart)),
+                extras=(*target.extras, "__target")
+                if "__target" in table.columns
+                else target.extras,
             ),
             duration=isinstance(stage.node.value_type, DurationType),
         )
@@ -3349,7 +3455,7 @@ def _observe(
             cell_tag=ibis.ifelse(defined, "defined", "null"),
             cell_reason=ibis.ifelse(defined, ibis.null().cast("string"), "empty_contribution"),
             original_state__count=support,
-            **{f"subject__key_{i}": targets[key] for i, key in enumerate(member_keys)},
+            **subject_fields,
             **(
                 {"original_state__absolute_sum": summed.absolute_sum.fill_null(0.0)}
                 if "absolute_sum" in _original_state(stage.node.signature).components
@@ -3372,10 +3478,13 @@ def _observe(
             replace(
                 target,
                 parts=tuple(p for p in target.parts if not isinstance(p.part, CoordinateStatePart)),
+                extras=(*target.extras, "__target")
+                if "__target" in table.columns
+                else target.extras,
             ),
             duration=isinstance(stage.node.value_type, DurationType),
         )
-    if params.coordinates:
+    if coordinate_part is not None:
         amount_type = (
             params.amount_type
             if isinstance(params, (ObserveMetric, ObserveWeightedMean))
@@ -3501,6 +3610,8 @@ def _observe(
         else:
             continue
         checks.append(SemanticCheck(requirement, violations, source_ids))
+    if "__target" in table.columns:
+        table = table.drop("__target")
     return table, target, source_ids
 
 
@@ -3770,6 +3881,24 @@ def lower(
                 .select(*layout.columns)
                 .view()
             )
+            if population_input and any(k.coordinate.role == "identity" for k in layout.keys):
+                checks.append(
+                    IntegrityCheck(
+                        stage.output,
+                        "complete non-null Entity identity",
+                        table.filter(
+                            reduce(
+                                or_,
+                                (
+                                    table[k.column].isnull()
+                                    for k in layout.keys
+                                    if k.coordinate.role == "identity"
+                                ),
+                            )
+                        ),
+                        (stage.leaf.identity,),
+                    )
+                )
             node: Node = stage.leaf
             source_ids: tuple[str, ...] = (stage.leaf.identity,)
             cell_reasons = bound.cell_reasons
@@ -4259,7 +4388,7 @@ def _attach_category(
     columns = (
         tuple(f"subject__key_{i}" for i in range(len(category.layout.keys)))
         if params.subject_mapping
-        else tuple(k.column for k in source.layout.keys)
+        else tuple(k.column for k in source.layout.keys[: len(category.layout.keys)])
     )
     predicates = [
         left[column] == right[key.column]
@@ -4320,6 +4449,14 @@ def _complete_groups(
     if source.layout.cell is None:
         return right.select(*keys), canonical_layout(stage.node.signature, has_value=False)
     value, tag, reason = empty_reduction_cell(source.node.signature)
+    fold = next(
+        (
+            part.fold_kind
+            for part in source.node.signature.parts
+            if isinstance(part, OriginalStatePart)
+        ),
+        None,
+    )
     marked = left.mutate(__present=ibis.literal(True))
     joined = right.left_join(marked, keys)
     missing = marked.__present.isnull()
@@ -4333,11 +4470,20 @@ def _complete_groups(
     for name in source.layout.columns:
         if name in keys:
             continue
+        if name == "coordinate_state__groups":
+            fields[name] = ibis.ifelse(
+                missing, ibis.literal([], type=marked[name].type()), marked[name]
+            )
+            continue
         if name in subject_fields:
             fields[name] = ibis.ifelse(missing, right[subject_fields[name]], marked[name])
             continue
         empty: int | bool | str | None = (
-            value
+            ""
+            if name == "original_state__samples" and fold is not None
+            else fold
+            if name == "original_state__fold_kind" and fold is not None
+            else value
             if name == "value"
             else tag
             if name == "cell_tag"

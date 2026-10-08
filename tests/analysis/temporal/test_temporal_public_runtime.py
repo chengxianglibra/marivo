@@ -77,7 +77,9 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
     logical = (
         session.members(ms.ref.entity("sales.events"))
         .each(grid)
-        .observe(ms.ref.metric("sales.revenue"), during=grid.window)
+        .observe(
+            ms.ref.metric("sales.revenue"), during=grid.window, by=(ms.ref.entity("sales.events"),)
+        )
         .group_by(grid)
         .rollup()
     )
@@ -101,6 +103,7 @@ def test_changed_driver_timezone_rejects_before_source_read(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     probe = source_timezone.probe_engine_timezone
 

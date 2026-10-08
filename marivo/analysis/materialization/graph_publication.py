@@ -522,7 +522,7 @@ def _execute(
                 if isinstance(item.implementation.qualification, Qualified)
             )
             snapshot = Continuation(
-                "marivo.analysis.continuation/v4",
+                "marivo.analysis.continuation/v5",
                 frozen_graph,
                 tuple(
                     dict.fromkeys(
@@ -538,7 +538,7 @@ def _execute(
             )
             frozen = encode(snapshot, SNAPSHOT)
             descriptor = Descriptor(
-                "marivo.analysis.artifact_descriptor/v3",
+                "marivo.analysis.artifact_descriptor/v4",
                 root.fingerprint,
                 run_ref,
                 key,

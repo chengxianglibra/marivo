@@ -43,6 +43,7 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
+    AttachCategory,
     BindProject,
     DirectMetricDefinition,
     EntityObservationTarget,
@@ -226,12 +227,30 @@ def _observation(
         "sum_zero@v1" if method == "sum" and empty == "zero" else f"{method}@v1",
     )
     group_keys = (Coordinate(ENTITY, _cluster().ref.path, "group"),)
+    if grouped:
+        assert isinstance(members, MethodNode)
+        category = members
+        source = category.inputs[0].node
+        domain = source.signature.domain
+        members = method_node(
+            (Edge("subject", source), Edge("subject", category)),
+            AttachCategory(
+                group_keys[0],
+                replace(
+                    domain,
+                    instance_key=(*domain.instance_key, *group_keys),
+                    target_key=(*domain.target_key, *group_keys),
+                ),
+                False,
+            ),
+            value_type=source.value_type,
+        )
     target = (
         GroupObservationTarget(
             DomainSignature(
                 members.signature.domain.binding, "group", group_keys, group_keys, "cluster-groups"
             ),
-            _cluster(),
+            group_keys,
         )
         if grouped
         else EntityObservationTarget(members.signature.domain)
@@ -462,6 +481,7 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
     observed = members.observe(
         ms.ref.metric(f"{case.names.domain}.{case.names.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=(ms.ref.entity(f"{case.names.domain}.{case.names.order}"),),
     )
     result = observed.execute()
     assert result._dataset is not None

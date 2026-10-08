@@ -50,27 +50,41 @@ import marivo.semantic as ms
 from datetime import datetime, timezone
 
 members = session.members(ms.ref.entity("sales.customers"))
-start = mv.step(participant=ms.participant_role(
-    event=ms.ref.event("sales.started"), name="buyer"), key="start")
-finish = mv.step(participant=ms.participant_role(
-    event=ms.ref.event("sales.finished"), name="buyer"), key="finish")
+start = mv.step(
+    participant=ms.participant_role(event=ms.ref.event("sales.started"), name="buyer"), key="start"
+)
+finish = mv.step(
+    participant=ms.participant_role(event=ms.ref.event("sales.finished"), name="buyer"),
+    key="finish",
+)
 window = mv.time_scope(start="2026-02-01T00:00:00Z", end="2026-02-02T00:00:00Z")
 end = datetime(2026, 2, 3, tzinfo=timezone.utc)
 journeys = session.events.match(
-    mv.sequence(start, finish), population=members, cohort_window=window,
-    completion_through=end, matching=mv.first_per_subject(),
-    completeness=(mv.BoundedCompletenessDeclarationV1(
-        inputs=(start.event, finish.event), complete_from=datetime(2026, 2, 1, tzinfo=timezone.utc),
-        complete_through=end, rationale="Verified source coverage"),),
+    mv.sequence(start, finish),
+    population=members,
+    cohort_window=window,
+    completion_through=end,
+    matching=mv.first_per_subject(),
+    completeness=(
+        mv.BoundedCompletenessDeclarationV1(
+            inputs=(start.event, finish.event),
+            complete_from=datetime(2026, 2, 1, tzinfo=timezone.utc),
+            complete_through=end,
+            rationale="Verified source coverage",
+        ),
+    ),
 )
 elapsed = journeys.time_to_event(from_step=start, to_step=finish)
 mean = elapsed.completed().duration.summarize(mv.mean()).execute()
 dropped = journeys.read(mv.dropped_before(step=finish))
 selected = dropped.where(dropped.value.eq(True)).members(
-    through=journeys.subjects(start.participant))
+    through=journeys.subjects(start.participant)
+)
 revenue = selected.observe(
-    ms.ref.metric("sales.revenue"), during=window,
+    ms.ref.metric("sales.revenue"),
+    during=window,
     via=ms.ref.relationship("sales.order_customer"),
+    by=(ms.ref.entity("sales.customers"),),
 ).execute()
 ```
 

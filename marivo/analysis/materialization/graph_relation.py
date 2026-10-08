@@ -51,6 +51,7 @@ from marivo.analysis.core.rules import (
     PartsTransport,
     RowState,
     TimeProduct,
+    classification_key_prefix,
 )
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint
 from marivo.analysis.datasets.errors import DatasetConstructionError
@@ -948,6 +949,7 @@ class Relation:
         via: Ref[RelationshipKind] | tuple[Ref[RelationshipKind], ...],
         coordinates: tuple[Ref[DimensionKind], ...] = (),
         at: datetime | GridPoint | None = None,
+        target_keys: tuple[Coordinate, ...] | None = None,
     ) -> Relation:
         live = self._live()
         relative = any(
@@ -965,6 +967,7 @@ class Relation:
             sidecar=live.sidecar,
             report_timezone=live.report_timezone,
             relative=relative,
+            target_keys=target_keys,
         )
         return Relation(self.runtime, graph.root, replace(live, graph=graph))
 
@@ -1004,6 +1007,7 @@ class Relation:
         paths: tuple[tuple[Ref[RelationshipKind], ...], ...],
         coordinates: tuple[Ref[DimensionKind], ...] = (),
         at: datetime | GridPoint | None = None,
+        target_keys: tuple[Coordinate, ...] | None = None,
     ) -> Relation:
         """Observe an ordered multi-root quantity under explicitly bound routes."""
         live = self._live()
@@ -1026,6 +1030,7 @@ class Relation:
                 sidecar=live.sidecar,
                 report_timezone=live.report_timezone,
                 relative=relative,
+                target_keys=target_keys,
             )
             return Relation(self.runtime, linear.root, replace(live, graph=linear))
         graph = observe_ratio_members(
@@ -1039,6 +1044,7 @@ class Relation:
             sidecar=live.sidecar,
             report_timezone=live.report_timezone,
             relative=relative,
+            target_keys=target_keys,
         )
         return Relation(self.runtime, graph.root, replace(live, graph=graph))
 
@@ -1506,7 +1512,7 @@ class Relation:
             AttachCategory(
                 coordinate,
                 target,
-                category.root.signature.domain.instance_key != source.instance_key,
+                not classification_key_prefix(source, category.root.signature.domain),
             ),
             value_type=self.root.value_type,
         )

@@ -24,10 +24,16 @@ customers = session.members(ms.ref.entity("sales.customer"))
 revenue = ms.ref.metric("sales.revenue")
 buyer = ms.ref.relationship("sales.order_buyer")
 current = customers.observe(
-    revenue, during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=buyer
+    revenue,
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=buyer,
+    by=(ms.ref.entity("sales.customer"),),
 )
 baseline = customers.observe(
-    revenue, during=mv.time_scope(start="2026-07-01", end="2026-08-01"), via=buyer
+    revenue,
+    during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+    via=buyer,
+    by=(ms.ref.entity("sales.customer"),),
 )
 change = current.compare(baseline).execute()
 change.show()
@@ -66,8 +72,10 @@ customers = session.members(ms.ref.entity("sales.customer"))
 revenue = ms.ref.metric("sales.revenue")
 buyer = ms.ref.relationship("sales.order_buyer")
 august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-august_revenue = customers.observe(revenue, during=august, via=buyer)
-total = august_revenue.rollup().execute()
+august_revenue = customers.observe(
+    revenue, during=august, via=buyer, by=(ms.ref.entity("sales.customer"),)
+)
+total = customers.observe(revenue, during=august, via=buyer).execute()
 total.show()
 restored = session.artifact(total.state.artifact_ref)
 restored.contract().show()
@@ -83,6 +91,8 @@ equation. `summarize()` creates a new statistic over current represented rows.
 A mean of displayed averages is not the original weighted mean. Grouped
 observation over the same Entity root needs no relationship solely for grouping.
 
+Ordinary `observe` directly computes the overall Metric. Member scope limits contributions; `by=(member_entity,)` preserves each complete member identity, and `by=(dimension,)` computes grouped values directly. `groups` retains an explicit logical target domain, including empty groups. On `each(grid)`, every time bucket stays while `by` selects spatial grain. Retain partitions before original rollup when attribution needs them. The former `coordinates` parameter and grouped-domain observation are removed.
+
 ## Group the same Entity
 
 This sales model uses `sales.order` and its declared categorical `channel` Dimension.
@@ -92,10 +102,11 @@ This sales model uses `sales.order` and its declared categorical `channel` Dimen
 ```python
 orders = session.members(ms.ref.entity("sales.order"))
 channel = ms.ref.dimension("sales.order.channel")
-channel_revenue = orders.group_by(channel).observe(
+channel_revenue = orders.observe(
     ms.ref.metric("sales.revenue"),
     during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-).rollup().execute()
+    by=(channel,),
+).execute()
 channel_revenue.show()
 ```
 

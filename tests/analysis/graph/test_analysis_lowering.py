@@ -821,7 +821,10 @@ def test_subject_set_image_and_declared_injectivity(source_case, injective):
     )
     lowered = lower(_plan(root), bindings=(binding,))
     if injective:
-        assert not lowered.checks
+        assert all(
+            isinstance(c, IntegrityCheck) and c.expected == "complete non-null Entity identity"
+            for c in lowered.checks
+        )
         rows = _read(source_case[0], lowered, (binding,), _primary(lowered).expression)
         assert len(rows) == 5  # A false declaration is not a source audit.
     else:
@@ -910,7 +913,7 @@ def test_same_table_leaves_keep_expression_source_identity(source_case, mode):
             for c in lowered.checks
             if isinstance(c, IntegrityCheck) and c.stage_output == relation.output
         ]
-        assert not checks  # Source stages do not add business templates.
+        assert all(c.expected == "complete non-null Entity identity" for c in checks)
     if mode != "union_keys":
         checks = [
             c

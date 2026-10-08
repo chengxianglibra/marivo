@@ -40,7 +40,7 @@ def test_native_reference_independent_fixed_and_cold(
         session = mv.session.get_or_create("r94-reference", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
 
-        values = members.observe(ms.ref.metric("sales.total"))
+        values = members.observe(ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),))
         bucket = members.read(ms.ref.dimension("sales.facts.bucket"))
         assert isinstance(values, mv.LogicalNumericRelation)
         assert isinstance(bucket, mv.LogicalCategoryRelation)
@@ -52,7 +52,9 @@ def test_native_reference_independent_fixed_and_cold(
         grid = mv.time_grid(
             during=mv.time_scope(start="2026-08-01", end="2026-08-03"), grain=mv.grain("day")
         )
-        opportunities = members.each(grid).observe(ms.ref.metric("sales.total"), during=grid.window)
+        opportunities = members.each(grid).observe(
+            ms.ref.metric("sales.total"), during=grid.window, by=(ms.ref.entity("sales.facts"),)
+        )
         assert isinstance(opportunities, mv.LogicalNumericRelation)
         selected = bucket.where(bucket.value.eq("a")).members()
         empty = bucket.where(bucket.value.eq("absent")).members()

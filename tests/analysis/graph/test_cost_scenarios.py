@@ -59,7 +59,10 @@ def test_duckdb_local_original_sum_consumes_group_input(
         raw = work.session.members(ms.ref.entity("cost.facts")).observe(
             ms.ref.metric("cost.facts_total"),
             during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-            coordinates=(axis,),
+            by=(
+                ms.ref.entity("cost.facts"),
+                axis,
+            ),
         )
         assert isinstance(raw, mv.LogicalNumericRelation)
         grouped = raw.group_by(axis).rollup()

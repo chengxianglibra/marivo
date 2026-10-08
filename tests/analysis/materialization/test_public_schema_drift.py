@@ -40,6 +40,7 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
             ms.ref.metric(f"{n.domain}.{n.revenue}"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
+            by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
         )
         .rollup()
     )

@@ -44,6 +44,7 @@ def test_declared_native_inputs_need_only_one_terminal_read(
             else members.observe(
                 ms.ref.metric("cost.facts_total"),
                 during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+                by=(ms.ref.entity("cost.facts"),),
             ).rollup()
         )
         purposes = _reads(monkeypatch)

@@ -19,7 +19,10 @@ session = mv.session.get_or_create("static", report_timezone="UTC")
 members = session.members(ms.ref.entity("sales.customer"))
 session.members(ms.ref.metric("sales.revenue"))
 members.read(ms.ref.entity("sales.customer"))
-members.group_by(ms.ref.dimension("sales.customer.region")).observe(ms.ref.metric("sales.revenue"), via=ms.ref.entity("sales.order"))
+members.observe(ms.ref.metric("sales.revenue"), via=ms.ref.entity("sales.order"), by=(ms.ref.dimension("sales.customer.region"),))
+members.observe(ms.ref.metric("sales.revenue"), coordinates=(ms.ref.dimension("sales.customer.region"),))
+members.observe(ms.ref.metric("sales.revenue"), by=(ms.ref.metric("sales.revenue"),))
+members.group_by(ms.ref.dimension("sales.customer.region")).observe(ms.ref.metric("sales.revenue"))
 category = members.read(ms.ref.dimension("sales.customer.region"))
 assert isinstance(category, mv.LogicalCategoryRelation)
 category.compare(category)
@@ -81,6 +84,9 @@ table.execute().execute()
     assert 'Argument 1 to "members"' in output
     assert 'Argument 1 to "read"' in output
     assert 'Argument "via" to "observe"' in output
+    assert 'Unexpected keyword argument "coordinates"' in output
+    assert 'Argument "by" to "observe"' in output
+    assert 'GroupedAnalysisDomain" has no attribute "observe"' in output
     assert 'has no attribute "compare"' in output
     assert 'Argument 1 to "where"' in output
     assert 'has no attribute "show"' in output
@@ -119,12 +125,17 @@ assert isinstance(ratio, mv.LogicalRatioRelation)
 ratio.rollup().execute()
 orders = session.members(ms.ref.entity('sales.order'))
 grouped = orders.group_by(ms.ref.dimension('sales.order.channel'))
-grouped_observed = grouped.observe(ms.ref.metric('sales.revenue'))
-assert isinstance(grouped_observed, mv.GroupedNumericRelation)
+grouped_observed = orders.observe(ms.ref.metric('sales.revenue'), by=(ms.ref.dimension('sales.order.channel'),))
+assert isinstance(grouped_observed, mv.LogicalNumericRelation)
 grouped_observed.rollup().execute()
-grouped_with_none = grouped.observe(ms.ref.metric('sales.revenue'), via=None)
-assert isinstance(grouped_with_none, mv.GroupedNumericRelation)
+grouped_with_none = orders.observe(ms.ref.metric('sales.revenue'), via=None, by=(ms.ref.dimension('sales.order.channel'),))
+assert isinstance(grouped_with_none, mv.LogicalNumericRelation)
 grouped_with_none.rollup().execute()
+individual = members.observe(ms.ref.metric('sales.revenue'), by=(ms.ref.entity('sales.customer'),))
+category = members.read(ms.ref.dimension('sales.customer.region'))
+assert isinstance(category, mv.LogicalCategoryRelation)
+classified = members.observe(ms.ref.metric('sales.revenue'), by=(category,), groups=category.group_by())
+assert isinstance(classified, mv.LogicalNumericRelation)
 """
     )
     root = PROJECT_ROOT

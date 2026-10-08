@@ -78,10 +78,16 @@ def test_required_parts_revoke_recovery_and_cached_continuation(
     metric = ms.ref.metric("sales.order_count")
     via = ms.ref.relationship("sales.order_buyer")
     current = targets.observe(
-        metric, during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=via
+        metric,
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=via,
+        by=(ms.ref.entity("sales.customer"),),
     )
     baseline = targets.observe(
-        metric, during=mv.time_scope(start="2026-07-01", end="2026-08-01"), via=via
+        metric,
+        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+        via=via,
+        by=(ms.ref.entity("sales.customer"),),
     )
     difference = current.compare(baseline).execute()
     category = targets.read(ms.ref.dimension("sales.customer.region"))
@@ -94,7 +100,10 @@ def test_required_parts_revoke_recovery_and_cached_continuation(
             metric,
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=via,
-            coordinates=(axis,),
+            by=(
+                ms.ref.entity("sales.customer"),
+                axis,
+            ),
         ).rollup()
         for month in (8, 7)
     ]
@@ -105,7 +114,10 @@ def test_required_parts_revoke_recovery_and_cached_continuation(
             original_ratio,
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=via,
-            coordinates=(axis,),
+            by=(
+                ms.ref.entity("sales.customer"),
+                axis,
+            ),
         ).rollup()
         for month in (8, 7)
     ]

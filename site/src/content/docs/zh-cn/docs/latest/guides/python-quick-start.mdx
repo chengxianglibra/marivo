@@ -132,8 +132,8 @@ members = session.members(ms.ref.entity("sales.orders"))
 revenue = revenue_entry.ref
 july = mv.time_scope(start="2026-07-01", end="2026-08-01")
 august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-current = members.observe(revenue, during=august).rollup()
-baseline = members.observe(revenue, during=july).rollup()
+current = members.observe(revenue, during=august)
+baseline = members.observe(revenue, during=july)
 current_total = current.execute()
 baseline_total = baseline.execute()
 change = current.compare(baseline).execute()
@@ -141,8 +141,12 @@ change.show()
 change.contract().show()
 
 groups = members.group_by(ms.ref.dimension("sales.orders.region"))
-regional_current = groups.observe(revenue, during=august).rollup()
-regional_baseline = groups.observe(revenue, during=july).rollup()
+regional_current = members.observe(
+    revenue, during=august, by=(ms.ref.dimension("sales.orders.region"),)
+)
+regional_baseline = members.observe(
+    revenue, during=july, by=(ms.ref.dimension("sales.orders.region"),)
+)
 regional_change = regional_current.compare(regional_baseline).execute()
 regional_change.show()
 ```

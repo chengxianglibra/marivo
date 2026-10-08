@@ -128,7 +128,11 @@ def test_sqlite_float_does_not_grant_decimal(
         and item.qualification.implementation_id.startswith("r93.c04.sqlite.")
         and item.key.input_types == (ScalarType("float64"),) * 2
     ]
-    assert len(implementations) == 1
+    assert {item.key.input_domains for item in implementations} == {
+        ("entity", "entity"),
+        ("group", "group"),
+        ("singleton", "singleton"),
+    }
     implementation = implementations[0]
     assert implementation.precision == "native_numeric"
     decimal_key = replace(implementation.key, input_types=(DecimalType(38, 6),) * 2)
@@ -146,7 +150,11 @@ def test_wide_ratio_decimal_does_not_grant_other_scales(backend: str) -> None:
         and item.qualification.implementation_id.startswith(f"r93.c04.{backend}.")
         and item.key.input_types == (DecimalType(38, 6),) * 2
     ]
-    assert len(implementations) == 1
+    assert {item.key.input_domains for item in implementations} == {
+        ("entity", "entity"),
+        ("group", "group"),
+        ("singleton", "singleton"),
+    }
     implementation = implementations[0]
     assert implementation.precision == "native_numeric"
     other_scale = replace(implementation.key, input_types=(DecimalType(38, 8),) * 2)
@@ -485,7 +493,7 @@ def test_independent_roots_and_temporal_fold(
 
             before = set(root.rglob("*.parquet"))
             with pytest.raises(DatasetConstructionError) as refused_route:
-                members.observe(expression, via=routes)
+                members.observe(expression, via=routes, by=(ms.ref.entity("sales.subjects"),))
             assert refused_route.value.received == "Metric roots or relationship endpoints differ"
             assert refused_route.value.location == "analysis.graph_observation"
             assert set(root.rglob("*.parquet")) == before
@@ -511,16 +519,25 @@ def test_independent_roots_and_temporal_fold(
                 )
             return
         values = (
-            members.observe(expression, via=routes)
+            members.observe(expression, via=routes, by=(ms.ref.entity("sales.subjects"),))
             if linear or ratio
-            else members.observe(expression, via=ms.ref.relationship("sales.left_subject"))
+            else members.observe(
+                expression,
+                via=ms.ref.relationship("sales.left_subject"),
+                by=(ms.ref.entity("sales.subjects"),),
+            )
             if mode in ("weighted_mean", "aggregate")
-            else members.observe(expression, via=ms.ref.relationship("sales.right_subject"))
+            else members.observe(
+                expression,
+                via=ms.ref.relationship("sales.right_subject"),
+                by=(ms.ref.entity("sales.subjects"),),
+            )
             if mode == "slice"
             else members.observe(
                 ms.ref.metric("sales.left_folded"),
                 during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
                 via=ms.ref.relationship("sales.left_subject"),
+                by=(ms.ref.entity("sales.subjects"),),
             )
         )
         assert isinstance(values, (mv.LogicalNumericRelation, mv.LogicalRatioRelation))

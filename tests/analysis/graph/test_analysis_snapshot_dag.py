@@ -294,7 +294,7 @@ def test_malformed_and_noncanonical_encodings(damage: str) -> None:
     elif damage == "role":
         body = body.replace('"current"', '"invalid-role"')
     elif damage == "version":
-        body = body.replace("graph_dag/v2", "graph_dag/v999")
+        body = body.replace("graph_dag/v3", "graph_dag/v999")
     elif damage == "expanded":
         body = " " * (4 * 1024 * 1024 + 1)
     text = _compress(body)
@@ -352,7 +352,7 @@ def test_old_continuation_has_explicit_reexecution_repair() -> None:
     from marivo.analysis.materialization.graph_protocol import SNAPSHOT, Continuation, decode
 
     current = Continuation(
-        "marivo.analysis.continuation/v4",
+        "marivo.analysis.continuation/v5",
         freeze_graph(_observation()),
         (),
         (),
@@ -360,7 +360,7 @@ def test_old_continuation_has_explicit_reexecution_repair() -> None:
         (),
         "input",
     )
-    old = encode(current, SNAPSHOT).replace("continuation/v4", "continuation/v1")
+    old = encode(current, SNAPSHOT).replace("continuation/v5", "continuation/v4")
     with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
         decode(old, SNAPSHOT)
 
@@ -403,9 +403,10 @@ def test_duplicate_identity_cannot_hide_equal_but_differently_typed_literals() -
         freeze_graph(root)
 
 
-def test_obsolete_graph_dag_is_preserved_and_requires_reexecution() -> None:
+@pytest.mark.parametrize("old_prefix", ("graph-dag-v1:", "graph-dag-v2:"))
+def test_obsolete_graph_dag_is_preserved_and_requires_reexecution(old_prefix: str) -> None:
     current = freeze_graph(_observation())
-    old = "graph-dag-v1:" + current.removeprefix(PREFIX)
+    old = old_prefix + current.removeprefix(PREFIX)
     retained_bytes = old.encode()
     with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
         thaw_graph(old)

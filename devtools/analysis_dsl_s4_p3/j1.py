@@ -20,16 +20,12 @@ def main(root: Path) -> None:
     channel = ms.ref.dimension("sales.order.channel")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
 
-    observed = customers.observe(revenue, during=august, via=buyer, coordinates=(channel,))
-    total = observed.rollup().execute()
-    regions = customers.group_by(region).observe(revenue, during=august, via=buyer).execute()
+    observed = customers.observe(revenue, during=august, via=buyer, by=(channel,))
+    total = customers.observe(revenue, during=august, via=buyer).execute()
+    regions = customers.observe(revenue, during=august, via=buyer, by=(region,)).execute()
     read_region = customers.read(region)
     east = read_region.where(read_region.value.eq("east")).members()
-    east_channels = (
-        east.observe(revenue, during=august, via=buyer, coordinates=(channel,))
-        .group_by(channel)
-        .execute()
-    )
+    east_channels = east.observe(revenue, during=august, via=buyer, by=(channel,)).execute()
     fixed = observed.execute()
     emit(
         {

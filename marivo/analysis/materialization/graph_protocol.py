@@ -96,7 +96,7 @@ def decode(text: str, adapter: TypeAdapter[T]) -> T:
             item["loc"] == ("schema",) for item in error.errors()
         ):
             raise IntegrityError(
-                expected="graph DAG v2, descriptor v3 and continuation v4 schema versions",
+                expected="graph DAG v3, descriptor v4 and continuation v5 schema versions",
                 received="obsolete, absent or unknown frozen metadata schema version",
                 repair="Re-execute the source analysis to produce a current snapshot; old snapshots cannot continue.",
                 stage="graph_protocol",
@@ -289,7 +289,7 @@ CHECK = TypeAdapter(CheckRequirement)
 
 @dataclass(frozen=True, slots=True)
 class Continuation:
-    schema: Literal["marivo.analysis.continuation/v4"]
+    schema: Literal["marivo.analysis.continuation/v5"]
     root: str
     entity_facts: tuple[str, ...]
     dimension_facts: tuple[str, ...]
@@ -336,7 +336,7 @@ class MethodBinding:
 
 @dataclass(frozen=True, slots=True)
 class Descriptor:
-    schema: Literal["marivo.analysis.artifact_descriptor/v3"]
+    schema: Literal["marivo.analysis.artifact_descriptor/v4"]
     definition_fingerprint: str
     producing_run_ref: str
     execution_key_digest: str

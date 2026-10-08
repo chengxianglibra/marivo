@@ -17,6 +17,7 @@ def test_selection_discloses_members_only_with_retained_subject_map(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"sales.{case.names.buyer}"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     assert isinstance(values, mv.LogicalNumericRelation)
     selected = values.where(values.value.gt(0))

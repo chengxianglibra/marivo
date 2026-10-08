@@ -122,7 +122,7 @@ def test_public_required_part_missing_blocks_recovery_and_exact_hit(
         session = mv.session.get_or_create("r94-part-refusal", report_timezone="UTC")
         values = (
             session.members(ms.ref.entity("sales.facts"))
-            .observe(ms.ref.metric("sales.total"))
+            .observe(ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),))
             .execute()
         )
         logical = values.ratio(values)
@@ -257,7 +257,9 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
         monkeypatch.setattr(session._runtime.store, "admit", forbidden)
         with pytest.raises(AnalysisError) as caught:
             members.observe(
-                ms.ref.metric("sales.total"), via=ms.ref.relationship("sales.event_subject")
+                ms.ref.metric("sales.total"),
+                via=ms.ref.relationship("sales.event_subject"),
+                by=(ms.ref.entity("sales.subjects"),),
             ).execute()
         error = caught.value
         assert error.expected == "one selected datasource"
@@ -335,6 +337,7 @@ def test_public_unqualified_sqlite_timezone_refuses_before_business_read(
             members.observe(
                 ms.ref.metric("sales.total"),
                 during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+                by=(ms.ref.entity("sales.facts"),),
             ).execute()
         error = caught.value
         assert error.received == "SQLite non-UTC observation has no qualified source route"

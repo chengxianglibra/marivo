@@ -449,6 +449,7 @@ class Workload:
         values = self.session.members(ms.ref.entity("cost.facts")).observe(
             ms.ref.metric("cost.facts_total"),
             during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+            by=(ms.ref.entity("cost.facts"),),
         )
         assert isinstance(values, mv.LogicalNumericRelation)
         return values
@@ -465,7 +466,10 @@ class Workload:
             prepared = self.session.members(ms.ref.entity("cost.facts")).observe(
                 ms.ref.metric("cost.facts_total"),
                 during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                coordinates=(ms.ref.dimension("cost.facts.kind"),),
+                by=(
+                    ms.ref.entity("cost.facts"),
+                    ms.ref.dimension("cost.facts.kind"),
+                ),
             )
             assert isinstance(prepared, mv.LogicalNumericRelation)
             result = prepared.rollup().execute()
