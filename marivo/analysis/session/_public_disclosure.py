@@ -579,7 +579,20 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 )
                 if type_value in policy_examples
                 else (),
-                constraints=("Exact member, semantic and Artifact bindings govern continuations.",),
+                constraints=(
+                    "Exact member, semantic and Artifact bindings govern continuations.",
+                    *(
+                        (
+                            _doc_section(
+                                getattr(dsl._History, history_families[type_value][0]),
+                                "Constraints",
+                            ),
+                        )
+                        if type_value in history_families
+                        and history_families[type_value][0] in ("distribution", "dwell")
+                        else ()
+                    ),
+                ),
             )
         )
         exports.append(ExportInput(name, type_value, name))

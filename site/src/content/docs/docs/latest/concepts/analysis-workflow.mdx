@@ -253,6 +253,14 @@ negative = coefficient.where(coefficient.value.lt(0)).execute()
 calculates an equal-current-row mean. Spearman is descriptive and uses complete
 member pairs from the same observation scope.
 
+`association.contract().show()` and the coefficient/selected cards disclose
+`pairing_key`: the original ordered tuple of Entity, field and coordinate role.
+For a composite key, all components pair observations together. The association
+output key identifies a candidate pair, not an original observation identity.
+Terminal table columns carry the same explanation.
+Identical facts are shared with an ordered list of applicable column labels;
+different units or keys retain separate explanations.
+
 For a retained `NoTime` Entity quantile with `Decimal(18,2)` values,
 current-row sum returns `Decimal(38,2)` and mean returns `Decimal(38,6)` with
 one HALF_EVEN finish. Their new row-statistic `rollup()` merges captured exact
@@ -577,6 +585,18 @@ observations from logical History before execution. Fixed continuations use
 retained parts only. Duration mean consumes completed interval rows with exact
 ticks; Dwell mean/median/p90 summaries cannot be averaged or pooled.
 
+Distribution rows have checkpoint × model_state × full axes grain.
+`seeded_subject_count` and `coverage_censored_count` describe a checkpoint × axes
+Subject pool repeated across state rows; do not sum them across states. A zero
+`known_state_count` may describe an alternate state of an already seeded Subject,
+so its row complement does not identify NotStarted or censored Subjects.
+
+Duration cards and contracts disclose the actual `duration_unit` and conversion.
+The logical Dwell parent contract also provides these facts before execution;
+materialized parents read the retained column types.
+History uses microseconds: `seconds = ticks / 1000000`, so `86412333333 us` is
+`86412.333333 s`. Convert exported pandas timedeltas with `total_seconds()`.
+
 ```python
 checkpoint = window.end
 done = ms.model_state(model=ms.ref.state_model("commerce.model"), name="done")
@@ -598,7 +618,9 @@ interval_ref = retained_intervals.evidence_digest().artifact_ref
 session.artifact(interval_ref).state.execute().show()
 completed = retained_intervals.where(retained_intervals.status.value.eq("completed"))
 completed.members(through=retained_intervals.subjects()).execute().show()
-completed.observed_duration.summarize(mv.mean()).execute().show()
+duration_result = completed.observed_duration.summarize(mv.mean()).execute()
+duration_result.show()
+duration_seconds = duration_result.to_pandas()["value"].dt.total_seconds()
 distribution.execute().known_state_count.execute().show()
 transitions.execute().count.execute().show()
 violations.execute().kind.execute().show()

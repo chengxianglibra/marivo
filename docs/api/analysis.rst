@@ -25,6 +25,25 @@ Duration cells show integer ticks with their unit. Cell state counts cover the
 whole result. The card shows interpretation facts and conditional evidence
 reads; use ``contract()`` for the full operation directory.
 
+History distribution rows have checkpoint × model_state × full axes grain.
+``seeded_subject_count`` and ``coverage_censored_count`` repeat the checkpoint ×
+axes Subject pool across state rows; do not sum across states. Zero known-state
+cells can include alternate states of seeded Subjects, so their complement does
+not identify NotStarted or censored Subjects. Dwell and Duration fields disclose
+the actual ``duration_unit`` and ticks-to-seconds conversion. History microseconds
+use ``seconds = ticks / 1000000``; exported pandas timedelta columns use
+``.dt.total_seconds()``.
+
+Association results, coefficient/selected views and terminal table columns
+disclose ``pairing_key`` from the retained original input domain: each Entity,
+field and coordinate role in original order. The complete tuple pairs original
+observations; association output keys identify candidate pairs. These facts use
+frozen definitions without source access or new Runs.
+Identical terminal-column facts are printed once with all applicable column
+labels; different units and keys remain separate. Logical Dwell parent contracts
+already disclose Duration units and conversion before execution, using the
+existing field types; materialized parents read their retained Arrow schema.
+
 Execution retains results as project-local Parquet. There is no analysis result
 storage setting or database result storage. Session recovery reads Store 7;
 older generation files are not migrated or rewritten.

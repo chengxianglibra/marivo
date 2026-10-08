@@ -38,6 +38,30 @@ def test_grouped_observation_help_discloses_optional_identity_route() -> None:
     assert "result = relation.observe(metric)" in text
 
 
+def test_history_interpretation_help_uses_producer_contract() -> None:
+    from marivo.analysis.session._method_disclosure import section
+
+    for method, types in (
+        (
+            mv.LogicalHistoryResult.distribution,
+            (mv.LogicalStateDistributionResult, mv.MaterializedStateDistributionResult),
+        ),
+        (mv.LogicalHistoryResult.dwell, (mv.LogicalDwellSummary, mv.MaterializedDwellSummary)),
+    ):
+        constraints = section(method, "Constraints")
+        assert constraints in render_help_text(method)[0]
+        for result_type in types:
+            text = render_help_text(result_type)[0]
+            assert constraints in text
+            assert text == render_help_text("analysis." + result_type.__name__)[0]
+    distribution = render_help_text(mv.MaterializedStateDistributionResult)[0]
+    assert "do not sum them across states" in distribution
+    assert "alternate states of seeded Subjects" in distribution
+    dwell = render_help_text(mv.MaterializedDwellSummary)[0]
+    assert "seconds = ticks / 1000000" in dwell
+    assert "total_seconds()" in dwell
+
+
 def test_parameter_semantics_and_real_producers() -> None:
     text, _, _ = render_help_text(mv.LogicalNumericRelation.correlate)
     assert "Input method: pearson, spearman, or kendall." in text

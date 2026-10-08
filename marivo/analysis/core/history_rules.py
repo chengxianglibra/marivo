@@ -6,6 +6,7 @@ from hashlib import sha256
 from marivo.analysis.core.domain_captures import fail
 from marivo.analysis.core.history_types import (
     Distribution,
+    HistoryField,
     Intervals,
     StateAt,
     Violations,
@@ -31,7 +32,7 @@ from marivo.analysis.core.rules import (
 )
 from marivo.refs import ref
 
-FIELDS = {
+FIELDS: dict[str, tuple[HistoryField, ...]] = {
     "distribution": (
         "known_state_count",
         "seeded_subject_count",

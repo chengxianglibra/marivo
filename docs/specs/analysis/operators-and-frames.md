@@ -674,6 +674,9 @@ cannot roll up. Two Histories cannot be bag-merged to replay. State/pair summari
 cannot reconstruct Subject membership or a transition trace from intervals.
 
 Duration disclosure reads the actual DurationType or retained Arrow column unit.
+Logical Dwell parent contracts use the existing History field type owner before
+execution; materialized parents use their retained Arrow schema. Both expose
+the duration fields' units and conversion without source reads or new Runs.
 History Duration uses microsecond ticks: duration_unit=us and
 seconds = ticks / 1000000. For example, 86412333333 us is 86412.333333 seconds.
 Exported pandas timedelta columns use `.dt.total_seconds()` (or
@@ -865,6 +868,9 @@ neither component alone is its identity. Association output keys identify
 evaluated candidates, not the original paired observations. The parent,
 coefficient/selected views and terminal table columns share this frozen fact
 without disclosing identity values or adding Runs.
+Terminal tables share identical interpretation facts across an ordered list of
+column labels. Different fact values remain separate, so shared disclosure never
+conflates different units or pairing keys. Default display budgets still apply.
 
 None means one zero lag. A nonempty range supplies signed int64 offsets only;
 explicit lag is rejected on Entity/category even for range(0,1). +k pairs A(t)

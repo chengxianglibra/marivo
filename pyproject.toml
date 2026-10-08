@@ -29,6 +29,7 @@ dependencies = [
     "pydantic>=2.9.0",
     "python-dateutil>=2.9.0",
     "scipy>=1.13.0",
+    "sqlglot==30.8.0",
     "tomli>=2.0; python_version < '3.11'",
     "tomli_w>=1.0",
     "typing-extensions>=4.8.0",

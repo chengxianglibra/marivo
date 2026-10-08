@@ -5,9 +5,13 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import tarfile
+from email.parser import BytesParser
 from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
+from packaging.requirements import Requirement
 
 from tests.packaging.boundary_probe import public_snapshot
 from tests.packaging.wheel_probe import surface_snapshot
@@ -16,6 +20,66 @@ from tests.support.json import Json, checked, obj, read
 from tests.support.paths import PROJECT_ROOT
 
 pytestmark = pytest.mark.release
+
+
+def test_archives_pin_sqlglot(installed_base_wheel: InstalledWheel) -> None:
+    wheel = installed_base_wheel.wheel
+    with ZipFile(wheel) as archive:
+        metadata_name = next(name for name in archive.namelist() if name.endswith("/METADATA"))
+        wheel_metadata = archive.read(metadata_name)
+    sdist = next(wheel.parent.glob("marivo-*.tar.gz"))
+    with tarfile.open(sdist) as archive:
+        member = next(
+            item
+            for item in archive.getmembers()
+            if item.name.count("/") == 1 and item.name.endswith("/PKG-INFO")
+        )
+        stream = archive.extractfile(member)
+        assert stream is not None
+        sdist_metadata = stream.read()
+    for raw in (wheel_metadata, sdist_metadata):
+        requirements = [
+            Requirement(text) for text in BytesParser().parsebytes(raw).get_all("Requires-Dist", [])
+        ]
+        sqlglot = next(item for item in requirements if item.name == "sqlglot")
+        assert str(sqlglot.specifier) == "==30.8.0" and sqlglot.marker is None
+
+
+def test_installed_interpretation_source_fixed_cold(
+    installed_wheel: InstalledWheel, installed_base_wheel: InstalledWheel
+) -> None:
+    candidate = installed_wheel
+    root = candidate.work / "interpretation"
+    receipts = []
+    for phase in ("produce", "fixed", "cold"):
+        output = candidate.run(
+            "interpretation-" + phase,
+            [
+                str(candidate.interpreter),
+                "-m",
+                "tests.analysis.graph.interpretation_worker",
+                str(root),
+                phase,
+            ],
+        )
+        receipts.append(json.loads(output.splitlines()[-1]))
+        if phase == "produce":
+            for family in ("history", "statistics"):
+                project = root / family
+                shutil.rmtree(project / "models")
+                for path in (*project.glob("*.duckdb*"), *project.rglob("*.parquet")):
+                    if ".marivo" not in path.parts:
+                        path.unlink()
+    assert len({item["pid"] for item in receipts}) == 3
+    installed_base_wheel.run(
+        "interpretation-base-cold",
+        [
+            str(installed_base_wheel.interpreter),
+            "-m",
+            "tests.packaging.interpretation_read_probe",
+            str(root),
+        ],
+    )
 
 
 def test_installed_dependency_isolation(installed_dependency_wheel: InstalledWheel) -> None:
