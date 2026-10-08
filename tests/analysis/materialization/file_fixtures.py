@@ -14,6 +14,31 @@ from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData
 
 
+def author_http_case(
+    case: Case,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    assert isinstance(case.source, JsonSourceIR)
+    arguments = {
+        **case.session.datasource.fields,
+        **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
+    }
+    argument_text = ", ".join(f"{key}={value!r}" for key, value in arguments.items())
+    url = case.source.path + "?page=7"
+    semantic_project_factory(
+        {
+            "datasources/warehouse.py": "import marivo.datasource as md\n"
+            + f"md.duckdb(name='warehouse', {argument_text})\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='R10', default=True)\n",
+            "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+            + f"facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.json({url!r}), primary_key=['tenant','id','revision'])\n"
+            + "amount=ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n"
+            + "happened=ms.time_dimension_column(name='happened', entity=facts, column='happened', granularity='second', parse=ms.timestamp(timezone='UTC'), is_default=True)\n"
+            + "total=ms.aggregate(name='total', measure=amount, agg='sum', empty=ms.empty.zero())\n",
+        }
+    )
+
+
 def author_file_case(
     case: Case,
     data: SourceData,

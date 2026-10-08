@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import socket
 import warnings
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, suppress
@@ -555,11 +556,14 @@ def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[No
             "MySQL authoring timeout requires its isolated owned reader and control connection"
         )
     expired = Event()
+    # Prepare the data socket while its driver is idle. The deadline thread
+    # must not call connection metadata methods during a native query.
+    owned_socket = socket.fromfd(connection.fileno(), socket.AF_INET, socket.SOCK_STREAM)
 
     def cancel() -> None:
         expired.set()
         try:
-            if connection.thread_id() != identity:
+            if getattr(backend, "con", None) is not connection:
                 return
             execute_provider_statement(
                 control,
@@ -573,26 +577,20 @@ def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[No
             pass
         finally:
             # Wake an owner blocked on fetch even when server cancellation fails.
-            import socket
-
-            with (
-                suppress(OSError, ValueError),
-                socket.fromfd(
-                    connection.fileno(), socket.AF_INET, socket.SOCK_STREAM
-                ) as owned_socket,
-            ):
+            with suppress(OSError, ValueError):
                 owned_socket.shutdown(socket.SHUT_RDWR)
 
-    timer = Timer(timeout_seconds, cancel)
-    timer.daemon = True
-    timer.start()
-    try:
-        yield
-        if expired.is_set():
-            raise TimeoutError("MySQL authoring deadline expired")
-    finally:
-        timer.cancel()
-        timer.join()
+    with owned_socket:
+        timer = Timer(timeout_seconds, cancel)
+        timer.daemon = True
+        try:
+            timer.start()
+            yield
+            if expired.is_set():
+                raise TimeoutError("MySQL authoring deadline expired")
+        finally:
+            timer.cancel()
+            timer.join()
 
 
 PROFILE = EngineProfile(

@@ -53,8 +53,11 @@ def transport_cast(value: ir.Value, dtype: str) -> ir.Value:
 
 def bounded_transport_cast(value: ir.Value, dtype: str, valid: ir.BooleanValue) -> ir.Value:
     """Fail during the consumed native cast when a widened carrier is out of range."""
-    rendered = valid.ifelse(value.cast("string"), "numeric carrier overflow")
-    return transport_cast(rendered, dtype)
+    rendered = valid.fill_null(True).ifelse(value.cast("string"), "numeric carrier overflow")
+    # ClickHouse nullable casts turn invalid numeric text into NULL. Consume a
+    # nonnull carrier first so overflow cannot masquerade as missing state.
+    checked = ops.Cast(rendered.fill_null("0"), to=dt.dtype(dtype).copy(nullable=False)).to_expr()
+    return value.isnull().ifelse(ibis.null().cast(dtype), checked)
 
 
 def adapt_measure(value: ir.Value, declared: str) -> ir.Value:

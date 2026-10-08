@@ -26,7 +26,7 @@ independently of the owning goal directory.
 | Config, refs, CLI, doctor, preview, telemetry and Make routing | `tests/project/` | Daily |
 | Concrete callable/type contracts | `tests/typing/`, `tests/surface/test_*typing.py` | Typecheck; daily rejected-call probes |
 | Archive integrity, package extras and packaged resource layout | `tests/packaging/test_archives.py`, `test_metadata.py`, `test_skills.py` | Daily; real candidate archive validation also runs in release |
-| Installer behavior and installed-package origin, surface and recovery | `tests/packaging/test_installer*.py`, `test_wheel.py` | Release |
+| Installer behavior and installed-package origin, surface and recovery | `tests/packaging/test_installer*.py`, `test_wheel.py`, `test_installed_journeys.py` | Release |
 | Explicit installed native-source journeys | `tests/packaging/test_installed_sources.py` | Opt-in release; requires selected services |
 
 Fixtures and suite policies remain in `tests/conftest.py`; reusable pure builders remain
@@ -46,8 +46,8 @@ in `tests/support/`. Tests and workers do not import helpers from test modules.
 | Decimal precision × storage × three-process Cartesian replay | Pure numerical laws retain all 779 valid Decimal(p,s) profiles for both scoring algorithms. `tests/analysis/statistics/test_deviation_decimal_recovery.py` retains nine endpoint/widening/rounding carrier profiles through independent producer, offline and cold processes. |
 | Repeated key × storage × temporal lifecycle/History/anchor matrices | All nine key pairs retain Parquet UTC-us execution; compound keys retain every original temporal and storage variant. Independent native precision, receipt and cancellation checks remain separate. |
 | Repeated statistical storage and fit/continuation combinations | Ordinary shared behavior uses Parquet. Each distinct original-state, fit, key, time, resource and source-free recovery risk retains an owning test. Native engine cases remain where the execution mechanism is itself the assertion. |
-| Installed-wheel replay of development test suites | One isolated candidate validates archive hashes, dependencies, noneditable origin, poisoned-source rejection, console/Help and representative public graph, numeric, statistical, Funnel and History continuations in separate processes. Functional matrices run under their own goals. |
-| Installed native-source replay of deleted test paths and incidental numerical/query-budget replay | Current `source_probe.py` retains actual source privilege, schema-failure, offline and cold witnesses through qualified scalar relationship routes; native trace audits bind SQL to driver calls. Dedicated native C05/C10 tests own query accounting and distinct qualification. The obsolete cluster-only replay had no current test implementation and was removed. |
+| Installed-wheel replay of development test suites | One isolated candidate validates archive hashes, dependencies, noneditable origin, poisoned-source rejection and console/Help. Independently runnable public journeys combine existing graph, numeric, statistical, Funnel, History and Anchor oracles in producer, fixed and cold processes. Selected behavioral owners cover independent premise, payload, Session, atomicity and resource risks; broad functional matrices remain under their own goals. |
+| Installed native-source replay of deleted test paths and incidental numerical/query-budget replay | `source_probe.py` retains source privilege, required matching failure, offline and cold witnesses; declared Entity uniqueness is trusted. Native method, producer, domain, profile and cancellation owners retain actual physical keys, oracle and independent recovery evidence. ClickHouse Distributed remains a separate opt-in profile using the dedicated cluster. |
 
 Qualification receipt IDs and protocol versions can contain historical identifiers.
 These are stable product identities, not executable test paths, and are preserved by

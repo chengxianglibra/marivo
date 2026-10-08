@@ -1,6 +1,7 @@
 """Three-process public Anchor production, offline continuation and exact recovery."""
 
 import json
+import shutil
 import sys
 from contextlib import ExitStack
 from pathlib import Path
@@ -11,9 +12,6 @@ import ibis
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.journey.anchors_fixtures import (
@@ -33,7 +31,7 @@ def artifact(value):
     return value.state.artifact_ref.ref
 
 
-def produce(root):
+def produce(root: Path) -> None:
     config = json.loads((root / "config.json").read_text())
     all_k = config.pop("all_K", False)
     session, members, window, claims, values = build_anchors(root, **config)
@@ -66,12 +64,13 @@ def produce(root):
     }
     (root / "manifest.json").write_text(json.dumps(manifest))
     (root / "source.duckdb").unlink()
+    shutil.rmtree(root / "models")
     for path in root.glob("*.parquet"):
         path.unlink()
     print(json.dumps({"phase": "produce", "accepted": True, "outputs": len(source)}))
 
 
-def offline(root, cold):
+def offline(root: Path, cold: bool) -> None:
     data = json.loads((root / "manifest.json").read_text())
     executed = []
     with ExitStack() as guards:
@@ -88,7 +87,7 @@ def offline(root, cold):
             patch("marivo.analysis.materialization.journey_execution.execute", forbidden)
         )
         guards.enter_context(patch("marivo.analysis.methods.journey_matching.match", forbidden))
-        session = Session._from_runtime(DatasetRuntime(SessionStore(root), data["session"]))
+        session = mv.session.resume(data["session"], by="id")
         for profile, reference in data["source"].items():
             result = session.artifact(reference)
             assert artifact(result) == reference

@@ -612,6 +612,22 @@ def _observe_component(
     for schema in selected_schemas:
         if schema.contract.ref.path == member_schema.contract.ref.path:
             continue
+        captured_source = next(
+            (
+                (captured_schema, leaf)
+                for captured_schema, leaf in members.sources
+                if captured_schema.contract.ref == schema.contract.ref
+            ),
+            None,
+        )
+        if captured_source is not None:
+            captured_schema, captured_leaf = captured_source
+            if captured_schema != schema:
+                raise _reject("captured member dependency schema changed after construction")
+            retained_leaf = nodes[captured_leaf.identity]
+            assert isinstance(retained_leaf, SourceLeaf)
+            source_entries.append((schema, retained_leaf))
+            continue
         entity_ref = ref.entity(schema.contract.ref.path)
         leaf = SourceLeaf(
             SourceDefinition(
@@ -870,13 +886,17 @@ def _observe_component(
     for hop in parameters.path:
         prepared_sources.update((hop.from_entity_ref.path, hop.to_entity_ref.path))
     prepared_sources.update(field.entity_ref.path for field in parameters.coordinates)
+    observation_sources = {parameters.contribution.path}
+    for hop in parameters.path:
+        observation_sources.update((hop.from_entity_ref.path, hop.to_entity_ref.path))
     root = method_node(
         observation_inputs,
         prepared_parameters if prepared_parameters is not None else parameters,
         sources=tuple(
             leaf
             for _, leaf in source_entries
-            if prepared_parameters is None or leaf.definition.ref.path in prepared_sources
+            if leaf.definition.ref.path
+            in (prepared_sources if prepared_parameters is not None else observation_sources)
         ),
         value_type=amount_type
         if isinstance(amount_type, DurationType) and aggregate_kind != "count_distinct"

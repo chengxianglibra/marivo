@@ -51,7 +51,8 @@ release-test: pypi-build pypi-check
 	@$(VENV_PYTEST) -n 0 -m release \
 		tests/packaging/test_installer.py \
 		tests/packaging/test_installer_uv.py \
-		tests/packaging/test_wheel.py
+		tests/packaging/test_wheel.py \
+		tests/packaging/test_installed_journeys.py
 
 typecheck:
 	@./scripts/require-venv.sh mypy

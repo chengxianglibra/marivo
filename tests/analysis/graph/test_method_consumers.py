@@ -2,15 +2,15 @@
 
 import json
 import os
+import subprocess
+import sys
 import warnings
 from collections.abc import Callable
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from fractions import Fraction
-from math import sqrt
 from pathlib import Path
-from statistics import NormalDist
 from typing import Literal
 
 import ibis
@@ -45,9 +45,12 @@ from marivo.datasource.errors import DatasourceConnectionError, DatasourceSource
 from marivo.refs import RefPayloadV1
 from marivo.semantic.ir import TargetDimensionContract, TimestampParse
 from marivo.semantic.reader import SemanticProject
+from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.statistics.deviation_oracle import expected as deviation_oracle
+from tests.analysis.statistics.test_analysis_statistics_kernel import _oracle_cdf
 from tests.datasource.source_cases import SourceData, source_case
-from tests.support.json import digest, key_json
+from tests.support.json import Json, digest, encode, key_json, obj, read
+from tests.support.paths import PROJECT_ROOT
 
 
 @pytest.mark.runtime
@@ -407,18 +410,28 @@ def test_source_statistic(
                     for h in (1, 2)
                 )
                 assert tuple(point.variance.value() for point in series.points) == variances
-                quantile = NormalDist().inv_cdf(0.975)
-                widths = [quantile * sqrt(float(value)) for value in variances]
-                assert predicted.lower.to_pandas().value.tolist() == pytest.approx(
-                    [point - width for point, width in zip(points, widths, strict=True)],
-                    rel=1e-14,
-                    abs=1e-14,
-                )
-                assert predicted.upper.to_pandas().value.tolist() == pytest.approx(
-                    [point + width for point, width in zip(points, widths, strict=True)],
-                    rel=1e-14,
-                    abs=1e-14,
-                )
+                # Invert the independent defining integral, then round each exact
+                # point/variance endpoint once to its published float64 carrier.
+                with localcontext() as context:
+                    context.prec = 220
+                    probability = (1 + Decimal.from_float(0.95)) / 2
+                    lower, upper = Decimal(1), Decimal(3)
+                    for _ in range(220):
+                        middle = (lower + upper) / 2
+                        if _oracle_cdf(middle) < probability:
+                            lower = middle
+                        else:
+                            upper = middle
+                    quantile = (lower + upper) / 2
+                    endpoints = []
+                    for h, variance in enumerate(variances, start=1):
+                        point = Decimal(slope.numerator * h) / slope.denominator
+                        width = (
+                            quantile * (Decimal(variance.numerator) / variance.denominator).sqrt()
+                        )
+                        endpoints.append((float(point - width), float(point + width)))
+                assert predicted.lower.to_pandas().value.tolist() == [v[0] for v in endpoints]
+                assert predicted.upper.to_pandas().value.tolist() == [v[1] for v in endpoints]
                 family = "forecast"
                 dataset, node = predicted._dataset, predicted._node.definition
                 oracle = {
@@ -477,10 +490,8 @@ def test_source_statistic(
             result = logical.execute()
             # Original exact pairs: (2**53, 1), (2**53+1, 2), (2**53+1, 1).
             expected = 0.5
-            assert result.coefficient.to_pandas().value.tolist() == pytest.approx([expected])
-            assert logical.coefficient.execute().to_pandas().value.tolist() == pytest.approx(
-                [expected]
-            )
+            assert result.coefficient.to_pandas().value.tolist() == [expected]
+            assert logical.coefficient.execute().to_pandas().value.tolist() == [expected]
             assert logical.selected.execute().to_pandas().value.tolist() == [True]
             assert result._dataset is not None
             parts = {part.role for part in result._dataset.verified().parts}
@@ -510,6 +521,13 @@ def test_source_statistic(
         assert all(item["cursor_state"] in ("closed", "connection_owned") for item in submissions)
         assert all(item["state"] == "succeeded" for item in submissions)
         assert all(item["connection_disconnected"] is True for item in submissions)
+        restored = session.artifact(dataset.artifact.artifact_ref)
+        from marivo.analysis.public_dsl import _MaterializedRead
+
+        assert isinstance(restored, _MaterializedRead)
+        (tmp_path / "statistic-producer.json").write_bytes(
+            encode({"session": session.id, "original": snapshot(restored)})
+        )
         evidence_dir = os.environ.get("MARIVO_R93_EVIDENCE_DIR")
         if evidence_dir:
             payload = {
@@ -541,3 +559,37 @@ def test_source_statistic(
                 "raw_receipt_sha256": digest(raw),
             }
             Path(evidence_dir, "binding-" + name).write_text(json.dumps(summary, sort_keys=True))
+    (tmp_path / "models").rename(tmp_path / "models.offline")
+    phases: list[Json] = []
+    for phase in ("fixed", "cold"):
+        report = tmp_path / ("statistic-" + phase + ".json")
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tests.analysis.statistics.producer_recovery_worker",
+                str(tmp_path),
+                phase,
+                str(report),
+            ],
+            cwd=PROJECT_ROOT,
+            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        phases.append(read(report))
+    assert len({os.getpid(), *(obj(item)["pid"] for item in phases)}) == 3
+    if evidence_dir:
+        Path(evidence_dir, f"recovery-{family}-{method}-{backend}.json").write_bytes(
+            encode(
+                {
+                    "backend": backend,
+                    "method": method,
+                    "producer_pid": os.getpid(),
+                    "phases": phases,
+                }
+            )
+        )

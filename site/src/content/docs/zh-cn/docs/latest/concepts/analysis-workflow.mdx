@@ -13,7 +13,7 @@ retained 结果绕过准入限制。
 会在连接数据源前给出结构化修复建议。
 
 公共 Session 的成员读取、观察、比较、统计、Event 和 Lifecycle 使用类型化图、
-方法 registry、Runtime 与 Store 7。每个来源与固定方法都需要精确物理资格；
+方法 registry、Runtime 与 Store 8。每个来源与固定方法都需要精确物理资格；
 下面的有界后端向量不授予其他组合资格。旧代际项目保持原样并明确拒绝，请在新项目中创建 Session。
 
 构造可进行仅 schema 预检，确定精确身份和值类型，不读取业务行。成员身份保留完整的
@@ -144,12 +144,19 @@ restored = session.artifact(total.state.artifact_ref)
 restored.contract().show()
 for action in restored.contract().actions:
     print(action.call, action.help_target)
+saved_observation = august_revenue.execute()
+recovered_observation = session.artifact(saved_observation.state.artifact_ref)
+recovered_observation.summarize(method=mv.count()).execute().show()
 ```
 
 此形状要求项目已经编写并准入相应 Entity、Metric 与 Relationship。
 每次执行逻辑来源分支都会重新读取来源；固定续算可命中已提交的精确执行键。
 `session.artifact(ref)` 依据校验过的快照与保留部件恢复公开 J1–J4 结果，
 不读取当前来源或 Semantic 目录。其他能力遵循各自当前类型化入口与精确资格。
+恢复后的观察保留完整当前行，包括已有的贡献坐标。`summarize` 消费当前行，
+`rollup` 消费已存原量聚合状态。历史属性筛选后的新逻辑观察保留所选版本。
+History 的状态、区间和违规选人先准备来源候选，再消费本地行；
+已存 History 续算读取捕获状态，不重放事件。
 有界结果卡会展示已有的单位、方法、Cell 字段和当前行权重，并遮蔽 Entity 成员键。
 每个 `AnalysisAction` 给出当前结果可执行的调用形式和对应的精确
 `marivo.help("analysis.<target>")` 路由。物化结果的 contract 会验证确切保留部件，再披露可续算动作。

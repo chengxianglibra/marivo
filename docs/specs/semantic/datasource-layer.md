@@ -657,7 +657,9 @@ repair. On 2026-10-06 the user separately authorized owned-query KILL for
 `sample` and `raw_sql` deadlines. Their isolated reader has its own bounded
 control connection; `datasource.authoring.deadline` may cancel only that
 reader's current native thread ID. The timer covers execution and fetch, joins
-before cleanup, and closes both connections. These purposes do not use or
+before cleanup, and closes both connections. The reader identity and duplicated
+socket are captured before submission; cancellation does not call driver metadata
+methods across threads while a native read is active. These purposes do not use or
 extend the certification-only SET/read controls. Independent server termination
 and absence of publication after failure remain separate acceptance proofs.
 

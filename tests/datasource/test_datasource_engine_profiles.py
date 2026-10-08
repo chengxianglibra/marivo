@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import socket
+from collections.abc import Callable
 from dataclasses import replace
 from typing import cast
+from unittest.mock import MagicMock, Mock
 
 import ibis
 import pytest
@@ -115,6 +118,71 @@ def test_mysql_timeout_is_unavailable_without_driver_control() -> None:
         pytest.fail("Missing MySQL owner/control reached authoring execution")
 
 
+@pytest.mark.parametrize("fault", ("none", "foreign", "control_failure"))
+def test_mysql_authoring_timeout_uses_only_prepared_driver_metadata(
+    monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    from marivo.datasource.engines import mysql
+
+    backend: BaseBackend = Mock(spec=BaseBackend)
+    connection = Mock()
+    connection.thread_id.return_value = 123
+    connection.fileno.return_value = 17
+    backend.con = connection
+    backend._marivo_authoring_cancel_control = Mock(spec=BaseBackend)
+    backend._marivo_authoring_thread_id = 123
+    backend._marivo_terminal_timeout_seconds = 2
+    owned_socket = MagicMock(spec=socket.socket)
+    fromfd = Mock(return_value=owned_socket)
+    execute = Mock(
+        side_effect=OSError("control unavailable") if fault == "control_failure" else None
+    )
+    callbacks: list[Callable[[], None]] = []
+    cleanup: list[str] = []
+
+    class Timer:
+        daemon = False
+
+        def __init__(self, seconds: int, callback: Callable[[], None]) -> None:
+            assert seconds == 2
+            callbacks.append(callback)
+
+        def start(self) -> None:
+            pass
+
+        def cancel(self) -> None:
+            cleanup.append("cancel")
+
+        def join(self) -> None:
+            cleanup.append("join")
+
+    monkeypatch.setattr(socket, "fromfd", fromfd)
+    monkeypatch.setattr(mysql, "Timer", Timer)
+    monkeypatch.setattr(mysql, "execute_provider_statement", execute)
+    with pytest.raises(TimeoutError, match="deadline expired"), mysql.authoring_timeout(backend, 2):
+        connection.thread_id.side_effect = RuntimeError("active driver metadata is unavailable")
+        connection.fileno.side_effect = RuntimeError("active driver metadata is unavailable")
+        if fault == "foreign":
+            backend.con = Mock()
+        callbacks[0]()
+    connection.thread_id.assert_called_once_with()
+    connection.fileno.assert_called_once_with()
+    fromfd.assert_called_once_with(17, socket.AF_INET, socket.SOCK_STREAM)
+    owned_socket.shutdown.assert_called_once_with(socket.SHUT_RDWR)
+    owned_socket.__exit__.assert_called_once()
+    assert cleanup == ["cancel", "join"]
+    if fault == "foreign":
+        execute.assert_not_called()
+    else:
+        execute.assert_called_once_with(
+            backend._marivo_authoring_cancel_control,
+            mysql.PROFILE,
+            "mysql.analysis.cancel_owned_query",
+            values={"thread_id": 123},
+            purpose="datasource.authoring.deadline",
+        )
+
+
 @pytest.mark.parametrize("backend_type", ("postgres", "trino", "clickhouse"))
 def test_remote_timeout_uses_driver_state_without_control_sql(backend_type: str) -> None:
     backend = _Backend()
@@ -201,7 +269,12 @@ def test_authoring_specs_resolve_to_profiles() -> None:
         PostgresSpec(name="pg", host="h", database="d"),
         ClickHouseSpec(name="ch", host="h"),
     )
-    assert {profile_for_backend_type(spec.backend_type).name for spec in specs} == {
+    names = set()
+    for spec in specs:
+        profile = profile_for_backend_type(spec.backend_type)
+        assert profile is not None
+        names.add(profile.name)
+    assert names == {
         "duckdb",
         "sqlite",
         "trino",

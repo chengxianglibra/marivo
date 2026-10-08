@@ -783,6 +783,8 @@ class SourceSession:
         self._cancel_control: BaseBackend | None = None
         self._cancel_pool: _ControlPool | None = None
         self._cancel_thread_id: int | None = None
+        self._mysql_connection: object | None = None
+        self._mysql_socket: socket.socket | None = None
         self._mysql_cancel_requested = False
         self._mysql_active: SourceSubmission | None = None
         self._clickhouse_reader: str | None = None
@@ -1342,10 +1344,9 @@ class SourceSession:
                     return
                 self._interrupted_submissions = (mysql_active,)
                 self._mysql_cancel_requested = True
-                connection = self._backend.con
                 control = self._cancel_control
                 try:
-                    if control is None or connection.thread_id() != self._cancel_thread_id:
+                    if control is None or self._backend.con is not self._mysql_connection:
                         return
                     execute_provider_statement(
                         control,
@@ -1360,13 +1361,9 @@ class SourceSession:
                 finally:
                     if control is not None:
                         self.cancel_submissions = provider_statement_log(control)
-                    with (
-                        suppress(OSError, ValueError),
-                        socket.fromfd(
-                            connection.fileno(), socket.AF_INET, socket.SOCK_STREAM
-                        ) as owned_socket,
-                    ):
-                        owned_socket.shutdown(socket.SHUT_RDWR)
+                    if self._mysql_socket is not None:
+                        with suppress(OSError, ValueError):
+                            self._mysql_socket.shutdown(socket.SHUT_RDWR)
             return
         self._interrupted_submissions = tuple(
             submission for submission in self.submissions if submission.state == "submitted"
@@ -1571,11 +1568,18 @@ class SourceSession:
                 raise _invalid("a selected MySQL control backend", type(control).__name__)
             if control.con.thread_id() == thread_id:
                 raise _invalid("a separate MySQL control connection", "data connection reused")
+            # Capture ownership while the driver is idle. Its metadata methods
+            # cannot run on another thread while a native query is active.
+            owned_socket = socket.fromfd(
+                self._backend.con.fileno(), socket.AF_INET, socket.SOCK_STREAM
+            )
         except BaseException:
             control.disconnect()
             self._cancel_control_released = True
             raise
         self._cancel_thread_id = thread_id
+        self._mysql_connection = self._backend.con
+        self._mysql_socket = owned_socket
         self._cancel_control = control
 
     def interrupt(self) -> Termination:
@@ -1612,6 +1616,10 @@ class SourceSession:
                         control_error = error
                     else:
                         self._cancel_control_released = True
+                if self._mysql_socket is not None:
+                    self._mysql_socket.close()
+                    self._mysql_socket = None
+                    self._mysql_connection = None
             for stream in tuple(self._streams):
                 stream.close()
         finally:
@@ -1629,6 +1637,10 @@ class SourceSession:
                     disconnect()
                     self.mark_backend_disconnected()
         for submission in self._interrupted_submissions:
+            if submission.state == "submitted":
+                # SIGINT can arrive while the driver's failure handler unwinds.
+                # Owner release must not leave that interrupted read pending.
+                submission.state = "failed"
             submission.termination = (
                 "local_closed" if self.provider.name in {"duckdb", "sqlite"} else "remote_unknown"
             )

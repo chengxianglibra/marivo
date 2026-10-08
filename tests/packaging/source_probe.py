@@ -312,14 +312,16 @@ def failure(kind: str) -> dict[str, object]:
     session = mv.session.get_or_create("failure-" + kind, report_timezone="UTC")
     with sqlite3.connect(session._runtime.store.db_path) as connection:
         before = connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0]
-    logical: mv.LogicalNumericRelation | mv.LogicalRatioRelation
+    logical: mv.LogicalNumericRelation | mv.LogicalRatioRelation | mv.LogicalCategoryRelation
     # Missing-table metadata lookup can fail before the typed analysis boundary.
     with pytest.raises(Exception if kind == "offline" else AnalysisError) as caught:
         if kind == "invalid":
-            logical = session.members(ms.ref.entity("sales.customers")).observe(
-                ms.ref.metric("sales.mean_amount"),
+            missing_match = session.members(ms.ref.entity("sales.orders")).read(
+                ms.ref.dimension("sales.customers.region"),
                 via=ms.ref.relationship("sales.customer"),
             )
+            assert isinstance(missing_match, mv.LogicalCategoryRelation)
+            logical = missing_match
         else:
             logical = observed_rows(session, "mean_amount")
         logical.execute()
@@ -348,7 +350,7 @@ def failure(kind: str) -> dict[str, object]:
         ), message
     if kind == "invalid":
         assert isinstance(caught.value, MaterializationError)
-        assert "identity" in str(caught.value).lower() or "duplicate" in str(caught.value).lower()
+        assert "mapping_total" in str(caught.value)
     with sqlite3.connect(session._runtime.store.db_path) as connection:
         assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == before
     return {
@@ -359,7 +361,7 @@ def failure(kind: str) -> dict[str, object]:
     }
 
 
-def cold(project: Path) -> dict[str, object]:
+def cold(project: Path, phase: str) -> dict[str, object]:
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("cold retained work attempted source connection")
@@ -371,10 +373,14 @@ def cold(project: Path) -> dict[str, object]:
             "_build_backend_from_effective",
             forbidden,
         )
-        return cold_retained(project)
+        if phase == "cold":
+            from marivo.analysis.materialization import graph_local_execution
+
+            patch.setattr(graph_local_execution, "execute_verified_fixed", forbidden)
+        return cold_retained(project, phase)
 
 
-def cold_retained(project: Path) -> dict[str, object]:
+def cold_retained(project: Path, phase: str) -> dict[str, object]:
     saved = json.loads((project / "saved.json").read_text())
     session = mv.session.resume(saved["session"], by="id")
     results = {}
@@ -398,14 +404,15 @@ def cold_retained(project: Path) -> dict[str, object]:
         continuation = result.rollup()
         rolled = continuation.execute()
         assert continuation.execute().state.artifact_ref == rolled.state.artifact_ref
-        assert len(session.runs().items) == before + 1
+        new_runs = 1 if phase == "fixed" else 0
+        assert len(session.runs().items) == before + new_runs
         values = rolled.to_pandas()["value"].tolist()
         assert values == pytest.approx([expected])
         results[name] = values
         receipts.append(
             {
                 "method": name,
-                "new_runs": 1,
+                "new_runs": new_runs,
                 "cache_reused": True,
             }
         )
@@ -506,13 +513,13 @@ def main() -> None:
             result = native_audit(engine, project)
         elif phase == "privileges":
             result = privileges(engine, project)
-        elif phase == "cold":
-            result = cold(project)
+        elif phase in {"fixed", "cold"}:
+            result = cold(project, phase)
         elif phase == "invalidate":
             prefix = (project / "prefix").read_text()
             with administrator(engine, project) as execute:
-                execute(f"INSERT INTO {prefix}customers VALUES ('1', 'duplicate')")
-            result = {"duplicate_target_inserted": True}
+                execute(f"DELETE FROM {prefix}customers WHERE id = '2'")
+            result = {"required_target_removed": True}
         elif phase in {"invalid", "offline"}:
             result = failure(phase)
         elif phase == "remove":

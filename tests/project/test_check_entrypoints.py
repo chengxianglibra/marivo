@@ -117,6 +117,7 @@ def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) 
         "tests/packaging/test_installer.py",
         "tests/packaging/test_installer_uv.py",
         "tests/packaging/test_wheel.py",
+        "tests/packaging/test_installed_journeys.py",
     ]
     assert ["python", "-m", "build", "--outdir", "dist/pypi"] in commands
     assert any(command[:2] == ["twine", "check"] for command in commands)

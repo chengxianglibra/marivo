@@ -6,18 +6,20 @@ import os
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project
-from tests.analysis.materialization.file_fixtures import author_file_case
+from tests.analysis.materialization.file_fixtures import author_file_case, author_http_case
 from tests.analysis.materialization.recovery_worker import snapshot
 from tests.datasource.source_cases import source_case
 from tests.support.json import Json
@@ -36,7 +38,23 @@ def producer_recovery(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     data = reference_data(backend)
-    suffix = "-" + profile if profile in ("view", "parquet", "csv", "local-json") else ""
+    if backend == "trino" and profile == "non-iceberg":
+        # The connector's default TIMESTAMP(3) is a distinct, unqualified key.
+        # Bind this producer to the currently required UTC microsecond profile.
+        data = replace(data, columns=data.columns.replace("TIMESTAMP", "TIMESTAMP(6)"))
+    suffix = (
+        "-" + profile
+        if profile
+        in (
+            "view",
+            "parquet",
+            "csv",
+            "local-json",
+            "non-iceberg",
+            "distributed",
+        )
+        else ""
+    )
     source_file: Path | None = None
     file_digest: str | None = None
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
@@ -215,4 +233,77 @@ def test_file_producer_offline_and_cold_continuation(
 ) -> None:
     producer_recovery(
         "duckdb", profile, tmp_path, monkeypatch, semantic_project_factory, source_trace
+    )
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("profile", ("http-json-public", "http-json-auth"))
+def test_http_source_remains_a_datasource_boundary(
+    profile: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    source_trace: SourceTrace,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
+    with source_case("duckdb", profile, tmp_path, monkeypatch, reference_data("duckdb")) as case:
+        case.session.bind(
+            case.source, source_identity="http_boundary.datasource", source_params=case.params
+        )
+        author_http_case(case, semantic_project_factory)
+        session = mv.session.get_or_create("http-boundary", report_timezone="UTC")
+        with pytest.raises(DatasetConstructionError) as failure:
+            session.members(ms.ref.entity("sales.facts")).observe(ms.ref.metric("sales.total"))
+        error = failure.value
+        assert error.expected and error.received
+        assert "existing local CSV or unparameterized GET JSON file" in error.expected
+        assert "existing_local_file=False" in error.received
+        assert "query_parameters=0" in error.received
+        assert error.repair is not None
+        assert not session.runs().items
+        assert session._runtime.store.resources(session.id) == ()
+        assert source_trace.native_sql == []
+        report = {
+            "environment": {**case.environment, "profile": profile},
+            "raw_rows": reference_data("duckdb").rows,
+            "declarations": {
+                str(path.relative_to(tmp_path)): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in (tmp_path / "models").rglob("*.py")
+            },
+            "source": "expected_refusal",
+            "fixed": "not_applicable_no_analysis_producer",
+            "cold": "not_applicable_no_analysis_producer",
+            "error": {"expected": error.expected, "received": error.received},
+            "runs": 0,
+            "resources": 0,
+            "native_business_submissions": 0,
+        }
+        if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
+            Path(directory, "http-analysis-boundary-" + profile + ".json").write_text(
+                json.dumps(report, default=str, sort_keys=True)
+            )
+
+
+@pytest.mark.runtime
+def test_non_iceberg_producer_offline_and_cold_continuation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    source_trace: SourceTrace,
+) -> None:
+    producer_recovery(
+        "trino", "non-iceberg", tmp_path, monkeypatch, semantic_project_factory, source_trace
+    )
+
+
+@pytest.mark.runtime
+def test_clickhouse_distributed_producer_offline_and_cold_continuation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    source_trace: SourceTrace,
+) -> None:
+    producer_recovery(
+        "clickhouse", "distributed", tmp_path, monkeypatch, semantic_project_factory, source_trace
     )

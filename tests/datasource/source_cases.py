@@ -95,7 +95,9 @@ class SourceData:
 
 
 @contextmanager
-def json_server(auth: bool) -> Iterator[tuple[str, list[tuple[str, bool]]]]:
+def json_server(
+    auth: bool, rows: list[dict[str, object]] | None = None
+) -> Iterator[tuple[str, list[tuple[str, bool]]]]:
     seen: list[tuple[str, bool]] = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -111,7 +113,7 @@ def json_server(auth: bool) -> Iterator[tuple[str, list[tuple[str, bool]]]]:
                 self.send_header("Location", "/outside")
                 self.end_headers()
                 return
-            payload = json.dumps(ROWS).encode()
+            payload = json.dumps(ROWS if rows is None else rows, default=str).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
@@ -177,7 +179,7 @@ def source_case(
                 from urllib.error import HTTPError
 
                 auth = profile.endswith("auth")
-                with json_server(auth) as (url, seen):
+                with json_server(auth, rows if data is not None else None) as (url, seen):
                     if auth:
                         session.close()
                         monkeypatch.setenv(
@@ -208,6 +210,7 @@ def source_case(
                         http_source = JsonSourceIR(
                             url + "/private/data", query_params=(("page", SourceParamIR("page")),)
                         )
+                        environment["http_requests"] = seen
                         yield Case(http_session, http_source, environment, {"page": 7})
                         assert seen[-1] == ("/private/data?page=7", auth)
                         environment["http_requests"] = [

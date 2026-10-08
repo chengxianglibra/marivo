@@ -314,7 +314,8 @@ other_participant=ms.relationship(name='other_participant',from_entity=other,to_
             ),
             [6.0, 9.0, 0.0, 0.0],
         ),
-        (ratio, [float(2**53 + 1)] * 3 + [None]),
+        # The exact rate is 2**53+1. Native division consumes each represented sum.
+        (ratio, [float((2**53 + 1) * n) / n for n in (3, 2, 1)] + [None]),
         (linear, [-11.0, 9.0, -48.0, 0.0]),
     ]
     inputs: dict[str, Json] = {}

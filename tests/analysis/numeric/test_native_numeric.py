@@ -1,5 +1,7 @@
 """Native aggregate transport and independent retained numeric components."""
 
+import json
+import os
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -12,7 +14,10 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
+from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
+from tests.analysis.materialization.domain_recovery_worker import forbidden
+from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.datasource.source_cases import SourceData, source_case
 
 
@@ -45,9 +50,11 @@ def test_native_weighted_and_mean(
         con.execute(
             "INSERT INTO facts VALUES (1,'2026-07-01',1.01,1,'a'),(2,'2026-07-01',1.02,2,'a'),(3,'2026-07-01',NULL,100,'b'),(4,'2026-07-01',5,NULL,'b')"
         )
-        expected = con.execute(
+        expected_row = con.execute(
             "SELECT SUM(value*weight)/SUM(CASE WHEN value IS NOT NULL AND weight IS NOT NULL THEN weight END) FROM facts"
-        ).fetchone()[0]
+        ).fetchone()
+        assert expected_row is not None
+        expected = expected_row[0]
         expected_mean = con.execute(
             f"SELECT CAST(AVG(value) AS {value_type if value_type.startswith('DECIMAL') else 'DOUBLE'}) FROM facts GROUP BY category ORDER BY category"
         ).fetchall()
@@ -74,11 +81,12 @@ def test_native_weighted_and_mean(
     for relation in (with_coordinates, with_coordinates.execute()):
         rows = relation.group_by(coordinate).rollup().execute().to_pandas()
         assert rows.value.dropna().tolist() == pytest.approx([expected])
-    grouped_mean = (
-        members.group_by(coordinate)
-        .observe(ms.ref.metric("sales.mean"), during=scope, via=())
-        .execute()
+    grouped = (
+        members.observe(ms.ref.metric("sales.mean"), during=scope, coordinates=(coordinate,))
+        .group_by(coordinate)
+        .rollup()
     )
+    grouped_mean = grouped.execute()
     assert grouped_mean.to_pandas().value.tolist() == [row[0] for row in expected_mean]
     mean = members.observe(ms.ref.metric("sales.mean"), during=scope)
     assert float(mean.rollup().execute().to_pandas().value.iloc[0]) == pytest.approx(2.34, abs=0.01)
@@ -122,12 +130,20 @@ def test_native_remote_weighted(
 
 
 @pytest.mark.runtime
-def test_clickhouse_weight_state_overflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _remote_weighted(tmp_path, monkeypatch, "clickhouse", overflow=True)
+@pytest.mark.parametrize("fixed", [False, True], ids=["source", "fixed"])
+def test_clickhouse_weight_state_overflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed: bool
+) -> None:
+    _remote_weighted(tmp_path, monkeypatch, "clickhouse", overflow=True, fixed=fixed)
 
 
 def _remote_weighted(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str, *, overflow: bool
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    backend: str,
+    *,
+    overflow: bool,
+    fixed: bool = False,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
@@ -146,9 +162,7 @@ def _remote_weighted(
     )
     data = SourceData(
         f"id BIGINT, day DATE, value {typ}, weight BIGINT, category VARCHAR(10)",
-        rows.replace("'2026-07-01'", "DATE '2026-07-01'")
-        if backend == "trino"
-        else "(1,'2026-07-01',1.01,1,'a'),(2,'2026-07-01',1.02,2,'a'),(3,'2026-07-01',NULL,100,'b'),(4,'2026-07-01',5,NULL,'b')",
+        rows.replace("'2026-07-01'", "DATE '2026-07-01'") if backend == "trino" else rows,
         "id Int64, day Date, value Nullable(Decimal(12,2)), weight Nullable(Int64), category String",
         [
             {
@@ -195,11 +209,60 @@ def _remote_weighted(
         if overflow:
             from marivo.analysis.materialization.errors import MaterializationError
 
-            with pytest.raises(MaterializationError) as raised:
-                observed.rollup().execute()
-            assert "retained numeric sum within declared carrier" in str(
-                raised.value
-            ) or "DECIMAL_OVERFLOW" in str(raised.value.__cause__)
+            saved = observed.execute() if fixed else None
+            previous = saved.to_pandas() if saved is not None else None
+            if saved is not None:
+                assert saved._dataset is not None
+                state = next(
+                    part.table
+                    for part in saved._dataset.verified().parts
+                    if part.role == "original_state"
+                )
+                assert state.column("original_state__weight_sum").to_pylist() == [2**63 - 1] * 2
+            before = publication_counts(session)
+            with monkeypatch.context() as offline:
+                if saved is not None:
+                    offline.setattr(SourceSession, "batches", forbidden)
+                with pytest.raises(MaterializationError) as raised:
+                    (saved if saved is not None else observed).rollup().execute()
+            cause = str(raised.value.__cause__)
+            assert (
+                "retained numeric sum within declared carrier" in str(raised.value)
+                or "int64 state overflow" in str(raised.value)
+                or "DECIMAL_OVERFLOW" in cause
+                or ("CANNOT_PARSE_TEXT" in cause and "numeric carrier overflow" in cause)
+            )
+            assert raised.value.expected and raised.value.received and raised.value.repair
+            assert publication_counts(session) == before
+            assert session._runtime.store.resources(session.id) == ()
+            if saved is not None:
+                assert previous is not None
+                assert saved.to_pandas().equals(previous)
+            if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
+                Path(
+                    directory,
+                    "native-clickhouse-weight-overflow-"
+                    + ("fixed" if fixed else "source")
+                    + ".json",
+                ).write_text(
+                    json.dumps(
+                        {
+                            "columns": data.columns,
+                            "values": data.values,
+                            "raw_rows": data.rows,
+                            "mathematical_weight_sum": 2 * (2**63 - 1),
+                            "weight_carrier": "int64",
+                            "route": "fixed_python" if fixed else "source_ibis",
+                            "expected": "overflow_refusal",
+                            "error": str(raised.value),
+                            "publication_counts_before": before,
+                            "publication_counts_after": publication_counts(session),
+                            "resources": 0,
+                        },
+                        default=str,
+                        sort_keys=True,
+                    )
+                )
             return
         assert observed.rollup().execute().to_pandas().value.tolist() == pytest.approx([3.05 / 3])
         assert observed.execute().rollup().execute().to_pandas().value.tolist() == pytest.approx(
@@ -405,7 +468,7 @@ def test_linear_promotes_before_signed_intermediate_arithmetic(
             )
         pq.write_table(table, path)
     session = mv.session.get_or_create("linear_intermediate", report_timezone="UTC")
-    leaves = [ms.ref.metric("sales." + name) for name in ("total", "weights", "cancel_total")]
+    leaves = tuple(ms.ref.metric("sales." + name) for name in ("total", "weights", "cancel_total"))
     metric = mv.runtime_metric.linear(
         add=leaves[:1] if negation else leaves[:2],
         subtract=leaves[1:2] if negation else leaves[2:],
