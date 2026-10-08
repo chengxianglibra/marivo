@@ -1,4 +1,4 @@
-"""Independent fact oracles and three-process Store 7 journey verification."""
+"""Independent fact oracles and three-process Store 8 journey verification."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import os
 import shutil
 from collections.abc import Sequence
 from dataclasses import asdict
+from decimal import Decimal, localcontext
 from fractions import Fraction
 from pathlib import Path
 
@@ -53,10 +54,10 @@ NAMES = DslNames(
 
 
 def _create(project: Path, scenario: DslScenario, source: str) -> mv.Session:
-    project.mkdir()
+    project.mkdir(parents=True)
     database = project / "warehouse.duckdb"
     seed_analysis_dsl_database(
-        database, NAMES, analysis_dsl_rows(scenario), float_amount=scenario == "j4"
+        database, NAMES, analysis_dsl_rows(scenario), float_amount=scenario in ("j4", "j4_ties")
     )
     (project / "marivo.toml").write_text('[project]\nname = "installed-graph"\n')
     for relative, content in analysis_dsl_project_files(
@@ -101,6 +102,9 @@ def _observations(
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=via,
     )
+    assert isinstance(current, mv.LogicalNumericRelation)
+    assert isinstance(baseline, mv.LogicalNumericRelation)
+    assert isinstance(count, mv.LogicalNumericRelation)
     return members, current, baseline, count
 
 
@@ -192,7 +196,13 @@ def _oracle(scenario: DslScenario) -> dict[str, float]:
     center = Fraction(len(left) + 1, 2)
     covariance = sum((x - center) * (y - center) for x, y in zip(left, right, strict=True))
     variance = sum((x - center) ** 2 for x in left) * sum((y - center) ** 2 for y in right)
-    return {"coefficient": float(covariance) / float(variance) ** 0.5, "pairs": len(left)}
+    with localcontext() as context:
+        context.prec = 180
+        expected = float(
+            (Decimal(covariance.numerator) / Decimal(covariance.denominator))
+            / (Decimal(variance.numerator) / Decimal(variance.denominator)).sqrt()
+        )
+    return {"coefficient": expected, "pairs": len(left)}
 
 
 def _continue(
@@ -224,17 +234,17 @@ def _continue(
         )
         outputs["mean"] = saved.summarize(mv.mean()).execute()
         assert outputs["rollup"].to_pandas().iloc[0]["value"] == oracle["rollup"]
-        assert outputs["mean"].to_pandas().iloc[0]["value"] == pytest.approx(oracle["mean"])
+        assert outputs["mean"].to_pandas().iloc[0]["value"] == oracle["mean"]
     else:
         assert isinstance(saved, mv.MaterializedAssociationResult)
         coefficient = saved.coefficient
         outputs["mean"] = coefficient.summarize(mv.mean()).execute()
-        selected_coefficient = coefficient.where(coefficient.value.lt(0)).execute()
+        selected_coefficient = coefficient.where(
+            coefficient.value.lt(0) if oracle["coefficient"] < 0 else coefficient.value.gt(0)
+        ).execute()
         outputs["where"] = selected_coefficient
         outputs["selected_mean"] = selected_coefficient.summarize(mv.mean()).execute()
-        assert outputs["selected_mean"].to_pandas().iloc[0]["value"] == pytest.approx(
-            oracle["coefficient"]
-        )
+        assert outputs["selected_mean"].to_pandas().iloc[0]["value"] == oracle["coefficient"]
         assert saved.to_pandas().iloc[0]["complete_pair_count"] == oracle["pairs"]
     return {
         name: {
@@ -284,12 +294,12 @@ def _assert_primary(saved: _MaterializedValue, scenario: DslScenario) -> None:
             assert isinstance(member, str) and isinstance(channel, str)
             assert indexed.loc[(member, channel), "value"] == float(ratio)
     else:
-        assert frame.iloc[0]["coefficient"] == pytest.approx(_oracle(scenario)["coefficient"])
+        assert frame.iloc[0]["coefficient"] == _oracle(scenario)["coefficient"]
         assert frame.iloc[0]["complete_pair_count"] == _oracle(scenario)["pairs"]
 
 
 def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[str, object]:
-    scenarios: tuple[DslScenario, ...] = ("j1", "j2", "j3", "j4")
+    scenarios: tuple[DslScenario, ...] = ("j1", "j2", "j3", "j4", "j4_ties")
     assert scenario_name in scenarios
     scenario = next(value for value in scenarios if value == scenario_name)
     assert source in ("table", "parquet")

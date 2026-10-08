@@ -10,6 +10,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization import graph_store
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
@@ -62,8 +63,7 @@ def test_public_composition_refuses_before_source_or_run(
 
         for name in ("__enter__", "bind", "compile", "batches"):
             monkeypatch.setattr(SourceSession, name, tripwire("source." + name))
-        for owner in sessions:
-            monkeypatch.setattr(owner._runtime.store, "admit", tripwire("store.admit"))
+        monkeypatch.setattr(graph_store, "admit", tripwire("graph_store.admit"))
         errors: list[Json] = []
         for left, right in ((live, other), (other, live)):
             with pytest.raises(AnalysisError) as caught:
@@ -143,7 +143,7 @@ def test_public_required_part_missing_blocks_recovery_and_exact_hit(
 
         for name in ("__enter__", "bind", "compile", "batches"):
             monkeypatch.setattr(SourceSession, name, forbidden)
-        monkeypatch.setattr(session._runtime.store, "admit", forbidden)
+        monkeypatch.setattr(graph_store, "admit", forbidden)
         path.rename(offline)
         errors: list[Json] = []
         try:

@@ -825,12 +825,13 @@ def test_mysql_interrupt_targets_only_the_prepared_owned_connection(
 
     backend = Mock()
     backend.name = "mysql"
-    backend.con.thread_id.return_value = 123
-    backend.con.fileno.return_value = 17
+    backend.con.thread_id.side_effect = RuntimeError("active driver metadata is unavailable")
+    backend.con.fileno.side_effect = RuntimeError("active driver metadata is unavailable")
     control = Mock()
     control.name = "mysql"
     session = SourceSession(provider_for("mysql"), _datasource("mysql"), backend)
-    session._cancel_thread_id = 456 if fault == "foreign" else 123
+    session._cancel_thread_id = 123
+    session._mysql_connection = object() if fault == "foreign" else backend.con
     session._cancel_control = None if fault == "unavailable" else control
     session._cancel_control_released = fault == "unavailable"
     submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
@@ -840,11 +841,7 @@ def test_mysql_interrupt_targets_only_the_prepared_owned_connection(
     monkeypatch.setattr(adapters, "execute_provider_statement", execute)
     monkeypatch.setattr(adapters, "provider_statement_log", lambda _backend: ())
     owned_socket = Mock()
-    socket_context = Mock()
-    socket_context.__enter__ = Mock(return_value=owned_socket)
-    socket_context.__exit__ = Mock(return_value=False)
-    fromfd = Mock(return_value=socket_context)
-    monkeypatch.setattr(socket, "fromfd", fromfd)
+    session._mysql_socket = owned_socket
 
     session._request_interrupt()
     captured = session._interrupted_submissions
@@ -861,12 +858,15 @@ def test_mysql_interrupt_targets_only_the_prepared_owned_connection(
             values={"thread_id": 123},
             purpose="analysis.cancel_owned_query",
         )
-    fromfd.assert_called_once_with(17, socket.AF_INET, socket.SOCK_STREAM)
+    backend.con.thread_id.assert_not_called()
+    backend.con.fileno.assert_not_called()
     owned_socket.shutdown.assert_called_once_with(socket.SHUT_RDWR)
+    owned_socket.close.assert_called_once_with()
     backend.disconnect.assert_called_once_with()
     if fault != "unavailable":
         control.disconnect.assert_called_once_with()
     assert submission.termination == "remote_unknown"
+    assert submission.state == "failed"
     assert submission.connection_disconnected
     assert session._cancel_control is None
 
@@ -882,6 +882,7 @@ def test_mysql_interrupt_owns_unreleased_read_after_state_change(
     backend.con.thread_id.return_value = 123
     session = SourceSession(provider_for("mysql"), _datasource("mysql"), backend)
     session._cancel_thread_id = 123
+    session._mysql_connection = backend.con
     session._cancel_control = Mock()
     submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
     session.submissions.append(submission)
@@ -1025,6 +1026,7 @@ def test_mysql_cancel_preparation_is_bounded_and_closes_rejected_control(
     backend = Mock()
     backend.name = "mysql"
     backend.con.thread_id.return_value = 123
+    backend.con.fileno.return_value = 17
     control = Mock(spec=BaseBackend)
     control.name = "mysql"
     control.con = Mock()
@@ -1034,6 +1036,9 @@ def test_mysql_cancel_preparation_is_bounded_and_closes_rejected_control(
         side_effect=RuntimeError("connect failed") if fault == "connect_failed" else None,
     )
     monkeypatch.setattr(backends, "build_backend", build)
+    owned_socket = Mock()
+    fromfd = Mock(return_value=owned_socket)
+    monkeypatch.setattr(socket, "fromfd", fromfd)
     session = SourceSession(provider_for("mysql"), _datasource("mysql"), backend)
     checkpoint = Mock(side_effect=[None, RuntimeError("expired")] if fault == "expired" else None)
     session._checkpoint = checkpoint
@@ -1042,6 +1047,9 @@ def test_mysql_cancel_preparation_is_bounded_and_closes_rejected_control(
             session._prepare_interrupt()
             assert session._cancel_control is control
             assert session._cancel_thread_id == 123
+            assert session._mysql_connection is backend.con
+            assert session._mysql_socket is owned_socket
+            fromfd.assert_called_once_with(17, socket.AF_INET, socket.SOCK_STREAM)
             session._prepare_interrupt()
         else:
             with pytest.raises((RuntimeError, DatasourceSourceCapabilityError)):
@@ -1060,3 +1068,7 @@ def test_mysql_cancel_preparation_is_bounded_and_closes_rejected_control(
         assert session.submissions == []
     finally:
         session.close()
+    if fault == "none":
+        owned_socket.close.assert_called_once_with()
+    else:
+        fromfd.assert_not_called()

@@ -115,12 +115,18 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                     assert selected.to_pandas().value.tolist() == [20, 30]
                     total = execute(kind + ":numeric:sum", selected.summarize(mv.sum()))
                     assert total.to_pandas().value.tolist() == [50]
+        for name, expected_total in obj(state.get("extra_oracles", {})).items():
+            extra = restored[name]
+            assert isinstance(extra, mv.MaterializedNumericRelation)
+            total = execute(name + ":sum", extra.rollup())
+            assert total.to_pandas().value.tolist() == [expected_total]
         for name, restored_value in restored.items():
             assert snapshot(restored_value) == obj(state["originals"])[name]
         assert session._runtime.store.resources(session.id) == ()
-        assert len(outputs) == 22
+        expected_count = 22 + len(obj(state.get("extra_oracles", {})))
+        assert len(outputs) == expected_count
         if phase == "fixed":
-            assert len(run_ids(session) - before) == kernels.call_count == 22
+            assert len(run_ids(session) - before) == kernels.call_count == expected_count
             state["outputs"] = outputs
             (root / "r94-versions.json").write_bytes(encode(state))
         else:

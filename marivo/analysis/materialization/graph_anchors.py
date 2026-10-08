@@ -6,6 +6,7 @@ from hashlib import sha256
 
 from marivo._temporal import TimeScope, time_scope
 from marivo.analysis.anchors import CalendarWindow, ElapsedWindow, deadline
+from marivo.analysis.core.anchor_rules import observation_template
 from marivo.analysis.core.domain_captures import fail
 from marivo.analysis.core.graph import (
     Edge,
@@ -289,7 +290,12 @@ def observe(
     sources = tuple(leaf for _, leaf in prototype.binding.graph.sources)
     node = method_node(
         (Edge("subject", anchor_root), Edge("subject", original_node)),
-        AnchorObserve(window, observations, prototype.root.signature, composition),
+        AnchorObserve(
+            window,
+            observations,
+            observation_template(original_node.signature, observations, composition),
+            composition,
+        ),
         value_type=prototype.root.value_type,
         sources=sources,
     )

@@ -5043,6 +5043,29 @@ def wrap_materialized(
         return MaterializedRolledRatioRelation(_TOKEN, node, runtime, dataset=dataset)
     if kind in ("observe", "rollup"):
         if node.root.signature.domain.kind == "group":
+            from marivo.analysis.core.rules import (
+                EntityObservationTarget,
+                ObserveWeightedMean,
+                OriginalReduce,
+            )
+            from marivo.analysis.materialization.graph_snapshot import MethodRecord
+
+            definition = dataset.artifact.validated.root
+            if isinstance(definition.parameters, OriginalReduce):
+                source = next(
+                    record
+                    for record in dataset.artifact.validated.document.nodes
+                    if record.identity == definition.inputs[0].node
+                )
+                parameters = source.parameters if isinstance(source, MethodRecord) else None
+                if isinstance(parameters, PreparedObservation):
+                    parameters = parameters.observation
+                if (
+                    isinstance(parameters, (ObserveMetric, ObserveCount, ObserveWeightedMean))
+                    and isinstance(parameters.target, EntityObservationTarget)
+                    and parameters.coordinates
+                ):
+                    return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
             return MaterializedGroupedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
         if node.root.signature.domain.kind == "singleton":
             return MaterializedRolledNumericRelation(_TOKEN, node, runtime, dataset=dataset)

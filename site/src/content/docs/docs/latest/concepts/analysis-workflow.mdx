@@ -13,7 +13,7 @@ execution boundaries, inspect the Dataset contract, and follow the concrete
 structured repair for unsupported shapes. Remote sources require read-only
 accounts; uploading retained results to bypass admission is unsupported.
 
-Public Sessions use the typed graph, method registry, Runtime and Store 7 for
+Public Sessions use the typed graph, method registry, Runtime and Store 8 for
 member reads, observation, comparison, statistics, Event and Lifecycle work.
 Every source and fixed method requires its exact physical qualification; the
 bounded backend vectors below do not grant other combinations. Old-generation
@@ -170,6 +170,9 @@ restored = session.artifact(total.state.artifact_ref)
 restored.contract().show()
 for action in restored.contract().actions:
     print(action.call, action.help_target)
+saved_observation = august_revenue.execute()
+recovered_observation = session.artifact(saved_observation.state.artifact_ref)
+recovered_observation.summarize(method=mv.count()).execute().show()
 ```
 
 This shape requires the named Entity, Metric, and Relationship to be authored
@@ -178,6 +181,13 @@ each call. Exact fixed continuations can reuse a committed execution key;
 `session.artifact(ref)` restores a public J1–J4 result from its validated
 snapshot and retained parts without reading the current source or Semantic
 catalog. Each other capability follows its current typed entry point and exact qualification.
+
+Recovered observations retain their complete current rows, including contribution
+coordinates when present. `summarize` consumes those rows; `rollup` consumes the
+saved original aggregation state. Historical attribute selection followed by a
+new logical observation retains the selected version. History state, interval
+and violation selection prepares source candidates before consuming local rows;
+saved History continuation reads its captured state without replaying events.
 The bounded result card includes the available unit, method, Cell fields and
 current-row weighting, and masks Entity member values. Each `AnalysisAction`
 contains one mechanically admitted receiver call and its exact

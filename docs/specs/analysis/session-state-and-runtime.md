@@ -18,6 +18,23 @@ and method-state proof digests. `session.revalidate` and its result types are
 removed. Historical phase sections below describe their original acceptance;
 this section supersedes their integrity requirements.
 
+History-dependent checks retain their originating ordered inputs and shared
+consumers. Checks over source expressions run during source preparation;
+checks over local History views consume the actual controlled inputs before
+their declared consume/publish deadline. A missing originating proof rejects
+the operation. Predicate transport checks complete input keys before selection,
+including interval and violation identities. Source candidates for a later
+observation are prepared before History selection consumes local rows.
+Local numeric finishes that retain a source projection rebind that projection
+to their finished values. Downstream statistics check those actual values at
+the consume deadline; a local stage alone does not erase its source binding.
+
+Historical attribute selections retain their exact captured versions when
+followed by a new logical observation. Restoring a coordinate observation keeps
+its numeric relation family, complete coordinate rows, original aggregation
+state and current-row statistics. Recovery reads the saved graph and types
+without selecting a producer or replaying History.
+
 
 Execution follows the [unified operator and backend ownership contract](python-analysis-design.md#unified-operator-and-execution-ownership). Backend-specific preparation does not change operator semantics.
 
@@ -440,6 +457,9 @@ Metadata, remaining required assertions and output run separately; empty output 
 bypasses Artifact validation. Source identity and time data are trusted. Exact
 integer/Decimal sums widen internally to Decimal256 before checked output
 conversion; overflow and non-finite output fail without publication.
+Guarded transport casts use a non-nullable checked carrier so ClickHouse cannot
+turn an overflow refusal into a missing component. Legitimate Null inputs retain
+their Null result through a separate outer branch.
 
 Native row streams preserve Decimal and typed Entity identities without pandas
 or raw source transfer to another engine. Each issued query ID remains owned
@@ -1178,7 +1198,11 @@ own contracts rather than execution quotas.
 
 MySQL source graphs prepare a separate same-datasource control connection before
 business submission. The approved provider statement cancels only the still-owned
-native data connection ID; its parameter and purpose are closed. Control setup
+native data connection ID; its parameter and purpose are closed. Preparation
+captures the data connection object, its native thread ID and a duplicated socket
+while the driver is idle. Timer and signal callbacks use that captured ownership
+without invoking connection metadata methods during an active query. The duplicate
+socket closes during owner-thread cleanup. Control setup
 and requests have one-second native connection/read/write bounds and checkpoint
 the shared execution budget. Cancellation also shuts down the owned data socket,
 then owner-thread cleanup waits for control work before closing cursors and both
@@ -1191,7 +1215,9 @@ the previous wakeup descriptor, restoring that descriptor before releasing the
 listener. Concurrent timer and signal requests issue at most one owned KILL.
 Cursor close remains on the execution thread. Query ownership lasts until cursor
 release, including failed/early-closed unread streams; terminal submission state
-alone cannot remove an active query's cancellation target. If interrupted
+alone cannot remove an active query's cancellation target. Owner release marks
+an interrupted submission still pending during SIGINT failure unwinding as failed.
+If interrupted
 mysqlclient response draining fails, confirmed disconnection of the owned data
 connection replaces that drain and preserves the original KeyboardInterrupt.
 For a borrowed backend, only native connection-loss errors 2006/2013 after the

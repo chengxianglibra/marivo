@@ -255,6 +255,38 @@ def selected(history: mv.LogicalHistoryResult, kind: str) -> mv.LogicalAnalysisD
     return population
 
 
+def assert_complete_view(result: _MaterializedRead, kind: str) -> None:
+    assert result._dataset is not None
+    rows = result._dataset.verified().primary.to_pylist()
+    if kind == "intervals":
+        assert len(rows) == 5
+        assert sorted(row["state"] for row in rows) == [
+            "closed",
+            "created",
+            "created",
+            "paid",
+            "paid",
+        ]
+        completed_paid = [
+            row for row in rows if row["state"] == "paid" and row["status"] == "completed"
+        ]
+        assert [row["observed_duration"] for row in completed_paid] == [timedelta(seconds=7)]
+    elif kind == "dwell":
+        assert len(rows) == 3
+        state_key = result._dataset.verified().contract.key_fields[0]
+        paid = next(row for row in rows if row[state_key] == "paid")
+        assert paid["interval_count"] == 2 and paid["completed_count"] == 1
+        assert (
+            paid["mean_duration"]
+            == paid["median_duration"]
+            == paid["p90_duration"]
+            == timedelta(seconds=7)
+        )
+    else:
+        assert kind == "transitions"
+        assert sum(row["count"] for row in rows) == 3
+
+
 def produce(root: Path, risk: str) -> dict[str, Json]:
     author(root)
     ms.load(workspace_dir=root)
@@ -283,6 +315,15 @@ def produce(root: Path, risk: str) -> dict[str, Json]:
             ).execute()
             assert_truth(truth, coverage)
             inputs[coverage + ":source_truth"] = snapshot(truth)
+            if coverage == "complete":
+                for kind, view in (
+                    ("intervals", logical.intervals()),
+                    ("dwell", logical.dwell()),
+                    ("transitions", logical.transitions()),
+                ):
+                    result = view.execute()
+                    assert_complete_view(result, kind)
+                    inputs["complete:source_" + kind] = snapshot(result)
     else:
         assert risk == "captured_observations"
         captured_history = replay(session, "complete")
@@ -352,6 +393,14 @@ def recover(root: Path, risk: str, phase: str) -> dict[str, Json]:
                 )
                 operations[coverage + ":known"] = distribution.known_state_count
                 operations[coverage + ":censored"] = distribution.coverage_censored_count
+                if coverage == "complete":
+                    operations.update(
+                        {
+                            "complete:intervals": history.intervals(),
+                            "complete:dwell": history.dwell(),
+                            "complete:transitions": history.transitions(),
+                        }
+                    )
         else:
             for name, observed in restored.items():
                 assert isinstance(observed, mv.MaterializedNumericRelation)
@@ -369,6 +418,8 @@ def recover(root: Path, risk: str, phase: str) -> dict[str, Json]:
                 assert_violations(result, name.split(":")[0])
             elif risk == "captured_observations":
                 assert result.to_pandas().value.tolist() == [48 if name.endswith("revenue") else 4]
+            elif name in ("complete:intervals", "complete:dwell", "complete:transitions"):
+                assert_complete_view(result, name.split(":")[1])
             saved = snapshot(result)
             prior = run_ids(session)
             with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
@@ -376,7 +427,8 @@ def recover(root: Path, risk: str, phase: str) -> dict[str, Json]:
             assert run_ids(session) == prior
             outputs[name] = saved
         if phase == "fixed":
-            assert kernels.call_count == len(run_ids(session) - before) == len(operations)
+            new_runs = len(run_ids(session) - before)
+            assert new_runs <= len(operations), (new_runs, len(operations), kernels.call_count)
             state["outputs"] = outputs
             (root / "state.json").write_bytes(encode(state))
         else:

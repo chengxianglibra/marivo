@@ -12,17 +12,16 @@ import duckdb
 import ibis
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.materialization import (
     funnel_execution,
     graph_local_execution,
     journey_execution,
 )
-from marivo.analysis.materialization.graph_relation import FrozenBinding, Relation
-from marivo.analysis.materialization.graph_snapshot import freeze_graph, thaw_graph
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.public_dsl import _MaterializedRead
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -90,6 +89,7 @@ oid = ms.dimension_column(name='oid',entity=facts,column='oid')
 kind = ms.dimension_column(name='kind',entity=facts,column='kind')
 instant = ms.time_dimension_column(name='instant',entity=facts,column='instant',granularity='second',parse=ms.timestamp(timezone='UTC'))
 participant = ms.relationship(name='participant',from_entity=facts,to_entity=subjects,keys=[ms.join_on(fact_sid,sid)])
+fact_count = ms.count(name='fact_count',entity=facts,time=instant)
 """
     for event in ("started", "finished"):
         code += f"""@ms.event(name={event!r},identity=(oid,),occurred_at=instant,
@@ -101,7 +101,7 @@ def {event}(rows):
     (models / "semantic/commerce/objects.py").write_text(code)
 
 
-def materialize(root: Path) -> dict[str, Json]:
+def materialize(root: Path, *, source_followup: bool = True) -> dict[str, Json]:
     baseline = START - timedelta(days=3)
     ms.load(workspace_dir=root)
     session = mv.session.get_or_create("r94-funnel", report_timezone="UTC")
@@ -114,6 +114,7 @@ def materialize(root: Path) -> dict[str, Json]:
         rationale="All six independently authored fixture events are retained.",
     )
     funnels: list[mv.MaterializedFunnelResult] = []
+    extra_inputs: dict[str, Json] = {}
     for start in (START, baseline):
         journey = session.events.match(
             mv.EventPattern(steps=pattern),
@@ -126,6 +127,27 @@ def materialize(root: Path) -> dict[str, Json]:
             completeness=(claim,),
         )
         funnels.append(journey.funnel(axes=(ms.ref.dimension("commerce.subjects.sid"),)).execute())
+        if start == START:
+            matched = journey.execute()
+            elapsed = matched.time_to_event(from_step=pattern[0], to_step=pattern[1]).execute()
+            completed = elapsed.completed().duration.execute()
+            assert completed.to_pandas().value.tolist() == [timedelta(seconds=5)]
+            extra_inputs["completed_duration"] = snapshot(completed)
+            extra_inputs["journey"] = snapshot(matched)
+            if source_followup:
+                dropped = journey.read(mv.dropped_before(step=pattern[1]))
+                selected = dropped.where(dropped.value.eq(True)).members(
+                    through=journey.subjects(pattern[0].participant)
+                )
+                assert isinstance(selected, mv.LogicalAnalysisDomain)
+                following = selected.observe(
+                    ms.ref.metric("commerce.fact_count"),
+                    during=mv.time_scope(start=START, end=END),
+                    via=ms.ref.relationship("commerce.participant"),
+                ).execute()
+                assert following.to_pandas().member.tolist() == [9007199254740994]
+                assert following.to_pandas().value.tolist() == [1]
+                extra_inputs["following"] = snapshot(following)
     current, previous = funnels
     comparison = current.compare(previous).execute()
     assert comparison.evidence_digest().finding_count == 2
@@ -136,6 +158,7 @@ def materialize(root: Path) -> dict[str, Json]:
             "current": snapshot(current),
             "baseline": snapshot(previous),
             "comparison": snapshot(comparison),
+            **extra_inputs,
         },
     }
     (root / "r94-funnel.json").write_bytes(encode(state))
@@ -190,6 +213,12 @@ def recover(root: Path, phase: str) -> dict[str, Json]:
             assert isinstance(restored, _MaterializedRead) and snapshot(restored) == saved
             inputs[name] = restored
         current, baseline, change = inputs["current"], inputs["baseline"], inputs["comparison"]
+        duration, matched = (
+            inputs["completed_duration"],
+            inputs["journey"],
+        )
+        assert isinstance(duration, mv.MaterializedNumericRelation)
+        assert isinstance(matched, mv.MaterializedJourneyResult)
         assert isinstance(current, mv.MaterializedFunnelResult)
         assert isinstance(baseline, mv.MaterializedFunnelResult)
         assert isinstance(change, mv.MaterializedFunnelComparisonResult)
@@ -198,11 +227,28 @@ def recover(root: Path, phase: str) -> dict[str, Json]:
         assert first.has_more and not second.has_more
         assert change.finding(second.items[0].finding_id) == second.items[0]
         assert run_ids(session) == before
+        assert change._dataset is not None
+        receipt = change._dataset.artifact.descriptor.primary_receipt.local
+        saved_findings = change.findings(limit=100)
+        saved_evidence = change.evidence_digest()
+        payload = root / receipt.project_relative_path / "data.parquet"
+        offline = payload.with_suffix(".offline")
+        payload.rename(offline)
+        try:
+            assert change.findings(limit=100) == saved_findings
+            assert change.evidence_digest() == saved_evidence
+            with pytest.raises(MaterializationError, match="selected storage is missing"):
+                change.to_pandas()
+        finally:
+            offline.rename(payload)
         operations: dict[
             str,
             mv.LogicalNumericRelation
             | mv.LogicalFunnelComparisonResult
-            | mv.LogicalAttributionResult,
+            | mv.LogicalAttributionResult
+            | mv.LogicalBooleanRelation
+            | mv.LogicalStatisticRelation
+            | mv.LogicalRolledNumericRelation,
         ] = {
             "cohort": current.read(current.cohort_count),
             "lost": current.read(current.lost_count),
@@ -213,26 +259,34 @@ def recover(root: Path, phase: str) -> dict[str, Json]:
                 target=mv.funnel_loss_rate(step=steps()[1]),
                 axes=(ms.ref.dimension("commerce.subjects.sid"),),
             ),
+            "duration_mean": duration.summarize(mv.mean()),
+            "dropout": matched.read(mv.dropped_before(step=steps()[1])),
         }
+        if "following" in inputs:
+            following = inputs["following"]
+            assert isinstance(following, mv.MaterializedNumericRelation)
+            operations["following_count"] = following.rollup()
         outputs: dict[str, Json] = {}
-        graphs: dict[str, Json] = {}
         for name, logical in operations.items():
             if phase == "cold":
-                graph = obj(state["graphs"])[name]
-                assert isinstance(graph, str)
-                node = thaw_graph(graph)
-                assert isinstance(node, MethodNode)
                 with (
                     patch.object(graph_local_execution, "execute_verified_fixed", forbidden),
                     patch.object(funnel_execution, "execute", forbidden),
                 ):
-                    dataset = Relation(session._runtime, node, FrozenBinding(node)).execute()
-                    recovered = session.artifact(dataset.artifact.artifact_ref)
-                    assert isinstance(recovered, _MaterializedRead)
-                    result: _MaterializedRead = recovered
+                    if name in ("comparison", "allocation"):
+                        previous = obj(obj(state["outputs"])[name])["artifact"]
+                        assert isinstance(previous, str)
+                        recovered = session.artifact(previous)
+                        assert isinstance(recovered, _MaterializedRead)
+                        result: _MaterializedRead = recovered
+                    else:
+                        result = logical.execute()
             else:
                 result = logical.execute()
-                graphs[name] = freeze_graph(logical._node.root)
+                before_repeat = run_ids(session)
+                with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
+                    assert snapshot(logical.execute()) == snapshot(result)
+                assert run_ids(session) == before_repeat
             outputs[name] = snapshot(result)
             frame = result.to_pandas()
             if name == "cohort":
@@ -249,10 +303,15 @@ def recover(root: Path, phase: str) -> dict[str, Json]:
                 assert result.evidence_digest().finding_count == 2
             elif name == "allocation":
                 assert result.evidence_digest().finding_count > 0
+            elif name == "duration_mean":
+                assert frame.value.tolist() == [timedelta(seconds=5)]
+            elif name == "dropout":
+                assert frame.value.tolist() == [False, True]
+            elif name == "following_count":
+                assert frame.value.tolist() == [1]
         if phase == "fixed":
-            assert kernels.call_count == len(run_ids(session) - before) == 6
+            assert kernels.call_count == len(run_ids(session) - before) == len(operations)
             state["outputs"] = outputs
-            state["graphs"] = graphs
             (root / "r94-funnel.json").write_bytes(encode(state))
         else:
             expected = obj(state["outputs"])

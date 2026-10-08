@@ -970,6 +970,43 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                     if any(proof.requirement == c for proof in completed)
                 ),
             )
+        for requirement in prepared.admitted.checks:
+            if requirement.node_id != item.stage.node.identity or any(
+                proof.requirement == requirement or requirement in proof.consumers
+                for proof in completed
+            ):
+                continue
+            if (
+                isinstance(params, PartsTransport)
+                and requirement.obligation.fact in item.stage.node.derivation.pre
+                and requirement.obligation.check_id
+                in ("source.exact_pairing@v1", "source.group_mapping@v1")
+            ):
+                # Transport indexes and checks the actual complete predicate keys
+                # before selecting rows; source-prefix expressions cannot do this.
+                selected = results[item.stage.output]
+                proof_digest = hashlib.sha256(
+                    selected.primary.schema.serialize().to_pybytes()
+                    + repr(selected.primary.to_pylist()).encode()
+                ).hexdigest()
+            else:
+                prior = next(
+                    (
+                        proof
+                        for proof in completed
+                        if proof.requirement.obligation == requirement.obligation
+                    ),
+                    None,
+                )
+                if prior is None:
+                    fail(
+                        "input_binding",
+                        "local consumer lacks its completed originating check: "
+                        + requirement.obligation.check_id,
+                        stage="consume",
+                    )
+                proof_digest = prior.result_digest
+            completed.append(CompletedCheck(requirement, proof_digest))
     check()
     result = results[lowered.primary_output]
     from marivo.analysis.materialization.graph_exchange import from_arrow

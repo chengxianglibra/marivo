@@ -2690,7 +2690,10 @@ def _contribution_rows(
             predicates,
         )
         source_ids = _source_ids(source_ids, (binding.leaf.identity,))
-        fact = _contribution_mapping_fact((stage.node.inputs[0].node.signature,), params, index)
+        member_input = stage.node.inputs[
+            1 if isinstance(stage.node.parameters, AnchorObserve) else 0
+        ].node.signature
+        fact = _contribution_mapping_fact((member_input,), params, index)
         obligation = next(
             (item for item in stage.node.derivation.obligations if item.fact == fact), None
         )
@@ -3403,11 +3406,8 @@ def _observe(
     return table, target, source_ids
 
 
-def _fact_relations(
-    node: Node, obligation: Obligation, relations: tuple[LoweredRelation, ...]
-) -> tuple[tuple[LoweredRelation, ...], ...]:
+def _fact_inputs(node: Node, obligation: Obligation) -> tuple[tuple[str, ...], ...]:
     """Keep each originating check's ordered inputs separate across shared paths."""
-    by_identity = {r.node.identity: r for r in relations}
     fact = obligation.fact
     if isinstance(node, MethodNode):
         if (
@@ -3415,7 +3415,7 @@ def _fact_relations(
             and obligation.check_id == "source.single_value@v1"
             and fact in node.derivation.pre
         ):
-            return ((by_identity[node.identity],),)
+            return ((node.identity,),)
         immediate = tuple(edge.node for edge in node.inputs)
         if fact in node.derivation.pre and (
             fact.inputs
@@ -3433,19 +3433,19 @@ def _fact_relations(
                 == fact.subject_id
             )
         ):
-            return (tuple(by_identity[n.identity] for n in immediate),)
+            return (tuple(n.identity for n in immediate),)
         inherited = tuple(
             dict.fromkeys(
                 group
                 for n in immediate
                 if obligation in n.signature.obligations
-                for group in _fact_relations(n, obligation, relations)
+                for group in _fact_inputs(n, obligation)
             )
         )
         if inherited:
             return inherited
     elif isinstance(node, SourceLeaf) and obligation in node.signature.obligations:
-        return ((by_identity[node.identity],),)
+        return ((node.identity,),)
     _fail("an obligation bound to its originating graph inputs", fact.subject_id)
 
 
@@ -3899,6 +3899,7 @@ def lower(
         results[stage.output] = relation
         layouts[stage.output] = layout
         stages.append(relation)
+    source_relations = {r.node.identity: r for r in results.values()}
     for requirement in admitted.checks:
         owner = captured.index[requirement.node_id]
         existing = next(
@@ -3960,7 +3961,12 @@ def lower(
         ):
             checks.append(requirement)
             continue
-        for inputs in _fact_relations(owner, requirement.obligation, tuple(results.values())):
+        fact_inputs = _fact_inputs(owner, requirement.obligation)
+        if any(identity not in source_relations for group in fact_inputs for identity in group):
+            checks.append(requirement)
+            continue
+        for group in fact_inputs:
+            inputs = tuple(source_relations[identity] for identity in group)
             check_id = requirement.obligation.check_id
             source_ids = _source_ids(*(input.source_ids for input in inputs))
             if check_id == "source.unique_key@v1":

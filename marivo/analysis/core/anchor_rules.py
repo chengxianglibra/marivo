@@ -19,6 +19,7 @@ from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorObserve,
     ObserveCount,
+    ObserveMetric,
     OccurrenceCombine,
     OriginalRatio,
     RuleDerivation,
@@ -72,6 +73,25 @@ def validate(part: AnchorDomainPart | AnchorObservationPart) -> None:
         fail("anchor_binding", "invalid exact Anchor domain declaration")
 
 
+def observation_template(
+    population: Signature,
+    observations: tuple[ObserveMetric | ObserveCount, ...],
+    composition: OriginalRatio | OccurrenceCombine | None,
+) -> Signature:
+    """Derive the relative Metric template without synthetic graph node identities."""
+    prototypes = tuple(
+        _observe_metric((population,), observation, prepared=True).output
+        for observation in observations
+    )
+    if isinstance(composition, OriginalRatio):
+        return _original_ratio(prototypes, composition).output
+    if isinstance(composition, OccurrenceCombine):
+        return _occurrence_combine(prototypes, composition).output
+    if len(prototypes) == 1:
+        return prototypes[0]
+    fail("anchor_metric", "a closed count/sum/ratio/linear Metric is required")
+
+
 def derive(inputs: tuple[Signature, ...], params: AnchorBind | AnchorObserve) -> RuleDerivation:
     if isinstance(params, AnchorBind):
         if len(inputs) != 1 or inputs[0].domain.kind not in ("occurrence", "journey"):
@@ -112,18 +132,7 @@ def derive(inputs: tuple[Signature, ...], params: AnchorBind | AnchorObserve) ->
         fail("anchor_binding", "Anchor and its original complete population are required")
     domain = require_part(inputs[0], "anchor")
     assert isinstance(domain, AnchorDomainPart)
-    prototypes = tuple(
-        _observe_metric((inputs[1],), observation, prepared=True).output
-        for observation in params.observations
-    )
-    if isinstance(params.composition, OriginalRatio):
-        template = _original_ratio(prototypes, params.composition).output
-    elif isinstance(params.composition, OccurrenceCombine):
-        template = _occurrence_combine(prototypes, params.composition).output
-    elif len(prototypes) == 1:
-        template = prototypes[0]
-    else:
-        fail("anchor_metric", "a closed count/sum/ratio/linear Metric is required")
+    template = observation_template(inputs[1], params.observations, params.composition)
     if template != params.template:
         fail("anchor_metric", "Metric template differs from its frozen components")
     observation_part = AnchorObservationPart(
@@ -151,10 +160,10 @@ def derive(inputs: tuple[Signature, ...], params: AnchorBind | AnchorObserve) ->
             replace(original, temporal_policy="overlapping"),
             require_part(template, "coverage"),
         ),
-        pre=(),
+        pre=tuple(item.fact for item in template.obligations),
         required=("anchor", "subject"),
         created=("original_state", "coverage"),
         post=(),
-        obligations=(),
+        obligations=template.obligations,
         eval_id="anchor.observe@v1",
     )

@@ -125,7 +125,9 @@ def test_native_funnel_nonempty_findings_recovery(
         # Remove the scaffold source before native production, not just before recovery.
         for path in tmp_path.glob("source.duckdb*"):
             path.unlink()
-        produced = materialize(tmp_path)
+        # Remote Journey matching and fixed views are qualified; source
+        # Journey.read selection belongs to the DuckDB/Parquet journey.
+        produced = materialize(tmp_path, source_followup=False)
         source_trace.save(
             "native-funnel-source-" + backend,
             {**subjects.environment, "profile": profile},

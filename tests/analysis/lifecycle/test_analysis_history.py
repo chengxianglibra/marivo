@@ -235,6 +235,40 @@ def test_same_run_history_selection_prepares_all_sources_before_local(
 
 
 @pytest.mark.runtime
+def test_history_predicate_pairing_checks_actual_local_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.core.graph import MethodNode
+    from marivo.analysis.core.rules import HistoryRead
+    from marivo.analysis.materialization import history_views
+    from marivo.analysis.materialization.graph_exchange import ExchangeResult
+    from tests.analysis.lifecycle.history_fixtures import build_history_public, observe
+
+    session, members, window, claims, _ = build_history_public(tmp_path, form="parquet")
+    history = replay(session, members, window, claims)
+    original = history_views.execute
+    changed = False
+
+    def mismatched(
+        node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str
+    ) -> ExchangeResult:
+        nonlocal changed
+        result = original(node, inputs, binding)
+        if isinstance(node.parameters, HistoryRead):
+            changed = True
+            return replace(result, primary=result.primary.slice(1))
+        return result
+
+    monkeypatch.setattr(history_views, "execute", mismatched)
+    with pytest.raises(AnalysisError, match="predicate dependency lacks equal complete input keys"):
+        observe(history, "interval", "revenue").execute()
+    assert changed
+    with session._runtime.store._read() as connection:
+        assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 0
+    assert session._runtime.store.resources(session.id) == ()
+
+
+@pytest.mark.runtime
 @pytest.mark.parametrize(
     "fault",
     [

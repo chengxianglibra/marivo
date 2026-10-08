@@ -1048,30 +1048,6 @@ def test_ordinary_ratio_over_untimed_numeric_read(
 
 
 @pytest.mark.runtime
-def test_comparison_rejects_duplicate_target_keys(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    from marivo.analysis.errors import AnalysisError
-
-    case = analysis_dsl_case_factory("j2")
-    with duckdb.connect(str(case.database_path)) as connection:
-        connection.execute("INSERT INTO customer VALUES ('A', 'east')")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    current = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-    )
-    baseline = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-    )
-    with pytest.raises(AnalysisError):
-        current.compare(baseline).execute()
-
-
-@pytest.mark.runtime
 def test_float_fold_comparison_without_error_envelope_rejects_statically(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

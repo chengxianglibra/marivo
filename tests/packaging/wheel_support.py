@@ -19,11 +19,49 @@ from tests.support.paths import PROJECT_ROOT
 PROBE_MODULES = (
     "tests.packaging.boundary_probe",
     "tests.packaging.display_journey",
+    "tests.packaging.complete_journeys",
     "tests.packaging.wheel_probe",
     "tests.packaging.source_probe",
     "tests.analysis.statistics.recovery_worker",
     "tests.analysis.journey.funnel_public_recovery_worker",
     "tests.analysis.lifecycle.history_public_recovery_worker",
+    "tests.conftest",
+    "tests.analysis.graph.test_method_consumers",
+    "tests.analysis.graph.test_remote_domain_consumers",
+    "tests.analysis.graph.test_reference_consumers",
+    "tests.analysis.graph.test_distribution_consumers",
+    "tests.analysis.graph.test_multiroot_consumers",
+    "tests.analysis.numeric.test_comparison_consumers",
+    "tests.analysis.materialization.test_attribution_recovery",
+    "tests.analysis.materialization.attribution_recovery_worker",
+    "tests.analysis.graph.observation_recovery_worker",
+    "tests.analysis.graph.test_premise_verification",
+    "tests.analysis.journey.test_native_funnel_recovery",
+    "tests.analysis.materialization.test_producer_recovery",
+    "tests.analysis.materialization.test_public_refusals",
+    "tests.analysis.materialization.test_analysis_state",
+    "tests.analysis.materialization.test_analysis_graph_publication",
+    "tests.analysis.materialization.test_native_graph_deadline",
+    "tests.analysis.materialization.test_graph_transport_phases",
+    "tests.analysis.materialization.test_local_graph_interrupts",
+    "tests.analysis.statistics.producer_recovery_worker",
+    "tests.datasource.test_source_profiles",
+    "tests.datasource.test_datasource_profiles_store",
+    "tests.datasource.test_mysql_authoring_deadline",
+    "tests.datasource.test_source_deadline",
+    "tests.analysis.numeric.test_analysis_display",
+    "tests.analysis.numeric.test_native_numeric",
+    "tests.analysis.numeric.test_cohort_unknown",
+    "tests.analysis.numeric.test_fixed_selection_runtime",
+    "tests.analysis.numeric.test_analysis_comparison_runtime",
+    "tests.analysis.temporal.test_temporal_public_runtime",
+    "tests.analysis.statistics.test_analysis_statistics_boundaries",
+    "tests.analysis.statistics.test_analysis_statistics",
+    "tests.analysis.statistics.test_analysis_statistics_kernel",
+    "tests.analysis.statistics.test_composition",
+    "tests.analysis.materialization.test_public_schema_drift",
+    "tests.analysis.journey.test_anchor_consumers",
+    "tests.analysis.journey.sqlite_anchor_components_worker",
 )
 
 
@@ -54,6 +92,14 @@ def stage_inputs(destination: Path) -> None:
                 imported = (node.module, *(node.module + "." + a.name for a in node.names))
             elif isinstance(node, ast.Import):
                 imported = tuple(a.name for a in node.names)
+            elif (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and node.value.startswith(("tests.", "scripts."))
+                and all(part.isidentifier() for part in node.value.split("."))
+            ):
+                # Python -m helpers name their dependencies as module literals.
+                imported = (node.value,)
             else:
                 continue
             for module in imported:
@@ -64,6 +110,19 @@ def stage_inputs(destination: Path) -> None:
     for prefix in ("docs", "zh-cn/docs"):
         relative = Path(f"site/src/content/docs/{prefix}/latest")
         shutil.copytree(PROJECT_ROOT / relative, destination / relative)
+    environment_resources = PROJECT_ROOT / "tests/datasource/environment"
+    for source in environment_resources.rglob("*"):
+        if source.is_file() and source.suffix in (
+            ".properties",
+            ".xml",
+            ".yaml",
+            ".json",
+            ".config",
+            ".sql",
+        ):
+            target = destination / source.relative_to(PROJECT_ROOT)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
 
 
 @dataclass
@@ -175,7 +234,7 @@ def prepare_wheel(work: Path, *, extras: tuple[str, ...] = ("duckdb",)) -> Insta
         ],
     )
     candidate.run("dependency-check", [str(interpreter), "-m", "pip", "check"])
-    candidate.run("dependencies", [str(interpreter), "-m", "pip", "list", "--format=json"])
+    candidate.run("setup-dependencies", [str(interpreter), "-m", "pip", "list", "--format=json"])
     constraints.write_text(
         candidate.run("freeze", [str(interpreter), "-m", "pip", "freeze", "--exclude", "marivo"])
     )

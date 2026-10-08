@@ -223,13 +223,26 @@ def graph_abort(
                 )
             assert isinstance(expression, ir.Table)
             bound = qualified if isinstance(qualified, QualifiedSource) else qualified[0]
-            for _ in range(16 if backend == "clickhouse" and mode == "sigint" else 18):
+            joins = 20 if backend == "clickhouse" and mode == "deadline" else 18
+            for _ in range(joins):
                 expression = expression.cross_join(bound.binding.relation.view()).select(expression)
-            expression = expression.filter(ibis.random() > 0.5).aggregate(
-                **{name: expression[name].max() for name in expression.columns}
-            )
             if backend == "clickhouse":
+                columns = expression.columns
+                expression = expression.mutate(__deadline_noise=ibis.random())
+                expression = expression.aggregate(
+                    **{name: expression[name].max() for name in columns},
+                    __deadline_noise=expression["__deadline_noise"].sum(),
+                )
+                # A random row filter may empty a pushed-down three-row scan.
+                # Consume the full product before returning the original schema.
+                expression = expression.filter(expression["__deadline_noise"] >= 0).drop(
+                    "__deadline_noise"
+                )
                 expression = expression.cast(ibis.Schema.from_pyarrow(expected_schema))
+            else:
+                expression = expression.filter(ibis.random() > 0.5).aggregate(
+                    **{name: expression[name].max() for name in expression.columns}
+                )
             result = compile_read(
                 source,
                 qualified,
@@ -378,7 +391,11 @@ def graph_abort(
             controller.start()
             signal_started = time.monotonic()
             try:
-                with pytest.raises(KeyboardInterrupt) as cancelled:
+                with pytest.raises(
+                    (KeyboardInterrupt, MaterializationError)
+                    if backend == "mysql"
+                    else KeyboardInterrupt
+                ) as cancelled:
                     logical.execute()
                 interruption = cancelled.value
             finally:
@@ -401,14 +418,29 @@ def graph_abort(
         while error is not None and all(error is not previous_error for previous_error in errors):
             errors.append(error)
             error = error.__cause__ or error.__context__
+        if isinstance(interruption, MaterializationError):
+            # A borrowed driver's out-of-sync drain remains a typed refusal;
+            # only its outer connection owner may acknowledge final release.
+            assert backend == "mysql" and mode == "sigint"
+            assert all(not source._owns_backend for source in owners)
+            assert any(error.args and error.args[0] == 2014 for error in errors)
+            assert interruption.expected and interruption.received and interruption.repair
         diagnostic = {
             "error_types": [type(error).__name__ for error in errors],
             "causes": [str(error) for error in errors[1:]],
             "owners": len(owners),
             "clickhouse_requests": len(clickhouse_requests),
+            "submissions": [
+                {
+                    "state": submission.state,
+                    "purpose": submission.purpose,
+                    "cancelled_query": submission.sql in compiled,
+                }
+                for source in owners
+                for submission in source.submissions
+            ],
         }
-        if not compiled:
-            (tmp_path / "deadline-diagnostic.json").write_text(json.dumps(diagnostic, indent=2))
+        (tmp_path / "deadline-diagnostic.json").write_text(json.dumps(diagnostic, indent=2))
         assert compiled and owners and all(source._closed for source in owners), diagnostic
         assert execute_deadline.CURRENT.get() is None
         assert close_threads and set(close_threads) == {owner_thread}

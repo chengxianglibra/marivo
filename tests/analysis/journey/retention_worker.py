@@ -13,9 +13,6 @@ import ibis
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.journey.retention_fixtures import build_retention
@@ -85,7 +82,7 @@ def assert_source(result, subject, occurrence, profile):
     return snapshot(result)
 
 
-def produce(root):
+def produce(root: Path) -> None:
     config = json.loads((root / "config.json").read_text())
     session, anchors, returning, claims = build_retention(root, **config)
     elapsed = anchors.retention(
@@ -129,7 +126,7 @@ def produce(root):
     )
 
 
-def offline(root, cold):
+def offline(root: Path, cold: bool) -> None:
     data = json.loads((root / "manifest.json").read_text())
     with ExitStack() as guards:
         for owner, name in (
@@ -149,7 +146,7 @@ def offline(root, cold):
             guards.enter_context(
                 patch("marivo.analysis.materialization.retention_execution.execute", forbidden)
             )
-        session = Session._from_runtime(DatasetRuntime(SessionStore(root), data["session"]))
+        session = mv.session.resume(data["session"], by="id")
         for profile, ref in data["source"].items():
             value = session.artifact(ref)
             assert snapshot(value) == data["expected"][profile]

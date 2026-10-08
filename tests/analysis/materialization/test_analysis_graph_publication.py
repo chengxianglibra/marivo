@@ -8,6 +8,7 @@ import subprocess
 import sys
 from contextlib import contextmanager
 from dataclasses import replace
+from pathlib import Path
 
 import ibis
 import pyarrow as pa
@@ -886,11 +887,14 @@ def test_strict_descriptor_rejects_altered_fields(case, mutate):
         decode(canonical_json(payload), DESCRIPTOR)
 
 
-def test_existing_generation_rejection_preserves_project_bytes(tmp_path):
-    old_path = tmp_path / ".marivo/analysis/generations/v6/store.sqlite3"
+@pytest.mark.parametrize("generation", range(1, 8))
+def test_existing_generation_rejection_preserves_project_bytes(
+    tmp_path: Path, generation: int
+) -> None:
+    old_path = tmp_path / f".marivo/analysis/generations/v{generation}/store.sqlite3"
     old_path.parent.mkdir(parents=True)
     with sqlite3.connect(old_path) as connection:
-        connection.execute("PRAGMA user_version=6")
+        connection.execute(f"PRAGMA user_version={generation}")
     before = old_path.read_bytes()
     files = tuple(sorted(path.relative_to(tmp_path) for path in tmp_path.rglob("*")))
     for open_store in (SessionStore, SessionStore.open_existing):

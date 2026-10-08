@@ -1,5 +1,242 @@
 # R10 current acceptance index
 
+## R10.3 current implementation and qualification (2026-10-08)
+
+Baseline: `panda@c1f98a4c0ebfd9a81680bce0928728daaefa7285` plus the scoped
+uncommitted implementation. **R10.3 is complete for the finite required installed
+journeys, producer/physical witnesses and independent risks below.** R10.4, R10.5, release, commits and previously authorized skipped
+cost collection are outside this task.
+
+The implementation repairs History originating-check binding and actual local
+predicate inputs, historical selection dependencies in new observations,
+coordinate-observation recovery, and Anchor templates/component matching.
+Installed row-statistics checks additionally reproduced a downstream finite-value
+proof lost after a local ratio finish. Its source projection must stay bound to
+the finished values at the consume deadline. This repair supersedes candidate 02;
+its passed and failed runs remain diagnostic evidence and do not qualify a new wheel.
+Public API, method semantics and Store 8 remain unchanged. Current catalog disclosure
+and row-statistics behavior are exercised through their existing owners. Owning
+Runtime specification and latest English/Chinese observation-recovery examples are
+updated; packaged skills and AGENTS.md are unchanged.
+
+The current frozen package is candidate 06, built outside the repository with
+`make pypi-build pypi-check` (exit 0). Wheel SHA-256:
+`194343a15b75c74f3cc35759f6cd88f5b68e795e349d4261f1d039ad16ea4236`;
+sdist SHA-256:
+`5f47b8507082c22ca06f52ff68f678ff80fda5385571bca1828829d6036a7f31`.
+The baseline plus `evidence/r103/candidate-06.diff` (SHA-256
+`9710297661e51804b367fa5f470748d45eb0534f95a0f15198ab4104c3980419`),
+six new-file hashes and the 1289-file snapshot inventory in `candidate-06.json`
+identify the build, including the Store 1 through 7 refusal owner. All 327
+package/resource and dependency owner hashes plus LICENSE remain frozen.
+Candidate 06 formal runs use identical archive bytes on Python 3.12 and 3.10.
+Candidates 01 through 05 are
+superseded; their commands and failures remain diagnostic evidence.
+
+Candidate 05 is now also superseded: its selected healthy-service group completed
+43 owners but failed the MySQL authoring `sample()` deadline under mysqlclient
+2.3.0 (21 unselected/inapplicable skips). The separate engine timeout hook still
+called active connection metadata on the timer thread, and release took 34.05
+seconds. Its datasource owner now captures the socket before submission, guards
+the prepared connection by object identity, and closes the duplicate on the owner
+thread after joining the timer. Real driver 2.3.0 authoring and source deadlines
+pass after the repair; candidate 06 contains it. Candidate 05's 39 journey
+phases per interpreter and partial independent-owner runs are preserved without
+qualification transfer.
+
+The [public journey entrypoint](../../../tests/packaging/complete_journeys.py)
+accepts `PROJECT a01..a13 produce|fixed|cold REPORT`, with three independent
+processes per journey. Each installed process guards noneditable `site-packages`,
+`direct_url.json` and the candidate archive hash. The
+[installed journey gate](../../../tests/packaging/test_installed_journeys.py)
+removes source files and declarations before fixed/cold phases and runs finite
+independent behavior owners; it does not read this index.
+Both interpreters have completed all 39 journey phases on candidate 06; the
+26 independent behavior owners per interpreter are closed, including the explicitly
+recorded repaired refusal owner. Native backend and resource exits are separate below.
+
+| Journey | Script/oracle owner and business discriminants | Current source/fixed/cold/installed exit |
+| --- | --- | --- |
+| A01 | hierarchy_journey.py: raw J1 regional/channel totals, Null/zero, empty groups, Ref/read grouping and coordinate rows | 3.12 and 3.10: source 0 / fixed 0 / cold 0; installed passed |
+| A02 | relation_journeys.py: raw monthly differences, negative selection and next observation; display owner checks legal-zero current-row mean | 3.12 and 3.10: source 0 / fixed 0 / cold 0; installed passed |
+| A03 | graph_journeys.py: raw order/line grains and complete tuple groups; original 40 versus current-row 130/3 | 3.12 and 3.10: source 0 / fixed 0 / cold 0; installed passed |
+| A04 | graph_journeys.py plus association_edges_journey.py: exact rank/tie oracle, negative coefficient, Null pairing, wrong-domain atomic refusal and source/fixed routes | 3.12 and 3.10: source 0 / fixed 0 / cold 0; installed passed |
+| A05 | versioned_journey.py and versioned_recovery_worker.py: exact snapshots/validity, historical fields, absent snapshot pre-I/O refusal and recorded/settled observations | 3.12 and 3.10: source 0 / fixed 0 / cold 0; installed passed |
+| A06 | relation_journeys.py: branch components, half-additive/cumulative state, periods, Exact/UnionKeys, zero/negative baseline and nested differences | 3.12 and 3.10: source 0 / fixed 0 / cold 0; installed passed |
+| A07 | relation_journeys.py and fixed selection owner: raw fixed references, share, penetration, standardization, attribution and Top-K/Other | 3.12 and 3.10: source 0 / fixed 0 / cold 0; installed passed |
+| A08 | relation_journeys.py and public History Unknown cohort owner: complete opportunities, counts/all/any, empty and decidable/undecidable Cells | 3.12 and 3.10: source 0 / fixed 0 / cold 0; installed passed |
+| A09 | funnel_public_recovery_worker.py: matching/Funnel comparison and allocation, exact five-second Duration, Journey unit and dropout follow-up | 3.12 and 3.10: source 0 / fixed 0 / cold 0; installed passed |
+| A10 | history_public_recovery_worker.py and history_oracle.py: inception/replay, state/interval/violation selection, complete intervals/dwell, views/checkpoint grid and captured observations without replay | 3.12 and 3.10: source 0 / fixed 0 / cold 0; installed passed |
+| A11 | statistics recovery/journeys/oracles and composition/statistics owners: nine methods, fixed fitting, complete grids, lag direction, pairing, original coordinates and forecast equations/intervals | 3.12 and 3.10: source 0 / fixed 0 / cold 0; installed passed |
+| A12 | renamed operations/device/reading/sample with kWh; source/profile, schema-drift, atomicity, Session and disclosure owners | 3.12 and 3.10: source 0 / fixed 0 / cold 0; installed passed |
+| A13 | anchors_worker.py, anchors_oracle.py and retention_worker.py: complete composite identities, DST elapsed/calendar, overlap, all executable fixed K, fixed opportunity domain and Unknown bounds | 3.12 and 3.10: source 0 / fixed 0 / cold 0; installed passed |
+
+Candidate 03 additionally failed the required MySQL deadline/SIGINT installed
+owner with mysqlclient 2.3.0: cancellation called active connection metadata
+across threads. The datasource owner now captures connection identity and a
+duplicated socket before submission, closes it on the owner thread, and finalizes
+interrupted pending submissions after SIGINT unwinding. Directed unit and native
+Runtime checks pass; this product change requires a new frozen candidate. No
+candidate 03 success transfers to that candidate. Its original failed aggregate
+and the separately successful MySQL source-journey retry remain recorded.
+
+The ClickHouse source preflight also reproduced a required weight-sum overflow
+that became Null through `CAST(... AS Nullable(Int64))` and was published as a
+zero-denominator result. The numeric owner now checks the non-nullable carrier
+and preserves legitimate Null in an outer branch. Source and fixed overflow
+refusals retain prior primary, runs and resources atomically. Candidate 04 was
+built before this repair and grants no formal qualification. Current directed
+numeric Runtime checks pass (34 passed, three unselected backend skips), strict
+typing passes, and `make check-agent` passes (4939 passed, one skip; 329 typed
+modules). Distributed producer and datasource preflight also pass separately;
+these source diagnostics do not substitute for candidate 06 installed proofs.
+
+Backend and resource exits are separate from these journey exits. Qualification
+uses the dedicated multisource environment and explicit `make installed-multisource-test`
+opt-in: PostgreSQL/MySQL/Trino first, then serial ClickHouse and Distributed topology.
+The candidate 06 healthy-service gate passed: 44 passed, 21 unselected or
+inapplicable skips, exit 0; log SHA-256
+`4f46a40b72cbc30b016cbf2d21669fff1af911d8a68a1c628722b20d19965304`.
+ClickHouse standalone is closed by its 12 unchanged successful checks and the
+two-case deadline/SIGINT owner retry. Distributed is independently closed by
+its producer and profile gate (two passed, 63 deselected, exit 0).
+Actual table/view, file/HTTP, connector and Distributed producers retain separate
+physical keys, native submissions, raw-fact oracles and producer/fixed/cold proofs.
+The four historical unverified producers are adjudicated individually; no skipped
+cost binding is promoted by these functional fixtures.
+
+All formal exits bind one frozen wheel and the R10.2 constraints (including
+SQLGlot 30.8.0). Native numeric oracles use their current component/result carrier
+contract; Duration and statistical assertions stay strict. Cold reads preserve
+stored primary values. Required failures and unverified exits keep this phase
+incomplete; no required unresolved failure or unverified exit remains in this scope.
+Unqualified physical shapes remain explicit refusals and do not gain
+qualification by sharing a backend name.
+
+The capability mapping below identifies the finite R10.3 witnesses. It does not
+grant real Agent, release or unexecuted physical-key qualification.
+
+| Capability | Journey and independent owner |
+| --- | --- |
+| C01 datasource | A12; source_profiles, datasource_profiles_store and producer_recovery, including separate file/HTTP boundaries |
+| C02 authoring identities and units | A05/A09/A10/A12/A13; persisted definitions, roles, version and exact subject/occurrence keys |
+| C03 members/read/version | A01/A05/A12; versioned recovery and source schema-drift refusal |
+| C04 original observations | A01/A03/A06; native_numeric, multiroot_consumers and reference_consumers |
+| C05 complete coordinates/reductions | A01/A03/A07/A11/A13; complete keys, row-statistics and partial original rollup |
+| C06 time/folds | A05/A06/A11/A13; temporal timezone refusal and elapsed/calendar oracles |
+| C07 comparisons/selection | A02/A06; comparison_consumers and analysis_comparison_runtime |
+| C08 cohort/reference/display | A07/A08; fixed_selection_runtime, cohort_unknown and analysis_display |
+| C09 attribution | A07/A09; attribution_recovery with source/fixed/cold component carriers |
+| C10 distribution methods | distribution_consumers finite exact/explicit-approximate numeric/date/string witnesses with their own physical keys |
+| C11 Event matching/Funnel | A09; native_funnel_recovery, raw assignment/multiplicity and complete units |
+| C12 exact duration/domain | A09; strict Duration and Journey-to-Subject dropout observation |
+| C13 Lifecycle | A10; history_public_recovery_worker raw-event assertions, actual controlled selection inputs and retained canonical history |
+| C14 statistical methods | A04/A11; method_consumers, strict independent statistics oracles, statistics_kernel and composition |
+| C15 Session/Run/Artifact | All journeys; analysis_state, graph_publication, public_refusals, premise_verification and local/native deadline owners |
+| C16 public disclosure | installed surface/console/Help, actual dynamic K and default drift/reachability/budget gates; real Agent remains R10.4 |
+| C17 packaging/privacy | Python 3.12 extras and Python 3.10 base/DuckDB isolation, poisoned imports, A12 secret/subject-key owners |
+| C18 Anchor/retention | A13; anchors_oracle and retention_worker raw-fact oracle, multiple Anchors, DST, overlap and complete fixed opportunity domain |
+
+## R10.3 final exits and retained evidence
+
+The reproducible command/exit/log-hash records are in
+`evidence/r103/final-06/commands/`. Full argv and working directories are retained;
+installed child commands, per-phase report hashes, three-process identities,
+physical trace keys, native submission counts, raw-fact oracle references and
+producer/profile recovery are in
+[qualification-06.json](../../../evidence/r103/final-06/qualification-06.json)
+(SHA-256 `58f42abccea97dd5d1f0e640f3498f0057b31f1669312099e6b1194ed0b13721`). This is the per-item ledger for the 26 interpreter/journey
+combinations and 106 producer recovery receipts, all with three independent
+processes. The [file manifest](../../../evidence/r103/final-06/SHA256SUMS.json)
+binds retained logs, declaration/data fixtures, raw projects, archives, constraints,
+collection scripts and final dependency/audit records. Durable tests do not read it.
+
+| Gate | Recorded command and exact disposition | Original exit | Log SHA-256 |
+| --- | --- | --- | --- |
+| Engineering | `engineering-evidence-final-14`: make check-agent; 4939 passed, one skip, 329 typed modules, lint/import/API docs | 0 | `c1f57cb3a6d37e4ffd4e42956588cc3d9313f197f773d47961e5c025f7aaf752` |
+| Python 3.12 package | `installed-312-final-06`: 49 passed, one obsolete admission-tripwire owner failed, ten deselected; all 39 journey phases passed | 1 | `1711e5b16a055dfd64b2f5ea8d61f817ed47cb6883c77ff606405978b1cc42a1` |
+| Python 3.10 package | `installed-310-final-06`: 44 passed, the same obsolete tripwire owner failed, 15 deselected; all 39 journey phases passed | 1 | `227be2e48b9aff7e10a493330104819335f9366929fddab86c054cfa27435fd2` |
+| Python 3.12 refusal repair | `installed-312-owner-retry-06`: seven passed; current graph_store.admit tripwire, no pre-refusal I/O or Run | 0 | `d290886ba1fd121f228842b715b3d69adbfe23531fb3ab8898245889e4747526` |
+| Python 3.10 refusal repair | `installed-310-owner-retry-06`: seven passed; same independent refusal checks | 0 | `28236fa6a5c0a779127232473817b547800928669f795dfda45a0af9c02803ae` |
+| Healthy native group | `installed-healthy-final-06`: 44 passed, 21 unselected/inapplicable skips; SQLite/PostgreSQL/MySQL/Trino | 0 | `4f46a40b72cbc30b016cbf2d21669fff1af911d8a68a1c628722b20d19965304` |
+| ClickHouse standalone original | `installed-clickhouse-final-06`: 12 passed, one deadline-load fixture failed, 52 unselected/inapplicable skips | 2 | `619e08f0df958e035e25ebccac5711f13eff6bd3dcd0a4bffa12e9e646305a88` |
+| ClickHouse resource repair | `installed-clickhouse-owner-retry-06`: two passed; native timeout/SIGINT, exact server termination and atomicity | 0 | `8ae7096bf9a33e3e85af5e3852c5563a92bf82415398cf9ac6aef3ce3b18e668` |
+| ClickHouse Distributed | `installed-distributed-final-06b`: two passed, 63 deselected; separate distributed producer/profile topology | 0 | `ec86e5c0209e39584062a208362411595645344db61ba94ebba80ccc9c3e3df8` |
+| Setup logging regression | `installed-logging-final-06`: one base isolation passed, 20 deselected; distinct setup and boundary logs | 0 | `49b7a943144476071878262a17f64e294c3adfef9fb7fb94c2ef40205029cb10` |
+| Evidence consistency | `evidence-consistency-final-06`: 13 isolated environments; original/repaired exits, hashes, noneditable origins and poisoned-source refusals | 0 | `ca5696f394ce0f4a689294da291ffe27e8010c77fefdfcff9b563e7faf4d2735` |
+
+The two failed package aggregates and the failed ClickHouse aggregate retain their
+original nonzero exits. Their successes are not described as aggregate passes.
+The Store 8 refusal owner still targeted removed `SessionStore.admit`; it now
+intercepts `graph_store.admit`. The original ClickHouse pending query finished in
+23 ms and read only three rows; a random pushed-down predicate could empty the
+load. The repaired fixture consumes random values over the full product before
+returning the original schema. Server query IDs, expected timeout/cancel codes,
+zero active queries, owner-thread cleanup, prior primary, Run/publication counts
+and resource assertions remain strict. Only these affected owners were repeated
+on the same wheel.
+
+[Harness 14](../../../evidence/r103/final-06/harness-14.json) (SHA-256
+`b4d630973167c3050fa4ab56360125963bb1636ec87d7fa7ca506e34c92cecf9`)
+binds the three test-only post-freeze edits and their diff: the two owner repairs
+and distinct setup dependency log naming. Harness 13 retains the exact staged
+owner hashes. Nine overwritten setup pip-list logs were reconstructed byte for
+byte against their original recorded SHA-256; their reconstruction and the later
+boundary-probe logs are explicitly separate in `recovered-setup-logs-06.json`.
+A fresh base install verifies the naming repair. The failed initial Distributed
+shell invocation never collected tests; its quoted-selector retry is the two-pass
+record above. The broad typing probe's unrelated imported-fixture/stub diagnostics
+remain recorded; both touched owner modules and the installer helper pass strict
+targeted typing with imported implementation checking left to the broad gate.
+
+| Dimension | Current candidate disposition and independent boundary |
+| --- | --- |
+| source | Passed: 13 complete journeys on each interpreter, fresh realization/sharing and raw-fact oracles; six-backend finite method/physical traces |
+| fixed | Passed: separate processes after removing sources/declarations, controlled retained parts, fixed-only continuation, exact hits, fitting/reference/coordinate scope and executable K |
+| cold | Passed: separate source-forbidden processes; stored primary, exact identities/parts/definitions, no history replay/refit/source registry dependence |
+| installed | Passed at the one candidate 06 wheel: Python 3.12 base and each extra; Python 3.10 base/DuckDB; noneditable site-packages/direct_url/hash and pre-business poisoned-source/wrong-hash refusals |
+| backend | Passed at finite current keys: DuckDB/Parquet and SQLite; PostgreSQL/MySQL table and view; Trino Iceberg and memory connector; ClickHouse MergeTree and separate Distributed. No other connector, engine or key is inferred |
+| resource | Passed: local deadline/SIGINT and selected native graph/authoring/source/transport owners; exact active reader/query proof, cancellation/cleanup, prior primary and failed Run/resource/publication atomicity |
+
+The four historical unverified producers have separate current functional exits:
+
+| Producer | Current evidence owner | source / fixed / cold / installed |
+| --- | --- | --- |
+| CSV | `test_producer_recovery/r94-recovery-duckdb-csv.json`, both interpreters | Passed / Passed / Passed / Passed |
+| Parquet | `test_producer_recovery/r94-recovery-duckdb-parquet.json`, both interpreters | Passed / Passed / Passed / Passed |
+| Local JSON | `test_producer_recovery/r94-recovery-duckdb-local-json.json`, both interpreters | Passed / Passed / Passed / Passed |
+| Trino memory connector | `trino-test_producer_recovery/r94-recovery-trino-non-iceberg.json` | Passed / Passed / Passed / Passed |
+
+HTTP is separately passed for datasource binding and the expected pre-I/O typed
+analysis refusal, including query parameters and no partial publication;
+fixed/cold are not applicable because no analysis producer is admitted. Table/view
+and file/HTTP proofs are not interchangeable. Ordinary native numeric uses its
+actual carrier contract; Duration and statistics retain strict assertions.
+
+The 1260 physical trace records retain actual native submission counts;
+zero-submission refusal records are not positive producer proofs. The 2988 saved
+Artifact bindings are separately retained static diagnostics, not additional cold
+or native invocations. All descriptors decode. Each local interpreter also retains
+two intentionally empty/unversioned negative database fixtures, owned by
+`test_read_factory_never_initializes_missing_or_unversioned_state`; read refusal
+preserves their bytes. Store 1 through 7 refusal, missing/undecodable payload,
+cross-Session and mixed-input refusal, and stored Findings without result payload
+remain separately asserted by their current owners.
+
+`delivery-audit.json` binds the unchanged baseline/branch, all 328 frozen
+package/resource/dependency/LICENSE owner hashes, final dependency closures and
+scoped delivery diff/new-file hashes. Existing repository build outputs and the
+untracked P3/G1 document are retained. The dedicated environment is restored to
+healthy PostgreSQL/MySQL/Trino with ClickHouse topologies stopped. All 15 authorized
+skipped R9 cost exits remain unchanged; current functional producer qualification
+does not promote old cost evidence. No commit, push, packaged skill edit, R10.4,
+R10.5, real Agent, release or unconstrained latest-dependency qualification is made.
+
+## Preserved R10.2 acceptance at its original candidate and scope
+
+The pending/failed statements below retain their original R10.2 candidate and
+scope; the current R10.3 dispositions are recorded above.
+
 Date: 2026-10-07. Requested baseline: `panda@1db2ebc93dcee6014a2c8434b12dd76a0cc0bedb`.
 Status: required R10.1 incremental closure and bounded R10.2 qualification passed.
 
