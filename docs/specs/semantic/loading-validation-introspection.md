@@ -105,6 +105,13 @@ Ordinary preview returns current execution results and never persists an
 authoring checkpoint. Dedicated period-calendar, temporal-set, and work-schedule
 preview may publish their immutable certified artifact after an exhaustive
 bounded read.
+Ordinary Trino, PostgreSQL, and MySQL previews also acquire isolated readers
+before source binding, configured with each normalized scope's timeout. Each
+batch row or metric group uses its own reader and timeout; success or failure
+releases that reader and restores the prior connection cache. The authoring
+timeout guard covers source binding and collection. PostgreSQL uses a read-only
+transaction with `statement_timeout`, Trino uses `query_max_run_time`, and MySQL
+uses its owned-reader cancellation guard with an independent control connection.
 Certification uses isolated read-only connections configured with the authored
 scope timeout before binding or collecting rows. They close on success or
 failure, and the prior ordinary-preview connection cache is restored. The
@@ -116,8 +123,8 @@ mismatched limit rejects before collecting certification rows. Native source
 capture failure reports a structured SemanticRuntimeError with backend code,
 scoped timeout and actual query-submission state. The isolated connection closes,
 and no new or replacement certified snapshot is published. Existing typed errors
-retain their original repair. This capability
-does not enable ordinary preview, raw-SQL timeout or Analysis cancellation.
+retain their original repair. MySQL's certified SELECT limit remains distinct
+from ordinary preview's cancellation guard, raw-SQL timeout and Analysis cancellation.
 For an exact BusinessOrder ref or a StateModel bound to one, scoped readiness
 includes the order's Event, role, and sequence-field dependencies. It reports
 an advisory that source sequence values and Event history remain unverified;

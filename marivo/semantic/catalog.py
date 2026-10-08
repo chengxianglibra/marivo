@@ -10,6 +10,7 @@ import binascii
 import inspect
 import json
 from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -6194,7 +6195,6 @@ class SemanticCatalog(RenderableResult):
                 details={"query_executed": False, "backend": bindings.backend},
             )
         connections = self._project._connection_service()
-        backend = connections.session_backend(bindings.datasource_id)
 
         def execute_preview() -> PreviewResult:
             from functools import partial
@@ -6486,8 +6486,15 @@ class SemanticCatalog(RenderableResult):
                 details={"kind": str(kind)},
             )
 
-        with timeout(backend, bindings.timeout_seconds):
-            result = execute_preview()
+        connection_scope = (
+            connections.terminal_scope(bindings.timeout_seconds)
+            if bindings.backend in {"trino", "postgres", "mysql"}
+            else nullcontext()
+        )
+        with connection_scope:
+            backend = connections.session_backend(bindings.datasource_id)
+            with timeout(backend, bindings.timeout_seconds):
+                result = execute_preview()
         return _attach_preview_scope(
             result,
             bindings=bindings,
@@ -6608,29 +6615,45 @@ class SemanticCatalog(RenderableResult):
         by_order: dict[int, PreviewResult] = {}
         for group_key, group_items in groups.items():
             try:
-                if group_key[0] == "row":
-                    raw_results = self._preview_row_group(
-                        tuple(group_items),
-                        connections=connections,
-                        limit=preview_limit,
-                        include_types=include_types,
+                if group_key[0] in {"row", "metric"}:
+                    bindings = group_items[0].bindings
+                    profile = require_profile_for_backend_type(bindings.backend)
+                    timeout = profile.authoring_timeout
+                    if timeout is None:
+                        _raise(
+                            ErrorKind.MATERIALIZE_FAILED,
+                            "catalog.preview() requires an adapter-enforced authoring timeout.",
+                            cls=SemanticRuntimeError,
+                            refs=tuple(item.ref.path for item in group_items),
+                            details={"query_executed": False, "backend": bindings.backend},
+                        )
+                    connection_scope = (
+                        connections.terminal_scope(bindings.timeout_seconds)
+                        if bindings.backend in {"trino", "postgres", "mysql"}
+                        else nullcontext()
                     )
-                    results = tuple(
-                        _attach_preview_scope(result, bindings=item.bindings)
-                        for item, result in zip(group_items, raw_results, strict=True)
-                    )
-                elif group_key[0] == "metric":
-                    raw_results = self._preview_metric_group(
-                        tuple(group_items),
-                        connections=connections,
-                        limit=preview_limit,
-                        include_types=include_types,
-                    )
+                    with connection_scope:
+                        backend = connections.session_backend(bindings.datasource_id)
+                        with timeout(backend, bindings.timeout_seconds):
+                            if group_key[0] == "row":
+                                raw_results = self._preview_row_group(
+                                    tuple(group_items),
+                                    connections=connections,
+                                    limit=preview_limit,
+                                    include_types=include_types,
+                                )
+                            else:
+                                raw_results = self._preview_metric_group(
+                                    tuple(group_items),
+                                    connections=connections,
+                                    limit=preview_limit,
+                                    include_types=include_types,
+                                )
                     results = tuple(
                         _attach_preview_scope(
                             result,
                             bindings=item.bindings,
-                            approximate_input=True,
+                            approximate_input=group_key[0] == "metric",
                         )
                         for item, result in zip(group_items, raw_results, strict=True)
                     )
@@ -6719,24 +6742,12 @@ class SemanticCatalog(RenderableResult):
             *[parent_table[column] for column in selected_raw_columns],
             *semantic_values,
         )
-        profile = require_profile_for_backend_type(bindings.backend)
-        timeout = profile.authoring_timeout
-        if timeout is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                "catalog.preview() requires an adapter-enforced authoring timeout.",
-                cls=SemanticRuntimeError,
-                refs=tuple(item.ref.path for item in items),
-                details={"query_executed": False, "backend": bindings.backend},
-            )
-        backend = connections.session_backend(bindings.datasource_id)
-        with timeout(backend, bindings.timeout_seconds):
-            dataframe = connections.collect_source(
-                bindings.datasource_id,
-                preview_table,
-                purpose="semantic.preview_batch",
-                max_rows=row_limit + 1,
-            )
+        dataframe = connections.collect_source(
+            bindings.datasource_id,
+            preview_table,
+            purpose="semantic.preview_batch",
+            max_rows=row_limit + 1,
+        )
         schema_types = {name: str(dtype) for name, dtype in preview_table.schema().items()}
         from marivo.datasource.timezone import system_timezone_name
 
@@ -6844,24 +6855,12 @@ class SemanticCatalog(RenderableResult):
             for metric_table in metric_tables[1:]:
                 preview_table = preview_table.cross_join(metric_table)
 
-        profile = require_profile_for_backend_type(bindings.backend)
-        timeout = profile.authoring_timeout
-        if timeout is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                "catalog.preview() requires an adapter-enforced authoring timeout.",
-                cls=SemanticRuntimeError,
-                refs=tuple(item.ref.path for item in items),
-                details={"query_executed": False, "backend": bindings.backend},
-            )
-        backend = connections.session_backend(bindings.datasource_id)
-        with timeout(backend, bindings.timeout_seconds):
-            dataframe = connections.collect_source(
-                bindings.datasource_id,
-                preview_table,
-                purpose="semantic.preview_metric_batch",
-                max_rows=limit + 1,
-            )
+        dataframe = connections.collect_source(
+            bindings.datasource_id,
+            preview_table,
+            purpose="semantic.preview_metric_batch",
+            max_rows=limit + 1,
+        )
         schema_types = {name: str(dtype) for name, dtype in preview_table.schema().items()}
         results: list[PreviewResult] = []
         for item, alias in zip(items, aliases, strict=True):
