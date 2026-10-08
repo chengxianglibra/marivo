@@ -1005,6 +1005,13 @@ These runtime calls accept the current entry or its exact ref and normalize to
 the ref immediately. Ordinary preview creates no authoring checkpoint and does
 not affect readiness.
 
+Trino, PostgreSQL, and MySQL previews automatically open isolated readers with
+the normalized scope timeout before resolving the source. Each batch row or
+Metric group uses its own timeout; readers close on success or failure and the
+prior connection cache is restored. PostgreSQL uses a read-only transaction
+with `statement_timeout`, Trino uses `query_max_run_time`, and MySQL uses its
+owned-reader cancellation guard with a separate control connection.
+
 The preview `limit` controls how many result rows are displayed. Metric previews
 use a separate safety bound: they aggregate at most 10,000 scoped input rows.
 Their result card shows `sample_policy=pre_aggregate_limit(limit=10000)` and an
@@ -1023,8 +1030,8 @@ MySQL certification reads use an isolated connection with a verified server
 SELECT deadline. Failed configuration or source capture prevents certification
 publication and preserves an existing certified snapshot. Native read failure
 reports a structured semantic error with backend diagnostics, scoped timeout and
-actual query-submission state. This does not enable ordinary preview or raw SQL
-timeouts.
+actual query-submission state. This certified SELECT limit is separate from
+ordinary preview's cancellation guard and raw SQL timeouts.
 :::
 
 Source drift has its own explicit report and never changes readiness:

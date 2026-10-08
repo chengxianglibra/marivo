@@ -895,6 +895,11 @@ if report.status == "blocked":
 这些运行时调用接受当前条目或它的精确引用，并立即归一化为引用。普通 preview
 不创建 authoring checkpoint，也不会影响 readiness。
 
+Trino、PostgreSQL 和 MySQL 的 preview 会在解析来源前，自动按归一化后的 scope 超时
+打开独立 reader。批量行组和 Metric 组分别使用自己的超时；成功或失败后都会关闭
+reader 并恢复原连接缓存。PostgreSQL 使用带 `statement_timeout` 的只读事务，Trino
+使用 `query_max_run_time`，MySQL 使用 reader 专属的取消 guard 和独立控制连接。
+
 preview 的 `limit` 控制展示的结果行数。指标 preview 使用独立的安全上限：聚合前最多
 读取限定范围内的 10,000 行。结果卡片会显示
 `sample_policy=pre_aggregate_limit(limit=10000)` 和 `approximate_preview` 警告；因此，
@@ -908,7 +913,8 @@ preview 的 `limit` 控制展示的结果行数。指标 preview 使用独立的
 无效时仍会阻塞依赖它的根。
 MySQL 认证读取使用独立连接，并验证服务器 SELECT 截止时间。配置或来源读取失败时
 不会发布认证 artifact，并保留已有认证快照。原生读取失败返回结构化语义错误，包含
-后端诊断、作用域超时和实际查询提交状态。这一能力不扩展到普通 preview 或 raw SQL 超时。
+后端诊断、作用域超时和实际查询提交状态。认证使用的 SELECT 截止时间与普通 preview
+的取消 guard、raw SQL 超时分别独立。
 :::
 
 Source 漂移有独立的显式报告，并且永远不会改变 readiness：
