@@ -18,11 +18,13 @@ from tests.support.paths import PROJECT_ROOT
 
 PROBE_MODULES = (
     "tests.packaging.boundary_probe",
+    "tests.packaging.interpretation_read_probe",
     "tests.packaging.display_journey",
     "tests.packaging.complete_journeys",
     "tests.packaging.wheel_probe",
     "tests.packaging.source_probe",
     "tests.analysis.statistics.recovery_worker",
+    "tests.analysis.graph.interpretation_worker",
     "tests.analysis.journey.funnel_public_recovery_worker",
     "tests.analysis.lifecycle.history_public_recovery_worker",
     "tests.conftest",

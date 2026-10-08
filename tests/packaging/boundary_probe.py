@@ -81,6 +81,7 @@ def dependencies(extra: str) -> dict[str, object]:
     import marivo.semantic as ms
     from marivo.datasource.engines import SUPPORTED_BACKEND_TYPES, require_profile_for_backend_type
 
+    assert importlib.metadata.version("sqlglot") == "30.8.0"
     assert callable(md.register) and callable(ms.entity) and callable(mv.session.resume)
     for backend in SUPPORTED_BACKEND_TYPES:
         assert require_profile_for_backend_type(backend).name == backend
@@ -99,6 +100,17 @@ def dependencies(extra: str) -> dict[str, object]:
     local_rows: tuple[dict[str, object], ...] | None = None
     if extra != "base":
         selected = importlib.import_module("ibis.backends." + extra).__name__
+        if extra == "duckdb":
+            import ibis
+
+            connection = ibis.duckdb.connect(":memory:")
+            try:
+                table = connection.create_table("cleanup_probe", ibis.memtable({"value": [1, 2]}))
+                assert table.execute()["value"].tolist() == [1, 2]
+                connection.drop_table("cleanup_probe")
+                assert "cleanup_probe" not in connection.list_tables()
+            finally:
+                connection.disconnect()
         if extra in ("duckdb", "sqlite"):
             project = Path.cwd() / ("native-" + extra)
             project.mkdir()

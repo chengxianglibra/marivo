@@ -21,6 +21,7 @@ from marivo.analysis.core.model import (
     FunnelAllocationPart,
     FunnelComparisonPart,
     FunnelPart,
+    HistoryViewPart,
     ObservedQuantity,
     PairInputsPart,
     RolledQuantity,
@@ -48,6 +49,7 @@ from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, digest, e
 from marivo.analysis.materialization.graph_snapshot import GraphDocument, MethodRecord, Record
 from marivo.analysis.materialization.graph_storage import read_result
 from marivo.analysis.materialization.graph_store import GraphArtifact
+from marivo.analysis.methods.physical import DurationType, ValueType
 from marivo.analysis.methods.semantics import observation_disclosure
 from marivo.analysis.refs import ArtifactRef
 from marivo.introspection.live.model import LiveHelpTarget
@@ -172,6 +174,57 @@ def _public_table(result: ExchangeResult, *, include_cells: bool = False) -> pa.
     )
 
 
+def duration_facts(unit: str) -> tuple[tuple[str, str], ...]:
+    """Disclose the actual elapsed carrier without converting its values."""
+    divisor = {"s": 1, "ms": 1000, "us": 1000000, "ns": 1000000000}[unit]
+    return (("duration_unit", unit), ("duration_seconds", f"seconds = ticks / {divisor}"))
+
+
+def interpretation_facts(
+    signature: Signature, value_type: ValueType
+) -> tuple[tuple[str, str], ...]:
+    """Read interpretation boundaries from the exact retained input contracts."""
+    facts: list[tuple[str, str]] = []
+    for part in signature.parts:
+        if isinstance(part, HistoryViewPart) and part.request.kind == "distribution":
+            axes = tuple(axis.dimension.ref.path for axis in part.request.axes)
+            pool = ", ".join(("checkpoint", *axes))
+            facts.extend(
+                (
+                    ("row_grain", ", ".join(("checkpoint", "model_state", *axes))),
+                    (
+                        "count_scope",
+                        f"seeded_subject_count and coverage_censored_count: one Subject pool per ({pool}); repeated across model_state rows; do not sum across states",
+                    ),
+                    (
+                        "zero_state_cells",
+                        "Zero known_state_count includes alternate states of seeded Subjects; its row complement is not a NotStarted or censored Subject pool",
+                    ),
+                )
+            )
+        elif isinstance(part, HistoryViewPart) and part.request.kind == "dwell":
+            facts.append(("row_grain", "model_state"))
+        elif isinstance(part, PairInputsPart):
+            facts.extend(
+                (
+                    (
+                        "pairing_key",
+                        ", ".join(
+                            f"{c.entity_ref.path}.{c.field} ({c.role})"
+                            for c in part.input_domain.instance_key
+                        ),
+                    ),
+                    (
+                        "pairing_policy",
+                        "Complete original observation tuple; each component keeps its field role; association output keys identify candidates, not original observation identities",
+                    ),
+                )
+            )
+    if isinstance(value_type, DurationType):
+        facts.extend(duration_facts(value_type.unit))
+    return tuple(facts)
+
+
 def _meaning(
     node: Record,
     document: GraphDocument,
@@ -282,9 +335,26 @@ def _meaning(
     return tuple(dict.fromkeys(facts))
 
 
+def _shared_column_boundaries(
+    columns: tuple[tuple[str, tuple[tuple[str, str], ...]], ...],
+) -> tuple[tuple[str, str], ...]:
+    """Share identical facts while retaining their exact ordered column owners."""
+    owners: dict[tuple[str, str], list[str]] = {}
+    for label, facts in columns:
+        for fact in dict.fromkeys(facts):
+            owners.setdefault(fact, []).append(label)
+    return tuple(
+        (
+            (labels[0] if len(labels) == 1 else "[" + ", ".join(labels) + "]") + "." + name,
+            value,
+        )
+        for (name, value), labels in owners.items()
+    )
+
+
 def _column_boundaries(node: Record, document: GraphDocument) -> tuple[tuple[str, str], ...]:
     """Retain each terminal column's interpretation after its analysis API ends."""
-    facts: list[tuple[str, str]] = []
+    facts = list(interpretation_facts(node.signature, node.value_type))
     signature = node.signature
     assumptions = {item.fact for item in signature.evidence if item.basis == "assumption"}
     if assumptions:
@@ -652,11 +722,22 @@ class GraphDataset:
             document = self.artifact.validated.document
             records = {record.identity: record for record in document.nodes}
             inputs = root.retained_endpoints or tuple(edge.node for edge in root.inputs)
-            boundaries += tuple(
-                (f"{label}.{name}", value)
-                for label, child in zip(params.labels, inputs, strict=True)
-                for name, value in _column_boundaries(records[child], document)
+            boundaries += _shared_column_boundaries(
+                tuple(
+                    (label, _column_boundaries(records[child], document))
+                    for label, child in zip(params.labels, inputs, strict=True)
+                )
             )
+        else:
+            boundaries += interpretation_facts(
+                checked.contract.signature, self.artifact.validated.root.value_type
+            )
+            for field in public.schema:
+                if pa.types.is_duration(field.type):
+                    prefix = "" if field.name == "value" else field.name + "."
+                    boundaries += tuple(
+                        (prefix + name, value) for name, value in duration_facts(field.type.unit)
+                    )
         hidden = (
             public.column_names[0]
             if checked.contract.signature.domain.kind == "entity" and checked.contract.key_fields

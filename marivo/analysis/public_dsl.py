@@ -10,6 +10,7 @@ from inspect import signature
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, overload
 
 import pandas as pd
+import pyarrow as pa
 
 from marivo._data_render import _validate_display
 from marivo._temporal import BeforeEndBoundary, Grain, TimeScope
@@ -110,7 +111,11 @@ from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, Fin
 from marivo.analysis.forecast_models import ForecastHorizon, ForecastModel, naive
 from marivo.analysis.funnel import FunnelLossRate
 from marivo.analysis.lifecycle import InState
-from marivo.analysis.materialization.graph_dataset import GraphDataset
+from marivo.analysis.materialization.graph_dataset import (
+    GraphDataset,
+    duration_facts,
+    interpretation_facts,
+)
 from marivo.analysis.materialization.graph_fields import (
     BooleanField,
     BoundPredicate,
@@ -979,7 +984,7 @@ class _Value:
     ) -> tuple[tuple[str, str], ...]:
         signature = self._node.root.signature
         quantity = signature.quantity
-        facts: list[tuple[str, str]] = []
+        facts = list(interpretation_facts(signature, self._node.root.value_type))
         assumptions = tuple(
             dict.fromkeys(item.fact for item in signature.evidence if item.basis == "assumption")
         )
@@ -1419,6 +1424,24 @@ class _Value:
             physical = schema_from(schema.realized_schema)
             if "value" in physical.names:
                 facts.append(("value_type", str(physical.field("value").type)))
+            if not isinstance(self._node.root.value_type, DurationType):
+                for field in physical:
+                    if pa.types.is_duration(field.type):
+                        facts.extend(
+                            (field.name + "." + name, value)
+                            for name, value in duration_facts(field.type.unit)
+                        )
+        elif isinstance(self, _DwellSummary):
+            from marivo.analysis.core.history_rules import FIELDS
+            from marivo.analysis.core.rules import HistoryRead
+            from marivo.analysis.methods.history_view_physical import output_type
+
+            for name in FIELDS["dwell"]:
+                field_type = output_type(HistoryRead(name))
+                if isinstance(field_type, DurationType):
+                    facts.extend(
+                        (name + "." + key, value) for key, value in duration_facts(field_type.unit)
+                    )
         if _kind(self._node) in ("ratio_observe", "ratio_rollup"):
             facts.append(("weighting", "original numerator and denominator components"))
         if quantity is not None:
@@ -1930,7 +1953,7 @@ class _NumericComparison(_Value):
         Args: others: One to fifteen distinct corresponding quantities. method: pearson, spearman, or kendall. lag_range: Signed offsets on the original complete time grid, or None for zero lag.
         Returns: A LogicalAssociationResult with coefficient and selected owned views.
         Example: ``result = revenue.correlate(orders, method="spearman")``.
-        Constraints: One Session and source/fixed closure; pairwise ordinary Null deletion only. Positive lag pairs the left t with right t+k. No causal or significance claim.
+        Constraints: One Session and source/fixed closure; pairwise ordinary Null deletion only. Pair observations by the complete original key tuple, retaining each Entity, field and coordinate role in pairing_key; association output keys identify candidates. Positive lag pairs the left t with right t+k. No causal or significance claim.
         """
         if any(not isinstance(v, _NumericComparison) for v in others):
             raise _reject(
@@ -5985,7 +6008,7 @@ class _History(_Value):
         Args: at: Unique aware checkpoints inside the report window. axes: Governed Dimensions.
         Returns: A LogicalStateDistributionResult with conditional seeded shares.
         Example: ``result = history.distribution(at=(checkpoint,))``.
-        Constraints: Historical axes bind at each checkpoint; fixed missing axes reject.
+        Constraints: Rows have checkpoint, model_state and full axes grain. known_state_count counts the named state. seeded_subject_count and coverage_censored_count are checkpoint/axes Subject pools repeated across model_state rows; do not sum them across states. Zero state cells include alternate states of seeded Subjects; their complement is not a NotStarted or censored Subject pool. Historical axes bind at each checkpoint; fixed missing axes reject.
         """
         from marivo.analysis.core.history_types import Distribution
         from marivo.analysis.lifecycle import instant
@@ -6051,7 +6074,7 @@ class _History(_Value):
         Args: None.
         Returns: A LogicalDwellSummary over the exact retained domain.
         Example: ``result = history.dwell()``.
-        Constraints: Requires complete method-owned canonical History parts.
+        Constraints: Rows have model_state grain. mean_duration, median_duration and p90_duration summarize completed window fragments, including left-clipped completed fragments and excluding censored fragments. Duration ticks use microseconds: seconds = ticks / 1000000; exported pandas timedeltas use total_seconds(). Finished summaries cannot be pooled. Requires complete method-owned canonical History parts.
         """
         from marivo.analysis.core.history_types import Dwell
         from marivo.analysis.materialization.graph_history import view
@@ -6766,7 +6789,7 @@ class _StateDistributionResult(_HistoryViewResult):
         """Read the bound known_state_count relation.
 
         Args: None.
-        Returns: A LogicalNumericRelation over this exact view domain.
+        Returns: A LogicalNumericRelation counting Subjects in this row's modeled state.
         Example: ``values = result.known_state_count``.
         Constraints: Uses retained method state; this does not read new source facts.
         """
@@ -6779,9 +6802,9 @@ class _StateDistributionResult(_HistoryViewResult):
         """Read the bound seeded_subject_count relation.
 
         Args: None.
-        Returns: A LogicalNumericRelation over this exact view domain.
+        Returns: A LogicalNumericRelation counting seeded Subjects per checkpoint and full axes tuple.
         Example: ``values = result.seeded_subject_count``.
-        Constraints: Uses retained method state; this does not read new source facts.
+        Constraints: The same Subject pool repeats on every model_state row; do not sum across states. Uses retained method state without new source reads.
         """
         return LogicalNumericRelation(
             _TOKEN, self._field("seeded_subject_count"), self._runtime, inputs=(self,)
@@ -6792,9 +6815,9 @@ class _StateDistributionResult(_HistoryViewResult):
         """Read the bound coverage_censored_count relation.
 
         Args: None.
-        Returns: A LogicalNumericRelation over this exact view domain.
+        Returns: A LogicalNumericRelation counting insufficient-coverage Subjects per checkpoint and full axes tuple.
         Example: ``values = result.coverage_censored_count``.
-        Constraints: Uses retained method state; this does not read new source facts.
+        Constraints: The same Subject pool repeats on every model_state row; do not sum across states. Zero known-state cells do not identify this pool. Uses retained method state without new source reads.
         """
         return LogicalNumericRelation(
             _TOKEN, self._field("coverage_censored_count"), self._runtime, inputs=(self,)
@@ -6977,9 +7000,9 @@ class _DwellSummary(_HistoryViewResult):
         """Read the bound mean_duration relation.
 
         Args: None.
-        Returns: A LogicalNumericRelation over this exact view domain.
+        Returns: A microsecond Duration relation over the modeled-state domain.
         Example: ``values = result.mean_duration``.
-        Constraints: Uses retained method state; this does not read new source facts.
+        Constraints: Completed window fragments only; seconds = ticks / 1000000. Exported pandas timedeltas use total_seconds(). Finished summary means cannot be pooled. No new source reads.
         """
         return LogicalNumericRelation(
             _TOKEN, self._field("mean_duration"), self._runtime, inputs=(self,)
@@ -6990,9 +7013,9 @@ class _DwellSummary(_HistoryViewResult):
         """Read the bound median_duration relation.
 
         Args: None.
-        Returns: A LogicalNumericRelation over this exact view domain.
+        Returns: A microsecond Duration relation over the modeled-state domain.
         Example: ``values = result.median_duration``.
-        Constraints: Uses retained method state; this does not read new source facts.
+        Constraints: Completed window fragments only; seconds = ticks / 1000000. Exported pandas timedeltas use total_seconds(). Finished quantiles cannot be pooled. No new source reads.
         """
         return LogicalNumericRelation(
             _TOKEN, self._field("median_duration"), self._runtime, inputs=(self,)
@@ -7003,9 +7026,9 @@ class _DwellSummary(_HistoryViewResult):
         """Read the bound p90_duration relation.
 
         Args: None.
-        Returns: A LogicalNumericRelation over this exact view domain.
+        Returns: A microsecond Duration relation over the modeled-state domain.
         Example: ``values = result.p90_duration``.
-        Constraints: Uses retained method state; this does not read new source facts.
+        Constraints: Completed window fragments only; seconds = ticks / 1000000. Exported pandas timedeltas use total_seconds(). Finished quantiles cannot be pooled. No new source reads.
         """
         return LogicalNumericRelation(
             _TOKEN, self._field("p90_duration"), self._runtime, inputs=(self,)

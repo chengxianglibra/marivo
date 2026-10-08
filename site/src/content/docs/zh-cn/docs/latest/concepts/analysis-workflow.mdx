@@ -220,6 +220,11 @@ negative = coefficient.where(coefficient.value.lt(0)).execute()
 `rollup()` 依据保留的原始组件重新计算；`summarize(mv.mean())` 对当前行
 等权求均值。Spearman 只描述同一观测范围内完整成员配对的关联，不构成因果判断。
 
+`association.contract().show()` 及 coefficient/selected 卡片披露 `pairing_key`：
+按原顺序列出 Entity、字段和坐标角色的完整观测键元组。复合键的全部分量共同确定
+配对身份。关联输出键标识候选配对，不是原始观测身份；终端表列提供相同解释。
+相同事实合并显示，并按列顺序列出适用列名；不同单位或配对键的解释仍分别保留。
+
 对于保留的 `NoTime` Entity 分位数量，若值类型是 `Decimal(18,2)`，当前行 sum
 返回 `Decimal(38,2)`，mean 通过一次 HALF_EVEN 舍入返回 `Decimal(38,6)`。
 新 RowStatistic 的 `rollup()` 合并已捕获的精确 sum/count 状态；mean 保留 sum
@@ -424,6 +429,16 @@ R7.6 已接通六个 History 视图及具体字段关系。检查点可取窗口
 新 Metric 观察应从执行前的逻辑 History 构造。固定续算仅消费保留部件。
 Duration 均值从 completed 区间的精确 ticks 计算；Dwell 的均值、中位数及 p90 摘要不能平均或合并。
 
+Distribution 行粒度为 checkpoint × model_state × 完整 axes。
+`seeded_subject_count` 和 `coverage_censored_count` 是 checkpoint × axes 的主体池计数，
+在各状态行重复，不能跨状态相加。`known_state_count` 为零可能对应已 seeded 主体的其他
+状态，因此其行补集不能直接解释为 NotStarted 或 censored 主体。
+
+Duration 卡片和 contract 披露实际 `duration_unit` 及换算。逻辑态 Dwell 父结果在执行前
+也提供这些事实；物化态父结果读取已存列类型。History 使用微秒：
+`seconds = ticks / 1000000`，即 `86412333333 us = 86412.333333 s`。
+导出的 pandas timedelta 使用 `total_seconds()` 换算。
+
 ```python
 checkpoint = window.end
 done = ms.model_state(model=ms.ref.state_model("commerce.model"), name="done")
@@ -445,7 +460,9 @@ interval_ref = retained_intervals.evidence_digest().artifact_ref
 session.artifact(interval_ref).state.execute().show()
 completed = retained_intervals.where(retained_intervals.status.value.eq("completed"))
 completed.members(through=retained_intervals.subjects()).execute().show()
-completed.observed_duration.summarize(mv.mean()).execute().show()
+duration_result = completed.observed_duration.summarize(mv.mean()).execute()
+duration_result.show()
+duration_seconds = duration_result.to_pandas()["value"].dt.total_seconds()
 distribution.execute().known_state_count.execute().show()
 transitions.execute().count.execute().show()
 violations.execute().kind.execute().show()
