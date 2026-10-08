@@ -54,6 +54,7 @@ from marivo.semantic.ir import (
     TargetRelationshipContract,
     TimestampParse,
 )
+from tests.shared_fixtures import observation_temporal
 
 
 def _payload(value):
@@ -520,6 +521,7 @@ def _observation(root, method="count"):
         "contribution": contribution.definition.ref,
         "path": event.path,
         "event": event.occurred_at,
+        "temporal": observation_temporal(event.occurred_at),
         "start": root.parameters.start,
         "end": root.parameters.end,
     }

@@ -248,7 +248,10 @@ def prepare(
     for step in steps:
         paths.update(registry.relationships[name].to_entity for name in step.participant_path)
     schemas = preflight_entities(
-        registry, population.runtime.store.project_root, tuple(sorted(paths))
+        registry,
+        population.runtime.store.project_root,
+        tuple(sorted(paths)),
+        frozen_reader=live.graph.entity_schema.reader_timezone,
     )
     temporal = TimeShape("instant", "us", "UTC")
     nodes: dict[str, Node] = {}

@@ -2736,6 +2736,7 @@ def _contribution_rows(
                 boundary_timezone="UTC",
                 read_timezone=params.event.timezone,
                 engine="duckdb",
+                frozen=params.temporal.axes[0],
             )
             predicates.append(_version(destination, binding, point.cast("timestamp('UTC')")))
         joined = rows.left_join(
@@ -2803,6 +2804,7 @@ def _contribution_rows(
         boundary_timezone="UTC",
         read_timezone=params.event.timezone,
         engine=root_binding.leaf.definition.shape.backend,
+        frozen=params.temporal.axes[0],
     )
     rows = rows.mutate(__raw_event_time=raw_time, event_time=normalized)
     return rows, source_ids, authority

@@ -125,7 +125,7 @@ Store, graph, descriptor, continuation and method-state versions are distinct:
 | Current protocol | Authority |
 | --- | --- |
 | SQLite Store user_version=8 | Session, Run, Artifact, resources, committed Evidence/Findings and execution-key uniqueness |
-| graph_dag/v3, `graph-dag-v3:` | Bounded frozen Source/Fixed/Method records, ordered edges, derivations and retained references |
+| graph_dag/v4, `graph-dag-v4:` | Bounded frozen Source/Fixed/Method records, ordered edges, derivations and retained references |
 | run_input/v1 | Closed source/fixed invocation inputs and selected plan identity |
 | artifact_descriptor/v5 | Signature, row/row-set and realized schema, producing Run/key, method bindings, completed records, receipts, state, continuation and saved time shape |
 | receipt/v1 | Closed primary/part variants with complete key schema and local storage facts |

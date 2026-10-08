@@ -25,9 +25,12 @@ connection opens. Physical instants and explicit parser authority require no rea
 independent adapter transport checks still apply.
 Only absent probe capability permits recorded system fallback; query failures and invalid
 engine facts fail with their original cause when reader authority is required. Explicit parser authority takes precedence over engine authority
-and explicit system fallback. Analysis graph schema preflight captures engine
-authority only; datasource fallback cannot supply missing implicit wall-clock
-authority for a graph source. Civil dates do not shift. Naive time values localize
+and recorded system fallback. Analysis graph schema preflight captures the full
+reader timezone and its engine/system origin. Observations freeze resolved source
+authority separately from authored parser declarations and report/grid/calendar
+authority. Later graph construction reuses system defaults; execution rechecks
+engine authority before business reads. Fixed and cold recovery neither probe
+readers nor resolve the host timezone. Civil dates do not shift. Naive time values localize
 before instant comparison; absolute instants preserve their meaning. Source
 precision and logical temporal kind are validated separately. Unsupported exact
 precision conversion fails; no silent truncation is permitted. Source naive

@@ -56,7 +56,10 @@ def capture_axes(
                     location="analysis.graph_axes",
                 )
             observed_schemas[name] = preflight_entities(
-                registry, relation.runtime.store.project_root, (name,)
+                registry,
+                relation.runtime.store.project_root,
+                (name,),
+                frozen_reader=live.graph.entity_schema.reader_timezone,
             )[0]
             observed = observed_schemas[name]
             observed_schemas[name] = replace(

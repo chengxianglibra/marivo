@@ -1,6 +1,6 @@
 # Timezones and Calendars
 
-Status: current temporal contract, 2026-10-08. Exact physical routes require
+Status: current temporal contract, 2026-10-09. Exact physical routes require
 independent method qualification; this document defines time meaning.
 
 The Session's persisted report timezone owns built-in temporal interpretation.
@@ -27,13 +27,13 @@ An explicit `report_timezone` overrides that default. A conflicting reopen is
 rejected. Fixed-offset resolution remains explicit; it does not invent IANA DST
 rules. Changing host timezone does not change a recovered Session.
 
-Logical construction captures the persisted report authority without opening a
-source connection. Runtime probes the admitted actual reader only when native naive axes lack explicit
-parser authority, before setting its UTC execution environment. Probe failures and
-invalid engine facts do not fall back to the host timezone. An explicit semantic
-parser timezone takes precedence over the reader default. The graph's schema
-preflight captures engine authority only; datasource system fallback does not
-supply missing implicit wall-clock authority for a graph source.
+Logical construction captures the persisted report authority. Source schema
+preflight captures the actual reader timezone and its `engine` or
+`system_fallback` origin without business reads. A naive source adopts explicit
+semantic parser authority first, then the reader default, then system authority
+only when the reader has no timezone capability. Probe failures and invalid
+engine facts do not fall back to the host timezone. The original parser
+declaration remains unchanged; resolved defaults are separate frozen facts.
 Conflicting or invalid declarations fail through the owning typed error.
 
 ## Scopes and buckets
@@ -175,12 +175,13 @@ DuckDB table/Parquet observations bind native microsecond timestamps (aware or
 explicitly localized) and civil dates through the existing Ibis source-time
 owner. The declared source interpretation is preserved without a repeated raw/normalized
 source audit. Conversion failures remain execution errors. The report,
-source and grid/calendar zones remain independent. SQLite qualifies the required
-UTC timestamp/date routes, including first/last/mean/min/max status folds.
-Other SQLite timezone routes remain closed at admission. The current Metric
-observation route requires declared or driver-reported naive event authority;
-SQLite has no reported reader timezone and needs an explicit UTC parser. Host,
-report and grid timezones cannot fill this missing event authority.
+source and grid/calendar zones remain independent. SQLite's connection-local
+temporal functions convert declared or frozen default named-zone and fixed-offset
+timestamps to UTC. The resulting exact UTC timestamp/date routes, including
+first/last/mean/min/max status folds, still require individual qualification.
+SQLite has no reported reader timezone, so absent an explicit declaration it
+uses the captured system default. Report and grid timezones never supply source
+read authority. Unsupported source forms and conversion precision still reject.
 
 `metric.fold@v1` performs the declared spatial sum per exact sample instant,
 then the declared scalar time fold. Its original state retains canonical ordered
@@ -206,12 +207,22 @@ backend and source-form qualification remains independent of this contract.
 ## Source-time binding and recovery
 
 The graph observation path admits native microsecond timestamps with declared,
-physical, or driver-reported read timezone, and timestamp strings with an authored
-`strptime` format. The source and report zones are independent. Driver authority
-is captured during schema preflight without business reads, frozen into the
-observation, and checked again when opening the execution source. A changed
-reported timezone rejects before a business batch is submitted; a host-system
-fallback is not accepted as an inferred event read timezone.
+physical, reader or system-default authority, and timestamp strings with an
+authored `strptime` format. Each observation stores a required `TemporalExecution`
+containing report authority and the resolved `SourceTimeAuthority`. Schema
+preflight retains the complete reader fact and its origin. Driver authority is
+checked again when opening the execution source; a change rejects before a
+business batch is submitted. A system default is captured once and reused during
+later graph construction and execution even if the host timezone changes.
+
+Method qualification uses the temporal normalizer's UTC input shape with the
+actual source precision. Civil dates preserve their calendar interpretation.
+Report, window, grid and calendar authorities remain separate frozen parameters
+or domain facts and participate in fingerprints and execution identity. The
+report timezone never replaces the physical source shape, and no generic
+fallback bypasses exact qualification. Graph snapshots use `graph_dag/v4`; older
+versions require source re-execution. Fixed and cold recovery use frozen facts
+without reader probes, source connections or host timezone resolution.
 
 The common Ibis temporal normalizer owns parsing and conversion. There is no
 automatic whole-source format or timezone-rule audit. A conversion failure

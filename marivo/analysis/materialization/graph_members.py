@@ -242,7 +242,12 @@ class MemberGraph:
             )
             for item in normalized
         )
-        schemas = preflight_entities(self.registry, self.runtime.store.project_root, paths)
+        schemas = preflight_entities(
+            self.registry,
+            self.runtime.store.project_root,
+            paths,
+            frozen_reader=self.entity_schema.reader_timezone,
+        )
         expression_bodies: tuple[tuple[str, str, str], ...] = ()
         if body is not None and body.source_column is None:
             if sidecar is None:
@@ -483,13 +488,12 @@ class MemberGraph:
                 from marivo.datasource.timezone import probe_engine_timezone
 
                 frozen_timezones = {
-                    schema.engine_timezone
+                    schema.reader_timezone
                     for schema, _ in ordered
-                    if schema.engine_timezone is not None
+                    if schema.reader_timezone is not None
+                    and schema.reader_timezone.read_tz_resolution == "engine"
                 }
-                if frozen_timezones and frozen_timezones != {
-                    probe_engine_timezone(backend).engine_timezone_name
-                }:
+                if frozen_timezones and frozen_timezones != {probe_engine_timezone(backend)}:
                     raise DatasetConstructionError(
                         expected="the frozen driver-reported source timezone",
                         received="source timezone changed after graph construction",
